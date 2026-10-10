@@ -351,18 +351,17 @@ namespace weft {
         auto emit = [&](std::size_t first, std::size_t last) {
             last = trimmed(first, last);
             auto [w, pieces] = shape(first, last);
+            // Blink's line box: the strut and each run's inline box, with the leading split as Blink splits it.
             const auto strut = fonts.inline_metrics(0, input.font_size);
-            const float half = (input.line_height - strut.ascent - strut.descent) / 2;
-            float above = strut.ascent + half;
-            float below = strut.descent + half;
+            const auto [strut_above, strut_below] = split_leading(input.line_height - strut.ascent - strut.descent);
+            float above = strut.ascent + strut_above;
+            float below = strut.descent + strut_below;
             for (const auto& p : pieces) {
                 const auto& r = input.runs[p.run];
                 auto m = fonts.inline_metrics(0, r.font_size);
-                float a = m.ascent;
-                float d = m.descent;
-                const float lead = (r.line_height - a - d) / 2;
-                above = std::max(above, a + lead);
-                below = std::max(below, d + lead);
+                const auto [lead_above, lead_below] = split_leading(r.line_height - m.ascent - m.descent);
+                above = std::max(above, m.ascent + lead_above);
+                below = std::max(below, m.descent + lead_below);
             }
             const float line_height = above + below;
             const float dx = std::isfinite(available) ? (input.text_align == "center"  ? (available - w) / 2

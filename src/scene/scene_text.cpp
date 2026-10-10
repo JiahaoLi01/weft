@@ -15,8 +15,7 @@
 
 namespace weft {
     namespace {
-        // Blink keeps inline geometry in LayoutUnit, 1/64 px.
-        constexpr float layout_units_per_px = 64;
+        using constants::text::layout_units_per_px;
 
         float number(std::string_view value) {
             const auto n = css::parse_number<float>(std::string(value),
@@ -92,13 +91,6 @@ namespace weft {
             return out;
         }
 
-        // Blink puts floor(leading / 2) whole pixels above the content area and the rest of the LayoutUnit
-        // leading below it.
-        std::pair<float, float> split_leading(float leading) {
-            const auto units = std::lround(leading * layout_units_per_px);
-            const float above = std::floor(units / layout_units_per_px / 2);
-            return {above, units / layout_units_per_px - above};
-        }
     } // namespace
 
     SceneFont scene_font(const SceneStyle& style) {

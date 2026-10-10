@@ -3,6 +3,8 @@
 #include "constants/common.hpp"
 #include "constants/script.hpp"
 
+#include <array>
+
 // Test-only values of the layout, page and input tests. Each constant has the type of the
 // literal it replaced.
 namespace weft::test_constants::layout {
@@ -33,6 +35,13 @@ namespace weft::test_constants::layout {
     // Flow-input hit grid: one sample at the centre of every 16 px cell.
     inline constexpr int hit_grid_step = 16;
     inline constexpr int hit_grid_first = 8;
+    // Per frame, the centres of the #outer and #inner inline fragments' hit regions at Chromium capture time
+    // (tests/fixtures/flow_input_browser_reference.json). Fixed so a layout change cannot move the oracle points.
+    inline constexpr std::array<std::array<std::array<double, 2>, 3>, 3> flow_input_fragment_points{{
+        {{{383.969, 122}, {349.734, 146}, {349.734, 146}}},
+        {{{395.969, 122}, {362.164, 147.5}, {362.164, 147.5}}},
+        {{{395.969, 122}, {362.164, 147.5}, {362.164, 147.5}}},
+    }};
     // Deterministic scroll/z-order mutations of the flow-input oracle.
     inline constexpr unsigned flow_input_seed = 0xCE802026u;
     inline constexpr int flow_input_mutations = 64;

@@ -158,6 +158,12 @@ namespace weft {
 
     Font::~Font() = default;
 
+    std::pair<float, float> split_leading(float leading) {
+        const auto units = std::lround(leading * constants::text::layout_units_per_px);
+        const float above = std::floor(units / constants::text::layout_units_per_px / 2);
+        return {above, units / constants::text::layout_units_per_px - above};
+    }
+
     FontMetrics Font::metrics(float pixels) const {
         impl_->check(pixels);
         const auto scale = pixels / impl_->face->units_per_EM;

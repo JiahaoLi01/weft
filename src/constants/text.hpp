@@ -19,6 +19,8 @@ namespace weft::constants::text {
     inline constexpr int fixed_26_6_units_per_pixel = 64;
     // FreeType FT_Fixed variation coordinates are 16.16 fixed point.
     inline constexpr int fixed_16_16_one = 65536;
+    // Blink keeps inline geometry in LayoutUnit, 1/64 px.
+    inline constexpr float layout_units_per_px = 64;
     // At 72 dpi FreeType character sizes in points equal pixels.
     inline constexpr int freetype_pixel_dpi = 72;
     // FreeType reports this OS/2 version when the font has no usable OS/2 table.

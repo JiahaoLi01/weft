@@ -25,6 +25,11 @@
         "sha256": "c82fc2146badd52974ec269669d4e3a2cffae1720199eb78a9c0b41f81f394e7",
         "date": "2026-10-10",
         "reason": "Refactor step 4 layout: module headers moved to src/<module>/ and included as \"<module>/<file>.hpp\" (flow_page, script_platform, mouse_router); include lines only, hit scenario and oracle points unchanged."
+      },
+      {
+        "sha256": "db1486e043115f3b2bd52d893bc9aceef7f2f38970f664bcaf58262e467dea06",
+        "date": "2026-10-11",
+        "reason": "Refactor step 8: the #outer/#inner fragment-centre samples use the coordinates captured with the Chromium reference (tests/test_constants/layout.hpp flow_input_fragment_points) instead of re-deriving them from native fragment geometry, so a native line-box change cannot move the oracle points; the hit scenario and every oracle point are unchanged."
       }
     ]
   }

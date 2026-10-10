@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <memory>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace weft {
@@ -28,6 +29,10 @@ namespace weft {
         float descent{};
         float line_gap{};
     };
+
+    // Blink's split of a line box's leading around the content area: floor(leading / 2) whole pixels above, the rest
+    // of the LayoutUnit-rounded leading below. Returns {above, below}.
+    std::pair<float, float> split_leading(float leading);
 
     struct GlyphBitmap {
         std::uint32_t width{};

@@ -93,10 +93,8 @@ int main(int argc, char** argv) {
                     sample(x, y);
                 }
             }
-            for (const auto& r : page.hit_regions) {
-                if (page.boxes[r.hit].id == "outer" || page.boxes[r.hit].id == "inner") {
-                    sample(r.rect[0] + r.rect[2] * .5, r.rect[1] + r.rect[3] * .5);
-                }
+            for (const auto& p : weft::test_constants::layout::flow_input_fragment_points[std::size_t(frame)]) {
+                sample(p[0], p[1]);
             }
             for (auto p : std::vector<std::array<double, 2>>{
                      {1, 1}, {20, 20}, {320, 315}, {370, 350}, {641, 410}, {-1, 40}, {260, 199}}) {
