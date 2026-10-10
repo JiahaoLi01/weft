@@ -1,5 +1,7 @@
 #define NOMINMAX
 #include "caseelephant/scene_probe.hpp"
+#include "caseelephant/base/css_scalar.hpp"
+#include "caseelephant/base/owner_thread.hpp"
 #include "caseelephant/constants/scene.hpp"
 #include <d2d1_1.h>
 #include <dwrite.h>
@@ -22,8 +24,10 @@ namespace caseelephant {
         using Style = ProbeSceneStyle;
         constexpr float pi = std::numbers::pi_v<float>;
 
+        using css::trim;
+
         [[noreturn]] void fail(const std::string& s) {
-            throw std::invalid_argument("CE_SCENE_RASTER: " + s);
+            throw_diagnostic(Diag::SceneRaster, s);
         }
 
         void check(HRESULT h) {
@@ -33,26 +37,20 @@ namespace caseelephant {
         }
 
         std::string get(const Style& s, const std::string& k, const char* fallback = "") {
-            auto i = s.find(k);
-            return i == s.end() ? fallback : i->second;
+            return css::style_value(s, k, fallback);
         }
 
-        std::string trim(std::string s) {
-            auto a = s.find_first_not_of(" \t\r\n");
-            return a == s.npos ? "" : s.substr(a, s.find_last_not_of(" \t\r\n") - a + 1);
-        }
-
-        float num(std::string s) {
-            std::size_t p{};
-            float n = std::stof(s, &p);
-            if (!std::isfinite(n) || p != s.size() || std::abs(n) > constants::scene::max_numeric_magnitude) {
+        float num(const std::string& s) {
+            const auto n = css::parse_number<float>(s, static_cast<float>(constants::scene::max_numeric_magnitude));
+            if (!n) {
                 fail("numeric value " + s);
             }
-            return n;
+            return *n;
         }
 
-        float len(std::string s, float reference = 1) {
-            s = trim(s);
+        // Unitless numbers are accepted as px; em resolves against reference; calc() takes a + b.
+        float len(std::string_view input, float reference = 1) {
+            const auto s = trim(input);
             if (s.starts_with("calc(")) {
                 const auto plus = s.find(" + ");
                 if (plus == s.npos) {
@@ -60,39 +58,16 @@ namespace caseelephant {
                 }
                 return len(s.substr(5, plus - 5), reference) + len(s.substr(plus + 3, s.size() - plus - 4), reference);
             }
-            if (s.ends_with('%')) {
-                return num(s.substr(0, s.size() - 1)) * reference / constants::percent_scale;
+            const auto [digits, unit] = css::split_unit(s, {.px = true, .percent = true, .em = true});
+            const float n = num(std::string(digits));
+            if (unit == css::Unit::Percent) {
+                return n * reference / constants::percent_scale;
             }
-            if (s.ends_with("px") || s.ends_with("em")) {
-                bool em = s.ends_with("em");
-                s.resize(s.size() - 2);
-                return num(s) * (em ? reference : 1);
-            }
-            return num(s);
+            return n * (unit == css::Unit::Em ? reference : 1);
         }
 
         std::vector<std::string> split(std::string_view s, char delimiter = ' ') {
-            std::vector<std::string> out;
-            std::size_t start{};
-            int depth{};
-            for (std::size_t p = 0; p < s.size(); ++p) {
-                if (s[p] == '(') {
-                    ++depth;
-                } else if (s[p] == ')') {
-                    --depth;
-                } else if (s[p] == delimiter && !depth) {
-                    auto v = trim(std::string(s.substr(start, p - start)));
-                    if (!v.empty()) {
-                        out.push_back(v);
-                    }
-                    start = p + 1;
-                }
-            }
-            auto v = trim(std::string(s.substr(start)));
-            if (!v.empty()) {
-                out.push_back(v);
-            }
-            return out;
+            return css::split(s, delimiter, {.quotes = false}).parts;
         }
 
         D2D1_COLOR_F color(std::string s, const Style& style = {}) {
@@ -103,16 +78,7 @@ namespace caseelephant {
             if (s == "currentColor" || s == "currentcolor") {
                 s = get(style, "color", constants::default_color);
             }
-            if (s == "black") {
-                s = "#000000";
-            }
-            if (s == "white") {
-                s = "#ffffff";
-            }
-            if (s.size() == 4 && s[0] == '#') {
-                s = std::string("#") + s[1] + s[1] + s[2] + s[2] + s[3] + s[3];
-            }
-            auto c = parse_probe_css_color(s);
+            auto c = parse_probe_css_color(css::expand_color_shorthand(s));
             return {c[0], c[1], c[2], c[3]};
         }
 

@@ -1,4 +1,6 @@
 #include "caseelephant/auto_page_probe.hpp"
+#include "caseelephant/base/css_scalar.hpp"
+#include "caseelephant/base/rect.hpp"
 #include "caseelephant/constants/layout.hpp"
 #include <algorithm>
 #include <cmath>
@@ -11,25 +13,23 @@ namespace caseelephant {
     namespace {
         using Style = std::map<std::string, std::string>;
 
+        using Rect = geometry::Rect;
+        using geometry::intersect;
+
         [[noreturn]] void fail(const std::string& s) {
-            throw std::invalid_argument("CE_AUTO_PROFILE: " + s);
+            throw_diagnostic(Diag::AutoProfile, s);
         }
 
         std::string get(const Style& s, const std::string& k, const char* fallback = "") {
-            auto i = s.find(k);
-            return i == s.end() ? fallback : i->second;
+            return css::style_value(s, k, fallback);
         }
 
         float number(const std::string& s) {
-            try {
-                std::size_t i{};
-                auto n = std::stof(s, &i);
-                if (i == s.size() && std::isfinite(n) && std::abs(n) <= constants::layout::max_length_magnitude_px) {
-                    return n;
-                }
-            } catch (const std::exception&) {
+            const auto n = css::parse_number<float>(s, static_cast<float>(constants::layout::max_length_magnitude_px));
+            if (!n) {
+                fail("finite number " + s);
             }
-            fail("finite number " + s);
+            return *n;
         }
 
         float pixels(const std::string& s) {
@@ -59,20 +59,6 @@ namespace caseelephant {
             int z{};
             bool hidden{};
         };
-
-        struct Rect {
-            float x{};
-            float y{};
-            float w{};
-            float h{};
-        };
-
-        Rect intersect(Rect a, Rect b) {
-            float x = std::max(a.x, b.x);
-            float y = std::max(a.y, b.y);
-            return {x, y, std::max(0.f, std::min(a.x + a.w, b.x + b.w) - x),
-                    std::max(0.f, std::min(a.y + a.h, b.y + b.h) - y)};
-        }
 
         struct Builder {
             TextProbeFontSet& fonts;

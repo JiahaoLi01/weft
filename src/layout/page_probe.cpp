@@ -1,4 +1,5 @@
 #include "caseelephant/page_probe.hpp"
+#include "caseelephant/base/css_scalar.hpp"
 #include "caseelephant/constants/layout.hpp"
 #include <algorithm>
 #include <cctype>
@@ -23,13 +24,11 @@ namespace caseelephant {
             if (!v.ends_with("px")) {
                 throw std::invalid_argument("CE_PAGE_UNIT: " + key);
             }
-            std::size_t consumed{};
-            const auto number = v.substr(0, v.size() - 2);
-            const float n = std::stof(number, &consumed);
-            if (consumed != number.size() || !std::isfinite(n) || n < 0 || n > constants::layout::max_length_px) {
+            const auto n = css::parse_number<float>(v.substr(0, v.size() - 2));
+            if (!n || *n < 0 || *n > constants::layout::max_length_px) {
                 throw std::invalid_argument("CE_PAGE_VALUE: " + key);
             }
-            return n;
+            return *n;
         }
 
         std::array<float, 4> color(const std::string& v) {

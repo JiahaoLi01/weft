@@ -1,4 +1,5 @@
 #include "caseelephant/inline_probe.hpp"
+#include "caseelephant/base/diagnostic.hpp"
 #include "caseelephant/constants/layout.hpp"
 #include <hb.h>
 #include <linebreak.h>
@@ -17,7 +18,7 @@ extern "C" {
 namespace caseelephant {
     namespace {
         [[noreturn]] void fail(const std::string& s) {
-            throw std::invalid_argument("CE_INLINE_PROFILE: " + s);
+            throw_diagnostic(Diag::InlineProfile, s);
         }
 
         constexpr std::size_t byte_limit = constants::max_text_bytes;

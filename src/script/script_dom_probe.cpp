@@ -1,4 +1,7 @@
 #include "caseelephant/script_probe.hpp"
+#include "caseelephant/base/diagnostic.hpp"
+#include "caseelephant/base/generational_slots.hpp"
+#include "caseelephant/base/owner_thread.hpp"
 #include "caseelephant/constants/script.hpp"
 
 #include <quickjs.h>
@@ -738,19 +741,21 @@ namespace caseelephant {
             } catch (const std::bad_alloc&) {
                 state(c).faulted = true;
                 return JS_ThrowOutOfMemory(c);
-            } catch (const std::exception& e) {
-                if (std::string_view(e.what()).starts_with("CE_CANVAS_FILL_RULE")) {
+            } catch (const DiagnosticError& e) {
+                if (e.code() == Diag::CanvasFillRule) {
                     return JS_ThrowTypeError(c, "%s", e.what());
                 }
-                if (std::string_view(e.what()).starts_with("IndexSizeError:")) {
+                if (e.code() == Diag::CanvasIndexSize) {
                     JSValue error = JS_NewError(c);
                     if (JS_IsException(error)) {
                         return error;
                     }
-                    JS_SetPropertyStr(c, error, "name", JS_NewString(c, "IndexSizeError"));
+                    JS_SetPropertyStr(c, error, "name", JS_NewString(c, diag_name(Diag::CanvasIndexSize)));
                     JS_SetPropertyStr(c, error, "message", JS_NewString(c, e.what()));
                     return JS_Throw(c, error);
                 }
+                return JS_ThrowInternalError(c, "%s", e.what());
+            } catch (const std::exception& e) {
                 return JS_ThrowInternalError(c, "%s", e.what());
             }
         }

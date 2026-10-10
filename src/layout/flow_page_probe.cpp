@@ -1,4 +1,6 @@
 #include "caseelephant/flow_page_probe.hpp"
+#include "caseelephant/base/css_scalar.hpp"
+#include "caseelephant/base/rect.hpp"
 #include "caseelephant/constants/layout.hpp"
 #include <algorithm>
 #include <cmath>
@@ -12,25 +14,23 @@ namespace caseelephant {
         using Style = std::map<std::string, std::string>;
         constexpr std::size_t absent = std::numeric_limits<std::size_t>::max();
 
+        using Rect = geometry::Rect;
+        using geometry::intersect;
+
         [[noreturn]] void fail(const std::string& s) {
-            throw std::invalid_argument("CE_FLOW_PROFILE: " + s);
+            throw_diagnostic(Diag::FlowProfile, s);
         }
 
         std::string get(const Style& s, const std::string& k, const char* v = "") {
-            auto i = s.find(k);
-            return i == s.end() ? v : i->second;
+            return css::style_value(s, k, v);
         }
 
         float number(const std::string& s) {
-            try {
-                std::size_t end{};
-                auto n = std::stof(s, &end);
-                if (end == s.size() && std::isfinite(n) && std::abs(n) <= constants::layout::max_length_magnitude_px) {
-                    return n;
-                }
-            } catch (const std::exception&) {
+            const auto n = css::parse_number<float>(s, static_cast<float>(constants::layout::max_length_magnitude_px));
+            if (!n) {
+                fail("finite number: " + s);
             }
-            fail("finite number: " + s);
+            return *n;
         }
 
         float px(const std::string& s) {
@@ -45,24 +45,6 @@ namespace caseelephant {
 
         float edge(const Style& s, const char* k) {
             return px(get(s, k, "0"));
-        }
-
-        struct Rect {
-            float x{};
-            float y{};
-            float w{};
-            float h{};
-
-            std::array<float, 4> array() const {
-                return {x, y, w, h};
-            }
-        };
-
-        Rect intersect(Rect a, Rect b) {
-            auto x = std::max(a.x, b.x);
-            auto y = std::max(a.y, b.y);
-            return {x, y, std::max(0.f, std::min(a.x + a.w, b.x + b.w) - x),
-                    std::max(0.f, std::min(a.y + a.h, b.y + b.h) - y)};
         }
 
         Rect shifted(Rect r, float x, float y) {

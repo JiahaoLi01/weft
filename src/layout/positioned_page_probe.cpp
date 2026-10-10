@@ -1,4 +1,6 @@
 #include "caseelephant/positioned_page_probe.hpp"
+#include "caseelephant/base/css_scalar.hpp"
+#include "caseelephant/base/rect.hpp"
 #include "caseelephant/constants/layout.hpp"
 #include <algorithm>
 #include <cctype>
@@ -12,30 +14,26 @@ namespace caseelephant {
     namespace {
         using Style = std::map<std::string, std::string>;
 
-        [[noreturn]] void fail(const std::string& text) {
-            throw std::invalid_argument("CE_POSITIONED_PROFILE: " + text);
-        }
+        using Box = geometry::Rect;
+        using css::trim;
+        using geometry::intersect;
 
-        std::string trim(std::string s) {
-            const auto a = s.find_first_not_of(" \t\r\n");
-            return a == std::string::npos ? std::string{} : s.substr(a, s.find_last_not_of(" \t\r\n") - a + 1);
+        [[noreturn]] void fail(const std::string& text) {
+            throw_diagnostic(Diag::PositionedProfile, text);
         }
 
         std::string value(const Style& s, const char* name, const char* fallback = "") {
-            const auto i = s.find(name);
-            return i == s.end() ? fallback : i->second;
+            return css::style_value(s, name, fallback);
         }
 
-        float number(const std::string& v) {
-            try {
-                std::size_t end{};
-                const float n = std::stof(v, &end);
-                if (end == v.size() && std::isfinite(n) && std::abs(n) <= constants::layout::max_length_magnitude_px) {
-                    return n;
-                }
-            } catch (const std::exception&) {
+        float number(std::string_view v) {
+            const std::string text(v);
+            const auto n =
+                css::parse_number<float>(text, static_cast<float>(constants::layout::max_length_magnitude_px));
+            if (!n) {
+                fail("finite numeric value " + text);
             }
-            fail("finite numeric value " + v);
+            return *n;
         }
 
         float length(std::string v, float base) {
@@ -58,31 +56,18 @@ namespace caseelephant {
                 }
                 return length(v.substr(0, p), base) + (minus ? -1 : 1) * length(v.substr(p + 3), base);
             }
-            if (v.ends_with("px")) {
-                return number(v.substr(0, v.size() - 2));
+            const auto [digits, unit] = css::split_unit(v);
+            if (unit == css::Unit::Px) {
+                return number(digits);
             }
-            if (v.ends_with('%')) {
-                return base * number(v.substr(0, v.size() - 1)) / constants::percent_scale;
+            if (unit == css::Unit::Percent) {
+                return base * number(digits) / constants::percent_scale;
             }
             fail("length " + v);
         }
 
         std::array<float, 4> color(const std::string& v) {
             return parse_probe_css_color(v);
-        }
-
-        struct Box {
-            float x{};
-            float y{};
-            float w{};
-            float h{};
-        };
-
-        Box intersect(Box a, Box b) {
-            const float x = std::max(a.x, b.x);
-            const float y = std::max(a.y, b.y);
-            return {x, y, std::max(0.f, std::min(a.x + a.w, b.x + b.w) - x),
-                    std::max(0.f, std::min(a.y + a.h, b.y + b.h) - y)};
         }
 
         struct Node {
@@ -467,8 +452,8 @@ namespace caseelephant {
                                                     float h, TextProbeFont& font) {
         try {
             return build(root, compute_style_probe(root, css, positioned_style_profile()), w, h, font, nullptr);
-        } catch (const std::invalid_argument& e) {
-            if (std::string(e.what()).starts_with("CE_STYLE_")) {
+        } catch (const DiagnosticError& e) {
+            if (e.code() == Diag::StyleProfile) {
                 fail(e.what());
             }
             throw;
@@ -480,8 +465,8 @@ namespace caseelephant {
         try {
             return build(root, compute_style_probe(root, css, positioned_style_profile()), w, h, fonts.primary(),
                          &fonts);
-        } catch (const std::invalid_argument& e) {
-            if (std::string(e.what()).starts_with("CE_STYLE_")) {
+        } catch (const DiagnosticError& e) {
+            if (e.code() == Diag::StyleProfile) {
                 fail(e.what());
             }
             throw;

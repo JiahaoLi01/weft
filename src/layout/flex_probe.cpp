@@ -1,4 +1,5 @@
 #include "caseelephant/flex_probe.hpp"
+#include "caseelephant/base/css_scalar.hpp"
 #include "caseelephant/constants/layout.hpp"
 #include <yoga/Yoga.h>
 #include <algorithm>
@@ -15,18 +16,13 @@ namespace caseelephant {
         using Style = std::map<std::string, std::string>;
 
         std::string value(const Style& s, const std::string& key, const char* fallback = "") {
-            const auto it = s.find(key);
-            return it == s.end() ? fallback : it->second;
+            return css::style_value(s, key, fallback);
         }
 
-        float number(std::string input) {
-            std::size_t consumed{};
-            const float result = std::stof(input, &consumed);
-            if (consumed != input.size() || !std::isfinite(result) ||
-                std::abs(result) > constants::layout::max_flex_number_magnitude) {
-                throw std::invalid_argument("CE_CSS_VALUE: invalid numeric value " + input);
-            }
-            return result;
+        float number(std::string_view input) {
+            return css::parse_number<float>(std::string(input),
+                                            static_cast<float>(constants::layout::max_flex_number_magnitude))
+                .value();
         }
 
         struct Length {
@@ -39,11 +35,12 @@ namespace caseelephant {
             if (input.empty() || input == "auto") {
                 return {0, false, true};
             }
-            if (input.ends_with("px")) {
-                return {number(input.substr(0, input.size() - 2))};
+            const auto [digits, unit] = css::split_unit(input);
+            if (unit == css::Unit::Px) {
+                return {number(digits)};
             }
-            if (input.ends_with('%')) {
-                return {number(input.substr(0, input.size() - 1)), true};
+            if (unit == css::Unit::Percent) {
+                return {number(digits), true};
             }
             if (input == "0") {
                 return {};

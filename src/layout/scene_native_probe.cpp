@@ -1,4 +1,5 @@
 #include "caseelephant/scene_native_probe.hpp"
+#include "caseelephant/base/css_scalar.hpp"
 #include "caseelephant/constants/scene.hpp"
 #include <algorithm>
 #include <cmath>
@@ -10,62 +11,34 @@ namespace caseelephant {
         using Matrix = std::array<float, 6>;
         using Style = ProbeSceneStyle;
 
+        using css::trim;
+
         std::string get(const Style& s, const char* k, const char* d = "") {
-            auto i = s.find(k);
-            return i == s.end() ? d : i->second;
+            return css::style_value(s, k, d);
         }
 
-        float number(std::string s) {
-            std::size_t i{};
-            float n = std::stof(s, &i);
-            if (i != s.size() || !std::isfinite(n) || std::abs(n) > constants::scene::max_numeric_magnitude) {
+        // The message is the fallback reason the native paint compiler reports.
+        float number(std::string_view s) {
+            const auto n =
+                css::parse_number<float>(std::string(s), static_cast<float>(constants::scene::max_numeric_magnitude));
+            if (!n) {
                 throw std::invalid_argument("number");
             }
-            return n;
+            return *n;
         }
 
-        float len(std::string s, float ref = 1) {
-            if (s.ends_with('%')) {
-                return number(s.substr(0, s.size() - 1)) * ref / constants::percent_scale;
+        // Unitless numbers are accepted as px; em resolves against ref.
+        float len(std::string_view s, float ref = 1) {
+            const auto [digits, unit] = css::split_unit(s, {.px = true, .percent = true, .em = true});
+            const float n = number(digits);
+            if (unit == css::Unit::Percent) {
+                return n * ref / constants::percent_scale;
             }
-            if (s.ends_with("px")) {
-                return number(s.substr(0, s.size() - 2));
-            }
-            if (s.ends_with("em")) {
-                return number(s.substr(0, s.size() - 2)) * ref;
-            }
-            return number(s);
+            return unit == css::Unit::Em ? n * ref : n;
         }
 
-        std::string trim(std::string s) {
-            auto p = s.find_first_not_of(" \t\r\n");
-            return p == s.npos ? "" : s.substr(p, s.find_last_not_of(" \t\r\n") - p + 1);
-        }
-
-        std::vector<std::string> split(std::string s, char c = ' ') {
-            std::vector<std::string> out;
-            std::size_t start{};
-            int depth{};
-            for (std::size_t i = 0; i < s.size(); ++i) {
-                if (s[i] == '(') {
-                    ++depth;
-                }
-                if (s[i] == ')') {
-                    --depth;
-                }
-                if (s[i] == c && depth == 0) {
-                    auto v = trim(s.substr(start, i - start));
-                    if (!v.empty()) {
-                        out.push_back(v);
-                    }
-                    start = i + 1;
-                }
-            }
-            auto v = trim(s.substr(start));
-            if (!v.empty()) {
-                out.push_back(v);
-            }
-            return out;
+        std::vector<std::string> split(std::string_view s, char c = ' ') {
+            return css::split(s, c, {.quotes = false}).parts;
         }
 
         std::array<float, 4> color(std::string s, const Style& style) {
@@ -75,13 +48,7 @@ namespace caseelephant {
             if (s == "transparent" || s == "none") {
                 return {};
             }
-            if (s == "black") {
-                s = "#000000";
-            }
-            if (s == "white") {
-                s = "#ffffff";
-            }
-            return parse_probe_css_color(s);
+            return parse_probe_css_color(css::expand_color_shorthand(s, false));
         }
 
         Matrix multiply(Matrix a, Matrix b) {

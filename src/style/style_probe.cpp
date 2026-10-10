@@ -1,4 +1,6 @@
 #include "caseelephant/style_probe.hpp"
+#include "caseelephant/base/css_scalar.hpp"
+#include "caseelephant/base/owner_thread.hpp"
 #include "caseelephant/constants/common.hpp"
 #include "caseelephant/constants/style.hpp"
 #include <thread>
@@ -13,12 +15,12 @@
 namespace caseelephant {
     namespace {
         [[noreturn]] void fail(const std::string& s) {
-            throw std::invalid_argument("CE_STYLE_PROFILE: " + s);
+            throw_diagnostic(Diag::StyleProfile, s);
         }
 
-        std::string trim(std::string s) {
-            const auto a = s.find_first_not_of(" \t\r\n\f");
-            return a == std::string::npos ? std::string{} : s.substr(a, s.find_last_not_of(" \t\r\n\f") - a + 1);
+        // Style sheets use CSS Syntax whitespace, which includes form feed.
+        std::string trim(std::string_view s) {
+            return css::trim(s, css::syntax_whitespace);
         }
 
         std::string lower(std::string s) {
@@ -298,45 +300,14 @@ namespace caseelephant {
         // Split only at top-level delimiters; quoted/functional commas and semicolons
         // do not break a declaration or selector list.
         std::vector<std::string> split(std::string_view text, char separator) {
-            std::vector<std::string> out;
-            std::size_t start{};
-            int paren{};
-            int bracket{};
-            char quote{};
-            for (std::size_t p = 0; p < text.size(); ++p) {
-                const char c = text[p];
-                if (quote) {
-                    if (c == quote) {
-                        quote = 0;
-                    }
-                    continue;
-                }
-                if (c == '\'' || c == '"') {
-                    quote = c;
-                    continue;
-                }
-                if (c == '(') {
-                    ++paren;
-                } else if (c == ')') {
-                    --paren;
-                } else if (c == '[') {
-                    ++bracket;
-                } else if (c == ']') {
-                    --bracket;
-                }
-                if (paren < 0 || bracket < 0) {
-                    fail("unmatched delimiter");
-                }
-                if (c == separator && !paren && !bracket) {
-                    out.push_back(std::string(text.substr(start, p - start)));
-                    start = p + 1;
-                }
+            auto result = css::split(text, separator, {.quotes = true, .brackets = true, .trim_parts = false});
+            if (result.nesting == css::Nesting::Unmatched) {
+                fail("unmatched delimiter");
             }
-            if (paren || bracket || quote) {
+            if (result.nesting == css::Nesting::Unclosed) {
                 fail("unbalanced syntax");
             }
-            out.push_back(std::string(text.substr(start)));
-            return out;
+            return std::move(result.parts);
         }
 
         std::vector<Declaration> declarations(std::string text, const ProbeStyleProfile& profile) {
@@ -718,15 +689,11 @@ namespace caseelephant {
         }
 
         float number(const std::string& s) {
-            try {
-                std::size_t end{};
-                const float v = std::stof(s, &end);
-                if (end == s.size() && std::isfinite(v)) {
-                    return v;
-                }
-            } catch (const std::exception&) {
+            const auto v = css::parse_number<float>(s);
+            if (!v) {
+                fail("finite number");
             }
-            fail("finite number");
+            return *v;
         }
 
         bool length_token(const Token& t) {

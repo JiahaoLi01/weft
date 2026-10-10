@@ -1,4 +1,5 @@
 #include "caseelephant/canvas_probe.hpp"
+#include "caseelephant/base/css_scalar.hpp"
 #include "caseelephant/constants/canvas.hpp"
 #include "caseelephant/constants/common.hpp"
 #include <algorithm>
@@ -12,13 +13,12 @@
 
 namespace caseelephant {
     namespace {
-        [[noreturn]] void fail(const char* message) {
-            throw std::invalid_argument(message);
+        [[noreturn]] void fail(Diag code, std::string_view detail = {}) {
+            throw_diagnostic(code, detail);
         }
 
-        std::string trim(std::string s) {
-            auto a = s.find_first_not_of(" \t\r\n\f");
-            return a == s.npos ? std::string{} : s.substr(a, s.find_last_not_of(" \t\r\n\f") - a + 1);
+        std::string trim(std::string_view s) {
+            return css::trim(s, css::syntax_whitespace);
         }
 
         struct Named {
@@ -39,14 +39,14 @@ namespace caseelephant {
 
     std::optional<std::array<float, 4>> parse_canvas_color_probe(std::string_view input) {
         if (input.size() > constants::canvas::max_color_length) {
-            fail("CE_CANVAS_COLOR_LIMIT: 512 characters");
+            fail(Diag::CanvasColorLimit, "512 characters");
         }
         auto text = trim(std::string(input));
         for (auto& c : text) {
             c = char(std::tolower(static_cast<unsigned char>(c)));
         }
         if (text == "currentcolor") {
-            fail("CE_CANVAS_COLOR_PROFILE: currentColor requires computed style");
+            fail(Diag::CanvasColorProfile, "currentColor requires computed style");
         }
         if (text == "transparent") {
             return std::array<float, 4>{0, 0, 0, 0};
@@ -88,11 +88,11 @@ namespace caseelephant {
         }
         auto name = text.substr(0, open);
         if (name != "rgb" && name != "rgba" && name != "hsl" && name != "hsla") {
-            fail("CE_CANVAS_COLOR_PROFILE: color function unsupported");
+            fail(Diag::CanvasColorProfile, "color function unsupported");
         }
         auto body = text.substr(open + 1, text.size() - open - 2);
         if (body.find(',') == body.npos) {
-            fail("CE_CANVAS_COLOR_PROFILE: comma syntax required");
+            fail(Diag::CanvasColorProfile, "comma syntax required");
         }
         std::vector<std::pair<double, bool>> values;
         static const std::regex number("[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:e[+-]?[0-9]+)?");
@@ -159,7 +159,7 @@ namespace caseelephant {
 
     std::size_t ProbeCanvasState::validate_size(std::uint32_t w, std::uint32_t h) {
         if (w > constants::max_canvas_dimension || h > constants::max_canvas_dimension) {
-            fail("CE_CANVAS_SIZE_LIMIT: backing dimensions <=2048");
+            fail(Diag::CanvasSizeLimit, "backing dimensions <=2048");
         }
         return std::size_t(w) * h * constants::rgba8_bytes_per_pixel;
     }
@@ -171,7 +171,7 @@ namespace caseelephant {
             throw std::invalid_argument("CE_CANVAS_CONFIG: factory and owner budget required");
         }
         if (budget_->contexts >= constants::canvas::max_live_contexts) {
-            fail("CE_CANVAS_CONTEXT_LIMIT: 8 live contexts");
+            fail(Diag::CanvasContextLimit, "8 live contexts");
         }
         resize(w, h);
         ++budget_->contexts;
@@ -184,11 +184,11 @@ namespace caseelephant {
 
     void ProbeCanvasState::resize(std::uint32_t w, std::uint32_t h) {
         if (version == std::numeric_limits<std::uint64_t>::max()) {
-            fail("CE_CANVAS_VERSION_LIMIT");
+            fail(Diag::CanvasVersionLimit);
         }
         const auto bytes = validate_size(w, h);
         if (bytes > constants::canvas::max_backing_bytes - budget_->bytes) {
-            fail("CE_CANVAS_BYTES_LIMIT: 32MiB including resize overlap");
+            fail(Diag::CanvasBytesLimit, "32MiB including resize overlap");
         }
         std::unique_ptr<ProbeCanvasRaster> next;
         try {
@@ -222,10 +222,10 @@ namespace caseelephant {
         if (version == std::numeric_limits<std::uint64_t>::max() ||
             commands == std::numeric_limits<std::uint64_t>::max() ||
             fills == std::numeric_limits<std::uint64_t>::max()) {
-            fail("CE_CANVAS_VERSION_LIMIT");
+            fail(Diag::CanvasVersionLimit);
         }
         if (pending_.size() >= constants::max_canvas_pending_commands) {
-            fail("CE_CANVAS_COMMAND_LIMIT: 65536 before snapshot");
+            fail(Diag::CanvasCommandLimit, "65536 before snapshot");
         }
         pending_.push_back(c);
         ++version;
@@ -240,21 +240,21 @@ namespace caseelephant {
             }
         }
         if (r < 0) {
-            fail("IndexSizeError: negative arc radius");
+            fail(Diag::CanvasIndexSize, "negative arc radius");
         }
         if (std::abs(x) > constants::canvas::max_geometry_magnitude ||
             std::abs(y) > constants::canvas::max_geometry_magnitude || r > constants::canvas::max_geometry_magnitude) {
-            fail("CE_CANVAS_GEOMETRY_LIMIT: 1e6");
+            fail(Diag::CanvasGeometryLimit, "1e6");
         }
         if (circle_ || (ccw ? start - end : end - start) < 2 * std::numbers::pi) {
-            fail("CE_CANVAS_PATH_PROFILE: one full circle per path");
+            fail(Diag::CanvasPathProfile, "one full circle per path");
         }
         circle_ = std::array<double, 4>{x, y, r, 0};
     }
 
     void ProbeCanvasState::fill(std::string_view rule) {
         if (rule != "nonzero" && rule != "evenodd") {
-            fail("CE_CANVAS_FILL_RULE: nonzero/evenodd required");
+            fail(Diag::CanvasFillRule, "nonzero/evenodd required");
         }
         if (circle_ && (*circle_)[2] > 0) {
             auto c = color;
@@ -272,7 +272,7 @@ namespace caseelephant {
         }
         for (double v : {x, y, w, h}) {
             if (std::abs(v) > constants::canvas::max_geometry_magnitude) {
-                fail("CE_CANVAS_GEOMETRY_LIMIT: 1e6");
+                fail(Diag::CanvasGeometryLimit, "1e6");
             }
         }
         if (!w || !h) {
@@ -287,7 +287,7 @@ namespace caseelephant {
             h = -h;
         }
         if (clear && (x != std::floor(x) || y != std::floor(y) || w != std::floor(w) || h != std::floor(h))) {
-            fail("CE_CANVAS_CLEAR_PROFILE: integer rectangles required");
+            fail(Diag::CanvasClearProfile, "integer rectangles required");
         }
         auto c = color;
         c[3] *= float(global_alpha);

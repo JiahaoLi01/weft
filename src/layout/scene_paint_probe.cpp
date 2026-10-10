@@ -1,5 +1,6 @@
 #include "caseelephant/scene_paint_probe.hpp"
 #include "caseelephant/style_probe.hpp"
+#include "caseelephant/base/css_scalar.hpp"
 #include "caseelephant/constants/scene.hpp"
 #include <algorithm>
 #include <cmath>
@@ -10,29 +11,18 @@
 
 namespace caseelephant {
     namespace {
-        std::string trim(std::string s) {
-            auto a = s.find_first_not_of(" \t\r\n");
-            return a == s.npos ? "" : s.substr(a, s.find_last_not_of(" \t\r\n") - a + 1);
-        }
+        using css::trim;
 
-        ProbePaintNumber number(std::string s) {
-            s = trim(s);
-            double reference = 0;
-            if (s.ends_with('%')) {
-                reference = .01;
-                s.pop_back();
-            } else if (s.ends_with("em")) {
-                reference = 1;
-                s.resize(s.size() - 2);
-            } else if (s.ends_with("px")) {
-                s.resize(s.size() - 2);
-            }
-            std::size_t end{};
-            double n = std::stod(s, &end);
-            if (end != s.size() || !std::isfinite(n) || std::abs(n) > constants::scene::max_numeric_magnitude) {
+        // Percentages resolve against the reference box (as hundredths), em against the font size.
+        ProbePaintNumber number(std::string_view input) {
+            const auto s = trim(input);
+            const auto [digits, unit] = css::split_unit(s, {.px = true, .percent = true, .em = true});
+            const double reference = unit == css::Unit::Percent ? .01 : unit == css::Unit::Em ? 1 : 0;
+            const auto n = css::parse_number<double>(std::string(digits), constants::scene::max_numeric_magnitude);
+            if (!n) {
                 throw std::invalid_argument("paint number");
             }
-            return {reference ? 0 : n, reference ? n * reference : 0};
+            return {reference ? 0 : *n, reference ? *n * reference : 0};
         }
     } // namespace
 
@@ -50,15 +40,7 @@ namespace caseelephant {
             if (s == "transparent" || s == "black" || s == "white" || s.starts_with('#') || s.starts_with("rgb(") ||
                 s.starts_with("rgba(") || s.starts_with("hsl(") || s.starts_with("hsla(")) {
                 out.kind = ProbePaintValue::Color;
-                if (s == "black") {
-                    s = "#000000";
-                }
-                if (s == "white") {
-                    s = "#ffffff";
-                }
-                if (s.size() == 4 && s[0] == '#') {
-                    s = std::string("#") + s[1] + s[1] + s[2] + s[2] + s[3] + s[3];
-                }
+                s = css::expand_color_shorthand(s);
                 const auto color = parse_probe_css_color(s);
                 for (unsigned i = 0; i < 4; ++i) {
                     out.color[i] = color[i];

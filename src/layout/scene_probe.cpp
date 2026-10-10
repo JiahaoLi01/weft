@@ -1,4 +1,6 @@
 #include "caseelephant/scene_probe.hpp"
+#include "caseelephant/base/css_scalar.hpp"
+#include "caseelephant/base/owner_thread.hpp"
 #include "caseelephant/constants/scene.hpp"
 #include <chrono>
 #include <yoga/Yoga.h>
@@ -16,38 +18,31 @@ namespace caseelephant {
     namespace {
         using Style = ProbeSceneStyle;
 
-        [[noreturn]] void fail(const std::string& s) {
-            throw std::invalid_argument("CE_SCENE_PROFILE: " + s);
-        }
+        using css::trim;
 
-        std::string trim(std::string s) {
-            auto a = s.find_first_not_of(" \t\r\n");
-            return a == s.npos ? "" : s.substr(a, s.find_last_not_of(" \t\r\n") - a + 1);
+        [[noreturn]] void fail(const std::string& s) {
+            throw_diagnostic(Diag::SceneProfile, s);
         }
 
         std::string get(const Style& s, const std::string& k, const char* fallback = "") {
-            auto i = s.find(k);
-            return i == s.end() ? fallback : i->second;
+            return css::style_value(s, k, fallback);
         }
 
-        double number(std::string s) {
-            std::size_t p{};
-            double n = std::stod(s, &p);
-            if (p != s.size() || !std::isfinite(n) || std::abs(n) > constants::scene::max_numeric_magnitude) {
-                fail("finite numeric value " + s);
+        double number(std::string_view s) {
+            const std::string text(s);
+            const auto n = css::parse_number<double>(text, constants::scene::max_numeric_magnitude);
+            if (!n) {
+                fail("finite numeric value " + text);
             }
-            return n;
+            return *n;
         }
 
-        double length(std::string s, double reference = 1) {
-            s = trim(s);
-            if (s.ends_with("%")) {
-                return number(s.substr(0, s.size() - 1)) * reference / constants::percent_scale;
-            }
-            if (s.ends_with("px")) {
-                s.resize(s.size() - 2);
-            }
-            return number(s);
+        // Unitless numbers are accepted as px.
+        double length(std::string_view s, double reference = 1) {
+            const auto value = trim(s);
+            const auto [digits, unit] = css::split_unit(value);
+            const double n = number(digits);
+            return unit == css::Unit::Percent ? n * reference / constants::percent_scale : n;
         }
 
         std::string numeric(double n) {
@@ -61,35 +56,7 @@ namespace caseelephant {
         }
 
         std::vector<std::string> split(std::string_view s, char delimiter = ' ') {
-            std::vector<std::string> out;
-            std::size_t start{};
-            int depth{};
-            char quote{};
-            for (std::size_t p = 0; p < s.size(); ++p) {
-                char c = s[p];
-                if (quote) {
-                    if (c == quote) {
-                        quote = 0;
-                    }
-                } else if (c == '\'' || c == '"') {
-                    quote = c;
-                } else if (c == '(') {
-                    ++depth;
-                } else if (c == ')') {
-                    --depth;
-                } else if (c == delimiter && !depth) {
-                    auto part = trim(std::string(s.substr(start, p - start)));
-                    if (!part.empty()) {
-                        out.push_back(part);
-                    }
-                    start = p + 1;
-                }
-            }
-            auto last = trim(std::string(s.substr(start)));
-            if (!last.empty()) {
-                out.push_back(last);
-            }
-            return out;
+            return css::split(s, delimiter).parts;
         }
 
         Style declarations(std::string_view s) {
@@ -146,18 +113,8 @@ namespace caseelephant {
             return s;
         }
 
-        std::array<double, 4> color(std::string s) {
-            s = trim(s);
-            if (s == "black") {
-                s = "#000000";
-            }
-            if (s == "white") {
-                s = "#ffffff";
-            }
-            if (s.size() == 4 && s[0] == '#') {
-                s = std::string("#") + s[1] + s[1] + s[2] + s[2] + s[3] + s[3];
-            }
-            auto c = parse_probe_css_color(s);
+        std::array<double, 4> color(std::string_view s) {
+            auto c = parse_probe_css_color(css::expand_color_shorthand(trim(s)));
             return {c[0], c[1], c[2], c[3]};
         }
 
