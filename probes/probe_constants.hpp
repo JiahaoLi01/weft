@@ -3,11 +3,8 @@
 #include "constants/common.hpp"
 #include "constants/render.hpp"
 
-// Constants of the D3D11 host probes: probes/d3d11_probe.cpp and the probe headers it includes
-// mid-file. Each constant has the type of the literal it replaced (see docs/coding-style.md).
-//
-// d3d11_probe.cpp includes this header at global scope before its anonymous namespace, so the probe
-// headers that it later includes inside that namespace see these names. Keep it self-contained.
+// Constants of the D3D11 host probes (weft_d3d11_probe). Each constant has the type of the literal it
+// replaced (see docs/coding-style.md).
 //
 // std::min, std::max, std::clamp and the std::chrono::duration constructor take const references.
 // Pass a constant to them as a static_cast<T>(constant) prvalue, like the literal it replaced:

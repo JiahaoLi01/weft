@@ -6,11 +6,8 @@
 #include "probe_constants.hpp"
 #include "../tests/test_constants/support.hpp"
 
-// Values shared by the gallery and scene GPU probes (probes/gallery_*.hpp, probes/scene_*.hpp,
-// complex_css_probe.hpp and render_stages_probe.hpp).
-//
-// d3d11_probe.cpp includes this header at global scope before its anonymous namespace, so the probe
-// headers that it later includes mid-file see these names. Keep it self-contained.
+// Values shared by the gallery and scene GPU probes (probes/gallery_*, probes/scene_*, complex_css_probe.cpp
+// and render_stages_probe.cpp) and the scene tests.
 //
 // Each constant has the type of the literals it replaced (a plain integer literal is int), so
 // arithmetic, comparisons and generated code at every use site stay exactly as before.

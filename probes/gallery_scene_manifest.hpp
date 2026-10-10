@@ -3,7 +3,8 @@
 #include <cstddef>
 #include <string>
 #include "gallery_constants.hpp"
-inline constexpr unsigned gallery_scene_count = 64, gallery_native_case_count = 66;
+inline constexpr unsigned gallery_scene_count = 64;
+inline constexpr unsigned gallery_native_case_count = 66;
 
 struct GallerySceneDescriptor {
     const char* group;

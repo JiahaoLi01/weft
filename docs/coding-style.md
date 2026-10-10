@@ -8,7 +8,7 @@
 2. `if`、`else`、`for`、`while`、`do`、函数和 lambda 一律带花括号，哪怕只有一行；块内内容从下一行开始，右花括号单独成行。空块写成 `{` 换行 `}`。
 3. namespace 内容缩进；嵌套 namespace 逐层缩进，文件末尾不会出现两个同缩进的右花括号。长 namespace 以 `} // namespace name` 结束。
 4. 一行一条语义：一条语句、一个声明各占一行。禁止 `int a = 0, b = 1;`、`T x{}, y{};` 和 `if (...) a; b;` 一类写法；成员同样每个声明一行。
-5. 行宽 120。超长字符串字面量（嵌入的 JS/CSS/诊断文本）不拆分。include 顺序保持原样，不自动排序（`d3d11_probe.cpp` 依赖中途 include 的顺序）。
+5. 行宽 120。超长字符串字面量（嵌入的 JS/CSS/诊断文本）不拆分。include 顺序保持原样，不自动排序。
 
 ## 命名常量
 
@@ -28,14 +28,14 @@
 
 - 常量直接传给 `const T&` 形参（`std::min/max/clamp`、`std::chrono` 构造）会 odr-use 该变量，MSVC 生成代码随之改变；写成 `static_cast<T>(constant)` 传纯右值。
 - 字符串常量是 `inline constexpr const char*`。少数大函数里 `std::string == constants::x` 会从内联 memcmp 变为调用 `operator==`，语义相同；热路径介意时保留字面量并注明。
-- `probes/d3d11_probe.cpp` 在匿名 namespace 内部中途 include 探针头。任何常量头必须先在该文件顶部（全局作用域）include，否则会声明出 `(anonymous)::weft` 并遮蔽真正的命名空间。
+- 头文件一律在全局作用域、文件顶部包含，不在 namespace 内部包含。D3D11 探针在第 5 步之前曾在匿名 namespace 中途包含探针头，现已拆成独立翻译单元（`probes/probe_common.hpp` 与每个探针模式一个 `.cpp`）。
 
 ## 共享代码
 
 - **运行时代码**：用 `src/base/` 的 `Diag`/`Result`、CSS 标量解析、`GenerationalSlots`、`OwnerThread`，不再新写 trim/split/number 解析、代际槽表或 owner 检查。
 - **按错误码分派**：控制流按 `Diag` 码分支，不匹配错误消息文本。
 - **测试与探针**：用 `tests/support/` 的 `require`/`WEFT_REQUIRE`、文件读写、`json_string`、PNG 读写，不在各文件里重定义。
-- **`d3d11_probe.cpp` 的包含顺序**：新的 support 头要先在文件顶部的全局作用域包含。
+- **探针代码**：D3D11 探针在全局作用域的 `namespace probes` 中，共享部分放 `probe_common.hpp`，模式入口在 `probe_modes.hpp` 声明。
 
 ## 语义等价验证
 
