@@ -104,7 +104,7 @@ int main() {
         invalid = false;
         try {
             weft::compute_style(vm.snapshot_subtree("#root"), ".bg-gold\\/20{background-color:#ffffff}",
-                                weft::flow_page_style_profile());
+                                weft::document_style_profile());
         } catch (const std::exception&) {
             invalid = true;
         }

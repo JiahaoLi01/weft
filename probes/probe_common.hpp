@@ -6,7 +6,7 @@
 #define NOMINMAX
 #include "layout/auto_page.hpp"
 #include "script/script_platform.hpp"
-#include "layout/flow_page.hpp"
+#include "layout/document.hpp"
 #include "scene/scene.hpp"
 #include "scene/scene_geometry.hpp"
 #include "scene/scene_native.hpp"

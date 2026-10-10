@@ -99,7 +99,7 @@ namespace weft {
     StyleProfile positioned_style_profile();
     StyleProfile flex_page_style_profile();
     StyleProfile auto_page_style_profile();
-    StyleProfile flow_page_style_profile();
+    StyleProfile document_style_profile();
     // The shared color subset is #rrggbb, transparent, and legacy comma rgb/rgba
     // numbers. Components/alpha clamp as CSS requires. No color spaces/named colors.
     std::array<float, 4> parse_css_color(std::string_view value);

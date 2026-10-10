@@ -31,9 +31,9 @@ namespace probes {
             script.eval(read_file(WEFT_SOURCE_DIR "/examples/cheetah-flow/scroll.js"));
             script.install_layout_host([&](const auto& document) {
                 auto html = document.children.at(0);
-                auto computed = weft::compute_style(html, css, weft::flow_page_style_profile());
+                auto computed = weft::compute_style(html, css, weft::document_style_profile());
                 const auto [dom, style] = alert_style_subtree(html, computed);
-                return weft::build_flow_page(dom, style, weft::constants::default_view_width,
+                return weft::layout_document(dom, style, weft::constants::default_view_width,
                                              weft::constants::default_view_height, fonts)
                     .elements;
             });
@@ -80,11 +80,11 @@ namespace probes {
             if (original_style) {
                 const auto dom = script.snapshot_subtree("html");
                 const auto computed = weft::compute_style(dom, css,
-                                                          flow        ? weft::flow_page_style_profile()
+                                                          flow        ? weft::document_style_profile()
                                                           : automatic ? weft::auto_page_style_profile()
                                                                       : weft::positioned_style_profile());
                 const auto [gallery, style] = alert_style_subtree(dom, computed);
-                pages[i] = flow ? weft::build_flow_page(gallery, style, weft::constants::default_view_width,
+                pages[i] = flow ? weft::layout_document(gallery, style, weft::constants::default_view_width,
                                                         weft::constants::default_view_height, fonts)
                                       .page
                            : automatic

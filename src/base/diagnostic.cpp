@@ -11,8 +11,8 @@ namespace weft {
                 return "WEFT_POSITIONED_PROFILE";
             case Diag::AutoProfile:
                 return "WEFT_AUTO_PROFILE";
-            case Diag::FlowProfile:
-                return "WEFT_FLOW_PROFILE";
+            case Diag::DocumentProfile:
+                return "WEFT_DOCUMENT_PROFILE";
             case Diag::InlineProfile:
                 return "WEFT_INLINE_PROFILE";
             case Diag::SceneProfile:

@@ -42,7 +42,7 @@ namespace probes {
         const auto css = read_file(WEFT_SOURCE_DIR "/examples/cheetah-flow/profile.css") +
                          (motion ? read_file(WEFT_SOURCE_DIR "/examples/cheetah-flow/motion.css") : "");
         std::optional<weft::DomSnapshot> layout_input;
-        std::optional<weft::FlowPage> layout_result;
+        std::optional<weft::DocumentLayout> layout_result;
         std::optional<weft::DomSnapshot> style_input;
         std::optional<weft::ComputedStyle> style_result;
         auto layout_dom = [&](const auto& document) {
@@ -53,12 +53,12 @@ namespace probes {
                 return *layout_result;
             }
             if (!high_resolution || !style_input || !same_style_input(*style_input, html)) {
-                style_result = weft::compute_style(html, css, weft::flow_page_style_profile());
+                style_result = weft::compute_style(html, css, weft::document_style_profile());
                 style_input = html;
             }
             const auto& computed = *style_result;
             const auto [dom, style] = alert_style_subtree(html, computed);
-            auto result = weft::build_flow_page(dom, style, weft::constants::default_view_width,
+            auto result = weft::layout_document(dom, style, weft::constants::default_view_width,
                                                 weft::constants::default_view_height, fonts);
             if (high_resolution) {
                 layout_input = html;

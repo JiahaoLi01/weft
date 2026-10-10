@@ -1,4 +1,5 @@
 #pragma once
+#include "layout/output.hpp"
 #include "layout/page.hpp"
 #include "constants/common.hpp"
 #include <optional>

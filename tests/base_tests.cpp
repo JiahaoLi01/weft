@@ -192,11 +192,11 @@ namespace {
         require(diag_message(Diag::CanvasIndexSize, "negative arc radius") == "IndexSizeError: negative arc radius",
                 "DOM exception name");
         try {
-            throw_diagnostic(Diag::FlowProfile, "px required: 1em");
+            throw_diagnostic(Diag::DocumentProfile, "px required: 1em");
         } catch (const std::invalid_argument& e) {
             const auto* error = dynamic_cast<const DiagnosticError*>(&e);
-            require(error && error->code() == Diag::FlowProfile, "DiagnosticError keeps its code");
-            require(std::string(e.what()) == "WEFT_FLOW_PROFILE: px required: 1em", "DiagnosticError message");
+            require(error && error->code() == Diag::DocumentProfile, "DiagnosticError keeps its code");
+            require(std::string(e.what()) == "WEFT_DOCUMENT_PROFILE: px required: 1em", "DiagnosticError message");
         }
     }
 

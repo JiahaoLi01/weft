@@ -221,12 +221,12 @@ namespace probes {
         shell.eval(read_file(WEFT_SOURCE_DIR "/examples/crpg-gallery/preview.js"));
         shell.eval("__cePreview.update(" + records + ")");
         const auto css = read_file(WEFT_SOURCE_DIR "/examples/crpg-gallery/preview.css");
-        weft::CompiledStyle shell_styles(css, weft::flow_page_style_profile());
+        weft::CompiledStyle shell_styles(css, weft::document_style_profile());
         weft::StyleMemo shell_memo;
         std::optional<weft::ComputedStyle> shell_computed;
         std::optional<weft::DomSnapshot> shell_style_key;
         std::optional<weft::DomSnapshot> layout_input;
-        std::optional<weft::FlowPage> layout_result;
+        std::optional<weft::DocumentLayout> layout_result;
         std::function<void(const weft::DomSnapshot&)> check_text = [&](const auto& n) {
             if (n.type == 3) {
                 auto text = n.data;
@@ -240,7 +240,7 @@ namespace probes {
             }
         };
         check_text(shell.snapshot_subtree("#shell"));
-        auto layout = [&](const weft::DomSnapshot& dom) -> const weft::FlowPage& {
+        auto layout = [&](const weft::DomSnapshot& dom) -> const weft::DocumentLayout& {
             auto key = dom;
             shell_styles.normalize_selector_state(key);
             if (layout_input && *layout_input == key) {
@@ -257,7 +257,7 @@ namespace probes {
                 shell_styles.update(key, *shell_computed, shell_memo);
                 shell_style_key = std::move(style_key);
             }
-            auto result = weft::build_flow_page(dom, *shell_computed, weft::probe_constants::gallery::shell_width,
+            auto result = weft::layout_document(dom, *shell_computed, weft::probe_constants::gallery::shell_width,
                                                 weft::probe_constants::gallery::shell_height, fonts);
             layout_input = std::move(key);
             layout_result = std::move(result);
@@ -278,7 +278,7 @@ namespace probes {
         // revision reuses the page without a snapshot. Self tests check that against a full snapshot comparison.
         const auto shell_root = shell.node_identity("#shell");
         std::uint64_t page_revision{};
-        auto page = [&]() -> const weft::FlowPage& {
+        auto page = [&]() -> const weft::DocumentLayout& {
             const auto revision = shell.subtree_revision(shell_root);
             if (!layout_result || revision != page_revision) {
                 layout(shell.snapshot_subtree("#shell"));
@@ -566,7 +566,7 @@ namespace probes {
             require(time >= last_time, "preview owner clock regressed");
             last_time = time;
             const auto page_trace = trace_start();
-            const weft::FlowPage* current = &page();
+            const weft::DocumentLayout* current = &page();
             trace_end("shell page", page_trace);
             auto scene_rect = [&](unsigned index) {
                 for (const auto& e : current->elements) {

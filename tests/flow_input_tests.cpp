@@ -1,4 +1,4 @@
-#include "layout/flow_page.hpp"
+#include "layout/document.hpp"
 #include "script/script_platform.hpp"
 #include "support/check.hpp"
 #include "support/files.hpp"
@@ -46,12 +46,12 @@ int main(int argc, char** argv) {
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(read_source_text_file("/tests/fixtures/flow-input/fixture.js"));
         vm.install_layout_host([&](const auto& d) {
-            return build_flow_page(find(d, "inputpage"), css, weft::constants::default_view_width,
+            return layout_document(find(d, "inputpage"), css, weft::constants::default_view_width,
                                    weft::constants::default_view_height, fonts)
                 .elements;
         });
         auto layout = [&] {
-            return build_flow_page(vm.snapshot_subtree("#inputpage"), css, weft::constants::default_view_width,
+            return layout_document(vm.snapshot_subtree("#inputpage"), css, weft::constants::default_view_width,
                                    weft::constants::default_view_height, fonts)
                 .page.geometry;
         };
@@ -108,7 +108,7 @@ int main(int argc, char** argv) {
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(read_source_text_file("/tests/fixtures/flow-input/fixture.js"));
         vm.install_layout_host([&](const auto& d) {
-            return build_flow_page(find(d, "inputpage"), css, weft::constants::default_view_width,
+            return layout_document(find(d, "inputpage"), css, weft::constants::default_view_width,
                                    weft::constants::default_view_height, fonts)
                 .elements;
         });

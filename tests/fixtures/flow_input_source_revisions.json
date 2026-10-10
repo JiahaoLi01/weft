@@ -30,6 +30,11 @@
         "sha256": "db1486e043115f3b2bd52d893bc9aceef7f2f38970f664bcaf58262e467dea06",
         "date": "2026-10-11",
         "reason": "Refactor step 8: the #outer/#inner fragment-centre samples use the coordinates captured with the Chromium reference (tests/test_constants/layout.hpp flow_input_fragment_points) instead of re-deriving them from native fragment geometry, so a native line-box change cannot move the oracle points; the hit scenario and every oracle point are unchanged."
+      },
+      {
+        "sha256": "4ccbf496828aa45583b7a9f5505525088da495134bc798172aa6f5c7a81b0b39",
+        "date": "2026-10-11",
+        "reason": "Refactor step 8: the flow profile became the document formatter (build_flow_page -> layout_document, FlowPage -> DocumentLayout); names only, hit scenario and oracle points unchanged."
       }
     ]
   }

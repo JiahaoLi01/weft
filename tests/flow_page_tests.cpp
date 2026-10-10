@@ -1,4 +1,4 @@
-#include "layout/flow_page.hpp"
+#include "layout/document.hpp"
 #include "script/script_platform.hpp"
 #include "support/check.hpp"
 #include "support/files.hpp"
@@ -41,7 +41,7 @@ namespace {
         throw std::out_of_range(id);
     }
 
-    const ElementGeometry& geom(const FlowPage& p, NodeIdentity id) {
+    const ElementGeometry& geom(const DocumentLayout& p, NodeIdentity id) {
         for (const auto& e : p.elements) {
             if (e.identity == id) {
                 return e;
@@ -50,7 +50,7 @@ namespace {
         throw std::runtime_error("geometry absent");
     }
 
-    void report(std::ostream& out, const FlowPage& p) {
+    void report(std::ostream& out, const DocumentLayout& p) {
         out << '[';
         for (std::size_t i = 0; i < p.elements.size(); ++i) {
             const auto& g = p.elements[i];
@@ -144,7 +144,7 @@ int main(int argc, char** argv) {
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(read_text_file(WEFT_SOURCE_DIR "/tests/fixtures/flow-layout/fixture.js"));
         vm.install_layout_host([&](const auto& document) {
-            return build_flow_page(find(document, "gallery"), css, weft::constants::default_view_width,
+            return layout_document(find(document, "gallery"), css, weft::constants::default_view_width,
                                    weft::constants::default_view_height, fonts)
                 .elements;
         });
@@ -154,14 +154,14 @@ int main(int argc, char** argv) {
         auto cascade = compute_style(
             dom,
             "#viewport{--r:30px 20% / 12px 5px;border-radius:var(--r);border-top-left-radius:7px 9px;overflow:hidden auto;overflow-x:scroll}",
-            flow_page_style_profile());
+            document_style_profile());
         auto vs = cascade.children[2];
         require(vs.values.at("border-top-left-radius") == "7px 9px" &&
                     vs.values.at("border-bottom-left-radius") == "20% 5px" && vs.values.at("overflow-x") == "scroll" &&
                     vs.values.at("overflow-y") == "auto",
                 "radius/overflow shorthand cascade");
         auto bad = compute_style(dom, "#viewport{border-radius:8px;border-radius:var(--r);--r:2px -1px}",
-                                 flow_page_style_profile());
+                                 document_style_profile());
         for (const auto* k : {"border-top-left-radius", "border-top-right-radius", "border-bottom-right-radius",
                               "border-bottom-left-radius"}) {
             require(bad.children[2].values.at(k) == "0", "invalid radius shorthand recascaded");
@@ -171,14 +171,14 @@ int main(int argc, char** argv) {
               "#emphasis{padding:1px}", "#viewport{overflow:clip}", "#viewport{overflow-x:potato}",
               "#viewport{display:grid}"}) {
             reject([&] {
-                build_flow_page(dom, css + unsupported, weft::constants::default_view_width,
+                layout_document(dom, css + unsupported, weft::constants::default_view_width,
                                 weft::constants::default_view_height, fonts);
             });
         }
         auto invalid_scroll = dom;
         invalid_scroll.scroll_top = std::nan("");
         reject([&] {
-            build_flow_page(invalid_scroll, css, weft::constants::default_view_width,
+            layout_document(invalid_scroll, css, weft::constants::default_view_width,
                             weft::constants::default_view_height, fonts);
         });
         require(
@@ -188,7 +188,7 @@ int main(int argc, char** argv) {
             "fresh scroll extent");
         std::ostringstream out;
         out << "{\"fixture\":\"flow-layout-v1\",\"frames\":[";
-        std::vector<FlowPage> owned;
+        std::vector<DocumentLayout> owned;
         for (int frame = 0; frame < weft::test_constants::layout::fixture_frames; ++frame) {
             if (frame) {
                 vm.eval("flowLayoutFixture.advance()");
@@ -197,12 +197,12 @@ int main(int argc, char** argv) {
                 out << ',';
             }
             out << '[';
-            owned.push_back(build_flow_page(vm.snapshot_subtree("#gallery"), css, weft::constants::default_view_width,
+            owned.push_back(layout_document(vm.snapshot_subtree("#gallery"), css, weft::constants::default_view_width,
                                             weft::constants::default_view_height, fonts));
             report(out, owned.back());
             for (int i = 0; i < weft::test_constants::layout::flow_fixture_scenes; ++i) {
                 out << ',';
-                report(out, build_flow_page(vm.snapshot_subtree("#scene-" + std::to_string(i)), "",
+                report(out, layout_document(vm.snapshot_subtree("#scene-" + std::to_string(i)), "",
                                             weft::constants::default_view_width, weft::constants::default_view_height,
                                             fonts));
             }
@@ -239,7 +239,7 @@ int main(int argc, char** argv) {
             vm.eval("document.getElementById('viewport').clientWidth");
         });
         vm.install_layout_host([&](const auto& d) {
-            auto values = build_flow_page(find(d, "gallery"), css, weft::constants::default_view_width,
+            auto values = layout_document(find(d, "gallery"), css, weft::constants::default_view_width,
                                           weft::constants::default_view_height, fonts)
                               .elements;
             values[0].identity.view_epoch++;
@@ -249,7 +249,7 @@ int main(int argc, char** argv) {
             vm.eval("document.getElementById('viewport').clientWidth");
         });
         vm.install_layout_host([&](const auto& d) {
-            return build_flow_page(find(d, "gallery"), css, weft::constants::default_view_width,
+            return layout_document(find(d, "gallery"), css, weft::constants::default_view_width,
                                    weft::constants::default_view_height, fonts)
                 .elements;
         });
@@ -273,7 +273,7 @@ int main(int argc, char** argv) {
       const child=document.createElement('div');child.id='life-child';child.textContent='仓库运输仓库运输仓库运输';root.appendChild(child);document.body.appendChild(root);
     )JS");
             vm.install_layout_host([&](const auto& d) {
-                return build_flow_page(find(d, "life"), "", 100, 100, fonts).elements;
+                return layout_document(find(d, "life"), "", 100, 100, fonts).elements;
             });
             auto id = vm.node_identity("#life-child");
             vm.eval(

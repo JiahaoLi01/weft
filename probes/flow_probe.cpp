@@ -18,18 +18,18 @@ namespace probes {
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(read_file(WEFT_SOURCE_DIR "/tests/fixtures/flow-layout/fixture.js"));
         vm.install_layout_host([&](const auto& dom) {
-            return weft::build_flow_page(flow_find(dom, "gallery"), css, weft::constants::default_view_width,
+            return weft::layout_document(flow_find(dom, "gallery"), css, weft::constants::default_view_width,
                                          weft::constants::default_view_height, fonts)
                 .elements;
         });
-        std::array<weft::FlowPage, weft::probe_constants::interaction_frames> pages;
+        std::array<weft::DocumentLayout, weft::probe_constants::interaction_frames> pages;
         for (int i = 0; i < weft::probe_constants::interaction_frames; ++i) {
             if (i) {
                 require(vm.dispatch_mouse(vm.node_identity("#advance"), {weft::MouseType::Click, 30, 320}) ==
                             weft::DispatchResult::DefaultAllowed,
                         "flow native button dispatch");
             }
-            pages[i] = weft::build_flow_page(vm.snapshot_subtree("#gallery"), css, weft::constants::default_view_width,
+            pages[i] = weft::layout_document(vm.snapshot_subtree("#gallery"), css, weft::constants::default_view_width,
                                              weft::constants::default_view_height, fonts);
         }
         const auto old = vm.node_identity("#viewport");

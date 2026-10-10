@@ -33,7 +33,7 @@ namespace {
         // Every property a style profile registers has an id.
         for (const auto& profile :
              {weft::positioned_style_profile(), weft::flex_page_style_profile(), weft::auto_page_style_profile(),
-              weft::flow_page_style_profile(), weft::scene_style_profile()}) {
+              weft::document_style_profile(), weft::scene_style_profile()}) {
             for (const auto& [name, property] : profile.properties) {
                 require(weft::find_property(name).has_value(), "profile property " + name + " has no id");
             }

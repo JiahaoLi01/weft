@@ -1756,7 +1756,7 @@ namespace weft {
         return p;
     }
 
-    StyleProfile flow_page_style_profile() {
+    StyleProfile document_style_profile() {
         auto p = auto_page_style_profile();
         p.flow_shorthands = true;
         p.ua_stylesheet = "div,p,button,ul,li,section{display:block}i{font-style:italic}b{font-weight:700}";

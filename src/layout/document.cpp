@@ -1,4 +1,4 @@
-#include "layout/flow_page.hpp"
+#include "layout/document.hpp"
 #include "base/css_scalar.hpp"
 #include "base/rect.hpp"
 #include "constants/layout.hpp"
@@ -18,7 +18,7 @@ namespace weft {
         using geometry::intersect;
 
         [[noreturn]] void fail(const std::string& s) {
-            throw_diagnostic(Diag::FlowProfile, s);
+            throw_diagnostic(Diag::DocumentProfile, s);
         }
 
         std::string get(const Style& s, const std::string& k, const char* v = "") {
@@ -530,7 +530,7 @@ namespace weft {
             }
 
             void paint(std::size_t index, float dx, float dy, Rect clip, std::vector<RoundedClip> masks,
-                       FlowPage& out) {
+                       DocumentLayout& out) {
                 auto& n = nodes[index];
                 if (n.hidden || n.inlined) {
                     return;
@@ -594,7 +594,7 @@ namespace weft {
                 }
             }
 
-            void geometry(FlowPage& out) {
+            void geometry(DocumentLayout& out) {
                 for (std::size_t i = 0; i < nodes.size(); ++i) {
                     const auto& n = nodes[i];
                     float dx{};
@@ -643,7 +643,8 @@ namespace weft {
         };
     } // namespace
 
-    FlowPage build_flow_page(const DomSnapshot& root, const ComputedStyle& style, float w, float h, FontSet& fonts) {
+    DocumentLayout layout_document(const DomSnapshot& root, const ComputedStyle& style, float w, float h,
+                                   FontSet& fonts) {
         if (!std::isfinite(w) || !std::isfinite(h) || w <= 0 || h <= 0 || w > constants::layout::max_viewport_size_px ||
             h > constants::layout::max_viewport_size_px) {
             fail("viewport bounds");
@@ -723,13 +724,13 @@ namespace weft {
             boxes = layout();
         }
         b.arrange(boxes);
-        FlowPage out;
+        DocumentLayout out;
         b.geometry(out);
         b.paint(0, 0, 0, {0, 0, w, h}, {}, out);
         return out;
     }
 
-    FlowPage build_flow_page(const DomSnapshot& root, std::string_view css, float w, float h, FontSet& fonts) {
-        return build_flow_page(root, compute_style(root, css, flow_page_style_profile()), w, h, fonts);
+    DocumentLayout layout_document(const DomSnapshot& root, std::string_view css, float w, float h, FontSet& fonts) {
+        return layout_document(root, compute_style(root, css, document_style_profile()), w, h, fonts);
     }
 } // namespace weft

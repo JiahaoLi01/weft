@@ -17,7 +17,7 @@ namespace weft {
         StyleProfile,
         PositionedProfile,
         AutoProfile,
-        FlowProfile,
+        DocumentProfile,
         InlineProfile,
         SceneProfile,
         SceneRaster,
