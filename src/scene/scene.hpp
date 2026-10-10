@@ -1,6 +1,7 @@
 #pragma once
 #include "style/style.hpp"
 #include "scene/scene_paint.hpp"
+#include "scene/scene_text.hpp"
 #include <functional>
 #include <memory>
 
@@ -10,14 +11,6 @@ struct ID2D1RenderTarget;
 namespace weft {
     // Owner-only scene formatting/animation probe. Render adapters consume these
     // owned values; neither DOM pointers nor VM handles cross the boundary.
-    using SceneStyle = std::map<std::string, std::string>;
-
-    struct SceneTextMetrics {
-        float width{};
-        float height{};
-        float baseline{};
-    };
-
     using SceneMeasure = std::function<SceneTextMetrics(std::string_view, const SceneStyle&)>;
 
     struct SceneNode {
@@ -162,11 +155,11 @@ namespace weft {
 
     class SceneRaster {
     public:
-        SceneRaster();
+        // Text is measured and shaped by text (owner thread); the raster draws the runs.
+        explicit SceneRaster(SceneText& text);
         ~SceneRaster();
         SceneRaster(const SceneRaster&) = delete;
         SceneRaster& operator=(const SceneRaster&) = delete;
-        SceneTextMetrics measure(std::string_view, const SceneStyle&);
         std::array<double, 6> transform_matrix(const SceneNode&) const;
         SceneBitmap raster(const SceneFrame&, float scale = 1);
 

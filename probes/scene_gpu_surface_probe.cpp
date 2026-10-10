@@ -99,7 +99,7 @@ namespace probes {
                            {"border-radius", "4px"}};
             alpha.root.children.push_back(child);
         }
-        weft::SceneRaster software;
+        weft::SceneRaster software{weft::testing::thread_scene_text()};
         auto bitmap = software.raster(alpha, weft::probe_constants::gallery::scene_raster_scale);
         auto& source = surfaces.paint(0, alpha);
         surfaces.publish();

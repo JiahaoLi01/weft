@@ -19,7 +19,7 @@ namespace probes {
             Surface linear;
             ComPtr<ID2D1DeviceContext> target;
             ComPtr<ID2D1Bitmap1> bitmap;
-            weft::SceneRaster painter;
+            weft::SceneRaster painter{weft::testing::thread_scene_text()};
             weft_render_handle handle{};
             std::uint64_t last_serial{};
             std::uint64_t version{};

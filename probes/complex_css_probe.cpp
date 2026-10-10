@@ -11,7 +11,7 @@ namespace probes {
         gpu.cache_assets = true;
         TwoFramePipeline pipeline(gpu);
         SceneGpuSurfaces surfaces(gpu, pipeline);
-        weft::SceneRaster reference;
+        weft::SceneRaster reference{weft::testing::thread_scene_text()};
         unsigned comparisons{};
         double worst_mean{};
         double minimum_iou = 1;
@@ -245,12 +245,12 @@ namespace probes {
         const std::string timeline =
             "@keyframes motion{from{transform:translate(0,0) rotate(-25deg) scale(.8,1.1);opacity:.31}to{transform:translate(18%,9px) rotate(33deg) scale(1.1,.85);opacity:.79}}";
         weft::SceneSolver typed("", timeline, [&](auto text, const auto& style) {
-            return reference.measure(text, style);
+            return weft::testing::thread_scene_text().measure(text, style);
         });
         weft::SceneSolver full(
             "", timeline,
             [&](auto text, const auto& style) {
-                return reference.measure(text, style);
+                return weft::testing::thread_scene_text().measure(text, style);
             },
             false);
         for (unsigned frame = 0; frame < weft::probe_constants::gallery::complex_css_typed_frames; ++frame) {

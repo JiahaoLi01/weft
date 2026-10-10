@@ -16,7 +16,7 @@ namespace probes {
         TwoFramePipeline pipeline(gpu);
         SceneGpuSurfaces surfaces(gpu, pipeline);
         surfaces.retain_paint = true;
-        weft::SceneRaster reference;
+        weft::SceneRaster reference{weft::testing::thread_scene_text()};
         unsigned comparisons{};
         double worst_mean{};
         double minimum_iou = 1;

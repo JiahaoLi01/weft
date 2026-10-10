@@ -55,11 +55,53 @@ namespace weft {
         std::vector<std::uint8_t> distances;
     };
 
+    // Fixed-point unit of HarfBuzz positions. Layout probes keep 26.6 (1/64 px per glyph); Chrome positions in 16.16.
+    enum class ShapePrecision {
+        Fixed26_6,
+        Fixed16_16
+    };
+
+    // Variable font axis value in design coordinates, e.g. {'wght', 700}.
+    struct FontVariation {
+        std::uint32_t tag{};
+        float value{};
+
+        friend bool operator==(const FontVariation&, const FontVariation&) = default;
+        friend auto operator<=>(const FontVariation&, const FontVariation&) = default;
+    };
+
+    // One face of a font file: the index inside a TrueType/OpenType collection and the axis values of a
+    // variable font (unlisted axes keep their defaults).
+    struct FontFaceSource {
+        std::filesystem::path path;
+        std::uint32_t face_index{};
+        std::vector<FontVariation> variations;
+
+        friend bool operator==(const FontFaceSource&, const FontFaceSource&) = default;
+        friend auto operator<=>(const FontFaceSource&, const FontFaceSource&) = default;
+    };
+
+    // Immutable bytes of one font file, shared by the faces and instances read from it.
+    class FontFile final {
+    public:
+        explicit FontFile(const std::filesystem::path& path);
+
+        const std::vector<char>& bytes() const noexcept {
+            return bytes_;
+        }
+
+    private:
+        std::vector<char> bytes_;
+    };
+
     // M0 font adapter. Every operation and destruction belongs to its creator.
     // No Unicode line breaking, bidi paragraph analysis, fallback, or editing yet.
     class Font final {
     public:
         explicit Font(const std::filesystem::path& font);
+        explicit Font(const FontFaceSource& source);
+        Font(std::shared_ptr<const FontFile> file, std::uint32_t face_index,
+             const std::vector<FontVariation>& variations = {});
         ~Font();
         Font(const Font&) = delete;
         Font& operator=(const Font&) = delete;
@@ -67,7 +109,16 @@ namespace weft {
         // Explicit inline probe policy: OpenType USE_TYPO_METRICS, otherwise Win
         // ascent/descent, rounded at logical 1x. Legacy design metrics stay unchanged.
         FontMetrics inline_metrics(float pixels) const;
-        ShapedText shape(std::string_view utf8, float pixels) const;
+        // Unrounded line metrics as DirectWrite (and Chrome on Windows) derive them: the OS/2 typo values
+        // with USE_TYPO_METRICS, otherwise Win ascent/descent and the part of the hhea line spacing that
+        // exceeds them as line gap.
+        FontMetrics line_metrics(float pixels) const;
+        // True when the face has COLR, CBDT, sbix or SVG color glyph data.
+        bool has_color_glyphs() const;
+        // Glyph of a Unicode code point, 0 when the face has none.
+        std::uint32_t glyph_index(char32_t codepoint) const;
+        ShapedText shape(std::string_view utf8, float pixels,
+                         ShapePrecision precision = ShapePrecision::Fixed26_6) const;
         GlyphBitmap rasterize(std::uint32_t glyph_id, float pixels);
         GlyphBitmap rasterize(const Glyph& glyph, float pixels);
         SdfBitmap rasterize_sdf(std::uint32_t glyph_id,
@@ -98,6 +149,12 @@ namespace weft {
         std::size_t hits{};
         std::size_t misses{};
     };
+
+    // Shapes text with the first font and moves every cluster it cannot render to the first later font
+    // that covers it; adjacent clusters of one font are shaped together. Glyph font_id is the index in
+    // fonts. Bounded LTR Latin/Han/Common/Inherited profile (no bidi or script itemization yet).
+    FallbackText shape_with_fallback(const std::vector<Font*>& fonts, std::string_view utf8, float pixels,
+                                     ShapePrecision precision = ShapePrecision::Fixed26_6);
 
     // Owner-only font resource collection. Bounded LTR Latin/Han/Common/Inherited
     // profile, HarfBuzz clusters for fallback; paragraph bidi/line breaking pending.

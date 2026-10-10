@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include "../probes/gallery_cluster_input.hpp"
+#include "support/scene_fonts.hpp"
 #include "support/check.hpp"
 #include "support/host_time.hpp"
 #include "scene_test_image.hpp"
@@ -266,10 +267,10 @@ int main() {
             scene_read(WEFT_SOURCE_DIR "/examples/crpg-gallery/cluster-utilities.css"),
             scene_read(WEFT_SOURCE_DIR "/examples/crpg-gallery/cluster-keyframes.css"),
             [&](auto text, const auto& style) {
-                return s.raster.measure(text, style);
+                return weft::testing::thread_scene_text().measure(text, style);
             },
             false);
-        weft::SceneRaster oracle;
+        weft::SceneRaster oracle{weft::testing::thread_scene_text()};
         for (unsigned i = 0; i < weft::test_constants::scene::cluster_mutation_iterations; ++i) {
             s.vm.eval("mutate()");
             s.step(1702 + i);

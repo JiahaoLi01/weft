@@ -1,7 +1,7 @@
 # Scene tree, paint, damage and native geometry.
 weft_add_library(scene
-    SOURCES scene.cpp scene_paint.cpp scene_damage.cpp scene_native.cpp
-    PUBLIC weft::style
+    SOURCES scene.cpp scene_paint.cpp scene_damage.cpp scene_native.cpp scene_text.cpp
+    PUBLIC weft::style weft::text
     PRIVATE yogacore)
 
 if(WIN32)

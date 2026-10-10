@@ -6,6 +6,7 @@
 #include FT_FREETYPE_H
 #include FT_TRUETYPE_TABLES_H
 #include FT_MODULE_H
+#include FT_MULTIPLE_MASTERS_H
 #include <hb.h>
 #include <hb-ot.h>
 #include <algorithm>
@@ -18,9 +19,25 @@
 #include <thread>
 
 namespace weft {
+    FontFile::FontFile(const std::filesystem::path& path) {
+        std::ifstream file(path, std::ios::binary | std::ios::ate);
+        if (!file) {
+            throw std::runtime_error("WEFT_FONT_FILE: cannot open font");
+        }
+        const auto size = file.tellg();
+        if (size <= 0 || size > constants::text::max_font_file_bytes) {
+            throw std::runtime_error("WEFT_FONT_FILE: invalid font byte size");
+        }
+        bytes_.resize(static_cast<std::size_t>(size));
+        file.seekg(0);
+        if (!file.read(bytes_.data(), static_cast<std::streamsize>(bytes_.size()))) {
+            throw std::runtime_error("WEFT_FONT_FILE: truncated font");
+        }
+    }
+
     struct Font::Impl {
         OwnerThread owner;
-        std::vector<char> bytes;
+        std::shared_ptr<const FontFile> file;
         FT_Library library{};
         FT_Face face{};
         hb_blob_t* blob{};
@@ -34,32 +51,25 @@ namespace weft {
             }
         }
 
-        explicit Impl(const std::filesystem::path& path) {
+        Impl(std::shared_ptr<const FontFile> source, std::uint32_t face_index,
+             const std::vector<FontVariation>& variations)
+            : file(std::move(source)) {
             try {
-                std::ifstream file(path, std::ios::binary | std::ios::ate);
                 if (!file) {
-                    throw std::runtime_error("WEFT_FONT_FILE: cannot open font");
+                    throw std::invalid_argument("WEFT_FONT_FILE: missing font file");
                 }
-                const auto size = file.tellg();
-                if (size <= 0 || size > constants::text::max_font_file_bytes) {
-                    throw std::runtime_error("WEFT_FONT_FILE: invalid font byte size");
-                }
-                bytes.resize(static_cast<std::size_t>(size));
-                file.seekg(0);
-                if (!file.read(bytes.data(), static_cast<std::streamsize>(bytes.size()))) {
-                    throw std::runtime_error("WEFT_FONT_FILE: truncated font");
-                }
+                const auto& bytes = file->bytes();
                 if (FT_Init_FreeType(&library) ||
                     FT_New_Memory_Face(library, reinterpret_cast<const FT_Byte*>(bytes.data()),
-                                       static_cast<FT_Long>(bytes.size()), 0, &face)) {
-                    throw std::runtime_error("WEFT_FONT_FILE: FreeType rejected font");
+                                       static_cast<FT_Long>(bytes.size()), static_cast<FT_Long>(face_index), &face)) {
+                    throw std::runtime_error("WEFT_FONT_FILE: FreeType rejected font face");
                 }
                 if (!face->units_per_EM) {
                     throw std::runtime_error("WEFT_FONT_FILE: non-scalable font");
                 }
                 blob = hb_blob_create(bytes.data(), static_cast<unsigned>(bytes.size()), HB_MEMORY_MODE_READONLY,
                                       nullptr, nullptr);
-                hb_face = hb_face_create(blob, 0);
+                hb_face = hb_face_create(blob, face_index);
                 if (!hb_blob_get_length(blob) || !hb_face_get_glyph_count(hb_face)) {
                     throw std::runtime_error("WEFT_FONT_FILE: HarfBuzz rejected font");
                 }
@@ -68,10 +78,45 @@ namespace weft {
                     throw std::bad_alloc();
                 }
                 hb_ot_font_set_funcs(shape_font);
+                if (!variations.empty()) {
+                    vary(variations);
+                }
             } catch (...) {
                 cleanup();
                 throw;
             }
+        }
+
+        // The same axis values drive FreeType outlines and HarfBuzz advances.
+        void vary(const std::vector<FontVariation>& variations) {
+            FT_MM_Var* axes{};
+            if (!FT_HAS_MULTIPLE_MASTERS(face) || FT_Get_MM_Var(face, &axes)) {
+                throw std::invalid_argument("WEFT_FONT_VARIATION: face has no variation axes");
+            }
+            std::vector<FT_Fixed> coordinates(axes->num_axis);
+            for (FT_UInt i = 0; i < axes->num_axis; ++i) {
+                coordinates[i] = axes->axis[i].def;
+            }
+            std::vector<hb_variation_t> shaping;
+            for (const auto& v : variations) {
+                FT_UInt i = 0;
+                while (i < axes->num_axis && axes->axis[i].tag != v.tag) {
+                    ++i;
+                }
+                if (i == axes->num_axis || !std::isfinite(v.value)) {
+                    FT_Done_MM_Var(library, axes);
+                    const char tag[]{char(v.tag >> 24), char(v.tag >> 16), char(v.tag >> 8), char(v.tag), 0};
+                    throw std::invalid_argument(std::string("WEFT_FONT_VARIATION: unknown axis or value ") + tag);
+                }
+                coordinates[i] = static_cast<FT_Fixed>(std::lround(v.value * constants::text::fixed_16_16_one));
+                shaping.push_back({v.tag, v.value});
+            }
+            const auto count = axes->num_axis;
+            FT_Done_MM_Var(library, axes);
+            if (FT_Set_Var_Design_Coordinates(face, count, coordinates.data())) {
+                throw std::runtime_error("WEFT_FONT_VARIATION: FreeType rejected axis values");
+            }
+            hb_font_set_variations(shape_font, shaping.data(), static_cast<unsigned>(shaping.size()));
         }
 
         void cleanup() noexcept {
@@ -98,7 +143,16 @@ namespace weft {
         }
     };
 
-    Font::Font(const std::filesystem::path& font) : impl_(std::make_unique<Impl>(font)) {
+    Font::Font(const std::filesystem::path& font) : Font(std::make_shared<const FontFile>(font), 0) {
+    }
+
+    Font::Font(const FontFaceSource& source)
+        : Font(std::make_shared<const FontFile>(source.path), source.face_index, source.variations) {
+    }
+
+    Font::Font(std::shared_ptr<const FontFile> file, std::uint32_t face_index,
+               const std::vector<FontVariation>& variations)
+        : impl_(std::make_unique<Impl>(std::move(file), face_index, variations)) {
     }
 
     Font::~Font() = default;
@@ -128,7 +182,43 @@ namespace weft {
         return m;
     }
 
-    ShapedText Font::shape(std::string_view utf8, float pixels) const {
+    FontMetrics Font::line_metrics(float pixels) const {
+        impl_->check(pixels);
+        const auto* face = impl_->face;
+        const auto scale = pixels / face->units_per_EM;
+        const auto* os2 = static_cast<const TT_OS2*>(FT_Get_Sfnt_Table(impl_->face, ft_sfnt_os2));
+        const auto* hhea = static_cast<const TT_HoriHeader*>(FT_Get_Sfnt_Table(impl_->face, ft_sfnt_hhea));
+        if (!os2 || os2->version == constants::text::os2_absent_version || !hhea) {
+            return metrics(pixels);
+        }
+        if (os2->fsSelection & constants::text::os2_use_typo_metrics) {
+            return {os2->sTypoAscender * scale, -os2->sTypoDescender * scale, os2->sTypoLineGap * scale};
+        }
+        const long win = long(os2->usWinAscent) + long(os2->usWinDescent);
+        const long spacing = long(hhea->Ascender) - long(hhea->Descender) + long(hhea->Line_Gap);
+        return {os2->usWinAscent * scale, os2->usWinDescent * scale, std::max(0L, spacing - win) * scale};
+    }
+
+    bool Font::has_color_glyphs() const {
+        impl_->owner.require(Diag::WrongThread, "font owner");
+        for (const auto tag : {HB_TAG('C', 'O', 'L', 'R'), HB_TAG('C', 'B', 'D', 'T'), HB_TAG('s', 'b', 'i', 'x'),
+                               HB_TAG('S', 'V', 'G', ' ')}) {
+            hb_blob_t* table = hb_face_reference_table(impl_->hb_face, tag);
+            const bool present = hb_blob_get_length(table) > 0;
+            hb_blob_destroy(table);
+            if (present) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    std::uint32_t Font::glyph_index(char32_t codepoint) const {
+        impl_->owner.require(Diag::WrongThread, "font owner");
+        return FT_Get_Char_Index(impl_->face, static_cast<FT_ULong>(codepoint));
+    }
+
+    ShapedText Font::shape(std::string_view utf8, float pixels, ShapePrecision precision) const {
         impl_->check(pixels);
         if (utf8.size() > constants::text::max_shape_input_bytes) {
             throw std::invalid_argument("WEFT_TEXT_LIMIT: probe input exceeds 1 MiB");
@@ -143,7 +233,10 @@ namespace weft {
         // The immutable face and OpenType accelerators live for the owner font;
         // changing scale does not rebuild them for every fallback cluster.
         auto* font = impl_->shape_font;
-        const int scale = static_cast<int>(std::round(pixels * constants::text::fixed_26_6_units_per_pixel));
+        const float units = precision == ShapePrecision::Fixed16_16
+                                ? static_cast<float>(constants::text::fixed_16_16_one)
+                                : static_cast<float>(constants::text::fixed_26_6_units_per_pixel);
+        const int scale = static_cast<int>(std::round(pixels * units));
         hb_font_set_scale(font, scale, scale);
         hb_buffer_add_utf8(buffer.get(), utf8.data(), static_cast<int>(utf8.size()), 0, static_cast<int>(utf8.size()));
         hb_buffer_guess_segment_properties(buffer.get());
@@ -158,12 +251,9 @@ namespace weft {
         result.glyphs.reserve(count);
         for (unsigned i = 0; i < count; ++i) {
             const auto& p = positions[i];
-            result.glyphs.push_back({infos[i].codepoint, infos[i].cluster,
-                                     p.x_advance / static_cast<float>(constants::text::fixed_26_6_units_per_pixel),
-                                     p.y_advance / static_cast<float>(constants::text::fixed_26_6_units_per_pixel),
-                                     p.x_offset / static_cast<float>(constants::text::fixed_26_6_units_per_pixel),
-                                     p.y_offset / static_cast<float>(constants::text::fixed_26_6_units_per_pixel)});
-            result.advance += p.x_advance / static_cast<float>(constants::text::fixed_26_6_units_per_pixel);
+            result.glyphs.push_back({infos[i].codepoint, infos[i].cluster, p.x_advance / units, p.y_advance / units,
+                                     p.x_offset / units, p.y_offset / units});
+            result.advance += p.x_advance / units;
             result.missing_glyph |= infos[i].codepoint == 0;
         }
         return result;
@@ -281,6 +371,37 @@ namespace weft {
             return i->second;
         }
         ++impl_->shape_misses;
+        std::vector<Font*> fonts;
+        for (const auto& font : impl_->fonts) {
+            fonts.push_back(font.get());
+        }
+        auto result = shape_with_fallback(fonts, text, pixels);
+        if (result.shaped.glyphs.empty()) {
+            return result;
+        }
+        const auto bytes =
+            text.size() + result.shaped.glyphs.size() * sizeof(Glyph) + result.runs.size() * sizeof(FontRun);
+        if (bytes <= constants::text::shape_cache_max_bytes) {
+            if (impl_->shape_cache.size() >= constants::text::shape_cache_max_entries ||
+                bytes > constants::text::shape_cache_max_bytes - impl_->shape_bytes) {
+                impl_->shape_cache.clear();
+                impl_->shape_bytes = 0;
+            }
+            impl_->shape_cache.emplace(key, result);
+            impl_->shape_bytes += bytes;
+        }
+        return result;
+    }
+
+    FallbackText shape_with_fallback(const std::vector<Font*>& fonts, std::string_view text, float pixels,
+                                     ShapePrecision precision) {
+        if (fonts.empty() || fonts.size() > constants::text::max_fallback_fonts) {
+            throw std::invalid_argument("WEFT_FONT_SET: expected 1..8 ordered fonts");
+        }
+        (void)fonts.front()->metrics(pixels);
+        if (text.size() > constants::max_text_bytes) {
+            throw std::invalid_argument("WEFT_FONT_SET: 64 KiB text bound");
+        }
         const auto free_buffer = [](hb_buffer_t* p) {
             hb_buffer_destroy(p);
         };
@@ -313,7 +434,7 @@ namespace weft {
                     "WEFT_TEXT_SCRIPT: LTR Latin/Han profile; paragraph bidi/script itemization required");
             }
         }
-        auto primary = impl_->fonts.front()->shape(text, pixels);
+        auto primary = fonts.front()->shape(text, pixels, precision);
         FallbackText result;
         if (primary.glyphs.empty()) {
             return result;
@@ -338,8 +459,8 @@ namespace weft {
             const auto end = next == clusters.end() ? std::uint32_t(text.size()) : next->first;
             std::uint32_t selected{};
             if (i->second) {
-                for (std::uint32_t f = 1; f < impl_->fonts.size(); ++f) {
-                    if (!impl_->fonts[f]->shape(text.substr(i->first, end - i->first), pixels).missing_glyph) {
+                for (std::uint32_t f = 1; f < fonts.size(); ++f) {
+                    if (!fonts[f]->shape(text.substr(i->first, end - i->first), pixels, precision).missing_glyph) {
                         selected = f;
                         break;
                     }
@@ -352,7 +473,7 @@ namespace weft {
             }
         }
         for (const auto& span : spans) {
-            auto shaped = impl_->fonts[span.font]->shape(text.substr(span.start, span.end - span.start), pixels);
+            auto shaped = fonts[span.font]->shape(text.substr(span.start, span.end - span.start), pixels, precision);
             result.shaped.missing_glyph |= shaped.missing_glyph;
             result.shaped.advance += shaped.advance;
             for (auto g : shaped.glyphs) {
@@ -360,19 +481,7 @@ namespace weft {
                 g.utf8_cluster += span.start;
                 result.shaped.glyphs.push_back(g);
             }
-            result.runs.push_back(
-                {span.font, span.start, span.end - span.start, impl_->fonts[span.font]->metrics(pixels)});
-        }
-        const auto bytes =
-            text.size() + result.shaped.glyphs.size() * sizeof(Glyph) + result.runs.size() * sizeof(FontRun);
-        if (bytes <= constants::text::shape_cache_max_bytes) {
-            if (impl_->shape_cache.size() >= constants::text::shape_cache_max_entries ||
-                bytes > constants::text::shape_cache_max_bytes - impl_->shape_bytes) {
-                impl_->shape_cache.clear();
-                impl_->shape_bytes = 0;
-            }
-            impl_->shape_cache.emplace(key, result);
-            impl_->shape_bytes += bytes;
+            result.runs.push_back({span.font, span.start, span.end - span.start, fonts[span.font]->metrics(pixels)});
         }
         return result;
     }

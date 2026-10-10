@@ -4,8 +4,7 @@
 #include "base/owner_thread.hpp"
 #include "constants/scene.hpp"
 #include <d2d1_1.h>
-#include <dwrite.h>
-#include <dwrite_1.h>
+#include <dwrite_3.h>
 #include <wincodec.h>
 #include <wrl/client.h>
 #include <algorithm>
@@ -361,6 +360,8 @@ namespace weft {
 
     struct SceneRaster::Impl {
         const OwnerThread owner;
+        // Measurement and shaping; the raster only draws the runs.
+        SceneText& text;
 
         void require_owner() const {
             owner.require(Diag::SceneRasterOwner);
@@ -369,12 +370,11 @@ namespace weft {
         ComPtr<ID2D1Factory> factory;
         ComPtr<IWICImagingFactory> wic;
         ComPtr<IDWriteFactory> write;
-        std::wstring system_font = L"Segoe UI";
+        // DirectWrite faces of SceneText faces, for drawing glyph runs.
+        std::map<std::uint32_t, ComPtr<IDWriteFontFace>> dwrite_faces;
         ComPtr<IWICBitmap> backing;
         unsigned backing_width{};
         unsigned backing_height{};
-        std::map<std::tuple<std::string, std::string, float, int, float, float>, ComPtr<IDWriteTextLayout>> text_cache;
-        std::size_t text_cache_bytes{};
         std::map<std::tuple<float, float, std::array<float, 4>>, ComPtr<ID2D1PathGeometry>> round_cache;
         std::map<std::string, ComPtr<ID2D1PathGeometry>> path_cache;
         std::size_t path_cache_bytes{};
@@ -406,84 +406,129 @@ namespace weft {
         ComPtr<ID2D1SolidColorBrush> brush;
         float scale = 1;
 
-        Impl() {
-            NONCLIENTMETRICSW metrics{};
-            metrics.cbSize = sizeof(metrics);
-            if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0)) {
-                system_font = metrics.lfMessageFont.lfFaceName;
-            }
+        explicit Impl(SceneText& fonts) : text(fonts) {
             check(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, factory.GetAddressOf()));
             check(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic)));
             check(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
                                       reinterpret_cast<IUnknown**>(write.GetAddressOf())));
         }
 
-        ComPtr<IDWriteTextLayout> text_layout(std::string_view text, const Style& s,
-                                              float width = constants::scene::text_layout_max_extent) {
-            auto family = get(s, "font-family", constants::scene::system_font_family);
-            if (family.find("Consolas") != family.npos || family == "monospace") {
-                family = "Consolas";
-            } else if (family == "sans-serif") {
-                family = "Arial";
-            } else if (family.find("system-ui") != family.npos || family.find("ui-sans-serif") != family.npos) {
-                family = constants::scene::system_font_family;
-            } else if (family.starts_with('"')) {
-                auto end = family.find('"', 1);
-                family = family.substr(1, end - 1);
-            } else if (family.find(',') != family.npos) {
-                family = trim(family.substr(0, family.find(',')));
-            }
-            const auto font_size = len(get(s, "font-size", constants::default_font_size));
-            auto weight = get(s, "font-weight", constants::default_font_weight);
-            const auto bold = weight == "bold"     ? constants::scene::bold_font_weight_value
-                              : weight == "normal" ? constants::scene::normal_font_weight_value
-                                                   : num(weight);
-            float spacing = len(get(s, "letter-spacing", "0"), font_size);
-            auto key = std::tuple{std::string(text), family, font_size, int(bold), std::max(1.f, width), spacing};
-            if (auto i = text_cache.find(key); i != text_cache.end()) {
-                return i->second;
-            }
-            ComPtr<IDWriteTextFormat> format;
-            check(write->CreateTextFormat(
-                (family == constants::scene::system_font_family ? system_font : utf16(family)).c_str(), nullptr,
-                DWRITE_FONT_WEIGHT(int(bold)), DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, font_size,
-                L"en-us", &format));
-            check(format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP));
-            auto value = utf16(text);
-            ComPtr<IDWriteTextLayout> layout;
-            check(write->CreateTextLayout(value.c_str(), UINT(value.size()), format.Get(), std::max(1.f, width),
-                                          constants::scene::text_layout_max_extent, &layout));
-            ComPtr<IDWriteTextLayout1> kern;
-            if (SUCCEEDED(layout.As(&kern))) {
-                check(kern->SetPairKerning(TRUE, {0, UINT(value.size())}));
-            }
-            if (spacing != 0 && kern) {
-                check(kern->SetCharacterSpacing(0, spacing, 0, {0, UINT(value.size())}));
-            }
-            if (text_cache.size() >= constants::scene::text_cache_max_entries ||
-                text_cache_bytes + text.size() > constants::scene::text_cache_max_bytes) {
-                text_cache.clear();
-                text_cache_bytes = 0;
-            }
-            text_cache_bytes += text.size();
-            text_cache.emplace(std::move(key), layout);
-            return layout;
+        SceneTextMetrics measure(std::string_view value, const Style& s) {
+            return text.measure(value, s);
         }
 
-        SceneTextMetrics measure(std::string_view text, const Style& s) {
-            auto layout = text_layout(text, s);
-            DWRITE_TEXT_METRICS m{};
-            check(layout->GetMetrics(&m));
-            DWRITE_LINE_METRICS line{};
-            UINT count{};
-            check(layout->GetLineMetrics(&line, 1, &count));
-            float size = len(get(s, "font-size", constants::default_font_size));
-            float height = m.height;
-            auto lh = get(s, "line-height", constants::scene::default_line_height_multiplier);
-            if (lh != "normal") {
-                height = lh.ends_with("px") ? len(lh) : num(lh) * size;
+        // A DirectWrite face over the same file, collection index and axis values as the SceneText face: the
+        // reference raster draws HarfBuzz glyph runs with Windows glyph rendering.
+        IDWriteFontFace* dwrite_face(std::uint32_t id) {
+            if (auto i = dwrite_faces.find(id); i != dwrite_faces.end()) {
+                return i->second.Get();
             }
-            return {m.widthIncludingTrailingWhitespace, height, line.baseline + (height - m.height) / 2};
+            const auto& source = text.face_source(id);
+            ComPtr<IDWriteFontFile> file;
+            check(write->CreateFontFileReference(source.path.c_str(), nullptr, &file));
+            ComPtr<IDWriteFontFace> face;
+            if (source.variations.empty()) {
+                BOOL supported{};
+                DWRITE_FONT_FILE_TYPE file_type{};
+                DWRITE_FONT_FACE_TYPE face_type{};
+                UINT32 faces{};
+                check(file->Analyze(&supported, &file_type, &face_type, &faces));
+                if (!supported) {
+                    fail("DirectWrite font file");
+                }
+                check(write->CreateFontFace(face_type, 1, file.GetAddressOf(), source.face_index,
+                                            DWRITE_FONT_SIMULATIONS_NONE, &face));
+            } else {
+                ComPtr<IDWriteFactory6> factory6;
+                check(write.As(&factory6));
+                ComPtr<IDWriteFontResource> resource;
+                check(factory6->CreateFontResource(file.Get(), source.face_index, &resource));
+                std::vector<DWRITE_FONT_AXIS_VALUE> axes;
+                for (const auto& v : source.variations) {
+                    // Big-endian packed OpenType tag to DirectWrite's memory-order tag.
+                    const auto tag = ((v.tag >> 24) & 0xffu) | (((v.tag >> 16) & 0xffu) << 8) |
+                                     (((v.tag >> 8) & 0xffu) << 16) | ((v.tag & 0xffu) << 24);
+                    axes.push_back({DWRITE_FONT_AXIS_TAG(tag), v.value});
+                }
+                ComPtr<IDWriteFontFace5> varied;
+                check(
+                    resource->CreateFontFace(DWRITE_FONT_SIMULATIONS_NONE, axes.data(), UINT32(axes.size()), &varied));
+                face = varied;
+            }
+            if (dwrite_faces.size() >= constants::scene::dwrite_face_cache_max_entries) {
+                dwrite_faces.clear();
+            }
+            return dwrite_faces.emplace(id, face).first->second.Get();
+        }
+
+        // Characters of glyphs [first, last) of a run drawn by a DirectWrite layout of their face's family, with
+        // the run's baseline at y. D2D draws COLRv1 paint glyphs only through layouts.
+        void draw_color_glyphs(const SceneTextRun& run, std::string_view value, std::size_t first, std::size_t last,
+                               float x, float y) {
+            const auto begin = run.glyphs[first].utf8_cluster;
+            const auto end = last < run.glyphs.size() ? run.glyphs[last].utf8_cluster : std::uint32_t(value.size());
+            ComPtr<IDWriteFontFace3> face;
+            check(dwrite_face(run.glyphs[first].face)->QueryInterface(IID_PPV_ARGS(&face)));
+            ComPtr<IDWriteLocalizedStrings> names;
+            check(face->GetFamilyNames(&names));
+            UINT32 length{};
+            check(names->GetStringLength(0, &length));
+            std::wstring family(length + 1, L'\0');
+            check(names->GetString(0, family.data(), length + 1));
+            family.resize(length);
+            ComPtr<IDWriteTextFormat> format;
+            check(write->CreateTextFormat(family.c_str(), nullptr, face->GetWeight(), face->GetStyle(),
+                                          face->GetStretch(), run.size, L"en-us", &format));
+            check(format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP));
+            const auto characters = utf16(value.substr(begin, end - begin));
+            ComPtr<IDWriteTextLayout> layout;
+            check(write->CreateTextLayout(characters.c_str(), UINT32(characters.size()), format.Get(),
+                                          constants::scene::text_layout_max_extent,
+                                          constants::scene::text_layout_max_extent, &layout));
+            DWRITE_LINE_METRICS line{};
+            UINT32 lines{};
+            check(layout->GetLineMetrics(&line, 1, &lines));
+            target->DrawTextLayout({x, y - line.baseline}, layout.Get(), brush.Get(),
+                                   D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+        }
+
+        // A shaped run with its baseline origin at (x, y): one DirectWrite glyph run per face.
+        void draw_run(const SceneTextRun& run, std::string_view value, float x, float y) {
+            const auto& glyphs = run.glyphs;
+            std::vector<float> pens(glyphs.size());
+            float pen{};
+            for (std::size_t k = 0; k < glyphs.size(); ++k) {
+                pens[k] = pen;
+                pen += glyphs[k].advance;
+            }
+            for (std::size_t i = 0; i < glyphs.size();) {
+                auto j = i;
+                while (j < glyphs.size() && glyphs[j].face == glyphs[i].face) {
+                    ++j;
+                }
+                if (text.color_face(glyphs[i].face)) {
+                    draw_color_glyphs(run, value, i, j, x + pens[i], y);
+                } else {
+                    std::vector<UINT16> indices;
+                    std::vector<FLOAT> advances;
+                    std::vector<DWRITE_GLYPH_OFFSET> offsets;
+                    for (auto k = i; k < j; ++k) {
+                        indices.push_back(UINT16(glyphs[k].glyph_id));
+                        advances.push_back(glyphs[k].advance);
+                        offsets.push_back({glyphs[k].x - pens[k], -glyphs[k].y});
+                    }
+                    const DWRITE_GLYPH_RUN glyph_run{dwrite_face(glyphs[i].face),
+                                                     run.size,
+                                                     UINT32(indices.size()),
+                                                     indices.data(),
+                                                     advances.data(),
+                                                     offsets.data(),
+                                                     FALSE,
+                                                     0};
+                    target->DrawGlyphRun({x + pens[i], y}, &glyph_run, brush.Get(), DWRITE_MEASURING_MODE_NATURAL);
+                }
+                i = j;
+            }
         }
 
         ComPtr<ID2D1PathGeometry> path(std::string value, bool evenodd = false) {
@@ -1088,7 +1133,7 @@ namespace weft {
                 }
                 SceneFrame frame;
                 frame.root = content;
-                SceneRaster software;
+                SceneRaster software(text);
                 auto image = software.raster(frame, scale);
                 if (color_text.size() >= constants::scene::color_text_cache_max_entries ||
                     color_text_bytes + image.rgba.size() > constants::scene::color_text_cache_max_bytes) {
@@ -1129,14 +1174,11 @@ namespace weft {
             if (!svg_text && color_text_bitmap(n)) {
                 return;
             }
-            auto layout = text_layout(n.text, n.style, n.box[2]);
-            DWRITE_TEXT_METRICS m{};
-            check(layout->GetMetrics(&m));
-            DWRITE_LINE_METRICS line{};
-            UINT count{};
-            check(layout->GetLineMetrics(&line, 1, &count));
+            const auto run = text.shape(n.text, n.style);
+            const auto& m = run->metrics;
             float size = len(get(n.style, "font-size", constants::default_font_size));
             float x{};
+            // Top of the line box; the baseline is m.baseline below it.
             float y{};
             if (svg_text) {
                 x = n.attributes.contains("x") ? len(n.attributes.at("x")) : 0;
@@ -1150,7 +1192,7 @@ namespace weft {
                 } else if (anchor == "end") {
                     x -= m.width;
                 }
-                y -= get(n.style, "dominant-baseline") == "central" ? m.height / 2 : line.baseline;
+                y -= get(n.style, "dominant-baseline") == "central" ? m.height / 2 : m.baseline;
             } else {
                 const auto align = get(n.style, "text-align", "left");
                 if (align == "center") {
@@ -1158,9 +1200,6 @@ namespace weft {
                 } else if (align == "right") {
                     x = n.box[2] - m.width;
                 }
-                auto lh = get(n.style, "line-height", constants::scene::default_line_height_multiplier);
-                float height = lh == "normal" ? m.height : lh.ends_with("px") ? len(lh) : num(lh) * size;
-                y = (height - m.height) / 2;
                 if (get(n.style, "display") == "flex") {
                     if (get(n.style, "justify-content") == "center") {
                         x = (n.box[2] - m.width) / 2;
@@ -1174,7 +1213,7 @@ namespace weft {
             }
             solid(svg_text ? color(get(n.style, "fill", "#000000"), n.style)
                            : paint_color(n, constants::scene::paint_slot_color, get(n.style, "color", "#000000")));
-            target->DrawTextLayout({x, y}, layout.Get(), brush.Get(), D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+            draw_run(*run, n.text, x, y + m.baseline);
         }
 
         struct Stop {
@@ -1601,7 +1640,7 @@ namespace weft {
             std::optional<SceneBitmap> uncached;
             auto it = projected.find(key);
             if (it == projected.end() || it->second.node != f.root || it->second.scale != scale) {
-                SceneRaster nested;
+                SceneRaster nested(text);
                 auto pixels = nested.raster(f, scale);
                 if (pixels.rgba.size() > constants::scene::projective_cache_max_bytes) {
                     uncached = std::move(pixels);
@@ -1928,7 +1967,7 @@ namespace weft {
                 };
                 inspect(inspect, source);
                 if (get(source.style, "overflow") != "hidden") {
-                    SceneRaster bounds;
+                    SceneRaster bounds(text);
                     for (const auto& e : bounds.geometry(frame)) {
                         if (e.rect[0] < -constants::scene::layer_bounds_tolerance_px ||
                             e.rect[1] < -constants::scene::layer_bounds_tolerance_px ||
@@ -1952,7 +1991,7 @@ namespace weft {
                                                            D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS_NONE, &local));
                 local->SetDpi(constants::scene::d2d_default_dpi, constants::scene::d2d_default_dpi);
                 frame.root.box[0] = frame.root.box[1] = constants::scene::layer_padding_px;
-                SceneRaster painter;
+                SceneRaster painter(text);
                 painter.paint_d2d(frame, local.Get(), scale);
                 auto created = std::make_shared<CachedLayer>();
                 created->key = std::move(source);
@@ -2338,7 +2377,7 @@ namespace weft {
         return impl_->work;
     }
 
-    SceneRaster::SceneRaster() : impl_(std::make_unique<Impl>()) {
+    SceneRaster::SceneRaster(SceneText& text) : impl_(std::make_unique<Impl>(text)) {
     }
 
     SceneRaster::~SceneRaster() = default;
@@ -2347,11 +2386,6 @@ namespace weft {
         impl_->require_owner();
         auto m = transform(get(n.style, "transform", "none"), n.box[2], n.box[3], false);
         return {m._11, m._12, m._21, m._22, m._31, m._32};
-    }
-
-    SceneTextMetrics SceneRaster::measure(std::string_view text, const Style& s) {
-        impl_->require_owner();
-        return impl_->measure(text, s);
     }
 
     SceneBitmap SceneRaster::raster(const SceneFrame& f, float scale) {
@@ -2482,12 +2516,7 @@ namespace weft {
                 check(shape->GetBounds(nullptr, &r));
             }
             if (n.tag == "text") {
-                auto layout = impl_->text_layout(n.text, n.style);
-                DWRITE_TEXT_METRICS metrics{};
-                check(layout->GetMetrics(&metrics));
-                DWRITE_LINE_METRICS line{};
-                UINT count{};
-                check(layout->GetLineMetrics(&line, 1, &count));
+                const auto metrics = impl_->measure(n.text, n.style);
                 float tx = n.attributes.contains("x") ? len(n.attributes.at("x")) : 0;
                 float ty = n.attributes.contains("y") ? len(n.attributes.at("y")) : 0;
                 if (n.attributes.contains("dy")) {
@@ -2500,7 +2529,7 @@ namespace weft {
                 if (anchor == "end") {
                     tx -= metrics.width;
                 }
-                ty -= get(n.style, "dominant-baseline") == "central" ? metrics.height / 2 : line.baseline;
+                ty -= get(n.style, "dominant-baseline") == "central" ? metrics.height / 2 : metrics.baseline;
                 r = {tx, ty, tx + metrics.width, ty + metrics.height};
             }
             for (const auto& c : n.children) {

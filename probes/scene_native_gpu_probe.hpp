@@ -61,7 +61,7 @@ namespace probes {
         ComPtr<ID3D11VertexShader> vs_;
         ComPtr<ID3D11PixelShader> ps_;
         ComPtr<ID3D11RasterizerState> raster_;
-        weft::SceneRaster text_;
+        weft::SceneRaster text_{weft::testing::thread_scene_text()};
         std::map<std::array<std::uint64_t, 4>, std::shared_ptr<const Image>> images_;
         std::size_t image_bytes_{};
         std::size_t scratch_bytes_{};
@@ -105,7 +105,7 @@ namespace probes {
                         supported = false;
                     }
                     if (!node.text.empty()) {
-                        auto m = text_.measure(node.text, node.style);
+                        auto m = weft::testing::thread_scene_text().measure(node.text, node.style);
                         if (m.width > node.box[2] + weft::probe_constants::gallery::text_fit_tolerance ||
                             m.height > node.box[3] + weft::probe_constants::gallery::text_fit_tolerance) {
                             supported = false;
@@ -133,7 +133,7 @@ namespace probes {
                     throw std::invalid_argument("explicit native layer bounds reference");
                 }
             }
-            auto metrics = text_.measure(n.text, n.style);
+            auto metrics = weft::testing::thread_scene_text().measure(n.text, n.style);
             auto overflow = n.style.find("overflow");
             if (p.kind == Paint::Text && (overflow == n.style.end() || overflow->second != "hidden") &&
                 (metrics.width > n.box[2] + weft::probe_constants::gallery::text_fit_tolerance ||

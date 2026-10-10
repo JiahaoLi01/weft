@@ -81,11 +81,11 @@ weft_add_test(NAME animation_frame_contract COMMAND weft_animation_frame_tests T
 
 # Scenes and Canvas 2D through the Windows reference rasters.
 if(WIN32)
-    set(scene_libraries weft::scene_d2d weft::script windowscodecs ole32)
+    set(scene_libraries weft::scene_d2d weft::platform_win32 weft::script windowscodecs ole32)
 
     weft_add_executable(weft_scene_contract_tests
         SOURCES scene_contract_tests.cpp
-        LINK weft::scene_d2d weft::script ole32
+        LINK weft::scene_d2d weft::platform_win32 weft::script ole32
         SOURCE_DIR LARGE_STACK)
     weft_add_test(NAME scene_contract COMMAND weft_scene_contract_tests)
 
@@ -124,6 +124,17 @@ if(WIN32)
         ARGS "${artifacts}/scene-gallery-$<CONFIG>" "${fixtures}/scene-gallery-reference"
         DEPENDS scene_gallery_original)
 
+    # Portable scene text on the installed fonts versus Chrome's metrics and face choices.
+    weft_add_executable(weft_scene_text_tests SOURCES scene_text_tests.cpp LINK weft::scene weft::platform_win32)
+    weft_add_test(NAME scene_text_metrics
+        COMMAND weft_scene_text_tests "${artifacts}/scene-text-$<CONFIG>/native.json"
+        FIXTURES_SETUP scene_text_report)
+    weft_add_python_test(NAME scene_text_browser_diff
+        SCRIPT tools/compare_scene_text.py
+        ARGS "${fixtures}/scene_text_reference.json" "${artifacts}/scene-text-$<CONFIG>/native.json"
+        --output "${artifacts}/scene-text-$<CONFIG>/browser-comparison.json"
+        FIXTURES_REQUIRED scene_text_report)
+
     weft_add_executable(weft_canvas_tests
         SOURCES canvas_tests.cpp
         LINK weft::script weft::canvas_d2d weft::layout
@@ -134,6 +145,9 @@ endif()
 # Fonts and text.
 weft_add_executable(weft_text_tests SOURCES text_tests.cpp LINK weft::text SOURCE_DIR)
 weft_add_test(NAME text_font_probe COMMAND weft_text_tests)
+
+weft_add_executable(weft_font_catalog_tests SOURCES font_catalog_tests.cpp LINK weft::text)
+weft_add_test(NAME font_catalog_contract COMMAND weft_font_catalog_tests)
 
 weft_add_executable(weft_font_fallback_tests SOURCES font_fallback_tests.cpp LINK weft::text SOURCE_DIR)
 weft_add_test(NAME font_fallback_contract COMMAND weft_font_fallback_tests)

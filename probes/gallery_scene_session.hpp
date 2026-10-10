@@ -6,6 +6,7 @@
 #include "scene/scene.hpp"
 #include "../tests/support/files.hpp"
 #include "../tests/support/host_time.hpp"
+#include "../tests/support/scene_fonts.hpp"
 #include <fstream>
 #include <chrono>
 #include <sstream>
@@ -18,7 +19,7 @@ inline std::string scene_read(const std::string& path) {
 // One owner VM per original case. The fixture and its React/D3 bundles are
 // unchanged. The declared host is the same body formatting context as gallery.
 struct GallerySceneSession {
-    weft::SceneRaster raster;
+    weft::SceneRaster raster{weft::testing::thread_scene_text()};
     weft::SceneSolver scene;
     weft::ScriptDom vm{
         {weft::probe_constants::gallery::vm_stack_bytes, weft::probe_constants::gallery::scene_vm_execution_budget_ms}};
@@ -102,7 +103,7 @@ struct GallerySceneSession {
                 scene_read(std::string(WEFT_SOURCE_DIR) + "/examples/crpg-gallery/" +
                            (stylesheet == "cluster-utilities.css" ? "cluster-keyframes.css" : "scene-keyframes.css")),
                 [this](auto text, const auto& style) {
-                    return raster.measure(text, style);
+                    return weft::testing::thread_scene_text().measure(text, style);
                 }},
           vm{{std::size_t(group == "CSS_TESTS" || group == "D3_TESTS"
                               ? weft::probe_constants::gallery::vm_stack_bytes

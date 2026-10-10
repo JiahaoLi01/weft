@@ -97,7 +97,14 @@ namespace weft::constants::scene {
     inline constexpr int text_layout_max_extent = constants::max_logical_px_magnitude;
     // Family that maps to the system message font.
     inline constexpr const char* system_font_family = "Segoe UI";
+    // Portable scene text (SceneText): CSS family list of nodes without font-family, distinct faces and the
+    // total bytes of the font files they load.
+    inline constexpr const char* default_text_families = "system-ui";
+    inline constexpr int text_max_faces = 64;
+    inline constexpr int text_font_max_bytes = 256 * constants::bytes_per_mib;
     inline constexpr int text_cache_max_entries = 256;
+    // DirectWrite faces the reference raster keeps for drawing SceneText glyph runs.
+    inline constexpr int dwrite_face_cache_max_entries = 64;
     inline constexpr int text_cache_max_bytes = 2 * constants::bytes_per_mib;
     // UTF-8 lead bytes of four-byte sequences (supplementary planes, including color emoji).
     inline constexpr int utf8_four_byte_lead_mask = 0xf8;

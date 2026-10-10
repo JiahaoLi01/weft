@@ -146,7 +146,7 @@ namespace probes {
         std::array<std::unique_ptr<weft::SceneRaster>, gallery_scene_count> scene_reference;
         if (owner && self_test) {
             for (auto& r : scene_reference) {
-                r = std::make_unique<weft::SceneRaster>();
+                r = std::make_unique<weft::SceneRaster>(weft::testing::thread_scene_text());
             }
         }
         std::array<std::unique_ptr<GalleryCanvasSession>, weft::probe_constants::gallery::canvas_case_count> sessions;

@@ -1,4 +1,5 @@
 #include "scene/scene.hpp"
+#include "support/scene_fonts.hpp"
 #include "script/script_platform.hpp"
 #include "support/check.hpp"
 #include "../probes/gallery_scene_session.hpp"
@@ -42,12 +43,12 @@ int main() {
             "interval error/cancel leaked task");
         vm.reset_document();
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
-        weft::SceneRaster raster;
+        weft::SceneRaster raster{weft::testing::thread_scene_text()};
         weft::SceneSolver scene(
             ".bg-gold\\/20{background-color:rgba(212,168,67,.2)}.parent{transition-property:color;transition-duration:1s;transition-timing-function:linear}.explicit{color:#ff0000}",
             "@keyframes k{from{transform:translateX(0);opacity:0}to{transform:translateX(20px);opacity:1}}",
             [&](auto t, const auto& s) {
-                return raster.measure(t, s);
+                return weft::testing::thread_scene_text().measure(t, s);
             });
         vm.eval(
             "document.getElementById('root').setAttribute('style','background:#000000;position:relative');const p=document.createElement('div');p.setAttribute('class','parent');p.setAttribute('style','color:#000000');const a=document.createElement('span');a.textContent='A';const b=document.createElement('span');b.setAttribute('class','explicit');b.textContent='B';p.appendChild(a);p.appendChild(b);document.getElementById('root').appendChild(p)");
@@ -116,7 +117,7 @@ int main() {
         vm.eval(
             "const r=document.getElementById('root');r.style.backgroundColor='#000000';const parent=document.createElement('div');parent.setAttribute('style','width:30px;height:30px;transform:scale(1)');const inner=document.createElement('div');inner.setAttribute('style','position:absolute;inset:0;background-color:#ffffff');parent.appendChild(inner);r.appendChild(parent)");
         weft::SceneSolver containing("", "", [&](auto t, const auto& st) {
-            return raster.measure(t, st);
+            return weft::testing::thread_scene_text().measure(t, st);
         });
         auto contained = containing.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
                                           weft::test_constants::scene::contract_view_size, 0);
@@ -151,7 +152,7 @@ int main() {
         vm.eval(
             "const root=document.getElementById('root');const n=document.createElement('div');n.setAttribute('style','width:20px;height:20px;color:#0000ff;border-width:2px;animation:chase 1s linear infinite');root.appendChild(n)");
         weft::SceneSolver chase("", "@keyframes chase{75%{border-color:#ff0000}}", [&](auto t, const auto& st) {
-            return raster.measure(t, st);
+            return weft::testing::thread_scene_text().measure(t, st);
         });
         chase.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
                     weft::test_constants::scene::contract_view_size, 0);
@@ -163,7 +164,7 @@ int main() {
                 "implicit border keyframe end did not use underlying currentcolor");
         vm.eval("n.setAttribute('style','width:20px;height:20px;animation:fade 1s linear infinite alternate-reverse')");
         weft::SceneSolver reverse("", "@keyframes fade{from{opacity:0}to{opacity:1}}", [&](auto t, const auto& st) {
-            return raster.measure(t, st);
+            return weft::testing::thread_scene_text().measure(t, st);
         });
         reverse.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
                       weft::test_constants::scene::contract_view_size, 0);
@@ -197,7 +198,7 @@ int main() {
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         const std::string static_sheet = ".shade{background-color:#d4a843}.other{background-color:#225577}";
         weft::SceneSolver persisted(static_sheet, "", [&](auto t, const auto& st) {
-            return raster.measure(t, st);
+            return weft::testing::thread_scene_text().measure(t, st);
         });
         vm.eval(
             "const root=document.getElementById('root');root.setAttribute('style','background-color:#000000;position:relative;overflow:hidden');globalThis.boxes=[];globalThis.parents=[];for(let i=0;i<2;i++){let p=document.createElement('div');p.setAttribute('style','position:absolute;left:'+i*40+'px;top:0px;width:40px;height:80px');root.appendChild(p);parents.push(p)}for(let i=0;i<24;i++){let b=document.createElement('div');b.setAttribute('class','shade');b.setAttribute('style','position:absolute;left:'+i%6*5+'px;top:'+Math.floor(i/6)*15+'px;width:8px;height:8px');parents[i%2].appendChild(b);boxes.push(b)}let seed=0x9e3779b9;globalThis.mutate=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;let b=boxes[seed%24],op=(seed>>>8)%4;if(op===0){b.style.transform='translateX('+((seed>>>16)%8)+'px)'}else if(op===1)b.setAttribute('class',(seed&1)?'shade':'other');else if(op===2){if(b.parentNode)b.parentNode.removeChild(b);else parents[seed%2].appendChild(b)}else parents[seed%2].appendChild(b)}");
@@ -209,7 +210,7 @@ int main() {
             weft::SceneSolver fresh(
                 static_sheet, "",
                 [&](auto t, const auto& st) {
-                    return raster.measure(t, st);
+                    return weft::testing::thread_scene_text().measure(t, st);
                 },
                 false);
             auto expected = fresh.frame(snapshot, weft::test_constants::scene::contract_view_size,
@@ -235,12 +236,12 @@ int main() {
         const std::string keyframes =
             "@keyframes move{from{transform:translateX(0);color:#000000}to{transform:translateX(20px);color:#ffffff}}";
         weft::SceneSolver retained("", keyframes, [&](auto t, const auto& st) {
-            return raster.measure(t, st);
+            return weft::testing::thread_scene_text().measure(t, st);
         });
         weft::SceneSolver full(
             "", keyframes,
             [&](auto t, const auto& st) {
-                return raster.measure(t, st);
+                return weft::testing::thread_scene_text().measure(t, st);
             },
             false);
         for (unsigned i = 0; i < 40; ++i) {
@@ -280,7 +281,7 @@ int main() {
         vm.eval(
             "let root=document.getElementById('root');let svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('width','20');svg.setAttribute('height','20');let rect=document.createElementNS(svg.namespaceURI,'rect');rect.setAttribute('width','5');rect.setAttribute('height','10');rect.setAttribute('fill','#ff0000');svg.appendChild(rect);root.appendChild(svg)");
         weft::SceneSolver keyed("rect[width='10']{fill:#00ff00}", "", [&](auto t, const auto& st) {
-            return raster.measure(t, st);
+            return weft::testing::thread_scene_text().measure(t, st);
         });
         keyed.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
                     weft::test_constants::scene::contract_view_size, 0);
@@ -351,16 +352,16 @@ int main() {
         const std::string tracks =
             "@keyframes motion{25%{transform:translateX(0)}75%{transform:translateX(20px);border-color:#ff0000}}@keyframes shade{from{opacity:.2}to{opacity:.8}}";
         weft::SceneSolver planned("", tracks, [&](auto text, const auto& st) {
-            return raster.measure(text, st);
+            return weft::testing::thread_scene_text().measure(text, st);
         });
         weft::SceneSolver unplanned(
             "", tracks,
             [&](auto text, const auto& st) {
-                return raster.measure(text, st);
+                return weft::testing::thread_scene_text().measure(text, st);
             },
             false);
         weft::SceneSolver retained_solver("", tracks, [&](auto text, const auto& st) {
-            return raster.measure(text, st);
+            return weft::testing::thread_scene_text().measure(text, st);
         });
         weft::SceneFrame retained_frame;
         for (unsigned i = 0; i < 160; ++i) {
@@ -444,16 +445,16 @@ int main() {
         vm.eval(
             "const root=document.getElementById('root');root.style.position='relative';root.style.backgroundColor='#000000';let p=document.createElement('div');p.setAttribute('style','width:30px;height:24px;color:#225577;transform:scale(1);transition-property:color;transition-duration:200ms;transition-timing-function:linear');let n=document.createElement('div');n.setAttribute('style','position:absolute;inset:0;background:#884422;border-radius:4px');p.appendChild(n);root.appendChild(p)");
         weft::SceneSolver layout_retained("", "", [&](auto text, const auto& st) {
-            return raster.measure(text, st);
+            return weft::testing::thread_scene_text().measure(text, st);
         });
         weft::SceneSolver layout_reference(
             "", "",
             [&](auto text, const auto& st) {
-                return raster.measure(text, st);
+                return weft::testing::thread_scene_text().measure(text, st);
             },
             false);
         weft::SceneSolver layout_updated("", "", [&](auto text, const auto& st) {
-            return raster.measure(text, st);
+            return weft::testing::thread_scene_text().measure(text, st);
         });
         weft::SceneFrame layout_output;
         std::optional<weft::SceneFrame> independent;

@@ -31,6 +31,7 @@
 #include "../tests/support/json.hpp"
 #include "../tests/support/owner_trace.hpp"
 #include "../tests/support/png.hpp"
+#include "../tests/support/scene_fonts.hpp"
 #include <windowsx.h>
 #include <d3d11.h>
 #include <d2d1_1.h>
