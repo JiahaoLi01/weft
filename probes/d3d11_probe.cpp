@@ -1,3 +1,4 @@
+#include "cheetah_probe.hpp"
 #include "probe_common.hpp"
 #include "probe_modes.hpp"
 #include "react_window_host.hpp"
@@ -254,17 +255,21 @@ namespace probes {
         require(script.eval("caseElephantReact.errors.length") == "0", "React initial error");
         const auto item = script.node_identity("#item-ember");
         const auto button = script.node_identity("#increment");
-        weft::Font font(WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
-        std::array<weft::Page, weft::probe_constants::interaction_frames> pages;
+        weft::FontSet fonts({WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf"});
+        std::array<weft::DocumentLayout, weft::probe_constants::interaction_frames> pages;
         std::array<std::string, weft::probe_constants::interaction_frames> states;
-        pages[0] = weft::build_page(script.snapshot_subtree("#page"), font);
+        auto layout = [&] {
+            return weft::layout_document(script.snapshot_subtree("#page"), "", weft::constants::default_view_width,
+                                         weft::constants::default_view_height, fonts);
+        };
+        pages[0] = layout();
         states[0] = script.eval("JSON.stringify(caseElephantReact.snapshot())");
         script.eval("document.getElementById('increment').dispatchEvent(new Event('click',{bubbles:true}));");
         pump_react(script, weft::probe_constants::fixture_frame_ms);
         require(script.eval("document.getElementById('count').textContent") == "Count: 1",
                 "React useState click update");
         require(script.node_identity("#increment") == button, "React state update replaced button identity");
-        pages[1] = weft::build_page(script.snapshot_subtree("#page"), font);
+        pages[1] = layout();
         states[1] = script.eval("JSON.stringify(caseElephantReact.snapshot())");
         script.eval("document.getElementById('reverse').dispatchEvent(new Event('click',{bubbles:true}));");
         pump_react(script, 2 * weft::probe_constants::fixture_frame_ms);
@@ -273,7 +278,7 @@ namespace probes {
         require(script.node_identity("#item-ember") == item, "keyed update did not retain native node identity");
         require(script.eval("caseElephantReact.errors.length") == "0" && script.stats().listener_exceptions == 0,
                 "React interaction error");
-        pages[2] = weft::build_page(script.snapshot_subtree("#page"), font);
+        pages[2] = layout();
         states[2] = script.eval("JSON.stringify(caseElephantReact.snapshot())");
         write_text(folder / "native-dom.json", script.dump_document());
         script.eval("caseElephantReact.unmount();");
@@ -292,7 +297,7 @@ namespace probes {
         std::size_t assertions{};
         bool debug = true;
         for (std::size_t i = 0; i < pages.size(); ++i) {
-            auto packet = prepare_page_glyphs(pages[i], font);
+            auto packet = cheetah_packet(pages[i].page, fonts, {});
             const auto textures = packet.assets.size();
             const auto draws = packet.draws.size();
             Experiment direct(warp, weft::constants::default_view_width, weft::constants::default_view_height);
@@ -366,7 +371,7 @@ namespace probes {
             if (i) {
                 report << ',';
             }
-            report << "{\"state\":" << states[i] << ",\"layout\":" << page_json(pages[i])
+            report << "{\"state\":" << states[i] << ",\"layout\":" << page_json(pages[i].page.geometry)
                    << ",\"textures\":" << textures << ",\"draws\":" << draws
                    << ",\"direct_rtt_max_difference\":" << difference << '}';
         }

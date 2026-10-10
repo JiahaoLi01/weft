@@ -79,24 +79,17 @@ namespace probes {
             }
             if (original_style) {
                 const auto dom = script.snapshot_subtree("html");
-                const auto computed = weft::compute_style(dom, css,
-                                                          flow        ? weft::document_style_profile()
-                                                          : automatic ? weft::auto_page_style_profile()
-                                                                      : weft::positioned_style_profile());
+                const auto computed = weft::compute_style(dom, css, weft::document_style_profile());
                 const auto [gallery, style] = alert_style_subtree(dom, computed);
-                pages[i] = flow ? weft::layout_document(gallery, style, weft::constants::default_view_width,
-                                                        weft::constants::default_view_height, fonts)
-                                      .page
-                           : automatic
-                               ? weft::build_auto_page(gallery, style, weft::constants::default_view_width,
-                                                       weft::constants::default_view_height, fonts)
-                               : weft::build_positioned_page(gallery, style, weft::constants::default_view_width,
-                                                             weft::constants::default_view_height, fonts);
+                pages[i] = weft::layout_document(gallery, style, weft::constants::default_view_width,
+                                                 weft::constants::default_view_height, fonts)
+                               .page;
                 colors[i] = alert_style_colors(style);
             } else {
-                pages[i] = weft::build_positioned_page(script.snapshot_subtree("#gallery"), css,
-                                                       weft::constants::default_view_width,
-                                                       weft::constants::default_view_height, fonts);
+                pages[i] =
+                    weft::layout_document(script.snapshot_subtree("#gallery"), css, weft::constants::default_view_width,
+                                          weft::constants::default_view_height, fonts)
+                        .page;
             }
             states[i] = script.eval("JSON.stringify(caseCheetahAlert.snapshot())");
             require(alert_button(script.snapshot_subtree("#gallery")) == header,
@@ -259,7 +252,7 @@ namespace probes {
             word_node.type = weft::constants::text_node_type;
             word_node.data = words[i];
             n.children.push_back(word_node);
-            const auto page = weft::build_positioned_page(n, "", 220, 24, fonts);
+            const auto page = weft::layout_document(n, "", 220, 24, fonts).page;
             const auto& p = page.paints.front().paint;
             if (i) {
                 report << ',';

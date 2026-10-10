@@ -1,7 +1,7 @@
 #define NOMINMAX
 #include "script/script_dom.hpp"
 #include "support/check.hpp"
-#include "layout/positioned_page.hpp"
+#include "layout/document.hpp"
 #include "constants/canvas.hpp"
 #include "constants/common.hpp"
 #include "test_constants/style_text.hpp"
@@ -194,24 +194,27 @@ int main() {
             vm.install_canvas_host(weft::make_d2d_canvas_factory());
             vm.eval(
                 "globalThis.p=document.createElement('div');p.id='p';document.body.appendChild(p);globalThis.c=document.createElement('canvas');c.id='intrinsic';p.appendChild(c);globalThis.ctx=c.getContext('2d');");
-            weft::Font font(WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
+            weft::FontSet fonts({WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf"});
             const auto css = "#p{width:800px;height:600px}canvas{display:block}";
-            auto page = weft::build_positioned_page(vm.snapshot_subtree("#p"), css, 800, 600, font);
+            auto layout = [&] {
+                return weft::layout_document(vm.snapshot_subtree("#p"), css, 800, 600, fonts);
+            };
+            auto page = layout();
             require(page.elements[1].rect[2] == 300 && page.elements[1].rect[3] == 150,
                     "default intrinsic Canvas geometry");
             vm.eval("c.width=800;c.height=600");
             // This VM has no CSSOM bootstrap; use the real content attribute.
             vm.eval("c.setAttribute('style','width:400px')");
-            page = weft::build_positioned_page(vm.snapshot_subtree("#p"), css, 800, 600, font);
+            page = layout();
             require(page.elements[1].rect[2] == 400 && page.elements[1].rect[3] == 300 &&
                         vm.eval("c.width===800 && c.height===600") == "true",
                     "CSS size changed backing or intrinsic ratio");
             vm.eval("c.setAttribute('style','position:absolute;left:10px;top:20px')");
-            page = weft::build_positioned_page(vm.snapshot_subtree("#p"), css, 800, 600, font);
+            page = layout();
             require(page.elements[1].rect == std::array<double, 4>{10, 20, 800, 600},
                     "absolute auto replaced Canvas size");
             vm.eval("c.setAttribute('style','display:none')");
-            page = weft::build_positioned_page(vm.snapshot_subtree("#p"), css, 800, 600, font);
+            page = layout();
             require(page.elements[1].client_rects.empty() && page.elements[1].rect[2] == 0, "hidden Canvas geometry");
             // Command batching must not change persistent pixels. Each side uses a
             // real raster; one snapshots each mutation, the other every 16 changes.

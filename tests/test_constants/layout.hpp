@@ -26,8 +26,7 @@ namespace weft::test_constants::layout {
     inline constexpr int scroll_lifecycle_cycles = 16;
 
     // Geometry tolerances.
-    inline constexpr float positioned_geometry_tolerance = 0.001f;
-    inline constexpr float auto_geometry_tolerance = .002f;
+    inline constexpr float document_geometry_tolerance = .002f;
     inline constexpr double geometry_tolerance = .001;
     inline constexpr double scale_tolerance = .00001;
     inline constexpr double fps_tolerance = .001;

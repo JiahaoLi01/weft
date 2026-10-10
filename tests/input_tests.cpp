@@ -1,4 +1,5 @@
 #include "input/mouse_router.hpp"
+#include "layout/document.hpp"
 #include "script/script_platform.hpp"
 #include "support/check.hpp"
 #include "support/files.hpp"
@@ -108,7 +109,7 @@ int main() {
         require(hit_page(p, 70, 70) == 1 && !hit_page(p, weft::constants::default_view_width, 0) &&
                     !hit_page(p, std::numeric_limits<double>::quiet_NaN(), 0),
                 "hidden/invalid/viewport hit");
-        Font font(WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
+        FontSet fonts({WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf"});
         ScriptConfig config{weft::test_constants::layout::script_stack_bytes};
 #ifdef WEFT_REACT_GC_STRESS
         config.execution_budget_ms = weft::test_constants::layout::gc_stress_execution_budget_ms;
@@ -118,7 +119,12 @@ int main() {
         s.eval(bootstrap);
         s.eval(read_source_file("/examples/react-vite/native/app.js"));
         pump(s);
-        MouseRouter router(s, font);
+        auto layout = [&] {
+            return layout_document(s.snapshot_subtree("#page"), "", weft::constants::default_view_width,
+                                   weft::constants::default_view_height, fonts)
+                .page.geometry;
+        };
+        MouseRouter router(s, layout);
         s.eval(
             R"JS(globalThis.events=[];for(const name of ['mousedown','mouseup','click']) document.body.addEventListener(name,e=>events.push([e.type,e.target.id,e.clientX,e.clientY,e.buttons,e.isTrusted,e instanceof MouseEvent,e.ctrlKey,e.timeStamp]));)JS");
         MouseEvent event;
@@ -170,7 +176,7 @@ int main() {
           page.addEventListener('click',e=>order.push('bubble'));
           page.addEventListener('click',e=>order.push('capture'),true);
         )JS");
-        MouseRouter nested(s, font);
+        MouseRouter nested(s, layout);
         event.client_x = 20;
         event.client_y = 20;
         nested.route(MouseAction::Down, event);
@@ -180,7 +186,7 @@ int main() {
                 "nested child down/up button ancestor and phase order");
         s.eval(
             "document.getElementById('button').style.pointerEvents='none';document.getElementById('child1').style.pointerEvents='auto'");
-        auto page = build_page(s.snapshot_subtree("#page"), font);
+        auto page = layout();
         require(page.hits[*hit_page(page, 20, 20)].identity == s.node_identity("#page") &&
                     page.hits[*hit_page(page, 80, 20)].identity == s.node_identity("#child1"),
                 "pointer-events inheritance and child override");

@@ -10,7 +10,7 @@ namespace probes {
     struct GalleryCanvasSession {
         weft::ScriptDom vm{{weft::probe_constants::gallery::vm_stack_bytes,
                             weft::probe_constants::gallery::host_vm_execution_budget_ms}};
-        weft::Font font{WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf"};
+        weft::FontSet fonts{{WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf"}};
         std::string css = read_file(WEFT_SOURCE_DIR "/examples/crpg-gallery/canvas-profile.css");
 
         explicit GalleryCanvasSession(unsigned index) {
@@ -20,10 +20,10 @@ namespace probes {
             vm.eval(read_file(WEFT_SOURCE_DIR "/examples/crpg-gallery/native/platform.js"));
             vm.eval(read_file(WEFT_SOURCE_DIR "/examples/crpg-gallery/native/WEBGL_TESTS.js"));
             vm.install_layout_host([this](const weft::DomSnapshot& document) {
-                const auto page = weft::build_positioned_page(
-                    flow_find(document, "root"), css, weft::probe_constants::gallery::canvas_backing_width,
-                    weft::probe_constants::gallery::canvas_backing_height, font);
-                return page.elements;
+                return weft::layout_document(flow_find(document, "root"), css,
+                                             weft::probe_constants::gallery::canvas_backing_width,
+                                             weft::probe_constants::gallery::canvas_backing_height, fonts)
+                    .elements;
             });
             // Same deterministic host seed in the real Chromium reference. The
             // original component bodies and drawing calls remain unchanged.
@@ -69,13 +69,14 @@ namespace probes {
         }
 
         FramePacket packet() {
-            auto page = weft::build_positioned_page(vm.snapshot_subtree("#root"), css,
+            const auto page = weft::layout_document(vm.snapshot_subtree("#root"), css,
                                                     weft::probe_constants::gallery::canvas_backing_width,
-                                                    weft::probe_constants::gallery::canvas_backing_height, font);
+                                                    weft::probe_constants::gallery::canvas_backing_height, fonts)
+                                  .page;
             FramePacket out;
             for (const auto& p : page.paints) {
                 require(p.paint.kind == weft::PaintKind::Rectangle && p.image_source.empty() && p.rounded_clips.empty(),
-                        "Canvas sample left explicit positioned profile");
+                        "Canvas sample paints only rectangles and its canvas");
                 Draw d{{p.paint.x, p.paint.y, p.paint.width, p.paint.height}, p.paint.srgb};
                 d.uv = p.uv;
                 if (p.canvas_identity) {

@@ -12,7 +12,7 @@ namespace probes {
         presenter.resize(weft::constants::default_view_width, weft::constants::default_view_height);
         presenter.capture = true;
         const auto images = load_cheetah_images();
-        weft::Font font(WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
+        weft::FontSet fonts({WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf"});
         weft::ScriptConfig config{weft::constants::script::probe_vm_stack_bytes};
 #ifdef WEFT_REACT_GC_STRESS
         config.execution_budget_ms = weft::constants::script::max_execution_budget_ms;
@@ -34,9 +34,10 @@ namespace probes {
                         "host weak-identity native MouseEvent");
                 pump_react(script, i * weft::probe_constants::fixture_frame_ms);
             }
-            pages[i] = weft::build_positioned_page(script.snapshot_subtree("#gallery"), css,
-                                                   weft::constants::default_view_width,
-                                                   weft::constants::default_view_height, font);
+            pages[i] =
+                weft::layout_document(script.snapshot_subtree("#gallery"), css, weft::constants::default_view_width,
+                                      weft::constants::default_view_height, fonts)
+                    .page;
             states[i] = script.eval("JSON.stringify(caseCheetahFixture.snapshot())");
             require(script.node_identity("#card") == card && script.node_identity(".nine-slice-art") == image,
                     "original component wrappers retain native identities");
@@ -58,7 +59,7 @@ namespace probes {
         std::vector<Pixel> initial;
         unsigned expected_releases{};
         auto render = [&](const auto& page) {
-            auto packet = cheetah_packet(page, font, images);
+            auto packet = cheetah_packet(page, fonts, images);
             expected_releases += unsigned(packet.assets.size());
             render_window(gpu, packet, [&] {
                 presenter.present();
@@ -152,9 +153,10 @@ namespace probes {
                         presenter.resize(window.state.width, window.state.height);
                         window.state.resize = false;
                     }
-                    auto page = weft::build_positioned_page(script.snapshot_subtree("#gallery"), css,
-                                                            weft::constants::default_view_width,
-                                                            weft::constants::default_view_height, font);
+                    auto page = weft::layout_document(script.snapshot_subtree("#gallery"), css,
+                                                      weft::constants::default_view_width,
+                                                      weft::constants::default_view_height, fonts)
+                                    .page;
                     render(page);
                     previous = dom;
                     window.state.repaint = false;

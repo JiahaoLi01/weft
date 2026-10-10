@@ -1,6 +1,5 @@
 #pragma once
 #include "layout/output.hpp"
-#include "layout/page.hpp"
 #include "constants/common.hpp"
 #include <optional>
 
@@ -32,12 +31,6 @@ namespace weft {
 
     class MouseRouter {
     public:
-        MouseRouter(ScriptDom& script, Font& font, std::string root = "#page")
-            : script_(script), layout_([&script, &font, root = std::move(root)] {
-                  return build_page(script.snapshot_subtree(root), font);
-              }) {
-        }
-
         // Owner callback must provide fresh owning values; no retained Node/JSValue.
         MouseRouter(ScriptDom& script, std::function<Page()> layout) : script_(script), layout_(std::move(layout)) {
         }

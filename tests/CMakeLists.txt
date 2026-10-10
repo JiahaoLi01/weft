@@ -182,12 +182,12 @@ weft_add_executable(weft_page_tests
     SOURCE_DIR LARGE_STACK GC_STRESS)
 weft_add_test(NAME page_react_contract COMMAND weft_page_tests TIMEOUT 30 GC_STRESS_TIMEOUT 180)
 
-weft_add_executable(weft_positioned_page_tests SOURCES positioned_page_tests.cpp LINK weft::layout SOURCE_DIR)
-weft_add_test(NAME positioned_css_contract COMMAND weft_positioned_page_tests)
+weft_add_executable(weft_document_cases_tests SOURCES document_cases_tests.cpp LINK weft::layout SOURCE_DIR)
+weft_add_test(NAME document_css_contract COMMAND weft_document_cases_tests)
 
-weft_add_executable(weft_auto_page_tests SOURCES auto_page_tests.cpp LINK weft::layout weft::script SOURCE_DIR)
+weft_add_executable(weft_auto_layout_tests SOURCES auto_layout_tests.cpp LINK weft::layout weft::script SOURCE_DIR)
 weft_add_test(NAME auto_layout_contract
-    COMMAND weft_auto_page_tests "${artifacts}/auto-layout-$<CONFIG>/native.json"
+    COMMAND weft_auto_layout_tests "${artifacts}/auto-layout-$<CONFIG>/native.json"
     FIXTURES_SETUP auto_layout_report)
 weft_add_python_test(NAME auto_layout_browser_diff
     SCRIPT tools/compare_auto_layout.py

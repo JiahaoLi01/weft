@@ -18,6 +18,8 @@ namespace weft::constants {
     // Bundled probe fonts: Roboto for Latin text, then the Noto CJK fallback.
     inline constexpr const char* latin_font_family = "ProbeRoboto";
     inline constexpr const char* default_font_family = "ProbeRoboto, ProbeCjk";
+    // The probe font set's primary family alone (its CJK fallback still applies).
+    inline constexpr const char* primary_font_family = "ProbeRoboto";
 
     // Units.
     inline constexpr int bytes_per_kib = 1024;

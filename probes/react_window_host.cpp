@@ -1,4 +1,5 @@
 #include "react_window_host.hpp"
+#include "cheetah_probe.hpp"
 #include "probe_modes.hpp"
 
 namespace probes {
@@ -12,12 +13,18 @@ namespace probes {
         config.execution_budget_ms = weft::constants::script::max_execution_budget_ms;
 #endif
         weft::ScriptDom script(config);
-        weft::Font font(WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
+        weft::FontSet fonts({WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf"});
+        auto layout = [&] {
+            return weft::layout_document(script.snapshot_subtree("#page"), "", weft::constants::default_view_width,
+                                         weft::constants::default_view_height, fonts);
+        };
         weft::install_script_platform(script, weft::ScriptPlatformModule::WebHost);
         script.eval(read_file(std::filesystem::path(WEFT_SOURCE_DIR) / "examples/react-vite/native/app.js"),
                     "react-vite-app.js");
         pump_react(script, 0);
-        weft::MouseRouter input(script, font);
+        weft::MouseRouter input(script, [&] {
+            return layout().page.geometry;
+        });
         const auto started = std::chrono::steady_clock::now();
         std::string previous_dom;
         unsigned time{};
@@ -63,9 +70,9 @@ namespace probes {
                     presenter.resize(window.state.width, window.state.height);
                     window.state.resize = false;
                 }
-                auto page = weft::build_page(script.snapshot_subtree("#page"), font);
+                const auto page = layout();
                 presenter.capture = capture;
-                auto packet = prepare_page_glyphs(page, font);
+                auto packet = cheetah_packet(page.page, fonts, {});
                 expected_textures += packet.assets.size();
                 render_window(renderer, std::move(packet), [&] {
                     presenter.present();
@@ -154,8 +161,8 @@ namespace probes {
                     "persistent device submission serial and glyph retirement");
             {
                 Experiment failed(warp, weft::constants::default_view_width, weft::constants::default_view_height);
-                const auto page = weft::build_page(script.snapshot_subtree("#page"), font);
-                auto packet = prepare_page_glyphs(page, font);
+                const auto page = layout();
+                auto packet = cheetah_packet(page.page, fonts, {});
                 const auto expected = packet.assets.size();
                 bool rejected{};
                 try {

@@ -1,4 +1,4 @@
-#include "layout/page.hpp"
+#include "layout/document.hpp"
 #include "script/script_platform.hpp"
 #include "support/check.hpp"
 #include "support/files.hpp"
@@ -25,7 +25,12 @@ namespace {
 
 int main() {
     try {
-        weft::Font font(WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
+        weft::FontSet fonts({WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf"});
+        auto layout = [&](const weft::DomSnapshot& snapshot) {
+            return weft::layout_document(snapshot, "", weft::constants::default_view_width,
+                                         weft::constants::default_view_height, fonts)
+                .page;
+        };
         weft::ScriptConfig config{weft::test_constants::layout::script_stack_bytes};
 #ifdef WEFT_REACT_GC_STRESS
         config.execution_budget_ms = weft::test_constants::layout::
@@ -51,8 +56,8 @@ int main() {
             p.collect_garbage();
             const auto identity = p.node_identity("#increment");
             auto snapshot = p.snapshot_subtree("#page");
-            const auto page = weft::build_page(snapshot, font);
-            require(page.boxes.size() == 25 && page.paints.size() > 15, "real React page layout/paint");
+            const auto page = layout(snapshot);
+            require(page.geometry.boxes.size() == 25 && page.paints.size() > 15, "real React page layout/paint");
             p.eval("document.getElementById('increment').dispatchEvent(new Event('click',{bubbles:true}));");
             pump(p, 16);
             require(p.eval("caseElephantReact.snapshot().count") == "Count: 1" &&
@@ -62,25 +67,25 @@ int main() {
             invalid.attributes["style"] += " opacity:0.5;";
             bool rejected{};
             try {
-                (void)weft::build_page(invalid, font);
+                (void)layout(invalid);
             } catch (const std::invalid_argument&) {
                 rejected = true;
             }
             require(rejected, "unsupported paint accepted");
             invalid = snapshot;
-            invalid.attributes["style"] = "width:640px;";
+            invalid.attributes["style"] += " display:grid;";
             rejected = false;
             try {
-                (void)weft::build_page(invalid, font);
+                (void)layout(invalid);
             } catch (const std::invalid_argument&) {
                 rejected = true;
             }
-            require(rejected, "block silently mapped to flex");
+            require(rejected, "grid silently laid out as block or flex");
             invalid = snapshot;
             invalid.attributes["style"] += " border-left-width:2px;";
             rejected = false;
             try {
-                (void)weft::build_page(invalid, font);
+                (void)layout(invalid);
             } catch (const std::invalid_argument&) {
                 rejected = true;
             }
@@ -92,7 +97,7 @@ int main() {
             p.reset_document();
             require(p.stats().live_nodes == 3 && !p.is_live(identity),
                     "React VM reset leaked or retained node identity");
-            require(weft::build_page(snapshot, font).boxes.size() == 25, "value snapshot depends on destroyed VM");
+            require(layout(snapshot).geometry.boxes.size() == 25, "value snapshot depends on destroyed VM");
         }
         p.eval(bootstrap);
         p.eval("queueMicrotask(()=>{throw Error('microtask-proof');})");

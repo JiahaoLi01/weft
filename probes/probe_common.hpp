@@ -4,7 +4,6 @@
 // fixture's checks, fixtures and report helpers. Code lives in namespace probes at global scope, so
 // unqualified names resolve as they did in the former single-file probe.
 #define NOMINMAX
-#include "layout/auto_page.hpp"
 #include "script/script_platform.hpp"
 #include "layout/document.hpp"
 #include "scene/scene.hpp"
@@ -13,8 +12,6 @@
 #include "core/owner_executor.hpp"
 #include "render/resource_lifetime.hpp"
 #include "text/font.hpp"
-#include "layout/page.hpp"
-#include "layout/positioned_page.hpp"
 #include "input/mouse_router.hpp"
 #include "weft/render_backend_d3d11.h"
 #include "render/backends/d3d11/host.hpp"
@@ -364,55 +361,6 @@ namespace probes {
     // Evidence text files end with a newline.
     inline void write_text(const std::filesystem::path& path, const std::string& text) {
         weft::testing::write_file(path, text + '\n');
-    }
-
-    inline FramePacket prepare_page_glyphs(const weft::Page& page, weft::Font& font) {
-        FramePacket packet;
-
-        struct Cached {
-            int asset{-1};
-            weft::GlyphBitmap bitmap;
-        };
-
-        std::map<std::pair<std::uint32_t, float>, Cached> cache;
-        std::size_t bytes{};
-        for (const auto& paint : page.paints) {
-            if (paint.kind == weft::PaintKind::Rectangle) {
-                packet.draws.push_back({{paint.x, paint.y, paint.width, paint.height}, paint.srgb});
-                continue;
-            }
-            float pen_x = paint.x;
-            float pen_y = paint.y;
-            for (const auto& glyph : paint.shaped.glyphs) {
-                const auto key = std::pair{glyph.glyph_id, paint.font_size};
-                if (!cache.contains(key)) {
-                    auto bitmap = font.rasterize(glyph.glyph_id, paint.font_size);
-                    Cached cached;
-                    if (bitmap.width && bitmap.height) {
-                        bytes += bitmap.coverage.size();
-                        require(bytes <= weft::probe_constants::page_glyph_max_bytes &&
-                                    cache.size() < weft::probe_constants::max_frame_assets,
-                                "page glyph budget");
-                        cached.asset = static_cast<int>(packet.assets.size());
-                        packet.assets.push_back(std::make_shared<const Asset>(
-                            Asset{bitmap.width, bitmap.height, Encoding::Coverage, bitmap.coverage}));
-                    }
-                    cached.bitmap = std::move(bitmap);
-                    cache.emplace(key, std::move(cached));
-                }
-                const auto& cached = cache.at(key);
-                const auto& b = cached.bitmap;
-                if (cached.asset >= 0) {
-                    packet.draws.push_back({{pen_x + glyph.offset_x + b.left, pen_y - glyph.offset_y - b.top,
-                                             static_cast<float>(b.width), static_cast<float>(b.height)},
-                                            paint.srgb,
-                                            cached.asset});
-                }
-                pen_x += glyph.advance_x;
-                pen_y -= glyph.advance_y;
-            }
-        }
-        return packet;
     }
 
     inline std::string page_json(const weft::Page& page) {

@@ -4,6 +4,9 @@
 #include "constants/layout.hpp"
 #include <algorithm>
 #include <cmath>
+#include <string_view>
+#include <optional>
+#include <cctype>
 #include <limits>
 #include <set>
 #include <sstream>
@@ -47,6 +50,36 @@ namespace weft {
             return px(get(s, k, "0"));
         }
 
+        // Key of the initial containing block's box; no element uses the "box-" or "flow-" key space for it.
+        constexpr std::string_view initial_containing_block = "initial-containing-block";
+
+        // An HTML canvas width/height attribute: a non-negative integer, or fallback when absent or invalid.
+        float canvas_dimension(const DomSnapshot& dom, const char* name, int fallback) {
+            const auto attribute = dom.attributes.find(name);
+            if (attribute == dom.attributes.end()) {
+                return float(fallback);
+            }
+            const auto& text = attribute->second;
+            auto p = text.find_first_not_of(" \t\r\n\f");
+            if (p == text.npos) {
+                return float(fallback);
+            }
+            if (text[p] == '+') {
+                ++p;
+            }
+            if (p == text.size() || !std::isdigit(static_cast<unsigned char>(text[p]))) {
+                return float(fallback);
+            }
+            float n = 0;
+            while (p < text.size() && std::isdigit(static_cast<unsigned char>(text[p]))) {
+                n = n * 10 + float(text[p++] - '0');
+                if (n > constants::max_canvas_dimension) {
+                    fail("canvas backing size");
+                }
+            }
+            return n;
+        }
+
         Rect shifted(Rect r, float x, float y) {
             r.x -= x;
             r.y -= y;
@@ -74,6 +107,10 @@ namespace weft {
             std::string id;
             std::string key;
             std::string image;
+            // A canvas element: intrinsic size from its width/height attributes; painted from its raster.
+            bool canvas{};
+            float canvas_width{};
+            float canvas_height{};
             std::string overflow_x;
             std::string overflow_y;
             std::size_t parent{absent};
@@ -115,8 +152,8 @@ namespace weft {
 
             std::size_t collect(const DomSnapshot& dom, const ComputedStyle& computed, std::size_t parent,
                                 bool hidden = false) {
-                static const std::set<std::string> tags{"div",  "p",  "section", "button", "i", "b",
-                                                        "span", "ul", "li",      "img",    "br"};
+                static const std::set<std::string> tags{"div",  "p",  "section", "button", "i",      "b",
+                                                        "span", "ul", "li",      "img",    "canvas", "br"};
                 if (dom.type != constants::element_node_type || dom.namespace_uri != constants::xhtml_namespace_uri ||
                     !tags.contains(dom.local_name)) {
                     fail("HTML tag/namespace");
@@ -172,9 +209,16 @@ namespace weft {
                 if ((ox == "visible") != (oy == "visible")) {
                     fail("single-axis visible overflow pending");
                 }
+                // Flex items keep their margins (Yoga resolves them as CSS does); block flow has no margin collapsing
+                // yet, so its margins must be zero.
+                const bool flex_item = parent != absent && get(nodes[parent].style, "display") == "flex";
                 for (const auto& [k, v] : s) {
-                    if (k.starts_with("margin") || k == "border" || k == "border-width" ||
-                        k.ends_with("-width") && k.starts_with("border-")) {
+                    if (k.starts_with("margin") && flex_item) {
+                        if (v != "auto") {
+                            (void)px(v);
+                        }
+                    } else if (k.starts_with("margin") || k == "border" || k == "border-width" ||
+                               k.ends_with("-width") && k.starts_with("border-")) {
                         if (px(v) != 0) {
                             fail("zero margin/border subset");
                         }
@@ -205,6 +249,16 @@ namespace weft {
                 }
                 if ((dom.local_name == "ul" || dom.local_name == "li") && get(s, "list-style") != "none") {
                     fail("list markers require reset");
+                }
+                // Chrome's UA sheet gives ul a block margin and an inline-start padding that this profile does not
+                // model; the author must set them.
+                if (dom.local_name == "ul") {
+                    const auto& specified = computed.specified_properties;
+                    for (const auto* k : {"margin-top", "margin-bottom", "padding-left"}) {
+                        if (std::find(specified.begin(), specified.end(), k) == specified.end()) {
+                            fail("ul needs explicit margin and padding");
+                        }
+                    }
                 }
                 int z{};
                 if (get(s, "z-index", "auto") != "auto") {
@@ -240,6 +294,14 @@ namespace weft {
                     }
                     n.image = dom.attributes.at("src");
                 }
+                if (dom.local_name == "canvas") {
+                    if (inlined || !dom.children.empty()) {
+                        fail("blockified canvas without fallback content");
+                    }
+                    n.canvas = true;
+                    n.canvas_width = canvas_dimension(dom, "width", constants::default_canvas_width);
+                    n.canvas_height = canvas_dimension(dom, "height", constants::default_canvas_height);
+                }
                 if (!inlined && position != "absolute" && parent != absent && get(s, "height").ends_with('%') &&
                     get(nodes[parent].style, "height", "auto") == "auto") {
                     fail("flow percent height needs definite parent");
@@ -260,7 +322,8 @@ namespace weft {
             InlineRun run(const std::string& text, std::size_t node, const std::vector<std::string>& ancestors,
                           bool br = false) {
                 const auto& s = nodes[node].style;
-                if (get(s, "font-family", constants::default_font_family) != constants::default_font_family ||
+                const auto family = get(s, "font-family", constants::default_font_family);
+                if ((family != constants::default_font_family && family != constants::primary_font_family) ||
                     get(s, "font-weight", constants::default_font_weight) != constants::default_font_weight ||
                     get(s, "font-style", "normal") != "normal") {
                     fail("fixed normal-weight font set");
@@ -326,6 +389,28 @@ namespace weft {
                         s.erase(k);
                     }
                 }
+                if (n.canvas) {
+                    // A replaced element: an auto dimension is intrinsic, or follows a specified px dimension through
+                    // the intrinsic ratio. Two specified dimensions (px or %) go to the flex adapter as they are.
+                    const auto width = get(s, "width", "auto");
+                    const auto height = get(s, "height", "auto");
+                    if (width == "auto" || height == "auto") {
+                        if ((width != "auto" && !width.ends_with("px")) ||
+                            (height != "auto" && !height.ends_with("px"))) {
+                            fail("canvas intrinsic ratio needs a px dimension");
+                        }
+                        const float w = width == "auto" ? (height != "auto" && n.canvas_height > 0
+                                                               ? px(height) * n.canvas_width / n.canvas_height
+                                                               : n.canvas_width)
+                                                        : px(width);
+                        const float h = height == "auto" ? (width != "auto" && n.canvas_width > 0
+                                                                ? w * n.canvas_height / n.canvas_width
+                                                                : n.canvas_height)
+                                                         : px(height);
+                        s["width"] = std::to_string(w) + "px";
+                        s["height"] = std::to_string(h) + "px";
+                    }
+                }
                 for (auto& [k, v] : s) {
                     if (v.starts_with("calc(")) {
                         if (get(s, "position", "static") != "absolute" ||
@@ -363,7 +448,13 @@ namespace weft {
                                               }) &&
                                   get(n.style, "display") != "flex";
                 auto flush = [&] {
-                    if (pending->runs.empty()) {
+                    // White space that collapses away generates no anonymous box (CSS 2.1 section 9.2.2.1).
+                    const bool blank = std::all_of(pending->runs.begin(), pending->runs.end(), [](const auto& r) {
+                        return !r.hard_break && r.white_space != "pre-line" &&
+                               r.text.find_first_not_of(" \t\r\n\f") == std::string::npos;
+                    });
+                    if (pending->runs.empty() || (!pure && blank)) {
+                        pending->runs.clear();
                         return;
                     }
                     const auto p = paragraphs.size();
@@ -373,10 +464,12 @@ namespace weft {
                     if (pure) {
                         out.inline_content = pending;
                     } else {
+                        // An anonymous block inherits its parent's inherited properties.
                         FlexNode a{key,
                                    {{"display", "block"},
                                     {"font-size", get(n.style, "font-size", constants::default_font_size)},
-                                    {"line-height", get(n.style, "line-height", constants::default_line_height)}},
+                                    {"line-height", get(n.style, "line-height", constants::default_line_height)},
+                                    {"white-space", get(n.style, "white-space", "normal")}},
                                    {},
                                    {}};
                         a.inline_content = pending;
@@ -515,7 +608,8 @@ namespace weft {
             }
 
             void quad(PositionedPage& out, const Node& n, Rect r, Rect clip, const std::vector<RoundedClip>& masks,
-                      const std::array<float, 4>& color, const std::string& image = {}) {
+                      const std::array<float, 4>& color, const std::string& image = {},
+                      std::optional<NodeIdentity> canvas = {}) {
                 auto b = intersect(r, clip);
                 if (b.w <= 0 || b.h <= 0 || (!image.size() && color[3] == 0)) {
                     return;
@@ -526,6 +620,7 @@ namespace weft {
                 p.uv = {(b.x - r.x) / r.w, (b.y - r.y) / r.h, b.w / r.w, b.h / r.h};
                 p.clip = clip.array();
                 p.rounded_clips = masks;
+                p.canvas_identity = canvas;
                 out.paints.push_back(std::move(p));
             }
 
@@ -555,6 +650,9 @@ namespace weft {
                 quad(out.page, n, r, clip, own, parse_css_color(get(n.style, "background-color", "transparent")));
                 if (!n.image.empty()) {
                     quad(out.page, n, r, clip, own, {1, 1, 1, 1}, n.image);
+                }
+                if (n.canvas) {
+                    quad(out.page, n, r, clip, own, {1, 1, 1, 1}, {}, n.dom->identity);
                 }
                 if (n.overflow_x != "visible") {
                     clip = intersect(clip, r);
@@ -652,26 +750,19 @@ namespace weft {
         validate_style_pair(root, style);
         Builder b{fonts};
         b.collect(root, style, absent);
-        if (b.nodes[0].inlined || get(b.nodes[0].style, "position", "static") != "relative") {
-            fail("root requires block/flex position:relative");
+        if (b.nodes[0].inlined || get(b.nodes[0].style, "position", "static") == "absolute") {
+            fail("root must be a block or flex box in flow");
         }
-        auto tree = b.tree(0);
-        if (get(tree.style, "width", "auto") == "auto") {
-            tree.style["width"] =
-                std::to_string(
-                    std::max(0.f, w - (get(tree.style, "box-sizing", "content-box") == "content-box"
-                                           ? edge(tree.style, "padding-left") + edge(tree.style, "padding-right")
-                                           : 0))) +
-                "px";
-        }
-        for (const auto* k : {"width", "height"}) {
-            auto v = get(tree.style, k);
-            if (v.ends_with('%')) {
-                tree.style[k] = std::to_string(number(v.substr(0, v.size() - 1)) / constants::percent_scale *
-                                               (std::string(k) == "width" ? w : h)) +
-                                "px";
-            }
-        }
+        // The initial containing block: the viewport-sized box that contains the root element and every absolute
+        // box without a positioned ancestor.
+        FlexNode tree{std::string(initial_containing_block),
+                      {{"display", "block"},
+                       {"position", "relative"},
+                       {"width", std::to_string(w) + "px"},
+                       {"height", std::to_string(h) + "px"}},
+                      {},
+                      {}};
+        tree.children.push_back(b.tree(0));
         std::map<std::string, FlexNode*> inputs;
         auto visit = [&](auto&& self, FlexNode& n) -> void {
             inputs[n.id] = &n;
@@ -697,8 +788,7 @@ namespace weft {
             bool changed{};
             for (const auto& c : b.calcs) {
                 auto parent = b.nodes[c.node].parent;
-                while (parent != absent && parent != 0 &&
-                       get(b.nodes[parent].style, "position", "static") == "static") {
+                while (parent != absent && get(b.nodes[parent].style, "position", "static") == "static") {
                     parent = b.nodes[parent].parent;
                 }
                 const bool vertical = c.key == "top" || c.key == "bottom" || c.key == "height";

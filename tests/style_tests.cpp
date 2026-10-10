@@ -4,8 +4,7 @@
 #include "constants/common.hpp"
 #include "constants/style.hpp"
 #include "test_constants/style_text.hpp"
-#include "layout/page.hpp"
-#include "layout/positioned_page.hpp"
+#include "layout/document.hpp"
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -62,7 +61,7 @@ namespace {
 
 int main(int argc, char** argv) {
     try {
-        auto profile = positioned_style_profile();
+        auto profile = document_style_profile();
         auto solid = node("solid", "background-color:#ff0000;background:var(--ink);--ink:rgba(10,8,6,0.5)");
         const auto solid_color = parse_css_color(compute_style(solid, "", profile).values.at("background-color"));
         near(solid_color[0], 10 / 255.f);
@@ -360,20 +359,22 @@ int main(int argc, char** argv) {
             require(equal(equal, inplace, compute_style(tree, sheet, profile)),
                     "in-place cache did not recover after quota failure");
         }
-        Font font(WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
+        FontSet fonts({WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf"});
         auto flex = node("flex");
         flex.children.push_back(node("cell"));
-        const auto page = build_page(
-            flex,
-            "#flex{display:flex;width:200px;height:40px;--w:60px}#cell{display:flex;width:var(--w);height:20px;background-color:rgba(16,18,17,.78)}",
-            font);
-        near(page.boxes[1].width, 60);
-        near(page.paints[0].srgb[3], .78f);
+        const auto page =
+            layout_document(
+                flex,
+                "#flex{display:flex;width:200px;height:40px;--w:60px}#cell{display:flex;width:var(--w);height:20px;background-color:rgba(16,18,17,.78)}",
+                weft::constants::default_view_width, weft::constants::default_view_height, fonts)
+                .page;
+        near(page.geometry.boxes[1].width, 60);
+        near(page.paints[0].paint.srgb[3], .78f);
         auto paired = node("paired", "width:100px;height:30px");
         auto computed = compute_style(paired, "", profile);
         paired.identity.generation++;
         rejects([&] {
-            build_positioned_page(paired, computed, 100, 30, font);
+            layout_document(paired, computed, 100, 30, fonts);
         });
         // Same DOM-building JS and CSS in Chromium and QuickJS/native DOM.
         if (argc == 2) {
