@@ -1,35 +1,50 @@
 @echo off
 setlocal EnableExtensions
 rem Weft gallery runner. Double-click for the menu, or pass the entry number:
-rem   tools\gallery.bat      menu
-rem   tools\gallery.bat 2    gallery window with profiler traces
+rem   tools\gallery.bat              menu
+rem   tools\gallery.bat 2            gallery window with profiler traces
+rem   tools\gallery.bat 1 novsync    gallery window with vertical sync off
 rem Each run writes to artifacts\local\gallery-runs\<time>-<mode>. The Release probe is built when it is missing;
-rem entry 6 rebuilds it after source changes.
+rem entry 6 rebuilds it after source changes. With vertical sync off the frame rate is not capped at the display
+rem refresh rate; F7 toggles it inside the gallery and Canvas windows.
 
 pushd "%~dp0.." || exit /b 1
 set "EXE=build\windows-msvc\bin\Release\weft_d3d11_probe.exe"
 set "CODE=0"
 set "OUT="
 set "CHOICE=%~1"
+set "VSYNC="
+if /i "%~2"=="novsync" set "VSYNC=--no-vsync"
 set "INTERACTIVE="
 if "%CHOICE%"=="" set "INTERACTIVE=1"
 set "STAMP=run"
 for /f "delims=" %%t in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd-HHmmss"') do set "STAMP=%%t"
 
 if not "%CHOICE%"=="" goto dispatch
+:menu
+set "VSYNC_STATE=on "
+if defined VSYNC set "VSYNC_STATE=off"
 echo.
 echo   Weft gallery - Release build, hardware GPU
 echo.
-echo   1  Gallery window              4K catalogue of 72 cases; Esc closes
+echo   1  Gallery window              4K catalogue of 72 cases; Esc closes, F7 toggles VSync
 echo   2  Gallery window + profiler   owner/render traces, analyzed after Esc
 echo   3  Live benchmarks             anime drag, scatter drag, Canvas; about 30 s, windows pop up
 echo   4  Gallery self-test           hidden 4K run with pixel, geometry and input checks
-echo   5  Canvas window               particles and fireworks; Tab switches, Esc closes
+echo   5  Canvas window               particles and fireworks; Tab switches, Esc closes, F7 toggles VSync
 echo   6  Build                       Release weft_d3d11_probe
+echo   V  VSync %VSYNC_STATE%                   for entries 1, 2, 3 and 5; off lifts the frame rate above the refresh rate
 echo.
-set /p "CHOICE=Choose 1-6: "
+set "CHOICE="
+set /p "CHOICE=Choose 1-6, or V to toggle VSync: "
+if /i "%CHOICE%"=="V" (
+    if defined VSYNC (set "VSYNC=") else (set "VSYNC=--no-vsync")
+    goto menu
+)
 
 :dispatch
+set "TAG="
+if defined VSYNC set "TAG=-novsync"
 if "%CHOICE%"=="6" goto build
 if not exist "%EXE%" (
     call :build_probe
@@ -49,24 +64,24 @@ call :build_probe
 goto finish
 
 :window
-set "OUT=artifacts\local\gallery-runs\%STAMP%-window"
-"%EXE%" --gallery-window-hardware "%OUT%"
+set "OUT=artifacts\local\gallery-runs\%STAMP%-window%TAG%"
+"%EXE%" --gallery-window-hardware "%OUT%" %VSYNC%
 goto finish
 
 :profile
-set "OUT=artifacts\local\gallery-runs\%STAMP%-profile"
+set "OUT=artifacts\local\gallery-runs\%STAMP%-profile%TAG%"
 echo Recording is on; F8 or the sidebar Profiler entry toggles it. Traces are written when the window closes.
-"%EXE%" --gallery-window-profile-hardware "%OUT%"
+"%EXE%" --gallery-window-profile-hardware "%OUT%" %VSYNC%
 if errorlevel 1 goto finish
 call :python tools\analyze_gallery_trace.py "%OUT%"
 goto finish
 
 :live
-set "OUT=artifacts\local\gallery-runs\%STAMP%-live"
+set "OUT=artifacts\local\gallery-runs\%STAMP%-live%TAG%"
 set "FAILED="
 for %%s in (anime-drag scatter-drag webgl) do (
     echo Live benchmark %%s ...
-    "%EXE%" --gallery-live-benchmark-hardware "%OUT%\%%s" %%s
+    "%EXE%" --gallery-live-benchmark-hardware "%OUT%\%%s" %%s %VSYNC%
     if errorlevel 1 set "FAILED=1"
 )
 call :python tools\summarize_gallery_live.py "%OUT%\anime-drag" "%OUT%\scatter-drag" "%OUT%\webgl"
@@ -79,8 +94,8 @@ set "OUT=artifacts\local\gallery-runs\%STAMP%-selftest"
 goto finish
 
 :canvas
-set "OUT=artifacts\local\gallery-runs\%STAMP%-canvas"
-"%EXE%" --gallery-canvas-window-hardware "%OUT%"
+set "OUT=artifacts\local\gallery-runs\%STAMP%-canvas%TAG%"
+"%EXE%" --gallery-canvas-window-hardware "%OUT%" %VSYNC%
 goto finish
 
 :finish

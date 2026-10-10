@@ -236,7 +236,7 @@ namespace probes {
 
     inline FramePacket gallery_preview_hud(weft::FontSet& fonts, const WindowFrameRate& rate, unsigned live,
                                            const GalleryPreviewSamples& samples, bool paused,
-                                           std::string owner_label = {}, bool detailed = true) {
+                                           std::string owner_label = {}, bool detailed = true, bool vsync = true) {
         weft::PositionedPage page;
         const std::array<float, 4> clip{3000, 16, 824, detailed ? 180.f : 100.f};
         weft::PositionedPaint bg;
@@ -270,7 +270,7 @@ namespace probes {
         }
         text(fps.str() + "  |  LIVE " + std::to_string(live) + " / 66", 58, 32);
         if (!detailed) {
-            text("Full speed | F8 / sidebar: detailed profiler", 95, 22);
+            text(std::string(vsync ? "VSync on" : "VSync off") + " (F7) | F8 / sidebar: detailed profiler", 95, 22);
             return cheetah_packet(page, fonts, {});
         }
         std::ostringstream cpu;

@@ -177,6 +177,7 @@ namespace probes {
         WindowFrameRate fps;
         fps.reset(seconds());
         presenter.overlay(frame_rate_overlay(fonts, "FPS: warming up"));
+        std::string window_title;
         const auto raster = weft::Viewport::fit(weft::constants::uhd_width, weft::constants::uhd_height,
                                                 weft::probe_constants::gallery::canvas_backing_width,
                                                 weft::probe_constants::gallery::canvas_backing_height);
@@ -185,6 +186,10 @@ namespace probes {
             while (PeekMessageW(&key, window.state.hwnd, WM_KEYDOWN, WM_KEYDOWN, PM_REMOVE)) {
                 if (key.wParam == VK_ESCAPE) {
                     window.state.close_requested = true;
+                }
+                if (key.wParam == VK_F7 && !(key.lParam & weft::probe_constants::gallery::key_repeat_flag)) {
+                    presenter.vsync = !presenter.vsync;
+                    fps.reset(seconds());
                 }
                 if (key.wParam == VK_TAB && !(key.lParam & weft::probe_constants::gallery::key_repeat_flag)) {
                     pipeline.drain();
@@ -263,9 +268,14 @@ namespace probes {
                 rate << "FPS: " << std::fixed << std::setprecision(1) << fps.fps;
                 presenter.overlay(frame_rate_overlay(fonts, rate.str()));
             }
-            const auto title = std::string("CaseElephant / Original Canvas ") + (index ? "Fireworks" : "Particles") +
-                               " / Tab: switch / FPS " + std::to_string(fps.fps);
-            SetWindowTextW(window.state.hwnd, std::wstring(title.begin(), title.end()).c_str());
+            auto title = std::string("CaseElephant / Original Canvas ") + (index ? "Fireworks" : "Particles") +
+                         " / Tab: switch / FPS " + std::to_string(fps.fps) + " / VSync " +
+                         (presenter.vsync ? "on" : "off") + " (F7)";
+            // WM_SETTEXT redraws the caption: only when the text changes (about once a second).
+            if (title != window_title) {
+                SetWindowTextW(window.state.hwnd, std::wstring(title.begin(), title.end()).c_str());
+                window_title = std::move(title);
+            }
             pipeline.poll();
             if (self_test && frames == 4) {
                 pipeline.drain();

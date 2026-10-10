@@ -189,6 +189,32 @@ RTX 5090、可见 4K 240 Hz 窗口，三轮中位数，与上一轮结束时相�
 - anime 卡片的更新率不变：anime.js Draggable 在动画帧里写 transform，只刷新 DOM 时没有变化，被拖卡片仍是每个 tick 更新一次，只是排到 tick 最前。
 - 散点图的 owner tick 变长，因为每个 tick 多处理一批输入（d3-zoom 在事件里同步改 transform，刷新后立即可见），同页其他卡片的更新率相应降低。
 
+## 关闭垂直同步（2026-10-11）
+
+第 7 步之后画廊在 240 Hz 显示器上锁在 240 FPS，需要关掉垂直同步才能看到实际帧率。
+
+- **开关**：
+  - 命令行任意位置加 `--no-vsync`，对本进程打开的所有窗口生效；
+  - 画廊窗口和 Canvas 窗口里按 F7 切换，HUD 第二行与标题栏显示 VSync 状态；
+  - `tools\gallery.bat` 菜单按 V 切换，作用于 1、2、3、5 项；也可以写 `tools\gallery.bat 1 novsync`；输出目录名带 `-novsync`。
+- **实现**（`WindowPresenter`）：
+  - 关闭时 `Present1` 用 sync interval 0；
+  - 系统支持撕裂时（`DXGI_FEATURE_PRESENT_ALLOW_TEARING`），交换链带 `DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING`，present 带 `DXGI_PRESENT_ALLOW_TEARING`；
+  - 创建失败时去掉该标志重建。此时不等待垂直同步，但窗口由合成器显示，每次刷新只显示一帧。
+- **记录**：`live.json` 增加 `vsync` 字段，`tools/summarize_gallery_live.py` 在场景名后标注 `(no vsync)`。
+
+RTX 5090、可见 4K 240 Hz 窗口，`--gallery-live-benchmark-hardware`，各 2 次：
+
+| 场景 | Present FPS | 被拖卡片更新/秒 | present 间隔 P50 / P99 ms |
+| --- | --- | --- | --- |
+| anime 拖拽 | 240 → 490–529 | 158–176 → 158–178 | 4.1 / 6.1–6.4 → 1.7–1.8 / 3.3–3.8 |
+| 散点图拖拽 | 240 → 388 | 234 → 331–334 | 4.1–4.2 / 5.9 → 2.7 / 3.6–3.7 |
+
+- anime 卡片更新受 owner 限制，帧率提高后不变。
+- Canvas 页约 180–200 FPS，受渲染线程每帧约 5 ms 限制，开关前后相同。
+- live 基准每个渲染帧注入一次拖拽移动，关闭垂直同步后输入频率随帧率上升，owner 负担更重。因此 owner 指标和输入延迟不能与开启时直接对比。
+- 原始数据在 `artifacts/local/vsync-check*`。
+
 ## 类型化样式之后（2026-10-11，第四轮）
 
 重构第 7 步（[记录](refactoring-plan.md#第-7-步记录2026-10-11)）降低了 owner 每帧开销，拖拽卡片的更新率随之提高。

@@ -3,6 +3,8 @@
 #include "probe_common.hpp"
 #include "probe_constants.hpp"
 
+#include <dxgi1_5.h>
+
 namespace probes {
     // Experimental Win32 sample host. Win32 messages only queue values. DOM/JS/layout/render run outside
     // WindowProc.
@@ -302,6 +304,17 @@ namespace probes {
         ATOM atom{};
     };
 
+    // Presentation choice for every window this probe process opens; --no-vsync on the command line turns vertical
+    // sync off.
+    struct WindowPresentSettings {
+        bool vsync = true;
+    };
+
+    inline WindowPresentSettings& window_present_settings() {
+        static WindowPresentSettings settings;
+        return settings;
+    }
+
     class WindowPresenter {
     public:
         Experiment& renderer;
@@ -325,6 +338,11 @@ namespace probes {
         HANDLE frame_latency{};
         UINT buffer_count = weft::probe_constants::swap_chain_buffer_count;
         UINT flags{};
+        // Vertical sync. Off presents with sync interval 0 and, when the swapchain allows it, tearing, so the frame
+        // rate is not capped at the display refresh rate. The gallery windows toggle it with F7.
+        bool vsync = window_present_settings().vsync;
+        // The swapchain was created with DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING (flip model, OS support).
+        bool tearing{};
 
         WindowPresenter(Experiment& r, HWND hwnd, bool low_latency = false) : renderer(r) {
             ComPtr<IDXGIDevice> dxgi;
@@ -343,12 +361,27 @@ namespace probes {
                 buffer_count = weft::probe_constants::low_latency_buffer_count;
                 flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
             }
+            ComPtr<IDXGIFactory5> tearing_factory;
+            BOOL allow_tearing = FALSE;
+            if (SUCCEEDED(factory.As(&tearing_factory)) &&
+                SUCCEEDED(tearing_factory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allow_tearing,
+                                                               sizeof(allow_tearing))) &&
+                allow_tearing) {
+                flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+            }
             desc.BufferCount = buffer_count;
             desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
             desc.Scaling = DXGI_SCALING_STRETCH;
             desc.Flags = flags;
-            check_hresult(factory->CreateSwapChainForHwnd(r.device.Get(), hwnd, &desc, nullptr, nullptr, &swap),
-                          "CreateSwapChainForHwnd");
+            auto created = factory->CreateSwapChainForHwnd(r.device.Get(), hwnd, &desc, nullptr, nullptr, &swap);
+            if (FAILED(created) && (flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING)) {
+                // Without tearing, vsync-off presents still do not wait, but the compositor shows one per refresh.
+                flags &= ~UINT(DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING);
+                desc.Flags = flags;
+                created = factory->CreateSwapChainForHwnd(r.device.Get(), hwnd, &desc, nullptr, nullptr, &swap);
+            }
+            check_hresult(created, "CreateSwapChainForHwnd");
+            tearing = (flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) != 0;
             if (low_latency) {
                 ComPtr<IDXGISwapChain2> latency;
                 check_hresult(swap.As(&latency), "IDXGISwapChain2");
@@ -523,7 +556,10 @@ namespace probes {
                 context->CopyResource(readback.Get(), back.Get());
             }
             const DXGI_PRESENT_PARAMETERS parameters{};
-            const auto result = swap->Present1(weft::probe_constants::present_sync_interval, 0, &parameters);
+            const auto interval = static_cast<UINT>(vsync ? weft::probe_constants::present_sync_interval
+                                                          : weft::probe_constants::present_immediate_interval);
+            const auto result =
+                swap->Present1(interval, !vsync && tearing ? DXGI_PRESENT_ALLOW_TEARING : 0, &parameters);
             check_hresult(result, "Present1");
             last_visible = result != DXGI_STATUS_OCCLUDED;
             if (!last_visible) {

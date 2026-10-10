@@ -136,9 +136,10 @@ namespace probes {
                 }
             }
 
-            std::string json(const std::string& scenario) const {
+            std::string json(const std::string& scenario, bool vsync) const {
                 const double span = drag_end - drag_begin;
-                return "{\"scenario\":" + json_string(scenario) + ",\"measured_seconds\":" + format_host_time(span) +
+                return "{\"scenario\":" + json_string(scenario) + ",\"vsync\":" + (vsync ? "true" : "false") +
+                       ",\"measured_seconds\":" + format_host_time(span) +
                        ",\"present_fps\":" + format_host_time((present_interval.size() + 1) / span) +
                        ",\"owner_publications_per_s\":" + format_host_time((publication_interval.size() + 1) / span) +
                        ",\"tracked_updates_per_s\":" + format_host_time((update_interval.size() + 1) / span) +
@@ -448,14 +449,14 @@ namespace probes {
                 seconds() - live_profiler.last_draw < weft::probe_constants::gallery::hud_refresh_interval_s) {
                 return;
             }
-            auto overlay =
-                live_profiler.enabled
-                    ? live_profiler.packet(fonts, fps, owner_rate, live_count,
-                                           owner ? owner->work().accepted_inputs - owner->work().processed_inputs -
-                                                       owner->work().coalesced_inputs
-                                                 : 0,
-                                           seconds())
-                    : gallery_preview_hud(fonts, fps, live_count, samples, inactive, label.str(), false);
+            auto overlay = live_profiler.enabled ? live_profiler.packet(fonts, fps, owner_rate, live_count,
+                                                                        owner ? owner->work().accepted_inputs -
+                                                                                    owner->work().processed_inputs -
+                                                                                    owner->work().coalesced_inputs
+                                                                              : 0,
+                                                                        seconds())
+                                                 : gallery_preview_hud(fonts, fps, live_count, samples, inactive,
+                                                                       label.str(), false, presenter.vsync);
             gallery_append_detail(overlay, fonts, detail);
             presenter.overlay(overlay);
         };
@@ -519,6 +520,10 @@ namespace probes {
                 }
                 if (key.wParam == VK_F8) {
                     shell.eval("__cePreview.setProfiler(!__cePreview.profiler)");
+                }
+                if (key.wParam == VK_F7 && !(key.lParam & weft::probe_constants::gallery::key_repeat_flag)) {
+                    presenter.vsync = !presenter.vsync;
+                    reset();
                 }
             }
             const auto messages_trace = trace_start();
@@ -1629,7 +1634,7 @@ namespace probes {
             }
             std::ostringstream title;
             title << "CaseElephant / 72 cases, 66 native / LIVE " << live_count << " / 3840x2160 / FPS " << std::fixed
-                  << std::setprecision(1) << fps.fps;
+                  << std::setprecision(1) << fps.fps << " / VSync " << (presenter.vsync ? "on" : "off") << " (F7)";
             // WM_SETTEXT redraws the caption: only when the text changes (about once a second).
             if (auto value = title.str(); value != window_title) {
                 SetWindowTextW(window.state.hwnd, std::wstring(value.begin(), value.end()).c_str());
@@ -1703,7 +1708,7 @@ namespace probes {
                 ",\"paint_program_evictions\":" + std::to_string(commands.paint_program_evictions) +
                 ",\"typed_draws\":" + std::to_string(commands.typed_draws) + "}");
         if (live) {
-            write_text(folder / "live.json", live_window.json(scenario));
+            write_text(folder / "live.json", live_window.json(scenario, presenter.vsync));
         }
         if (!benchmark.empty() && !live) {
             std::string data = "{";

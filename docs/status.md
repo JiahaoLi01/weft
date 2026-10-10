@@ -4,6 +4,19 @@
 
 ## 本次已实现
 
+垂直同步开关（2026-10-11）。画廊窗口在 240 Hz 显示器上一直锁在 240 FPS，现在可以关掉垂直同步看实际帧率。详见 [交互性能](gallery-interaction-profile.md#关闭垂直同步2026-10-11)。
+- **用法**：
+  - 任一窗口模式加 `--no-vsync`；
+  - 画廊窗口和 Canvas 窗口里按 F7 切换，HUD 与标题栏显示当前状态；
+  - `tools\gallery.bat` 菜单里按 V 切换（作用于 1、2、3、5 项），或 `tools\gallery.bat 1 novsync`。
+- **实现**：关闭时以 sync interval 0 present。系统支持时交换链带 `ALLOW_TEARING`，允许撕裂；不支持时退回普通交换链，不等待垂直同步，但合成器每次刷新只显示一帧。
+- **结果**（RTX 5090、可见 4K 240 Hz，各 2 次）：
+  - present 帧率：anime 拖拽 240 → 490–529，散点图拖拽 240 → 388；
+  - 散点图被拖卡片更新 234 → 约 334 次/秒；
+  - Canvas 页约 180–200 FPS，受渲染线程每帧约 5 ms 限制，开关前后相同。
+- **验证**：`ctest --preset windows-release --parallel 6` 96/96，`windows-debug` 96/96（322.3 s），WARP 窗口测试走带 tearing 标志的交换链；29 组确定性套件 1,306 个产物逐字节不变。
+- **注意**：live 基准每个渲染帧注入一次拖拽移动，关闭垂直同步时输入频率随帧率翻倍，owner 指标不能与开启时直接对比。
+
 重构第 7 步：类型化样式（2026-10-11）。计算样式从 `map<string,string>` 改为按 `PropertyId` 排序的 `StyleValues`。每个值保留原文，并带一次解析出的 payload（关键字、带单位数字、calc、颜色）。`src/` 不再使用 `std::regex`。详见 [重构计划](refactoring-plan.md#第-7-步记录2026-10-11)。
 - **结果**：
   - owner CPU（与第 7 步前的二进制交替 3 轮，固定 60 Hz，不含 GPU）：K 线 warm tick P50/P99 13.07/20.21 → 4.88/9.50 ms，散点图 3.11/5.28 → 1.93/3.52 ms；

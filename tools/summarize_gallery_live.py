@@ -20,7 +20,7 @@ def main(folders):
     if not folders:
         print(__doc__)
         return 2
-    print("scenario        FPS  owner/s  updates/s | P50/P99/max ms: present | render CPU | owner | "
+    print("scenario                   FPS  owner/s  updates/s | P50/P99/max ms: present | render CPU | owner | "
           "update | input->render")
     for folder in folders:
         path = Path(folder) / "live.json"
@@ -28,7 +28,9 @@ def main(folders):
             print(f"{Path(folder).name}: no live.json (run failed?)")
             continue
         d = json.loads(path.read_text(encoding="utf-8"))
-        print(f"{d['scenario']:14s} {d['present_fps']:4.0f}  {d['owner_publications_per_s']:7.0f}  "
+        if d.get("vsync") is False:
+            d["scenario"] += " (no vsync)"
+        print(f"{d['scenario']:25s} {d['present_fps']:4.0f}  {d['owner_publications_per_s']:7.0f}  "
               f"{d['tracked_updates_per_s']:9.0f} | {tails(d['present_interval_ms'])} | {tails(d['render_cpu_ms'])} | "
               f"{tails(d['owner_active_ms'])} | {tails(d['tracked_update_interval_ms'])} | "
               f"{tails(d['input_to_render_pickup_ms'])}")

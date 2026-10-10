@@ -1,5 +1,6 @@
 #include "probe_common.hpp"
 #include "probe_modes.hpp"
+#include "react_window_host.hpp"
 
 // Color, SDF and React fixtures, the browser capture importer and the probe mode dispatcher.
 namespace probes {
@@ -386,6 +387,15 @@ namespace probes {
 
 int main(int argc, char** argv) {
     using namespace probes;
+    // --no-vsync anywhere turns vertical sync off for the windows this process opens; the modes see the rest.
+    std::vector<char*> arguments(argv, argv + argc);
+    if (std::erase_if(arguments, [](const char* argument) {
+            return std::string_view(argument) == "--no-vsync";
+        })) {
+        window_present_settings().vsync = false;
+    }
+    argc = int(arguments.size());
+    argv = arguments.data();
     try {
         const bool owner_async = argc == 3 && (std::string(argv[1]) == "--owner-async-test-hardware" ||
                                                std::string(argv[1]) == "--owner-async-test-warp");
@@ -462,15 +472,15 @@ int main(int argc, char** argv) {
                                           std::string(argv[1]) == "--react-window-warp" ||
                                           std::string(argv[1]) == "--react-window-test-hardware" ||
                                           std::string(argv[1]) == "--react-window-test-warp");
-        require(
-            gallery_input_benchmark || gallery_live_benchmark || gallery_trace || gallery_profile ||
-                surface_retirement || gallery_scroll || gallery_cluster || owner_async || scene_native_test ||
-                render_stages || complex_css_test || scene_gpu_test || gallery_benchmark || gallery_preview ||
-                external_texture || gallery_canvas_window || gallery_canvas || pipeline_probe || cache_probe ||
-                flow_window || cheetah_flow || flow || automatic || browser || sdf || react || window || backend ||
-                cheetah || alert || theme ||
-                (argc == 3 && (std::string(argv[1]) == "--warp" || std::string(argv[1]) == "--hardware")),
-            "Usage: weft_d3d11_probe --gallery-window-[test-]hardware|warp <output-directory> (or an existing probe mode)");
+        require(gallery_input_benchmark || gallery_live_benchmark || gallery_trace || gallery_profile ||
+                    surface_retirement || gallery_scroll || gallery_cluster || owner_async || scene_native_test ||
+                    render_stages || complex_css_test || scene_gpu_test || gallery_benchmark || gallery_preview ||
+                    external_texture || gallery_canvas_window || gallery_canvas || pipeline_probe || cache_probe ||
+                    flow_window || cheetah_flow || flow || automatic || browser || sdf || react || window || backend ||
+                    cheetah || alert || theme ||
+                    (argc == 3 && (std::string(argv[1]) == "--warp" || std::string(argv[1]) == "--hardware")),
+                "Usage: weft_d3d11_probe --gallery-window-[test-]hardware|warp <output-directory> [--no-vsync] (or an "
+                "existing probe mode)");
         check_hresult(CoInitializeEx(nullptr, COINIT_MULTITHREADED), "CoInitializeEx");
         try {
             const auto result =
