@@ -4,6 +4,26 @@
 
 ## 本次已实现
 
+重构第 1 步：`src/base`（2026-10-10）。按 [重构计划](refactoring-plan.md#第-1-步记录2026-10-10) 新增 `caseelephant_base`：
+- **诊断与结果类型**：`Diag` 诊断码与 `Result<T>`；过渡用的 `DiagnosticError` 保留原 `CE_*` 消息文本。
+- **共享 CSS 标量解析**：trim/split/number/unit/color/rect 求交，替换 10 个 profile 中的副本。
+- **`GenerationalSlots`**：替换 runtime、renderer、resource lifetime 与脚本 DOM 的四套代际槽表。
+- **`OwnerThread`**：统一 8 个文件的 owner 检查。
+- **按错误码分派**：两处按消息前缀做控制流的代码改为按 `Diag` 分派。
+
+C ABI 布局、句柄代际序列、异常类型和诊断文本保持不变。唯一的例外是：原先直接漏出的 `std::stof`/`std::stod` 异常，现在报告为所在 profile 的诊断。
+
+验证：
+- **单元差分**：新增 `base_contract`，用被替换实现的逐字副本在 2 万条随机拆分输入、4 万条随机数值输入上逐条比对，全部一致。
+- **全量测试**：Release **88/88（41.3 s）**，Debug **88/88（210.7 s）**，日志在 `artifacts/local/refactor-step1/`。
+- **性能**：与重构前 `9c9f493` 交替对照 owner CPU（`tools/compare_owner_profile.py`）。条件：RTX 5090 / Ryzen 9 9950X3D / Windows 11 26200 / MSVC Release，默认优先级与 affinity，测量期间无并发编译/测试，固定 60 Hz 时钟，每例 240 帧，16 帧预热，不含 GPU。每组 3 轮，每轮交换先后。warm tick 中位数（前 → 后，P50/P99）：K-Line 16.68/22.39 → 16.42/21.99 ms，Scatter 3.86/5.78 → 3.63/5.86 ms，Anime 14 例 0.140/0.672 → 0.143/0.730 ms。各轮差异在轮间波动范围内（候选 K-Line 有一轮 P99 26.3 ms，基线三轮为 19.4–23.1 ms），记为无可测回退，不宣称提速。原始数据在 `artifacts/local/refactor-step1/perf/`。
+
+未验证：GC 压力、ASan 配置与硬件窗口测试未重跑；移动与主机平台状态不变。
+
+下一步：重构计划第 2 步，抽出 `tests/support`，并把 `host_time`、`window_frame_rate`、`gallery_owner_trace` 移出探针。
+
+以下代码规范化及更早内容为历史阶段证据：
+
 代码规范化与命名常量（2026-10-10）：
 - **格式化**：`src/`、`include/`、`tests/`、`probes/` 共 108 个 C/C++ 文件按新 [代码规范](coding-style.md) 重排，`.clang-format` 由 clang-format 22.1.3 强制执行。
   - 控制语句一律加花括号，namespace 缩进，一行一语句，运算符两侧留空格。

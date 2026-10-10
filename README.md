@@ -8,7 +8,7 @@ CaseElephant 的目标是在 Windows、Android 和 iOS 上，用同一套 HTML�
 
 新增 [通用交互优化与可切换 profiler](docs/incremental-ui-profiler.md)：Gallery 侧栏/F8 开启曲线、分项 timer 与 P50/P95/P99/Max，默认关闭、全速运行。修正正常松开鼠标的误 Cancel，精确 style memo 与 owner 增量值/几何复用，诊断 footer 移至 native overlay；原始组件/库不改。当前预览：`ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/incremental-ui/interactive`。Esc 后 `python tools/analyze_gallery_trace.py <输出目录>` 合并有界双线程 trace。Release/Debug 各87/87，K-Line/多案例 Anime 仍需按游戏 UI 毫秒预算继续优化。
 
-代码规范化（2026-10-10）：全部 C/C++ 与 HLSL 按 [代码规范](docs/coding-style.md) 重排并命名常量，Release 反汇编逐函数对照证明行为不变；后续架构重构按 [重构计划](docs/refactoring-plan.md) 分步进行。
+代码规范化（2026-10-10）：全部 C/C++ 与 HLSL 按 [代码规范](docs/coding-style.md) 重排并命名常量，Release 反汇编逐函数对照证明行为不变；后续架构重构按 [重构计划](docs/refactoring-plan.md) 分步进行。 第 1 步已完成：`src/base` 提供 `Diag`/`Result<T>`、共享 CSS 标量解析、代际槽表与 `OwnerThread`，替换 10 个 profile 的解析副本和四套槽表，全量测试与 owner CPU 对照不变，见 [status](docs/status.md)。
 
 此前阶段 [交互/动画优化](docs/gallery-interaction-profile.md)：K-Line单例owner P50约49→14ms；Spring Trail静态emoji图像不再逐帧重建，paint约11.59→0.094ms。这些为此前单轮/中途测量，当前对照见上方新阶段，Present FPS不能代替Owner/age/输入延迟。
 
