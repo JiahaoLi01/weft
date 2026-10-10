@@ -35,6 +35,22 @@ namespace weft::render::d3d11 {
 #include "shaders/quad.ps.debug.inc"
 #endif
         };
+        constexpr unsigned char convert_vs_bytes[] = {
+#ifdef NDEBUG
+#include "shaders/srgb_convert.vs.inc"
+#else
+#include "shaders/srgb_convert.vs.debug.inc"
+#endif
+        };
+        constexpr unsigned char convert_ps_bytes[] = {
+#ifdef NDEBUG
+#include "shaders/srgb_convert.ps.inc"
+#else
+#include "shaders/srgb_convert.ps.debug.inc"
+#endif
+        };
+        // Entries of each srgb_convert.hlsl table: one per byte value.
+        constexpr unsigned convert_table_entries = 256;
 
         namespace materials = weft::constants::render::d3d11::shader_material;
 
@@ -119,6 +135,31 @@ namespace weft::render::d3d11 {
         throw_if_failed(device->CreateDeferredContext(0, &deferred), "CreateDeferredContext");
         throw_if_failed(device->CreateVertexShader(quad_vs, sizeof(quad_vs), nullptr, &vs), "CreateVertexShader");
         throw_if_failed(device->CreatePixelShader(quad_ps, sizeof(quad_ps), nullptr, &ps), "CreatePixelShader");
+        throw_if_failed(device->CreateVertexShader(convert_vs_bytes, sizeof(convert_vs_bytes), nullptr, &convert_vs),
+                        "Create conversion vertex shader");
+        throw_if_failed(device->CreatePixelShader(convert_ps_bytes, sizeof(convert_ps_bytes), nullptr, &convert_ps),
+                        "Create conversion pixel shader");
+        {
+            // The CPU reference values: sRGB decode, then byte / 255, both in single precision.
+            std::array<float, 2 * convert_table_entries> tables{};
+            for (unsigned i = 0; i < convert_table_entries; ++i) {
+                tables[i] = srgb_to_linear(i / weft::constants::render::color_channel_max_float);
+                tables[convert_table_entries + i] = i / weft::constants::render::color_channel_max_float;
+            }
+            D3D11_BUFFER_DESC td{};
+            td.ByteWidth = UINT(sizeof(tables));
+            td.Usage = D3D11_USAGE_IMMUTABLE;
+            td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            const D3D11_SUBRESOURCE_DATA initial{tables.data(), 0, 0};
+            ComPtr<ID3D11Buffer> buffer;
+            throw_if_failed(device->CreateBuffer(&td, &initial, &buffer), "Create conversion tables");
+            D3D11_SHADER_RESOURCE_VIEW_DESC tv{};
+            tv.Format = DXGI_FORMAT_R32_FLOAT;
+            tv.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+            tv.Buffer.NumElements = UINT(tables.size());
+            throw_if_failed(device->CreateShaderResourceView(buffer.Get(), &tv, &convert_tables),
+                            "Create conversion table view");
+        }
         D3D11_BUFFER_DESC cb{};
         cb.ByteWidth = sizeof(QuadConstants);
         cb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
@@ -298,6 +339,9 @@ namespace weft::render::d3d11 {
                     if (resource_state.phase != ResourcePhase::Ready &&
                         resource_state.phase != ResourcePhase::Submitted) {
                         n.upload = cached.native.upload;
+                        n.source = cached.native.source;
+                        n.source_srv = cached.native.source_srv;
+                        n.rtv = cached.native.rtv;
                     }
                     ensure(existing.values[i] && *existing.values[i] == n.id, "complete cached dependency lease");
                     cached.touched = ++cache_clock;
@@ -323,37 +367,18 @@ namespace weft::render::d3d11 {
             for (std::size_t p = 3; opaque && p < a.bytes.size(); p += 4) {
                 opaque = a.bytes[p] == weft::constants::color_channel_max;
             }
-            if (r8) {
-                n.upload = a.bytes;
-                n.pitch = a.width;
-            } else if (opaque) {
-                n.upload = a.bytes;
-                n.pitch = a.width * weft::constants::rgba8_bytes_per_pixel;
-            } else {
-                std::vector<Color> pixels(static_cast<std::size_t>(a.width) * a.height);
-                for (std::size_t p = 0; p < pixels.size(); ++p) {
-                    const float alpha = a.bytes[p * 4 + 3] / weft::constants::render::color_channel_max_float;
-                    // Source channels are bytes: cache the exact reference decode for
-                    // every possible value instead of evaluating pow per pixel.
-                    static const auto transfer = [] {
-                        std::array<float, 256> table{};
-                        for (unsigned i = 0; i < 256; ++i) {
-                            table[i] = srgb_to_linear(i / weft::constants::render::color_channel_max_float);
-                        }
-                        return table;
-                    }();
-                    pixels[p] = {transfer[a.bytes[p * 4]] * alpha, transfer[a.bytes[p * 4 + 1]] * alpha,
-                                 transfer[a.bytes[p * 4 + 2]] * alpha, alpha};
-                }
-                n.upload.resize(pixels.size() * sizeof(Color));
-                std::memcpy(n.upload.data(), pixels.data(), n.upload.size());
-                n.pitch = a.width * sizeof(Color);
-            }
+            // Translucent texels are converted on the GPU from the uploaded bytes (srgb_convert.hlsl); the
+            // resource is accounted as its float texture.
+            const bool convert = !r8 && !opaque;
+            n.upload = a.bytes;
+            n.pitch = r8 ? a.width : a.width * weft::constants::rgba8_bytes_per_pixel;
+            const auto resource_bytes =
+                convert ? static_cast<std::size_t>(a.width) * a.height * sizeof(Color) : n.upload.size();
             // Capacity failure must happen before allocating a tracked resource.
             // All incoming hits are already pinned; a full packet that exceeds
             // the cache cannot leave an unowned CPU lease behind on rejection.
             if (cache_assets) {
-                evict_assets(n.upload.size());
+                evict_assets(resource_bytes);
             }
             D3D11_TEXTURE2D_DESC d{};
             d.Width = a.width;
@@ -364,14 +389,24 @@ namespace weft::render::d3d11 {
             d.Format = r8       ? DXGI_FORMAT_R8_UNORM
                        : opaque ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
                                 : DXGI_FORMAT_R32G32B32A32_FLOAT;
-            d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            d.BindFlags = D3D11_BIND_SHADER_RESOURCE | (convert ? D3D11_BIND_RENDER_TARGET : 0u);
             throw_if_failed(device->CreateTexture2D(&d, nullptr, &n.texture), "Create input texture");
             throw_if_failed(device->CreateShaderResourceView(n.texture.Get(), nullptr, &n.srv), "Create input SRV");
-            lifetime(tracker.CreateResource({key.first, key.second, n.upload.size(), ResourceKind::Texture}, n.id),
+            if (convert) {
+                throw_if_failed(device->CreateRenderTargetView(n.texture.Get(), nullptr, &n.rtv),
+                                "Create conversion target");
+                auto source = d;
+                source.Format = DXGI_FORMAT_R8G8B8A8_UINT;
+                source.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+                throw_if_failed(device->CreateTexture2D(&source, nullptr, &n.source), "Create conversion source");
+                throw_if_failed(device->CreateShaderResourceView(n.source.Get(), nullptr, &n.source_srv),
+                                "Create conversion source SRV");
+            }
+            lifetime(tracker.CreateResource({key.first, key.second, resource_bytes, ResourceKind::Texture}, n.id),
                      "CreateResource");
             ++native_creations;
             if (cache_assets) {
-                const auto bytes = n.upload.size();
+                const auto bytes = resource_bytes;
                 const auto resource = n.id;
                 try {
                     asset_cache.emplace(key, CachedAsset{std::move(n), bytes, ++cache_clock});
@@ -388,6 +423,9 @@ namespace weft::render::d3d11 {
                 n.srv = cached.native.srv;
                 n.upload = cached.native.upload;
                 n.pitch = cached.native.pitch;
+                n.source = cached.native.source;
+                n.source_srv = cached.native.source_srv;
+                n.rtv = cached.native.rtv;
                 n.cache_copy = true;
                 lifetime(tracker.RetainResource(n.id), "new cached frame lease");
             }
@@ -404,6 +442,9 @@ namespace weft::render::d3d11 {
             if (a.texture && tracker.InspectResource(a.id, state) == LifetimeResult::StaleHandle) {
                 a.srv.Reset();
                 a.texture.Reset();
+                a.source_srv.Reset();
+                a.source.Reset();
+                a.rtv.Reset();
                 a.upload.clear();
                 if (!a.cache_copy) {
                     ++native_releases;
@@ -415,6 +456,9 @@ namespace weft::render::d3d11 {
             if (tracker.InspectResource(cached.native.id, resource_state) == LifetimeResult::Ok &&
                 resource_state.phase == ResourcePhase::Ready && !cached.native.upload.empty()) {
                 std::vector<std::uint8_t>{}.swap(cached.native.upload);
+                cached.native.source_srv.Reset();
+                cached.native.source.Reset();
+                cached.native.rtv.Reset();
             }
         }
     }
@@ -477,16 +521,43 @@ namespace weft::render::d3d11 {
         lifetime(tracker.EncodeFrame(frame.id, encoded.token), "EncodeFrame before recording");
         try {
             deferred->ClearState();
+            std::vector<const NativeAsset*> conversions;
             for (auto& a : assets) {
                 ResourceInfo resource_state;
                 lifetime(tracker.InspectResource(a.id, resource_state), "inspect upload readiness");
                 // A submitted upload is usable by later work on this same
                 // queue, while an unsubmitted/cancelled upload is not.
                 if (resource_state.phase != ResourcePhase::Ready && resource_state.phase != ResourcePhase::Submitted) {
-                    ensure(!a.upload.empty(), "created resource retains retry upload");
-                    deferred->UpdateSubresource(a.texture.Get(), 0, nullptr, a.upload.data(), a.pitch, 0);
+                    ensure(!a.upload.empty() && (!a.rtv || a.source), "created resource retains retry upload");
+                    deferred->UpdateSubresource(a.source ? a.source.Get() : a.texture.Get(), 0, nullptr,
+                                                a.upload.data(), a.pitch, 0);
                     ++uploads;
+                    if (a.source) {
+                        conversions.push_back(&a);
+                    }
                 }
+            }
+            if (!conversions.empty()) {
+                deferred->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+                deferred->VSSetShader(convert_vs.Get(), nullptr, 0);
+                deferred->PSSetShader(convert_ps.Get(), nullptr, 0);
+                auto* tables = convert_tables.Get();
+                deferred->PSSetShaderResources(1, 1, &tables);
+                for (const auto* a : conversions) {
+                    D3D11_TEXTURE2D_DESC d{};
+                    a->texture->GetDesc(&d);
+                    auto* rtv = a->rtv.Get();
+                    deferred->OMSetRenderTargets(1, &rtv, nullptr);
+                    const D3D11_VIEWPORT viewport{0, 0, static_cast<float>(d.Width), static_cast<float>(d.Height),
+                                                  0, 1};
+                    deferred->RSSetViewports(1, &viewport);
+                    auto* source = a->source_srv.Get();
+                    deferred->PSSetShaderResources(0, 1, &source);
+                    deferred->Draw(3, 0);
+                    ++gpu_conversions;
+                }
+                // Unbind the converted targets before the frame samples them.
+                deferred->ClearState();
             }
             if (fail_after_upload) {
                 throw std::runtime_error("injected recording failure");

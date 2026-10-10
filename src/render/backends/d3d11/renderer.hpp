@@ -50,6 +50,11 @@ namespace weft::render::d3d11 {
         std::vector<std::uint8_t> upload;
         UINT pitch{};
         bool cache_copy{};
+        // Translucent encoded sRGB inputs: the upload goes to source (RGBA8 UINT) and srgb_convert.hlsl renders the
+        // linear premultiplied float texels into texture through rtv. Released once the resource is ready.
+        ComPtr<ID3D11Texture2D> source;
+        ComPtr<ID3D11ShaderResourceView> source_srv;
+        ComPtr<ID3D11RenderTargetView> rtv;
     };
 
     struct ExternalGpuAsset {
@@ -102,6 +107,10 @@ namespace weft::render::d3d11 {
         ComPtr<ID3D11RasterizerState> raster;
         ComPtr<ID3D11DepthStencilState> depth;
         ComPtr<ID3D11SamplerState> sampler;
+        // GPU conversion of translucent encoded sRGB inputs and its decode/alpha tables.
+        ComPtr<ID3D11VertexShader> convert_vs;
+        ComPtr<ID3D11PixelShader> convert_ps;
+        ComPtr<ID3D11ShaderResourceView> convert_tables;
         // Offscreen sRGB result, its linear float render-to-texture source and the opacity group target.
         Surface output;
         Surface intermediate;
@@ -152,6 +161,7 @@ namespace weft::render::d3d11 {
         // Created on first use; destroyed only after the actual GPU drain in ~Renderer.
         Backend* backend{};
         std::size_t uploads{};
+        std::size_t gpu_conversions{};
         std::size_t native_releases{};
 
         // A hardware renderer uses the adapter with the most dedicated memory; warp selects WARP. The

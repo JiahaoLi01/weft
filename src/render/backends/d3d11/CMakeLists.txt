@@ -4,6 +4,7 @@ weft_add_library(render_d3d11
     PUBLIC weft::render d3d11
     PRIVATE dxgi)
 weft_add_hlsl(weft_render_d3d11 quad quad.hlsl)
+weft_add_hlsl(weft_render_d3d11 srgb_convert srgb_convert.hlsl)
 
 # Native D3D11 pass of compiled scenes. Text images are portable (weft::scene); the D2D reference raster draws
 # layers and text with color glyphs.
