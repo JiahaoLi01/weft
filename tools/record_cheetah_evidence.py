@@ -9,7 +9,7 @@ import shutil
 root=Path(__file__).resolve().parents[1]
 def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
 sources=['CMakeLists.txt','src/layout/positioned_page.cpp','src/layout/positioned_page.hpp',
-         'tests/positioned_page_tests.cpp','probes/cheetah_probe.hpp','probes/d3d11_probe.cpp','probes/probe_render_backend.hpp',
+         'tests/positioned_page_tests.cpp','probes/cheetah_probe.hpp','probes/cheetah_probe.cpp','probes/d3d11_probe.cpp','src/render/backends/d3d11/backend.cpp',
          'tests/fixtures/casecheetah/manifest.json','tests/fixtures/cheetah_browser_reference.json',
          'examples/cheetah-nine-slice/native/metadata.json','tools/compare_cheetah_reports.py','tools/verify_cheetah_fixture.py']
 for name,build,config,log,count in [('debug','windows-msvc','Debug','ctest-final.log',28),

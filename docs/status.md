@@ -4,6 +4,46 @@
 
 ## 本次已实现
 
+重构第 5 步：D3D11 渲染器移入 `src/render`、`RenderBackend` concept、探针独立翻译单元（2026-10-10）。按 [重构计划](refactoring-plan.md#第-5-步记录2026-10-10)，分四个提交：
+- **shader**：`cmake/WeftShaders.cmake` 在构建时用 Windows SDK 的 fxc 编译 HLSL 并内嵌字节码。运行时不读 `shaders/`，也不链接 d3dcompiler。Release 字节码与原运行期编译的输出逐字节相同。
+- **渲染器库**：`weft::render_d3d11`（`src/render/backends/d3d11/`）包含四部分：
+  - `Renderer`：设备、资源、prepare/encode/完成；
+  - `Backend`：C ABI 适配器；
+  - 同步宿主 `render_window`/`compose_window`；
+  - `TwoFramePipeline`。
+- **帧输入**：`render/frame_packet.hpp` 是与 GPU 无关的帧输入。
+- **concept**：`render/backend.hpp` 定义 `RenderBackend`/`ExternalTextureBackend` concept，并由 `make_c_backend` 生成 C 函数表。异常在 ABI 处转为错误码或终止，不会跨过 ABI。
+- **探针**：`probes/probe_common.hpp` 加 17 个模式 `.cpp`，不再在匿名 namespace 中途包含头文件。
+- **新测试**（共 90 项）：
+  - `render_backend_concept`：concept 与 thunk 合同；
+  - `render_d3d11_contract`：只链接渲染器库，WARP 两帧回读、完成后退休、调试层零消息。
+
+验证：
+- **全量测试**：
+  - `ctest --preset windows-release --parallel 6 --output-on-failure`：**90/90（38.2 s）**；
+  - `windows-debug`：**90/90（216.8 s）**；
+  - 日志在 `artifacts/local/refactor-step5/`。
+- **WARP 产物对照**：工具是 `tools/compare_artifacts.py`，基线为第 5 步前的构建。
+  - Release：28 组确定性套件（2,655 个文件）在每个子步骤后都逐字节相同；
+  - Debug：在第 5 步结束时对照，28 组同样相同；
+  - 另有 6 组实时窗口套件，同一二进制两次运行也不同，靠自身断言通过。
+- **硬件对照**：在 RTX 5090 上分别用旧二进制（`36447e2` 构建）和新二进制运行 22 个 `--*-hardware` 模式，全部通过，调试层开启。
+  - 21 组产物逐字节相同；
+  - `gallery-preview` 的 14 个文件不同，但旧二进制自己重跑一次也有同样的差异。
+  - 产物在 `artifacts/local/refactor-step5/hardware-{before,after}/`。
+
+未验证：
+- GC 压力配置的构建与运行；
+- 非 Windows 平台。新代码中 D3D11 部分只在 `WIN32` 下构建，concept 头与平台无关，但未在其他平台编译过。
+
+下一步：第 6 步 scene 可移植化。
+- 拆出纯几何与命中 TU；
+- DirectWrite 量字换成 HarfBuzz/FreeType；
+- 随之迁出 `SceneNativeGpu`；
+- 重新采集 Chrome 对照基线。
+
+以下第 4 步及更早内容为历史阶段证据：
+
 重构第 4 步：改名 Weft、模块化 CMake、公开/私有头分离（2026-10-10）。按 [重构计划](refactoring-plan.md#第-4-步记录2026-10-10)：
 - **改名**：命名空间 `weft::`；C ABI `weft_*`/`WEFT_*`，入口头 `include/weft/weft.h`；诊断码 `WEFT_*`；可执行文件 `weft_*`；类型和文件去掉 `Probe` 前缀。被 fixture 或浏览器参考锁定的名字保持原样（`__ce*` JS 全局、`ProbeRoboto`/`ProbeCjk` 字体族、参考时钟、原样 bundle）。
 - **头文件**：`include/weft/` 只放 4 个 C ABI 头；内部头移到 `src/<模块>/`，以 `"<模块>/<文件>.hpp"` 引用。

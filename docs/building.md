@@ -1,6 +1,6 @@
 # Weft 构建与 M0 探针
 
-当前交付的实验模块按 `src/<模块>` 组织，每个模块是一个静态库 `weft::<模块>`：`base`、`core`、`render`、`canvas`、`script`、`text`、`style`、`layout`、`scene`、`input`；Windows 另有 Direct2D 参考 raster `weft::canvas_d2d` 与 `weft::scene_d2d`。公开 C ABI 头位于 `include/weft/`，模块内部头以 `"<模块>/<文件>.hpp"` 从 `src/` 根引用。CMake 辅助函数 `weft_add_library`、`weft_add_executable`、`weft_add_test`、`weft_add_python_test` 在 `cmake/WeftTargets.cmake`，固定第三方依赖在 `cmake/WeftThirdParty.cmake`。受限 React 页面与原样 CaseCheetah 九宫格已串联 native DOM、CSS profile、布局、字体/图片、GPU 和 Windows 窗口；一般 HTML → CSS 页面加载尚未实现。公开头文件是实验接口，当前不交付稳定 SDK 或第三方符号隔离承诺。
+当前交付的实验模块按 `src/<模块>` 组织，每个模块是一个静态库 `weft::<模块>`：`base`、`core`、`render`、`canvas`、`script`、`text`、`style`、`layout`、`scene`、`input`；Windows 另有 Direct2D 参考 raster `weft::canvas_d2d`、`weft::scene_d2d`，以及 D3D11 参考渲染器 `weft::render_d3d11`（渲染器、C ABI 适配器、同步与两帧宿主；HLSL 在构建时由 fxc 编译内嵌，见 `cmake/WeftShaders.cmake`）。公开 C ABI 头位于 `include/weft/`，模块内部头以 `"<模块>/<文件>.hpp"` 从 `src/` 根引用。CMake 辅助函数 `weft_add_library`、`weft_add_executable`、`weft_add_test`、`weft_add_python_test` 在 `cmake/WeftTargets.cmake`，固定第三方依赖在 `cmake/WeftThirdParty.cmake`。受限 React 页面与原样 CaseCheetah 九宫格已串联 native DOM、CSS profile、布局、字体/图片、GPU 和 Windows 窗口；一般 HTML → CSS 页面加载尚未实现。公开头文件是实验接口，当前不交付稳定 SDK 或第三方符号隔离承诺。
 
 ## Windows x64
 

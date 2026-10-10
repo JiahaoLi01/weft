@@ -65,7 +65,7 @@ probes/ tests/ tools/      证据与验证，只依赖 src，不被 src 依赖
 | 2 ✅ | `tests/support`：check 宏、文件/PNG 工具；`host_time`、`window_frame_rate`、`gallery_owner_trace` 移出探针 | `tests/*`、`probes/*` | 全量测试；见下方第 2 步记录 |
 | 3 ✅ | bootstrap JS 由 CMake 生成 `.inc` 内嵌，去掉运行时 `WEFT_SOURCE_DIR` | `script_dom_probe.cpp`、各窗口/探针 | 脚本与 GC 测试；移动/主机打包前置条件；见下方第 3 步记录 |
 | 4 ✅ | 改名 Weft；CMake 拆成模块目录与 `weft::` 目标，`weft_add_test()`；公开/私有头分离；去 `Probe` 前缀 | `CMakeLists.txt`、`include/`、全部源码 | 测试定义与编译选项逐项对照、全量构建与测试、C ABI smoke；见下方第 4 步记录 |
-| 5 | D3D11 渲染器、FramePacket、两帧流水线移入 `src/render`，经 `RenderBackend` concept 接 C ABI；探针头改为独立 TU | `probes/d3d11_probe.cpp`、`probe_render_backend.hpp`、`two_frame_pipeline.hpp`、`scene_native_gpu_probe.hpp` | WARP/硬件像素、两帧退休、debug layer 零告警 |
+| 5 ✅ | D3D11 渲染器、FramePacket、两帧流水线移入 `src/render`，经 `RenderBackend` concept 接 C ABI；探针头改为独立 TU；shader 构建期编译内嵌 | `probes/d3d11_probe.cpp`、`probe_render_backend.hpp`、`two_frame_pipeline.hpp` | WARP/硬件产物逐字节对照、两帧退休、debug layer 零告警；见下方第 5 步记录 |
 | 6 | scene 可移植化：拆出纯几何/命中 TU；DirectWrite 量字换成与 flow 相同的 HarfBuzz 测量；D2D 退为 Windows 参考 raster | `scene_probe.hpp`、`scene_d2d_probe.cpp`、`gallery_scene_session.hpp` | 字体度量会变，重新建立 Chrome 对照基线（已确认） |
 | 7 | 类型化样式：PropertyId、长度/颜色/关键字值，去掉字符串往返与正则插值 | `style_probe`、`flow_page`、`auto_page`、`scene_probe` | 级联/动画差分、gallery 像素与几何 |
 | 8 | 统一格式化路径：一个调度器、一个 Yoga 适配器、一个 paint IR、一条命中路径；golden 迁移后删除 page/positioned/auto | `src/layout/*`、`input_probe` | 旧 profile 的浏览器差分全部改跑新路径 |
@@ -184,6 +184,55 @@ CMake 拆分：
   - 模块源多了 `src/` include 根；
   - 合并后的 layout 源能看到 yoga/harfbuzz/libunibreak 头路径，因此多出一个只影响警告级别的 `-external:W0`。
 - **全量测试**：结果见 [status](status.md)。
+
+## 第 5 步记录（2026-10-10）
+
+分四个提交，每个提交单独验证。
+
+**5A shader 构建期编译**：
+- `cmake/WeftShaders.cmake` 用 Windows SDK 的 fxc 编译 HLSL，`weft_add_hlsl()` 生成字节表并内嵌。
+- 每个 shader 生成两份：带 `NDEBUG` 的构建用 `/O3`，否则用 `/Zi /Od`，与原先运行期编译的选项一致。
+- 四边形 shader 移到 `src/render/backends/d3d11/quad.hlsl`。运行时不再读源码，也不再链接 d3dcompiler。
+- 字节码对照：Release 字节码与原 `D3DCompileFromFile`（系统 d3dcompiler_47）的输出逐字节相同；Debug 字节码只有调试信息块 SPDB 不同，指令、签名与反射相同。
+
+**5B 渲染器移入 `src/render`**：
+- `render/frame_packet.hpp` 定义与 GPU 无关的 `FramePacket`/`Draw`/`Asset`（`Draw::rect` 改用 `geometry::Rect`）；`render/srgb.hpp` 提供 sRGB 解码。
+- `weft::render_d3d11`（`src/render/backends/d3d11/`）包含四部分：
+  - `Renderer`：原 `Experiment` 去掉夹具检查后的部分；
+  - `Backend`：原 `ProbeBackend`，即 C ABI 适配器，连同 `PacketView`；
+  - `host.hpp`：同步宿主 `render_window`/`compose_window`，改为自由函数；
+  - `TwoFramePipeline`。
+- 渲染器报错改用自己的 `ensure`/`throw_if_failed`，消息文本不变。D3D11 限额移入 `constants::render::d3d11`，探针常量改为引用它。
+- 探针保留 `Experiment`，作为 `Renderer` 的子类，承载色彩夹具的默认尺寸、断言计数和自检式 `execute()`。
+
+**5C `RenderBackend` concept**：
+- `render/backend.hpp` 定义 `RenderBackend`/`ExternalTextureBackend` 两个 concept，以及 `make_c_backend`/`make_c_external_backend`。函数表由 noexcept thunk 生成，是唯一的动态分派点。
+- 异常处理：
+  - prepare、encode、import 抛出的异常转为 `WEFT_RENDER_BACKEND_ERROR`，并清零输出句柄；
+  - shutdown 抛出的异常报告为错误；
+  - 按合同不能失败的回调抛出时直接 terminate。
+- D3D11 `Backend` 改为满足 concept 的成员函数，函数体不变。
+- 新测试：
+  - `render_backend_concept`：concept 正反例、表内容、thunk 错误策略，以及经过渲染器核心的完整帧周期；
+  - `render_d3d11_contract`：只链接 `weft::render_d3d11`，在 WARP 上跑两帧，做像素回读，验证纹理在完成查询之后才退休、调试层零消息。
+- 四个公开 C 头的 include guard 去掉 `CASEELEPHANT_` 前缀。
+
+**5D 探针拆成独立翻译单元**：
+- 原先探针头在 `d3d11_probe.cpp` 的匿名 namespace 中途被包含，各头不自包含。
+- 现在共享部分在 `probes/probe_common.hpp`，代码放在全局作用域的 `namespace probes`，因此非限定查找与原先相同。
+- 每个探针头只保留共享辅助（inline，include 在全局作用域）。每组 `run_*` 模式各为一个 `.cpp`，共 17 个，在 `probe_modes.hpp` 中声明。
+
+验证：
+- **产物对照**：`tools/compare_artifacts.py` 逐字节比较图片，报告去掉计时字段后逐值比较。对照基线是第 5 步之前的构建产物。Release 的 28 组确定性套件在每个子步骤后都完全一致；Debug 在第 5 步结束时对照，同样一致。
+- **实时窗口套件**：以下 6 组含实时窗口的套件即使同一二进制两次运行也不同（滚轮合并、实时帧数），只依赖它们自身的断言：
+  - `cheetah-flow-window-4k`、`cheetah-flow-window-motion`；
+  - `gallery-preview`、`gallery-trace`；
+  - `owner-async`、`scene-surface-retirement`。
+- **硬件对照**：RTX 5090 上新旧二进制各跑 22 个 `--*-hardware` 模式，21 组产物逐字节相同，`gallery-preview` 的差异与旧二进制自身重跑的差异相同。全量测试结果见 [status](status.md)。
+
+留在探针、待后续步骤处理的部分：
+- `SceneNativeGpu`：依赖 Direct2D/DirectWrite 文字 raster，随第 6 步 scene 可移植化迁出。
+- Win32 窗口与交换链宿主（`react_window_host.hpp`）：属于第 10 步的平台层。
 
 ## 已确认的取舍（2026-10-10）
 
