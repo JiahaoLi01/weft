@@ -30,6 +30,8 @@ namespace weft::test_constants::script {
     inline constexpr int owner_wait_period = 16;
     inline constexpr int owner_gc_input_period = 13;
     // A game-thread queue call must return within this while a frame is being retired.
+    // A wait() that must not return during a progressive tick that is still blocked.
+    inline constexpr int owner_early_wait_ms = 50;
     inline constexpr int queue_api_timeout_seconds = 1;
 
     // Owner trace event limit (65536) plus four events that must evict the oldest ones.

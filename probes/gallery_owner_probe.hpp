@@ -105,6 +105,10 @@ namespace probes {
         unsigned count_;
         std::chrono::steady_clock::time_point current_received_;
         std::chrono::steady_clock::time_point last_received_{};
+        // Scenes that received input since their last step; with early frames they step and publish first.
+        std::array<bool, gallery_scene_count> input_pending_{};
+        // The last final frame; early frames pair the scenes stepped so far with its other values.
+        std::shared_ptr<const GalleryOwnerFrame> last_frame_;
 
     public:
         GalleryOwnerState(bool expanded = false, std::filesystem::path trace = {},
@@ -245,6 +249,7 @@ namespace probes {
                 }
             }
             if (value.scene >= 0) {
+                input_pending_[unsigned(value.scene)] = true;
                 auto& s = *scenes_[unsigned(value.scene)];
                 s.time = time_;
                 operation(s, [&] {
@@ -284,7 +289,103 @@ namespace probes {
             }
         }
 
-        std::shared_ptr<const GalleryOwnerFrame> frame(const GalleryOwnerRequest& request) {
+        // Snapshot of a scene whose paint changed since the last one, under a new revision.
+        void refresh_snapshot(unsigned i) {
+            auto& s = *scenes_[i];
+            if (s.dirty || !snapshots_[i]) {
+                snapshots_[i] = std::make_shared<const weft::SceneFrame>(s.current);
+                require(revisions_[i] != UINT64_MAX, "worker scene revision overflow");
+                ++revisions_[i];
+                s.dirty = false;
+            }
+        }
+
+        // One scene's tick: a visible scene steps with its animation frame; a hidden one pumps timers only.
+        void step_scene(unsigned i, const GalleryOwnerRequest& request, GalleryOwnerFrame& out) {
+            auto& s = *scenes_[i];
+            const auto trace_start =
+                profiling_ ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+            const auto before = s.profile;
+            const auto work_before = s.scene.work();
+            if (request.scenes[i]) {
+                s.step(time_, true);
+                out.js_ms += s.js_ms;
+                out.snapshot_ms += s.snapshot_ms;
+                out.scene_ms += s.scene_ms;
+            } else {
+                s.time = time_;
+                s.pump();
+                s.vm.animation_frame(time_, false);
+                s.pump();
+            }
+            input_pending_[i] = false;
+            if (profiling_) {
+                const auto elapsed =
+                    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - trace_start).count();
+                out.detail.cases[i] = elapsed;
+                detail_delta(out.detail, s, before, work_before);
+            }
+            if (profiling_ && trace_.enabled()) {
+                const auto elapsed =
+                    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - trace_start).count();
+                const auto work = s.scene.work();
+                if (request.scenes[i] || elapsed > weft::probe_constants::gallery::hidden_pump_trace_threshold_ms) {
+                    trace_.emit(
+                        std::string(gallery_scene_descriptors[i].group) + "/" +
+                            std::to_string(gallery_scene_descriptors[i].index) +
+                            (request.scenes[i] ? " update" : " hidden pump"),
+                        trace_start, elapsed,
+                        "{\"style_ms\":" + format_host_time(work.style_ms - work_before.style_ms) +
+                            ",\"build_ms\":" + format_host_time(work.build_ms - work_before.build_ms) +
+                            ",\"layout_ms\":" + format_host_time(work.layout_ms - work_before.layout_ms) +
+                            ",\"geometry_ms\":" + format_host_time(s.profile.geometry_ms - before.geometry_ms) +
+                            ",\"layout_reads\":" + std::to_string(s.profile.layout_reads - before.layout_reads) +
+                            ",\"style_reads\":" + std::to_string(s.profile.style_reads - before.style_reads) + "}");
+                }
+            }
+            refresh_snapshot(i);
+        }
+
+        // Input first: the visible scenes with input since their last step go out in an early frame with the
+        // latest snapshots of the others, so a dragged card does not wait for every other visible scene. A scene
+        // this tick already stepped only flushes the input's DOM changes: its animation frame runs once per tick.
+        void publish_inputs(const GalleryOwnerRequest& request, GalleryOwnerFrame& out,
+                            std::array<bool, gallery_scene_count>& stepped,
+                            const GalleryOwnerExecutor::Progress& progress) {
+            bool changed{};
+            for (unsigned i = 0; i < count_; ++i) {
+                if (!input_pending_[i] || !request.scenes[i]) {
+                    continue;
+                }
+                const auto revision = revisions_[i];
+                if (stepped[i]) {
+                    scenes_[i]->flush_scene();
+                    input_pending_[i] = false;
+                    refresh_snapshot(i);
+                } else {
+                    step_scene(i, request, out);
+                    stepped[i] = true;
+                }
+                changed |= revisions_[i] != revision;
+            }
+            if (!changed || !last_frame_) {
+                return;
+            }
+            auto early = std::make_shared<GalleryOwnerFrame>(*last_frame_);
+            early->time = time_;
+            early->input_received = last_received_;
+            early->detail = {};
+            for (unsigned i = 0; i < count_; ++i) {
+                early->scenes[i] = snapshots_[i];
+                early->revisions[i] = revisions_[i];
+            }
+            progress.publish(std::move(early));
+        }
+
+        // A complete frame of every scene and Canvas. With progress (interactive hosts), scenes with input step
+        // first and are published early, and inputs that arrive during the tick run once between scenes.
+        std::shared_ptr<const GalleryOwnerFrame> frame(const GalleryOwnerRequest& request,
+                                                       const GalleryOwnerExecutor::Progress* progress = nullptr) {
             apply_profile();
             OwnerTrace::Scope trace{trace_, "owner publication", "{}", profiling_};
             if (!std::isfinite(request.time)) {
@@ -293,10 +394,13 @@ namespace probes {
             time_ = std::max(time_, request.time);
             auto out = std::make_shared<GalleryOwnerFrame>();
             out->time = time_;
-            out->input_received = last_received_;
             out->detail = input_detail_;
             out->detail.enabled = profiling_;
             input_detail_ = {};
+            std::array<bool, gallery_scene_count> stepped{};
+            if (progress) {
+                publish_inputs(request, *out, stepped, *progress);
+            }
             for (unsigned i = 0; i < weft::probe_constants::gallery::canvas_case_count; ++i) {
                 auto& c = *canvas_[i];
                 const auto js_start =
@@ -318,55 +422,21 @@ namespace probes {
                                 std::chrono::duration<double, std::milli>(end - snapshot_start).count());
                 }
             }
+            // Inputs that arrive during the tick run once, after a visible scene: queued moves keep coalescing, and the
+            // tick grows by at most one input batch.
+            bool polled{};
+            for (unsigned i = 0; i < count_; ++i) {
+                if (!stepped[i]) {
+                    step_scene(i, request, *out);
+                    stepped[i] = true;
+                }
+                if (progress && !polled && request.scenes[i] && progress->poll()) {
+                    polled = true;
+                    publish_inputs(request, *out, stepped, *progress);
+                }
+            }
             for (unsigned i = 0; i < count_; ++i) {
                 auto& s = *scenes_[i];
-                const auto trace_start =
-                    profiling_ ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
-                const auto before = s.profile;
-                const auto work_before = s.scene.work();
-                if (request.scenes[i]) {
-                    s.step(time_, true);
-                    out->js_ms += s.js_ms;
-                    out->snapshot_ms += s.snapshot_ms;
-                    out->scene_ms += s.scene_ms;
-                } else {
-                    s.time = time_;
-                    s.pump();
-                    s.vm.animation_frame(time_, false);
-                    s.pump();
-                }
-                if (profiling_) {
-                    const auto elapsed =
-                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - trace_start)
-                            .count();
-                    out->detail.cases[i] = elapsed;
-                    detail_delta(out->detail, s, before, work_before);
-                }
-                if (profiling_ && trace_.enabled()) {
-                    const auto elapsed =
-                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - trace_start)
-                            .count();
-                    const auto work = s.scene.work();
-                    if (request.scenes[i] || elapsed > weft::probe_constants::gallery::hidden_pump_trace_threshold_ms) {
-                        trace_.emit(
-                            std::string(gallery_scene_descriptors[i].group) + "/" +
-                                std::to_string(gallery_scene_descriptors[i].index) +
-                                (request.scenes[i] ? " update" : " hidden pump"),
-                            trace_start, elapsed,
-                            "{\"style_ms\":" + format_host_time(work.style_ms - work_before.style_ms) +
-                                ",\"build_ms\":" + format_host_time(work.build_ms - work_before.build_ms) +
-                                ",\"layout_ms\":" + format_host_time(work.layout_ms - work_before.layout_ms) +
-                                ",\"geometry_ms\":" + format_host_time(s.profile.geometry_ms - before.geometry_ms) +
-                                ",\"layout_reads\":" + std::to_string(s.profile.layout_reads - before.layout_reads) +
-                                ",\"style_reads\":" + std::to_string(s.profile.style_reads - before.style_reads) + "}");
-                    }
-                }
-                if (s.dirty || !snapshots_[i]) {
-                    snapshots_[i] = std::make_shared<const weft::SceneFrame>(s.current);
-                    require(revisions_[i] != UINT64_MAX, "worker scene revision overflow");
-                    ++revisions_[i];
-                    s.dirty = false;
-                }
                 out->scenes[i] = snapshots_[i];
                 out->revisions[i] = revisions_[i];
                 out->snapshots += s.snapshots;
@@ -380,6 +450,7 @@ namespace probes {
                 out->typed_samples += work.typed_samples;
                 out->paint_compilations += work.paint_compilations;
             }
+            out->input_received = last_received_;
             if (request.audit) {
                 out->hover_transform = scenes_[weft::probe_constants::gallery::css_hover_scene]->vm.eval(
                     "document.getElementById('root').childNodes[0].style.transform");
@@ -390,6 +461,7 @@ namespace probes {
                         "document.querySelector('.drag-item').style.transform");
                 }
             }
+            last_frame_ = out;
             return out;
         }
 
@@ -422,18 +494,27 @@ namespace probes {
         }
     };
 
+    // early_frames: scenes with input step first and are published before the rest of the tick (interactive hosts
+    // that take the latest frame); deterministic hosts that wait for each tick keep one frame per tick.
     inline std::unique_ptr<GalleryOwnerExecutor> gallery_owner(bool expanded = false, std::filesystem::path trace = {},
-                                                               std::shared_ptr<TraceControl> control = {}) {
+                                                               std::shared_ptr<TraceControl> control = {},
+                                                               bool early_frames = false) {
         return std::make_unique<GalleryOwnerExecutor>(
-            [expanded, trace = std::move(trace), control = std::move(control)] {
+            [expanded, trace = std::move(trace), control = std::move(control), early_frames] {
                 auto state = std::make_shared<GalleryOwnerState>(expanded, trace, control);
                 GalleryOwnerExecutor::Hooks hooks;
                 hooks.input = [state](const auto& value) {
                     state->input(value);
                 };
-                hooks.frame = [state](const auto& request) {
-                    return state->frame(request);
-                };
+                if (early_frames) {
+                    hooks.progressive = [state](const auto& request, const auto& progress) {
+                        return state->frame(request, &progress);
+                    };
+                } else {
+                    hooks.frame = [state](const auto& request) {
+                        return state->frame(request);
+                    };
+                }
                 hooks.reset = [](std::uint64_t) {
                     throw std::logic_error("gallery inspection view reset uses a fresh executor and surface domain");
                 };

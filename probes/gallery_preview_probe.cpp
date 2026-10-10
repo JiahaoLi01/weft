@@ -57,6 +57,7 @@ namespace probes {
             double last_update = -1;
             std::uint64_t tracked_revision{};
             unsigned tracked_raf{};
+            std::size_t early_publications{};
             std::chrono::steady_clock::time_point last_received{};
             // Inputs received before the measured span (a real cursor over a visible window) are not samples.
             std::chrono::steady_clock::time_point measured_from{};
@@ -101,7 +102,11 @@ namespace probes {
                     publication_interval.push_back((now - last_publication) * weft::constants::milliseconds_per_second);
                 }
                 last_publication = now;
-                owner_active.push_back(p.active_ms);
+                if (p.early) {
+                    ++early_publications;
+                } else {
+                    owner_active.push_back(p.active_ms);
+                }
                 if (f.input_received > last_received && f.input_received >= measured_from) {
                     last_received = f.input_received;
                     input_to_publication.push_back(
@@ -137,6 +142,7 @@ namespace probes {
                        ",\"present_fps\":" + format_host_time((present_interval.size() + 1) / span) +
                        ",\"owner_publications_per_s\":" + format_host_time((publication_interval.size() + 1) / span) +
                        ",\"tracked_updates_per_s\":" + format_host_time((update_interval.size() + 1) / span) +
+                       ",\"early_publications\":" + std::to_string(early_publications) +
                        ",\"present_interval_ms\":" + GalleryPreviewSamples::json(present_interval) +
                        ",\"render_cpu_ms\":" + GalleryPreviewSamples::json(render_cpu) +
                        ",\"owner_publication_interval_ms\":" + GalleryPreviewSamples::json(publication_interval) +
@@ -183,9 +189,10 @@ namespace probes {
         gpu.cache_assets = true;
         gpu.cache_byte_limit = weft::probe_constants::gallery::asset_cache_budget_bytes;
         gpu.enable_timing();
-        // The interactive window and live benchmarks start each frame when the swapchain takes one; deterministic tests
-        // keep the two-frame pipeline pacing.
-        WindowPresenter presenter(gpu, window.state.hwnd, (benchmark.empty() && !self_test) || live);
+        // The interactive window and live benchmarks start each frame when the swapchain takes one and take the
+        // owner's early input frames; deterministic tests keep the two-frame pipeline pacing and one frame per tick.
+        const bool interactive_pacing = (benchmark.empty() && !self_test) || live;
+        WindowPresenter presenter(gpu, window.state.hwnd, interactive_pacing);
         TwoFramePipeline pipeline(gpu);
         SceneGpuSurfaces scene_gpu(gpu, pipeline);
         scene_gpu.retain_paint = true;
@@ -287,7 +294,7 @@ namespace probes {
         });
         std::unique_ptr<GalleryOwnerExecutor> owner;
         if (threaded) {
-            owner = gallery_owner(true, folder / "owner-trace.json", profile_control);
+            owner = gallery_owner(true, folder / "owner-trace.json", profile_control, interactive_pacing);
         }
         std::shared_ptr<const GalleryOwnerFrame> owner_frame;
         std::array<std::uint64_t, gallery_scene_count> rendered_revisions{};
@@ -295,6 +302,7 @@ namespace probes {
         std::deque<double> owner_age;
         std::deque<double> owner_queue;
         std::size_t owner_updates{};
+        std::size_t early_owner_updates{};
         std::size_t reused_owner_frames{};
         double last_owner_active{};
         WindowFrameRate owner_rate;
@@ -813,16 +821,21 @@ namespace probes {
                 }
                 trace_end("owner exchange", exchange_trace);
                 if (publication) {
-                    live_profiler.owner(seconds(), *publication);
                     if (live && live_window.measuring(seconds())) {
                         live_window.publication(seconds(), *publication);
                     }
                     owner_frame = publication->value;
-                    last_owner_active = publication->active_ms;
-                    GalleryPreviewSamples::add(owner_ms, publication->active_ms);
-                    GalleryPreviewSamples::add(owner_queue, publication->queue_ms);
-                    owner_rate.presented(seconds());
-                    ++owner_updates;
+                    // Owner timing and rate describe complete ticks; an early input frame is a partial tick.
+                    if (publication->early) {
+                        ++early_owner_updates;
+                    } else {
+                        live_profiler.owner(seconds(), *publication);
+                        last_owner_active = publication->active_ms;
+                        GalleryPreviewSamples::add(owner_ms, publication->active_ms);
+                        GalleryPreviewSamples::add(owner_queue, publication->queue_ms);
+                        owner_rate.presented(seconds());
+                        ++owner_updates;
+                    }
                 } else {
                     ++reused_owner_frames;
                 }
@@ -1729,7 +1742,10 @@ namespace probes {
             auto w = owner->work();
             write_text(folder / "thread-work.json",
                        "{\"profile_run_id\":" + std::to_string(profile_control->run_id) +
-                           ",\"owner_updates\":" + std::to_string(owner_updates) + ",\"reused_owner_frames\":" +
+                           ",\"owner_updates\":" + std::to_string(owner_updates) +
+                           ",\"early_owner_updates\":" + std::to_string(early_owner_updates) +
+                           ",\"early_publications\":" + std::to_string(w.early_publications) +
+                           ",\"polled_inputs\":" + std::to_string(w.polled_inputs) + ",\"reused_owner_frames\":" +
                            std::to_string(reused_owner_frames) + ",\"requests\":" + std::to_string(w.requests) +
                            ",\"coalesced_requests\":" + std::to_string(w.coalesced_requests) + ",\"published\":" +
                            std::to_string(w.published) + ",\"discarded_frames\":" + std::to_string(w.discarded_frames) +

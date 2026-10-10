@@ -4,6 +4,15 @@
 
 ## 本次已实现
 
+输入优先的早帧（2026-10-10）。`OwnerExecutor` 新增可选的渐进 tick：owner 可在 tick 中途发布完整的早帧，并运行 tick 期间到达的输入。画廊交互窗口里，收到输入的卡片先步进并立即发布；确定性测试不变。详见 [交互性能](gallery-interaction-profile.md#输入优先的早帧2026-10-10第三轮)。
+- **结果**（RTX 5090、可见 4K 240 Hz，三轮中位数）：
+  - anime 拖拽：输入到渲染线程 P50/P99 12.9/24.9 → 4.3/12.9 ms；
+  - 散点图拖拽：12.4/16.9 → 8.6/13.3 ms，被拖卡片更新 133 → 155 次/秒。
+- **验证**：
+  - `owner_executor_contract` 新增早帧与 poll 反例；
+  - `ctest --preset windows-release --parallel 6` 94/94；
+  - `windows-debug --parallel 6` 94/94（444.1 s）。
+
 性能修复：画廊拖拽卡顿与 Canvas 帧率（2026-10-10，第 7 步之前）。用户反馈 anime.js 拖拽和 D3 散点图拖拽很卡，Canvas 页只有 60–70 FPS。详见 [交互性能](gallery-interaction-profile.md#拖拽卡顿与-canvas-帧率2026-10-10第二轮)。
 - **原因**：
   - Canvas 页：渲染器每帧在 CPU 上把两张半透明 Canvas 位图展开成 float 纹理（prepare 8.7 ms/帧）。

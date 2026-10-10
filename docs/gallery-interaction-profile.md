@@ -159,3 +159,32 @@ $exe = '.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe'
 ```
 
 live 基准会弹出约 8 秒的可见窗口。各轮产物与 trace 在 `artifacts/local/perf-drag/`。
+
+## 输入优先的早帧（2026-10-10，第三轮）
+
+上一轮之后，anime 页拖拽仍要等 owner 跑完整个 tick（14 个动画卡片约 10 ms）才能看到被拖卡片的变化。
+
+### 改动
+
+- **`OwnerExecutor`**（`src/core/owner_executor.hpp`）新增可选 `Hooks::progressive`。在它内部、只在 owner 线程上：
+  - `Progress::publish` 发布本 tick 的提前完整帧，`latest()` 可取到，`wait()` 仍只返回最终帧；
+  - `Progress::poll` 运行 tick 开始后新排队的输入，遇到 reset 即停，reset 留给 tick 之间处理；
+  - 计数新增 `early_publications`、`polled_inputs`；
+  - `owner_executor_contract` 增加反例：阻塞中的 tick 已发布早帧时 `wait()` 必须超时；tick 中排队的两个输入由 poll 运行，之后的 reset 不被 poll 越过，并使该 tick 的最终帧成为 stale。
+- **画廊 owner**：
+  - 收到输入的可见卡片先步进，并立即与其他卡片的最新快照一起作为早帧发布；
+  - 本 tick 已经步进过的卡片再收到输入时只刷新 DOM，不再跑第二次动画帧，保证每个 tick 的 rAF 只运行一次；
+  - tick 期间到达的输入只在某个可见卡片之后处理一次。每个卡片之后都处理会逐个运行鼠标移动、失去队列合并：散点图一次移动约 2–3 ms，tick 被拖长到 200–440 ms，其他卡片几乎停住。
+- **范围**：只有交互窗口与 live 基准启用早帧；确定性测试仍是每 tick 一帧。早帧不计入 owner 用时、Owner Hz 与 profiler 采样，`thread-work.json`、`live.json` 单独计数。
+
+### 结果
+
+RTX 5090、可见 4K 240 Hz 窗口，三轮中位数，与上一轮结束时相比：
+
+| 场景 | 输入到渲染线程取到 P50 / P99 ms | 被拖卡片更新/秒 | owner tick P50 ms | Present FPS |
+| --- | --- | --- | --- | --- |
+| anime 拖拽 | 12.9 / 24.9 → 4.3 / 12.9 | 93 → 92 | 10.2 → 9.9 | 239 → 240 |
+| 散点图拖拽 | 12.4 / 16.9 → 8.6 / 13.3 | 133 → 155 | 6.9 → 12.1 | 238 → 239 |
+
+- anime 卡片的更新率不变：anime.js Draggable 在动画帧里写 transform，只刷新 DOM 时没有变化，被拖卡片仍是每个 tick 更新一次，只是排到 tick 最前。
+- 散点图的 owner tick 变长，因为每个 tick 多处理一批输入（d3-zoom 在事件里同步改 transform，刷新后立即可见），同页其他卡片的更新率相应降低。

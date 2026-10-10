@@ -301,6 +301,62 @@ namespace {
         owner.close();
     }
 
+    // Early frames and inputs inside a progressive tick.
+    void progressive() {
+        std::latch entered(1);
+        std::latch release(1);
+        std::vector<unsigned> received;
+        std::atomic<std::size_t> polled{};
+        std::atomic<unsigned> resets{};
+        Owner owner([&] {
+            Owner::Hooks hooks{[&](Input v) {
+                                   received.push_back(v.value);
+                               },
+                               {},
+                               [&](std::uint64_t) {
+                                   ++resets;
+                               },
+                               [] {
+                               }};
+            hooks.progressive = [&](Request r, const Owner::Progress& progress) {
+                progress.publish(std::make_shared<const Frame>(Frame{{}, "early " + std::to_string(r.value)}));
+                if (r.value == 1) {
+                    entered.count_down();
+                    release.wait();
+                    polled = progress.poll();
+                }
+                return std::make_shared<const Frame>(Frame{{}, "final " + std::to_string(r.value)});
+            };
+            return hooks;
+        });
+        const auto first = owner.request(1, {1});
+        entered.wait();
+        // The early frame is visible while the tick runs; wait() still waits for the final frame.
+        const auto early = owner.latest();
+        require(early && early->early && early->sequence == first && early->value->log == "early 1",
+                "early frame not visible to latest()");
+        bool deadline{};
+        try {
+            (void)owner.wait(1, first, std::chrono::milliseconds(weft::test_constants::script::owner_early_wait_ms));
+        } catch (const std::runtime_error&) {
+            deadline = true;
+        }
+        require(deadline, "wait() returned an early frame");
+        require(owner.input(1, {7}) == Owner::Accepted && owner.input(1, {8}) == Owner::Accepted &&
+                    owner.reset(2) == Owner::Accepted && owner.input(2, {9}) == Owner::Accepted,
+                "inputs and reset during a tick");
+        release.count_down();
+        // poll() ran 7 and 8 inside the tick and stopped at the reset, which made that tick's final frame stale.
+        const auto next = owner.wait(2, owner.request(2, {2}));
+        require(!next.early && next.epoch == 2 && next.value->log == "final 2", "final frame after the reset");
+        owner.close();
+        const auto work = owner.work();
+        require(polled == 2 && received == std::vector<unsigned>{7, 8, 9} && resets == 1 && work.polled_inputs == 2 &&
+                    work.processed_inputs == 3 && work.accepted_inputs == 3 && work.early_publications == 2 &&
+                    work.stale_publications == 1 && work.published == 1,
+                "progressive tick input/reset/publication accounting");
+    }
+
     void faults() {
         bool caught{};
         try {
@@ -345,9 +401,10 @@ int main() {
         sampled_moves();
         stale_publication();
         destruction_outside_queue();
+        progressive();
         faults();
         std::cout
-            << "PASS owner worker: 512 serial DOM/GC differentials, bounded reliable inputs, coalesced ticks, independent snapshots, epoch reset, fault and shutdown\n";
+            << "PASS owner worker: 512 serial DOM/GC differentials, bounded reliable inputs, coalesced ticks, independent snapshots, epoch reset, early frames and polled inputs, fault and shutdown\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

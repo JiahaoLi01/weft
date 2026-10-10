@@ -23,11 +23,21 @@ namespace weft {
     template <class Request, class Input, class Frame>
     class OwnerExecutor {
     public:
+        // Inside Hooks::progressive, on the owner thread only: publish() makes an early complete frame of the running
+        // tick visible to latest(); poll() runs the inputs queued since the tick started, up to the next reset, and
+        // returns how many ran.
+        struct Progress {
+            std::function<void(std::shared_ptr<const Frame>)> publish;
+            std::function<std::size_t()> poll;
+        };
+
         struct Hooks {
             std::function<void(const Input&)> input;
             std::function<std::shared_ptr<const Frame>(const Request&)> frame;
             std::function<void(std::uint64_t)> reset;
             std::function<void()> close;
+            // Optional; replaces frame. The returned value is the tick's final frame.
+            std::function<std::shared_ptr<const Frame>(const Request&, const Progress&)> progressive;
         };
 
         struct Publication {
@@ -38,6 +48,8 @@ namespace weft {
             double active_ms{};
             double queue_ms{};
             std::chrono::steady_clock::time_point published;
+            // An early frame of a progressive tick: latest() returns it, wait() waits for the final frame.
+            bool early{};
         };
 
         enum Result {
@@ -58,6 +70,9 @@ namespace weft {
             std::size_t resets{};
             std::size_t coalesced_inputs{};
             std::size_t peak_pending_inputs{};
+            std::size_t early_publications{};
+            // Inputs run by Progress::poll inside a tick; also counted in processed_inputs.
+            std::size_t polled_inputs{};
         };
 
     private:
@@ -104,6 +119,55 @@ namespace weft {
             return std::chrono::duration<double, std::milli>(d).count();
         }
 
+        // Queues a frame of tick for latest(); a final frame also becomes the one wait() returns.
+        void publish(const Tick& tick, Publication publication) {
+            // Dropped snapshots can own large scene trees. Move them out while locked; free them after releasing
+            // the queue.
+            std::optional<Publication> retired_frame;
+            std::optional<Publication> retired_last;
+            {
+                std::lock_guard lock(mutex_);
+                if (tick.epoch == epoch_) {
+                    if (frames_.size() == constants::script::max_queued_publications) {
+                        retired_frame = std::move(frames_.front());
+                        frames_.pop_front();
+                        ++work_.discarded_frames;
+                    }
+                    frames_.push_back(publication);
+                    if (publication.early) {
+                        ++work_.early_publications;
+                    } else {
+                        retired_last.swap(last_);
+                        last_ = std::move(publication);
+                        ++work_.published;
+                    }
+                } else {
+                    ++work_.stale_publications;
+                }
+            }
+            cv_.notify_all();
+        }
+
+        // Runs the leading queued inputs, stopping before a reset, which the loop handles between ticks.
+        std::size_t poll(Hooks& hooks, std::uint64_t& processed) {
+            std::deque<Event> events;
+            {
+                std::lock_guard lock(mutex_);
+                while (!inputs_.empty() && std::holds_alternative<Input>(inputs_.front().value)) {
+                    events.push_back(std::move(inputs_.front()));
+                    inputs_.pop_front();
+                }
+            }
+            for (const auto& event : events) {
+                hooks.input(std::get<Input>(event.value));
+                processed = event.sequence;
+                std::lock_guard lock(mutex_);
+                ++work_.processed_inputs;
+                ++work_.polled_inputs;
+            }
+            return events.size();
+        }
+
         void run(std::function<Hooks()> factory) noexcept {
             std::optional<Hooks> hooks;
             std::exception_ptr error;
@@ -112,7 +176,7 @@ namespace weft {
             try {
                 hooks = factory();
                 factory = {};
-                if (!hooks->frame || !hooks->input || !hooks->reset || !hooks->close) {
+                if ((!hooks->frame && !hooks->progressive) || !hooks->input || !hooks->reset || !hooks->close) {
                     throw std::invalid_argument("WEFT_OWNER_HOOKS");
                 }
                 {
@@ -151,40 +215,35 @@ namespace weft {
                     input_ms += ms(std::chrono::steady_clock::now() - input_start);
                     if (tick) {
                         const auto start = std::chrono::steady_clock::now();
-                        auto value = hooks->frame(tick->value);
-                        if (!value) {
-                            throw std::runtime_error("WEFT_OWNER_NULL_FRAME");
-                        }
-                        const auto finish = std::chrono::steady_clock::now();
-                        Publication publication{tick->epoch,
-                                                tick->sequence,
-                                                processed,
-                                                std::move(value),
-                                                input_ms + ms(finish - start),
-                                                ms(start - tick->enqueued),
-                                                finish};
-                        // Dropped snapshots can own large scene trees. Move them
-                        // out while locked; free them after releasing the queue.
-                        std::optional<Publication> retired_frame;
-                        std::optional<Publication> retired_last;
-                        input_ms = 0;
-                        {
-                            std::lock_guard lock(mutex_);
-                            if (tick->epoch == epoch_) {
-                                if (frames_.size() == constants::script::max_queued_publications) {
-                                    retired_frame = std::move(frames_.front());
-                                    frames_.pop_front();
-                                    ++work_.discarded_frames;
-                                }
-                                frames_.push_back(publication);
-                                retired_last.swap(last_);
-                                last_ = std::move(publication);
-                                ++work_.published;
-                            } else {
-                                ++work_.stale_publications;
+                        auto publication = [&](std::shared_ptr<const Frame> value, bool early) {
+                            if (!value) {
+                                throw std::runtime_error("WEFT_OWNER_NULL_FRAME");
                             }
+                            const auto finish = std::chrono::steady_clock::now();
+                            return Publication{tick->epoch,
+                                               tick->sequence,
+                                               processed,
+                                               std::move(value),
+                                               input_ms + ms(finish - start),
+                                               ms(start - tick->enqueued),
+                                               finish,
+                                               early};
+                        };
+                        std::shared_ptr<const Frame> value;
+                        if (hooks->progressive) {
+                            const Progress progress{[&](std::shared_ptr<const Frame> early) {
+                                                        publish(*tick, publication(std::move(early), true));
+                                                    },
+                                                    [&] {
+                                                        return poll(*hooks, processed);
+                                                    }};
+                            value = hooks->progressive(tick->value, progress);
+                        } else {
+                            value = hooks->frame(tick->value);
                         }
-                        cv_.notify_all();
+                        auto complete = publication(std::move(value), false);
+                        input_ms = 0;
+                        publish(*tick, std::move(complete));
                     }
                 }
             } catch (...) {
