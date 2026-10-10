@@ -3,7 +3,8 @@
 #include "constants/common.hpp"
 
 // Budgets, limits and validation tolerances of the renderer: the ResourceLifetime model, the
-// experimental renderer C ABI (src/render/render_backend.cpp) and the rounded clip probe.
+// experimental renderer C ABI (src/render/render_backend.cpp), the rounded clip mask and the D3D11
+// reference renderer.
 namespace weft::constants::render {
     // Frame pipelining defaults shared by LifetimeConfig and the default weft_renderer_desc.
     inline constexpr int default_max_prepared_frames = 2;
@@ -38,6 +39,78 @@ namespace weft::constants::render {
     // Bytes per texel of the linear RGBA texture formats.
     inline constexpr int rgba16f_bytes_per_pixel = 8;
     inline constexpr int rgba32f_bytes_per_pixel = 16;
+
+    // sRGB transfer function of IEC 61966-2-1, as in src/render/backends/d3d11/quad.hlsl.
+    inline constexpr float srgb_decode_threshold = 0.04045f;
+    inline constexpr float srgb_encode_threshold = 0.0031308f;
+    inline constexpr float srgb_linear_slope = 12.92f;
+    inline constexpr float srgb_offset = 0.055f;
+    inline constexpr float srgb_scale = 1.055f;
+    inline constexpr float srgb_gamma = 2.4f;
+    // constants::color_channel_max as float, for byte <-> [0, 1] conversions.
+    inline constexpr float color_channel_max_float = 255.0f;
+
+    // D3D11 reference renderer and its C ABI adapter (src/render/backends/d3d11).
+    namespace d3d11 {
+        // Material ids of quad.hlsl. They mirror the Material* constants at the top of the shader, which
+        // declares the ids its pixel shader branches on.
+        namespace shader_material {
+            // Solid linear premultiplied color.
+            inline constexpr unsigned solid = 0;
+            // R8 coverage mask that multiplies the color.
+            inline constexpr unsigned coverage = 1;
+            // Linear premultiplied texture.
+            inline constexpr unsigned texture = 2;
+            // R8 signed distance glyph, with an optional outline stroke.
+            inline constexpr unsigned signed_distance = 3;
+            // Texture whose rows start at the bottom (an external texture with a bottom-left origin).
+            inline constexpr unsigned texture_bottom_up = 4;
+            // Encoded premultiplied BGRA8 produced by Direct2D.
+            inline constexpr unsigned encoded_bgra = 5;
+        } // namespace shader_material
+
+        // The vertex shader draws each quad as two triangles from SV_VertexID.
+        inline constexpr int quad_vertex_count = 6;
+        // Render targets are at most this many pixels wide and high; the backend reports the same
+        // max_texture_size and max_target_size.
+        inline constexpr int max_surface_dimension = 4096;
+        // A diagnostic clipped quad (Draw::clipped) is scissored this many pixels inside each edge.
+        inline constexpr int diagnostic_clip_inset = 16;
+
+        // Host frames that may be encoded or in flight at once: the backend's encoded and in-flight use
+        // limits and the TwoFramePipeline slots.
+        inline constexpr int frames_in_flight = 2;
+        // The backend holds one prepared frame; its native handle is always this value.
+        inline constexpr int max_prepared_frames = 1;
+        inline constexpr int prepared_frame_handle = 1;
+        // CPU frame input budget of the backend. Three 1024x1536 RGBA images of a real game workload fit.
+        inline constexpr unsigned max_frame_asset_bytes = 32u * constants::bytes_per_mib;
+        // Backend capabilities: all four WEFT_RENDER_FEATURE_* bits, and the SRGB_RGBA8, LINEAR_RGBA8 and
+        // LINEAR_RGBA32F bits of weft_render_target_format.
+        inline constexpr int features = 15;
+        inline constexpr int target_formats = 7;
+        // External texture extension.
+        inline constexpr int max_imported_textures = 128;
+        inline constexpr int external_texture_capacity = 32;
+        inline constexpr unsigned external_texture_max_bytes = 64u * constants::bytes_per_mib;
+
+        // Device epoch and queue of the single D3D11 immediate context.
+        inline constexpr int device_epoch = 1;
+        inline constexpr int immediate_queue = 1;
+        // A UI frame consumes two submission serials: its command list, then the host completion marker.
+        // Host-only composition consumes one.
+        inline constexpr int serials_per_ui_frame = 2;
+        // Bounded wait for an actual GPU completion query.
+        inline constexpr int completion_timeout_seconds = 5;
+        inline constexpr int completion_poll_ms = 1;
+
+        // GPU asset cache defaults.
+        inline constexpr int asset_cache_max_resources = 1024;
+        inline constexpr int asset_cache_max_bytes = 128 * constants::bytes_per_mib;
+        // Asset identity metadata: expired entries are pruned from this size; live entries are bounded.
+        inline constexpr int asset_identity_prune_threshold = 1024;
+        inline constexpr int max_asset_identities = 2048;
+    } // namespace d3d11
 
     // Rounded clip probe work bounds.
     // Largest absolute rectangle coordinate, size or corner radius.

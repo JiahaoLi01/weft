@@ -397,7 +397,7 @@ int run_cheetah(bool warp, bool visible, const std::filesystem::path& folder) {
     auto render = [&](const auto& page) {
         auto packet = cheetah_packet(page, font, images);
         expected_releases += unsigned(packet.assets.size());
-        gpu.render_window(packet, [&] {
+        render_window(gpu, packet, [&] {
             presenter.present();
         });
         return std::pair{std::move(packet), presenter.pixels()};

@@ -59,7 +59,7 @@ int run_flow(bool warp, const std::filesystem::path& folder) {
     auto render = [&](const weft::PositionedPage& page) {
         auto packet = cheetah_packet(page, fonts, images);
         retired += unsigned(packet.assets.size());
-        gpu.render_window(packet, [&] {
+        render_window(gpu, packet, [&] {
             gpu.immediate->CopyResource(gpu.staging.Get(), gpu.output.texture.Get());
             presenter.present();
         });

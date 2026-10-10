@@ -203,7 +203,7 @@ int run_cheetah_alert(bool warp, const std::filesystem::path& folder, bool origi
                 fallback_glyphs += g.font_id == weft::probe_constants::cjk_fallback_font_id;
             }
         }
-        gpu.render_window(packet, [&] {
+        render_window(gpu, packet, [&] {
             presenter.present();
         });
         const auto pixels = presenter.pixels();
@@ -287,7 +287,7 @@ int run_cheetah_alert(bool warp, const std::filesystem::path& folder, bool origi
                 collision_packet.assets[0]->bytes != collision_packet.assets[1]->bytes,
             "glyph cache must include font resource identity");
     expected_releases += 2;
-    gpu.render_window(collision_packet, [&] {
+    render_window(gpu, collision_packet, [&] {
         presenter.present();
     });
     const auto collision_pixels = presenter.pixels();

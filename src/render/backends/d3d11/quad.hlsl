@@ -1,5 +1,5 @@
 // M0 only: pixel-aligned quads and explicit linear-premultiplied materials.
-// Material ids mirror ShaderMaterial in probes/probe_constants.hpp.
+// Material ids mirror constants::render::d3d11::shader_material in src/constants/render.hpp.
 static const uint MaterialSolid = 0;
 static const uint MaterialCoverage = 1;
 static const uint MaterialSignedDistance = 3;

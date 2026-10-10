@@ -1,33 +1,63 @@
-// Private D3D11 adapter for the actual probe device. Core C ABI has no COM or
-// D3D11 dependency. The host creates device/context/RTV and owns submissions.
-#include <optional>
-#include "probe_constants.hpp"
+#include "render/backends/d3d11/backend.hpp"
 
-void render_result(weft_render_result result, const char* operation) {
-    if (result != WEFT_RENDER_OK) {
-        throw std::runtime_error(std::string(operation) + " result=" + std::to_string(result));
+#include <algorithm>
+#include <cmath>
+#include <exception>
+#include <iostream>
+#include <memory>
+#include <stdexcept>
+#include <string>
+
+namespace weft::render::d3d11 {
+    namespace {
+        namespace limits = weft::constants::render::d3d11;
+    } // namespace
+
+    void render_result(weft_render_result result, const char* operation) {
+        if (result != WEFT_RENDER_OK) {
+            throw std::runtime_error(std::string(operation) + " result=" + std::to_string(result));
+        }
     }
-}
 
-class ProbeBackend {
-public:
-    Experiment& gpu;
-    weft_renderer* renderer{};
-    std::optional<PreparedFrame> prepared;
-    std::array<std::optional<UseTokenId>, weft::probe_constants::frames_in_flight> uses;
-    bool inject_recording_failure{};
+    Backend::Backend(Renderer& device) : gpu(device) {
+        const weft_render_backend table{sizeof(weft_render_backend),
+                                        WEFT_RENDER_ABI_VERSION,
+                                        WEFT_RENDER_API_D3D11,
+                                        0,
+                                        limits::device_epoch,
+                                        limits::immediate_queue,
+                                        {sizeof(weft_render_capabilities), limits::features, limits::target_formats,
+                                         limits::max_surface_dimension, limits::max_surface_dimension, 0},
+                                        this,
+                                        prepare,
+                                        release,
+                                        encode,
+                                        discard,
+                                        submitted,
+                                        completed,
+                                        abandon,
+                                        shutdown};
+        // A real game workload contains three 1024x1536 RGBA images. The
+        // reference adapter reserves a bounded 32 MiB CPU frame input budget.
+        const weft_renderer_desc desc{sizeof(weft_renderer_desc),
+                                      WEFT_RENDER_ABI_VERSION,
+                                      limits::max_prepared_frames,
+                                      limits::frames_in_flight,
+                                      limits::frames_in_flight,
+                                      weft::constants::render::default_max_draws,
+                                      weft::constants::render::default_max_assets,
+                                      0,
+                                      limits::max_frame_asset_bytes};
+        render_result(weft_renderer_create(&table, &desc, &renderer), "create D3D11 backend interface");
+    }
 
-    struct ImportedTexture {
-        ComPtr<ID3D11ShaderResourceView> srv;
-        ComPtr<ID3D11Resource> resource;
-    };
+    Backend::~Backend() {
+        if (weft_renderer_destroy(renderer) != WEFT_RENDER_OK) {
+            std::terminate();
+        }
+    }
 
-    std::array<ImportedTexture, weft::probe_constants::max_imported_textures> imports;
-    unsigned imported_count{};
-    unsigned released_imports{};
-
-    void enable_external(unsigned capacity = weft::probe_constants::external_texture_capacity,
-                         std::uint64_t bytes = weft::probe_constants::external_texture_max_bytes) {
+    void Backend::enable_external(unsigned capacity, std::uint64_t bytes) {
         const weft_render_external_backend table{sizeof(table),
                                                  WEFT_RENDER_EXTERNAL_ABI_VERSION,
                                                  (1u << WEFT_RENDER_TARGET_LINEAR_RGBA8) |
@@ -44,8 +74,9 @@ public:
         render_result(weft_renderer_install_external_backend(renderer, &table), "install external texture extension");
     }
 
-    static weft_render_result import_texture(void* ptr, const weft_render_external_texture* d, uint64_t* out) noexcept {
-        auto& self = *static_cast<ProbeBackend*>(ptr);
+    weft_render_result Backend::import_texture(void* ptr, const weft_render_external_texture* d,
+                                               uint64_t* out) noexcept {
+        auto& self = *static_cast<Backend*>(ptr);
         *out = 0;
         if (d->native_texture_size < sizeof(weft_render_d3d11_texture)) {
             return WEFT_RENDER_INVALID_ARGUMENT;
@@ -101,8 +132,8 @@ public:
         return WEFT_RENDER_BUSY;
     }
 
-    static void release_texture(void* ptr, uint64_t native) noexcept {
-        auto& self = *static_cast<ProbeBackend*>(ptr);
+    void Backend::release_texture(void* ptr, uint64_t native) noexcept {
+        auto& self = *static_cast<Backend*>(ptr);
         if (!native || native > self.imports.size() || !self.imports[native - 1].srv) {
             std::terminate();
         }
@@ -110,10 +141,10 @@ public:
         ++self.released_imports;
     }
 
-    static weft_render_result prepare_external(void* ptr, const weft_render_frame* f,
-                                               const weft_render_external_asset* textures, uint32_t count,
-                                               uint64_t* out) noexcept {
-        auto& self = *static_cast<ProbeBackend*>(ptr);
+    weft_render_result Backend::prepare_external(void* ptr, const weft_render_frame* f,
+                                                 const weft_render_external_asset* textures, uint32_t count,
+                                                 uint64_t* out) noexcept {
+        auto& self = *static_cast<Backend*>(ptr);
         *out = 0;
         try {
             std::vector<ExternalGpuAsset> external;
@@ -136,48 +167,8 @@ public:
         }
     }
 
-    explicit ProbeBackend(Experiment& device) : gpu(device) {
-        const weft_render_backend table{sizeof(weft_render_backend),
-                                        WEFT_RENDER_ABI_VERSION,
-                                        WEFT_RENDER_API_D3D11,
-                                        0,
-                                        weft::probe_constants::device_epoch,
-                                        weft::probe_constants::immediate_queue,
-                                        {sizeof(weft_render_capabilities), weft::probe_constants::backend_features,
-                                         weft::probe_constants::backend_target_formats,
-                                         weft::probe_constants::max_surface_dimension,
-                                         weft::probe_constants::max_surface_dimension, 0},
-                                        this,
-                                        prepare,
-                                        release,
-                                        encode,
-                                        discard,
-                                        submitted,
-                                        completed,
-                                        abandon,
-                                        shutdown};
-        // A real game workload contains three 1024x1536 RGBA images. The
-        // reference adapter reserves a bounded 32 MiB CPU frame input budget.
-        const weft_renderer_desc limits{sizeof(weft_renderer_desc),
-                                        WEFT_RENDER_ABI_VERSION,
-                                        weft::probe_constants::backend_max_prepared_frames,
-                                        weft::probe_constants::frames_in_flight,
-                                        weft::probe_constants::frames_in_flight,
-                                        weft::constants::render::default_max_draws,
-                                        weft::probe_constants::max_frame_assets,
-                                        0,
-                                        weft::probe_constants::backend_max_frame_asset_bytes};
-        render_result(weft_renderer_create(&table, &limits, &renderer), "create D3D11 backend interface");
-    }
-
-    ~ProbeBackend() {
-        if (weft_renderer_destroy(renderer) != WEFT_RENDER_OK) {
-            std::terminate();
-        }
-    }
-
-    static weft_render_result prepare(void* ptr, const weft_render_frame* input, uint64_t* out) noexcept {
-        auto& self = *static_cast<ProbeBackend*>(ptr);
+    weft_render_result Backend::prepare(void* ptr, const weft_render_frame* input, uint64_t* out) noexcept {
+        auto& self = *static_cast<Backend*>(ptr);
         *out = 0;
         const auto state = self.gpu.tracker.Stats();
         if (self.prepared || state.encoded_tokens || (state.submitted_tokens && !self.gpu.pipeline_enabled)) {
@@ -214,7 +205,7 @@ public:
                 packet.draws.push_back(d);
             }
             self.prepared = self.gpu.prepare(std::move(packet), keys);
-            *out = weft::probe_constants::backend_prepared_frame_handle;
+            *out = limits::prepared_frame_handle;
             return WEFT_RENDER_OK;
         } catch (...) {
             try {
@@ -238,9 +229,9 @@ public:
         }
     }
 
-    static void release(void* ptr, uint64_t native) noexcept {
-        auto& self = *static_cast<ProbeBackend*>(ptr);
-        if (native != weft::probe_constants::backend_prepared_frame_handle || !self.prepared ||
+    void Backend::release(void* ptr, uint64_t native) noexcept {
+        auto& self = *static_cast<Backend*>(ptr);
+        if (native != limits::prepared_frame_handle || !self.prepared ||
             self.gpu.tracker.ReleasePreparedFrame(self.prepared->id) != LifetimeResult::Ok) {
             std::terminate();
         }
@@ -253,10 +244,11 @@ public:
         self.gpu.collect();
     }
 
-    static weft_render_result encode(void* ptr, uint64_t native, const weft_render_pass* pass, uint64_t* out) noexcept {
-        auto& self = *static_cast<ProbeBackend*>(ptr);
+    weft_render_result Backend::encode(void* ptr, uint64_t native, const weft_render_pass* pass,
+                                       uint64_t* out) noexcept {
+        auto& self = *static_cast<Backend*>(ptr);
         *out = 0;
-        if (native != weft::probe_constants::backend_prepared_frame_handle || !self.prepared ||
+        if (native != limits::prepared_frame_handle || !self.prepared ||
             pass->native_pass_size < sizeof(weft_render_d3d11_pass)) {
             return WEFT_RENDER_INVALID_ARGUMENT;
         }
@@ -310,7 +302,7 @@ public:
             ComPtr<ID3D11Resource> resource;
             target->GetResource(&resource);
             ComPtr<ID3D11Texture2D> texture;
-            check_hresult(resource.As(&texture), "backend target texture");
+            throw_if_failed(resource.As(&texture), "backend target texture");
             D3D11_TEXTURE2D_DESC description{};
             texture->GetDesc(&description);
             if (description.Width != pass->width || description.Height != pass->height ||
@@ -336,14 +328,14 @@ public:
             }
             return WEFT_RENDER_BUSY;
         } catch (...) {
-            // Experiment::encode closes/discards its partial list before
+            // Renderer::encode closes/discards its partial list before
             // releasing pins; no executable partial commands escape this ABI.
             return WEFT_RENDER_BACKEND_ERROR;
         }
     }
 
-    static void discard(void* ptr, uint64_t native) noexcept {
-        auto& self = *static_cast<ProbeBackend*>(ptr);
+    void Backend::discard(void* ptr, uint64_t native) noexcept {
+        auto& self = *static_cast<Backend*>(ptr);
         auto& use = self.uses[native - 1];
         if (!use || self.gpu.tracker.DiscardEncoded(*use) != LifetimeResult::Ok) {
             std::terminate();
@@ -352,20 +344,18 @@ public:
         self.gpu.collect();
     }
 
-    static void submitted(void* ptr, uint64_t native, uint64_t serial) noexcept {
-        auto& self = *static_cast<ProbeBackend*>(ptr);
+    void Backend::submitted(void* ptr, uint64_t native, uint64_t serial) noexcept {
+        auto& self = *static_cast<Backend*>(ptr);
         auto& use = self.uses[native - 1];
-        if (!use || self.gpu.tracker.NotifySubmitted(*use, weft::probe_constants::immediate_queue, serial) !=
-                        LifetimeResult::Ok) {
+        if (!use || self.gpu.tracker.NotifySubmitted(*use, limits::immediate_queue, serial) != LifetimeResult::Ok) {
             std::terminate();
         }
     }
 
-    static void completed(void* ptr, uint64_t serial) noexcept {
-        auto& self = *static_cast<ProbeBackend*>(ptr);
-        if (self.gpu.tracker.NotifyCompletedSerial(weft::probe_constants::device_epoch,
-                                                   weft::probe_constants::immediate_queue,
-                                                   serial) != LifetimeResult::Ok) {
+    void Backend::completed(void* ptr, uint64_t serial) noexcept {
+        auto& self = *static_cast<Backend*>(ptr);
+        if (self.gpu.tracker.NotifyCompletedSerial(limits::device_epoch, limits::immediate_queue, serial) !=
+            LifetimeResult::Ok) {
             std::terminate();
         }
         for (auto& use : self.uses) {
@@ -379,23 +369,22 @@ public:
         self.gpu.collect();
     }
 
-    static weft_render_result shutdown(void* ptr) noexcept {
+    weft_render_result Backend::shutdown(void* ptr) noexcept {
         try {
-            static_cast<ProbeBackend*>(ptr)->gpu.evict_assets(0, true);
+            static_cast<Backend*>(ptr)->gpu.evict_assets(0, true);
         } catch (...) {
             return WEFT_RENDER_BACKEND_ERROR;
         }
-        const auto result = static_cast<ProbeBackend*>(ptr)->gpu.tracker.Shutdown();
+        const auto result = static_cast<Backend*>(ptr)->gpu.tracker.Shutdown();
         return result == LifetimeResult::Ok     ? WEFT_RENDER_OK
                : result == LifetimeResult::Busy ? WEFT_RENDER_BUSY
                                                 : WEFT_RENDER_BACKEND_ERROR;
     }
 
-    static void abandon(void* ptr) noexcept {
-        auto& self = *static_cast<ProbeBackend*>(ptr);
-        if (self.gpu.tracker.AbandonDeviceEpoch(weft::probe_constants::device_epoch,
-                                                DeviceAbandonConfirmation::HostConfirmedNoFurtherAccess) !=
-            LifetimeResult::Ok) {
+    void Backend::abandon(void* ptr) noexcept {
+        auto& self = *static_cast<Backend*>(ptr);
+        if (self.gpu.tracker.AbandonDeviceEpoch(
+                limits::device_epoch, DeviceAbandonConfirmation::HostConfirmedNoFurtherAccess) != LifetimeResult::Ok) {
             std::terminate();
         }
         // Host proof replaces an unattainable completion query on this device.
@@ -406,8 +395,8 @@ public:
         self.gpu.collect();
     }
 
-    weft_render_pass pass(ID3D11DeviceContext* context, ID3D11RenderTargetView* target, void** commands,
-                          weft_render_d3d11_pass& payload) {
+    weft_render_pass Backend::pass(ID3D11DeviceContext* context, ID3D11RenderTargetView* target, void** commands,
+                                   weft_render_d3d11_pass& payload) {
         weft_render_info info{};
         info.struct_size = sizeof(info);
         render_result(weft_renderer_get_info(renderer, &info), "backend info");
@@ -422,14 +411,8 @@ public:
                 &payload,
                 sizeof(payload)};
     }
-};
 
-struct PacketView {
-    std::vector<weft_render_asset> assets;
-    std::vector<weft_render_draw> draws;
-    weft_render_frame frame{};
-
-    PacketView(const FramePacket& packet, uint64_t version, Experiment* cache = nullptr) {
+    PacketView::PacketView(const FramePacket& packet, uint64_t version, Renderer* cache) {
         for (size_t i = 0; i < packet.assets.size(); ++i) {
             const auto& a = *packet.assets[i];
             assets.push_back({cache ? cache->asset_identity(packet.assets[i]) : i + 1, cache ? 1 : version, a.width,
@@ -437,7 +420,7 @@ struct PacketView {
                               0});
         }
         for (const auto& d : packet.draws) {
-            require(!d.group && !d.clipped, "backend v1 supports ordered quads, no diagnostic group/clip flags");
+            ensure(!d.group && !d.clipped, "backend v1 supports ordered quads, no diagnostic group/clip flags");
             weft_render_draw draw{
                 d.rect.x,  d.rect.y, d.rect.w, d.rect.h, {}, d.asset < 0 ? WEFT_RENDER_SOLID_ASSET : uint32_t(d.asset),
                 d.opacity, {},       d.stroke, {}};
@@ -449,132 +432,4 @@ struct PacketView {
         frame = {sizeof(frame),          WEFT_RENDER_ABI_VERSION, draws.data(),
                  uint32_t(draws.size()), uint32_t(assets.size()), assets.data()};
     }
-};
-
-ProbeBackend& Experiment::ensure_backend() {
-    if (!backend) {
-        backend = new ProbeBackend(*this);
-    }
-    return *backend;
-}
-
-void Experiment::complete_backend() {
-    render_result(weft_renderer_notify_completed(backend->renderer, weft::probe_constants::device_epoch,
-                                                 weft::probe_constants::immediate_queue, pending_completion),
-                  "backend actual completion");
-}
-
-Experiment::~Experiment() {
-    if (submitted && !acknowledged) {
-        try {
-            complete();
-        } catch (...) {
-            std::terminate();
-        }
-    }
-    delete backend;
-}
-
-template <class Present>
-void Experiment::render_window(FramePacket packet, Present&& present) {
-    require(!pipeline_enabled, "synchronous and asynchronous window hosts cannot be mixed");
-    require(!submitted || acknowledged, "previous window frame must complete before reuse");
-    auto& api = ensure_backend();
-    const auto count = packet.assets.size();
-    PacketView view(packet, window_serial + 1, cache_assets ? this : nullptr);
-    weft_render_handle frame{};
-    weft_render_handle use{};
-    const auto started = std::chrono::steady_clock::now();
-    auto milliseconds = [](auto a, auto b) {
-        return std::chrono::duration<double, std::milli>(b - a).count();
-    };
-    render_result(weft_renderer_prepare(api.renderer, &view.frame, &frame), "backend prepare window");
-    const auto prepared_at = std::chrono::steady_clock::now();
-    prepare_ms = milliseconds(started, prepared_at);
-    void* native_commands{};
-    weft_render_d3d11_pass native{};
-    auto pass = api.pass(deferred.Get(), output.rtv.Get(), &native_commands, native);
-    const auto result = weft_renderer_encode(api.renderer, frame, &pass, &use);
-    render_result(weft_renderer_release_prepared(api.renderer, frame), "backend release CPU/prepared window");
-    render_result(result, "backend encode window");
-    ComPtr<ID3D11CommandList> commands;
-    commands.Attach(static_cast<ID3D11CommandList*>(native_commands));
-    const auto encoded_at = std::chrono::steady_clock::now();
-    encode_ms = milliseconds(prepared_at, encoded_at);
-    // Source packet can be freed now; backend-use pins protect actual GPU data.
-    packet = {};
-    pending_completion = window_serial + weft::probe_constants::serials_per_ui_frame;
-    acknowledged = false;
-    if (timing_disjoint) {
-        immediate->Begin(timing_disjoint.Get());
-        immediate->End(timing_start.Get());
-    }
-    immediate->ExecuteCommandList(commands.Get(), TRUE);
-    if (timing_disjoint) {
-        immediate->End(timing_end.Get());
-        immediate->End(timing_disjoint.Get());
-    }
-    immediate->End(ui_done.Get());
-    submitted = true;
-    {
-        struct Marker {
-            Experiment& r;
-
-            ~Marker() {
-                r.immediate->End(r.host_done.Get());
-            }
-        } marker{*this};
-
-        render_result(weft_renderer_notify_submitted(api.renderer, use, weft::probe_constants::immediate_queue,
-                                                     window_serial + 1),
-                      "backend actual submission");
-        commands.Reset();
-        present();
-    }
-    const auto presented_at = std::chrono::steady_clock::now();
-    present_ms = milliseconds(encoded_at, presented_at);
-    complete();
-    wait_ms = milliseconds(presented_at, std::chrono::steady_clock::now());
-    window_serial += weft::probe_constants::serials_per_ui_frame;
-    if (timing_disjoint) {
-        D3D11_QUERY_DATA_TIMESTAMP_DISJOINT data{};
-        UINT64 start{};
-        UINT64 end{};
-        require(immediate->GetData(timing_disjoint.Get(), &data, sizeof(data), D3D11_ASYNC_GETDATA_DONOTFLUSH) ==
-                        S_OK &&
-                    !data.Disjoint && data.Frequency,
-                "stable GPU timing frequency");
-        require(immediate->GetData(timing_start.Get(), &start, sizeof(start), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK &&
-                    immediate->GetData(timing_end.Get(), &end, sizeof(end), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK &&
-                    end >= start,
-                "completed GPU timestamp interval");
-        gpu_ui_ms = double(end - start) * weft::constants::milliseconds_per_second / data.Frequency;
-    }
-    require(cache_assets || count <= native_releases, "window glyph textures retired after actual completion");
-    immediate->ClearState();
-}
-
-// The completed offscreen result is persistent. Host-only composition advances
-// the same actual completion serial without inventing a new DOM/UI packet.
-template <class Present>
-void Experiment::compose_window(Present&& present) {
-    require(!pipeline_enabled, "synchronous and asynchronous composition cannot be mixed");
-    require(backend && submitted && acknowledged, "composition requires completed UI output");
-    pending_completion = window_serial + 1;
-    acknowledged = false;
-    immediate->End(ui_done.Get());
-    {
-        struct Marker {
-            Experiment& r;
-
-            ~Marker() {
-                r.immediate->End(r.host_done.Get());
-            }
-        } marker{*this};
-
-        present();
-    }
-    complete();
-    ++window_serial;
-    immediate->ClearState();
-}
+} // namespace weft::render::d3d11

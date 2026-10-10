@@ -322,7 +322,7 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
                     },
                     presenter.overlay_lease());
             } else {
-                gpu.render_window(packet, [&] {
+                render_window(gpu, packet, [&] {
                     presenter.present();
                 });
             }
@@ -405,7 +405,7 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
                     },
                     presenter.overlay_lease());
             } else {
-                gpu.compose_window([&] {
+                compose_window(gpu, [&] {
                     presenter.present();
                 });
             }

@@ -29,7 +29,7 @@ public:
 private:
     Experiment& gpu_;
     TwoFramePipeline& pipeline_;
-    ProbeBackend& api_;
+    Backend& api_;
     SceneNativeGpu native_;
     ComPtr<ID2D1Device> d2d_;
     ComPtr<ID3D11Buffer> constants_;
@@ -104,14 +104,14 @@ private:
         ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         ctx->VSSetShader(gpu_.vs.Get(), nullptr, 0);
         ctx->PSSetShader(gpu_.ps.Get(), nullptr, 0);
-        Constants data{{0, 0, float(s.width), float(s.height)},
-                       {float(s.width), float(s.height)},
-                       weft::probe_constants::gallery::encoded_bgra_material,
-                       1,
-                       {1, 1, 1, 1},
-                       {0, 0, 1, 1},
-                       {},
-                       {}};
+        QuadConstants data{{0, 0, float(s.width), float(s.height)},
+                           {float(s.width), float(s.height)},
+                           weft::probe_constants::gallery::encoded_bgra_material,
+                           1,
+                           {1, 1, 1, 1},
+                           {0, 0, 1, 1},
+                           {},
+                           {}};
         ctx->UpdateSubresource(constants_.Get(), 0, nullptr, &data, 0, 0);
         auto* buffer = constants_.Get();
         ctx->VSSetConstantBuffers(0, 1, &buffer);
@@ -151,7 +151,7 @@ public:
         check_hresult(gpu.device.As(&device), "GPU scene D2D device identity");
         check_hresult(D2D1CreateDevice(device.Get(), nullptr, &d2d_), "GPU scene shared D2D device");
         D3D11_BUFFER_DESC desc{};
-        desc.ByteWidth = sizeof(Constants);
+        desc.ByteWidth = sizeof(QuadConstants);
         desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
         check_hresult(gpu.device->CreateBuffer(&desc, nullptr, &constants_), "GPU scene conversion constants");
     }

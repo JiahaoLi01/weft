@@ -81,7 +81,7 @@ int run_render_cache(bool warp, const std::filesystem::path& folder) {
         return out;
     };
     auto read = [&](Experiment& renderer, FramePacket packet) {
-        renderer.render_window(std::move(packet), [&] {
+        render_window(renderer, std::move(packet), [&] {
             renderer.immediate->CopyResource(renderer.staging.Get(), renderer.output.texture.Get());
         });
         std::vector<Pixel> pixels(weft::probe_constants::small_target_pixels);
@@ -103,7 +103,7 @@ int run_render_cache(bool warp, const std::filesystem::path& folder) {
     backend.inject_recording_failure = true;
     bool failed{};
     try {
-        cached.render_window(first, [] {
+        render_window(cached, first, [] {
         });
     } catch (const std::runtime_error&) {
         failed = true;
@@ -169,7 +169,7 @@ int run_render_cache(bool warp, const std::filesystem::path& folder) {
     // reject until its event query proves completion.
     failed = false;
     try {
-        cached.render_window(cheetah_packet(page(1), fonts, images, &cpu), [] {
+        render_window(cached, cheetah_packet(page(1), fonts, images, &cpu), [] {
             throw std::runtime_error("cache-post-submit");
         });
     } catch (const std::runtime_error& e) {

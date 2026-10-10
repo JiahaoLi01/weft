@@ -15,7 +15,7 @@ struct ExternalRetirement {
 
 ComPtr<ID3D11Buffer> external_constants(Experiment& gpu) {
     D3D11_BUFFER_DESC d{};
-    d.ByteWidth = sizeof(Constants);
+    d.ByteWidth = sizeof(QuadConstants);
     d.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     ComPtr<ID3D11Buffer> result;
     check_hresult(gpu.device->CreateBuffer(&d, nullptr, &result), "external independent constants");
@@ -103,7 +103,7 @@ void external_produce(Experiment& gpu, const Surface& target, unsigned variation
     // Same immediate queue orders producer first; no Flush/GetData/CPU wait.
 }
 
-weft_render_external_texture external_gpu_description(ProbeBackend& api, const Surface& source,
+weft_render_external_texture external_gpu_description(Backend& api, const Surface& source,
                                                       weft_render_d3d11_texture& payload, ExternalRetirement& retired,
                                                       uint64_t version, bool bottom = false,
                                                       uint32_t format = WEFT_RENDER_TARGET_LINEAR_RGBA32F) {

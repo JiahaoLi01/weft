@@ -118,7 +118,7 @@ int run_two_frame_probe(bool warp, const std::filesystem::path& folder) {
             pipeline.drain();
             for (unsigned i = 0; i < weft::probe_constants::frames_in_flight; ++i) {
                 auto actual = pixels(gpu, readbacks[i].Get());
-                reference.render_window(values[i], [&] {
+                render_window(reference, values[i], [&] {
                     reference.immediate->CopyResource(reference.staging.Get(), reference.output.texture.Get());
                 });
                 auto expected = pixels(reference, reference.staging.Get());

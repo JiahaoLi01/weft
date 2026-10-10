@@ -435,14 +435,14 @@ public:
         context->ClearRenderTargetView(target, background);
         const auto viewport =
             weft::Viewport::fit(float(width), float(height), float(renderer.width), float(renderer.height));
-        Constants constants{{viewport.x, viewport.y, viewport.width, viewport.height},
-                            {float(width), float(height)},
-                            weft::probe_constants::shader_material::texture,
-                            1,
-                            {1, 1, 1, 1},
-                            {0, 0, 1, 1},
-                            {},
-                            {}};
+        QuadConstants constants{{viewport.x, viewport.y, viewport.width, viewport.height},
+                                {float(width), float(height)},
+                                weft::probe_constants::shader_material::texture,
+                                1,
+                                {1, 1, 1, 1},
+                                {0, 0, 1, 1},
+                                {},
+                                {}};
         context->UpdateSubresource(renderer.constants.Get(), 0, nullptr, &constants, 0, 0);
         D3D11_VIEWPORT full{0, 0, float(width), float(height), 0, 1};
         context->RSSetViewports(1, &full);
@@ -467,16 +467,16 @@ public:
             for (int c = 0; c < 3; ++c) {
                 color[c] = decode(color[c]) * color[3];
             }
-            Constants hud{{viewport.x + d.rect.x * viewport.scale, viewport.y + d.rect.y * viewport.scale,
-                           d.rect.w * viewport.scale, d.rect.h * viewport.scale},
-                          {float(width), float(height)},
-                          d.asset < 0 ? weft::probe_constants::shader_material::solid
-                                      : weft::probe_constants::shader_material::coverage,
-                          d.opacity,
-                          color,
-                          d.uv,
-                          {},
-                          {}};
+            QuadConstants hud{{viewport.x + d.rect.x * viewport.scale, viewport.y + d.rect.y * viewport.scale,
+                               d.rect.w * viewport.scale, d.rect.h * viewport.scale},
+                              {float(width), float(height)},
+                              d.asset < 0 ? weft::probe_constants::shader_material::solid
+                                          : weft::probe_constants::shader_material::coverage,
+                              d.opacity,
+                              color,
+                              d.uv,
+                              {},
+                              {}};
             context->UpdateSubresource(renderer.constants.Get(), 0, nullptr, &hud, 0, 0);
             ID3D11ShaderResourceView* asset = d.asset < 0 ? nullptr : overlay_assets.at(d.asset).Get();
             context->PSSetShaderResources(0, 1, &asset);
@@ -578,7 +578,7 @@ int run_react_window(bool warp, bool self_test, const std::filesystem::path& fol
             presenter.capture = capture;
             auto packet = prepare_page_glyphs(page, font);
             expected_textures += packet.assets.size();
-            renderer.render_window(std::move(packet), [&] {
+            render_window(renderer, std::move(packet), [&] {
                 presenter.present();
             });
             renderer.check_debug_messages();
@@ -668,7 +668,7 @@ int run_react_window(bool warp, bool self_test, const std::filesystem::path& fol
             const auto expected = packet.assets.size();
             bool rejected{};
             try {
-                failed.render_window(std::move(packet), [] {
+                render_window(failed, std::move(packet), [] {
                     throw std::runtime_error("post-submit-proof");
                 });
             } catch (const std::runtime_error& e) {

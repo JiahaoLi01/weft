@@ -5,10 +5,9 @@ set(fixtures "${PROJECT_SOURCE_DIR}/tests/fixtures")
 if(WIN32)
     weft_add_executable(weft_d3d11_probe
         SOURCES d3d11_probe.cpp
-        LINK weft::render weft::text weft::script weft::layout weft::input weft::canvas_d2d weft::scene_d2d
+        LINK weft::render_d3d11 weft::text weft::script weft::layout weft::input weft::canvas_d2d weft::scene_d2d
         d3d11 dxgi windowscodecs ole32 user32
         SOURCE_DIR LARGE_STACK GC_STRESS)
-    weft_add_hlsl(weft_d3d11_probe quad "${PROJECT_SOURCE_DIR}/src/render/backends/d3d11/quad.hlsl")
     weft_add_hlsl(weft_d3d11_probe scene_native "${PROJECT_SOURCE_DIR}/shaders/scene_native_probe.hlsl" ALWAYS_OPTIMIZE)
 endif()
 

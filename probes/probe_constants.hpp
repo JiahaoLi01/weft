@@ -13,34 +13,16 @@
 // Pass a constant to them as a static_cast<T>(constant) prvalue, like the literal it replaced:
 // binding the reference to the inline variable itself changes MSVC code generation.
 namespace weft::probe_constants {
-    // Material ids of src/render/backends/d3d11/quad.hlsl. They mirror the Material* constants at the top of the
-    // shader, which declares the ids its pixel shader branches on.
-    namespace shader_material {
-        // Solid linear premultiplied color.
-        inline constexpr unsigned solid = 0;
-        // R8 coverage mask that multiplies the color.
-        inline constexpr unsigned coverage = 1;
-        // Linear premultiplied texture.
-        inline constexpr unsigned texture = 2;
-        // R8 signed distance glyph, with an optional outline stroke.
-        inline constexpr unsigned signed_distance = 3;
-        // Texture whose rows start at the bottom (an external texture with a bottom-left origin).
-        inline constexpr unsigned texture_bottom_up = 4;
-        // Encoded premultiplied BGRA8 produced by Direct2D.
-        inline constexpr unsigned encoded_bgra = 5;
-    } // namespace shader_material
+    // Material ids of the D3D11 reference renderer's quad shader.
+    namespace shader_material = constants::render::d3d11::shader_material;
 
-    // The M0 vertex shader draws each quad as two triangles from SV_VertexID.
-    inline constexpr int quad_vertex_count = 6;
-
-    // Probe render targets are at most this many pixels wide and high. The probe backend reports
-    // the same max_texture_size and max_target_size.
-    inline constexpr int max_surface_dimension = 4096;
+    inline constexpr int quad_vertex_count = constants::render::d3d11::quad_vertex_count;
+    inline constexpr int max_surface_dimension = constants::render::d3d11::max_surface_dimension;
     // Color fixture target, also the default Experiment and PNG size.
     inline constexpr int color_fixture_width = 256;
     inline constexpr int color_fixture_height = 128;
     // The color fixture's scissor test clips this many pixels from each edge of its quad.
-    inline constexpr int scissor_test_inset = 16;
+    inline constexpr int scissor_test_inset = constants::render::d3d11::diagnostic_clip_inset;
     // Single-channel distance atlas of the SDF fixture.
     inline constexpr int sdf_atlas_width = 256;
     inline constexpr int sdf_atlas_height = 128;
@@ -52,45 +34,30 @@ namespace weft::probe_constants {
     inline constexpr int small_target_size = 64;
     inline constexpr int small_target_pixels = small_target_size * small_target_size;
 
-    // Host frames that may be encoded or in flight at once: the TwoFramePipeline slots and the
-    // encoded and in-flight use limits of the probe backend.
-    inline constexpr int frames_in_flight = 2;
-    // The probe backend holds one prepared frame; its native handle is always this value.
-    inline constexpr int backend_max_prepared_frames = 1;
-    inline constexpr int backend_prepared_frame_handle = 1;
-    // Assets of one FramePacket: the asset limit that the probe backend requests.
+    // D3D11 reference renderer and backend limits (constants::render::d3d11), under their probe names.
+    inline constexpr int frames_in_flight = constants::render::d3d11::frames_in_flight;
+    inline constexpr int backend_max_prepared_frames = constants::render::d3d11::max_prepared_frames;
+    inline constexpr int backend_prepared_frame_handle = constants::render::d3d11::prepared_frame_handle;
+    // Assets of one FramePacket: the asset limit that the backend requests.
     inline constexpr int max_frame_assets = constants::render::default_max_assets;
-    // CPU frame input budget of the probe backend. Three 1024x1536 RGBA images of a real game
-    // workload fit in it.
-    inline constexpr unsigned backend_max_frame_asset_bytes = 32u * constants::bytes_per_mib;
-    // Probe backend capabilities: all four WEFT_RENDER_FEATURE_* bits, and the SRGB_RGBA8,
-    // LINEAR_RGBA8 and LINEAR_RGBA32F bits of weft_render_target_format.
-    inline constexpr int backend_features = 15;
-    inline constexpr int backend_target_formats = 7;
-    // External texture extension of the probe backend.
-    inline constexpr int max_imported_textures = 128;
-    inline constexpr int external_texture_capacity = 32;
-    inline constexpr unsigned external_texture_max_bytes = 64u * constants::bytes_per_mib;
-
-    // Device epoch and queue of the single D3D11 immediate context.
-    inline constexpr int device_epoch = 1;
-    inline constexpr int immediate_queue = 1;
-    // A UI frame consumes two submission serials: its command list, then the host completion
-    // marker. Host-only composition consumes one.
-    inline constexpr int serials_per_ui_frame = 2;
+    inline constexpr unsigned backend_max_frame_asset_bytes = constants::render::d3d11::max_frame_asset_bytes;
+    inline constexpr int backend_features = constants::render::d3d11::features;
+    inline constexpr int backend_target_formats = constants::render::d3d11::target_formats;
+    inline constexpr int max_imported_textures = constants::render::d3d11::max_imported_textures;
+    inline constexpr int external_texture_capacity = constants::render::d3d11::external_texture_capacity;
+    inline constexpr unsigned external_texture_max_bytes = constants::render::d3d11::external_texture_max_bytes;
+    inline constexpr int device_epoch = constants::render::d3d11::device_epoch;
+    inline constexpr int immediate_queue = constants::render::d3d11::immediate_queue;
+    inline constexpr int serials_per_ui_frame = constants::render::d3d11::serials_per_ui_frame;
     // Color fixture serials: the UI command list, then the host-owned copies that follow it.
     inline constexpr int fixture_ui_serial = 42;
     inline constexpr int fixture_host_serial = 43;
-    // Bounded wait for an actual GPU completion query.
-    inline constexpr int completion_timeout_seconds = 5;
-    inline constexpr int completion_poll_ms = 1;
-
-    // Experiment GPU asset cache defaults.
-    inline constexpr int gpu_cache_max_resources = 1024;
-    inline constexpr int gpu_cache_max_bytes = 128 * constants::bytes_per_mib;
-    // Asset identity metadata: expired entries are pruned from this size; live entries are bounded.
-    inline constexpr int asset_identity_prune_threshold = 1024;
-    inline constexpr int max_asset_identities = 2048;
+    inline constexpr int completion_timeout_seconds = constants::render::d3d11::completion_timeout_seconds;
+    inline constexpr int completion_poll_ms = constants::render::d3d11::completion_poll_ms;
+    inline constexpr int gpu_cache_max_resources = constants::render::d3d11::asset_cache_max_resources;
+    inline constexpr int gpu_cache_max_bytes = constants::render::d3d11::asset_cache_max_bytes;
+    inline constexpr int asset_identity_prune_threshold = constants::render::d3d11::asset_identity_prune_threshold;
+    inline constexpr int max_asset_identities = constants::render::d3d11::max_asset_identities;
     // Glyph textures of one React page frame.
     inline constexpr int page_glyph_max_bytes = 4 * constants::bytes_per_mib;
     // CheetahPacketCache budgets; a cache is cleared when a bound would be exceeded.
@@ -125,15 +92,14 @@ namespace weft::probe_constants {
     inline constexpr double wheel_page_height_px = constants::default_view_height;
     inline constexpr double wheel_page_width_px = constants::default_view_width;
 
-    // sRGB transfer function of IEC 61966-2-1, as in src/render/backends/d3d11/quad.hlsl.
-    inline constexpr float srgb_decode_threshold = 0.04045f;
-    inline constexpr float srgb_encode_threshold = 0.0031308f;
-    inline constexpr float srgb_linear_slope = 12.92f;
-    inline constexpr float srgb_offset = 0.055f;
-    inline constexpr float srgb_scale = 1.055f;
-    inline constexpr float srgb_gamma = 2.4f;
-    // constants::color_channel_max as float, for byte <-> [0, 1] conversions.
-    inline constexpr float color_channel_max_float = 255.0f;
+    // sRGB transfer function and byte scale (constants::render).
+    inline constexpr float srgb_decode_threshold = constants::render::srgb_decode_threshold;
+    inline constexpr float srgb_encode_threshold = constants::render::srgb_encode_threshold;
+    inline constexpr float srgb_linear_slope = constants::render::srgb_linear_slope;
+    inline constexpr float srgb_offset = constants::render::srgb_offset;
+    inline constexpr float srgb_scale = constants::render::srgb_scale;
+    inline constexpr float srgb_gamma = constants::render::srgb_gamma;
+    inline constexpr float color_channel_max_float = constants::render::color_channel_max_float;
     // Significant digits of floating values in probe reports; 9 round-trip a float.
     inline constexpr int report_significant_digits = 9;
     // Significant digits that round-trip a double through decimal text.
