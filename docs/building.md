@@ -1,6 +1,6 @@
 # Weft 构建与 M0 探针
 
-当前交付的实验模块按 `src/<模块>` 组织，每个模块是一个静态库 `weft::<模块>`：`base`、`core`、`render`、`canvas`、`script`、`text`、`style`、`layout`、`scene`、`input`；Windows 另有 Direct2D 参考 raster `weft::canvas_d2d`、`weft::scene_d2d`，以及 D3D11 参考渲染器 `weft::render_d3d11`（渲染器、C ABI 适配器、同步与两帧宿主；HLSL 在构建时由 fxc 编译内嵌，见 `cmake/WeftShaders.cmake`）。公开 C ABI 头位于 `include/weft/`，模块内部头以 `"<模块>/<文件>.hpp"` 从 `src/` 根引用。CMake 辅助函数 `weft_add_library`、`weft_add_executable`、`weft_add_test`、`weft_add_python_test` 在 `cmake/WeftTargets.cmake`，固定第三方依赖在 `cmake/WeftThirdParty.cmake`。受限 React 页面与原样 CaseCheetah 九宫格已串联 native DOM、CSS profile、布局、字体/图片、GPU 和 Windows 窗口；一般 HTML → CSS 页面加载尚未实现。公开头文件是实验接口，当前不交付稳定 SDK 或第三方符号隔离承诺。
+当前交付的实验模块按 `src/<模块>` 组织，每个模块是一个静态库 `weft::<模块>`：`base`、`core`、`render`、`canvas`、`script`、`text`、`style`、`layout`、`scene`、`input`；Windows 另有 Direct2D 参考 raster `weft::canvas_d2d`、`weft::scene_d2d`，DirectWrite 字体发现 `weft::platform_win32`，D3D11 参考渲染器 `weft::render_d3d11`（渲染器、C ABI 适配器、同步与两帧宿主；HLSL 在构建时由 fxc 编译内嵌，见 `cmake/WeftShaders.cmake`），以及原生场景 pass `weft::scene_d3d11`。scene 的文字（HarfBuzz/FreeType）、几何与命中属于可移植的 `weft::scene`。公开 C ABI 头位于 `include/weft/`，模块内部头以 `"<模块>/<文件>.hpp"` 从 `src/` 根引用。CMake 辅助函数 `weft_add_library`、`weft_add_executable`、`weft_add_test`、`weft_add_python_test` 在 `cmake/WeftTargets.cmake`，固定第三方依赖在 `cmake/WeftThirdParty.cmake`。受限 React 页面与原样 CaseCheetah 九宫格已串联 native DOM、CSS profile、布局、字体/图片、GPU 和 Windows 窗口；一般 HTML → CSS 页面加载尚未实现。公开头文件是实验接口，当前不交付稳定 SDK 或第三方符号隔离承诺。
 
 ## Windows x64
 
@@ -147,6 +147,9 @@ ScriptConfig 可配置受限执行预算，默认仍为 2 秒。只有 QJS_ENABL
 | d3_native_dom | 原版 D3 生成和更新原生 HTML/SVG DOM，并输出 29 项行为报告 |
 | text_font_probe | FreeType metrics/coverage，HarfBuzz glyph/advance/cluster，字号变化、缺字和 owner |
 | sdf_font_contract | FreeType 距离编码、padding、generator/spread 隔离、度量不变、空格与错误输入 |
+| font_catalog_contract | 字体族列表解析、CSS Fonts 4 字重/斜体匹配、generic 与回退族；不依赖平台 |
+| scene_text_metrics / scene_text_browser_diff | 本机字体上的 scene 文字：852 个 span 的字体选择、宽度（1/64 px 内）、高度与基线对照 Chrome 155；TTC 与可变字体上的 SDF；需要 Python |
+| scene_text_image | 文字节点定位、颜色、对齐与彩色字形报告；SDF field 按 scene 布局在 1×/2×/4× 重建覆盖率，平移 1 px 必须失败 |
 | flex_adapter_contract | measure 被跳过后最终文本仍排版、宽度/字体变化、basis 差异、盒约束与明确诊断 |
 | flow_input_contract / browser_diff / fixture_integrity | 3,150 点命中、128 随机算术 mutation、inline/圆角/滚动、完整 wheel、owner/GC 与 source/font hash |
 | d3d11_warp_cheetah_flow_window | 原样 React 的 HWND mouse/wheel、signed/receipt viewport、resize/cancel/close、GPU query 和 readback |
@@ -215,6 +218,6 @@ python tools/compare_scene_geometry.py artifacts/local/gallery-css-d3/release/na
 python tools/verify_scene_fixture.py
 ```
 
-新增 `scene_contract`、`scene_gallery_original`、`scene_fixture_integrity`、`scene_browser_geometry` 四项。后两项需要 Python，正常构建/CTest 不联网、不启动浏览器，读取固定 102 PNG/几何 oracle。Windows 的 scene raster target 使用 SDK 自带 d2d1/dwrite/windowscodecs/ole32；只注册在 WIN32，不推断移动可用。Scene owner core 依赖已固定的 Yoga，不向 C ABI 暴露 D2D/STL。
+新增 `scene_contract`、`scene_gallery_original`、`scene_fixture_integrity`、`scene_browser_geometry` 四项。后两项需要 Python，正常构建/CTest 不联网、不启动浏览器，读取固定 102 PNG/几何 oracle。Windows 的 scene raster target 使用 SDK 自带 d2d1/dwrite/windowscodecs/ole32；只注册在 WIN32，不推断移动可用。scene 测试的字体策略在 `tests/support/scene_fonts.hpp`：本机已安装字体加 Chrome 155 在本机实际使用的 generic 映射。Scene owner core 依赖已固定的 Yoga，不向 C ABI 暴露 D2D/STL。
 
 可选离线 utility 重建：`python tools/compile_gallery_scene_styles.py`，从已固定原 `gallery.css`/TestGallery 源生成 123 utility 和 29 原 keyframe block，校验和保存 manifest。可选真实浏览器 oracle 重建：`node tools/browser_scene_gallery_reference.mjs artifacts/local/gallery-css-d3/reference`，需本机 Chrome，使用完整原 CSS、未改 bundle、受控 clock/random，阻止外部请求；不属于普通构建，不自动覆盖固定 fixture。来源/采样/字体条件与误差阈值见 [scene gallery](scene-gallery.md)。

@@ -4,6 +4,48 @@
 
 ## 本次已实现
 
+重构第 6 步：scene 可移植化（2026-10-10）。scene 的文字、几何与命中不再依赖 Windows，D2D 只作为 Windows 参考 raster。按 [重构计划](refactoring-plan.md#第-6-步记录2026-10-10)，分四部分：
+- **几何与命中**：`SceneGeometry`（`src/scene/scene_geometry.*`）计算元素盒与命中，不用图形 API；D2D 重放同一份解析后的 transform 和 path。
+- **文字**：
+  - `SceneText` 用 HarfBuzz/FreeType 按 Blink 规则塑形与排版；
+  - 字体列表是数据（`FontCatalog`），Windows 上由 `weft::platform_win32` 枚举；
+  - 测试使用本机 Chrome 155 的 generic 映射。
+- **原生 GPU 文字与 SDF**：
+  - 原生 pass 的文字图像改由 FreeType 生成（`scene_text_image`），彩色字形与显式 layer 仍用 D2D；
+  - SDF field 已在 scene 字体（含 TTC、可变字体、中文）上按 scene 布局重建验证。
+- **渲染器迁移**：原探针 `SceneNativeGpu` 移入 `weft::scene_d3d11`（`render::d3d11::SceneRenderer`），shader 移到 `src/render/backends/d3d11/scene.hlsl`。
+- **新测试**（共 94 项）：
+  - `font_catalog_contract`：字体匹配规则，不依赖平台；
+  - `scene_text_metrics` + `scene_text_browser_diff`：852 个 span 对照 Chrome；
+  - `scene_text_image`：文字图像与 SDF 重建；
+  - scene/cluster 测试内的几何差分（可移植实现对 D2D）。
+
+验证：
+- **全量测试**：
+  - `ctest --preset windows-release --parallel 6 --output-on-failure`：**94/94（45.5 s）**；
+  - `windows-debug --parallel 6`：**94/94（427.3 s）**。之后对文字图像做了一处小修改（负坐标的亚像素拆分），受影响的 16 项 Debug 测试重跑通过，Release 全量重跑 94/94（44.1 s）；
+  - 日志在 `artifacts/local/refactor-step6/`。
+- **Chrome 文字**：852 个 span 字体选择一致，宽度最大差 1/64 px，高度与基线完全一致。154 个合成粗体例只报告，不要求。
+- **Chrome 参考图**（软掩码 IoU，第 6 步前后）：
+  - scene D2D 参考：42 张变化，35 张更近、0 张更远，变化图中最小 IoU 0.757 → 0.872；
+  - cluster：131 张变化，93 张更近、14 张更远（最大退 0.0017），最小 0.788 → 0.829；
+  - 几何 1,476 个字段对照不变，最大 0.274975 px。
+- **几何差分**（可移植对 D2D）：
+  - scene：rect 最大差 8e-6 px；337,920 个命中点中 234 个边界点不同（D2D 把 0.25 DIP 内的点算作内部）；
+  - cluster：7,477 个元素 rect 最大差 0.0287 px（D2D 曲线包围盒是近似值）。
+- **产物对照**：D2D 参考的去重与共用定位逐字节不变；6D 迁移对 6C 产物 29 组套件、1,306 个文件逐字节相同。
+- **内存**：Debug 全量测试暴露了 6B 的悬空 `string_view`（Release 下恰好读到原值），已修复。ASan Debug 下 4 个文字测试程序通过。
+- **耗时**：WARP 下最重的三组原生 GPU 套件，第 6 步前后分别为 27.7/28.3/24.4 s 和 28.1/29.2/25.1 s。
+
+未验证：
+- 非 Windows 平台的构建与字体发现。可移植代码只在 MSVC 上编译过；其他平台需宿主提供 `FontCatalog`。
+- 硬件 GPU 模式（本步只跑 WARP）、GC 压力配置。
+- 合成粗体（font-synthesis）未实现；彩色 emoji 与显式 layer 仍需 D2D；原生 pass 没有 SDF 材质与动态 atlas。
+
+下一步：第 7 步类型化样式（PropertyId、长度/颜色/关键字值，去掉字符串往返）。
+
+以下第 5 步及更早内容为历史阶段证据：
+
 重构第 5 步：D3D11 渲染器移入 `src/render`、`RenderBackend` concept、探针独立翻译单元（2026-10-10）。按 [重构计划](refactoring-plan.md#第-5-步记录2026-10-10)，分四个提交：
 - **shader**：`cmake/WeftShaders.cmake` 在构建时用 Windows SDK 的 fxc 编译 HLSL 并内嵌字节码。运行时不读 `shaders/`，也不链接 d3dcompiler。Release 字节码与原运行期编译的输出逐字节相同。
 - **渲染器库**：`weft::render_d3d11`（`src/render/backends/d3d11/`）包含四部分：

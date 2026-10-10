@@ -1,6 +1,6 @@
 # SDF 字体：当前实现与合同
 
-本轮在 C++20 字体适配器和独立 D3D11 探针中实现了**单通道 SDF**。复用已固定的 FreeType 2.13.3 与 HarfBuzz 11.2.1，没有修改上游源码。它还不是 HTML/CSS 页面中的正式文本后端；中文回退、移动 GPU、通用 atlas 管理和 MSDF 尚未实现。
+本轮在 C++20 字体适配器和独立 D3D11 探针中实现了**单通道 SDF**。复用已固定的 FreeType 2.13.3 与 HarfBuzz 11.2.1，没有修改上游源码。它还不是 HTML/CSS 页面中的正式文本后端；移动 GPU、通用 atlas 管理和 MSDF 尚未实现。scene 文字（含中文与可变字体）的 field 已在 CPU 上验证，见下方 scene 文字一节。
 
 ## 字体与绘制职责
 
@@ -46,6 +46,14 @@ premultiplied_output = fill_color * fill + outline_color * (outer - fill)
 GPU 的 55,545 项断言包含大量逐像素检查，不代表 55,545 个独立功能。直边 oracle 排除了双边同时接近的角区域，**没有证明尖角/曲线的完整像素质量**；Roboto 的可见性与截图不等于完整字形差分验收。测试无旋转、透视、极端 minification、自动 mipmap 或中文字段。本轮没有采集 SDF 浏览器 golden，也没有测量性能预算。
 
 Roboto Regular 2.138 已包含于固定 HarfBuzz perf/fonts，未复制或修改字体。字体 name table 指定 Apache-2.0，许可正文和独立归属保存在 `third_party/probe-font-notices`，同时固定其 hash；HarfBuzz 的代码许可不替代字体许可。Ahem 仍只用于确定性几何测试。
+
+## scene 文字（重构第 6 步，2026-10-10）
+
+scene 文字换成 HarfBuzz/FreeType 后，SDF 直接用于 scene 的字体，没有平台依赖：
+- `scene_text_metrics` 在 TTC face（Microsoft YaHei UI 的“进”）和可变字体两个实例（Noto Serif SC 400/700 的 “W”）上生成 field，粗体内部 texel 多于常规体，说明可变轴传到了轮廓。
+- `scene_text_image` 测试按 scene 布局（`scene_text_origin`、HarfBuzz 字形位置、bearing 按 font-size / base ppem 缩放）摆放 40 ppem、spread 8 的 field，用 shader 的覆盖公式 saturate(0.5 + 距离 / 像素) 在 CPU 上重建，与 FreeType 覆盖率图对比。四段文字（Segoe UI 13 px、system-ui 粗体 16 px、中文 24 px、Noto Serif SC 900 32 px）在 1×/2×/4× 下，半覆盖掩码 IoU 最小 0.944（阈值 0.92），平均覆盖差最大 0.0062（阈值 0.01）；把 field 平移 1 px 时必须低于阈值。
+
+未完成：原生 GPU scene pass 仍用覆盖率图，没有 SDF 材质、动态 atlas 和缩放动画时的选择策略；CPU 重建不等于 GPU 采样验收。
 
 ## 复现与产物
 

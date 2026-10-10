@@ -238,7 +238,7 @@ HarfBuzz 候选负责字形塑形，FreeType 候选负责字体解析与栅格�
 
 小字号正文优先使用灰度 coverage，renderer 可选择单通道 SDF 用于已验收的缩放/描边场景。二者共享逻辑 GlyphRun，SDF padding/bearing 只决定绘制 quad，不改变 advance、line box 或 caret。逻辑塑形与 raster 缓存分开；raster key 包含字体版本、glyph/variation、模式、base ppem、spread 与 generator。SDF atlas 存储 linear distance，使用明确零点/range 与导数抗锯齿；普通颜色 mipmap 不适用，超出距离范围的效果需要重建 field。
 
-本轮实际完成 FreeType 单通道 SDF 生成与 D3D11 固定 atlas 探针；React 页面使用独立的灰度 glyph 路径，正式动态 atlas、SDF 页面材质、移动端与 MSDF 尚未实现，验证边界见 [SDF 合同](sdf-font-probe.md)。atlas 有配额、页版本和 GPU 退休规则；字体回退优先打包字体，系统字体可作为显式可选能力，跨平台视觉回归不使用未固定的系统字体。
+本轮实际完成 FreeType 单通道 SDF 生成与 D3D11 固定 atlas 探针；React 页面使用独立的灰度 glyph 路径，scene 原生 GPU pass 使用 FreeType 覆盖率图，正式动态 atlas、SDF 页面材质、移动端与 MSDF 尚未实现，验证边界见 [SDF 合同](sdf-font-probe.md)。atlas 有配额、页版本和 GPU 退休规则；字体回退优先打包字体，系统字体可作为显式可选能力，跨平台视觉回归不使用未固定的系统字体。
 
 ## 输入与 IME
 

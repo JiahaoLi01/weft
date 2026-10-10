@@ -66,7 +66,7 @@ probes/ tests/ tools/      证据与验证，只依赖 src，不被 src 依赖
 | 3 ✅ | bootstrap JS 由 CMake 生成 `.inc` 内嵌，去掉运行时 `WEFT_SOURCE_DIR` | `script_dom_probe.cpp`、各窗口/探针 | 脚本与 GC 测试；移动/主机打包前置条件；见下方第 3 步记录 |
 | 4 ✅ | 改名 Weft；CMake 拆成模块目录与 `weft::` 目标，`weft_add_test()`；公开/私有头分离；去 `Probe` 前缀 | `CMakeLists.txt`、`include/`、全部源码 | 测试定义与编译选项逐项对照、全量构建与测试、C ABI smoke；见下方第 4 步记录 |
 | 5 ✅ | D3D11 渲染器、FramePacket、两帧流水线移入 `src/render`，经 `RenderBackend` concept 接 C ABI；探针头改为独立 TU；shader 构建期编译内嵌 | `probes/d3d11_probe.cpp`、`probe_render_backend.hpp`、`two_frame_pipeline.hpp` | WARP/硬件产物逐字节对照、两帧退休、debug layer 零告警；见下方第 5 步记录 |
-| 6 | scene 可移植化：拆出纯几何/命中 TU；DirectWrite 量字换成与 flow 相同的 HarfBuzz 测量；D2D 退为 Windows 参考 raster | `scene_probe.hpp`、`scene_d2d_probe.cpp`、`gallery_scene_session.hpp` | 字体度量会变，重新建立 Chrome 对照基线（已确认） |
+| 6 ✅ | scene 可移植化：拆出纯几何/命中 TU；DirectWrite 量字换成与 flow 相同的 HarfBuzz 测量；D2D 退为 Windows 参考 raster | `scene_probe.hpp`、`scene_d2d_probe.cpp`、`gallery_scene_session.hpp` | 新增 Chrome 文字度量基线；几何与 D2D 差分；见下方第 6 步记录 |
 | 7 | 类型化样式：PropertyId、长度/颜色/关键字值，去掉字符串往返与正则插值 | `style_probe`、`flow_page`、`auto_page`、`scene_probe` | 级联/动画差分、gallery 像素与几何 |
 | 8 | 统一格式化路径：一个调度器、一个 Yoga 适配器、一个 paint IR、一条命中路径；golden 迁移后删除 page/positioned/auto | `src/layout/*`、`input_probe` | 旧 profile 的浏览器差分全部改跑新路径 |
 | 9 | DOM 与脚本分离：NodeId 原生树、与 style 共用选择器；QuickJS 对象成为包装；Canvas 状态移到旁表 | `script_dom_probe.cpp`、`style_probe.cpp` | DOM 生命周期、GC 压力、D3 / React 原包 |
@@ -231,8 +231,79 @@ CMake 拆分：
 - **硬件对照**：RTX 5090 上新旧二进制各跑 22 个 `--*-hardware` 模式，21 组产物逐字节相同，`gallery-preview` 的差异与旧二进制自身重跑的差异相同。全量测试结果见 [status](status.md)。
 
 留在探针、待后续步骤处理的部分：
-- `SceneNativeGpu`：依赖 Direct2D/DirectWrite 文字 raster，随第 6 步 scene 可移植化迁出。
+- `SceneNativeGpu`：依赖 Direct2D/DirectWrite 文字 raster，随第 6 步 scene 可移植化迁出（已完成，见第 6 步记录）。
 - Win32 窗口与交换链宿主（`react_window_host.hpp`）：属于第 10 步的平台层。
+
+## 第 6 步记录（2026-10-10）
+
+分四部分，每部分单独验证。
+
+**6A 可移植几何与命中**（`src/scene/scene_geometry.*`）：
+- `SceneGeometry` 计算元素盒（getBoundingClientRect 式几何）与命中测试，不用任何图形 API。
+- 实现内容：
+  - CSS/SVG transform 列表与 transform-origin；
+  - SVG viewBox/preserveAspectRatio；
+  - path 数据解析成绝对坐标命令；
+  - Bézier 与椭圆弧的精确极值包围盒；
+  - nonzero/even-odd 填充包含；
+  - 带端点与虚线的描边包含。
+- D2D 参考 raster 改为重放同一份解析结果（transform 操作、path 命令），自己只做 D2D 数学。改动后 1,306 个产物文件逐字节不变。
+- gallery 会话、owner、预览与原生 GPU 探针的命中和几何全部改用 `SceneGeometry`。
+
+**6B HarfBuzz/FreeType 文字**：
+- 字体层：
+  - `text/font`：`FontFile` 共享一份字体字节，`Font` 打开 TTC 索引与可变轴，给出 DirectWrite 规则的行度量，并可用 16.16 精度塑形；
+  - `text/font_catalog`：字体列表作为数据，按 CSS Fonts 4 匹配；
+  - `weft::platform_win32`：用 DirectWrite 枚举已安装字体，只做这一件事。
+- `scene/scene_text`：`SceneText` 按 Blink 规则塑形与排版：
+  - 逐词塑形；
+  - 按 cluster 加 letter-spacing；
+  - 宽度向上取整到 LayoutUnit（1/64 px）；
+  - 构造 Blink 的单行 line box（半行距向下取整到整像素）。
+- D2D 参考 raster 用同一字体文件、索引和轴值的 DirectWrite face 绘制这些 glyph run。
+
+**6C 原生 GPU 文字图像与 SDF**：
+- `Font::rasterize` 增加亚像素原点。
+- `scene_text_image` 从 FreeType 覆盖率生成文字节点的图像。它与 D2D 共用 `scene_text_origin`（text-align、flex 居中、padding、border），定位一致。
+- `scene_values.hpp` 收拢几何、文字图像与 D2D 三处重复的 CSS 值解析（`fail/get/num/len`）。
+- 原生 GPU pass 的文字改用该图像；只有含彩色字形的文字和显式 layer 仍用 D2D raster。
+- SDF 在 scene 字体上的验证：
+  - `scene_text_image` 测试按 scene 布局摆放 SDF field，在 CPU 上用 shader 公式重建，与覆盖率图对比；
+  - 详见 [SDF](sdf-font-probe.md#scene-文字重构第-6-步2026-10-10)。
+
+**6D 原生场景渲染器移入 `src/render`**：
+- 新目标 `weft::scene_d3d11` 提供 `render::d3d11::SceneRenderer`（原探针 `SceneNativeGpu`），shader 移到 `src/render/backends/d3d11/scene.hlsl`。
+- 依赖改为构造参数：`Renderer&` 取代探针的 `Experiment&`，`SceneText&` 取代探针的线程字体。常量移入 `constants::render::d3d11::scene`。
+
+验证：
+- **Chrome 文字度量**：
+  - 新 fixture `tests/fixtures/scene_text_reference.json`，用 Chrome 155 和本机字体记录 852 个 span；
+  - `scene_text_browser_diff` 结果：字体选择一致，宽度最大差 1/64 px，高度与基线完全一致；
+  - 154 个合成粗体例只报告（未实现 font-synthesis，宽度最多差 17 px）。
+- **几何差分**：可移植实现对 D2D 参考，`tests/scene_geometry_compare.hpp` 接在 scene 与 cluster 测试里。
+  - scene：102 帧，369 个元素 rect 最大差 8e-6 px；337,920 个命中点有 234 个边界点不同，原因是 D2D 把 0.25 DIP 内的点算作内部。
+  - cluster：210 帧，7,477 个元素 rect 最大差 0.0287 px（D2D 曲线包围盒是近似值），矩阵最大差 6.8e-5。
+  - 与 Chrome 的 1,476 个几何字段对照不变，最大 0.274975 px。
+- **对 Chrome 参考图**（测试的软掩码 IoU，第 6 步前后对比）：
+
+  | 范围 | 变化的图 | 更近 / 更远 | 变化图中的最小 IoU |
+  | --- | --- | --- | --- |
+  | scene D2D 参考 | 42 / 102 | 35 / 0 | 0.757 → 0.872 |
+  | cluster D2D 参考 | 131 / 210 | 93 / 14（最大退 0.0017） | 0.788 → 0.829 |
+  | 原生 GPU 文字（6C 对 6B） | scene 15 张、cluster 56 张 | 38 / 15 | 单张最大退 0.0076、最大进 0.0101 |
+
+  FreeType 覆盖率是线性的，比 D2D 带 gamma 增强的灰度字略细；Chrome 用 ClearType。
+- **产物对照**：`tools/compare_artifacts.py`。
+  - 6A 的 D2D 去重、6C 的 `scene_text_origin` 与值解析合并：D2D 参考产物逐字节不变；
+  - 6D 迁移：对 6C 产物 29 组确定性套件、1,306 个文件逐字节相同。
+- **内存错误**：Debug 全量测试发现 6B 的悬空 `string_view`（`split_unit(css::trim(line))` 指向已销毁的临时字符串，Release 下恰好读到原值）。已修复。ASan Debug 构建下 4 个文字测试程序全部通过。
+- **耗时**：WARP 下最重的三组原生 GPU 套件，第 6 步前后单独顺序运行分别为 27.7/28.3/24.4 s 和 28.1/29.2/25.1 s，没有回退。全量结果见 [status](status.md)。
+
+仍依赖 Windows 或 D2D 的部分：
+- 字体发现只有 Windows 实现（`weft::platform_win32`）；其他平台需要宿主提供 `FontCatalog`。
+- 彩色字形（COLRv1 emoji）和显式 layer 图像仍由 D2D 参考 raster 绘制。
+- 合成粗体未实现；原生场景 pass 没有 SDF 材质与动态 atlas。
+- `SceneGpuSurfaces`（D2D GPU 目标、卡片表面池）与 Win32 窗口宿主仍在探针里，属于第 10 步的平台层。
 
 ## 已确认的取舍（2026-10-10）
 

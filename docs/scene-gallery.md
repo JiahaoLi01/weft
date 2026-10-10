@@ -39,19 +39,27 @@ SceneSolver 在 owner 上复用公共 cascade 的单独 `scene_syntax` profile�
 
 ## Windows 软件矢量参考适配器
 
-`SceneRaster` 用 DirectWrite 测量/塑形与 OS fallback，支持这批 normal/bold/mono/emoji。system-ui 读取 Windows UI 字体，本机为 Microsoft YaHei UI；SVG sans-serif 为 Arial，mono 为 Consolas。浏览器 CDP 的 platform-font 审计和对应 OS font hash 保存在 reference manifest；没有下载/复制 OS 字体。不同机器字体设置可使 fixture 对照失败，跨平台固定字体打包未完成。
+文字测量、塑形与几何不依赖 Windows（重构第 6 步，2026-10-10）：
+- `SceneText`（`src/scene/scene_text.*`）按 CSS Fonts 4 从 `FontCatalog` 选字体，用 HarfBuzz/FreeType 塑形，按 Blink 规则逐词塑形、按 cluster 加 letter-spacing、宽度向上取整到 1/64 px，并构造 Blink 的单行 line box。
+- 字体列表是数据：Windows 上由 `weft::platform_win32` 的 `system_font_catalog()` 用 DirectWrite 枚举已安装字体（文件、TTC 索引、可变轴、本地化与 Win32 族名），其他平台可由宿主提供。
+- 测试与探针使用本机 Chrome 155 实际的 generic 映射：sans-serif → Noto Sans SC，serif → Noto Serif SC，monospace → NSimSun，system-ui → Microsoft YaHei UI；最后依次回退 Noto Sans SC、Segoe UI Emoji、Segoe UI Symbol。
+- 浏览器 CDP 的 platform-font 审计和对应 OS font hash 保存在 reference manifest；没有下载/复制 OS 字体。不同机器的字体设置可使 fixture 对照失败，跨平台固定字体打包未完成。
+- `scene_text_metrics` + `scene_text_browser_diff` 把 852 个 span 与 Chrome 对照：字体选择一致，宽度差不超过 1/64 px，高度与基线完全一致。154 个合成粗体例只报告不要求（未实现 font-synthesis）。
+- `SceneGeometry`（`src/scene/scene_geometry.*`）计算元素盒与命中，不用 D2D：精确的 Bézier/弧极值包围盒，nonzero/even-odd 填充，以及含端点与虚线的描边包含。
+
+`SceneRaster`（D2D）仍是 Windows 参考 raster：它用同一字体文件/索引/轴值的 DirectWrite face 绘制 `SceneText` 的 glyph run，彩色字形（COLRv1）走 DirectWrite layout。几何与命中和可移植实现做差分：102 帧 369 个元素 rect 最大差 8e-6 px，337,920 个命中点中 234 个边界点不同（D2D 把 0.25 DIP 内的点算作内部）；cluster 210 帧 7,477 个元素 rect 最大差 0.0287 px（D2D 曲线包围盒是近似值）。
 
 Direct2D SOFTWARE/WIC 绘制圆角、分边 solid border、线性/径向/锥形 gradient、2D transform、HTML 子树 group opacity 和 clipping。3D 仅支持本例的 `perspective(px) rotateY(angle)` planar subtree：先 raster 子树，再 inverse project/bilinear premultiplied sampling；不是通用 CSS 3D。SVG 为 g/rect（rx）/circle/line/polygon/path/text，支持 transform inheritance、fill/stroke/width、anchor/central baseline/dy，path M/L/H/V/C/Q/A/Z 的相对/重复参数（262144 byte / 65536 segment bound）。其他元素/命令、viewBox/preserveAspectRatio、clip-path/mask/filter、SVG descendant opacity、text stroke 明确诊断。
 
 每张 backing 最多 16,777,216 pixels，scale <=4；owner viewport <=4096。adapter 输出独立 straight encoded-sRGB RGBA8，原 D3D11 图像上传转换为 linear premultiplied，按真实 GPU completion 退休。本批 case 本体在 encoded sRGB 软件合成，与浏览器语义匹配；不扩大全局 renderer 的 linear 合同。
 
-SceneSolver/SceneRaster 是 M0 内部 C++ 探针，不是新增公开 STL/C ABI。平台 API 隔离在独立 target，Windows raster 不能推断 Android/iOS 可用。Windows scene GPU adapter 已完成本固定范围验证；跨平台字体/GPU adapter、生产 paint IR 与稳定 scene API 仍待实现。
+SceneSolver/SceneRaster 是 M0 内部 C++ 探针，不是新增公开 STL/C ABI。平台 API 隔离在独立 target，Windows raster 不能推断 Android/iOS 可用。Windows scene GPU adapter 已完成本固定范围验证。原生 GPU pass 的文字图像改由 `scene_text_image`（FreeType 覆盖率，与 D2D 共用 `scene_text_origin` 定位）生成，只有含彩色字形的文字和显式 layer 仍用 D2D raster。跨平台 GPU adapter、生产 paint IR 与稳定 scene API 仍待实现。
 
 ## 独立对照与反例
 
 真实 Chrome 155.0.8059.39，Windows 同机字体，完整原 CSS/原 bundle，CSS body 387×288 / D3 body 384×384，DPR 2；seed 0xce202610。先 drain 初始化 timer（不额外推进 D3 rAF），构造后 step(0)，每例再跑 121 帧，0–2000ms、60Hz。CSS 4–6 在 300ms 悬停、1200ms 离开；CSS 7 两个时点点击。浏览器真实 CSS animation/transition 以 WebAnimations 暂停采样，reference clock 与 native owner 分开实现。
 
-每例截取 frame 24/63/120（400/1050/2000ms），共 **102 张 PNG**。每 RGBA channel 的 mean absolute error 必须 <=3 个 8bit 色阶；相对底色的前景经 3×3 [1,2,1] soft mask 后 IoU >=0.75，参考前景至少 200 pixels。DirectWrite/Skia 字形覆盖有容差，不能称 byte-identical。每例还把空底色图送入 oracle，34 个空图全部必须拒绝，避免低平均误差掩盖缺失内容。
+每例截取 frame 24/63/120（400/1050/2000ms），共 **102 张 PNG**。每 RGBA channel 的 mean absolute error 必须 <=3 个 8bit 色阶；相对底色的前景经 3×3 [1,2,1] soft mask 后 IoU >=0.75，参考前景至少 200 pixels。字形覆盖（DirectWrite 或 FreeType 对 Skia）有容差，不能称 byte-identical。每例还把空底色图送入 oracle，34 个空图全部必须拒绝，避免低平均误差掩盖缺失内容。
 
 HTML 元素与 SVG viewport 的真实 getBoundingClientRect 共 **1,476 字段**，每字段 <=0.3 CSSpx；实际最大 **0.274975**。SVG descendant 尚不在同步 layout geometry profile 内，本轮 path/轴/文字靠独立图像 oracle 检查。D3 animated bars 与 force 的图像必须随帧改变；CSS 动画/transition 的对应原例也检验 changed pixels / React input 状态。
 
