@@ -317,11 +317,11 @@ public:
 
     WindowPresenter(Experiment& r, HWND hwnd) : renderer(r) {
         ComPtr<IDXGIDevice> dxgi;
-        checked(r.device.As(&dxgi), "present DXGI device");
+        check_hresult(r.device.As(&dxgi), "present DXGI device");
         ComPtr<IDXGIAdapter> adapter;
-        checked(dxgi->GetAdapter(&adapter), "present adapter");
+        check_hresult(dxgi->GetAdapter(&adapter), "present adapter");
         ComPtr<IDXGIFactory2> factory;
-        checked(adapter->GetParent(IID_PPV_ARGS(&factory)), "present DXGI factory");
+        check_hresult(adapter->GetParent(IID_PPV_ARGS(&factory)), "present DXGI factory");
         DXGI_SWAP_CHAIN_DESC1 desc{};
         desc.Width = caseelephant::constants::default_view_width;
         desc.Height = caseelephant::constants::default_view_height;
@@ -331,9 +331,9 @@ public:
         desc.BufferCount = caseelephant::probe_constants::swap_chain_buffer_count;
         desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
         desc.Scaling = DXGI_SCALING_STRETCH;
-        checked(factory->CreateSwapChainForHwnd(r.device.Get(), hwnd, &desc, nullptr, nullptr, &swap),
-                "CreateSwapChainForHwnd");
-        checked(factory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER), "window association");
+        check_hresult(factory->CreateSwapChainForHwnd(r.device.Get(), hwnd, &desc, nullptr, nullptr, &swap),
+                      "CreateSwapChainForHwnd");
+        check_hresult(factory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER), "window association");
     }
 
     ~WindowPresenter() {
@@ -360,21 +360,21 @@ public:
         rtv.Reset();
         back.Reset();
         readback.Reset();
-        checked(swap->ResizeBuffers(caseelephant::probe_constants::swap_chain_buffer_count, w, h,
-                                    DXGI_FORMAT_R8G8B8A8_UNORM, 0),
-                "ResizeBuffers after unbinding/releasing views");
-        checked(swap->GetBuffer(0, IID_PPV_ARGS(&back)), "swapchain backbuffer");
+        check_hresult(swap->ResizeBuffers(caseelephant::probe_constants::swap_chain_buffer_count, w, h,
+                                          DXGI_FORMAT_R8G8B8A8_UNORM, 0),
+                      "ResizeBuffers after unbinding/releasing views");
+        check_hresult(swap->GetBuffer(0, IID_PPV_ARGS(&back)), "swapchain backbuffer");
         D3D11_RENDER_TARGET_VIEW_DESC view{};
         view.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
         view.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-        checked(renderer.device->CreateRenderTargetView(back.Get(), &view, &rtv), "sRGB swapchain RTV");
+        check_hresult(renderer.device->CreateRenderTargetView(back.Get(), &view, &rtv), "sRGB swapchain RTV");
         D3D11_TEXTURE2D_DESC staging{};
         back->GetDesc(&staging);
         staging.BindFlags = 0;
         staging.MiscFlags = 0;
         staging.Usage = D3D11_USAGE_STAGING;
         staging.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-        checked(renderer.device->CreateTexture2D(&staging, nullptr, &readback), "swapchain diagnostic readback");
+        check_hresult(renderer.device->CreateTexture2D(&staging, nullptr, &readback), "swapchain diagnostic readback");
         width = w;
         height = h;
         ++resizes;
@@ -407,9 +407,9 @@ public:
             desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
             const D3D11_SUBRESOURCE_DATA initial{a.bytes.data(), a.width, 0};
             ComPtr<ID3D11Texture2D> texture;
-            checked(renderer.device->CreateTexture2D(&desc, &initial, &texture), "HUD immutable coverage");
+            check_hresult(renderer.device->CreateTexture2D(&desc, &initial, &texture), "HUD immutable coverage");
             ComPtr<ID3D11ShaderResourceView> srv;
-            checked(renderer.device->CreateShaderResourceView(texture.Get(), nullptr, &srv), "HUD coverage SRV");
+            check_hresult(renderer.device->CreateShaderResourceView(texture.Get(), nullptr, &srv), "HUD coverage SRV");
             assets.push_back(std::move(srv));
         }
         // Each async submission holds this immutable lease until its query.
@@ -488,7 +488,7 @@ public:
         }
         const DXGI_PRESENT_PARAMETERS parameters{};
         const auto result = swap->Present1(caseelephant::probe_constants::present_sync_interval, 0, &parameters);
-        checked(result, "Present1");
+        check_hresult(result, "Present1");
         last_visible = result != DXGI_STATUS_OCCLUDED;
         if (!last_visible) {
             ++occluded;
@@ -501,7 +501,8 @@ public:
         require(capture, "readback only after captured completed frame");
         std::vector<Pixel> result(std::size_t(width) * height);
         D3D11_MAPPED_SUBRESOURCE mapped{};
-        checked(renderer.immediate->Map(readback.Get(), 0, D3D11_MAP_READ, 0, &mapped), "swapchain completed Map");
+        check_hresult(renderer.immediate->Map(readback.Get(), 0, D3D11_MAP_READ, 0, &mapped),
+                      "swapchain completed Map");
         for (UINT y = 0; y < height; ++y) {
             std::memcpy(result.data() + std::size_t(y) * width,
                         static_cast<std::uint8_t*>(mapped.pData) + std::size_t(y) * mapped.RowPitch,
@@ -524,9 +525,9 @@ int run_react_window(bool warp, bool self_test, const std::filesystem::path& fol
 #endif
     caseelephant::ScriptDomProbe script(config);
     caseelephant::TextProbeFont font(CE_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
-    script.eval(read_text(std::filesystem::path(CE_SOURCE_DIR) / "probes/web_host_bootstrap.js"),
+    script.eval(read_file(std::filesystem::path(CE_SOURCE_DIR) / "probes/web_host_bootstrap.js"),
                 "web_host_bootstrap.js");
-    script.eval(read_text(std::filesystem::path(CE_SOURCE_DIR) / "examples/react-vite/native/app.js"),
+    script.eval(read_file(std::filesystem::path(CE_SOURCE_DIR) / "examples/react-vite/native/app.js"),
                 "react-vite-app.js");
     pump_react(script, 0);
     caseelephant::ProbeMouseRouter input(script, font);

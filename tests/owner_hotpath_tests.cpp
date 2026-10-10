@@ -1,6 +1,8 @@
 #include "caseelephant/script_probe.hpp"
+#include "support/check.hpp"
+#include "support/files.hpp"
 #include "caseelephant/constants/script.hpp"
-#include "../probes/host_time.hpp"
+#include "support/host_time.hpp"
 #include "test_constants/script.hpp"
 #include <fstream>
 #include <sstream>
@@ -11,28 +13,19 @@
 using namespace caseelephant;
 
 namespace {
-    void require(bool b, const char* s) {
-        if (!b) {
-            throw std::runtime_error(s);
-        }
-    }
-
-    std::string read(const char* path) {
-        std::ifstream f(std::string(CE_SOURCE_DIR) + path, std::ios::binary);
-        require(bool(f), "fixture missing");
-        std::ostringstream s;
-        s << f.rdbuf();
-        return s.str();
-    }
+    using caseelephant::testing::format_host_time;
+    using caseelephant::testing::read_source_file;
+    using caseelephant::testing::require;
 
     void install(ScriptDomProbe& vm, bool old = false) {
-        vm.eval(read(old ? "/tests/fixtures/owner-hotpath/web_host_before.js" : "/probes/web_host_bootstrap.js"));
-        vm.eval(read(old ? "/tests/fixtures/owner-hotpath/animation_frame_before.js"
-                         : "/probes/animation_frame_bootstrap.js"));
+        vm.eval(read_source_file(old ? "/tests/fixtures/owner-hotpath/web_host_before.js"
+                                     : "/probes/web_host_bootstrap.js"));
+        vm.eval(read_source_file(old ? "/tests/fixtures/owner-hotpath/animation_frame_before.js"
+                                     : "/probes/animation_frame_bootstrap.js"));
     }
 
     void legacy_frame(ScriptDomProbe& vm, double time, bool drawable) {
-        vm.eval("__ceAnimationHost.begin(" + probe_host_time(time) + "," + (drawable ? "true" : "false") + ")");
+        vm.eval("__ceAnimationHost.begin(" + format_host_time(time) + "," + (drawable ? "true" : "false") + ")");
         while (vm.eval("__ceAnimationHost.next()") != "0") {
         }
     }
@@ -79,7 +72,7 @@ globalThis.mutate=()=>{
             auto pump = [&] {
                 for (unsigned k = 0; k < caseelephant::constants::script::max_task_pump_turns; ++k) {
                     const auto a = fast.pump_tasks(time);
-                    const auto b = full.eval("__ceHost.pump(" + probe_host_time(time) + ")");
+                    const auto b = full.eval("__ceHost.pump(" + format_host_time(time) + ")");
                     require(std::to_string(a.ready) == b, "native timer batch differs from preserved full module");
                     if (!a.ready) {
                         return;

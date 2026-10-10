@@ -4,6 +4,7 @@
 #include "caseelephant/constants/scene.hpp"
 #include "caseelephant/constants/script.hpp"
 #include "probe_constants.hpp"
+#include "../tests/test_constants/support.hpp"
 
 // Values shared by the gallery and scene GPU probes (probes/gallery_*.hpp, probes/scene_*.hpp,
 // complex_css_probe.hpp and render_stages_probe.hpp).
@@ -84,19 +85,16 @@ namespace caseelephant::probe_constants::gallery {
     inline constexpr int sample_window = 600;
     // HUD and live profiler plots are redrawn at most five times per second.
     inline constexpr double hud_refresh_interval_s = .2;
-    inline constexpr int microseconds_per_millisecond = 1000;
+    inline constexpr int microseconds_per_millisecond =
+        caseelephant::test_constants::support::microseconds_per_millisecond;
 
     // --- Owner thread and traces ---
 
     // The inspection view uses one owner epoch; a reset creates a fresh executor instead.
     inline constexpr int owner_epoch = 1;
     // Chrome trace thread ids of the UI owner and the render thread.
-    inline constexpr int owner_trace_tid = 1;
+    inline constexpr int owner_trace_tid = caseelephant::test_constants::support::owner_trace_tid;
     inline constexpr int render_trace_tid = 2;
-    // Each trace file retains its latest events up to this bound.
-    inline constexpr int owner_trace_event_limit = 65536;
-    // Digits that round-trip a double trace timestamp.
-    inline constexpr int trace_timestamp_digits = caseelephant::probe_constants::double_round_trip_digits;
     // Hidden-scene pumps shorter than this are not traced.
     inline constexpr double hidden_pump_trace_threshold_ms = .25;
     // Largest mouse button mask (five buttons) and test-only owner stall accepted by the owner.

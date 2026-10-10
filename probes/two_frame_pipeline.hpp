@@ -123,17 +123,18 @@ public:
                 "pipeline requires idle cached reference adapter");
         for (auto& slot : slots_) {
             D3D11_QUERY_DESC query{D3D11_QUERY_EVENT, 0};
-            checked(gpu.device->CreateQuery(&query, &slot.done), "pipeline completion query");
+            check_hresult(gpu.device->CreateQuery(&query, &slot.done), "pipeline completion query");
             D3D11_BUFFER_DESC buffer{};
             buffer.ByteWidth = sizeof(Constants);
             buffer.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-            checked(gpu.device->CreateBuffer(&buffer, nullptr, &slot.constants), "pipeline frame constant buffer");
+            check_hresult(gpu.device->CreateBuffer(&buffer, nullptr, &slot.constants),
+                          "pipeline frame constant buffer");
             if (gpu.timing_disjoint) {
                 query.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
-                checked(gpu.device->CreateQuery(&query, &slot.disjoint), "pipeline timing frequency");
+                check_hresult(gpu.device->CreateQuery(&query, &slot.disjoint), "pipeline timing frequency");
                 query.Query = D3D11_QUERY_TIMESTAMP;
-                checked(gpu.device->CreateQuery(&query, &slot.start), "pipeline timing start");
-                checked(gpu.device->CreateQuery(&query, &slot.end), "pipeline timing end");
+                check_hresult(gpu.device->CreateQuery(&query, &slot.start), "pipeline timing start");
+                check_hresult(gpu.device->CreateQuery(&query, &slot.end), "pipeline timing end");
             }
         }
         gpu.pipeline_enabled = true;
@@ -163,7 +164,7 @@ public:
             BOOL done = FALSE;
             const auto result =
                 gpu_.immediate->GetData(slot.done.Get(), &done, sizeof(done), D3D11_ASYNC_GETDATA_DONOTFLUSH);
-            checked(result, "pipeline nonblocking completion query");
+            check_hresult(result, "pipeline nonblocking completion query");
             if (result != S_OK || !done) {
                 break;
             }

@@ -61,7 +61,7 @@ probes/ tests/ tools/      证据与验证，只依赖 src，不被 src 依赖
 | --- | --- | --- | --- |
 | 0 ✅ | 格式规范、一行一声明、命名常量 | 全部 C++/HLSL | Release 反汇编逐函数等价、着色器字节码等价、全量测试 |
 | 1 ✅ | `src/base`：统一 CSS 标量解析、`enum class Diag` + `Result<T>`、代际 slot 表、`OwnerThread` | `src/layout/*`、`scene_*`、`style_probe`、`canvas_probe`、`runtime`、`render_backend`、`resource_lifetime` | 旧实现逐字副本随机差分、各 profile 上限保留、全量测试不变；见下方第 1 步记录 |
-| 2 | `tests/support`：check 宏、文件/PNG 工具；`host_time`、`window_frame_rate`、`gallery_owner_trace` 移出探针 | `tests/*`、`probes/*` | 全量测试 |
+| 2 ✅ | `tests/support`：check 宏、文件/PNG 工具；`host_time`、`window_frame_rate`、`gallery_owner_trace` 移出探针 | `tests/*`、`probes/*` | 全量测试；见下方第 2 步记录 |
 | 3 | bootstrap JS 由 CMake 生成 `.inc` 内嵌，去掉运行时 `CE_SOURCE_DIR` | `script_dom_probe.cpp`、各窗口/探针 | 脚本与 GC 测试；移动/主机打包前置条件 |
 | 4 | CMake 拆成模块目录与 `ce::` 目标，`ce_add_test()`；公开/私有头分离；去 `Probe` 前缀 | `CMakeLists.txt`、`include/` | 全量构建与测试，C ABI smoke |
 | 5 | D3D11 渲染器、FramePacket、两帧流水线移入 `src/render`，经 `RenderBackend` concept 接 C ABI；探针头改为独立 TU | `probes/d3d11_probe.cpp`、`probe_render_backend.hpp`、`two_frame_pipeline.hpp`、`scene_native_gpu_probe.hpp` | WARP/硬件像素、两帧退休、debug layer 零告警 |
@@ -98,6 +98,31 @@ probes/ tests/ tools/      证据与验证，只依赖 src，不被 src 依赖
 
 - owner executor、视图故障、节点上限等其余 `CE_*` 字符串错误码，随各自模块改造时迁入 `Diag`。
 - 异常到 `Result` 的全面替换按模块逐步进行。
+
+## 第 2 步记录（2026-10-10）
+
+`tests/support/` 是测试与探针共用的头文件库，命名空间为 `caseelephant::testing`：
+
+| 文件 | 内容 |
+| --- | --- |
+| `check.hpp` | `require` 与 `CE_REQUIRE`（失败时报出表达式和位置） |
+| `files.hpp` | 原样字节读取、文本模式读取、写入，以及相对源码根的读取 |
+| `json.hpp` | `json_string` |
+| `png.hpp` | WIC PNG 读写与 `check_hresult` |
+| `host_time.hpp` | `format_host_time`，原 `probe_host_time` |
+| `frame_rate.hpp` | `WindowFrameRate` |
+| `owner_trace.hpp` | `OwnerTrace`/`TraceControl`，原 `GalleryOwnerTrace`/`GalleryProfileControl` |
+
+它们的常量放在 `tests/test_constants/support.hpp`。
+
+迁移内容：
+
+- **断言与读文件**：22 个测试文件里的 `require`/`check` 和 14 份读文件函数不再各写一份，每个调用点保留原来的读取方式（相对源码根还是给定路径、字节还是文本模式）。两个宏断言测试改为基于 `CE_REQUIRE`，且不在成功路径分配内存。
+- **探针侧**：`json_string`、`read_text`、`checked`、PNG 编解码改用共享实现，共替换 7 份副本（4 份解码、3 份编码）。`d3d11_probe.cpp` 在全局作用域先包含全部 support 头，再在匿名 namespace 里用 using 声明接入。
+- **头文件自包含**：`scene_visual_compare.hpp`、`cluster_visual_compare.hpp`、`scene_test_image.hpp` 和 owner trace，不再依赖包含方预先定义 `require`、`hr`、`ComPtr`、`json_string`。之前测试里伪造的不转义 `json_string` 已删除。
+- **移出探针**：`probes/host_time.hpp`、`window_frame_rate.hpp`、`gallery_owner_trace.hpp` 已删除，测试不再包含这三个探针头。
+
+仍然存在的依赖：四个 scene 测试仍包含 `probes/gallery_scene_session.hpp`/`gallery_cluster_input.hpp`。这套 gallery 宿主包装了 D2D raster 与 DirectWrite 测量，留到第 5、6 步随 D3D11 抽取和 scene 可移植化一起迁出。
 
 ## 已确认的取舍（2026-10-10）
 

@@ -1,25 +1,16 @@
 #pragma once
-#include <cmath>
+#include "caseelephant/scene_probe.hpp"
+#include "support/check.hpp"
+#include "support/png.hpp"
 #include "test_constants/scene.hpp"
+#include <algorithm>
+#include <cmath>
+#include <filesystem>
 
 // Windows fixture decoder; production never loads reference images.
 inline caseelephant::ProbeSceneBitmap scene_reference(const std::filesystem::path& path) {
-    ComPtr<IWICImagingFactory> f;
-    hr(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&f)));
-    ComPtr<IWICBitmapDecoder> decoder;
-    hr(f->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnLoad, &decoder));
-    ComPtr<IWICBitmapFrameDecode> frame;
-    hr(decoder->GetFrame(0, &frame));
-    UINT w{};
-    UINT h{};
-    hr(frame->GetSize(&w, &h));
-    ComPtr<IWICFormatConverter> converter;
-    hr(f->CreateFormatConverter(&converter));
-    hr(converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, nullptr, 0,
-                             WICBitmapPaletteTypeCustom));
-    caseelephant::ProbeSceneBitmap out{w, h, std::vector<std::uint8_t>(std::size_t(w) * h * 4)};
-    hr(converter->CopyPixels(nullptr, w * 4, UINT(out.rgba.size()), out.rgba.data()));
-    return out;
+    auto image = caseelephant::testing::read_png(path);
+    return {image.width, image.height, std::move(image.rgba)};
 }
 
 struct SceneDifference {
@@ -37,7 +28,7 @@ struct SceneDifference {
 
 inline SceneDifference scene_difference(const caseelephant::ProbeSceneBitmap& a,
                                         const caseelephant::ProbeSceneBitmap& b) {
-    require(a.width == b.width && a.height == b.height, "reference extent");
+    caseelephant::testing::require(a.width == b.width && a.height == b.height, "reference extent");
     const auto pixels = std::size_t(a.width) * a.height;
     SceneDifference d;
     std::vector<unsigned char> am(pixels);

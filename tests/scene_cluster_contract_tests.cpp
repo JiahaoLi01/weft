@@ -1,11 +1,16 @@
 #define NOMINMAX
 #include "../probes/gallery_cluster_input.hpp"
+#include "support/check.hpp"
+#include "support/host_time.hpp"
 #include "scene_test_image.hpp"
 #include "cluster_visual_compare.hpp"
 #include "caseelephant/scene_native_probe.hpp"
 #include "test_constants/scene.hpp"
 #include <thread>
 #include <cstring>
+
+using caseelephant::testing::format_host_time;
+using caseelephant::testing::require;
 
 int main() {
     try {
@@ -112,7 +117,7 @@ int main() {
             cached.install_computed_style_host([&](const auto& document, auto) {
                 ++styles;
                 return std::map<std::string, std::string>{
-                    {"width", probe_host_time(width(document) + external) + "px"}};
+                    {"width", format_host_time(width(document) + external) + "px"}};
             });
             require(cached.eval("box.getBoundingClientRect().width+box.clientWidth+box.offsetWidth") == "30" &&
                         reads == 1,

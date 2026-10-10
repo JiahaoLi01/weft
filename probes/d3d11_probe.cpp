@@ -10,12 +10,20 @@
 #include "caseelephant/positioned_page_probe.hpp"
 #include "caseelephant/input_probe.hpp"
 #include "caseelephant/render_backend_d3d11.h"
-// Constants headers must be seen here, at global scope: probe headers included inside the
-// anonymous namespace below would otherwise declare (anonymous)::caseelephant.
+// Constants and test-support headers must be seen here, at global scope: probe headers included
+// inside the anonymous namespace below would otherwise declare (anonymous)::caseelephant.
 #include "caseelephant/constants/common.hpp"
 #include "probe_constants.hpp"
 #include "gallery_constants.hpp"
 #include "../tests/test_constants/scene.hpp"
+#include "../tests/test_constants/support.hpp"
+#include "../tests/support/check.hpp"
+#include "../tests/support/files.hpp"
+#include "../tests/support/frame_rate.hpp"
+#include "../tests/support/host_time.hpp"
+#include "../tests/support/json.hpp"
+#include "../tests/support/owner_trace.hpp"
+#include "../tests/support/png.hpp"
 #include <windowsx.h>
 #include <d3d11.h>
 #include <d2d1_1.h>
@@ -38,6 +46,7 @@
 #include <iostream>
 #include <memory>
 #include <map>
+#include <span>
 #include <sstream>
 #include <stdexcept>
 #include <thread>
@@ -51,19 +60,14 @@ namespace {
     constexpr UINT width = caseelephant::probe_constants::color_fixture_width;
     constexpr UINT height = caseelephant::probe_constants::color_fixture_height;
 
-    void require(bool ok, const char* reason) {
-        if (!ok) {
-            throw std::runtime_error(reason);
-        }
-    }
-
-    void checked(HRESULT hr, const char* operation) {
-        if (FAILED(hr)) {
-            std::ostringstream s;
-            s << operation << " HRESULT=0x" << std::hex << static_cast<unsigned long>(hr);
-            throw std::runtime_error(s.str());
-        }
-    }
+    using caseelephant::testing::check_hresult;
+    using caseelephant::testing::format_host_time;
+    using caseelephant::testing::json_string;
+    using caseelephant::testing::OwnerTrace;
+    using caseelephant::testing::read_file;
+    using caseelephant::testing::require;
+    using caseelephant::testing::TraceControl;
+    using caseelephant::testing::WindowFrameRate;
 
     void lifetime(LifetimeResult r, const char* operation) {
         require(r == LifetimeResult::Ok, operation);
@@ -84,24 +88,6 @@ namespace {
         WideCharToMultiByte(CP_UTF8, 0, text, -1, result.data(), size, nullptr, nullptr);
         result.pop_back();
         return result;
-    }
-
-    std::string json_string(const std::string& v) {
-        std::string out = "\"";
-        constexpr char hex[] = "0123456789abcdef";
-        for (const unsigned char c : v) {
-            if (c == '"' || c == '\\') {
-                out += '\\';
-                out += c;
-            } else if (c < 32) {
-                out += "\\u00";
-                out += hex[c >> 4];
-                out += hex[c & 15];
-            } else {
-                out += c;
-            }
-        }
-        return out + '"';
     }
 
     using Pixel = std::array<std::uint8_t, 4>;
@@ -389,7 +375,7 @@ namespace {
                         h <= caseelephant::probe_constants::max_surface_dimension,
                     "bounded probe surface");
             ComPtr<IDXGIFactory1> factory;
-            checked(CreateDXGIFactory1(IID_PPV_ARGS(&factory)), "CreateDXGIFactory1");
+            check_hresult(CreateDXGIFactory1(IID_PPV_ARGS(&factory)), "CreateDXGIFactory1");
             ComPtr<IDXGIAdapter1> selected;
             if (!warp) {
                 SIZE_T largest{};
@@ -399,9 +385,9 @@ namespace {
                     if (hr == DXGI_ERROR_NOT_FOUND) {
                         break;
                     }
-                    checked(hr, "EnumAdapters1");
+                    check_hresult(hr, "EnumAdapters1");
                     DXGI_ADAPTER_DESC1 desc{};
-                    checked(candidate->GetDesc1(&desc), "GetDesc1");
+                    check_hresult(candidate->GetDesc1(&desc), "GetDesc1");
                     if (!(desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) &&
                         (!selected || desc.DedicatedVideoMemory > largest)) {
                         selected = candidate;
@@ -422,18 +408,18 @@ namespace {
             } else if (SUCCEEDED(hr)) {
                 debug_layer = true;
             }
-            checked(hr, "D3D11CreateDevice");
+            check_hresult(hr, "D3D11CreateDevice");
             ComPtr<IDXGIDevice> dxgi;
-            checked(device.As(&dxgi), "IDXGIDevice");
+            check_hresult(device.As(&dxgi), "IDXGIDevice");
             ComPtr<IDXGIAdapter> actual;
-            checked(dxgi->GetAdapter(&actual), "GetAdapter");
+            check_hresult(dxgi->GetAdapter(&actual), "GetAdapter");
             DXGI_ADAPTER_DESC desc{};
-            checked(actual->GetDesc(&desc), "GetDesc");
+            check_hresult(actual->GetDesc(&desc), "GetDesc");
             adapter = utf8(desc.Description);
             if (debug_layer) {
-                checked(device.As(&info), "ID3D11InfoQueue");
+                check_hresult(device.As(&info), "ID3D11InfoQueue");
             }
-            checked(device->CreateDeferredContext(0, &deferred), "CreateDeferredContext");
+            check_hresult(device->CreateDeferredContext(0, &deferred), "CreateDeferredContext");
             ComPtr<ID3DBlob> vertex_code;
             ComPtr<ID3DBlob> pixel_code;
             ComPtr<ID3DBlob> errors;
@@ -451,20 +437,20 @@ namespace {
                     std::cerr.write(static_cast<const char*>(errors->GetBufferPointer()),
                                     static_cast<std::streamsize>(errors->GetBufferSize()));
                 }
-                checked(status, "D3DCompileFromFile");
+                check_hresult(status, "D3DCompileFromFile");
             };
             compile("vs_main", "vs_5_0", vertex_code);
             compile("ps_main", "ps_5_0", pixel_code);
-            checked(
+            check_hresult(
                 device->CreateVertexShader(vertex_code->GetBufferPointer(), vertex_code->GetBufferSize(), nullptr, &vs),
                 "CreateVertexShader");
-            checked(
+            check_hresult(
                 device->CreatePixelShader(pixel_code->GetBufferPointer(), pixel_code->GetBufferSize(), nullptr, &ps),
                 "CreatePixelShader");
             D3D11_BUFFER_DESC cb{};
             cb.ByteWidth = sizeof(Constants);
             cb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-            checked(device->CreateBuffer(&cb, nullptr, &constants), "CreateBuffer");
+            check_hresult(device->CreateBuffer(&cb, nullptr, &constants), "CreateBuffer");
             D3D11_BLEND_DESC b{};
             auto& rt = b.RenderTarget[0];
             rt.BlendEnable = TRUE;
@@ -475,20 +461,20 @@ namespace {
             rt.DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
             rt.BlendOpAlpha = D3D11_BLEND_OP_ADD;
             rt.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-            checked(device->CreateBlendState(&b, &blend), "CreateBlendState");
+            check_hresult(device->CreateBlendState(&b, &blend), "CreateBlendState");
             D3D11_RASTERIZER_DESC r{};
             r.FillMode = D3D11_FILL_SOLID;
             r.CullMode = D3D11_CULL_NONE;
             r.DepthClipEnable = TRUE;
             r.ScissorEnable = TRUE;
-            checked(device->CreateRasterizerState(&r, &raster), "CreateRasterizerState");
+            check_hresult(device->CreateRasterizerState(&r, &raster), "CreateRasterizerState");
             D3D11_DEPTH_STENCIL_DESC d{};
-            checked(device->CreateDepthStencilState(&d, &depth), "CreateDepthStencilState");
+            check_hresult(device->CreateDepthStencilState(&d, &depth), "CreateDepthStencilState");
             D3D11_SAMPLER_DESC s{};
             s.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
             s.AddressU = s.AddressV = s.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
             s.MaxLOD = D3D11_FLOAT32_MAX;
-            checked(device->CreateSamplerState(&s, &sampler), "CreateSamplerState");
+            check_hresult(device->CreateSamplerState(&s, &sampler), "CreateSamplerState");
             output = surface(DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB);
             intermediate = surface(DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT);
             group = surface(DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT);
@@ -498,12 +484,12 @@ namespace {
             sd.Usage = D3D11_USAGE_STAGING;
             sd.BindFlags = 0;
             sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-            checked(device->CreateTexture2D(&sd, nullptr, &staging), "Create staging");
+            check_hresult(device->CreateTexture2D(&sd, nullptr, &staging), "Create staging");
             sd.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-            checked(device->CreateTexture2D(&sd, nullptr, &alpha_staging), "Create alpha staging");
+            check_hresult(device->CreateTexture2D(&sd, nullptr, &alpha_staging), "Create alpha staging");
             const D3D11_QUERY_DESC query{D3D11_QUERY_EVENT, 0};
-            checked(device->CreateQuery(&query, &ui_done), "UI completion query");
-            checked(device->CreateQuery(&query, &host_done), "Host completion query");
+            check_hresult(device->CreateQuery(&query, &ui_done), "UI completion query");
+            check_hresult(device->CreateQuery(&query, &host_done), "Host completion query");
         }
 
         ~Experiment();
@@ -518,16 +504,16 @@ namespace {
             d.SampleDesc.Count = 1;
             d.Format = storage;
             d.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-            checked(device->CreateTexture2D(&d, nullptr, &result.texture), "Create surface");
+            check_hresult(device->CreateTexture2D(&d, nullptr, &result.texture), "Create surface");
             D3D11_RENDER_TARGET_VIEW_DESC r{};
             r.Format = view;
             r.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-            checked(device->CreateRenderTargetView(result.texture.Get(), &r, &result.rtv), "Create RTV");
+            check_hresult(device->CreateRenderTargetView(result.texture.Get(), &r, &result.rtv), "Create RTV");
             D3D11_SHADER_RESOURCE_VIEW_DESC s{};
             s.Format = view;
             s.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
             s.Texture2D.MipLevels = 1;
-            checked(device->CreateShaderResourceView(result.texture.Get(), &s, &result.srv), "Create SRV");
+            check_hresult(device->CreateShaderResourceView(result.texture.Get(), &s, &result.srv), "Create SRV");
             return result;
         }
 
@@ -699,8 +685,8 @@ namespace {
                            : opaque ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
                                     : DXGI_FORMAT_R32G32B32A32_FLOAT;
                 d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-                checked(device->CreateTexture2D(&d, nullptr, &n.texture), "Create input texture");
-                checked(device->CreateShaderResourceView(n.texture.Get(), nullptr, &n.srv), "Create input SRV");
+                check_hresult(device->CreateTexture2D(&d, nullptr, &n.texture), "Create input texture");
+                check_hresult(device->CreateShaderResourceView(n.texture.Get(), nullptr, &n.srv), "Create input SRV");
                 lifetime(tracker.CreateResource({key.first, key.second, n.upload.size(), ResourceKind::Texture}, n.id),
                          "CreateResource");
                 ++native_creations;
@@ -905,13 +891,13 @@ namespace {
                          caseelephant::probe_constants::shader_material::solid);
                 }
                 deferred->ClearState();
-                checked(deferred->FinishCommandList(FALSE, &encoded.commands), "FinishCommandList");
+                check_hresult(deferred->FinishCommandList(FALSE, &encoded.commands), "FinishCommandList");
                 return encoded;
             } catch (...) {
                 // Finish and destroy the partially recorded list BEFORE unpinning.
                 deferred->ClearState();
                 ComPtr<ID3D11CommandList> discarded;
-                checked(deferred->FinishCommandList(FALSE, &discarded), "Discard partial command list");
+                check_hresult(deferred->FinishCommandList(FALSE, &discarded), "Discard partial command list");
                 discarded.Reset();
                 lifetime(tracker.DiscardEncoded(encoded.token), "Discard failed recording");
                 throw;
@@ -927,7 +913,7 @@ namespace {
             for (;;) {
                 const auto hr =
                     immediate->GetData(host_done.Get(), &done, sizeof(done), D3D11_ASYNC_GETDATA_DONOTFLUSH);
-                checked(hr, "GetData host completion");
+                check_hresult(hr, "GetData host completion");
                 if (hr == S_OK && done) {
                     break;
                 }
@@ -936,8 +922,8 @@ namespace {
                     std::chrono::milliseconds(static_cast<int>(caseelephant::probe_constants::completion_poll_ms)));
             }
             BOOL ui = FALSE;
-            checked(immediate->GetData(ui_done.Get(), &ui, sizeof(ui), D3D11_ASYNC_GETDATA_DONOTFLUSH),
-                    "UI completion");
+            check_hresult(immediate->GetData(ui_done.Get(), &ui, sizeof(ui), D3D11_ASYNC_GETDATA_DONOTFLUSH),
+                          "UI completion");
             require(ui != FALSE, "host completion did not include UI");
             if (backend) {
                 complete_backend();
@@ -1024,7 +1010,7 @@ namespace {
             test(tracker.Shutdown() == LifetimeResult::Ok, "shutdown drained");
             std::vector<Pixel> pixels(static_cast<std::size_t>(width) * height);
             D3D11_MAPPED_SUBRESOURCE mapped{};
-            checked(immediate->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped), "Map completed readback");
+            check_hresult(immediate->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped), "Map completed readback");
             for (UINT y = 0; y < height; ++y) {
                 std::memcpy(pixels.data() + static_cast<std::size_t>(y) * width,
                             static_cast<const std::uint8_t*>(mapped.pData) +
@@ -1032,7 +1018,8 @@ namespace {
                             width * sizeof(Pixel));
             }
             immediate->Unmap(staging.Get(), 0);
-            checked(immediate->Map(alpha_staging.Get(), 0, D3D11_MAP_READ, 0, &mapped), "Map transparent readback");
+            check_hresult(immediate->Map(alpha_staging.Get(), 0, D3D11_MAP_READ, 0, &mapped),
+                          "Map transparent readback");
             std::memcpy(transparent_sample.data(), mapped.pData, sizeof(Color));
             immediate->Unmap(alpha_staging.Get(), 0);
             const Color expected_alpha{0, 0.5f, 0, 0.5f};
@@ -1056,10 +1043,10 @@ namespace {
 
         void enable_timing() {
             D3D11_QUERY_DESC desc{D3D11_QUERY_TIMESTAMP_DISJOINT, 0};
-            checked(device->CreateQuery(&desc, &timing_disjoint), "timing disjoint");
+            check_hresult(device->CreateQuery(&desc, &timing_disjoint), "timing disjoint");
             desc.Query = D3D11_QUERY_TIMESTAMP;
-            checked(device->CreateQuery(&desc, &timing_start), "timing start");
-            checked(device->CreateQuery(&desc, &timing_end), "timing end");
+            check_hresult(device->CreateQuery(&desc, &timing_start), "timing start");
+            check_hresult(device->CreateQuery(&desc, &timing_end), "timing end");
         }
 
         void check_debug_messages() {
@@ -1069,10 +1056,10 @@ namespace {
             const auto count = info->GetNumStoredMessagesAllowedByRetrievalFilter();
             for (UINT64 i = 0; i < count; ++i) {
                 SIZE_T size{};
-                checked(info->GetMessage(i, nullptr, &size), "InfoQueue message size");
+                check_hresult(info->GetMessage(i, nullptr, &size), "InfoQueue message size");
                 std::vector<std::uint8_t> bytes(size);
                 auto* m = reinterpret_cast<D3D11_MESSAGE*>(bytes.data());
-                checked(info->GetMessage(i, m, &size), "InfoQueue message");
+                check_hresult(info->GetMessage(i, m, &size), "InfoQueue message");
                 if (m->Severity <= D3D11_MESSAGE_SEVERITY_WARNING) {
                     throw std::runtime_error(m->pDescription);
                 }
@@ -1100,35 +1087,14 @@ namespace {
                                         {"scissor-interior", 224, 96, {255, 0, 0, 255}},
                                         {"scissor-exterior", 200, 72, {0, 0, 0, 255}}}};
 
+    std::span<const std::uint8_t> pixel_bytes(const std::vector<Pixel>& pixels) {
+        return {reinterpret_cast<const std::uint8_t*>(pixels.data()), pixels.size() * sizeof(Pixel)};
+    }
+
     void save_png(const std::filesystem::path& path, const std::vector<Pixel>& pixels,
                   UINT w = caseelephant::probe_constants::color_fixture_width,
                   UINT h = caseelephant::probe_constants::color_fixture_height) {
-        ComPtr<IWICImagingFactory> factory;
-        checked(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)),
-                "WIC factory");
-        ComPtr<IWICStream> stream;
-        checked(factory->CreateStream(&stream), "WIC stream");
-        checked(stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE), "PNG output");
-        ComPtr<IWICBitmapEncoder> encoder;
-        checked(factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder), "PNG encoder");
-        checked(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache), "PNG encoder init");
-        ComPtr<IWICBitmapFrameEncode> frame;
-        checked(encoder->CreateNewFrame(&frame, nullptr), "PNG frame");
-        require(pixels.size() == static_cast<std::size_t>(w) * h, "PNG buffer dimensions");
-        checked(frame->Initialize(nullptr), "PNG frame init");
-        checked(frame->SetSize(w, h), "PNG size");
-        WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
-        checked(frame->SetPixelFormat(&format), "PNG format");
-        require(IsEqualGUID(format, GUID_WICPixelFormat32bppBGRA), "WIC changed BGRA layout");
-        auto bgra = pixels;
-        for (auto& p : bgra) {
-            std::swap(p[0], p[2]);
-        }
-        checked(frame->WritePixels(h, w * sizeof(Pixel), static_cast<UINT>(bgra.size() * sizeof(Pixel)),
-                                   reinterpret_cast<BYTE*>(bgra.data())),
-                "PNG pixels");
-        checked(frame->Commit(), "PNG frame commit");
-        checked(encoder->Commit(), "PNG commit");
+        caseelephant::testing::write_png(path, w, h, pixel_bytes(pixels));
     }
 
     std::string rgba(Pixel p) {
@@ -1146,28 +1112,10 @@ namespace {
     }
 
     std::vector<Pixel> read_png(const std::filesystem::path& path) {
-        ComPtr<IWICImagingFactory> factory;
-        checked(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)),
-                "WIC factory");
-        ComPtr<IWICBitmapDecoder> decoder;
-        checked(factory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnLoad,
-                                                   &decoder),
-                "PNG decoder");
-        ComPtr<IWICBitmapFrameDecode> frame;
-        checked(decoder->GetFrame(0, &frame), "PNG decode frame");
-        UINT w{};
-        UINT h{};
-        checked(frame->GetSize(&w, &h), "PNG input size");
-        require(w == width && h == height, "Browser capture must be 256x128 at DPR 1");
-        ComPtr<IWICFormatConverter> converter;
-        checked(factory->CreateFormatConverter(&converter), "PNG converter");
-        checked(converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, nullptr, 0,
-                                      WICBitmapPaletteTypeCustom),
-                "PNG convert RGBA");
-        std::vector<Pixel> pixels(static_cast<std::size_t>(w) * h);
-        checked(converter->CopyPixels(nullptr, w * sizeof(Pixel), static_cast<UINT>(pixels.size() * sizeof(Pixel)),
-                                      reinterpret_cast<BYTE*>(pixels.data())),
-                "PNG copy pixels");
+        const auto image = caseelephant::testing::read_png(path);
+        require(image.width == width && image.height == height, "Browser capture must be 256x128 at DPR 1");
+        std::vector<Pixel> pixels(static_cast<std::size_t>(image.width) * image.height);
+        std::memcpy(pixels.data(), image.rgba.data(), image.rgba.size());
         return pixels;
     }
 
@@ -1398,17 +1346,9 @@ namespace {
         return 0;
     }
 
-    std::string read_text(const std::filesystem::path& path) {
-        std::ifstream file(path, std::ios::binary);
-        require(bool(file), "cannot open probe script");
-        std::ostringstream text;
-        text << file.rdbuf();
-        return text.str();
-    }
-
+    // Evidence text files end with a newline.
     void write_text(const std::filesystem::path& path, const std::string& text) {
-        std::ofstream file(path, std::ios::binary);
-        require(bool(file << text << '\n'), "cannot save page evidence");
+        caseelephant::testing::write_file(path, text + '\n');
     }
 
     FramePacket prepare_page_glyphs(const caseelephant::ProbePage& page, caseelephant::TextProbeFont& font) {
@@ -1505,9 +1445,9 @@ namespace {
         config.execution_budget_ms = caseelephant::constants::script::max_execution_budget_ms;
 #endif
         caseelephant::ScriptDomProbe script(config);
-        script.eval(read_text(std::filesystem::path(CE_SOURCE_DIR) / "probes/web_host_bootstrap.js"),
+        script.eval(read_file(std::filesystem::path(CE_SOURCE_DIR) / "probes/web_host_bootstrap.js"),
                     "web_host_bootstrap.js");
-        script.eval(read_text(std::filesystem::path(CE_SOURCE_DIR) / "examples/react-vite/native/app.js"),
+        script.eval(read_file(std::filesystem::path(CE_SOURCE_DIR) / "examples/react-vite/native/app.js"),
                     "react-vite-app.js");
         pump_react(script, 0);
         require(script.eval("caseElephantReact.version") == "19.3.0", "fixed real React version");
@@ -1752,7 +1692,7 @@ int main(int argc, char** argv) {
                 browser || sdf || react || window || backend || cheetah || alert || theme ||
                 (argc == 3 && (std::string(argv[1]) == "--warp" || std::string(argv[1]) == "--hardware")),
             "Usage: ce_d3d11_probe --gallery-window-[test-]hardware|warp <output-directory> (or an existing probe mode)");
-        checked(CoInitializeEx(nullptr, COINIT_MULTITHREADED), "CoInitializeEx");
+        check_hresult(CoInitializeEx(nullptr, COINIT_MULTITHREADED), "CoInitializeEx");
         try {
             const auto result =
                 gallery_input_benchmark ? run_gallery_preview(false, argv[2], false, std::string("input-") + argv[3])

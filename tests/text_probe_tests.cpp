@@ -1,4 +1,5 @@
 #include "caseelephant/text_probe.hpp"
+#include "support/check.hpp"
 #include "test_constants/style_text.hpp"
 #include <algorithm>
 #include <atomic>
@@ -7,11 +8,7 @@
 #include <thread>
 
 namespace {
-    void require(bool result, const char* message) {
-        if (!result) {
-            throw std::runtime_error(message);
-        }
-    }
+    using caseelephant::testing::require;
 
     bool near(float a, float b) {
         return std::abs(a - b) < caseelephant::test_constants::style_text::float_tolerance;

@@ -1,4 +1,5 @@
 #include "caseelephant/resource_lifetime.hpp"
+#include "support/check.hpp"
 #include "test_constants/render.hpp"
 
 #include <array>
@@ -12,13 +13,7 @@ using namespace caseelephant::render;
 
 namespace {
 
-    void Check(bool value, const char* expression, int line) {
-        if (!value) {
-            throw std::runtime_error(std::string(expression) + " at line " + std::to_string(line));
-        }
-    }
-
-#define CHECK(expression) Check((expression), #expression, __LINE__)
+#define CHECK(expression) CE_REQUIRE(expression)
 #define EXPECT(expression, expected) CHECK((expression) == LifetimeResult::expected)
 
     ResourceId Resource(ResourceLifetime& lifetime, std::uint64_t asset = 1) {

@@ -310,7 +310,7 @@ public:
             ComPtr<ID3D11Resource> resource;
             target->GetResource(&resource);
             ComPtr<ID3D11Texture2D> texture;
-            checked(resource.As(&texture), "backend target texture");
+            check_hresult(resource.As(&texture), "backend target texture");
             D3D11_TEXTURE2D_DESC description{};
             texture->GetDesc(&description);
             if (description.Width != pass->width || description.Height != pass->height ||

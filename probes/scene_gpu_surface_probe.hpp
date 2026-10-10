@@ -70,24 +70,26 @@ private:
         desc.MipLevels = desc.ArraySize = desc.SampleDesc.Count = 1;
         desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
         desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-        checked(gpu_.device->CreateTexture2D(&desc, nullptr, &s.encoded), "GPU scene encoded target");
-        checked(gpu_.device->CreateRenderTargetView(s.encoded.Get(), nullptr, &s.encoded_rtv), "GPU scene encoded RTV");
-        checked(gpu_.device->CreateShaderResourceView(s.encoded.Get(), nullptr, &s.encoded_srv),
-                "GPU scene encoded view");
-        checked(d2d_->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &s.target), "GPU scene D2D context");
+        check_hresult(gpu_.device->CreateTexture2D(&desc, nullptr, &s.encoded), "GPU scene encoded target");
+        check_hresult(gpu_.device->CreateRenderTargetView(s.encoded.Get(), nullptr, &s.encoded_rtv),
+                      "GPU scene encoded RTV");
+        check_hresult(gpu_.device->CreateShaderResourceView(s.encoded.Get(), nullptr, &s.encoded_srv),
+                      "GPU scene encoded view");
+        check_hresult(d2d_->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &s.target), "GPU scene D2D context");
         ComPtr<IDXGISurface> surface;
-        checked(s.encoded.As(&surface), "GPU scene DXGI surface");
+        check_hresult(s.encoded.As(&surface), "GPU scene DXGI surface");
         auto properties =
             D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
                                     D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
-        checked(s.target->CreateBitmapFromDxgiSurface(surface.Get(), &properties, &s.bitmap), "GPU scene D2D bitmap");
+        check_hresult(s.target->CreateBitmapFromDxgiSurface(surface.Get(), &properties, &s.bitmap),
+                      "GPU scene D2D bitmap");
         s.target->SetTarget(s.bitmap.Get());
         desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-        checked(gpu_.device->CreateTexture2D(&desc, nullptr, &s.linear.texture), "GPU scene linear target");
-        checked(gpu_.device->CreateRenderTargetView(s.linear.texture.Get(), nullptr, &s.linear.rtv),
-                "GPU scene linear RTV");
-        checked(gpu_.device->CreateShaderResourceView(s.linear.texture.Get(), nullptr, &s.linear.srv),
-                "GPU scene linear SRV");
+        check_hresult(gpu_.device->CreateTexture2D(&desc, nullptr, &s.linear.texture), "GPU scene linear target");
+        check_hresult(gpu_.device->CreateRenderTargetView(s.linear.texture.Get(), nullptr, &s.linear.rtv),
+                      "GPU scene linear RTV");
+        check_hresult(gpu_.device->CreateShaderResourceView(s.linear.texture.Get(), nullptr, &s.linear.srv),
+                      "GPU scene linear SRV");
     }
 
     void convert(Slot& s) {
@@ -147,12 +149,12 @@ public:
         api_.enable_external(caseelephant::probe_constants::gallery::external_texture_limit,
                              caseelephant::probe_constants::gallery::external_import_budget_bytes);
         ComPtr<IDXGIDevice> device;
-        checked(gpu.device.As(&device), "GPU scene D2D device identity");
-        checked(D2D1CreateDevice(device.Get(), nullptr, &d2d_), "GPU scene shared D2D device");
+        check_hresult(gpu.device.As(&device), "GPU scene D2D device identity");
+        check_hresult(D2D1CreateDevice(device.Get(), nullptr, &d2d_), "GPU scene shared D2D device");
         D3D11_BUFFER_DESC desc{};
         desc.ByteWidth = sizeof(Constants);
         desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-        checked(gpu.device->CreateBuffer(&desc, nullptr, &constants_), "GPU scene conversion constants");
+        check_hresult(gpu.device->CreateBuffer(&desc, nullptr, &constants_), "GPU scene conversion constants");
     }
 
     Slot* image(unsigned index) const {
@@ -433,10 +435,11 @@ public:
         desc.Usage = D3D11_USAGE_STAGING;
         desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
         ComPtr<ID3D11Texture2D> staging;
-        checked(gpu_.device->CreateTexture2D(&desc, nullptr, &staging), "GPU scene test staging");
+        check_hresult(gpu_.device->CreateTexture2D(&desc, nullptr, &staging), "GPU scene test staging");
         gpu_.immediate->CopyResource(staging.Get(), s.encoded.Get());
         D3D11_MAPPED_SUBRESOURCE mapped{};
-        checked(gpu_.immediate->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped), "GPU scene test completed readback");
+        check_hresult(gpu_.immediate->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped),
+                      "GPU scene test completed readback");
         caseelephant::ProbeSceneBitmap out{s.width, s.height,
                                            std::vector<std::uint8_t>(std::size_t(s.width) * s.height * 4)};
         for (unsigned y = 0; y < s.height; ++y) {
@@ -463,7 +466,7 @@ public:
         if (producer_pending) {
             D3D11_QUERY_DESC desc{D3D11_QUERY_EVENT, 0};
             ComPtr<ID3D11Query> done;
-            checked(gpu_.device->CreateQuery(&desc, &done), "GPU producer-only retirement query");
+            check_hresult(gpu_.device->CreateQuery(&desc, &done), "GPU producer-only retirement query");
             gpu_.immediate->End(done.Get());
             gpu_.immediate->Flush();
             BOOL complete{};
@@ -499,10 +502,6 @@ public:
         }
     }
 };
-
-void hr(HRESULT value) {
-    checked(value, "scene visual fixture WIC");
-}
 
 #include "../tests/scene_visual_compare.hpp"
 

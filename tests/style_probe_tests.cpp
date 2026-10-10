@@ -1,4 +1,6 @@
 #include "caseelephant/style_probe.hpp"
+#include "support/check.hpp"
+#include "support/files.hpp"
 #include "caseelephant/constants/common.hpp"
 #include "caseelephant/constants/style.hpp"
 #include "test_constants/style_text.hpp"
@@ -13,14 +15,11 @@
 using namespace caseelephant;
 
 namespace {
-    void check(bool ok, const char* s) {
-        if (!ok) {
-            throw std::runtime_error(s);
-        }
-    }
+    using caseelephant::testing::read_file;
+    using caseelephant::testing::require;
 
     void near(float a, float b) {
-        check(std::abs(a - b) < caseelephant::test_constants::style_text::float_tolerance, "numeric discrepancy");
+        require(std::abs(a - b) < caseelephant::test_constants::style_text::float_tolerance, "numeric discrepancy");
     }
 
     ProbeDomSnapshot node(std::string id, std::string style = "", std::string tag = "div") {
@@ -41,14 +40,6 @@ namespace {
             return;
         }
         throw std::runtime_error("unsupported input accepted");
-    }
-
-    std::string read(const std::string& p) {
-        std::ifstream file(p, std::ios::binary);
-        check(bool(file), "fixture file missing");
-        std::ostringstream out;
-        out << file.rdbuf();
-        return out.str();
     }
 
     const ProbeComputedStyle& find(const ProbeDomSnapshot& dom, const ProbeComputedStyle& style,
@@ -81,8 +72,8 @@ int main(int argc, char** argv) {
         near(solid_color[2], 6 / 255.f);
         near(solid_color[3], .5f);
         solid.attributes["style"] = "background:#0000ff!important;background-color:#ff0000";
-        check(compute_style_probe(solid, "", profile).values.at("background-color") == "#0000ff",
-              "solid background importance");
+        require(compute_style_probe(solid, "", profile).values.at("background-color") == "#0000ff",
+                "solid background importance");
         solid.attributes["style"] = "background:url(test.png)";
         rejects([&] {
             compute_style_probe(solid, "", profile);
@@ -95,41 +86,41 @@ int main(int argc, char** argv) {
         auto child = node("child", "--a:#abcdef;color:var(--b);height:24px");
         root.children.push_back(child);
         auto style = compute_style_probe(root, "", profile);
-        check(style.children[0].values.at("color") == "#112233", "inherited variable must already be resolved");
+        require(style.children[0].values.at("color") == "#112233", "inherited variable must already be resolved");
         root.attributes["style"] += ";--A:#abcdef;--empty:;--initial:initial";
         root.children[0].attributes["style"] = "color:var(--missing,var(--A));height:24px;--inherit:inherit";
         style = compute_style_probe(root, "", profile);
-        check(style.children[0].values.at("color") == "#abcdef", "nested fallback/case");
-        check(style.custom_properties.at("--empty") == "" && !style.custom_properties.at("--initial"),
-              "empty differs from guaranteed-invalid");
+        require(style.children[0].values.at("color") == "#abcdef", "nested fallback/case");
+        require(style.custom_properties.at("--empty") == "" && !style.custom_properties.at("--initial"),
+                "empty differs from guaranteed-invalid");
         root.children[0].attributes["style"] =
             "color:#ff0000;color:var(--empty,#ffffff);width:10px;width:var(--number)px;--number:16;height:24px;background-color:var(--missing)";
         style = compute_style_probe(root, "", profile);
-        check(style.children[0].values.at("color") == "#123456" && style.children[0].values.at("width") == "auto" &&
-                  style.children[0].values.at("background-color") == "transparent",
-              "IACVT unsets winner; never recascade or concatenate tokens");
-        check(style.children[0].invalid_at_computed_value.size() == 3, "computed invalid diagnostics");
+        require(style.children[0].values.at("color") == "#123456" && style.children[0].values.at("width") == "auto" &&
+                    style.children[0].values.at("background-color") == "transparent",
+                "IACVT unsets winner; never recascade or concatenate tokens");
+        require(style.children[0].invalid_at_computed_value.size() == 3, "computed invalid diagnostics");
         root.children[0].attributes["style"] =
             "--a:var(--b);--b:var(--c);--c:var(--a);--d:var(--c);--a:var(--b,var(--d));--safe:var(--a,#abcdef);color:var(--safe);height:24px";
         style = compute_style_probe(root, "", profile);
         for (const auto* k : {"--a", "--b", "--c", "--d"}) {
-            check(!style.children[0].custom_properties.at(k), "all evaluated cycle members must invalidate");
+            require(!style.children[0].custom_properties.at(k), "all evaluated cycle members must invalidate");
         }
-        check(style.children[0].values.at("color") == "#abcdef", "dependent outside cycle may recover with fallback");
+        require(style.children[0].values.at("color") == "#abcdef", "dependent outside cycle may recover with fallback");
         root.children[0].attributes["style"] = "--ok:#ffffff;--a:var(--ok,var(--a));color:var(--a,#abcdef);height:24px";
-        check(compute_style_probe(root, "", profile).children[0].values.at("color") == "#ffffff",
-              "unused fallback must not create a cycle");
+        require(compute_style_probe(root, "", profile).children[0].values.at("color") == "#ffffff",
+                "unused fallback must not create a cycle");
         root.children[0].attributes["style"] =
             "--a:initial;color:var(--missing,);height:24px;width:inherit;background-color:unset";
         style = compute_style_probe(root, "", profile);
-        check(style.children[0].values.at("width") == "200px" && style.children[0].values.at("color") == "#123456",
-              "CSS-wide/empty fallback");
+        require(style.children[0].values.at("width") == "200px" && style.children[0].values.at("color") == "#123456",
+                "CSS-wide/empty fallback");
         root.children[0].attributes["style"] = "--b:var(--missing,inherit);color:var(--b);height:24px";
-        check(compute_style_probe(root, "", profile).children[0].values.at("color") == "#112233",
-              "custom CSS-wide after substitution inherits parent variable");
+        require(compute_style_probe(root, "", profile).children[0].values.at("color") == "#112233",
+                "custom CSS-wide after substitution inherits parent variable");
         root.children[0].attributes["style"] = "--n:16px;display:var(--n);height:24px";
-        check(compute_style_probe(root, "", profile).children[0].values.at("display") == "inline",
-              "keyword type invalid at computed time");
+        require(compute_style_probe(root, "", profile).children[0].values.at("display") == "inline",
+                "keyword type invalid at computed time");
         for (const auto* declaration : {"--x:1em;width:var(--x)", "--x:blue;color:var(--x)", "--x:revert",
                                         "--x:var(--missing,revert-layer)", "--x:10px 20px;inset:var(--x)"}) {
             root.children[0].attributes["style"] = declaration;
@@ -138,20 +129,21 @@ int main(int argc, char** argv) {
             });
         }
         root.children[0].attributes["style"] = "--text:'!important; a,b';height:24px";
-        check(compute_style_probe(root, "", profile).children[0].custom_properties.at("--text") == "'!important; a,b'",
-              "quoted importance and separators remain tokens");
+        require(compute_style_probe(root, "", profile).children[0].custom_properties.at("--text") ==
+                    "'!important; a,b'",
+                "quoted importance and separators remain tokens");
         root.children[0].attributes["style"] = "height:24px;color:#000000";
         root.children[0].attributes["aria-expanded"] = "true";
         style = compute_style_probe(
             root,
             "#child{color:#ff0000!important} [aria-expanded=\"true\"]{color:#ffffff} #child{color:#00ff00!important}",
             profile);
-        check(style.children[0].values.at("color") == "#00ff00",
-              "important beats inline normal, later equal specificity wins");
+        require(style.children[0].values.at("color") == "#00ff00",
+                "important beats inline normal, later equal specificity wins");
         root.children[0].attributes["style"] += ";color:#112233!important";
-        check(compute_style_probe(root, "#child{color:#ff0000!important}", profile).children[0].values.at("color") ==
-                  "#112233",
-              "inline important wins");
+        require(compute_style_probe(root, "#child{color:#ff0000!important}", profile).children[0].values.at("color") ==
+                    "#112233",
+                "inline important wins");
         // Descendant search must backtrack if the nearest B fails A > B.
         auto a = node("a");
         a.attributes["class"] = "a";
@@ -164,27 +156,27 @@ int main(int argc, char** argv) {
         bridge.children.push_back(inner);
         b.children.push_back(bridge);
         a.children.push_back(b);
-        check(compute_style_probe(a, ".a > .b #leaf{color:#123456}", profile)
-                      .children[0]
-                      .children[0]
-                      .children[0]
-                      .children[0]
-                      .values.at("color") == "#123456",
-              "ancestor selector backtracking");
+        require(compute_style_probe(a, ".a > .b #leaf{color:#123456}", profile)
+                        .children[0]
+                        .children[0]
+                        .children[0]
+                        .children[0]
+                        .values.at("color") == "#123456",
+                "ancestor selector backtracking");
         root.children[0].attributes["label"] = "a,b";
-        check(compute_style_probe(root, "[label=\"a,b\"], [missing]{color:#abcdef}", profile)
-                      .children[0]
-                      .values.at("color") == "#112233",
-              "inline important retained through quoted selector list");
+        require(compute_style_probe(root, "[label=\"a,b\"], [missing]{color:#abcdef}", profile)
+                        .children[0]
+                        .values.at("color") == "#112233",
+                "inline important retained through quoted selector list");
         root.children[0].attributes["style"] = "height:24px";
-        check(compute_style_probe(root, ":root{--theme:#ffffff}#child{color:var(--theme,#abcdef)}", profile)
-                      .children[0]
-                      .values.at("color") == "#abcdef",
-              "scoped root must not impersonate document root");
+        require(compute_style_probe(root, ":root{--theme:#ffffff}#child{color:var(--theme,#abcdef)}", profile)
+                        .children[0]
+                        .values.at("color") == "#abcdef",
+                "scoped root must not impersonate document root");
         auto document = node("document", "", "html");
         document.children.push_back(root);
         style = compute_style_probe(document, ":root{--theme:#ffffff}#child{color:var(--theme,#abcdef)}", profile);
-        check(style.children[0].children[0].values.at("color") == "#ffffff", "document root variable inheritance");
+        require(style.children[0].children[0].values.at("color") == "#ffffff", "document root variable inheritance");
         near(parse_probe_css_color("rgba(160,154,130,.22)")[3], .22f);
         near(parse_probe_css_color("rgb(300,-10,0)")[0], 1);
         near(parse_probe_css_color("rgb(300,-10,0)")[1], 0);
@@ -294,14 +286,14 @@ int main(int argc, char** argv) {
                 }
                 auto actual = compiled.compute(tree, memo);
                 auto expected = compute_style_probe(tree, sheet, profile);
-                check(equal(equal, actual, expected), "512 cached/full cascade mutation differentials");
+                require(equal(equal, actual, expected), "512 cached/full cascade mutation differentials");
                 if (i % caseelephant::test_constants::style_text::memo_clear_period == 0) {
                     memo.clear();
                 }
                 const auto prior = inplace;
                 std::vector<ProbeNodeIdentity> changed;
                 compiled.update(tree, inplace, update_memo, &changed);
-                check(equal(equal, inplace, expected), "512 in-place/full cascade mutation differentials");
+                require(equal(equal, inplace, expected), "512 in-place/full cascade mutation differentials");
                 std::vector<std::array<std::uint64_t, 3>> actual_changes;
                 std::vector<std::array<std::uint64_t, 3>> expected_changes;
                 for (auto id : changed) {
@@ -334,20 +326,21 @@ int main(int argc, char** argv) {
                 collect(collect, expected, &prior);
                 std::sort(actual_changes.begin(), actual_changes.end());
                 std::sort(expected_changes.begin(), expected_changes.end());
-                check(actual_changes == expected_changes,
-                      "changed identities missed a computed update or invalidated retained unchanged values");
+                require(actual_changes == expected_changes,
+                        "changed identities missed a computed update or invalidated retained unchanged values");
                 if (i % caseelephant::test_constants::style_text::sibling_reverse_period == 0) {
                     std::reverse(children.begin(), children.end());
                     changed.clear();
                     compiled.update(tree, inplace, update_memo, &changed);
-                    check(changed.empty(), "sibling reorder rebuilt unchanged own styles");
-                    check(equal(equal, inplace, compute_style_probe(tree, sheet, profile)),
-                          "sibling reorder style values");
+                    require(changed.empty(), "sibling reorder rebuilt unchanged own styles");
+                    require(equal(equal, inplace, compute_style_probe(tree, sheet, profile)),
+                            "sibling reorder style values");
                 }
             }
             CompiledStyleProbe other(".paint{color:#778899}", profile);
-            check(equal(equal, other.compute(tree, memo), compute_style_probe(tree, ".paint{color:#778899}", profile)),
-                  "style memo crossed stylesheet identity");
+            require(
+                equal(equal, other.compute(tree, memo), compute_style_probe(tree, ".paint{color:#778899}", profile)),
+                "style memo crossed stylesheet identity");
             auto wide = node("wide");
             wide.attributes["style"].clear();
             for (unsigned n = 0; n < caseelephant::constants::style::max_custom_properties; ++n) {
@@ -371,8 +364,8 @@ int main(int argc, char** argv) {
             });
             inplace = {};
             compiled.update(tree, inplace, update_memo);
-            check(equal(equal, inplace, compute_style_probe(tree, sheet, profile)),
-                  "in-place cache did not recover after quota failure");
+            require(equal(equal, inplace, compute_style_probe(tree, sheet, profile)),
+                    "in-place cache did not recover after quota failure");
         }
         TextProbeFont font(CE_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
         auto flex = node("flex");
@@ -392,7 +385,7 @@ int main(int argc, char** argv) {
         // Same DOM-building JS and CSS in Chromium and QuickJS/native DOM.
         if (argc == 2) {
             ScriptDomProbe script;
-            script.eval(read(CE_SOURCE_DIR "/tests/fixtures/style-cascade/fixture.js"));
+            script.eval(read_file(CE_SOURCE_DIR "/tests/fixtures/style-cascade/fixture.js"));
             std::filesystem::create_directories(std::filesystem::path(argv[1]).parent_path());
             std::ofstream out(argv[1]);
             out << "{\"fixture\":\"style-cascade-v1\",\"frames\":[";
@@ -402,8 +395,8 @@ int main(int argc, char** argv) {
                                           {ProbeMouseType::Click});
                 }
                 const auto dom = script.snapshot_subtree("html");
-                const auto tree =
-                    compute_style_probe(dom, read(CE_SOURCE_DIR "/tests/fixtures/style-cascade/profile.css"), profile);
+                const auto tree = compute_style_probe(
+                    dom, read_file(CE_SOURCE_DIR "/tests/fixtures/style-cascade/profile.css"), profile);
                 if (frame) {
                     out << ',';
                 }

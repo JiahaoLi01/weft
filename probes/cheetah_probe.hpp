@@ -3,36 +3,16 @@
 
 std::map<std::string, std::shared_ptr<const Asset>> load_cheetah_images() {
     std::map<std::string, std::shared_ptr<const Asset>> result;
-    ComPtr<IWICImagingFactory> factory;
-    checked(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)),
-            "fixture WIC factory");
     for (const auto* name : {"ink-panel-v2.png", "ink-dock-left-v1.png", "ink-dock-right-v1.png"}) {
         // Explicit host resource allowlist, no DOM-driven filesystem access.
         const auto path = std::filesystem::path(CE_SOURCE_DIR) / "tests/fixtures/casecheetah/UI/public/art" / name;
-        ComPtr<IWICBitmapDecoder> decoder;
-        ComPtr<IWICBitmapFrameDecode> frame;
-        ComPtr<IWICFormatConverter> converter;
-        checked(factory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnLoad,
-                                                   &decoder),
-                "original PNG decoder");
-        checked(decoder->GetFrame(0, &frame), "original PNG frame");
-        UINT w{};
-        UINT h{};
-        checked(frame->GetSize(&w, &h), "PNG dimensions");
-        require(w == caseelephant::probe_constants::cheetah_art_width &&
-                    h == caseelephant::probe_constants::cheetah_art_height,
+        auto image = caseelephant::testing::read_png(path);
+        require(image.width == caseelephant::probe_constants::cheetah_art_width &&
+                    image.height == caseelephant::probe_constants::cheetah_art_height,
                 "fixed source art dimensions");
-        checked(factory->CreateFormatConverter(&converter), "PNG RGBA converter");
-        checked(converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, nullptr, 0,
-                                      WICBitmapPaletteTypeCustom),
-                "straight RGBA decode");
-        auto asset = std::make_shared<Asset>(
-            Asset{w, h, Encoding::SrgbStraight,
-                  std::vector<std::uint8_t>(std::size_t(w) * h * caseelephant::constants::rgba8_bytes_per_pixel)});
-        checked(converter->CopyPixels(nullptr, w * caseelephant::constants::rgba8_bytes_per_pixel,
-                                      UINT(asset->bytes.size()), asset->bytes.data()),
-                "PNG copy RGBA");
-        result.emplace(std::string("art/") + name, std::move(asset));
+        result.emplace(
+            std::string("art/") + name,
+            std::make_shared<Asset>(Asset{image.width, image.height, Encoding::SrgbStraight, std::move(image.rgba)}));
     }
     return result;
 }
@@ -382,11 +362,11 @@ int run_cheetah(bool warp, bool visible, const std::filesystem::path& folder) {
     config.execution_budget_ms = caseelephant::constants::script::max_execution_budget_ms;
 #endif
     caseelephant::ScriptDomProbe script(config);
-    script.eval(read_text(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
-    script.eval(read_text(CE_SOURCE_DIR "/examples/cheetah-nine-slice/native/app.js"));
+    script.eval(read_file(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+    script.eval(read_file(CE_SOURCE_DIR "/examples/cheetah-nine-slice/native/app.js"));
     pump_react(script, 0);
     require(script.eval("caseCheetahFixture.version") == "19.3.0", "pinned fixture React runtime");
-    const auto css = read_text(CE_SOURCE_DIR "/examples/cheetah-nine-slice/src/profile.css");
+    const auto css = read_file(CE_SOURCE_DIR "/examples/cheetah-nine-slice/src/profile.css");
     const auto card = script.node_identity("#card");
     const auto image = script.node_identity(".nine-slice-art");
     std::array<caseelephant::ProbePositionedPage, caseelephant::probe_constants::interaction_frames> pages;

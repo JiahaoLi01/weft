@@ -1,6 +1,5 @@
 #pragma once
 #include "gallery_scene_manifest.hpp"
-#include "gallery_owner_trace.hpp"
 #include "gallery_constants.hpp"
 
 struct GalleryOwnerRequest {
@@ -78,7 +77,7 @@ inline GalleryOwnerExecutor::Result gallery_owner_input(GalleryOwnerExecutor& ow
 class GalleryOwnerState {
     struct ComScope {
         ComScope() {
-            checked(CoInitializeEx(nullptr, COINIT_MULTITHREADED), "UI owner COM");
+            check_hresult(CoInitializeEx(nullptr, COINIT_MULTITHREADED), "UI owner COM");
         }
 
         ~ComScope() {
@@ -86,8 +85,8 @@ class GalleryOwnerState {
         }
     } com_;
 
-    GalleryOwnerTrace trace_;
-    std::shared_ptr<GalleryProfileControl> profile_control_;
+    OwnerTrace trace_;
+    std::shared_ptr<TraceControl> profile_control_;
     bool profiling_{};
     GalleryDetailSample input_detail_;
     std::vector<std::unique_ptr<GallerySceneSession>> scenes_;
@@ -103,7 +102,7 @@ class GalleryOwnerState {
 
 public:
     GalleryOwnerState(bool expanded = false, std::filesystem::path trace = {},
-                      std::shared_ptr<GalleryProfileControl> control = {})
+                      std::shared_ptr<TraceControl> control = {})
         : trace_(trace, caseelephant::probe_constants::gallery::owner_trace_tid, control),
           profile_control_(std::move(control)),
           count_(expanded ? gallery_scene_count : caseelephant::probe_constants::gallery::core_scene_count) {
@@ -150,20 +149,20 @@ public:
 
     void input(const GalleryOwnerInput& value) {
         apply_profile();
-        GalleryOwnerTrace::Scope trace{
-            trace_, profiling_ ? "input scene=" + std::to_string(value.scene) : std::string{},
-            profiling_ ? "{\"queue_age_ms\":" +
-                             probe_host_time(std::chrono::duration<double, std::milli>(
-                                                 std::chrono::steady_clock::now() - value.received)
-                                                 .count()) +
-                             ",\"buttons\":" + std::to_string(value.buttons) + ",\"action\":" +
-                             std::to_string(int(value.action)) + ",\"wheel\":" + (value.wheel ? "true" : "false") + "}"
-                       : "{}",
-            profiling_};
+        OwnerTrace::Scope trace{trace_, profiling_ ? "input scene=" + std::to_string(value.scene) : std::string{},
+                                profiling_ ? "{\"queue_age_ms\":" +
+                                                 format_host_time(std::chrono::duration<double, std::milli>(
+                                                                      std::chrono::steady_clock::now() - value.received)
+                                                                      .count()) +
+                                                 ",\"buttons\":" + std::to_string(value.buttons) +
+                                                 ",\"action\":" + std::to_string(int(value.action)) +
+                                                 ",\"wheel\":" + (value.wheel ? "true" : "false") + "}"
+                                           : "{}",
+                                profiling_};
 
         struct InputProfileGuard {
             GalleryOwnerState& owner;
-            GalleryOwnerTrace::Scope& scope;
+            OwnerTrace::Scope& scope;
             GalleryDetailSample before;
             std::chrono::steady_clock::time_point start;
 
@@ -180,12 +179,12 @@ public:
                     std::max(d.input_queue_max_ms,
                              std::chrono::duration<double, std::milli>(start - owner.current_received_).count());
                 scope.args.pop_back();
-                scope.args += ",\"style_ms\":" + probe_host_time(d.style_ms - before.style_ms) +
-                              ",\"build_ms\":" + probe_host_time(d.build_ms - before.build_ms) +
-                              ",\"layout_ms\":" + probe_host_time(d.layout_ms - before.layout_ms) +
-                              ",\"geometry_ms\":" + probe_host_time(d.geometry_ms - before.geometry_ms) +
-                              ",\"hit_ms\":" + probe_host_time(d.hit_ms - before.hit_ms) +
-                              ",\"dispatch_ms\":" + probe_host_time(d.dispatch_ms - before.dispatch_ms) + "}";
+                scope.args += ",\"style_ms\":" + format_host_time(d.style_ms - before.style_ms) +
+                              ",\"build_ms\":" + format_host_time(d.build_ms - before.build_ms) +
+                              ",\"layout_ms\":" + format_host_time(d.layout_ms - before.layout_ms) +
+                              ",\"geometry_ms\":" + format_host_time(d.geometry_ms - before.geometry_ms) +
+                              ",\"hit_ms\":" + format_host_time(d.hit_ms - before.hit_ms) +
+                              ",\"dispatch_ms\":" + format_host_time(d.dispatch_ms - before.dispatch_ms) + "}";
             }
         } guard{*this, trace, input_detail_,
                 profiling_ ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{}};
@@ -282,7 +281,7 @@ public:
 
     std::shared_ptr<const GalleryOwnerFrame> frame(const GalleryOwnerRequest& request) {
         apply_profile();
-        GalleryOwnerTrace::Scope trace{trace_, "owner publication", "{}", profiling_};
+        OwnerTrace::Scope trace{trace_, "owner publication", "{}", profiling_};
         if (!std::isfinite(request.time)) {
             throw std::invalid_argument("gallery owner finite time");
         }
@@ -336,10 +335,10 @@ public:
                             std::to_string(gallery_scene_descriptors[i].index) +
                             (request.scenes[i] ? " update" : " hidden pump"),
                         trace_start, elapsed,
-                        "{\"style_ms\":" + probe_host_time(work.style_ms - work_before.style_ms) +
-                            ",\"build_ms\":" + probe_host_time(work.build_ms - work_before.build_ms) +
-                            ",\"layout_ms\":" + probe_host_time(work.layout_ms - work_before.layout_ms) +
-                            ",\"geometry_ms\":" + probe_host_time(s.profile.geometry_ms - before.geometry_ms) +
+                        "{\"style_ms\":" + format_host_time(work.style_ms - work_before.style_ms) +
+                            ",\"build_ms\":" + format_host_time(work.build_ms - work_before.build_ms) +
+                            ",\"layout_ms\":" + format_host_time(work.layout_ms - work_before.layout_ms) +
+                            ",\"geometry_ms\":" + format_host_time(s.profile.geometry_ms - before.geometry_ms) +
                             ",\"layout_reads\":" + std::to_string(s.profile.layout_reads - before.layout_reads) +
                             ",\"style_reads\":" + std::to_string(s.profile.style_reads - before.style_reads) + "}");
                 }
@@ -406,7 +405,7 @@ public:
 };
 
 std::unique_ptr<GalleryOwnerExecutor> gallery_owner(bool expanded = false, std::filesystem::path trace = {},
-                                                    std::shared_ptr<GalleryProfileControl> control = {}) {
+                                                    std::shared_ptr<TraceControl> control = {}) {
     return std::make_unique<GalleryOwnerExecutor>([expanded, trace = std::move(trace), control = std::move(control)] {
         auto state = std::make_shared<GalleryOwnerState>(expanded, trace, control);
         GalleryOwnerExecutor::Hooks hooks;

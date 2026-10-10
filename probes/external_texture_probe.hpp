@@ -18,7 +18,7 @@ ComPtr<ID3D11Buffer> external_constants(Experiment& gpu) {
     d.ByteWidth = sizeof(Constants);
     d.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     ComPtr<ID3D11Buffer> result;
-    checked(gpu.device->CreateBuffer(&d, nullptr, &result), "external independent constants");
+    check_hresult(gpu.device->CreateBuffer(&d, nullptr, &result), "external independent constants");
     return result;
 }
 
@@ -33,7 +33,7 @@ ComPtr<ID3D11Texture2D> external_readback(Experiment& gpu, DXGI_FORMAT format) {
     d.Usage = D3D11_USAGE_STAGING;
     d.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
     ComPtr<ID3D11Texture2D> result;
-    checked(gpu.device->CreateTexture2D(&d, nullptr, &result), "external final target staging");
+    check_hresult(gpu.device->CreateTexture2D(&d, nullptr, &result), "external final target staging");
     return result;
 }
 
@@ -98,7 +98,7 @@ void external_produce(Experiment& gpu, const Surface& target, unsigned variation
     }
     ctx->ClearState();
     ComPtr<ID3D11CommandList> commands;
-    checked(ctx->FinishCommandList(FALSE, &commands), "external producer commands");
+    check_hresult(ctx->FinishCommandList(FALSE, &commands), "external producer commands");
     gpu.immediate->ExecuteCommandList(commands.Get(), TRUE);
     // Same immediate queue orders producer first; no Flush/GetData/CPU wait.
 }
@@ -214,7 +214,7 @@ int run_external_texture(bool warp, const std::filesystem::path& folder) {
     std::array<ComPtr<ID3D11Query>, caseelephant::probe_constants::frames_in_flight> queries;
     const D3D11_QUERY_DESC query{D3D11_QUERY_EVENT, 0};
     for (auto& q : queries) {
-        checked(gpu.device->CreateQuery(&query, &q), "external actual query");
+        check_hresult(gpu.device->CreateQuery(&query, &q), "external actual query");
     }
     auto float_target = gpu.surface(DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT);
     std::array<ComPtr<ID3D11Texture2D>, caseelephant::probe_constants::frames_in_flight> reads{
@@ -368,7 +368,7 @@ int run_external_texture(bool warp, const std::filesystem::path& folder) {
             for (;;) {
                 const auto hr =
                     gpu.immediate->GetData(queries[slot].Get(), &done, sizeof(done), D3D11_ASYNC_GETDATA_DONOTFLUSH);
-                checked(hr, "external completion query");
+                check_hresult(hr, "external completion query");
                 if (hr == S_OK && done) {
                     break;
                 }
@@ -386,8 +386,8 @@ int run_external_texture(bool warp, const std::filesystem::path& folder) {
                 gpu.test(retired[index + 1].count == 0, "earlier serial cannot retire later texture");
             }
             D3D11_MAPPED_SUBRESOURCE mapped{};
-            checked(gpu.immediate->Map(reads[slot].Get(), 0, D3D11_MAP_READ, 0, &mapped),
-                    "final external composite readback");
+            check_hresult(gpu.immediate->Map(reads[slot].Get(), 0, D3D11_MAP_READ, 0, &mapped),
+                          "final external composite readback");
             std::vector<Pixel> png(size_t(gpu.width) * gpu.height);
             for (int y = 0; y < int(gpu.height); ++y) {
                 for (int x = 0; x < int(gpu.width); ++x) {

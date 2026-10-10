@@ -1,5 +1,6 @@
 #include "caseelephant/render_external_texture.h"
 #include "caseelephant/constants/common.hpp"
+#include "support/check.hpp"
 #include "test_constants/render.hpp"
 #include <array>
 #include <atomic>
@@ -34,11 +35,7 @@ void operator delete(void* p, std::size_t) noexcept {
 }
 
 namespace {
-#define CHECK(v)                                                                                                       \
-    do {                                                                                                               \
-        if (!(v))                                                                                                      \
-            throw std::runtime_error(#v);                                                                              \
-    } while (false)
+#define CHECK(v) CE_REQUIRE(v)
 #define EXPECT(v, result) CHECK((v) == CE_RENDER_##result)
 
     struct Scope {

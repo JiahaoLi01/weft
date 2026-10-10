@@ -1,4 +1,6 @@
 #include "caseelephant/flow_page_probe.hpp"
+#include "support/check.hpp"
+#include "support/files.hpp"
 #include "caseelephant/input_probe.hpp"
 #include "test_constants/layout.hpp"
 #include <cmath>
@@ -11,19 +13,8 @@
 using namespace caseelephant;
 
 namespace {
-    void check(bool b, const char* s) {
-        if (!b) {
-            throw std::runtime_error(s);
-        }
-    }
-
-    std::string read(const char* p) {
-        std::ifstream f(std::string(CE_SOURCE_DIR) + p);
-        check(bool(f), "fixture file");
-        std::ostringstream out;
-        out << f.rdbuf();
-        return out.str();
-    }
+    using caseelephant::testing::read_source_text_file;
+    using caseelephant::testing::require;
 
     const ProbeDomSnapshot& find(const ProbeDomSnapshot& n, const std::string& id) {
         if (n.attributes.contains("id") && n.attributes.at("id") == id) {
@@ -46,13 +37,13 @@ namespace {
 
 int main(int argc, char** argv) {
     try {
-        check(argc == 2, "output path");
+        require(argc == 2, "output path");
         TextProbeFontSet fonts({CE_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf",
                                 CE_SOURCE_DIR "/third_party/noto-cjk/source/NotoSansCJKsc-Regular.otf"});
-        const auto css = read("/tests/fixtures/flow-input/profile.css");
+        const auto css = read_source_text_file("/tests/fixtures/flow-input/profile.css");
         ScriptDomProbe vm;
-        vm.eval(read("/probes/web_host_bootstrap.js"));
-        vm.eval(read("/tests/fixtures/flow-input/fixture.js"));
+        vm.eval(read_source_text_file("/probes/web_host_bootstrap.js"));
+        vm.eval(read_source_text_file("/tests/fixtures/flow-input/fixture.js"));
         vm.install_layout_host([&](const auto& d) {
             return build_flow_page_probe(find(d, "inputpage"), css, caseelephant::constants::default_view_width,
                                          caseelephant::constants::default_view_height, fonts)
@@ -66,14 +57,14 @@ int main(int argc, char** argv) {
         };
         ProbeMouseRouter router(vm, layout);
         const auto initial = layout();
-        check(hit_id(initial, 340, 40) == "high", "paint stacking differs from reverse DOM order");
-        check(hit_id(initial, 320, 315) == "inputpage" && hit_id(initial, 370, 350) == "round",
-              "elliptical border hit");
-        check(hit_id(initial, 20, 20) == "inputpage" && hit_id(initial, 30, 150) == "row-4",
-              "rounded overflow/pointer inheritance");
-        check(hit_id(initial, 639, 410) == "edge" && hit_id(initial, 641, 410).empty(),
-              "surface clip permits visible overflow only inside viewport");
-        check(hit_id(initial, 1, 1).empty(), "root rounded hit clipping");
+        require(hit_id(initial, 340, 40) == "high", "paint stacking differs from reverse DOM order");
+        require(hit_id(initial, 320, 315) == "inputpage" && hit_id(initial, 370, 350) == "round",
+                "elliptical border hit");
+        require(hit_id(initial, 20, 20) == "inputpage" && hit_id(initial, 30, 150) == "row-4",
+                "rounded overflow/pointer inheritance");
+        require(hit_id(initial, 639, 410) == "edge" && hit_id(initial, 641, 410).empty(),
+                "surface clip permits visible overflow only inside viewport");
+        require(hit_id(initial, 1, 1).empty(), "root rounded hit clipping");
         std::ostringstream report;
         report << "{\"fixture\":\"flow-input-v1\",\"frames\":[";
         std::size_t points{};
@@ -118,8 +109,8 @@ int main(int argc, char** argv) {
         report << "],\"passed\":true}";
         // Restore an independent DOM so the report's input sequence stays immutable.
         vm.reset_document();
-        vm.eval(read("/probes/web_host_bootstrap.js"));
-        vm.eval(read("/tests/fixtures/flow-input/fixture.js"));
+        vm.eval(read_source_text_file("/probes/web_host_bootstrap.js"));
+        vm.eval(read_source_text_file("/tests/fixtures/flow-input/fixture.js"));
         vm.install_layout_host([&](const auto& d) {
             return build_flow_page_probe(find(d, "inputpage"), css, caseelephant::constants::default_view_width,
                                          caseelephant::constants::default_view_height, fonts)
@@ -137,10 +128,10 @@ int main(int argc, char** argv) {
                     ";document.getElementById('high').style.zIndex='" + std::to_string(high_z) +
                     "';document.getElementById('low').style.zIndex='" + std::to_string(low_z) + "'");
             const auto current = layout();
-            check(hit_id(current, 50, 43) == "row-" + std::to_string(int((13 + offset) / 26)),
-                  "random fresh scroll identity");
-            check(hit_id(current, 340, 40) == (high_z > low_z ? "high" : "low"),
-                  "random paint-order identity, including ties");
+            require(hit_id(current, 50, 43) == "row-" + std::to_string(int((13 + offset) / 26)),
+                    "random fresh scroll identity");
+            require(hit_id(current, 340, 40) == (high_z > low_z ? "high" : "low"),
+                    "random paint-order identity, including ties");
         }
         vm.eval("document.getElementById('scroller').scrollTop=0");
         ProbeMouseEvent mouse;
@@ -149,47 +140,47 @@ int main(int argc, char** argv) {
         router.route(ProbeMouseAction::Down, mouse);
         vm.collect_garbage();
         router.route(ProbeMouseAction::Up, mouse);
-        check(vm.eval("inputScenario.clicks.join(',')") == "row-0", "fresh flow mouse routed to row");
+        require(vm.eval("inputScenario.clicks.join(',')") == "row-0", "fresh flow mouse routed to row");
         ProbeWheelEvent wheel{10.25, 12.75, 50, 43, -20, 900, 123, true, true, true, true};
-        check(router.wheel(wheel) == ProbeDispatchResult::DefaultAllowed, "flow wheel delivery");
-        check(vm.eval("JSON.stringify(inputScenario.wheels[0])") ==
-                  "[\"row-0\",10.25,12.75,0,50,43,-20,900,true,true,true,true,123,true,true]",
-              "WheelEvent payload/prototype/modifiers/time");
-        check(vm.eval("document.getElementById('scroller').scrollTop") == "12.75", "fractional scroll consumed");
+        require(router.wheel(wheel) == ProbeDispatchResult::DefaultAllowed, "flow wheel delivery");
+        require(vm.eval("JSON.stringify(inputScenario.wheels[0])") ==
+                    "[\"row-0\",10.25,12.75,0,50,43,-20,900,true,true,true,true,123,true,true]",
+                "WheelEvent payload/prototype/modifiers/time");
+        require(vm.eval("document.getElementById('scroller').scrollTop") == "12.75", "fractional scroll consumed");
         vm.eval("inputScenario.blockWheel=true");
-        check(router.wheel(wheel) == ProbeDispatchResult::DefaultPrevented, "wheel canceled before default");
-        check(vm.eval("document.getElementById('scroller').scrollTop") == "12.75", "canceled wheel scrolls");
+        require(router.wheel(wheel) == ProbeDispatchResult::DefaultPrevented, "wheel canceled before default");
+        require(vm.eval("document.getElementById('scroller').scrollTop") == "12.75", "canceled wheel scrolls");
         vm.eval("inputScenario.blockWheel=false");
         wheel.client_x = 20;
         wheel.client_y = 20;
         router.wheel(wheel);
-        check(vm.eval("document.getElementById('scroller').scrollTop") == "12.75",
-              "clipped corner wheel reaches scroller");
+        require(vm.eval("document.getElementById('scroller').scrollTop") == "12.75",
+                "clipped corner wheel reaches scroller");
         mouse.client_x = 350;
         mouse.client_y = 260;
         router.route(ProbeMouseAction::Down, mouse);
         router.route(ProbeMouseAction::Up, mouse);
-        check(vm.eval("inputScenario.clicks.length") == "1", "disabled nested button activated");
+        require(vm.eval("inputScenario.clicks.length") == "1", "disabled nested button activated");
         // A mutation before the next input must move targets without a render.
         vm.eval("document.getElementById('scroller').scrollTop=52;document.getElementById('scroller').scrollLeft=0");
         mouse.client_x = 50;
         mouse.client_y = 43;
         router.route(ProbeMouseAction::Down, mouse);
         router.route(ProbeMouseAction::Up, mouse);
-        check(vm.eval("inputScenario.clicks[1]") == "row-2", "next hit ignores latest scroll");
+        require(vm.eval("inputScenario.clicks[1]") == "row-2", "next hit ignores latest scroll");
         router.route(ProbeMouseAction::Down, mouse);
         router.cancel();
         router.route(ProbeMouseAction::Up, mouse);
-        check(vm.eval("inputScenario.clicks.length") == "2", "cancel fabricated click");
+        require(vm.eval("inputScenario.clicks.length") == "2", "cancel fabricated click");
         const auto old = vm.node_identity("#row-2");
         vm.eval(
             "document.getElementById('row-2').addEventListener('wheel',()=>{const e=document.getElementById('scroller');globalThis.held=e;e.parentNode.removeChild(e);}, {once:true})");
         wheel.client_x = 50;
         wheel.client_y = 43;
         router.wheel(wheel);
-        check(vm.is_live(old) && vm.eval("held.scrollTop") == "0",
-              "wheel mutation invalidated default identity or detached node");
-        check(vm.dispatch_wheel(old, wheel) == ProbeDispatchResult::StaleTarget, "detached wheel dispatched");
+        require(vm.is_live(old) && vm.eval("held.scrollTop") == "0",
+                "wheel mutation invalidated default identity or detached node");
+        require(vm.dispatch_wheel(old, wheel) == ProbeDispatchResult::StaleTarget, "detached wheel dispatched");
         bool wrong{};
         bool wrong_mouse{};
         std::thread t([&] {
@@ -205,11 +196,11 @@ int main(int argc, char** argv) {
             }
         });
         t.join();
-        check(wrong && wrong_mouse, "wrong-owner input routing");
+        require(wrong && wrong_mouse, "wrong-owner input routing");
         vm.reset_document();
         vm.collect_garbage();
-        check(!vm.is_live(old) && vm.stats().live_nodes == 3 && vm.stats().native_roots == 1,
-              "input roots leaked after reset");
+        require(!vm.is_live(old) && vm.stats().live_nodes == 3 && vm.stats().native_roots == 1,
+                "input roots leaked after reset");
         std::filesystem::path p(argv[1]);
         std::filesystem::create_directories(p.parent_path());
         std::ofstream(p) << report.str();

@@ -1,4 +1,5 @@
 #include "caseelephant/positioned_page_probe.hpp"
+#include "support/check.hpp"
 #include "caseelephant/constants/layout.hpp"
 #include "test_constants/layout.hpp"
 #include <cmath>
@@ -8,15 +9,11 @@
 using namespace caseelephant;
 
 namespace {
-    void check(bool ok, const char* text) {
-        if (!ok) {
-            throw std::runtime_error(text);
-        }
-    }
+    using caseelephant::testing::require;
 
     void near(float a, float b) {
-        check(std::abs(a - b) < caseelephant::test_constants::layout::positioned_geometry_tolerance,
-              "geometry/UV discrepancy");
+        require(std::abs(a - b) < caseelephant::test_constants::layout::positioned_geometry_tolerance,
+                "geometry/UV discrepancy");
     }
 
     ProbeDomSnapshot node(std::string name, std::string id, std::string style) {
@@ -33,7 +30,7 @@ namespace {
         try {
             f();
         } catch (const std::invalid_argument& e) {
-            check(std::string(e.what()).starts_with("CE_POSITIONED_PROFILE:"), "diagnostic category");
+            require(std::string(e.what()).starts_with("CE_POSITIONED_PROFILE:"), "diagnostic category");
             return;
         }
         throw std::runtime_error("unsupported CSS silently accepted");
@@ -58,11 +55,11 @@ int main() {
         const std::string sheet =
             ".surface {background-color:#ff0000} #root {background-color:#00ff00} .wrap IMG {pointer-events:none} #outer > DIV#bridge {background-color:#123456}";
         const auto page = build_positioned_page_probe(root, sheet, 200, 100, font);
-        check(page.geometry.boxes.size() == 4 && page.paints.size() == 3, "real selector chain did not match");
-        check(page.paints[0].paint.srgb[2] == 1 && page.paints[0].paint.srgb[0] == 0,
-              "inline did not beat specificity");
+        require(page.geometry.boxes.size() == 4 && page.paints.size() == 3, "real selector chain did not match");
+        require(page.paints[0].paint.srgb[2] == 1 && page.paints[0].paint.srgb[0] == 0,
+                "inline did not beat specificity");
         const auto& p = page.paints.back();
-        check(p.image_source == "art/example.png", "image identity must stay a value");
+        require(p.image_source == "art/example.png", "image identity must stay a value");
         near(p.paint.x, 20);
         near(p.paint.y, 10);
         near(p.paint.width, 80);
@@ -84,18 +81,18 @@ int main() {
         auto positive = node("div", "positive", "position:absolute;inset:0;z-index:2;background-color:#00ff00");
         root.children.insert(root.children.begin(), positive);
         auto stacked = build_positioned_page_probe(root, "", 200, 100, font);
-        check(stacked.paints[0].paint.id == "root" && stacked.paints[1].paint.id == "inset" &&
-                  stacked.paints[2].paint.id == "positive",
-              "negative stacking must stay above isolated parent background and below positive sibling");
+        require(stacked.paints[0].paint.id == "root" && stacked.paints[1].paint.id == "inset" &&
+                    stacked.paints[2].paint.id == "positive",
+                "negative stacking must stay above isolated parent background and below positive sibling");
         auto copy = stacked;
         root.children.clear();
-        check(copy.paints.size() == 3, "paint snapshot borrows DOM");
+        require(copy.paints.size() == 3, "paint snapshot borrows DOM");
         auto hidden = node("div", "hidden", "display:none");
         hidden.children.push_back(node("i", "hidden-child", ""));
         root.children.push_back(hidden);
         auto suppressed = build_positioned_page_probe(root, "", 200, 100, font);
-        check(suppressed.geometry.boxes.size() == 3 && suppressed.paints.size() == 1,
-              "display:none must suppress a subtree without requiring sizes");
+        require(suppressed.geometry.boxes.size() == 3 && suppressed.paints.size() == 1,
+                "display:none must suppress a subtree without requiring sizes");
         near(suppressed.geometry.boxes[2].width, 0);
         near(suppressed.geometry.boxes[2].x, 0);
         root.children.clear();
@@ -121,7 +118,7 @@ int main() {
         text.data = "A仓B";
         label.children.push_back(text);
         auto mixed = build_positioned_page_probe(label, "", 200, 24, fonts);
-        check(mixed.paints[0].paint.shaped.glyphs[1].font_id == 1, "page lost fallback face identity");
+        require(mixed.paints[0].paint.shaped.glyphs[1].font_id == 1, "page lost fallback face identity");
         label.children[0].data = "ABC";
         auto latin = build_positioned_page_probe(label, "", 200, 24, fonts);
         near(mixed.paints[0].paint.y, latin.paints[0].paint.y);
@@ -133,19 +130,20 @@ int main() {
             build_positioned_page_probe(label, "", 200, 24, fonts);
         });
         label.attributes["style"] += ";display:block;font-style:normal";
-        check(build_positioned_page_probe(label, "", 200, 24, fonts).paints.size() == 1, "explicit normal i");
+        require(build_positioned_page_probe(label, "", 200, 24, fonts).paints.size() == 1, "explicit normal i");
         label.local_name = "li";
         rejects([&] {
             build_positioned_page_probe(label, "", 200, 24, fonts);
         });
         label.attributes["style"] += ";list-style:none";
-        check(build_positioned_page_probe(label, "", 200, 24, fonts).paints.size() == 1, "explicit marker suppression");
+        require(build_positioned_page_probe(label, "", 200, 24, fonts).paints.size() == 1,
+                "explicit marker suppression");
         label.local_name = "b";
         rejects([&] {
             build_positioned_page_probe(label, "", 200, 24, fonts);
         });
         label.attributes["style"] += ";font-weight:400";
-        check(build_positioned_page_probe(label, "", 200, 24, fonts).paints.size() == 1, "explicit normal-weight b");
+        require(build_positioned_page_probe(label, "", 200, 24, fonts).paints.size() == 1, "explicit normal-weight b");
         label.local_name = "ul";
         rejects([&] {
             build_positioned_page_probe(label, "", 200, 24, fonts);

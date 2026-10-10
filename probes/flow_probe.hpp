@@ -22,10 +22,10 @@ int run_flow(bool warp, const std::filesystem::path& folder) {
     presenter.capture = true;
     caseelephant::TextProbeFontSet fonts({CE_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf",
                                           CE_SOURCE_DIR "/third_party/noto-cjk/source/NotoSansCJKsc-Regular.otf"});
-    const auto css = read_text(CE_SOURCE_DIR "/tests/fixtures/flow-layout/profile.css");
+    const auto css = read_file(CE_SOURCE_DIR "/tests/fixtures/flow-layout/profile.css");
     caseelephant::ScriptDomProbe vm;
-    vm.eval(read_text(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
-    vm.eval(read_text(CE_SOURCE_DIR "/tests/fixtures/flow-layout/fixture.js"));
+    vm.eval(read_file(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+    vm.eval(read_file(CE_SOURCE_DIR "/tests/fixtures/flow-layout/fixture.js"));
     vm.install_layout_host([&](const auto& dom) {
         return caseelephant::build_flow_page_probe(flow_find(dom, "gallery"), css,
                                                    caseelephant::constants::default_view_width,
@@ -69,7 +69,8 @@ int run_flow(bool warp, const std::filesystem::path& folder) {
         std::vector<Pixel> pixels(caseelephant::constants::default_view_width *
                                   caseelephant::constants::default_view_height);
         D3D11_MAPPED_SUBRESOURCE mapped{};
-        checked(gpu.immediate->Map(gpu.staging.Get(), 0, D3D11_MAP_READ, 0, &mapped), "flow completed RGBA target");
+        check_hresult(gpu.immediate->Map(gpu.staging.Get(), 0, D3D11_MAP_READ, 0, &mapped),
+                      "flow completed RGBA target");
         for (unsigned y = 0; y < caseelephant::constants::default_view_height; ++y) {
             std::memcpy(pixels.data() + y * caseelephant::constants::default_view_width,
                         static_cast<std::uint8_t*>(mapped.pData) + y * mapped.RowPitch,

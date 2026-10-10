@@ -83,15 +83,15 @@ int run_cheetah_alert(bool warp, const std::filesystem::path& folder, bool origi
     config.execution_budget_ms = caseelephant::constants::script::max_execution_budget_ms;
 #endif
     caseelephant::ScriptDomProbe script(config);
-    script.eval(read_text(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
-    script.eval(read_text(CE_SOURCE_DIR "/examples/cheetah-alert/native/app.js"));
+    script.eval(read_file(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+    script.eval(read_file(CE_SOURCE_DIR "/examples/cheetah-alert/native/app.js"));
     pump_react(script, 0);
-    const auto css = read_text(flow             ? CE_SOURCE_DIR "/examples/cheetah-flow/profile.css"
+    const auto css = read_file(flow             ? CE_SOURCE_DIR "/examples/cheetah-flow/profile.css"
                                : automatic      ? CE_SOURCE_DIR "/examples/cheetah-auto/profile.css"
                                : original_style ? CE_SOURCE_DIR "/examples/cheetah-style/profile.css"
                                                 : CE_SOURCE_DIR "/examples/cheetah-alert/src/profile.css");
     if (flow) {
-        script.eval(read_text(CE_SOURCE_DIR "/examples/cheetah-flow/scroll.js"));
+        script.eval(read_file(CE_SOURCE_DIR "/examples/cheetah-flow/scroll.js"));
         script.install_layout_host([&](const auto& document) {
             auto html = document.children.at(0);
             auto computed = caseelephant::compute_style_probe(html, css, caseelephant::flow_page_style_profile());

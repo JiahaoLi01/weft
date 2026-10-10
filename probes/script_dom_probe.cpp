@@ -1,4 +1,5 @@
 #include "caseelephant/script_probe.hpp"
+#include "../tests/support/files.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -8,21 +9,11 @@
 #include <string>
 
 namespace {
-    std::string read_file(const std::filesystem::path& path) {
-        std::ifstream input(path, std::ios::binary);
-        if (!input) {
-            throw std::runtime_error("Cannot read: " + path.string());
-        }
-        std::ostringstream result;
-        result << input.rdbuf();
-        return result.str();
-    }
+    using caseelephant::testing::read_file;
 
+    // Evidence text files end with a newline.
     void write_file(const std::filesystem::path& path, const std::string& content) {
-        std::ofstream output(path, std::ios::binary);
-        if (!output || !(output << content << '\n')) {
-            throw std::runtime_error("Cannot write: " + path.string());
-        }
+        caseelephant::testing::write_file(path, content + '\n');
     }
 } // namespace
 

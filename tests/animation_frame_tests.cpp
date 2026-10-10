@@ -1,6 +1,8 @@
 #include "caseelephant/animation_frame_probe.hpp"
+#include "support/check.hpp"
+#include "support/files.hpp"
 #include "caseelephant/constants/script.hpp"
-#include "../probes/host_time.hpp"
+#include "support/host_time.hpp"
 #include "test_constants/script.hpp"
 #include <fstream>
 #include <iostream>
@@ -10,23 +12,13 @@
 #include <thread>
 
 namespace {
-    void require(bool value, const char* message) {
-        if (!value) {
-            throw std::runtime_error(message);
-        }
-    }
-
-    std::string read(const char* name) {
-        std::ifstream f(std::string(CE_SOURCE_DIR) + name, std::ios::binary);
-        require(bool(f), "bootstrap missing");
-        std::ostringstream s;
-        s << f.rdbuf();
-        return s.str();
-    }
+    using caseelephant::testing::format_host_time;
+    using caseelephant::testing::read_source_file;
+    using caseelephant::testing::require;
 
     void install(caseelephant::ScriptDomProbe& vm) {
-        vm.eval(read("/probes/web_host_bootstrap.js"));
-        vm.eval(read("/probes/animation_frame_bootstrap.js"));
+        vm.eval(read_source_file("/probes/web_host_bootstrap.js"));
+        vm.eval(read_source_file("/probes/animation_frame_bootstrap.js"));
     }
 } // namespace
 
@@ -133,7 +125,7 @@ int main() {
             "globalThis.clockFrames=0;globalThis.clockLoop=t=>{if(t!==performance.now())throw Error('clock disagreement');++clockFrames;requestAnimationFrame(clockLoop)};requestAnimationFrame(clockLoop)");
         for (unsigned i = 0; i < 1024; ++i) {
             const double time = i * caseelephant::test_constants::script::clock_frame_interval_ms + fractional;
-            const auto stamp = probe_host_time(time);
+            const auto stamp = format_host_time(time);
             require(std::stod(stamp) == time, "host timestamp did not round-trip");
             vm.eval("__ceHost.pump(" + stamp + ")");
             const auto frame = vm.animation_frame(time);

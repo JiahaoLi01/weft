@@ -1,4 +1,5 @@
 #include "caseelephant/base/css_scalar.hpp"
+#include "support/check.hpp"
 #include "caseelephant/base/diagnostic.hpp"
 #include "caseelephant/base/generational_slots.hpp"
 #include "caseelephant/base/owner_thread.hpp"
@@ -21,11 +22,7 @@
 namespace {
     using namespace caseelephant;
 
-    void check(bool condition, const std::string& message) {
-        if (!condition) {
-            throw std::runtime_error(message);
-        }
-    }
+    using caseelephant::testing::require;
 
     // Verbatim behavior of the per-profile helpers that src/base replaces. The differential tests
     // below require the shared helpers to reproduce each of them on random input.
@@ -189,59 +186,59 @@ namespace {
 
     void diagnostics() {
         const auto d = make_diagnostic(Diag::SceneProfile, "transform grammar");
-        check(d.code == Diag::SceneProfile && d.message == "CE_SCENE_PROFILE: transform grammar", "diagnostic text");
-        check(diag_message(Diag::CanvasVersionLimit, {}) == "CE_CANVAS_VERSION_LIMIT", "name-only diagnostic");
-        check(diag_message(Diag::CanvasIndexSize, "negative arc radius") == "IndexSizeError: negative arc radius",
-              "DOM exception name");
+        require(d.code == Diag::SceneProfile && d.message == "CE_SCENE_PROFILE: transform grammar", "diagnostic text");
+        require(diag_message(Diag::CanvasVersionLimit, {}) == "CE_CANVAS_VERSION_LIMIT", "name-only diagnostic");
+        require(diag_message(Diag::CanvasIndexSize, "negative arc radius") == "IndexSizeError: negative arc radius",
+                "DOM exception name");
         try {
             throw_diagnostic(Diag::FlowProfile, "px required: 1em");
         } catch (const std::invalid_argument& e) {
             const auto* error = dynamic_cast<const DiagnosticError*>(&e);
-            check(error && error->code() == Diag::FlowProfile, "DiagnosticError keeps its code");
-            check(std::string(e.what()) == "CE_FLOW_PROFILE: px required: 1em", "DiagnosticError message");
+            require(error && error->code() == Diag::FlowProfile, "DiagnosticError keeps its code");
+            require(std::string(e.what()) == "CE_FLOW_PROFILE: px required: 1em", "DiagnosticError message");
         }
     }
 
     void results() {
         Result<int> ok = 7;
-        check(ok && *ok == 7 && ok.value() == 7 && ok.value_or(1) == 7, "value result");
+        require(ok && *ok == 7 && ok.value() == 7 && ok.value_or(1) == 7, "value result");
         Result<int> failed = make_diagnostic(Diag::InvalidNumber, "x");
-        check(!failed && failed.error().code == Diag::InvalidNumber && failed.value_or(3) == 3, "error result");
+        require(!failed && failed.error().code == Diag::InvalidNumber && failed.value_or(3) == 3, "error result");
         bool thrown = false;
         try {
             (void)failed.value();
         } catch (const DiagnosticError& e) {
             thrown = e.code() == Diag::InvalidNumber;
         }
-        check(thrown, "value() bridges to DiagnosticError");
+        require(thrown, "value() bridges to DiagnosticError");
         Status done;
         Status rejected = make_diagnostic(Diag::StyleProfile, "rule bound");
-        check(done && !rejected && rejected.error().message == "CE_STYLE_PROFILE: rule bound", "status");
+        require(done && !rejected && rejected.error().message == "CE_STYLE_PROFILE: rule bound", "status");
         Result<std::string> moved = std::string("moved");
-        check(std::move(moved).value() == "moved", "rvalue value");
+        require(std::move(moved).value() == "moved", "rvalue value");
     }
 
     void scalars() {
-        check(css::trim(" \t a b \r\n") == "a b" && css::trim(" \t\r\n").empty(), "trim");
-        check(css::trim("\fa\f", css::syntax_whitespace) == "a" && css::trim("\fa\f") == "\fa\f", "form feed");
+        require(css::trim(" \t a b \r\n") == "a b" && css::trim(" \t\r\n").empty(), "trim");
+        require(css::trim("\fa\f", css::syntax_whitespace) == "a" && css::trim("\fa\f") == "\fa\f", "form feed");
         const std::map<std::string, std::string> style{{"display", "flex"}};
-        check(css::style_value(style, "display") == "flex" && css::style_value(style, "width", "auto") == "auto",
-              "style lookup");
-        check(css::split_unit("12px").unit == css::Unit::Px && css::split_unit("12px").number == "12", "px");
-        check(css::split_unit("50%").unit == css::Unit::Percent, "percent");
-        check(css::split_unit("2em").unit == css::Unit::None && css::split_unit("2em", {.em = true}).number == "2",
-              "em only when accepted");
-        check(css::expand_color_shorthand("black") == "#000000" && css::expand_color_shorthand("#abc") == "#aabbcc" &&
-                  css::expand_color_shorthand("#abc", false) == "#abc",
-              "color shorthand");
+        require(css::style_value(style, "display") == "flex" && css::style_value(style, "width", "auto") == "auto",
+                "style lookup");
+        require(css::split_unit("12px").unit == css::Unit::Px && css::split_unit("12px").number == "12", "px");
+        require(css::split_unit("50%").unit == css::Unit::Percent, "percent");
+        require(css::split_unit("2em").unit == css::Unit::None && css::split_unit("2em", {.em = true}).number == "2",
+                "em only when accepted");
+        require(css::expand_color_shorthand("black") == "#000000" && css::expand_color_shorthand("#abc") == "#aabbcc" &&
+                    css::expand_color_shorthand("#abc", false) == "#abc",
+                "color shorthand");
         const auto parsed = css::parse_number<float>("1e9", 1e6f);
-        check(!parsed && parsed.error().message == "CE_CSS_VALUE: invalid numeric value 1e9", "number limit text");
-        check(css::parse_number<float>("1e-50").has_value() == false, "float underflow rejected like std::stof");
-        check(css::parse_number<double>("1e-50").has_value(), "double keeps small values");
+        require(!parsed && parsed.error().message == "CE_CSS_VALUE: invalid numeric value 1e9", "number limit text");
+        require(css::parse_number<float>("1e-50").has_value() == false, "float underflow rejected like std::stof");
+        require(css::parse_number<double>("1e-50").has_value(), "double keeps small values");
         const auto overlap = geometry::intersect({0, 0, 10, 10}, {5, 6, 10, 10});
-        check(overlap.x == 5 && overlap.y == 6 && overlap.w == 5 && overlap.h == 4, "intersect");
+        require(overlap.x == 5 && overlap.y == 6 && overlap.w == 5 && overlap.h == 4, "intersect");
         const auto disjoint = geometry::intersect({0, 0, 1, 1}, {5, 5, 1, 1});
-        check(disjoint.x == 5 && disjoint.w == 0 && disjoint.h == 0, "disjoint intersect");
+        require(disjoint.x == 5 && disjoint.w == 0 && disjoint.h == 0, "disjoint intersect");
     }
 
     void split_differential() {
@@ -251,21 +248,21 @@ namespace {
         for (int i = 0; i < cases; ++i) {
             const auto text = random.text(alphabet, 24);
             for (char delimiter : {' ', ',', ';'}) {
-                check(css::split(text, delimiter).parts == legacy::split_scene(text, delimiter),
-                      "scene split differs on [" + text + "]");
-                check(css::split(text, delimiter, {.quotes = false}).parts == legacy::split_native(text, delimiter),
-                      "native split differs on [" + text + "]");
+                require(css::split(text, delimiter).parts == legacy::split_scene(text, delimiter),
+                        "scene split differs on [" + text + "]");
+                require(css::split(text, delimiter, {.quotes = false}).parts == legacy::split_native(text, delimiter),
+                        "native split differs on [" + text + "]");
                 std::string failure;
                 const auto expected = legacy::split_style(text, delimiter, failure);
                 const auto actual =
                     css::split(text, delimiter, {.quotes = true, .brackets = true, .trim_parts = false});
                 if (expected) {
-                    check(actual.nesting == css::Nesting::Balanced && actual.parts == *expected,
-                          "style split differs on [" + text + "]");
+                    require(actual.nesting == css::Nesting::Balanced && actual.parts == *expected,
+                            "style split differs on [" + text + "]");
                 } else {
                     const auto nesting =
                         failure == "unmatched delimiter" ? css::Nesting::Unmatched : css::Nesting::Unclosed;
-                    check(actual.nesting == nesting, "style nesting differs on [" + text + "]");
+                    require(actual.nesting == nesting, "style nesting differs on [" + text + "]");
                 }
             }
         }
@@ -286,34 +283,34 @@ namespace {
         for (const auto& input : inputs) {
             const auto expected_float = legacy::number_float(input, layout_limit);
             const auto actual_float = css::parse_number<float>(input, layout_limit);
-            check(expected_float.has_value() == actual_float.has_value() &&
-                      (!expected_float || *expected_float == *actual_float),
-                  "float parse differs on [" + input + "]");
+            require(expected_float.has_value() == actual_float.has_value() &&
+                        (!expected_float || *expected_float == *actual_float),
+                    "float parse differs on [" + input + "]");
             const auto expected_double = legacy::number_double(input, scene_limit);
             const auto actual_double = css::parse_number<double>(input, scene_limit);
-            check(expected_double.has_value() == actual_double.has_value() &&
-                      (!expected_double || *expected_double == *actual_double),
-                  "double parse differs on [" + input + "]");
+            require(expected_double.has_value() == actual_double.has_value() &&
+                        (!expected_double || *expected_double == *actual_double),
+                    "double parse differs on [" + input + "]");
         }
     }
 
     void generational_slots() {
         GenerationalSlots<int> slots(2);
-        check(slots.first_free() == 0 && slots.occupy(0) == 1, "first occupancy is generation 1");
+        require(slots.first_free() == 0 && slots.occupy(0) == 1, "first occupancy is generation 1");
         slots[0] = 42;
-        check(slots.find(0, 1) && *slots.find(0, 1) == 42 && !slots.find(0, 2) && !slots.find(5, 1), "resolve");
-        check(slots.first_free() == 1, "occupied slot skipped");
+        require(slots.find(0, 1) && *slots.find(0, 1) == 42 && !slots.find(0, 2) && !slots.find(5, 1), "resolve");
+        require(slots.first_free() == 1, "occupied slot skipped");
         slots.vacate(0);
-        check(!slots.find(0, 1) && slots.first_free() == 0, "vacated handle is stale, slot reusable");
-        check(slots.occupy(0) == 2 && slots[0] == 42, "reuse bumps generation and keeps the value for the caller");
-        check(slots.append() == 2 && slots.size() == 3 && slots.generation(2) == 0, "growth");
+        require(!slots.find(0, 1) && slots.first_free() == 0, "vacated handle is stale, slot reusable");
+        require(slots.occupy(0) == 2 && slots[0] == 42, "reuse bumps generation and keeps the value for the caller");
+        require(slots.append() == 2 && slots.size() == 3 && slots.generation(2) == 0, "growth");
 
         GenerationalSlots<int, std::uint8_t> small(1);
         for (unsigned i = 1; i <= 255; ++i) {
-            check(small.first_free() == 0 && small.occupy(0) == i, "generation sequence");
+            require(small.first_free() == 0 && small.occupy(0) == i, "generation sequence");
             small.vacate(0);
         }
-        check(!small.reusable(0) && small.first_free() == small.size(), "exhausted slot is retired");
+        require(!small.reusable(0) && small.first_free() == small.size(), "exhausted slot is retired");
     }
 
     void owner_thread() {
@@ -330,7 +327,7 @@ namespace {
             }
         });
         outsider.join();
-        check(!current && message == "CE_WRONG_THREAD: font owner", "owner thread violation");
+        require(!current && message == "CE_WRONG_THREAD: font owner", "owner thread violation");
     }
 } // namespace
 

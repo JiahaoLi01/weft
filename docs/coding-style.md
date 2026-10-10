@@ -30,6 +30,13 @@
 - 字符串常量是 `inline constexpr const char*`。少数大函数里 `std::string == constants::x` 会从内联 memcmp 变为调用 `operator==`，语义相同；热路径介意时保留字面量并注明。
 - `probes/d3d11_probe.cpp` 在匿名 namespace 内部中途 include 探针头。任何常量头必须先在该文件顶部（全局作用域）include，否则会声明出 `(anonymous)::caseelephant` 并遮蔽真正的命名空间。
 
+## 共享代码
+
+- **运行时代码**：用 `include/caseelephant/base/` 的 `Diag`/`Result`、CSS 标量解析、`GenerationalSlots`、`OwnerThread`，不再新写 trim/split/number 解析、代际槽表或 owner 检查。
+- **按错误码分派**：控制流按 `Diag` 码分支，不匹配错误消息文本。
+- **测试与探针**：用 `tests/support/` 的 `require`/`CE_REQUIRE`、文件读写、`json_string`、PNG 读写，不在各文件里重定义。
+- **`d3d11_probe.cpp` 的包含顺序**：新的 support 头要先在文件顶部的全局作用域包含。
+
 ## 语义等价验证
 
 纯格式或常量化改动必须不改变生成代码。验证方法：改动前后各构建一次 Release（无调试信息），对全部项目目标文件做 `dumpbin /disasm`，按函数比较指令。允许的差异只有：

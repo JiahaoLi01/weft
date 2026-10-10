@@ -5,8 +5,11 @@
 #include <filesystem>
 #include <iostream>
 #include <cstring>
+#include "support/check.hpp"
 #include "scene_test_image.hpp"
 #include "cluster_visual_compare.hpp"
+
+using caseelephant::testing::require;
 
 int main(int argc, char** argv) {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);

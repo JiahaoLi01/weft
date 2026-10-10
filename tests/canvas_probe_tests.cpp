@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include "caseelephant/script_probe.hpp"
+#include "support/check.hpp"
 #include "caseelephant/positioned_page_probe.hpp"
 #include "caseelephant/constants/canvas.hpp"
 #include "caseelephant/constants/common.hpp"
@@ -12,11 +13,7 @@
 #include <limits>
 
 namespace {
-    void require(bool value, const char* reason) {
-        if (!value) {
-            throw std::runtime_error(reason);
-        }
-    }
+    using caseelephant::testing::require;
 
     void pixel(const caseelephant::ProbeCanvasSnapshot& s, unsigned x, unsigned y, std::array<int, 4> expected,
                int tolerance = caseelephant::test_constants::style_text::canvas_pixel_tolerance) {

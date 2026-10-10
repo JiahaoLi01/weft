@@ -373,8 +373,8 @@ int run_complex_css_test(bool warp, const std::filesystem::path& folder) {
     write_text(
         folder / "report.json",
         "{\"format\":\"complex-css-reference-v2\",\"comparisons\":" + std::to_string(comparisons) +
-            ",\"worst_channel_mean\":" + probe_host_time(worst_mean) + ",\"minimum_soft_iou\":" +
-            probe_host_time(minimum_iou) + ",\"gpu_projective_draws_per_painter_max\":" + std::to_string(projected) +
+            ",\"worst_channel_mean\":" + format_host_time(worst_mean) + ",\"minimum_soft_iou\":" +
+            format_host_time(minimum_iou) + ",\"gpu_projective_draws_per_painter_max\":" + std::to_string(projected) +
             ",\"gpu_plane_uploads_per_painter_max\":" + std::to_string(uploads) +
             ",\"uniform_border_draws_per_painter_max\":" + std::to_string(uniform) +
             ",\"fallback_border_draws_per_painter_max\":" + std::to_string(fallback) +

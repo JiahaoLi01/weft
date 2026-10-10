@@ -5,6 +5,11 @@
         "sha256": "eaca7c45aa7210463006af6850a7dcb2d49194f6e278ff5294fd093eebc3d72d",
         "date": "2026-10-10",
         "reason": "Format, one-declaration-per-line and named-constant refactor (docs/coding-style.md); Release disassembly of ce_flow_input_tests is equivalent to the captured revision, so the Chromium hit oracle still applies."
+      },
+      {
+        "sha256": "b59219f9db55b0f514675f713f5da233927ba6e502fb9105304793e5ba9079c4",
+        "date": "2026-10-10",
+        "reason": "Refactor step 2: the local check/read helpers became tests/support require/read_source_text_file (same files, text mode and assertions); hit scenario and oracle points unchanged."
       }
     ]
   }

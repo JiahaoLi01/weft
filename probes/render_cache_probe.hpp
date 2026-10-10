@@ -89,8 +89,8 @@ int run_render_cache(bool warp, const std::filesystem::path& folder) {
         });
         std::vector<Pixel> pixels(caseelephant::probe_constants::small_target_pixels);
         D3D11_MAPPED_SUBRESOURCE mapped{};
-        checked(renderer.immediate->Map(renderer.staging.Get(), 0, D3D11_MAP_READ, 0, &mapped),
-                "cache completed readback");
+        check_hresult(renderer.immediate->Map(renderer.staging.Get(), 0, D3D11_MAP_READ, 0, &mapped),
+                      "cache completed readback");
         for (UINT y = 0; y < caseelephant::probe_constants::small_target_size; ++y) {
             std::memcpy(pixels.data() + y * caseelephant::probe_constants::small_target_size,
                         static_cast<const std::uint8_t*>(mapped.pData) + y * mapped.RowPitch,

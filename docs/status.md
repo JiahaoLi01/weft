@@ -4,6 +4,22 @@
 
 ## 本次已实现
 
+重构第 2 步：`tests/support`（2026-10-10）。按 [重构计划](refactoring-plan.md#第-2-步记录2026-10-10) 新增测试与探针共用的头文件库：
+- **内容**：断言（`require`/`CE_REQUIRE`）、文件读写（保留字节/文本两种读取模式）、`json_string`、WIC PNG 读写，以及从 `probes/` 移来的 host time 格式化、帧率计与 owner trace 记录器。
+- **替换的副本**：22 份测试断言函数、14 份读文件函数、3 份 JSON 转义、7 份 PNG 编解码、1 份 HRESULT 检查。
+- **自包含**：图像比较头和 trace 头不再依赖包含方预先定义的辅助函数；测试也不再包含 `host_time`、`window_frame_rate`、`gallery_owner_trace` 这三个探针头。
+- **来源记录**：`flow_input_tests.cpp` 只改了辅助函数接线，在 `tests/fixtures/flow_input_source_revisions.json` 追加了等价后继 hash。
+
+测试结果：Release **88/88（41.2 s）**，Debug **88/88（215.6 s）**，日志在 `artifacts/local/refactor-step2/`。
+
+未验证：硬件窗口探针（`--*-hardware`）未重跑；它们与 WARP 测试共用这些辅助函数。
+
+仍存在的依赖：四个 scene 测试依赖 `probes/gallery_scene_session.hpp`，留到第 5、6 步迁出。
+
+下一步：第 3 步，用 CMake 生成 `.inc` 内嵌 bootstrap JS，去掉运行时对 `CE_SOURCE_DIR` 的依赖。
+
+以下第 1 步及更早内容为历史阶段证据：
+
 重构第 1 步：`src/base`（2026-10-10）。按 [重构计划](refactoring-plan.md#第-1-步记录2026-10-10) 新增 `caseelephant_base`：
 - **诊断与结果类型**：`Diag` 诊断码与 `Result<T>`；过渡用的 `DiagnosticError` 保留原 `CE_*` 消息文本。
 - **共享 CSS 标量解析**：trim/split/number/unit/color/rect 求交，替换 10 个 profile 中的副本。

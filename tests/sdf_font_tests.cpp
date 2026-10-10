@@ -1,4 +1,5 @@
 #include "caseelephant/text_probe.hpp"
+#include "support/check.hpp"
 #include "caseelephant/constants/text.hpp"
 #include "test_constants/style_text.hpp"
 #include <algorithm>
@@ -8,11 +9,7 @@
 #include <thread>
 
 namespace {
-    void require(bool ok, const char* message) {
-        if (!ok) {
-            throw std::runtime_error(message);
-        }
-    }
+    using caseelephant::testing::require;
 
     float distance(std::uint8_t v, unsigned spread) {
         return (int(v) - caseelephant::constants::text::sdf_zero_distance_byte) * static_cast<float>(spread) /

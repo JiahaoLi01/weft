@@ -1,6 +1,8 @@
 #include "caseelephant/input_probe.hpp"
+#include "support/check.hpp"
+#include "support/files.hpp"
 #include "test_constants/layout.hpp"
-#include "../probes/window_frame_rate.hpp"
+#include "support/frame_rate.hpp"
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -8,19 +10,9 @@
 #include <stdexcept>
 
 namespace {
-    void require(bool b, const char* text) {
-        if (!b) {
-            throw std::runtime_error(text);
-        }
-    }
-
-    std::string read(const char* path) {
-        std::ifstream f(std::string(CE_SOURCE_DIR) + path, std::ios::binary);
-        require(bool(f), "missing fixture");
-        std::ostringstream s;
-        s << f.rdbuf();
-        return s.str();
-    }
+    using caseelephant::testing::read_source_file;
+    using caseelephant::testing::require;
+    using caseelephant::testing::WindowFrameRate;
 
     void pump(caseelephant::ScriptDomProbe& s, unsigned time = 0) {
         for (unsigned i = 0; i < caseelephant::test_constants::layout::max_pump_rounds; ++i) {
@@ -125,9 +117,9 @@ int main() {
         config.execution_budget_ms = caseelephant::test_constants::layout::gc_stress_execution_budget_ms;
 #endif
         ScriptDomProbe s(config);
-        const auto bootstrap = read("/probes/web_host_bootstrap.js");
+        const auto bootstrap = read_source_file("/probes/web_host_bootstrap.js");
         s.eval(bootstrap);
-        s.eval(read("/examples/react-vite/native/app.js"));
+        s.eval(read_source_file("/examples/react-vite/native/app.js"));
         pump(s);
         ProbeMouseRouter router(s, font);
         s.eval(

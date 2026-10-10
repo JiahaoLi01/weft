@@ -34,12 +34,12 @@ int run_two_frame_probe(bool warp, const std::filesystem::path& folder) {
     for (auto& texture : readbacks) {
         D3D11_TEXTURE2D_DESC desc{};
         gpu.staging->GetDesc(&desc);
-        checked(gpu.device->CreateTexture2D(&desc, nullptr, &texture), "independent pipeline frame readback");
+        check_hresult(gpu.device->CreateTexture2D(&desc, nullptr, &texture), "independent pipeline frame readback");
     }
     auto pixels = [&](Experiment& renderer, ID3D11Texture2D* texture) {
         std::vector<Pixel> out(caseelephant::probe_constants::small_target_pixels);
         D3D11_MAPPED_SUBRESOURCE mapped{};
-        checked(renderer.immediate->Map(texture, 0, D3D11_MAP_READ, 0, &mapped), "completed pipeline pixels");
+        check_hresult(renderer.immediate->Map(texture, 0, D3D11_MAP_READ, 0, &mapped), "completed pipeline pixels");
         for (UINT y = 0; y < caseelephant::probe_constants::small_target_size; ++y) {
             std::memcpy(out.data() + y * caseelephant::probe_constants::small_target_size,
                         static_cast<const std::uint8_t*>(mapped.pData) + y * mapped.RowPitch,

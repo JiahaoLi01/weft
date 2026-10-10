@@ -1,4 +1,5 @@
 #include "caseelephant/scene_probe.hpp"
+#include "support/check.hpp"
 #include "../probes/gallery_scene_session.hpp"
 #include "caseelephant/constants/scene.hpp"
 #include "test_constants/scene.hpp"
@@ -6,11 +7,7 @@
 #include <thread>
 #include <windows.h>
 
-void require(bool b, const char* s) {
-    if (!b) {
-        throw std::runtime_error(s);
-    }
-}
+using caseelephant::testing::require;
 
 int main() {
     try {

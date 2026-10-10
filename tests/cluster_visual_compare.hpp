@@ -6,7 +6,7 @@
 // nearest-neighbour coverage, in both directions. Dense scenes keep the
 // unchanged mean <=3 / mask IoU >=.75 test.
 inline bool cluster_sparse_match(const caseelephant::ProbeSceneBitmap& a, const caseelephant::ProbeSceneBitmap& b) {
-    require(a.width == b.width && a.height == b.height, "sparse extent");
+    caseelephant::testing::require(a.width == b.width && a.height == b.height, "sparse extent");
     double ae{};
     double be{};
     double ab{};

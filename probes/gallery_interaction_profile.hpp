@@ -28,9 +28,9 @@ inline int run_gallery_interaction_profile(const std::filesystem::path& folder, 
         auto q = [&](double fraction) {
             return v.empty() ? 0 : v[std::min(v.size() - 1, std::size_t(fraction * (v.size() - 1)))];
         };
-        return "{\"samples\":" + std::to_string(v.size()) + ",\"p50\":" + probe_host_time(q(.5)) +
-               ",\"p95\":" + probe_host_time(q(.95)) + ",\"p99\":" + probe_host_time(q(.99)) +
-               ",\"max\":" + probe_host_time(q(1)) + "}";
+        return "{\"samples\":" + std::to_string(v.size()) + ",\"p50\":" + format_host_time(q(.5)) +
+               ",\"p95\":" + format_host_time(q(.95)) + ",\"p99\":" + format_host_time(q(.99)) +
+               ",\"max\":" + format_host_time(q(1)) + "}";
     };
     std::ostringstream report;
     report

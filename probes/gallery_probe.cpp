@@ -1,6 +1,8 @@
 #include "caseelephant/script_probe.hpp"
 #include "caseelephant/constants/script.hpp"
 #include "gallery_constants.hpp"
+#include "../tests/support/files.hpp"
+#include "../tests/support/json.hpp"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -10,46 +12,19 @@
 #include <map>
 
 namespace {
-    std::string read(const std::filesystem::path& path) {
-        std::ifstream input(path, std::ios::binary);
-        if (!input) {
-            throw std::runtime_error("Cannot read: " + path.string());
-        }
-        std::ostringstream out;
-        out << input.rdbuf();
-        return out.str();
-    }
+    using caseelephant::testing::json_string;
+    using caseelephant::testing::read_file;
 
-    std::string quote(const std::string& text) {
-        std::string out = "\"";
-        constexpr char hex[] = "0123456789abcdef";
-        for (unsigned char c : text) {
-            if (c == '"' || c == '\\') {
-                out += '\\';
-                out += c;
-            } else if (c < 32) {
-                out += "\\u00";
-                out += hex[c >> 4];
-                out += hex[c & 15];
-            } else {
-                out += c;
-            }
-        }
-        return out + '"';
-    }
-
+    // Evidence text files end with a newline.
     void write(const std::filesystem::path& path, const std::string& text) {
-        std::ofstream out(path, std::ios::binary);
-        if (!out || !(out << text << '\n')) {
-            throw std::runtime_error("Cannot write: " + path.string());
-        }
+        caseelephant::testing::write_file(path, text + '\n');
     }
 
     void install(caseelephant::ScriptDomProbe& vm, const std::filesystem::path& source,
                  const std::filesystem::path& bundles) {
-        vm.eval(read(source / "probes/web_host_bootstrap.js"), "web_host_bootstrap.js");
-        vm.eval(read(source / "probes/animation_frame_bootstrap.js"), "animation_frame_bootstrap.js");
-        vm.eval(read(bundles / "platform.js"), "gallery_platform.js");
+        vm.eval(read_file(source / "probes/web_host_bootstrap.js"), "web_host_bootstrap.js");
+        vm.eval(read_file(source / "probes/animation_frame_bootstrap.js"), "animation_frame_bootstrap.js");
+        vm.eval(read_file(bundles / "platform.js"), "gallery_platform.js");
     }
 
     void pump(caseelephant::ScriptDomProbe& vm, unsigned frame) {
@@ -78,7 +53,7 @@ int main(int argc, char** argv) {
         config.max_stack_bytes = caseelephant::constants::script::probe_vm_stack_bytes;
         config.execution_budget_ms = caseelephant::probe_constants::gallery::host_vm_execution_budget_ms;
         caseelephant::ScriptDomProbe registry(config);
-        registry.eval(read(bundles / "case-list.js"));
+        registry.eval(read_file(bundles / "case-list.js"));
         const unsigned count = static_cast<unsigned>(std::stoul(registry.eval("__ceGalleryCases.length")));
         std::map<std::string, std::string> scripts;
         std::ostringstream report;
@@ -92,7 +67,7 @@ int main(int argc, char** argv) {
             const auto record = registry.eval("JSON.stringify(" + lookup + ")");
             const auto group = registry.eval(lookup + ".group");
             if (!scripts.contains(group)) {
-                scripts[group] = read(bundles / (group + ".js"));
+                scripts[group] = read_file(bundles / (group + ".js"));
             }
             caseelephant::ScriptDomProbe vm(config);
             const auto baseline = vm.stats();
@@ -110,7 +85,7 @@ int main(int argc, char** argv) {
                 install(vm, source, bundles);
                 vm.eval(scripts.at(group), group + ".js");
                 phase = "mount";
-                vm.eval("__ceGallery.mount(" + quote(group) + "," + registry.eval(lookup + ".index") + ")");
+                vm.eval("__ceGallery.mount(" + json_string(group) + "," + registry.eval(lookup + ".index") + ")");
                 phase = "schedule";
                 for (unsigned frame = 0; frame < caseelephant::probe_constants::gallery::observation_frames; ++frame) {
                     pump(vm, frame);
@@ -162,11 +137,12 @@ int main(int argc, char** argv) {
                 report << ',';
             }
             report << "{\"registration\":" << record
-                   << ",\"execution\":" << quote(no_errors ? "no_error_observed" : "blocked")
-                   << ",\"phase\":" << quote(phase) << ",\"failure\":" << quote(failure) << ",\"state\":" << state
-                   << ",\"raf_callbacks\":" << callbacks << ",\"raf_exception_count\":" << callback_errors
-                   << ",\"last_raf_errors\":" << raf_errors << ",\"unmount_failure\":" << quote(lifecycle_failure)
-                   << ",\"root_children\":" << nodes << ",\"nodes_before_reset\":" << before_reset.live_nodes
+                   << ",\"execution\":" << json_string(no_errors ? "no_error_observed" : "blocked")
+                   << ",\"phase\":" << json_string(phase) << ",\"failure\":" << json_string(failure)
+                   << ",\"state\":" << state << ",\"raf_callbacks\":" << callbacks
+                   << ",\"raf_exception_count\":" << callback_errors << ",\"last_raf_errors\":" << raf_errors
+                   << ",\"unmount_failure\":" << json_string(lifecycle_failure) << ",\"root_children\":" << nodes
+                   << ",\"nodes_before_reset\":" << before_reset.live_nodes
                    << ",\"peak_vm_bytes\":" << before_reset.peak_vm_allocated_bytes
                    << ",\"reset_nodes\":" << after_reset.live_nodes << ",\"reset_roots\":" << after_reset.native_roots
                    << ",\"first_animation_dom\":" << first_dom << ",\"last_animation_dom\":" << last_dom
@@ -179,7 +155,7 @@ int main(int argc, char** argv) {
             caseelephant::ScriptDomProbe vm(config);
             try {
                 install(vm, source, bundles);
-                vm.eval(read(bundles / "all.js"), "gallery_all.js");
+                vm.eval(read_file(bundles / "all.js"), "gallery_all.js");
                 full_phase = "mount";
                 vm.eval("__ceGallery.original()");
                 full_phase = "schedule";
@@ -195,8 +171,9 @@ int main(int argc, char** argv) {
                 full_error = e.what();
             }
         }
-        report << "],\"full_gallery\":{\"phase\":" << quote(full_phase) << ",\"failure\":" << quote(full_error)
-               << ",\"state\":" << full_state << "},\"no_error_observed\":" << clean << '}';
+        report << "],\"full_gallery\":{\"phase\":" << json_string(full_phase)
+               << ",\"failure\":" << json_string(full_error) << ",\"state\":" << full_state
+               << "},\"no_error_observed\":" << clean << '}';
         write(out / "native-execution.json", report.str());
         std::cout << "Measured " << count << " original cases: " << clean << " without observed execution error; "
                   << count - clean << " blocked. Rendering/interaction/performance not verified.\n";

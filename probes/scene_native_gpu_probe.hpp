@@ -72,9 +72,9 @@ private:
         d.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
         d.SampleDesc.Count = 1;
         d.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-        checked(device->CreateTexture2D(&d, nullptr, &s.texture), "native group texture");
-        checked(device->CreateRenderTargetView(s.texture.Get(), nullptr, &s.rtv), "native group RTV");
-        checked(device->CreateShaderResourceView(s.texture.Get(), nullptr, &s.srv), "native group SRV");
+        check_hresult(device->CreateTexture2D(&d, nullptr, &s.texture), "native group texture");
+        check_hresult(device->CreateRenderTargetView(s.texture.Get(), nullptr, &s.rtv), "native group RTV");
+        check_hresult(device->CreateShaderResourceView(s.texture.Get(), nullptr, &s.srv), "native group SRV");
         return s;
     }
 
@@ -175,8 +175,8 @@ private:
         desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
         D3D11_SUBRESOURCE_DATA data{bitmap.rgba.data(), bitmap.width * 4, 0};
         ComPtr<ID3D11Texture2D> texture;
-        checked(gpu_.device->CreateTexture2D(&desc, &data, &texture), "native text source");
-        checked(gpu_.device->CreateShaderResourceView(texture.Get(), nullptr, &image->view), "native text view");
+        check_hresult(gpu_.device->CreateTexture2D(&desc, &data, &texture), "native text source");
+        check_hresult(gpu_.device->CreateShaderResourceView(texture.Get(), nullptr, &image->view), "native text view");
         if (p.kind == Paint::Layer) {
             ++layer_builds;
         } else {
@@ -277,20 +277,20 @@ public:
             if (FAILED(hr) && errors) {
                 std::cerr << static_cast<const char*>(errors->GetBufferPointer());
             }
-            checked(hr, "native scene shader");
+            check_hresult(hr, "native scene shader");
         };
         compile("vs_main", "vs_5_0", vs);
         compile("ps_main", "ps_5_0", ps);
-        checked(gpu.device->CreateVertexShader(vs->GetBufferPointer(), vs->GetBufferSize(), nullptr, &vs_),
-                "native scene vertex shader");
-        checked(gpu.device->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), nullptr, &ps_),
-                "native scene pixel shader");
+        check_hresult(gpu.device->CreateVertexShader(vs->GetBufferPointer(), vs->GetBufferSize(), nullptr, &vs_),
+                      "native scene vertex shader");
+        check_hresult(gpu.device->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), nullptr, &ps_),
+                      "native scene pixel shader");
         D3D11_RASTERIZER_DESC raster{};
         raster.FillMode = D3D11_FILL_SOLID;
         raster.CullMode = D3D11_CULL_NONE;
         raster.ScissorEnable = TRUE;
         raster.DepthClipEnable = TRUE;
-        checked(gpu.device->CreateRasterizerState(&raster, &raster_), "native scene raster state");
+        check_hresult(gpu.device->CreateRasterizerState(&raster, &raster_), "native scene raster state");
     }
 
     bool paint(Slot& slot, const caseelephant::ProbeSceneFrame& frame, ID3D11RenderTargetView* destination, float scale,
@@ -363,16 +363,17 @@ public:
             d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
             d.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
             d.StructureByteStride = sizeof(Record);
-            checked(gpu_.device->CreateBuffer(&d, nullptr, &slot.records), "native instance buffer");
+            check_hresult(gpu_.device->CreateBuffer(&d, nullptr, &slot.records), "native instance buffer");
             D3D11_SHADER_RESOURCE_VIEW_DESC v{};
             v.Format = DXGI_FORMAT_UNKNOWN;
             v.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
             v.Buffer.NumElements = capacity;
-            checked(gpu_.device->CreateShaderResourceView(slot.records.Get(), &v, &slot.view), "native instance view");
+            check_hresult(gpu_.device->CreateShaderResourceView(slot.records.Get(), &v, &slot.view),
+                          "native instance view");
             d = {};
             d.ByteWidth = caseelephant::probe_constants::gallery::native_view_constants_bytes;
             d.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-            checked(gpu_.device->CreateBuffer(&d, nullptr, &slot.constants), "native view constants");
+            check_hresult(gpu_.device->CreateBuffer(&d, nullptr, &slot.constants), "native view constants");
         }
         auto* ctx = gpu_.immediate.Get();
         ctx->ClearState();

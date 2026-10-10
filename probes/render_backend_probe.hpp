@@ -32,7 +32,7 @@ int run_backend(bool warp, const std::filesystem::path& folder) {
         adapter = gpu.adapter;
         auto& backend = gpu.ensure_backend();
         ComPtr<ID3D11DeviceContext> context;
-        checked(gpu.device->CreateDeferredContext(0, &context), "host supplied deferred context");
+        check_hresult(gpu.device->CreateDeferredContext(0, &context), "host supplied deferred context");
         auto target = mode == 2 ? gpu.surface(DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT)
                                 : gpu.surface(DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB);
         PacketView input(packet, 1);
@@ -118,7 +118,7 @@ int run_backend(bool warp, const std::filesystem::path& folder) {
         gpu.test(count == 1 && std::memcmp(&restored, &host_viewport, sizeof(restored)) == 0,
                  "host context viewport preserved");
         D3D11_MAPPED_SUBRESOURCE mapped{};
-        checked(
+        check_hresult(
             gpu.immediate->Map(mode == 2 ? gpu.alpha_staging.Get() : gpu.staging.Get(), 0, D3D11_MAP_READ, 0, &mapped),
             "API completed target readback");
         if (mode != 2) {

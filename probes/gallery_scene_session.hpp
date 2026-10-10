@@ -3,20 +3,15 @@
 #include "gallery_scene_manifest.hpp"
 #include "gallery_constants.hpp"
 #include "caseelephant/scene_probe.hpp"
-#include "host_time.hpp"
+#include "../tests/support/files.hpp"
+#include "../tests/support/host_time.hpp"
 #include <fstream>
 #include <chrono>
 #include <sstream>
 #include <windows.h>
 
 inline std::string scene_read(const std::string& path) {
-    std::ifstream f(path, std::ios::binary);
-    if (!f) {
-        throw std::runtime_error("CE_SCENE_INPUT: " + path);
-    }
-    std::ostringstream s;
-    s << f.rdbuf();
-    return s.str();
+    return caseelephant::testing::read_file(path);
 }
 
 // One owner VM per original case. The fixture and its React/D3 bundles are
@@ -142,7 +137,8 @@ struct GallerySceneSession {
                 return result;
             });
             vm.eval(scene_read(CE_SOURCE_DIR "/probes/scene_platform_bootstrap.js"));
-            vm.eval("globalThis.innerWidth=" + probe_host_time(w) + ";globalThis.innerHeight=" + probe_host_time(h));
+            vm.eval("globalThis.innerWidth=" + caseelephant::testing::format_host_time(w) +
+                    ";globalThis.innerHeight=" + caseelephant::testing::format_host_time(h));
         }
         vm.eval(
             "(()=>{let seed=0xce202610;Math.random=()=>((seed=(Math.imul(seed,1664525)+1013904223)>>>0)/4294967296)})()");
@@ -192,8 +188,8 @@ struct GallerySceneSession {
             auto find = [&](auto&& self, const auto& n) -> caseelephant::ProbeSceneStyle {
                 if (n.identity == identity) {
                     auto s = n.style;
-                    s["width"] = probe_host_time(n.box[2]) + "px";
-                    s["height"] = probe_host_time(n.box[3]) + "px";
+                    s["width"] = caseelephant::testing::format_host_time(n.box[2]) + "px";
+                    s["height"] = caseelephant::testing::format_host_time(n.box[3]) + "px";
                     if (!s.contains("transform") || s["transform"].empty() || s["transform"] == "none") {
                         s["transform"] = "none";
                     } else {
@@ -203,7 +199,7 @@ struct GallerySceneSession {
                             if (i) {
                                 s["transform"] += ",";
                             }
-                            s["transform"] += probe_host_time(m[i]);
+                            s["transform"] += caseelephant::testing::format_host_time(m[i]);
                         }
                         s["transform"] += ")";
                     }

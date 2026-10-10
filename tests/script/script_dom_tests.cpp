@@ -1,4 +1,6 @@
 #include "caseelephant/script_probe.hpp"
+#include "../support/check.hpp"
+#include "../support/files.hpp"
 #include "../test_constants/script.hpp"
 
 #include <atomic>
@@ -10,21 +12,8 @@
 #include <thread>
 
 namespace {
-    void require(bool value, const char* message) {
-        if (!value) {
-            throw std::runtime_error(message);
-        }
-    }
-
-    std::string read_file(const std::string& path) {
-        std::ifstream input(path, std::ios::binary);
-        if (!input) {
-            throw std::runtime_error("Cannot read fixture: " + path);
-        }
-        std::ostringstream result;
-        result << input.rdbuf();
-        return result.str();
-    }
+    using caseelephant::testing::read_file;
+    using caseelephant::testing::require;
 
     void wrapper_identity() {
         caseelephant::ScriptDomProbe probe;

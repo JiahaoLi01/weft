@@ -1,4 +1,3 @@
-#include "host_time.hpp"
 #include "gallery_constants.hpp"
 
 // Original gallery components, native Canvas raster, positioned values and the
@@ -7,14 +6,14 @@ struct GalleryCanvasSession {
     caseelephant::ScriptDomProbe vm{{caseelephant::probe_constants::gallery::vm_stack_bytes,
                                      caseelephant::probe_constants::gallery::host_vm_execution_budget_ms}};
     caseelephant::TextProbeFont font{CE_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf"};
-    std::string css = read_text(CE_SOURCE_DIR "/examples/crpg-gallery/canvas-profile.css");
+    std::string css = read_file(CE_SOURCE_DIR "/examples/crpg-gallery/canvas-profile.css");
 
     explicit GalleryCanvasSession(unsigned index) {
         vm.install_canvas_host(caseelephant::make_d2d_canvas_factory_probe());
-        vm.eval(read_text(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
-        vm.eval(read_text(CE_SOURCE_DIR "/probes/animation_frame_bootstrap.js"));
-        vm.eval(read_text(CE_SOURCE_DIR "/examples/crpg-gallery/native/platform.js"));
-        vm.eval(read_text(CE_SOURCE_DIR "/examples/crpg-gallery/native/WEBGL_TESTS.js"));
+        vm.eval(read_file(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+        vm.eval(read_file(CE_SOURCE_DIR "/probes/animation_frame_bootstrap.js"));
+        vm.eval(read_file(CE_SOURCE_DIR "/examples/crpg-gallery/native/platform.js"));
+        vm.eval(read_file(CE_SOURCE_DIR "/examples/crpg-gallery/native/WEBGL_TESTS.js"));
         vm.install_layout_host([this](const caseelephant::ProbeDomSnapshot& document) {
             const auto page = caseelephant::build_positioned_page_probe(
                 flow_find(document, "root"), css, caseelephant::probe_constants::gallery::canvas_backing_width,
@@ -35,7 +34,7 @@ struct GalleryCanvasSession {
 
     void pump(double time) {
         for (unsigned turn = 0; turn < caseelephant::probe_constants::gallery::task_pump_turn_limit; ++turn) {
-            if (vm.eval("__ceHost.pump(" + probe_host_time(time) + ")") == "0") {
+            if (vm.eval("__ceHost.pump(" + format_host_time(time) + ")") == "0") {
                 return;
             }
         }
@@ -93,7 +92,7 @@ struct GalleryCanvasSession {
 std::vector<Pixel> gallery_output(Experiment& gpu) {
     gpu.immediate->CopyResource(gpu.staging.Get(), gpu.output.texture.Get());
     D3D11_MAPPED_SUBRESOURCE mapped{};
-    checked(gpu.immediate->Map(gpu.staging.Get(), 0, D3D11_MAP_READ, 0, &mapped), "Canvas completed readback");
+    check_hresult(gpu.immediate->Map(gpu.staging.Get(), 0, D3D11_MAP_READ, 0, &mapped), "Canvas completed readback");
     std::vector<Pixel> out(std::size_t(gpu.width) * gpu.height);
     for (UINT y = 0; y < gpu.height; ++y) {
         std::memcpy(out.data() + std::size_t(y) * gpu.width,
@@ -104,29 +103,12 @@ std::vector<Pixel> gallery_output(Experiment& gpu) {
 }
 
 std::vector<Pixel> gallery_reference(const std::filesystem::path& path) {
-    ComPtr<IWICImagingFactory> factory;
-    checked(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)),
-            "Canvas reference factory");
-    ComPtr<IWICBitmapDecoder> decoder;
-    checked(
-        factory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnLoad, &decoder),
-        "Canvas reference decode");
-    ComPtr<IWICBitmapFrameDecode> frame;
-    checked(decoder->GetFrame(0, &frame), "Canvas reference frame");
-    UINT w{};
-    UINT h{};
-    checked(frame->GetSize(&w, &h), "Canvas reference dimensions");
-    require(w == caseelephant::probe_constants::gallery::canvas_backing_width &&
-                h == caseelephant::probe_constants::gallery::canvas_backing_height,
+    const auto image = caseelephant::testing::read_png(path);
+    require(image.width == caseelephant::probe_constants::gallery::canvas_backing_width &&
+                image.height == caseelephant::probe_constants::gallery::canvas_backing_height,
             "Canvas reference 800x600");
-    ComPtr<IWICFormatConverter> converter;
-    checked(factory->CreateFormatConverter(&converter), "Canvas reference converter");
-    checked(converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, nullptr, 0,
-                                  WICBitmapPaletteTypeCustom),
-            "Canvas reference RGBA");
-    std::vector<Pixel> out(std::size_t(w) * h);
-    checked(converter->CopyPixels(nullptr, w * 4, UINT(out.size() * 4), reinterpret_cast<BYTE*>(out.data())),
-            "Canvas reference pixels");
+    std::vector<Pixel> out(std::size_t(image.width) * image.height);
+    std::memcpy(out.data(), image.rgba.data(), image.rgba.size());
     return out;
 }
 

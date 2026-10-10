@@ -1,4 +1,3 @@
-#include "window_frame_rate.hpp"
 #include "scroll_timing.hpp"
 #include "probe_constants.hpp"
 
@@ -116,15 +115,15 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
     config.execution_budget_ms = caseelephant::constants::script::max_execution_budget_ms;
 #endif
     caseelephant::ScriptDomProbe script(config);
-    script.eval(read_text(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
-    script.eval(read_text(CE_SOURCE_DIR "/examples/cheetah-alert/native/app.js"));
+    script.eval(read_file(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+    script.eval(read_file(CE_SOURCE_DIR "/examples/cheetah-alert/native/app.js"));
     pump_react(script, 0);
     const bool motion = motion_test || (high_resolution && !self_test);
     if (motion) {
-        script.eval(read_text(CE_SOURCE_DIR "/examples/cheetah-flow/motion.js"));
+        script.eval(read_file(CE_SOURCE_DIR "/examples/cheetah-flow/motion.js"));
     }
-    const auto css = read_text(CE_SOURCE_DIR "/examples/cheetah-flow/profile.css") +
-                     (motion ? read_text(CE_SOURCE_DIR "/examples/cheetah-flow/motion.css") : "");
+    const auto css = read_file(CE_SOURCE_DIR "/examples/cheetah-flow/profile.css") +
+                     (motion ? read_file(CE_SOURCE_DIR "/examples/cheetah-flow/motion.css") : "");
     std::optional<caseelephant::ProbeDomSnapshot> layout_input;
     std::optional<caseelephant::ProbeFlowPage> layout_result;
     std::optional<caseelephant::ProbeDomSnapshot> style_input;

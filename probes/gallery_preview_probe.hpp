@@ -85,7 +85,7 @@ std::vector<GalleryPreviewCase> gallery_preview_observe() {
     caseelephant::ScriptDomProbe registry({caseelephant::probe_constants::gallery::vm_stack_bytes,
                                            caseelephant::probe_constants::gallery::host_vm_execution_budget_ms});
     const auto directory = std::filesystem::path(CE_SOURCE_DIR) / "examples/crpg-gallery/native";
-    registry.eval(read_text(directory / "case-list.js"));
+    registry.eval(read_file(directory / "case-list.js"));
     require(registry.eval("__ceGalleryCases.length") == "72", "gallery inventory changed; review preview scope");
     std::map<std::string, std::string> scripts;
     std::vector<GalleryPreviewCase> cases;
@@ -145,18 +145,18 @@ std::vector<GalleryPreviewCase> gallery_preview_observe() {
             bool clean{};
             try {
                 vm.install_canvas_host(caseelephant::make_d2d_canvas_factory_probe());
-                vm.eval(read_text(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
-                vm.eval(read_text(CE_SOURCE_DIR "/probes/animation_frame_bootstrap.js"));
-                vm.eval(read_text(directory / "platform.js"));
+                vm.eval(read_file(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+                vm.eval(read_file(CE_SOURCE_DIR "/probes/animation_frame_bootstrap.js"));
+                vm.eval(read_file(directory / "platform.js"));
                 if (!scripts.contains(c.group)) {
-                    scripts[c.group] = read_text(directory / (c.group + ".js"));
+                    scripts[c.group] = read_file(directory / (c.group + ".js"));
                 }
                 vm.eval(scripts.at(c.group), c.group + ".js");
                 vm.eval("__ceGallery.mount(" + json_string(c.group) + "," + std::to_string(c.index) + ")");
                 for (unsigned frame = 0; frame < caseelephant::probe_constants::gallery::observation_frames; ++frame) {
                     const double time = frame * caseelephant::probe_constants::gallery::observation_step_ms +
                                         caseelephant::probe_constants::gallery::host_clock_offset_ms;
-                    const auto stamp = probe_host_time(time);
+                    const auto stamp = format_host_time(time);
                     auto pump = [&] {
                         for (unsigned turn = 0; turn < caseelephant::probe_constants::gallery::task_pump_turn_limit;
                              ++turn) {
@@ -220,9 +220,9 @@ struct GalleryPreviewSamples {
     }
 
     static std::string json(const std::deque<double>& v) {
-        return "{\"samples\":" + std::to_string(v.size()) + ",\"p50\":" + probe_host_time(percentile(v, .5)) +
-               ",\"p95\":" + probe_host_time(percentile(v, .95)) + ",\"p99\":" + probe_host_time(percentile(v, .99)) +
-               ",\"max\":" + probe_host_time(percentile(v, 1)) + "}";
+        return "{\"samples\":" + std::to_string(v.size()) + ",\"p50\":" + format_host_time(percentile(v, .5)) +
+               ",\"p95\":" + format_host_time(percentile(v, .95)) + ",\"p99\":" + format_host_time(percentile(v, .99)) +
+               ",\"max\":" + format_host_time(percentile(v, 1)) + "}";
     }
 };
 
@@ -345,12 +345,12 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
     std::filesystem::create_directories(folder);
     const auto startup = std::chrono::steady_clock::now();
     std::cout << "Observing 72 fixed original cases (isolated, 12 opportunities; no full CSS/pixel pass)...\n";
-    auto profile_control = std::make_shared<GalleryProfileControl>();
+    auto profile_control = std::make_shared<TraceControl>();
     profile_control->enabled = profile || !benchmark.empty();
     GalleryLiveProfiler live_profiler;
     live_profiler.enabled = profile;
-    GalleryOwnerTrace render_trace(folder / "render-trace.json",
-                                   caseelephant::probe_constants::gallery::render_trace_tid, profile_control);
+    OwnerTrace render_trace(folder / "render-trace.json", caseelephant::probe_constants::gallery::render_trace_tid,
+                            profile_control);
     double shell_layout_ms{};
     double shell_input_ms{};
     std::size_t shell_layout_builds{};
@@ -392,11 +392,11 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
     CheetahPacketCache cache;
     caseelephant::ScriptDomProbe shell({caseelephant::probe_constants::gallery::vm_stack_bytes,
                                         caseelephant::probe_constants::gallery::host_vm_execution_budget_ms});
-    shell.eval(read_text(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
-    shell.eval(read_text(CE_SOURCE_DIR "/examples/crpg-gallery/native/case-list.js"));
-    shell.eval(read_text(CE_SOURCE_DIR "/examples/crpg-gallery/preview.js"));
+    shell.eval(read_file(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+    shell.eval(read_file(CE_SOURCE_DIR "/examples/crpg-gallery/native/case-list.js"));
+    shell.eval(read_file(CE_SOURCE_DIR "/examples/crpg-gallery/preview.js"));
     shell.eval("__cePreview.update(" + records + ")");
-    const auto css = read_text(CE_SOURCE_DIR "/examples/crpg-gallery/preview.css");
+    const auto css = read_file(CE_SOURCE_DIR "/examples/crpg-gallery/preview.css");
     caseelephant::CompiledStyleProbe shell_styles(css, caseelephant::flow_page_style_profile());
     caseelephant::StyleMemoProbe shell_memo;
     std::optional<caseelephant::ProbeComputedStyle> shell_computed;
@@ -970,7 +970,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
         std::string next_scope;
         for (const auto& e : current.elements) {
             if (e.identity == scroll_id) {
-                next_scope = probe_host_time(e.scroll_top);
+                next_scope = format_host_time(e.scroll_top);
             }
         }
         live_count = 0;
@@ -1176,8 +1176,8 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             render_trace.emit(
                 "render frame", frame_trace_start,
                 (seconds() - tick) * caseelephant::constants::milliseconds_per_second,
-                "{\"owner_time_ms\":" + probe_host_time(owner_frame ? owner_frame->time : time) +
-                    ",\"owner_age_ms\":" + probe_host_time(owner_frame ? std::max(0., time - owner_frame->time) : 0) +
+                "{\"owner_time_ms\":" + format_host_time(owner_frame ? owner_frame->time : time) +
+                    ",\"owner_age_ms\":" + format_host_time(owner_frame ? std::max(0., time - owner_frame->time) : 0) +
                     ",\"serial\":" + std::to_string(serial) + "}");
         }
         if (!startup_ms) {
@@ -1715,7 +1715,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
                    ",\"layer_evictions\":" + std::to_string(raster_stats.layer_evictions) +
                    ",\"partial_paints\":" + std::to_string(scene_gpu.partial_paints) +
                    ",\"full_paints\":" + std::to_string(scene_gpu.full_paints) +
-                   ",\"damaged_pixel_ratio\":" + probe_host_time(scene_gpu.damaged_pixels / scene_gpu.full_pixels) +
+                   ",\"damaged_pixel_ratio\":" + format_host_time(scene_gpu.damaged_pixels / scene_gpu.full_pixels) +
                    ",\"fallback_reasons\":" + reasons + "}");
     const auto commands = scene_gpu.raster_work();
     write_text(
@@ -1742,8 +1742,8 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             folder / "benchmark.json",
             "{\"scenario\":" + json_string(benchmark) + ",\"input_benchmark\":" + (input_benchmark ? "true" : "false") +
                 ",\"frames\":240,\"warm_frames\":224,\"fixed_clock_step_ms\":16.666666666666668,\"capture_readback\":false,\"warm_throughput_fps\":" +
-                probe_host_time(caseelephant::probe_constants::gallery::fixed_clock_warm_frames /
-                                (benchmark_end - benchmark_start)) +
+                format_host_time(caseelephant::probe_constants::gallery::fixed_clock_warm_frames /
+                                 (benchmark_end - benchmark_start)) +
                 ",\"stages_ms\":" + data + "}");
     }
     const auto shell_nodes = shell.stats().live_nodes;
@@ -1803,13 +1803,13 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
         folder / "preview-session.json",
         "{\"format\":\"gallery-preview-session-v1\",\"case_count\":72,\"native_pixel_cases\":66,\"original_full_gallery_rendered\":false,\"surface\":[3840,2160],\"logical_shell\":[1920,1080],\"canvas_backing\":[800,600],\"adapter\":" +
             json_string(gpu.adapter) + ",\"frames\":" + std::to_string(frames) +
-            ",\"successful_visible_present_fps\":" + (fps.ready ? probe_host_time(fps.fps) : "null") +
+            ",\"successful_visible_present_fps\":" + (fps.ready ? format_host_time(fps.fps) : "null") +
             ",\"last_visible_native_case_count\":" + std::to_string(live_count) +
             ",\"warm_window_frames\":600,\"warmup_frames\":16,\"reset_on_scroll_resize_visibility\":true,\"cpu_tick_ms\":" +
             GalleryPreviewSamples::json(samples.cpu) +
             ",\"gpu_producer_and_ui_elapsed_ms\":" + GalleryPreviewSamples::json(samples.gpu) +
             ",\"present_interval_ms\":" + GalleryPreviewSamples::json(samples.interval) +
-            ",\"startup_including_72_observations_ms\":" + probe_host_time(startup_ms) +
+            ",\"startup_including_72_observations_ms\":" + format_host_time(startup_ms) +
             ",\"gpu_cached_peak_bytes\":" + std::to_string(gpu.peak_cached_bytes) +
             ",\"gpu_cache_budget_bytes\":536870912,\"retired_textures\":" + std::to_string(gpu.native_releases) +
             ",\"actual_completed_submissions\":" + std::to_string(pipeline.completions) +

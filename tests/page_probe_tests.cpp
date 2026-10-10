@@ -1,4 +1,6 @@
 #include "caseelephant/page_probe.hpp"
+#include "support/check.hpp"
+#include "support/files.hpp"
 #include "test_constants/layout.hpp"
 #include <fstream>
 #include <iostream>
@@ -6,19 +8,8 @@
 #include <stdexcept>
 
 namespace {
-    void require(bool value, const char* error) {
-        if (!value) {
-            throw std::runtime_error(error);
-        }
-    }
-
-    std::string read(const char* name) {
-        std::ifstream file(std::string(CE_SOURCE_DIR) + name, std::ios::binary);
-        require(bool(file), "fixture not found");
-        std::ostringstream s;
-        s << file.rdbuf();
-        return s.str();
-    }
+    using caseelephant::testing::read_source_file;
+    using caseelephant::testing::require;
 
     void pump(caseelephant::ScriptDomProbe& p, unsigned t = 0) {
         for (unsigned i = 0; i < caseelephant::test_constants::layout::max_pump_rounds; ++i) {
@@ -40,8 +31,8 @@ int main() {
             gc_stress_execution_budget_ms; // GC at every allocation is deliberate instrumentation.
 #endif
         caseelephant::ScriptDomProbe p(config);
-        const auto bootstrap = read("/probes/web_host_bootstrap.js");
-        const auto bundle = read("/examples/react-vite/native/app.js");
+        const auto bootstrap = read_source_file("/probes/web_host_bootstrap.js");
+        const auto bundle = read_source_file("/examples/react-vite/native/app.js");
         p.eval(bootstrap);
         require(p.eval(R"JS(
           let n=document.createElement('div'); n.setAttribute('id','id with spaces');document.body.appendChild(n);

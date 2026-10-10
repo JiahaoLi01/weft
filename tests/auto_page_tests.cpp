@@ -1,4 +1,6 @@
 #include "caseelephant/auto_page_probe.hpp"
+#include "support/check.hpp"
+#include "support/files.hpp"
 #include "caseelephant/constants/layout.hpp"
 #include "test_constants/layout.hpp"
 #include <cmath>
@@ -9,22 +11,12 @@
 using namespace caseelephant;
 
 namespace {
-    void check(bool b, const char* s) {
-        if (!b) {
-            throw std::runtime_error(s);
-        }
-    }
+    using caseelephant::testing::read_text_file;
+    using caseelephant::testing::require;
 
     void near(float a, float b) {
-        check(std::abs(a - b) < caseelephant::test_constants::layout::auto_geometry_tolerance,
-              "automatic layout geometry");
-    }
-
-    std::string read(const std::string& path) {
-        std::ifstream f(path);
-        std::ostringstream s;
-        s << f.rdbuf();
-        return s.str();
+        require(std::abs(a - b) < caseelephant::test_constants::layout::auto_geometry_tolerance,
+                "automatic layout geometry");
     }
 
     ProbeDomSnapshot node(std::string id, std::string style, std::string text = "") {
@@ -47,7 +39,7 @@ namespace {
         try {
             f();
         } catch (const std::invalid_argument& e) {
-            check(std::string(e.what()).starts_with("CE_"), "layout diagnostic");
+            require(std::string(e.what()).starts_with("CE_"), "layout diagnostic");
             return;
         }
         throw std::runtime_error("unsupported auto layout accepted");
@@ -72,16 +64,17 @@ int main(int argc, char** argv) {
         auto auto_width = root;
         auto_width.attributes["style"] += ";width:auto";
         near(build_auto_page_probe(auto_width, "", 300, 200, fonts).geometry.boxes[0].width, 300);
-        check(page.paints[0].paint.shaped.glyphs[0].font_id == 1, "CJK intrinsic measure/fallback paint");
+        require(page.paints[0].paint.shaped.glyphs[0].font_id == 1, "CJK intrinsic measure/fallback paint");
         auto style = compute_style_probe(root, "#a{padding:var(--pad);--pad:1px 2px 3px 4px;padding-left:9px}",
                                          auto_page_style_profile());
-        check(style.children[0].values.at("padding-bottom") == "3px" &&
-                  style.children[0].values.at("padding-left") == "9px",
-              "shorthand substitution/longhand cascade");
+        require(style.children[0].values.at("padding-bottom") == "3px" &&
+                    style.children[0].values.at("padding-left") == "9px",
+                "shorthand substitution/longhand cascade");
         const auto invalid = compute_style_probe(root, "#a{padding:9px;padding:var(--pad);--pad:2px invalid}",
                                                  auto_page_style_profile());
         for (const auto* k : {"padding-top", "padding-left", "padding-right", "padding-bottom"}) {
-            check(invalid.children[0].values.at(k) == "0", "invalid shorthand must unset every edge without recascade");
+            require(invalid.children[0].values.at(k) == "0",
+                    "invalid shorthand must unset every edge without recascade");
         }
         auto percent = root;
         percent.children[0].attributes["style"] = "display:block;height:50%";
@@ -107,10 +100,10 @@ int main(int argc, char** argv) {
         });
         // Owning output remains usable after destroying/mutating its input.
         root.children.clear();
-        check(page.paints.size() == 2 && page.paints[0].paint.text == "仓", "borrowed layout output");
+        require(page.paints.size() == 2 && page.paints[0].paint.text == "仓", "borrowed layout output");
         ScriptDomProbe vm;
-        vm.eval(read(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
-        vm.eval(read(CE_SOURCE_DIR "/tests/fixtures/auto-layout/fixture.js"));
+        vm.eval(read_text_file(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+        vm.eval(read_text_file(CE_SOURCE_DIR "/tests/fixtures/auto-layout/fixture.js"));
         std::ostringstream out;
         out << "{\"fixture\":\"auto-layout-v1\",\"frames\":[";
         for (int frame = 0; frame < caseelephant::test_constants::layout::fixture_frames; frame++) {
@@ -140,13 +133,13 @@ int main(int argc, char** argv) {
                 out << ']';
                 if (i == 0) {
                     vm.collect_garbage();
-                    check(p.paints.front().paint.text == "仓库 / depot 0", "GC invalidated value paint");
+                    require(p.paints.front().paint.text == "仓库 / depot 0", "GC invalidated value paint");
                 }
             }
             out << ']';
         }
         out << "],\"passed\":true}";
-        check(argc == 2, "report path");
+        require(argc == 2, "report path");
         const std::filesystem::path path(argv[1]);
         std::filesystem::create_directories(path.parent_path());
         std::ofstream(path) << out.str();

@@ -1,4 +1,5 @@
 #include "caseelephant/owner_executor_probe.hpp"
+#include "support/check.hpp"
 #include "caseelephant/script_probe.hpp"
 #include "test_constants/script.hpp"
 #include <atomic>
@@ -9,11 +10,7 @@
 using namespace caseelephant;
 
 namespace {
-    void require(bool b, const char* message) {
-        if (!b) {
-            throw std::runtime_error(message);
-        }
-    }
+    using caseelephant::testing::require;
 
     struct Request {
         unsigned value{};

@@ -1,15 +1,12 @@
 #include "caseelephant/flex_probe.hpp"
+#include "support/check.hpp"
 #include "fixtures/flex_layout_cases.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
 
 namespace {
-    void require(bool condition, const char* message) {
-        if (!condition) {
-            throw std::runtime_error(message);
-        }
-    }
+    using caseelephant::testing::require;
 
     const caseelephant::FlexProbeBox& box(const std::vector<caseelephant::FlexProbeBox>& boxes, const char* id) {
         const auto it = std::find_if(boxes.begin(), boxes.end(), [&](const auto& b) {
