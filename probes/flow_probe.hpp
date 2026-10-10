@@ -24,7 +24,7 @@ int run_flow(bool warp, const std::filesystem::path& folder) {
                                           CE_SOURCE_DIR "/third_party/noto-cjk/source/NotoSansCJKsc-Regular.otf"});
     const auto css = read_file(CE_SOURCE_DIR "/tests/fixtures/flow-layout/profile.css");
     caseelephant::ScriptDomProbe vm;
-    vm.eval(read_file(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+    caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
     vm.eval(read_file(CE_SOURCE_DIR "/tests/fixtures/flow-layout/fixture.js"));
     vm.install_layout_host([&](const auto& dom) {
         return caseelephant::build_flow_page_probe(flow_find(dom, "gallery"), css,

@@ -362,7 +362,7 @@ int run_cheetah(bool warp, bool visible, const std::filesystem::path& folder) {
     config.execution_budget_ms = caseelephant::constants::script::max_execution_budget_ms;
 #endif
     caseelephant::ScriptDomProbe script(config);
-    script.eval(read_file(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+    caseelephant::install_script_platform(script, caseelephant::ScriptPlatformModule::WebHost);
     script.eval(read_file(CE_SOURCE_DIR "/examples/cheetah-nine-slice/native/app.js"));
     pump_react(script, 0);
     require(script.eval("caseCheetahFixture.version") == "19.3.0", "pinned fixture React runtime");

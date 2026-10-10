@@ -1,4 +1,5 @@
 #include "caseelephant/script_probe.hpp"
+#include "caseelephant/script_platform.hpp"
 #include "../support/check.hpp"
 #include "../support/files.hpp"
 #include "../test_constants/script.hpp"
@@ -14,6 +15,27 @@
 namespace {
     using caseelephant::testing::read_file;
     using caseelephant::testing::require;
+
+    // The platform modules are compiled into the library: the embedded text equals the checked-in
+    // source (CRLF normalized), and they install in order without any file access.
+    void embedded_platform_modules() {
+        using caseelephant::ScriptPlatformModule;
+        for (const auto module : {ScriptPlatformModule::WebHost, ScriptPlatformModule::AnimationFrame,
+                                  ScriptPlatformModule::ScenePlatform}) {
+            auto source = read_file(std::string(CE_SOURCE_DIR) + "/src/script/js/" +
+                                    std::string(caseelephant::script_platform_file(module)));
+            std::erase(source, '\r');
+            require(caseelephant::script_platform_source(module) == source,
+                    "embedded platform module differs from source");
+        }
+        caseelephant::ScriptDomProbe vm;
+        caseelephant::install_script_platform(vm, ScriptPlatformModule::WebHost);
+        caseelephant::install_script_platform(vm, ScriptPlatformModule::AnimationFrame);
+        caseelephant::install_script_platform(vm, ScriptPlatformModule::ScenePlatform);
+        require(vm.eval("[typeof setTimeout, typeof requestAnimationFrame, typeof ResizeObserver].join()") ==
+                    "function,function,function",
+                "embedded platform modules install");
+    }
 
     void wrapper_identity() {
         caseelephant::ScriptDomProbe probe;
@@ -352,6 +374,7 @@ heldNode.textContent = '中文 detached';
 
 int main(int argc, char** argv) {
     try {
+        embedded_platform_modules();
         wrapper_identity();
         native_roots_and_cycles();
         js_root_preserves_detached();

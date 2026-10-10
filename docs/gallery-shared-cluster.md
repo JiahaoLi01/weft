@@ -24,7 +24,7 @@ cmake --build --preset windows-release --parallel 8
 
 ## 明确的范围
 
-可选 `scene_platform_bootstrap.js` 使用 authoritative native DOM。`getComputedStyle` 是每次调用的 owned 读回，不是完整 live CSSStyleDeclaration；HTMLCollection 暂为快照。同步 geometry/offset/CTM 读取先计算最新布局，内部 layout/measure 不进入 JS，ResizeObserver 在布局结束后交付。支持主鼠标 PointerEvent 品牌、capture/bubble、handleEvent、once、AbortSignal 和 passive；未开放原生触摸、多点、通用 pointer capture、键盘/IME。
+可选 `src/script/js/scene_platform_bootstrap.js`（构建时内嵌）使用 authoritative native DOM。`getComputedStyle` 是每次调用的 owned 读回，不是完整 live CSSStyleDeclaration；HTMLCollection 暂为快照。同步 geometry/offset/CTM 读取先计算最新布局，内部 layout/measure 不进入 JS，ResizeObserver 在布局结束后交付。支持主鼠标 PointerEvent 品牌、capture/bubble、handleEvent、once、AbortSignal 和 passive；未开放原生触摸、多点、通用 pointer capture、键盘/IME。
 
 HTML fragment 仅支持 div/span/b/strong/br 与带引号的 id/class/style，64KiB、256 tokens、16 深度，解析失败不改变 DOM；它不是完整 HTML parser。矩阵为六参数 affine。media query 仅固定 primary mouse/hover/reduced-motion profile，未知查询诊断。整数 locale 使用 Windows NLS、en-US 默认 safe integer 格式，其他数字/locale/options 诊断；没有伪造 Intl。新包采用实际 JS 动画 fallback，未实现 WAAPI。
 

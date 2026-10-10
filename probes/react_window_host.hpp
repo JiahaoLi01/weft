@@ -525,8 +525,7 @@ int run_react_window(bool warp, bool self_test, const std::filesystem::path& fol
 #endif
     caseelephant::ScriptDomProbe script(config);
     caseelephant::TextProbeFont font(CE_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
-    script.eval(read_file(std::filesystem::path(CE_SOURCE_DIR) / "probes/web_host_bootstrap.js"),
-                "web_host_bootstrap.js");
+    caseelephant::install_script_platform(script, caseelephant::ScriptPlatformModule::WebHost);
     script.eval(read_file(std::filesystem::path(CE_SOURCE_DIR) / "examples/react-vite/native/app.js"),
                 "react-vite-app.js");
     pump_react(script, 0);

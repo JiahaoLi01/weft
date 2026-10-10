@@ -1,4 +1,5 @@
 #include "caseelephant/flow_page_probe.hpp"
+#include "caseelephant/script_platform.hpp"
 #include "support/check.hpp"
 #include "support/files.hpp"
 #include "caseelephant/input_probe.hpp"
@@ -42,7 +43,7 @@ int main(int argc, char** argv) {
                                 CE_SOURCE_DIR "/third_party/noto-cjk/source/NotoSansCJKsc-Regular.otf"});
         const auto css = read_source_text_file("/tests/fixtures/flow-input/profile.css");
         ScriptDomProbe vm;
-        vm.eval(read_source_text_file("/probes/web_host_bootstrap.js"));
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
         vm.eval(read_source_text_file("/tests/fixtures/flow-input/fixture.js"));
         vm.install_layout_host([&](const auto& d) {
             return build_flow_page_probe(find(d, "inputpage"), css, caseelephant::constants::default_view_width,
@@ -109,7 +110,7 @@ int main(int argc, char** argv) {
         report << "],\"passed\":true}";
         // Restore an independent DOM so the report's input sequence stays immutable.
         vm.reset_document();
-        vm.eval(read_source_text_file("/probes/web_host_bootstrap.js"));
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
         vm.eval(read_source_text_file("/tests/fixtures/flow-input/fixture.js"));
         vm.install_layout_host([&](const auto& d) {
             return build_flow_page_probe(find(d, "inputpage"), css, caseelephant::constants::default_view_width,

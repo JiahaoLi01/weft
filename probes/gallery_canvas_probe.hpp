@@ -10,8 +10,8 @@ struct GalleryCanvasSession {
 
     explicit GalleryCanvasSession(unsigned index) {
         vm.install_canvas_host(caseelephant::make_d2d_canvas_factory_probe());
-        vm.eval(read_file(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
-        vm.eval(read_file(CE_SOURCE_DIR "/probes/animation_frame_bootstrap.js"));
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::AnimationFrame);
         vm.eval(read_file(CE_SOURCE_DIR "/examples/crpg-gallery/native/platform.js"));
         vm.eval(read_file(CE_SOURCE_DIR "/examples/crpg-gallery/native/WEBGL_TESTS.js"));
         vm.install_layout_host([this](const caseelephant::ProbeDomSnapshot& document) {

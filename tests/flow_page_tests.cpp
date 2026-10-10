@@ -1,4 +1,5 @@
 #include "caseelephant/flow_page_probe.hpp"
+#include "caseelephant/script_platform.hpp"
 #include "support/check.hpp"
 #include "support/files.hpp"
 #include "test_constants/layout.hpp"
@@ -141,7 +142,7 @@ int main(int argc, char** argv) {
         inline_input.white_space = "normal";
         const auto css = read_text_file(CE_SOURCE_DIR "/tests/fixtures/flow-layout/profile.css");
         ScriptDomProbe vm;
-        vm.eval(read_text_file(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
         vm.eval(read_text_file(CE_SOURCE_DIR "/tests/fixtures/flow-layout/fixture.js"));
         vm.install_layout_host([&](const auto& document) {
             return build_flow_page_probe(find(document, "gallery"), css, caseelephant::constants::default_view_width,

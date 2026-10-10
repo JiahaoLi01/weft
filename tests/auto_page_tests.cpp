@@ -1,4 +1,5 @@
 #include "caseelephant/auto_page_probe.hpp"
+#include "caseelephant/script_platform.hpp"
 #include "support/check.hpp"
 #include "support/files.hpp"
 #include "caseelephant/constants/layout.hpp"
@@ -102,7 +103,7 @@ int main(int argc, char** argv) {
         root.children.clear();
         require(page.paints.size() == 2 && page.paints[0].paint.text == "仓", "borrowed layout output");
         ScriptDomProbe vm;
-        vm.eval(read_text_file(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
         vm.eval(read_text_file(CE_SOURCE_DIR "/tests/fixtures/auto-layout/fixture.js"));
         std::ostringstream out;
         out << "{\"fixture\":\"auto-layout-v1\",\"frames\":[";

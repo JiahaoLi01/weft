@@ -1,4 +1,5 @@
 #include "caseelephant/auto_page_probe.hpp"
+#include "caseelephant/script_platform.hpp"
 #include "caseelephant/flow_page_probe.hpp"
 #include "caseelephant/scene_probe.hpp"
 #include "caseelephant/scene_native_probe.hpp"
@@ -1445,8 +1446,7 @@ namespace {
         config.execution_budget_ms = caseelephant::constants::script::max_execution_budget_ms;
 #endif
         caseelephant::ScriptDomProbe script(config);
-        script.eval(read_file(std::filesystem::path(CE_SOURCE_DIR) / "probes/web_host_bootstrap.js"),
-                    "web_host_bootstrap.js");
+        caseelephant::install_script_platform(script, caseelephant::ScriptPlatformModule::WebHost);
         script.eval(read_file(std::filesystem::path(CE_SOURCE_DIR) / "examples/react-vite/native/app.js"),
                     "react-vite-app.js");
         pump_react(script, 0);

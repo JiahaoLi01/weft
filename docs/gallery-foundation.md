@@ -38,7 +38,7 @@ Native 每例新建 VM，用原 React 组件和依赖运行 12 个 owner 绘制�
 
 ## rAF 实际合同
 
-`probes/animation_frame_bootstrap.js` 是可选 M0 平台模块；`ScriptDomProbe::animation_frame(double time_ms, bool drawable)` 在 UI owner 驱动。旧 flow motion 展示继续用局部时钟，公共 Runtime/View C ABI 不变。
+`src/script/js/animation_frame_bootstrap.js`（构建时内嵌，`install_script_platform(vm, ScriptPlatformModule::AnimationFrame)` 安装）是可选 M0 平台模块；`ScriptDomProbe::animation_frame(double time_ms, bool drawable)` 在 UI owner 驱动。旧 flow motion 展示继续用局部时钟，公共 Runtime/View C ABI 不变。
 
 - 注册异步回调，单批快照与公共浮点时间戳；回调中新注册的任务留到下一次绘制机会。取消可从前一个回调的微任务检查点阻止后续回调。
 - 每个回调后清空有界微任务；整批共享一次 execution deadline 和 10,000 job 上限。普通 callback exception 记录后继续；VM 资源/时间失败进入 Faulted，必须 reset，残余任务不能自动续跑。

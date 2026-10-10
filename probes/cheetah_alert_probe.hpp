@@ -83,7 +83,7 @@ int run_cheetah_alert(bool warp, const std::filesystem::path& folder, bool origi
     config.execution_budget_ms = caseelephant::constants::script::max_execution_budget_ms;
 #endif
     caseelephant::ScriptDomProbe script(config);
-    script.eval(read_file(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+    caseelephant::install_script_platform(script, caseelephant::ScriptPlatformModule::WebHost);
     script.eval(read_file(CE_SOURCE_DIR "/examples/cheetah-alert/native/app.js"));
     pump_react(script, 0);
     const auto css = read_file(flow             ? CE_SOURCE_DIR "/examples/cheetah-flow/profile.css"

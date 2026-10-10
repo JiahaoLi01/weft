@@ -1,4 +1,5 @@
 #include "caseelephant/script_probe.hpp"
+#include "caseelephant/script_platform.hpp"
 #include "caseelephant/constants/script.hpp"
 #include "gallery_constants.hpp"
 #include "../tests/support/files.hpp"
@@ -20,10 +21,9 @@ namespace {
         caseelephant::testing::write_file(path, text + '\n');
     }
 
-    void install(caseelephant::ScriptDomProbe& vm, const std::filesystem::path& source,
-                 const std::filesystem::path& bundles) {
-        vm.eval(read_file(source / "probes/web_host_bootstrap.js"), "web_host_bootstrap.js");
-        vm.eval(read_file(source / "probes/animation_frame_bootstrap.js"), "animation_frame_bootstrap.js");
+    void install(caseelephant::ScriptDomProbe& vm, const std::filesystem::path& bundles) {
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::AnimationFrame);
         vm.eval(read_file(bundles / "platform.js"), "gallery_platform.js");
     }
 
@@ -82,7 +82,7 @@ int main(int argc, char** argv) {
             std::size_t callback_errors = 0;
             std::size_t nodes = 0;
             try {
-                install(vm, source, bundles);
+                install(vm, bundles);
                 vm.eval(scripts.at(group), group + ".js");
                 phase = "mount";
                 vm.eval("__ceGallery.mount(" + json_string(group) + "," + registry.eval(lookup + ".index") + ")");
@@ -154,7 +154,7 @@ int main(int argc, char** argv) {
         {
             caseelephant::ScriptDomProbe vm(config);
             try {
-                install(vm, source, bundles);
+                install(vm, bundles);
                 vm.eval(read_file(bundles / "all.js"), "gallery_all.js");
                 full_phase = "mount";
                 vm.eval("__ceGallery.original()");

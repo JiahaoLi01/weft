@@ -1,6 +1,7 @@
 #pragma once
 #define NOMINMAX
 #include "gallery_scene_manifest.hpp"
+#include "caseelephant/script_platform.hpp"
 #include "gallery_constants.hpp"
 #include "caseelephant/scene_probe.hpp"
 #include "../tests/support/files.hpp"
@@ -109,8 +110,8 @@ struct GallerySceneSession {
               caseelephant::probe_constants::gallery::scene_vm_execution_budget_ms}},
           width(w),
           height(h) {
-        vm.eval(scene_read(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
-        vm.eval(scene_read(CE_SOURCE_DIR "/probes/animation_frame_bootstrap.js"));
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::AnimationFrame);
         vm.eval(scene_read(CE_SOURCE_DIR "/examples/crpg-gallery/native/platform.js"));
         if (group != "CSS_TESTS" && group != "D3_TESTS") {
             svg_geometry = true;
@@ -136,7 +137,7 @@ struct GallerySceneSession {
                 }
                 return result;
             });
-            vm.eval(scene_read(CE_SOURCE_DIR "/probes/scene_platform_bootstrap.js"));
+            caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::ScenePlatform);
             vm.eval("globalThis.innerWidth=" + caseelephant::testing::format_host_time(w) +
                     ";globalThis.innerHeight=" + caseelephant::testing::format_host_time(h));
         }

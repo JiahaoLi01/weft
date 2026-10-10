@@ -17,7 +17,7 @@ Vite 是构建工具。native 没有 ESM loader、dev client、HMR 或开发服�
 
 ## 实际数据链路
 
-1. [平台 bootstrap](../probes/web_host_bootstrap.js) 补充受限的 CSSStyleDeclaration、宿主时间和任务接口；节点、属性、树操作和事件传播仍由 C++ native DOM 提供。
+1. [平台 bootstrap](../src/script/js/web_host_bootstrap.js)（构建时内嵌进脚本库） 补充受限的 CSSStyleDeclaration、宿主时间和任务接口；节点、属性、树操作和事件传播仍由 C++ native DOM 提供。
 2. React 挂载后，owner 执行有限批次的任务与微任务；实际 native `Event` 冒泡触发 React 事件系统。计数变为 1，反转列表时 Ember 保持原生节点身份。
 3. [snapshot_subtree](../include/caseelephant/script_probe.hpp) 复制自己的 native 节点树；[page adapter](../src/layout/page_probe.cpp) 读取行内声明、有限继承，生成已有 Flex adapter 的输入。
 4. Yoga 输出唯一盒几何，HarfBuzz 生成逻辑 glyph/advance，FreeType 产生灰度 coverage；背景矩形与文字组成值类型 `ProbePage`。

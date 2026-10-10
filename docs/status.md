@@ -4,6 +4,23 @@
 
 ## 本次已实现
 
+重构第 3 步：平台 JS 内嵌（2026-10-10）。按 [重构计划](refactoring-plan.md#第-3-步记录2026-10-10)，`web_host`、`animation_frame`、`scene_platform` 三个 owner 平台模块从 `probes/` 移到 `src/script/js/`：
+- **内嵌方式**：构建时由 `cmake/embed_bytes.cmake` 生成字节表编进 `caseelephant_script`，CRLF 统一为 LF。
+- **接口**：新增 `script_platform.hpp`，提供 `install_script_platform(vm, module)` 等三个函数。运行时库不再需要源码树。
+- **调用点**：测试和探针中 37 处按源码路径读取改为通过该接口安装。`owner_hotpath_tests` 的优化前差分仍读 fixture。
+- **新增测试**：校验内嵌文本与源文件一致，三个模块无需文件访问即可按序安装。
+- **来源记录**：`flow_input_tests.cpp` 只换了安装方式，已追加等价后继 hash。
+
+测试结果：Release **88/88（41.2 s）**，Debug **88/88（215.3 s）**，日志在 `artifacts/local/refactor-step3/`。
+
+未验证：硬件窗口探针和 GC 压力配置未重跑。
+
+仍保留的源码树依赖都属于测试与证据：浏览器参考时钟、fixture、字体、gallery 原样 bundle。
+
+下一步：第 4 步，按模块拆分 CMake 并改用 `ce::` 目标，加 `ce_add_test()`，分离公开/私有头，去掉 `Probe` 前缀。
+
+以下第 2 步及更早内容为历史阶段证据：
+
 重构第 2 步：`tests/support`（2026-10-10）。按 [重构计划](refactoring-plan.md#第-2-步记录2026-10-10) 新增测试与探针共用的头文件库：
 - **内容**：断言（`require`/`CE_REQUIRE`）、文件读写（保留字节/文本两种读取模式）、`json_string`、WIC PNG 读写，以及从 `probes/` 移来的 host time 格式化、帧率计与 owner trace 记录器。
 - **替换的副本**：22 份测试断言函数、14 份读文件函数、3 份 JSON 转义、7 份 PNG 编解码、1 份 HRESULT 检查。

@@ -1,4 +1,5 @@
 #include "caseelephant/input_probe.hpp"
+#include "caseelephant/script_platform.hpp"
 #include "support/check.hpp"
 #include "support/files.hpp"
 #include "test_constants/layout.hpp"
@@ -117,7 +118,7 @@ int main() {
         config.execution_budget_ms = caseelephant::test_constants::layout::gc_stress_execution_budget_ms;
 #endif
         ScriptDomProbe s(config);
-        const auto bootstrap = read_source_file("/probes/web_host_bootstrap.js");
+        const std::string bootstrap(caseelephant::script_platform_source(caseelephant::ScriptPlatformModule::WebHost));
         s.eval(bootstrap);
         s.eval(read_source_file("/examples/react-vite/native/app.js"));
         pump(s);

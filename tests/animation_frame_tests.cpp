@@ -1,6 +1,6 @@
 #include "caseelephant/animation_frame_probe.hpp"
+#include "caseelephant/script_platform.hpp"
 #include "support/check.hpp"
-#include "support/files.hpp"
 #include "caseelephant/constants/script.hpp"
 #include "support/host_time.hpp"
 #include "test_constants/script.hpp"
@@ -13,12 +13,11 @@
 
 namespace {
     using caseelephant::testing::format_host_time;
-    using caseelephant::testing::read_source_file;
     using caseelephant::testing::require;
 
     void install(caseelephant::ScriptDomProbe& vm) {
-        vm.eval(read_source_file("/probes/web_host_bootstrap.js"));
-        vm.eval(read_source_file("/probes/animation_frame_bootstrap.js"));
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::AnimationFrame);
     }
 } // namespace
 

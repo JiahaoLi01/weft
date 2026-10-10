@@ -1,4 +1,5 @@
 #include "caseelephant/scene_probe.hpp"
+#include "caseelephant/script_platform.hpp"
 #include "support/check.hpp"
 #include "../probes/gallery_scene_session.hpp"
 #include "caseelephant/constants/scene.hpp"
@@ -22,8 +23,8 @@ int main() {
         } com;
 
         caseelephant::ScriptDomProbe vm;
-        vm.eval(scene_read(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
-        vm.eval(scene_read(CE_SOURCE_DIR "/probes/animation_frame_bootstrap.js"));
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::AnimationFrame);
         require(
             vm.eval(
                 R"JS((()=>{const root=document.getElementById('root');const parent=document.createElementNS('http://www.w3.org/2000/svg','g');parent.setAttribute('class','tick');const a=document.createElementNS(parent.namespaceURI,'line'),b=document.createElementNS(parent.namespaceURI,'text');parent.appendChild(a);parent.appendChild(b);root.appendChild(parent);let errors=0;for(const s of ['.tick > line',' ','.tick [x]','line,']){try{root.querySelectorAll(s)}catch(e){errors++}}return root.querySelectorAll('.tick line').length===1&&root.querySelectorAll('line,.tick line').length===1&&a.matches('g line')&&root.querySelector('.tick text')===b&&!b.matches('.tick line')&&errors===4})())JS") ==
@@ -40,7 +41,7 @@ int main() {
                 "true",
             "interval error/cancel leaked task");
         vm.reset_document();
-        vm.eval(scene_read(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
         caseelephant::SceneRasterProbe raster;
         caseelephant::SceneProbe scene(
             ".bg-gold\\/20{background-color:rgba(212,168,67,.2)}.parent{transition-property:color;transition-duration:1s;transition-timing-function:linear}.explicit{color:#ff0000}",
@@ -112,7 +113,7 @@ int main() {
                 "true",
             "timer WebIDL coercion / fractional delay");
         vm.reset_document();
-        vm.eval(scene_read(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
         vm.eval(
             "const r=document.getElementById('root');r.style.backgroundColor='#000000';const parent=document.createElement('div');parent.setAttribute('style','width:30px;height:30px;transform:scale(1)');const inner=document.createElement('div');inner.setAttribute('style','position:absolute;inset:0;background-color:#ffffff');parent.appendChild(inner);r.appendChild(parent)");
         caseelephant::SceneProbe containing("", "", [&](auto t, const auto& st) {
@@ -148,7 +149,7 @@ int main() {
         require(raster.raster(frozen).rgba[(5 * caseelephant::test_constants::scene::contract_view_size + 5) * 4] ==
                     caseelephant::constants::color_channel_max,
                 "owned scene lost pixels after DOM teardown");
-        vm.eval(scene_read(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
         vm.eval(
             "const root=document.getElementById('root');const n=document.createElement('div');n.setAttribute('style','width:20px;height:20px;color:#0000ff;border-width:2px;animation:chase 1s linear infinite');root.appendChild(n)");
         caseelephant::SceneProbe chase("", "@keyframes chase{75%{border-color:#ff0000}}", [&](auto t, const auto& st) {
@@ -197,7 +198,7 @@ int main() {
         }
         require(!invalid, "supported SVG viewBox rejected");
         vm.reset_document();
-        vm.eval(scene_read(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
         const std::string static_sheet = ".shade{background-color:#d4a843}.other{background-color:#225577}";
         caseelephant::SceneProbe persisted(static_sheet, "", [&](auto t, const auto& st) {
             return raster.measure(t, st);
@@ -233,7 +234,7 @@ int main() {
         }
         require(persisted.work().layout_reuses > 0, "mutation did not exercise layout cache");
         vm.reset_document();
-        vm.eval(scene_read(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
         vm.eval(
             "const root=document.getElementById('root');root.setAttribute('style','position:relative;background-color:#000000');let n=document.createElement('div');n.setAttribute('style','position:relative;width:30px;height:30px;color:#fff;animation:move 1s linear infinite');n.textContent='x';root.appendChild(n)");
         const std::string keyframes =
@@ -281,7 +282,7 @@ int main() {
                     retained.work().layout_evaluations < full.work().layout_evaluations,
                 "cache reference path was not independent");
         vm.reset_document();
-        vm.eval(scene_read(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
         vm.eval(
             "let root=document.getElementById('root');let svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('width','20');svg.setAttribute('height','20');let rect=document.createElementNS(svg.namespaceURI,'rect');rect.setAttribute('width','5');rect.setAttribute('height','10');rect.setAttribute('fill','#ff0000');svg.appendChild(rect);root.appendChild(svg)");
         caseelephant::SceneProbe keyed("rect[width='10']{fill:#00ff00}", "", [&](auto t, const auto& st) {
@@ -352,7 +353,7 @@ int main() {
             }
         }
         vm.reset_document();
-        vm.eval(scene_read(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
         vm.eval(
             "const root=document.getElementById('root');root.style.backgroundColor='#000000';let parent=document.createElement('div');parent.style.color='#0000ff';let n=document.createElement('div');n.setAttribute('style','width:20px;height:20px;background-color:#445566;border-width:2px;animation:motion 1s linear infinite alternate-reverse, shade 800ms steps(4,end) infinite;animation-delay:100ms,0ms');n.textContent='x';parent.appendChild(n);root.appendChild(parent)");
         const std::string tracks =
@@ -447,7 +448,7 @@ int main() {
         require(planned.work().animation_reuses == 0 && planned.work().animation_compilations == 0,
                 "animation plan/reset statistics survived epoch reset");
         vm.reset_document();
-        vm.eval(scene_read(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
         vm.eval(
             "const root=document.getElementById('root');root.style.position='relative';root.style.backgroundColor='#000000';let p=document.createElement('div');p.setAttribute('style','width:30px;height:24px;color:#225577;transform:scale(1);transition-property:color;transition-duration:200ms;transition-timing-function:linear');let n=document.createElement('div');n.setAttribute('style','position:absolute;inset:0;background:#884422;border-radius:4px');p.appendChild(n);root.appendChild(p)");
         caseelephant::SceneProbe layout_retained("", "", [&](auto text, const auto& st) {

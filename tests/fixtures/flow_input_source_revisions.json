@@ -10,6 +10,11 @@
         "sha256": "b59219f9db55b0f514675f713f5da233927ba6e502fb9105304793e5ba9079c4",
         "date": "2026-10-10",
         "reason": "Refactor step 2: the local check/read helpers became tests/support require/read_source_text_file (same files, text mode and assertions); hit scenario and oracle points unchanged."
+      },
+      {
+        "sha256": "36a383367f8e09cc353187d9aaf4fb0df9b54c2b0e52780b3708fb8cc4ced3a0",
+        "date": "2026-10-10",
+        "reason": "Refactor step 3: web_host_bootstrap.js is installed from the copy embedded in the script library (same source text) instead of being read from the source tree; hit scenario and oracle points unchanged."
       }
     ]
   }

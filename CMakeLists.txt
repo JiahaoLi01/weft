@@ -54,8 +54,21 @@ if(WIN32)
     ce_project_options(caseelephant_canvas_d2d_probe)
     target_link_libraries(caseelephant_canvas_d2d_probe PUBLIC caseelephant_canvas_probe PRIVATE d2d1 windowscodecs ole32)
 endif()
-add_library(caseelephant_script STATIC src/script/script_dom_probe.cpp)
+# Owner platform JS modules are compiled into the script library; a running engine needs no source tree.
+set(CE_SCRIPT_PLATFORM_INC)
+foreach(module web_host_bootstrap animation_frame_bootstrap scene_platform_bootstrap)
+    set(input "${PROJECT_SOURCE_DIR}/src/script/js/${module}.js")
+    set(output "${CMAKE_BINARY_DIR}/generated/caseelephant/script_js/${module}.js.inc")
+    add_custom_command(OUTPUT "${output}"
+        COMMAND "${CMAKE_COMMAND}" "-DINPUT=${input}" "-DOUTPUT=${output}" -P "${PROJECT_SOURCE_DIR}/cmake/embed_bytes.cmake"
+        DEPENDS "${input}" "${PROJECT_SOURCE_DIR}/cmake/embed_bytes.cmake"
+        COMMENT "Embedding ${module}.js"
+        VERBATIM)
+    list(APPEND CE_SCRIPT_PLATFORM_INC "${output}")
+endforeach()
+add_library(caseelephant_script STATIC src/script/script_dom_probe.cpp src/script/script_platform.cpp ${CE_SCRIPT_PLATFORM_INC})
 ce_project_options(caseelephant_script)
+target_include_directories(caseelephant_script PRIVATE "${CMAKE_BINARY_DIR}/generated")
 target_link_libraries(caseelephant_script PRIVATE qjs PUBLIC caseelephant_canvas_probe)
 
 # These remain M0 candidates, pinned and built without network discovery.

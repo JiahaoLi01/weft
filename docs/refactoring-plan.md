@@ -62,7 +62,7 @@ probes/ tests/ tools/      证据与验证，只依赖 src，不被 src 依赖
 | 0 ✅ | 格式规范、一行一声明、命名常量 | 全部 C++/HLSL | Release 反汇编逐函数等价、着色器字节码等价、全量测试 |
 | 1 ✅ | `src/base`：统一 CSS 标量解析、`enum class Diag` + `Result<T>`、代际 slot 表、`OwnerThread` | `src/layout/*`、`scene_*`、`style_probe`、`canvas_probe`、`runtime`、`render_backend`、`resource_lifetime` | 旧实现逐字副本随机差分、各 profile 上限保留、全量测试不变；见下方第 1 步记录 |
 | 2 ✅ | `tests/support`：check 宏、文件/PNG 工具；`host_time`、`window_frame_rate`、`gallery_owner_trace` 移出探针 | `tests/*`、`probes/*` | 全量测试；见下方第 2 步记录 |
-| 3 | bootstrap JS 由 CMake 生成 `.inc` 内嵌，去掉运行时 `CE_SOURCE_DIR` | `script_dom_probe.cpp`、各窗口/探针 | 脚本与 GC 测试；移动/主机打包前置条件 |
+| 3 ✅ | bootstrap JS 由 CMake 生成 `.inc` 内嵌，去掉运行时 `CE_SOURCE_DIR` | `script_dom_probe.cpp`、各窗口/探针 | 脚本与 GC 测试；移动/主机打包前置条件；见下方第 3 步记录 |
 | 4 | CMake 拆成模块目录与 `ce::` 目标，`ce_add_test()`；公开/私有头分离；去 `Probe` 前缀 | `CMakeLists.txt`、`include/` | 全量构建与测试，C ABI smoke |
 | 5 | D3D11 渲染器、FramePacket、两帧流水线移入 `src/render`，经 `RenderBackend` concept 接 C ABI；探针头改为独立 TU | `probes/d3d11_probe.cpp`、`probe_render_backend.hpp`、`two_frame_pipeline.hpp`、`scene_native_gpu_probe.hpp` | WARP/硬件像素、两帧退休、debug layer 零告警 |
 | 6 | scene 可移植化：拆出纯几何/命中 TU；DirectWrite 量字换成与 flow 相同的 HarfBuzz 测量；D2D 退为 Windows 参考 raster | `scene_probe.hpp`、`scene_d2d_probe.cpp`、`gallery_scene_session.hpp` | 字体度量会变，重新建立 Chrome 对照基线（已确认） |
@@ -124,6 +124,27 @@ probes/ tests/ tools/      证据与验证，只依赖 src，不被 src 依赖
 
 仍然存在的依赖：四个 scene 测试仍包含 `probes/gallery_scene_session.hpp`/`gallery_cluster_input.hpp`。这套 gallery 宿主包装了 D2D raster 与 DirectWrite 测量，留到第 5、6 步随 D3D11 抽取和 scene 可移植化一起迁出。
 
+## 第 3 步记录（2026-10-10）
+
+三个 owner 平台模块从 `probes/` 移到 `src/script/js/`：
+- `web_host_bootstrap.js`：DOM 构造器、CSSOM、计时器、微任务、console；
+- `animation_frame_bootstrap.js`：rAF 批次；
+- `scene_platform_bootstrap.js`：SVG/Element、窗口事件、几何读取、ResizeObserver、matchMedia。
+
+构建时由 `cmake/embed_bytes.cmake` 生成 `build/<preset>/generated/caseelephant/script_js/*.js.inc`，编进 `caseelephant_script`。生成规则如下：
+
+- **换行**：CRLF 统一为 LF，内嵌文本不随 checkout 方式变化。
+- **字节表**：用无符号字节表，不受 MSVC 单个字符串字面量长度上限的约束。
+- **增量**：内容不变时不改写输出文件，避免无谓重编。
+
+公开接口 `include/caseelephant/script_platform.hpp` 提供三个函数：`script_platform_source`、`script_platform_file`、`install_script_platform(vm, module)`。运行时库因此不再需要源码树。
+
+迁移与测试：
+
+- **调用点**：测试和探针里 37 处 `CE_SOURCE_DIR "/probes/*_bootstrap.js"` 读取改为调用 `install_script_platform`。`owner_hotpath_tests` 的旧版本差分仍从 fixture 读取优化前的两个模块。
+- **新增测试**：`script_dom_lifecycle` 校验内嵌文本与源文件一致，三个模块无需文件访问即可按序安装。
+
+仍然保留的源码树依赖：浏览器参考时钟（`probes/*_reference_clock.js`，供浏览器采集工具使用，路径被 fixture 清单锁定）、测试 fixture、字体和 gallery 原样 bundle。它们都只属于测试与证据，不属于运行时。
 ## 已确认的取舍（2026-10-10）
 
 用户已确认以下四项，依据与修改条件记在 [关键决策](decisions.md)。

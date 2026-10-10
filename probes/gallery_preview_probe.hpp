@@ -145,8 +145,8 @@ std::vector<GalleryPreviewCase> gallery_preview_observe() {
             bool clean{};
             try {
                 vm.install_canvas_host(caseelephant::make_d2d_canvas_factory_probe());
-                vm.eval(read_file(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
-                vm.eval(read_file(CE_SOURCE_DIR "/probes/animation_frame_bootstrap.js"));
+                caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
+                caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::AnimationFrame);
                 vm.eval(read_file(directory / "platform.js"));
                 if (!scripts.contains(c.group)) {
                     scripts[c.group] = read_file(directory / (c.group + ".js"));
@@ -392,7 +392,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
     CheetahPacketCache cache;
     caseelephant::ScriptDomProbe shell({caseelephant::probe_constants::gallery::vm_stack_bytes,
                                         caseelephant::probe_constants::gallery::host_vm_execution_budget_ms});
-    shell.eval(read_file(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+    caseelephant::install_script_platform(shell, caseelephant::ScriptPlatformModule::WebHost);
     shell.eval(read_file(CE_SOURCE_DIR "/examples/crpg-gallery/native/case-list.js"));
     shell.eval(read_file(CE_SOURCE_DIR "/examples/crpg-gallery/preview.js"));
     shell.eval("__cePreview.update(" + records + ")");

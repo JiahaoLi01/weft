@@ -115,7 +115,7 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
     config.execution_budget_ms = caseelephant::constants::script::max_execution_budget_ms;
 #endif
     caseelephant::ScriptDomProbe script(config);
-    script.eval(read_file(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+    caseelephant::install_script_platform(script, caseelephant::ScriptPlatformModule::WebHost);
     script.eval(read_file(CE_SOURCE_DIR "/examples/cheetah-alert/native/app.js"));
     pump_react(script, 0);
     const bool motion = motion_test || (high_resolution && !self_test);

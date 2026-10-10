@@ -1,4 +1,5 @@
 #include "caseelephant/page_probe.hpp"
+#include "caseelephant/script_platform.hpp"
 #include "support/check.hpp"
 #include "support/files.hpp"
 #include "test_constants/layout.hpp"
@@ -31,7 +32,7 @@ int main() {
             gc_stress_execution_budget_ms; // GC at every allocation is deliberate instrumentation.
 #endif
         caseelephant::ScriptDomProbe p(config);
-        const auto bootstrap = read_source_file("/probes/web_host_bootstrap.js");
+        const std::string bootstrap(caseelephant::script_platform_source(caseelephant::ScriptPlatformModule::WebHost));
         const auto bundle = read_source_file("/examples/react-vite/native/app.js");
         p.eval(bootstrap);
         require(p.eval(R"JS(
