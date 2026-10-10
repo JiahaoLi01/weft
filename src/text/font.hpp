@@ -120,6 +120,9 @@ namespace weft {
         ShapedText shape(std::string_view utf8, float pixels,
                          ShapePrecision precision = ShapePrecision::Fixed26_6) const;
         GlyphBitmap rasterize(std::uint32_t glyph_id, float pixels);
+        // Coverage of the outline with its origin offset_x right of and offset_y below a whole pixel origin
+        // (subpixel positioning, y down); left/top stay relative to that whole pixel origin.
+        GlyphBitmap rasterize(std::uint32_t glyph_id, float pixels, float offset_x, float offset_y);
         GlyphBitmap rasterize(const Glyph& glyph, float pixels);
         SdfBitmap rasterize_sdf(std::uint32_t glyph_id,
                                 std::uint32_t base_ppem = constants::text::sdf_default_base_ppem,

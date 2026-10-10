@@ -20,6 +20,11 @@ namespace weft::test_constants::scene {
     // A 1-2-1 blurred foreground mask value above this stays foreground.
     inline constexpr int blurred_foreground_threshold = 48;
     inline constexpr double min_soft_iou = .75;
+    // SDF fields of scene text (40 ppem, spread 8) drawn at 1x-4x against the FreeType coverage image: IoU of the
+    // half-covered masks and mean absolute coverage difference (tests/scene_text_image_tests.cpp).
+    // Measured 2026-10-10: min IoU 0.944 (13px Segoe UI at 1x), max mean difference 0.0062.
+    inline constexpr double sdf_text_min_iou = .92;
+    inline constexpr double sdf_text_max_mean_coverage_difference = .01;
     // Reference images with fewer foreground pixels are too sparse for the IoU test.
     inline constexpr int min_foreground_pixels = 200;
     // Sparse particle oracle: at most this many foreground pixels and this channel mean, then

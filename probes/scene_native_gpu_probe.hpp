@@ -3,6 +3,7 @@
 #include "probe_common.hpp"
 #include "scene/scene_geometry.hpp"
 #include "scene/scene_native.hpp"
+#include "scene/scene_text_image.hpp"
 #include "gallery_constants.hpp"
 
 namespace probes {
@@ -51,6 +52,8 @@ namespace probes {
         std::size_t fallbacks{};
         std::size_t draws{};
         std::size_t text_builds{};
+        // Text builds from portable FreeType images (the rest are reference raster images with color glyphs).
+        std::size_t text_portable_builds{};
         std::size_t text_reuses{};
         std::size_t layer_builds{};
         std::size_t layer_reuses{};
@@ -142,16 +145,31 @@ namespace probes {
                  metrics.height > n.box[3] + weft::probe_constants::gallery::text_fit_tolerance)) {
                 throw std::invalid_argument("text overflow reference");
             }
-            weft::SceneFrame frame;
-            frame.root.tag = "div";
-            frame.root.identity = {UINT32_MAX, 1, n.identity.view_epoch};
-            frame.root.box = {0, 0, n.box[2] + weft::probe_constants::gallery::text_source_margins,
-                              n.box[3] + weft::probe_constants::gallery::text_source_margins};
-            frame.root.style = {{"background-color", "transparent"}};
-            auto child = n;
-            child.box[0] = child.box[1] = weft::probe_constants::gallery::text_source_margin;
-            frame.root.children.push_back(std::move(child));
-            auto bitmap = text_.raster(frame, scale);
+            // Text without color glyphs is FreeType coverage (portable); color glyphs and layers use the reference
+            // raster.
+            weft::SceneBitmap bitmap;
+            bool portable = false;
+            if (p.kind == Paint::Text) {
+                auto image = weft::scene_text_image(weft::testing::thread_scene_text(), n, scale,
+                                                    weft::probe_constants::gallery::text_source_margin);
+                if (!image.color_glyphs) {
+                    bitmap = std::move(image.bitmap);
+                    portable = true;
+                    ++text_portable_builds;
+                }
+            }
+            if (!portable) {
+                weft::SceneFrame frame;
+                frame.root.tag = "div";
+                frame.root.identity = {UINT32_MAX, 1, n.identity.view_epoch};
+                frame.root.box = {0, 0, n.box[2] + weft::probe_constants::gallery::text_source_margins,
+                                  n.box[3] + weft::probe_constants::gallery::text_source_margins};
+                frame.root.style = {{"background-color", "transparent"}};
+                auto child = n;
+                child.box[0] = child.box[1] = weft::probe_constants::gallery::text_source_margin;
+                frame.root.children.push_back(std::move(child));
+                bitmap = text_.raster(frame, scale);
+            }
             const auto bytes = bitmap.rgba.size();
             if (bytes > weft::probe_constants::gallery::native_image_cache_budget_bytes) {
                 throw std::invalid_argument("text source byte bound");

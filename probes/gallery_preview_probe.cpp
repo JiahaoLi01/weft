@@ -1368,20 +1368,19 @@ namespace probes {
             reasons += json_string(name) + ":" + std::to_string(count);
         }
         reasons += "}";
-        write_text(folder / "render-work.json",
-                   "{\"native_passes\":" + std::to_string(native.passes) + ",\"native_fallbacks\":" +
-                       std::to_string(native.fallbacks) + ",\"native_draw_batches\":" + std::to_string(native.draws) +
-                       ",\"text_builds\":" + std::to_string(native.text_builds) +
-                       ",\"text_reuses\":" + std::to_string(native.text_reuses) +
-                       ",\"native_layer_builds\":" + std::to_string(native.layer_builds) +
-                       ",\"native_layer_reuses\":" + std::to_string(native.layer_reuses) +
-                       ",\"layer_builds\":" + std::to_string(raster_stats.layer_builds) +
-                       ",\"layer_reuses\":" + std::to_string(raster_stats.layer_reuses) +
-                       ",\"layer_evictions\":" + std::to_string(raster_stats.layer_evictions) +
-                       ",\"partial_paints\":" + std::to_string(scene_gpu.partial_paints) +
-                       ",\"full_paints\":" + std::to_string(scene_gpu.full_paints) + ",\"damaged_pixel_ratio\":" +
-                       format_host_time(scene_gpu.damaged_pixels / scene_gpu.full_pixels) +
-                       ",\"fallback_reasons\":" + reasons + "}");
+        write_text(
+            folder / "render-work.json",
+            "{\"native_passes\":" + std::to_string(native.passes) + ",\"native_fallbacks\":" +
+                std::to_string(native.fallbacks) + ",\"native_draw_batches\":" + std::to_string(native.draws) +
+                ",\"text_builds\":" + std::to_string(native.text_builds) + ",\"text_portable_builds\":" +
+                std::to_string(native.text_portable_builds) + ",\"text_reuses\":" + std::to_string(native.text_reuses) +
+                ",\"native_layer_builds\":" + std::to_string(native.layer_builds) + ",\"native_layer_reuses\":" +
+                std::to_string(native.layer_reuses) + ",\"layer_builds\":" + std::to_string(raster_stats.layer_builds) +
+                ",\"layer_reuses\":" + std::to_string(raster_stats.layer_reuses) +
+                ",\"layer_evictions\":" + std::to_string(raster_stats.layer_evictions) + ",\"partial_paints\":" +
+                std::to_string(scene_gpu.partial_paints) + ",\"full_paints\":" + std::to_string(scene_gpu.full_paints) +
+                ",\"damaged_pixel_ratio\":" + format_host_time(scene_gpu.damaged_pixels / scene_gpu.full_pixels) +
+                ",\"fallback_reasons\":" + reasons + "}");
         const auto commands = scene_gpu.raster_work();
         write_text(
             folder / "owner-work.json",

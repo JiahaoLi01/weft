@@ -7,6 +7,7 @@
 #include FT_TRUETYPE_TABLES_H
 #include FT_MODULE_H
 #include FT_MULTIPLE_MASTERS_H
+#include FT_OUTLINE_H
 #include <hb.h>
 #include <hb-ot.h>
 #include <algorithm>
@@ -260,15 +261,31 @@ namespace weft {
     }
 
     GlyphBitmap Font::rasterize(std::uint32_t glyph_id, float pixels) {
+        return rasterize(glyph_id, pixels, 0, 0);
+    }
+
+    GlyphBitmap Font::rasterize(std::uint32_t glyph_id, float pixels, float offset_x, float offset_y) {
         impl_->check(pixels);
         if (glyph_id >= static_cast<std::uint32_t>(impl_->face->num_glyphs)) {
             throw std::invalid_argument("WEFT_GLYPH_ID: out of range");
         }
+        if (!std::isfinite(offset_x) || !std::isfinite(offset_y) || offset_x < 0 || offset_x >= 1 || offset_y < 0 ||
+            offset_y >= 1) {
+            throw std::invalid_argument("WEFT_GLYPH_OFFSET: expected [0,1) px");
+        }
         if (FT_Set_Char_Size(impl_->face, 0,
                              static_cast<FT_F26Dot6>(std::round(pixels * constants::text::fixed_26_6_units_per_pixel)),
                              constants::text::freetype_pixel_dpi, constants::text::freetype_pixel_dpi) ||
-            FT_Load_Glyph(impl_->face, glyph_id, FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP) ||
-            FT_Render_Glyph(impl_->face->glyph, FT_RENDER_MODE_NORMAL)) {
+            FT_Load_Glyph(impl_->face, glyph_id, FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP)) {
+            throw std::runtime_error("WEFT_GLYPH_RASTER: FreeType failure");
+        }
+        if (impl_->face->glyph->format == FT_GLYPH_FORMAT_OUTLINE) {
+            FT_Outline_Translate(
+                &impl_->face->glyph->outline,
+                static_cast<FT_Pos>(std::lround(offset_x * constants::text::fixed_26_6_units_per_pixel)),
+                -static_cast<FT_Pos>(std::lround(offset_y * constants::text::fixed_26_6_units_per_pixel)));
+        }
+        if (FT_Render_Glyph(impl_->face->glyph, FT_RENDER_MODE_NORMAL)) {
             throw std::runtime_error("WEFT_GLYPH_RASTER: FreeType failure");
         }
         const auto& bitmap = impl_->face->glyph->bitmap;

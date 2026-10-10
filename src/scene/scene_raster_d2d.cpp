@@ -1,6 +1,8 @@
 #define NOMINMAX
 #include "scene/scene.hpp"
 #include "scene/scene_geometry.hpp"
+#include "scene/scene_text_image.hpp"
+#include "scene/scene_values.hpp"
 #include "base/css_scalar.hpp"
 #include "base/owner_thread.hpp"
 #include "constants/scene.hpp"
@@ -26,44 +28,15 @@ namespace weft {
 
         using css::trim;
 
-        [[noreturn]] void fail(const std::string& s) {
-            throw_diagnostic(Diag::SceneRaster, s);
-        }
+        using scene_values::fail;
+        using scene_values::get;
+        using scene_values::len;
+        using scene_values::num;
 
         void check(HRESULT h) {
             if (FAILED(h)) {
                 throw std::runtime_error("WEFT_SCENE_D2D: HRESULT=" + std::to_string(static_cast<unsigned long>(h)));
             }
-        }
-
-        std::string get(const Style& s, const std::string& k, const char* fallback = "") {
-            return css::style_value(s, k, fallback);
-        }
-
-        float num(const std::string& s) {
-            const auto n = css::parse_number<float>(s, static_cast<float>(constants::scene::max_numeric_magnitude));
-            if (!n) {
-                fail("numeric value " + s);
-            }
-            return *n;
-        }
-
-        // Unitless numbers are accepted as px; em resolves against reference; calc() takes a + b.
-        float len(std::string_view input, float reference = 1) {
-            const auto s = trim(input);
-            if (s.starts_with("calc(")) {
-                const auto plus = s.find(" + ");
-                if (plus == s.npos) {
-                    fail("mixed length calc");
-                }
-                return len(s.substr(5, plus - 5), reference) + len(s.substr(plus + 3, s.size() - plus - 4), reference);
-            }
-            const auto [digits, unit] = css::split_unit(s, {.px = true, .percent = true, .em = true});
-            const float n = num(std::string(digits));
-            if (unit == css::Unit::Percent) {
-                return n * reference / constants::percent_scale;
-            }
-            return n * (unit == css::Unit::Em ? reference : 1);
         }
 
         std::vector<std::string> split(std::string_view s, char delimiter = ' ') {
@@ -1045,22 +1018,9 @@ namespace weft {
                 }
                 y -= get(n.style, "dominant-baseline") == "central" ? m.height / 2 : m.baseline;
             } else {
-                const auto align = get(n.style, "text-align", "left");
-                if (align == "center") {
-                    x = (n.box[2] - m.width) / 2;
-                } else if (align == "right") {
-                    x = n.box[2] - m.width;
-                }
-                if (get(n.style, "display") == "flex") {
-                    if (get(n.style, "justify-content") == "center") {
-                        x = (n.box[2] - m.width) / 2;
-                    }
-                    if (get(n.style, "align-items") == "center") {
-                        y = (n.box[3] - m.height) / 2;
-                    }
-                }
-                x += len(get(n.style, "padding-left", "0")) + len(get(n.style, "border-left-width", "0"));
-                y += len(get(n.style, "padding-top", "0")) + len(get(n.style, "border-top-width", "0"));
+                const auto origin = scene_text_origin(n, m);
+                x = origin[0];
+                y = origin[1];
             }
             solid(svg_text ? color(get(n.style, "fill", "#000000"), n.style)
                            : paint_color(n, constants::scene::paint_slot_color, get(n.style, "color", "#000000")));

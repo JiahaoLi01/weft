@@ -36,6 +36,28 @@ int main() {
                 "actual square glyph coverage");
         const auto double_bitmap = font.rasterize(shaped.glyphs[0].glyph_id, 40);
         require(double_bitmap.width == 40 && double_bitmap.height == 40, "raster scale changed");
+        // A subpixel origin moves the square, not the whole pixel origin: half covered edge columns and rows.
+        const auto offset = font.rasterize(shaped.glyphs[0].glyph_id, 20, .5f, .25f);
+        require(offset.width == 21 && offset.height == 21 && offset.left == 0 && offset.top == 16,
+                "subpixel glyph extent");
+        const auto at = [&](unsigned x, unsigned y) {
+            return int(offset.coverage[std::size_t(y) * offset.width + x]);
+        };
+        require(std::abs(at(0, 10) - 128) <= 1 && std::abs(at(20, 10) - 128) <= 1 && at(10, 10) == 255,
+                "half pixel horizontal offset coverage");
+        require(std::abs(at(10, 0) - 191) <= 1 && std::abs(at(10, 20) - 64) <= 1,
+                "quarter pixel vertical offset coverage (y down)");
+        require(font.rasterize(shaped.glyphs[0].glyph_id, 20, 0, 0).coverage == bitmap.coverage,
+                "zero offset is the whole pixel raster");
+        for (const auto bad : {-.25f, 1.f, std::nanf("")}) {
+            bool rejected{};
+            try {
+                (void)font.rasterize(shaped.glyphs[0].glyph_id, 20, bad, 0);
+            } catch (const std::invalid_argument&) {
+                rejected = true;
+            }
+            require(rejected, "glyph offset outside [0,1) accepted");
+        }
         require(font.shape("\xE4\xB8\xAD", 20).missing_glyph, "CJK missing glyph cannot masquerade as supported font");
         bool invalid{};
         try {
