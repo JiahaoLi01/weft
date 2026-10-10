@@ -1,5 +1,5 @@
-#include "caseelephant/render_backend.h"
-#include "caseelephant/render_backend_d3d11.h"
+#include "weft/render_backend.h"
+#include "weft/render_backend_d3d11.h"
 
 int main(void) {
     weft_render_backend backend = {0};

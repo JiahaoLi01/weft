@@ -1,6 +1,6 @@
 # Inline、Unicode、滚动与圆角探针
 
-2026-10-08 的 M0 阶段交付。新的 `caseelephant_flow_page_probe` 组合 block/Flex/absolute 与普通 inline 文本；旧 auto/positioned profile 和旧浏览器参考保持各自的边界。公开入口是实验 C++ 值接口，尚非稳定 SDK、一般 HTML loader 或完整 CSS 引擎。
+2026-10-08 的 M0 阶段交付。新的 `layout/flow_page`（属 `weft::layout`）组合 block/Flex/absolute 与普通 inline 文本；旧 auto/positioned profile 和旧浏览器参考保持各自的边界。公开入口是实验 C++ 值接口，尚非稳定 SDK、一般 HTML loader 或完整 CSS 引擎。
 
 ## 实际输入与排版
 

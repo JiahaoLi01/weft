@@ -1,6 +1,6 @@
 # 可扩展渲染后端 API
 
-2026-10-07：已实现独立 `caseelephant_render_backend` 模块和实验 v1 C ABI。实际 D3D11 参考适配器、React 原生窗口经过此接口。Vulkan、原生 Metal 和 MoltenVK 适配器尚未实现；接口测试中的模拟 Metal/custom 后端只验证合同，不代表平台 GPU 验收。
+2026-10-07：已实现独立 `render/render_backend` 模块（属 `weft::render`）和实验 v1 C ABI。实际 D3D11 参考适配器、React 原生窗口经过此接口。Vulkan、原生 Metal 和 MoltenVK 适配器尚未实现；接口测试中的模拟 Metal/custom 后端只验证合同，不代表平台 GPU 验收。
 
 ## 三层边界
 
@@ -10,7 +10,7 @@
 | 图形 API 适配器 | 复制输入快照、创建和保护资源、材质/上传/录制、退休；解释自己的原生 pass payload | D3D11、Vulkan、Metal 或宿主自定义 function table |
 | 宿主/示例壳 | device、窗口/surface、原生录制范围、目标、实际提交、present、真实完成通知 | device epoch、队列身份、submission/completion serial |
 
-公共入口在 [render_backend.h](../include/caseelephant/render_backend.h)。使用 `weft_renderer_create` 注册复制后的 `weft_render_backend` function table；`user_data` 借用到成功 destroy。核心不按 API 编写渲染分支，也不自动创建 Vulkan/Metal device。新增 backend API ID 可按约定从 1024 起分配。所有回调和 renderer 操作都在创建 owner；同步重入返回 busy，异常不能跨 C ABI。
+公共入口在 [render_backend.h](../include/weft/render_backend.h)。使用 `weft_renderer_create` 注册复制后的 `weft_render_backend` function table；`user_data` 借用到成功 destroy。核心不按 API 编写渲染分支，也不自动创建 Vulkan/Metal device。新增 backend API ID 可按约定从 1024 起分配。所有回调和 renderer 操作都在创建 owner；同步重入返回 busy，异常不能跨 C ABI。
 
 ## 当前绘制 profile
 
@@ -26,7 +26,7 @@
 
 `weft_render_pass` 带 renderer instance、API ID、device epoch、queue、target extent/format/sample count，外加 call-scoped `native_pass` 与字节长度。核心拒绝错实例/API、错 epoch、错误队列和不支持的目标，具体适配器再校验自己的 payload schema 与原生对象。opaque pointer 不是任意对象的通用解释方式；宿主必须传对应后端的有效类型。
 
-[D3D11 payload](../include/caseelephant/render_backend_d3d11.h) 借用新建的 exclusive deferred context 和同 device RTV，返回一份由宿主持有的 command list COM 引用。默认保留目标内容；显式 clear 可用于独立样例。适配器只录制/关闭这份专用 list，不 Execute、Present 或等待。示例支持固定 reference canvas 尺寸，不宣称任意 target geometry 已验收。
+[D3D11 payload](../include/weft/render_backend_d3d11.h) 借用新建的 exclusive deferred context 和同 device RTV，返回一份由宿主持有的 command list COM 引用。默认保留目标内容；显式 clear 可用于独立样例。适配器只录制/关闭这份专用 list，不 Execute、Present 或等待。示例支持固定 reference canvas 尺寸，不宣称任意 target geometry 已验收。
 
 未来 Vulkan payload 可以声明 VkCommandBuffer、目标 image/view、render-pass/dynamic-rendering 范围、layout/barrier 的入出状态与责任；Metal payload 可声明 device、command buffer 和已打开的 render encoder 及 attachment/load/store 合同。这些 native scope schema 分别定义，不能强迫 Metal encoder 遵循 D3D11 deferred-context 模型。通用层不会隐式 begin/end 宿主的 pass；具体 scope 开始、结束和失败取消方式由对应 schema 写明。shader 的 HLSL/SPIR-V/MSL 工具链也由适配器选择。
 

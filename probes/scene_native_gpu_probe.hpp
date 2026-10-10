@@ -1,5 +1,5 @@
 #pragma once
-#include "caseelephant/scene_native_probe.hpp"
+#include "scene/scene_native.hpp"
 #include "gallery_constants.hpp"
 
 class SceneNativeGpu {

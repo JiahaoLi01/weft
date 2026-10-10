@@ -1,7 +1,7 @@
 #pragma once
 
-#include "caseelephant/constants/common.hpp"
-#include "caseelephant/constants/script.hpp"
+#include "constants/common.hpp"
+#include "constants/script.hpp"
 
 // Test-only values of the layout, page and input tests. Each constant has the type of the
 // literal it replaced.

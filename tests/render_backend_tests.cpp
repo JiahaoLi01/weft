@@ -1,5 +1,5 @@
-#include "caseelephant/render_external_texture.h"
-#include "caseelephant/constants/common.hpp"
+#include "weft/render_external_texture.h"
+#include "constants/common.hpp"
 #include "support/check.hpp"
 #include "test_constants/render.hpp"
 #include <array>

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "caseelephant/constants/common.hpp"
-#include "caseelephant/constants/render.hpp"
+#include "constants/common.hpp"
+#include "constants/render.hpp"
 
 // Constants of the D3D11 host probes: probes/d3d11_probe.cpp and the probe headers it includes
 // mid-file. Each constant has the type of the literal it replaced (see docs/coding-style.md).

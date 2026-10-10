@@ -8,7 +8,7 @@ Weft 的目标是在 Windows、Android 和 iOS 上，用同一套 HTML、CSS 和
 
 新增 [通用交互优化与可切换 profiler](docs/incremental-ui-profiler.md)：Gallery 侧栏/F8 开启曲线、分项 timer 与 P50/P95/P99/Max，默认关闭、全速运行。修正正常松开鼠标的误 Cancel，精确 style memo 与 owner 增量值/几何复用，诊断 footer 移至 native overlay；原始组件/库不改。当前预览：`weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/incremental-ui/interactive`。Esc 后 `python tools/analyze_gallery_trace.py <输出目录>` 合并有界双线程 trace。Release/Debug 各87/87，K-Line/多案例 Anime 仍需按游戏 UI 毫秒预算继续优化。
 
-代码规范化（2026-10-10）：全部 C/C++ 与 HLSL 按 [代码规范](docs/coding-style.md) 重排并命名常量，Release 反汇编逐函数对照证明行为不变；后续架构重构按 [重构计划](docs/refactoring-plan.md) 分步进行。 第 1 步已完成：`src/base` 提供 `Diag`/`Result<T>`、共享 CSS 标量解析、代际槽表与 `OwnerThread`，替换 10 个 profile 的解析副本和四套槽表，全量测试与 owner CPU 对照不变，见 [status](docs/status.md)。
+代码规范化（2026-10-10）：全部 C/C++ 与 HLSL 按 [代码规范](docs/coding-style.md) 重排并命名常量，Release 反汇编逐函数对照证明行为不变；后续架构重构按 [重构计划](docs/refactoring-plan.md) 分步进行。 第 1–4 步已完成：`src/base` 提供 `Diag`/`Result<T>`、共享 CSS 标量解析、代际槽表与 `OwnerThread`；测试共用 `tests/support`；平台 JS 内嵌进脚本库；源码按 `src/<模块>` 拆成 `weft::<模块>` 静态库，公开 C ABI 位于 `include/weft/`。全量测试不变，见 [status](docs/status.md)。
 
 此前阶段 [交互/动画优化](docs/gallery-interaction-profile.md)：K-Line单例owner P50约49→14ms；Spring Trail静态emoji图像不再逐帧重建，paint约11.59→0.094ms。这些为此前单轮/中途测量，当前对照见上方新阶段，Present FPS不能代替Owner/age/输入延迟。
 
@@ -22,7 +22,7 @@ Windows 构建：`cmake --preset windows-msvc` → `cmake --build --preset windo
 
 已增加固定 Roboto → Noto CJK 中文回退，原样 AlertBar/Zustand/store/双向 UE 数据桥在预览 CSS 下输出八帧 DX11 像素，1,336 项浏览器几何和状态对照通过。桥只捕获本地数据；完整原游戏 CSS、完整 UI 和移动仍待验收，见 [中文与状态组件](docs/cjk-alert-probe.md)。
 
-新增公共 `caseelephant_style_probe`：positioned 和 Flex 页面共享作者层叠、属性选择器、主题变量继承/回退/循环、computed-value 失效及 rgba。原始 operations.css 的主题块和展开规则已在八帧 AlertBar 中运行，2,672 个浏览器颜色分量与 1,336 个几何字段通过；明确尺寸适配仍保留。最终 Debug/Release 37/37，新增范围和 React 强制 GC 7/7，见 [公共样式实际合同](docs/style-cascade-probe.md)。
+新增公共 `weft::style`：positioned 和 Flex 页面共享作者层叠、属性选择器、主题变量继承/回退/循环、computed-value 失效及 rgba。原始 operations.css 的主题块和展开规则已在八帧 AlertBar 中运行，2,672 个浏览器颜色分量与 1,336 个几何字段通过；明确尺寸适配仍保留。最终 Debug/Release 37/37，新增范围和 React 强制 GC 7/7，见 [公共样式实际合同](docs/style-cascade-probe.md)。
 
 新增自动布局接口：受限 block/Flex/absolute、内容高度、中文固有宽度、1–4 值 padding 和 ASCII 多行。原样 AlertBar 已解除内部固定尺寸，48 个 mutation 场景及八帧 DX11 通过浏览器几何对照。最终 Debug/Release 各 42/42，自动布局与 React GC 6/6。范围与复现见 [自动布局合同](docs/automatic-layout-probe.md)。
 

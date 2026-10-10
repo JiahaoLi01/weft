@@ -1,8 +1,8 @@
-#include "caseelephant/auto_page_probe.hpp"
-#include "caseelephant/script_platform.hpp"
+#include "layout/auto_page.hpp"
+#include "script/script_platform.hpp"
 #include "support/check.hpp"
 #include "support/files.hpp"
-#include "caseelephant/constants/layout.hpp"
+#include "constants/layout.hpp"
 #include "test_constants/layout.hpp"
 #include <cmath>
 #include <fstream>

@@ -1,4 +1,4 @@
-#include "caseelephant/base/diagnostic.hpp"
+#include "base/diagnostic.hpp"
 
 namespace weft {
     const char* diag_name(Diag code) noexcept {

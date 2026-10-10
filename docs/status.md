@@ -4,8 +4,27 @@
 
 ## 本次已实现
 
+重构第 4 步：改名 Weft、模块化 CMake、公开/私有头分离（2026-10-10）。按 [重构计划](refactoring-plan.md#第-4-步记录2026-10-10)：
+- **改名**：命名空间 `weft::`；C ABI `weft_*`/`WEFT_*`，入口头 `include/weft/weft.h`；诊断码 `WEFT_*`；可执行文件 `weft_*`；类型和文件去掉 `Probe` 前缀。被 fixture 或浏览器参考锁定的名字保持原样（`__ce*` JS 全局、`ProbeRoboto`/`ProbeCjk` 字体族、参考时钟、原样 bundle）。
+- **头文件**：`include/weft/` 只放 4 个 C ABI 头；内部头移到 `src/<模块>/`，以 `"<模块>/<文件>.hpp"` 引用。
+- **CMake**：根文件只剩选项和子目录；`cmake/WeftTargets.cmake` 提供 `weft_add_library`/`weft_add_executable`/`weft_add_test`/`weft_add_python_test`，第三方依赖在 `cmake/WeftThirdParty.cmake`。
+- **目标**：模块库为 `weft::base`/`core`/`render`/`canvas`/`script`/`text`/`style`/`layout`/`scene`/`input`，Windows 另有 `weft::canvas_d2d`/`scene_d2d`。6 个测试可执行文件去掉 `_probe`（如 `weft_canvas_tests`），测试名不变。
+- **来源记录**：`flow_input_tests.cpp` 只改了 include 行，已追加等价后继 hash。
+
+验证：
+- **测试定义**：`ctest --preset windows-release --show-only=json-v1` 与改前逐项对照，88 项命令、参数、超时、fixture、依赖、工作目录全部一致。
+- **GC 压力配置**：用 Ninja 加 `-DQJS_ENABLE_GC_STRESS=ON` 分别配置改前（`fce0361` 的 worktree）与改后，86 项测试定义一致；141 个源文件的宏定义和编译开关一致，差异只有新增的 `src/` include 根，以及合并后 layout 源多出的只影响警告的 `-external:W0`。
+- **全量测试**：`ctest --preset windows-release --parallel 6 --output-on-failure` 为 **88/88（68.4 s）**，`windows-debug` 为 **88/88（213.8 s）**，日志在 `artifacts/local/refactor-step4/`。
+- **Release 耗时说明**：比第 3 步多出的时间全在 `gallery_runtime_integrity`/`gallery_source_integrity` 两个 Python 哈希检查（34.5/19.2 s）。原因是刚检出临时 worktree 后文件缓存是冷的，清理后单独复跑两项合计 1.1 s。
+
+未验证：硬件窗口探针、GC 压力配置的实际构建与运行。
+
+下一步：第 5 步，把 D3D11 渲染器、FramePacket 和两帧流水线移入 `src/render`，经 `RenderBackend` concept 接 C ABI。
+
+以下第 3 步及更早内容为历史阶段证据：
+
 重构第 3 步：平台 JS 内嵌（2026-10-10）。按 [重构计划](refactoring-plan.md#第-3-步记录2026-10-10)，`web_host`、`animation_frame`、`scene_platform` 三个 owner 平台模块从 `probes/` 移到 `src/script/js/`：
-- **内嵌方式**：构建时由 `cmake/embed_bytes.cmake` 生成字节表编进 `caseelephant_script`，CRLF 统一为 LF。
+- **内嵌方式**：构建时由 `cmake/embed_bytes.cmake` 生成字节表编进 `caseelephant_script`（现 `weft::script`），CRLF 统一为 LF。
 - **接口**：新增 `script_platform.hpp`，提供 `install_script_platform(vm, module)` 等三个函数。运行时库不再需要源码树。
 - **调用点**：测试和探针中 37 处按源码路径读取改为通过该接口安装。`owner_hotpath_tests` 的优化前差分仍读 fixture。
 - **新增测试**：校验内嵌文本与源文件一致，三个模块无需文件访问即可按序安装。
@@ -37,7 +56,7 @@
 
 以下第 1 步及更早内容为历史阶段证据：
 
-重构第 1 步：`src/base`（2026-10-10）。按 [重构计划](refactoring-plan.md#第-1-步记录2026-10-10) 新增 `caseelephant_base`：
+重构第 1 步：`src/base`（2026-10-10）。按 [重构计划](refactoring-plan.md#第-1-步记录2026-10-10) 新增 `caseelephant_base`（现 `weft::base`）：
 - **诊断与结果类型**：`Diag` 诊断码与 `Result<T>`；过渡用的 `DiagnosticError` 保留原 `WEFT_*` 消息文本。
 - **共享 CSS 标量解析**：trim/split/number/unit/color/rect 求交，替换 10 个 profile 中的副本。
 - **`GenerationalSlots`**：替换 runtime、renderer、resource lifetime 与脚本 DOM 的四套代际槽表。
@@ -64,7 +83,7 @@ C ABI 布局、句柄代际序列、异常类型和诊断文本保持不变。�
   - 源文件统一为 `.gitattributes` 规定的 LF。
   - 代码从 14,212 行变为 38,130 行（含新增常量头），原最长一行 3,082 字符。超过 120 列的只剩嵌入的 JS/CSS 字符串字面量，按设计不改其内容。
 - **命名常量**：新增 17 个常量头，共 632 个命名常量。
-  - `include/caseelephant/constants/` 下是 `common` 加 9 个模块头，由 `constants.hpp` 汇总。
+  - `src/constants/` 下是 `common` 加 9 个模块头，由 `all.hpp` 汇总（第 4 步前位于 `include/caseelephant/constants/`）。
   - 测试常量在 `tests/test_constants/`，探针常量在 `probes/{probe,gallery}_constants.hpp`。
   - 跨模块的同义值（DOM nodeType、码点范围、坐标/视口上限、canvas 默认尺寸、命名空间 URI、CSS 初始值等）只定义一次。
   - M0 与 scene native 两个着色器的材质编号、梯度类型、sRGB/SDF 常量与 C++ 侧互相对照命名。
@@ -231,7 +250,7 @@ Release RTX5090隐藏正确性窗口末段同时显示16个CSS body：111个暖�
 
 Canvas2D 阶段（2026-10-09）：两个原样 gallery 案例（粒子/烟花）已在自己的 QuickJS、native context、positioned 几何和 D3D11 中运行，各 64 个 rAF、两次移动/点击、400×300 CSS 缩放并恢复，分别 6,500/5,006 次 fill；原游戏与原始函数/包未改。图形 API 无关的 owner raster factory 接 Windows D2D SOFTWARE/WIC，输出完整 immutable sRGB straight RGBA8，Node/context tracing、detached 保活、尺寸同值重置、容量/故障/epoch 均验证。已加入最大化 4K 合成/FPS 窗口，Tab 切换、移动/点击、Esc 退出；原 Canvas backing 仍为 800×600。运行命令、精确值范围与限制见 [Canvas 阶段](gallery-canvas.md)。
 
-最终 **Debug 67/67，74.12 秒；Release 67/67，26.16 秒；强制 GC 的 Canvas/DOM/rAF/八轮 React 4/4，51.32 秒**。实际执行两组 `cmake --build --preset windows-{debug,release} --parallel 10` / 对应 CTest preset；GC 使用 `cmake --build build/windows-gc-stress --config Debug --target weft_canvas_probe_tests weft_script_dom_tests weft_animation_frame_tests weft_page_probe_tests --parallel 10` 与 `ctest --test-dir build/windows-gc-stress -C Debug -R 'canvas_2d_contract|script_dom_lifecycle|animation_frame_contract|page_react_contract' --output-on-failure`。Release 首轮新增 style 断言误用了序列化空格（已改为比较颜色值）；后续发现旧 HUD probe 假设资源必在途，已增加实际提交且完成确认前检查保活。修正后 Release 全量通过，Debug 最终 Canvas/4K 范围另 5/5、9.74 秒。日志分开保存，测试时间不是性能指标；部分任务并行，不用于比较性能。
+最终 **Debug 67/67，74.12 秒；Release 67/67，26.16 秒；强制 GC 的 Canvas/DOM/rAF/八轮 React 4/4，51.32 秒**。实际执行两组 `cmake --build --preset windows-{debug,release} --parallel 10` / 对应 CTest preset；GC 使用 `cmake --build build/windows-gc-stress --config Debug --target weft_canvas_tests weft_script_dom_tests weft_animation_frame_tests weft_page_tests --parallel 10` 与 `ctest --test-dir build/windows-gc-stress -C Debug -R 'canvas_2d_contract|script_dom_lifecycle|animation_frame_contract|page_react_contract' --output-on-failure`。Release 首轮新增 style 断言误用了序列化空格（已改为比较颜色值）；后续发现旧 HUD probe 假设资源必在途，已增加实际提交且完成确认前检查保活。修正后 Release 全量通过，Debug 最终 Canvas/4K 范围另 5/5、9.74 秒。日志分开保存，测试时间不是性能指标；部分任务并行，不用于比较性能。
 
 Debug/Release 的硬件 RTX 5090 与 WARP 各运行两个原样案例。每 run 20,460 个 GPU/独立 CPU 合成采样最大 1 色阶，每例 65 个真实完成提交/65 张退休纹理，峰值两帧；VM reset 后旧 FramePacket 重放一致。Chrome 155 的六张固定 bitmap 有显式 AA/低 alpha 舍入差异：分量最大 51–76、亮区均差 2.16–5.08、交并比 0.9208–0.9843，属于有界形状/颜色回归，非逐像素一致。另自动验证隐藏 4K HWND 点击队列、切换与 FPS HUD 像素；实体输入仍未人工验收。256 mutation snapshot 分批差分、200 detached callback/context 循环、quota/overlap/版本/故障合同通过。
 
@@ -242,7 +261,7 @@ Gallery/rAF 阶段（2026-10-09）：只读捕获 CRPG UI 的 101 个文本文�
 
 72 例原生短观察为 **38 例未发现执行错误、34 例阻断**，不标为渲染通过。主要缺口是 Canvas/WebGL、组合 selector、setInterval、NodeList、computed style/geometry 与第三方动画所需浏览器对象。完整模块能够初始化，完整原页面运行仍有错误。真实 Chrome 155.0.8059.39 的 800×600 / DPR 1 / 250 ms 单例参照没有观察到脚本错误，两个 Three.js context 确认 WebGL2；四个 Lottie 远程 JSON 明确阻止，动画未成功加载。浏览器参照不等于自己的 renderer 通过。所有 gallery native pixels/interaction/performance 与移动均未验证。
 
-本阶段全量 **Debug 63/63，83.29 秒；Release 63/63，46.46 秒；强制 GC 的 DOM/rAF/八轮 React 生命周期 3/3，46.09 秒**。实际构建使用两个 build preset，以及 `cmake --build build/windows-gc-stress --config Debug --target weft_animation_frame_tests weft_script_dom_tests weft_page_probe_tests --parallel 10`；全量用对应 CTest preset，GC 用 `ctest --test-dir build/windows-gc-stress -C Debug -R 'animation_frame_contract|script_dom_lifecycle|page_react_contract' --output-on-failure`。随后补充 Spring DOM 变化审计、异常消息/stack 和 callback invocation/coercion 反例，并重跑最终 rAF/gallery 范围（Debug/Release 各 5/5、GC rAF 1/1）；最终细分时间与 binary/source/产物 SHA 记录在 `artifacts/local/gallery-foundation/run-metadata.json`，全量和最终日志分开保存。部分任务并行，耗时不是性能指标。
+本阶段全量 **Debug 63/63，83.29 秒；Release 63/63，46.46 秒；强制 GC 的 DOM/rAF/八轮 React 生命周期 3/3，46.09 秒**。实际构建使用两个 build preset，以及 `cmake --build build/windows-gc-stress --config Debug --target weft_animation_frame_tests weft_script_dom_tests weft_page_tests --parallel 10`；全量用对应 CTest preset，GC 用 `ctest --test-dir build/windows-gc-stress -C Debug -R 'animation_frame_contract|script_dom_lifecycle|page_react_contract' --output-on-failure`。随后补充 Spring DOM 变化审计、异常消息/stack 和 callback invocation/coercion 反例，并重跑最终 rAF/gallery 范围（Debug/Release 各 5/5、GC rAF 1/1）；最终细分时间与 binary/source/产物 SHA 记录在 `artifacts/local/gallery-foundation/run-metadata.json`，全量和最终日志分开保存。部分任务并行，耗时不是性能指标。
 
 最新 native JSON 在 `artifacts/local/gallery-foundation/{debug,release}/native-execution.json`，参照/截图在 `artifacts/local/gallery-foundation/reference/`，固定 bundle/metadata 在 `examples/crpg-gallery/native/`。正常构建不联网、不需要原游戏，源码 drift 检查只读。该 Foundation 阶段尚未实现 Canvas；现两例进展见上方。该 Foundation 阶段的公共 external texture API 尚未实现，现进展见上方；ANGLE 继续待实现；SVG/CSS/动画按逐例缺口扩展。旧连续运动窗口和 C ABI 不改变；下方为此前阶段证据。
 

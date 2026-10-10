@@ -1,6 +1,6 @@
-#include "caseelephant/text_probe.hpp"
+#include "text/font.hpp"
 #include "support/check.hpp"
-#include "caseelephant/constants/text.hpp"
+#include "constants/text.hpp"
 #include "test_constants/style_text.hpp"
 #include <cmath>
 #include <iostream>

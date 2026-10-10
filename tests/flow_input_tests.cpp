@@ -1,8 +1,8 @@
-#include "caseelephant/flow_page_probe.hpp"
-#include "caseelephant/script_platform.hpp"
+#include "layout/flow_page.hpp"
+#include "script/script_platform.hpp"
 #include "support/check.hpp"
 #include "support/files.hpp"
-#include "caseelephant/input_probe.hpp"
+#include "input/mouse_router.hpp"
 #include "test_constants/layout.hpp"
 #include <cmath>
 #include <filesystem>

@@ -1,13 +1,13 @@
-#include "caseelephant/base/css_scalar.hpp"
+#include "base/css_scalar.hpp"
 #include "support/check.hpp"
-#include "caseelephant/base/diagnostic.hpp"
-#include "caseelephant/base/generational_slots.hpp"
-#include "caseelephant/base/owner_thread.hpp"
-#include "caseelephant/base/rect.hpp"
-#include "caseelephant/base/result.hpp"
-#include "caseelephant/constants/common.hpp"
-#include "caseelephant/constants/layout.hpp"
-#include "caseelephant/constants/scene.hpp"
+#include "base/diagnostic.hpp"
+#include "base/generational_slots.hpp"
+#include "base/owner_thread.hpp"
+#include "base/rect.hpp"
+#include "base/result.hpp"
+#include "constants/common.hpp"
+#include "constants/layout.hpp"
+#include "constants/scene.hpp"
 
 #include <cmath>
 #include <cstdint>

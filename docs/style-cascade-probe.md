@@ -1,10 +1,10 @@
 # 公共样式求值与原始主题 CSS 探针
 
-本阶段把 positioned 和 Flex 页面中的重复样式逻辑抽到 `caseelephant_style_probe`。固定 AlertBar 使用原样 React/Zustand/store/UE bundle、`operations.css` 的原始 `:root` 块和原始展开状态选择器，输出八帧中文 D3D11 像素。几何与字体仍使用作者适配；没有执行整个 `operations.css`，没有修改实时 CaseCheetah 工程。
+本阶段把 positioned 和 Flex 页面中的重复样式逻辑抽到 `weft::style`。固定 AlertBar 使用原样 React/Zustand/store/UE bundle、`operations.css` 的原始 `:root` 块和原始展开状态选择器，输出八帧中文 D3D11 像素。几何与字体仍使用作者适配；没有执行整个 `operations.css`，没有修改实时 CaseCheetah 工程。
 
 ## 模块合同
 
-入口见 [style_probe.hpp](../include/caseelephant/style_probe.hpp)，实现见 [style_probe.cpp](../src/style/style_probe.cpp)。输入是自有值 DOM snapshot、作者 stylesheet 和属性 profile，输出是自有值样式树。模块不链接 Yoga、字体、QuickJS 或图形 API，不调用 JS、不测量文字、不保存 Node 指针。DOM 类型头文件只用于值身份和快照。
+入口见 [style_probe.hpp](../src/style/style.hpp)，实现见 [style_probe.cpp](../src/style/style.cpp)。输入是自有值 DOM snapshot、作者 stylesheet 和属性 profile，输出是自有值样式树。模块不链接 Yoga、字体、QuickJS 或图形 API，不调用 JS、不测量文字、不保存 Node 指针。DOM 类型头文件只用于值身份和快照。
 
 两种页面 adapter 使用同一层叠、选择器与变量实现。`build_page(root, stylesheet, font)` 新增作者规则入口；原有 inline 入口保留。positioned adapter 新增配对样式树入口：在 `html` 快照上求值，裁取同一份快照中的 `#gallery` 和对应样式，再只格式化 gallery。`:root` 不把任意 scoped div 当作文档根。
 

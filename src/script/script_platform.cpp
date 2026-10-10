@@ -1,5 +1,5 @@
-#include "caseelephant/script_platform.hpp"
-#include "caseelephant/script_probe.hpp"
+#include "script/script_platform.hpp"
+#include "script/script_dom.hpp"
 
 #include <cstddef>
 
@@ -7,13 +7,13 @@ namespace weft {
     namespace {
         // Generated from src/script/js/*.js by cmake/embed_bytes.cmake.
         constexpr unsigned char web_host[] = {
-#include "caseelephant/script_js/web_host_bootstrap.js.inc"
+#include "script/js/web_host_bootstrap.js.inc"
         };
         constexpr unsigned char animation_frame[] = {
-#include "caseelephant/script_js/animation_frame_bootstrap.js.inc"
+#include "script/js/animation_frame_bootstrap.js.inc"
         };
         constexpr unsigned char scene_platform[] = {
-#include "caseelephant/script_js/scene_platform_bootstrap.js.inc"
+#include "script/js/scene_platform_bootstrap.js.inc"
         };
 
         // UTF-8 bytes above 0x7f cannot initialize a signed char, so the tables are unsigned.

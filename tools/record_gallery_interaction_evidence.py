@@ -72,7 +72,7 @@ for name, config in [("release", "Release"), ("debug", "Debug")]:
 runs["gc_contracts"] = tests(root / "artifacts/local/gallery-profile-gc-contracts.log", 5)
 gc = out / "verification/gc"
 gc.mkdir(parents=True, exist_ok=True)
-for name in ["weft_script_dom_tests", "weft_owner_executor_tests", "weft_style_probe_tests", "weft_scene_contract_tests", "weft_scene_cluster_tests", "weft_scene_cluster_contract_tests"]:
+for name in ["weft_script_dom_tests", "weft_owner_executor_tests", "weft_style_tests", "weft_scene_contract_tests", "weft_scene_cluster_tests", "weft_scene_cluster_contract_tests"]:
     target = gc / "bin" / (name + ".exe")
     target.parent.mkdir(exist_ok=True)
     shutil.copy2(root / "build/windows-gc-stress/bin/Debug" / target.name, target)

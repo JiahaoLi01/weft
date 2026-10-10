@@ -1,0 +1,121 @@
+# Architecture probes. Their WARP and browser-diff runs are registered as tests when WEFT_BUILD_TESTS is on.
+set(artifacts "${CMAKE_BINARY_DIR}/artifacts")
+set(fixtures "${PROJECT_SOURCE_DIR}/tests/fixtures")
+
+if(WIN32)
+    weft_add_executable(weft_d3d11_probe
+        SOURCES d3d11_probe.cpp
+        LINK weft::render weft::text weft::script weft::layout weft::input weft::canvas_d2d weft::scene_d2d
+        d3d11 dxgi d3dcompiler windowscodecs ole32 user32
+        SOURCE_DIR LARGE_STACK GC_STRESS)
+endif()
+
+if(WIN32 AND WEFT_BUILD_TESTS)
+    # weft_add_d3d11_test(<test> <mode> <artifact dir> [weft_add_test options...]) runs one WARP mode.
+    function(weft_add_d3d11_test name mode directory)
+        weft_add_test(NAME ${name} COMMAND weft_d3d11_probe ${mode} "${artifacts}/${directory}" ${ARGN})
+    endfunction()
+
+    # weft_add_d3d11_browser_diff(<test> <script> <suite> <fixture>) compares <suite>-<config>/warp/report.json with
+    # tests/fixtures/<suite>_browser_reference.json (hyphens become underscores).
+    function(weft_add_d3d11_browser_diff name script suite fixture)
+        string(REPLACE "-" "_" reference "${suite}")
+        weft_add_python_test(NAME ${name}
+            SCRIPT tools/${script}
+            ARGS "${fixtures}/${reference}_browser_reference.json" "${artifacts}/${suite}-$<CONFIG>/warp/report.json"
+            --output "${artifacts}/${suite}-$<CONFIG>/warp/browser-comparison.json"
+            FIXTURES_REQUIRED ${fixture})
+    endfunction()
+
+    weft_add_d3d11_test(d3d11_warp_owner_async --owner-async-test-warp owner-async-$<CONFIG>/warp TIMEOUT 180)
+    weft_add_d3d11_test(d3d11_warp_scene_native --scene-native-test-warp scene-native-$<CONFIG>/warp TIMEOUT 180)
+    weft_add_d3d11_test(d3d11_warp_render_stages --render-stages-test-warp render-stages-$<CONFIG>/warp TIMEOUT 180)
+    weft_add_d3d11_test(d3d11_warp_complex_css --complex-css-test-warp complex-css-$<CONFIG>/warp TIMEOUT 60)
+    weft_add_d3d11_test(d3d11_warp_scene_surface_retirement --scene-surface-retirement-warp
+        scene-surface-retirement-$<CONFIG>/warp TIMEOUT 180)
+    weft_add_d3d11_test(d3d11_warp_gallery_cluster --gallery-cluster-gpu-warp gallery-cluster-$<CONFIG>/warp TIMEOUT 300)
+    weft_add_d3d11_test(d3d11_warp_scene_gpu --scene-gpu-test-warp scene-gpu-$<CONFIG>/warp
+        TIMEOUT 240 GC_STRESS_TIMEOUT 600)
+    weft_add_d3d11_test(d3d11_warp_external_texture --external-texture-warp external-texture-$<CONFIG>/warp TIMEOUT 60)
+    weft_add_d3d11_test(d3d11_warp_gallery_preview --gallery-window-test-warp gallery-preview-$<CONFIG>/warp
+        TIMEOUT 240 GC_STRESS_TIMEOUT 600)
+    weft_add_d3d11_test(d3d11_warp_gallery_canvas_window --gallery-canvas-window-test-warp
+        gallery-canvas-$<CONFIG>/window-warp TIMEOUT 180)
+    weft_add_d3d11_test(d3d11_warp_gallery_canvas --gallery-canvas-warp gallery-canvas-$<CONFIG>/warp TIMEOUT 180)
+    weft_add_d3d11_test(d3d11_warp_two_frame --pipeline-warp two-frame-$<CONFIG>/warp TIMEOUT 180)
+    weft_add_d3d11_test(d3d11_warp_render_cache --cache-warp render-cache-$<CONFIG>/warp TIMEOUT 180)
+    weft_add_d3d11_test(d3d11_warp_flow --flow-warp flow-$<CONFIG>/warp TIMEOUT 60)
+    weft_add_d3d11_test(d3d11_warp_cheetah_flow_window --cheetah-flow-window-test-warp
+        cheetah-flow-window-$<CONFIG>/warp TIMEOUT 180)
+    weft_add_d3d11_test(d3d11_warp_cheetah_flow_window_4k --cheetah-flow-window-test-4k-warp
+        cheetah-flow-window-4k-$<CONFIG>/warp TIMEOUT 180)
+    weft_add_d3d11_test(d3d11_warp_cheetah_flow_window_motion --cheetah-flow-window-test-4k-motion-warp
+        cheetah-flow-window-motion-$<CONFIG>/warp TIMEOUT 180)
+
+    weft_add_d3d11_test(d3d11_warp_cheetah_flow --cheetah-flow-warp cheetah-flow-$<CONFIG>/warp
+        TIMEOUT 180 FIXTURES_SETUP cheetah_flow_report)
+    weft_add_d3d11_browser_diff(cheetah_flow_browser_diff compare_style_reports.py cheetah-flow cheetah_flow_report)
+
+    weft_add_d3d11_test(d3d11_warp_cheetah_style --cheetah-style-warp cheetah-style-$<CONFIG>/warp
+        TIMEOUT 60 GC_STRESS_TIMEOUT 180 FIXTURES_SETUP cheetah_style_report)
+    weft_add_d3d11_browser_diff(cheetah_style_browser_diff compare_style_reports.py cheetah-style cheetah_style_report)
+
+    weft_add_d3d11_test(d3d11_warp_cheetah_auto --cheetah-auto-warp cheetah-auto-$<CONFIG>/warp
+        TIMEOUT 180 FIXTURES_SETUP cheetah_auto_report)
+    weft_add_d3d11_browser_diff(cheetah_auto_browser_diff compare_style_reports.py cheetah-auto cheetah_auto_report)
+
+    weft_add_d3d11_test(d3d11_warp_cheetah_alert --cheetah-alert-warp cheetah-alert-$<CONFIG>/warp
+        TIMEOUT 60 GC_STRESS_TIMEOUT 180 FIXTURES_SETUP cheetah_alert_report)
+    weft_add_d3d11_browser_diff(cheetah_alert_browser_diff compare_cheetah_alert.py cheetah-alert cheetah_alert_report)
+
+    weft_add_d3d11_test(d3d11_warp_cheetah --cheetah-warp cheetah-$<CONFIG>/warp
+        TIMEOUT 60 GC_STRESS_TIMEOUT 180 FIXTURES_SETUP cheetah_report)
+    weft_add_d3d11_browser_diff(cheetah_browser_diff compare_cheetah_reports.py cheetah cheetah_report)
+
+    weft_add_d3d11_test(d3d11_warp_backend_api --backend-warp backend-$<CONFIG>/warp TIMEOUT 30)
+    weft_add_d3d11_test(d3d11_warp_sdf --sdf-warp sdf-$<CONFIG>/warp TIMEOUT 30)
+    weft_add_d3d11_test(d3d11_warp_window --react-window-test-warp window-$<CONFIG>/warp
+        TIMEOUT 30 GC_STRESS_TIMEOUT 180)
+
+    weft_add_d3d11_test(d3d11_warp_react --react-warp react-$<CONFIG>/warp
+        TIMEOUT 30 GC_STRESS_TIMEOUT 180 FIXTURES_SETUP react_report)
+    weft_add_d3d11_browser_diff(react_browser_diff compare_react_reports.py react react_report)
+
+    weft_add_d3d11_test(d3d11_warp_color_lifetime --warp gpu-$<CONFIG>/warp TIMEOUT 30 FIXTURES_SETUP gpu_report)
+    weft_add_python_test(NAME d3d11_browser_color_contract
+        SCRIPT tools/compare_gpu_reports.py
+        ARGS "${fixtures}/gpu_color_browser_reference.json" "${artifacts}/gpu-$<CONFIG>/warp/report.json"
+        --output "${artifacts}/gpu-$<CONFIG>/warp/browser-comparison.json"
+        FIXTURES_REQUIRED gpu_report)
+endif()
+
+weft_add_executable(weft_flex_layout_probe SOURCES flex_layout_probe.cpp LINK weft::layout)
+if(WEFT_BUILD_TESTS)
+    weft_add_test(NAME flex_layout_report
+        COMMAND weft_flex_layout_probe "${PROJECT_SOURCE_DIR}/third_party/ahem/Ahem.ttf" "${artifacts}/flex-$<CONFIG>"
+        FIXTURES_SETUP flex_report)
+    weft_add_python_test(NAME flex_browser_diff
+        SCRIPT tools/compare_flex_reports.py
+        ARGS "${fixtures}/flex_browser_reference.json" "${artifacts}/flex-$<CONFIG>/css-adapter.json"
+        --output "${artifacts}/flex-$<CONFIG>/browser-comparison.json"
+        FIXTURES_REQUIRED flex_report)
+endif()
+
+weft_add_executable(weft_gallery_probe SOURCES gallery_probe.cpp LINK weft::script SOURCE_DIR LARGE_STACK)
+if(WEFT_BUILD_TESTS AND NOT QJS_ENABLE_GC_STRESS AND Python3_Interpreter_FOUND)
+    weft_add_test(NAME gallery_native_observation
+        COMMAND weft_gallery_probe "${artifacts}/gallery-$<CONFIG>"
+        TIMEOUT 60
+        FIXTURES_SETUP gallery_observation)
+    weft_add_python_test(NAME gallery_observation_audit
+        SCRIPT tools/verify_gallery_execution.py
+        ARGS "${artifacts}/gallery-$<CONFIG>/native-execution.json"
+        FIXTURES_REQUIRED gallery_observation)
+endif()
+
+weft_add_executable(weft_script_dom_probe SOURCES script_dom_probe.cpp LINK weft::script SOURCE_DIR)
+if(WEFT_BUILD_TESTS)
+    weft_add_test(NAME d3_native_dom
+        COMMAND weft_script_dom_probe "${PROJECT_SOURCE_DIR}/third_party/d3/d3.js" "${fixtures}/d3_probe.js"
+        TIMEOUT 30)
+endif()

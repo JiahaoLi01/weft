@@ -1,8 +1,8 @@
 #pragma once
 
-#include "caseelephant/constants/common.hpp"
-#include "caseelephant/constants/scene.hpp"
-#include "caseelephant/constants/script.hpp"
+#include "constants/common.hpp"
+#include "constants/scene.hpp"
+#include "constants/script.hpp"
 #include "probe_constants.hpp"
 #include "../tests/test_constants/support.hpp"
 

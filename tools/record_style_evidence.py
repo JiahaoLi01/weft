@@ -13,14 +13,14 @@ sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
 sources=['CMakeLists.txt','third_party/manifest.json','tests/fixtures/casecheetah/manifest.json',
  'examples/cheetah-style/metadata.json','examples/cheetah-style/profile.css',
  'tests/fixtures/style_browser_reference.json','tests/fixtures/cheetah_style_browser_reference.json',
- 'tests/style_probe_tests.cpp','tools/build_cheetah_style.py','tools/verify_style_fixture.py',
+ 'tests/style_tests.cpp','tools/build_cheetah_style.py','tools/verify_style_fixture.py',
  'tools/compare_style_reports.py','tools/record_style_evidence.py']
 sources+=sorted(p.relative_to(root).as_posix() for directory in ('src','include','probes','shaders') for p in (root/directory).rglob('*') if p.is_file())
 for name,build,config,count,log in [('debug','windows-msvc','Debug',37,'ctest-full.log'),
  ('release','windows-msvc','Release',37,'ctest-full.log'),('gc-stress','windows-gc-stress','Debug',7,'ctest-focused.log')]:
     folder=root/'artifacts/local'/('style-'+name);gpu_folder=root/'artifacts/local'/('cheetah-style-'+name)
     binary=root/'build'/build/'bin'/config/'weft_d3d11_probe.exe'
-    style_binary=binary.with_name('weft_style_probe_tests.exe')
+    style_binary=binary.with_name('weft_style_tests.exe')
     text=(folder/log).read_text(encoding='utf-8');assert f'0 tests failed out of {count}' in text
     assert (folder/log).stat().st_mtime>=max(binary.stat().st_mtime,style_binary.stat().st_mtime)
     duration=float(re.search(r'Total Test time \(real\) =\s+([\d.]+)',text).group(1))

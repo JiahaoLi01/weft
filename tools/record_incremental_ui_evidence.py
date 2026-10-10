@@ -48,7 +48,7 @@ for name, config in (("release", "Release"), ("debug", "Debug"), ("asan", "Relea
     dest = out / "verification" / name
     dest.mkdir(parents=True, exist_ok=True)
     shutil.copy2(build / "CMakeCache.txt", dest / "CMakeCache.txt")
-    for binary in ("weft_d3d11_probe.exe", "weft_style_probe_tests.exe", "weft_scene_contract_tests.exe"):
+    for binary in ("weft_d3d11_probe.exe", "weft_style_tests.exe", "weft_scene_contract_tests.exe"):
         shutil.copy2(build / "bin" / config / binary, dest / binary)
     if name == "asan":
         shutil.copy2(build / "bin" / config / "clang_rt.asan_dynamic-x86_64.dll", dest / "clang_rt.asan_dynamic-x86_64.dll")

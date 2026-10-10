@@ -1,4 +1,4 @@
-#include "caseelephant/resource_lifetime.hpp"
+#include "render/resource_lifetime.hpp"
 
 #include <algorithm>
 #include <new>

@@ -34,8 +34,9 @@
 ## 目标结构
 
 ```
-include/caseelephant/      版本化 C ABI（ce.h、render_backend.h…）与公开 C++ 外观
-src/base/                  诊断码与 expected、代际 slot 表、owner 线程检查、标量解析、constants
+include/weft/              版本化 C ABI（weft.h、render_backend.h…）与公开 C++ 外观
+src/base/                  诊断码与 expected、代际 slot 表、owner 线程检查、标量解析
+src/constants/             命名常量（仅头文件）
 src/dom/                   原生 DOM：NodeId、树、属性、mutation journal、选择器
 src/css/                   解析、PropertyId 与类型化值、级联、计算样式、动画/过渡
 src/text/                  HarfBuzz/FreeType/libunibreak 塑形、回退、字形缓存
@@ -63,7 +64,7 @@ probes/ tests/ tools/      证据与验证，只依赖 src，不被 src 依赖
 | 1 ✅ | `src/base`：统一 CSS 标量解析、`enum class Diag` + `Result<T>`、代际 slot 表、`OwnerThread` | `src/layout/*`、`scene_*`、`style_probe`、`canvas_probe`、`runtime`、`render_backend`、`resource_lifetime` | 旧实现逐字副本随机差分、各 profile 上限保留、全量测试不变；见下方第 1 步记录 |
 | 2 ✅ | `tests/support`：check 宏、文件/PNG 工具；`host_time`、`window_frame_rate`、`gallery_owner_trace` 移出探针 | `tests/*`、`probes/*` | 全量测试；见下方第 2 步记录 |
 | 3 ✅ | bootstrap JS 由 CMake 生成 `.inc` 内嵌，去掉运行时 `WEFT_SOURCE_DIR` | `script_dom_probe.cpp`、各窗口/探针 | 脚本与 GC 测试；移动/主机打包前置条件；见下方第 3 步记录 |
-| 4 | CMake 拆成模块目录与 `ce::` 目标，`weft_add_test()`；公开/私有头分离；去 `Probe` 前缀 | `CMakeLists.txt`、`include/` | 全量构建与测试，C ABI smoke |
+| 4 ✅ | 改名 Weft；CMake 拆成模块目录与 `weft::` 目标，`weft_add_test()`；公开/私有头分离；去 `Probe` 前缀 | `CMakeLists.txt`、`include/`、全部源码 | 测试定义与编译选项逐项对照、全量构建与测试、C ABI smoke；见下方第 4 步记录 |
 | 5 | D3D11 渲染器、FramePacket、两帧流水线移入 `src/render`，经 `RenderBackend` concept 接 C ABI；探针头改为独立 TU | `probes/d3d11_probe.cpp`、`probe_render_backend.hpp`、`two_frame_pipeline.hpp`、`scene_native_gpu_probe.hpp` | WARP/硬件像素、两帧退休、debug layer 零告警 |
 | 6 | scene 可移植化：拆出纯几何/命中 TU；DirectWrite 量字换成与 flow 相同的 HarfBuzz 测量；D2D 退为 Windows 参考 raster | `scene_probe.hpp`、`scene_d2d_probe.cpp`、`gallery_scene_session.hpp` | 字体度量会变，重新建立 Chrome 对照基线（已确认） |
 | 7 | 类型化样式：PropertyId、长度/颜色/关键字值，去掉字符串往返与正则插值 | `style_probe`、`flow_page`、`auto_page`、`scene_probe` | 级联/动画差分、gallery 像素与几何 |
@@ -73,7 +74,7 @@ probes/ tests/ tools/      证据与验证，只依赖 src，不被 src 依赖
 
 ## 第 1 步记录（2026-10-10）
 
-`caseelephant_base`（`include/caseelephant/base/`、`src/base/`）提供以下内容：
+`caseelephant_base`（现为 `weft::base`，位于 `src/base/`）提供以下内容：
 
 - **`diagnostic.hpp`**：`Diag` 枚举、`Diagnostic`，以及过渡用的 `DiagnosticError`。`DiagnosticError` 继承 `std::invalid_argument`，消息仍以原 `WEFT_*` 名称开头。
 - **`result.hpp`**：`Result<T>`/`Status`。C++20 没有 `std::expected`，这里只实现运行时需要的部分。
@@ -131,13 +132,13 @@ probes/ tests/ tools/      证据与验证，只依赖 src，不被 src 依赖
 - `animation_frame_bootstrap.js`：rAF 批次；
 - `scene_platform_bootstrap.js`：SVG/Element、窗口事件、几何读取、ResizeObserver、matchMedia。
 
-构建时由 `cmake/embed_bytes.cmake` 生成 `build/<preset>/generated/caseelephant/script_js/*.js.inc`，编进 `caseelephant_script`。生成规则如下：
+构建时由 `cmake/embed_bytes.cmake` 生成 `build/<preset>/generated/script/js/*.js.inc`，编进 `weft::script`。生成规则如下：
 
 - **换行**：CRLF 统一为 LF，内嵌文本不随 checkout 方式变化。
 - **字节表**：用无符号字节表，不受 MSVC 单个字符串字面量长度上限的约束。
 - **增量**：内容不变时不改写输出文件，避免无谓重编。
 
-公开接口 `include/caseelephant/script_platform.hpp` 提供三个函数：`script_platform_source`、`script_platform_file`、`install_script_platform(vm, module)`。运行时库因此不再需要源码树。
+公开接口 `src/script/script_platform.hpp` 提供三个函数：`script_platform_source`、`script_platform_file`、`install_script_platform(vm, module)`。运行时库因此不再需要源码树。
 
 迁移与测试：
 
@@ -145,6 +146,45 @@ probes/ tests/ tools/      证据与验证，只依赖 src，不被 src 依赖
 - **新增测试**：`script_dom_lifecycle` 校验内嵌文本与源文件一致，三个模块无需文件访问即可按序安装。
 
 仍然保留的源码树依赖：浏览器参考时钟（`probes/*_reference_clock.js`，供浏览器采集工具使用，路径被 fixture 清单锁定）、测试 fixture、字体和 gallery 原样 bundle。它们都只属于测试与证据，不属于运行时。
+
+## 第 4 步记录（2026-10-10）
+
+项目定名 Weft（CaseElephant 是立项代号）。分两次提交。
+
+**改名**（提交 `fce0361`）：
+- **命名空间与 ABI**：`caseelephant::` → `weft::`；C ABI `ce_*`/`CE_*` → `weft_*`/`WEFT_*`，`ce.h` → `weft.h`；诊断码为 `WEFT_*`。
+- **CMake**：`project(Weft)`、`WEFT_BUILD_TESTS`、`WEFT_SOURCE_DIR`，可执行文件 `weft_*`。
+- **去 `Probe` 前缀**：`ScriptDomProbe` → `ScriptDom`、`ProbeDomSnapshot` → `DomSnapshot`、`TextProbeFont` → `Font` 等。
+- **保持不变**：固定 fixture、原样 bundle（`examples/**`）、`third_party/`、浏览器参考时钟、JS 宿主全局 `__ce*`、字体族名 `ProbeRoboto`/`ProbeCjk`。它们被 fixture 清单或浏览器参考锁定。
+
+**目录与构建**：
+- **公开头**：只剩 C ABI，即 `include/weft/` 下的 `weft.h`、`render_backend.h`、`render_backend_d3d11.h`、`render_external_texture.h`。
+- **内部头**：移到 `src/<模块>/`，与实现同目录，以 `"<模块>/<文件>.hpp"` 引用。
+- **文件去 `_probe`**：例如 `script_dom_probe.cpp` → `script/script_dom.cpp`，`text_probe` → `text/font`，`input_probe` → `input/mouse_router`，`rounded_probe` → `render/rounded_clip`。
+- **scene 归位**：scene 文件从 `src/layout`、`src/render` 归到 `src/scene/`。
+- 共移动 64 个文件，均用 `git mv` 保留历史。
+
+CMake 拆分：
+- **根文件**：根 `CMakeLists.txt` 只剩选项与子目录；`src/`、`tests/`、`probes/` 和每个模块目录各有自己的 CMakeLists。
+- **`cmake/WeftTargets.cmake`** 提供四个函数：
+  - `weft_add_library`：建 `weft_<模块>` 与别名 `weft::<模块>`；
+  - `weft_add_executable`：用 `SOURCE_DIR`/`LARGE_STACK`/`GC_STRESS` 开关取代原先重复 13 次的 `/STACK:8388608` 与宏定义；
+  - `weft_add_test`：默认在构建根运行，支持 `GC_STRESS_TIMEOUT`；
+  - `weft_add_python_test`：没有 Python 时不注册。
+- **`cmake/WeftThirdParty.cmake`**：固定第三方依赖与 `weft_unibreak`。
+- **生成文件**：内嵌 JS 表改到 `build/<preset>/generated/script/js/`。
+
+模块目标是 base/core/render/canvas/script/text/style/layout/scene/input，Windows 另有 `canvas_d2d`、`scene_d2d`：
+- **合并**：原 19 个 `caseelephant_*` 库按目录合并为 12 个。render 含 lifetime/backend/rounded_clip，layout 含 inline/flex/page/positioned/auto/flow。
+- **不变**：静态库只按引用提取目标文件，因此可执行文件链入的代码不变。
+
+验证：
+- **测试定义**：改前后用 `ctest --show-only=json-v1` 逐项对照。88 项的名称、命令参数、超时、fixture、依赖和工作目录全部一致，只有可执行文件改了名。GC 压力配置另用 Ninja 只做配置对照，86 项同样一致。
+- **编译选项**：同一 Ninja 配置导出 compile_commands，141 个源文件的宏定义与编译开关逐个一致；`WEFT_SOURCE_DIR`、`WEFT_REACT_GC_STRESS` 落在与原先相同的文件上。差异只有两处：
+  - 模块源多了 `src/` include 根；
+  - 合并后的 layout 源能看到 yoga/harfbuzz/libunibreak 头路径，因此多出一个只影响警告级别的 `-external:W0`。
+- **全量测试**：结果见 [status](status.md)。
+
 ## 已确认的取舍（2026-10-10）
 
 用户已确认以下四项，依据与修改条件记在 [关键决策](decisions.md)。

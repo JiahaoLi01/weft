@@ -1,4 +1,4 @@
-#include <caseelephant/ce.h>
+#include <weft/weft.h>
 #include <stddef.h>
 
 _Static_assert(sizeof(weft_view_handle) == 16, "portable view handle layout");

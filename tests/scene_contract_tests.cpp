@@ -1,8 +1,8 @@
-#include "caseelephant/scene_probe.hpp"
-#include "caseelephant/script_platform.hpp"
+#include "scene/scene.hpp"
+#include "script/script_platform.hpp"
 #include "support/check.hpp"
 #include "../probes/gallery_scene_session.hpp"
-#include "caseelephant/constants/scene.hpp"
+#include "constants/scene.hpp"
 #include "test_constants/scene.hpp"
 #include <iostream>
 #include <thread>

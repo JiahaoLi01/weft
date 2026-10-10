@@ -1,6 +1,6 @@
 #pragma once
 
-#include "caseelephant/constants/common.hpp"
+#include "constants/common.hpp"
 
 #include <cmath>
 #include <stdexcept>

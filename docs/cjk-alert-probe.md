@@ -14,7 +14,7 @@
 
 ## 字体与所有权
 
-[FontSet](../include/caseelephant/text_probe.hpp) 按顺序持有固定 Roboto 和 Noto Sans CJK SC Regular。Noto Sans2.004 来自官方 commit `523d033d6cb47f4a80c58a35753646f5c3608a78`，OTF 为 16,437,364 字节，SHA-256 与 SIL OFL 1.1 原文随源码保存。它是可打包的 UI sans 候选，不等同于游戏的宋体/系统字体。正常构建不查询系统字体、不联网。
+[FontSet](../src/text/font.hpp) 按顺序持有固定 Roboto 和 Noto Sans CJK SC Regular。Noto Sans2.004 来自官方 commit `523d033d6cb47f4a80c58a35753646f5c3608a78`，OTF 为 16,437,364 字节，SHA-256 与 SIL OFL 1.1 原文随源码保存。它是可打包的 UI sans 候选，不等同于游戏的宋体/系统字体。正常构建不查询系统字体、不联网。
 
 当前范围是 LTR Latin/Han/Common/Inherited。UTF-8 解码和 cluster 来自固定 HarfBuzz；主字体缺字时为整个 cluster 选择后续字体，再合并相邻同字体段重塑形，保留英文连字、源 UTF-8 cluster 与每 glyph 的 font_id。组合字符、缺字、非法 UTF-8、其他 script/bidi 控制、字号/face/owner 反例有测试。HarfBuzz cluster 不是通用编辑 grapheme；未实现 Unicode 段落分析、换行、RTL、任意脚本、语言配置、caret 或 IME。
 

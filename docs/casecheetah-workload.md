@@ -22,7 +22,7 @@
 
 ## 新增的格式上下文
 
-[positioned_page_probe.hpp](../include/caseelephant/positioned_page_probe.hpp) 与已有 Flex profile 分开；未来文档格式上下文调度器负责组合。它支持有界 author rule、type/id/class compound、后代/子代选择器、specificity/source order、inline 优先、继承的字体/颜色/pointer-events，以及 definite width/height、absolute/relative、单值 inset、px/%、`calc(percent +/- px)`、矩形 overflow hidden 和受限隔离层叠。
+[positioned_page_probe.hpp](../src/layout/positioned_page.hpp) 与已有 Flex profile 分开；未来文档格式上下文调度器负责组合。它支持有界 author rule、type/id/class compound、后代/子代选择器、specificity/source order、inline 优先、继承的字体/颜色/pointer-events，以及 definite width/height、absolute/relative、单值 inset、px/%、`calc(percent +/- px)`、矩形 overflow hidden 和受限隔离层叠。
 
 绝对定位使用最近的 positioned ancestor，static 中间容器不会偷偷成为 containing block；同层负 z-index 留在 isolated 父背景上方、正文下方。非 auto z-index 限于直接 isolated positioned parent，其他层叠明确报错。边框、padding/margin 限零；普通流限具有明确高度的 block。非 absolute 的 inline/replaced 标签需要显式 block，混合 inline 和斜体未实现。后续已加入固定字体集合的中英回退与有限 span/b/ul/li，见 [中文组件](cjk-alert-probe.md)。[CSS positioned containing blocks](https://www.w3.org/TR/css-position-3/#def-cb)、[CSS visual formatting](https://www.w3.org/TR/CSS22/visuren.html)
 

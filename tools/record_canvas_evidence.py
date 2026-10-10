@@ -23,9 +23,9 @@ for config, build, count in (('debug', 'windows-msvc', 67), ('release', 'windows
                      'scope': 'full suite' if count == 67 else 'Canvas/DOM/rAF/eight-cycle React; original large gallery bundle excluded'}
     mode = 'Release' if config == 'release' else 'Debug'
     directory_bin = root / 'build' / build / 'bin' / mode
-    names = ['weft_canvas_probe_tests.exe', 'weft_script_dom_tests.exe', 'weft_animation_frame_tests.exe', 'weft_page_probe_tests.exe']
+    names = ['weft_canvas_tests.exe', 'weft_script_dom_tests.exe', 'weft_animation_frame_tests.exe', 'weft_page_tests.exe']
     if config != 'gc-stress':
-        names += ['weft_d3d11_probe.exe', 'weft_style_probe_tests.exe', 'weft_gallery_probe.exe']
+        names += ['weft_d3d11_probe.exe', 'weft_style_tests.exe', 'weft_gallery_probe.exe']
         warp = root / 'build' / build / 'artifacts' / ('gallery-canvas-' + mode)
         shutil.copytree(warp, directory / 'ctest-results', dirs_exist_ok=True)
         if config == 'debug':
@@ -70,7 +70,7 @@ for name, digest in original['files'].items():
 sources = ['CMakeLists.txt', 'CMakePresets.json', 'README.md', 'AGENTS.md']
 for folder in ('include/caseelephant', 'src', 'probes', 'tools', 'docs', 'tests/fixtures/canvas-gallery-reference'):
     sources += [p.relative_to(root).as_posix() for p in (root / folder).rglob('*') if p.is_file() and '__pycache__' not in p.parts]
-sources += ['tests/canvas_probe_tests.cpp', 'tests/style_probe_tests.cpp', 'examples/crpg-gallery/canvas-profile.css',
+sources += ['tests/canvas_tests.cpp', 'tests/style_tests.cpp', 'examples/crpg-gallery/canvas-profile.css',
             'examples/crpg-gallery/native/WEBGL_TESTS.js', 'examples/crpg-gallery/native/platform.js',
             'examples/crpg-gallery/native/metadata.json', 'third_party/gallery-runtime/manifest.json',
             'tests/fixtures/crpg-gallery/manifest.json', 'tests/fixtures/crpg-gallery/UI/src/components/debug/TestGallery.tsx']

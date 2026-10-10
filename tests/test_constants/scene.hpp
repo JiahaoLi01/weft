@@ -1,6 +1,6 @@
 #pragma once
 
-#include "caseelephant/constants/common.hpp"
+#include "constants/common.hpp"
 
 // Scene, gallery and cluster test values (see docs/coding-style.md).
 //

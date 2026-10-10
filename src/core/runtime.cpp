@@ -1,7 +1,7 @@
-#include <caseelephant/ce.h>
-#include <caseelephant/base/generational_slots.hpp>
-#include <caseelephant/base/owner_thread.hpp>
-#include <caseelephant/constants/core.hpp>
+#include <weft/weft.h>
+#include <base/generational_slots.hpp>
+#include <base/owner_thread.hpp>
+#include <constants/core.hpp>
 
 #include <atomic>
 #include <cmath>

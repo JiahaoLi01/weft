@@ -1,6 +1,6 @@
-#include "caseelephant/owner_executor_probe.hpp"
+#include "core/owner_executor.hpp"
 #include "support/check.hpp"
-#include "caseelephant/script_probe.hpp"
+#include "script/script_dom.hpp"
 #include "test_constants/script.hpp"
 #include <atomic>
 #include <iostream>

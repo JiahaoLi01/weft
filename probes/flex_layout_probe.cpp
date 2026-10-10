@@ -1,4 +1,4 @@
-#include "caseelephant/flex_probe.hpp"
+#include "layout/flex.hpp"
 #include "../tests/fixtures/flex_layout_cases.hpp"
 #include <filesystem>
 #include <fstream>

@@ -1,6 +1,6 @@
-#include "caseelephant/positioned_page_probe.hpp"
+#include "layout/positioned_page.hpp"
 #include "support/check.hpp"
-#include "caseelephant/constants/layout.hpp"
+#include "constants/layout.hpp"
 #include "test_constants/layout.hpp"
 #include <cmath>
 #include <iostream>

@@ -1,7 +1,7 @@
-#include "caseelephant/render_external_texture.h"
-#include "caseelephant/base/generational_slots.hpp"
-#include "caseelephant/base/owner_thread.hpp"
-#include "caseelephant/constants/render.hpp"
+#include "weft/render_external_texture.h"
+#include "base/generational_slots.hpp"
+#include "base/owner_thread.hpp"
+#include "constants/render.hpp"
 #include <algorithm>
 #include <atomic>
 #include <cmath>

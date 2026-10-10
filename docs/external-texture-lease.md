@@ -1,6 +1,6 @@
 # 外部 GPU 纹理 lease：实际合同
 
-2026-10-09：已实现图形 API 无关的实验 C ABI 扩展和 probe-private D3D11 adapter。宿主生成的 GPU 纹理可以直接进入 UI 有序 quad 合成，源图无需 CPU 读回/重传。现有 `render_backend.h` v1 的结构、函数表与普通帧入口保持不变；新增入口位于 [render_external_texture.h](../include/caseelephant/render_external_texture.h)。它为宿主 viewport 和后续 ANGLE 提供共同入口，当前还没有 JS WebGL context 或 ANGLE 依赖。
+2026-10-09：已实现图形 API 无关的实验 C ABI 扩展和 probe-private D3D11 adapter。宿主生成的 GPU 纹理可以直接进入 UI 有序 quad 合成，源图无需 CPU 读回/重传。现有 `render_backend.h` v1 的结构、函数表与普通帧入口保持不变；新增入口位于 [render_external_texture.h](../include/weft/render_external_texture.h)。它为宿主 viewport 和后续 ANGLE 提供共同入口，当前还没有 JS WebGL context 或 ANGLE 依赖。
 
 ## 所有权与同步
 
@@ -24,7 +24,7 @@ renderer destroy 遇到任何 live import 都返回 busy 并保留回调数据�
 
 sRGB SRV、straight alpha、encoded-premultiplied Canvas、HDR、BGRA、mipmap、array 和 MSAA 没有被映射成近似输入。ANGLE 的 encoded Canvas 输出后续必须明确转换：先处理 alpha/颜色编码，再生成可过滤的 linear-premultiplied texel，不能在双线性过滤之后才做转换。当前 import 明确返回 unsupported。
 
-[D3D11 schema](../include/caseelephant/render_backend_d3d11.h) 借用有效 `ID3D11ShaderResourceView`；reference 校验其真实 device、view format、全尺寸单 mip Texture2D 和描述尺寸。拒绝 CPU writable、shared/misc flags、array/MSAA；仅接受 DEFAULT/IMMUTABLE。import AddRef；通用层的退休调用 release。encode 在任何命令前检查输入纹理是否同时是当前 RTV，发现 alias 返回 invalid state。D3D11 不允许同一 subresource 同时绑定 SRV/RTV，见 [官方功能规范](https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm)。
+[D3D11 schema](../include/weft/render_backend_d3d11.h) 借用有效 `ID3D11ShaderResourceView`；reference 校验其真实 device、view format、全尺寸单 mip Texture2D 和描述尺寸。拒绝 CPU writable、shared/misc flags、array/MSAA；仅接受 DEFAULT/IMMUTABLE。import AddRef；通用层的退休调用 release。encode 在任何命令前检查输入纹理是否同时是当前 RTV，发现 alias 返回 invalid state。D3D11 不允许同一 subresource 同时绑定 SRV/RTV，见 [官方功能规范](https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm)。
 
 Vulkan/Metal 仍需各自实现 native import、layout/ownership、barrier/fence 和颜色合同；现有 API ID 和模拟合同不能当作移动后端已通过。
 

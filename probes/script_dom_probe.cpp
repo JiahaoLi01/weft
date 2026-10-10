@@ -1,4 +1,4 @@
-#include "caseelephant/script_probe.hpp"
+#include "script/script_dom.hpp"
 #include "../tests/support/files.hpp"
 
 #include <filesystem>

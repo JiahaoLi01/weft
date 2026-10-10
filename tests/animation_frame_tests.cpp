@@ -1,7 +1,7 @@
-#include "caseelephant/animation_frame_probe.hpp"
-#include "caseelephant/script_platform.hpp"
+#include "script/animation_frame.hpp"
+#include "script/script_platform.hpp"
 #include "support/check.hpp"
-#include "caseelephant/constants/script.hpp"
+#include "constants/script.hpp"
 #include "support/host_time.hpp"
 #include "test_constants/script.hpp"
 #include <fstream>

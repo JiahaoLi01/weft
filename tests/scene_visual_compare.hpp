@@ -1,5 +1,5 @@
 #pragma once
-#include "caseelephant/scene_probe.hpp"
+#include "scene/scene.hpp"
 #include "support/check.hpp"
 #include "support/png.hpp"
 #include "test_constants/scene.hpp"

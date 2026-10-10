@@ -4,7 +4,7 @@
 #include "support/host_time.hpp"
 #include "scene_test_image.hpp"
 #include "cluster_visual_compare.hpp"
-#include "caseelephant/scene_native_probe.hpp"
+#include "scene/scene_native.hpp"
 #include "test_constants/scene.hpp"
 #include <thread>
 #include <cstring>

@@ -14,8 +14,8 @@
 
 非显然的字面量用命名常量，在头文件中统一定义，不在使用处直接写数字：
 
-- 跨模块共享的单位、Web 常量、文档上限、默认视口和测试随机数参数在 `include/caseelephant/constants/common.hpp`（`weft::constants`）。
-- 模块专属的预算、上限、阈值与调优值在 `include/caseelephant/constants/<模块>.hpp`（`weft::constants::<模块>`）；`include/caseelephant/constants.hpp` 汇总全部模块头。
+- 跨模块共享的单位、Web 常量、文档上限、默认视口和测试随机数参数在 `src/constants/common.hpp`（`weft::constants`）。
+- 模块专属的预算、上限、阈值与调优值在 `src/constants/<模块>.hpp`（`weft::constants::<模块>`）；`src/constants/all.hpp` 汇总全部模块头。
 - 测试专用值在 `tests/test_constants/<领域>.hpp`（`weft::test_constants::<领域>`），探针专用值在 `probes/` 下的常量头。
 
 需要命名：资源预算与容量上限、超时与重试次数、阈值/容差/epsilon、数值钳制、单位换算与物理常量、URI、类别或材质编号、位掩码、随机种子、帧数/预热/采样数、固定视口尺寸、在多处重复且含义相同的值。
@@ -28,11 +28,11 @@
 
 - 常量直接传给 `const T&` 形参（`std::min/max/clamp`、`std::chrono` 构造）会 odr-use 该变量，MSVC 生成代码随之改变；写成 `static_cast<T>(constant)` 传纯右值。
 - 字符串常量是 `inline constexpr const char*`。少数大函数里 `std::string == constants::x` 会从内联 memcmp 变为调用 `operator==`，语义相同；热路径介意时保留字面量并注明。
-- `probes/d3d11_probe.cpp` 在匿名 namespace 内部中途 include 探针头。任何常量头必须先在该文件顶部（全局作用域）include，否则会声明出 `(anonymous)::caseelephant` 并遮蔽真正的命名空间。
+- `probes/d3d11_probe.cpp` 在匿名 namespace 内部中途 include 探针头。任何常量头必须先在该文件顶部（全局作用域）include，否则会声明出 `(anonymous)::weft` 并遮蔽真正的命名空间。
 
 ## 共享代码
 
-- **运行时代码**：用 `include/caseelephant/base/` 的 `Diag`/`Result`、CSS 标量解析、`GenerationalSlots`、`OwnerThread`，不再新写 trim/split/number 解析、代际槽表或 owner 检查。
+- **运行时代码**：用 `src/base/` 的 `Diag`/`Result`、CSS 标量解析、`GenerationalSlots`、`OwnerThread`，不再新写 trim/split/number 解析、代际槽表或 owner 检查。
 - **按错误码分派**：控制流按 `Diag` 码分支，不匹配错误消息文本。
 - **测试与探针**：用 `tests/support/` 的 `require`/`WEFT_REQUIRE`、文件读写、`json_string`、PNG 读写，不在各文件里重定义。
 - **`d3d11_probe.cpp` 的包含顺序**：新的 support 头要先在文件顶部的全局作用域包含。

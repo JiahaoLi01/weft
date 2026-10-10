@@ -1,9 +1,9 @@
 #pragma once
 #define NOMINMAX
 #include "gallery_scene_manifest.hpp"
-#include "caseelephant/script_platform.hpp"
+#include "script/script_platform.hpp"
 #include "gallery_constants.hpp"
-#include "caseelephant/scene_probe.hpp"
+#include "scene/scene.hpp"
 #include "../tests/support/files.hpp"
 #include "../tests/support/host_time.hpp"
 #include <fstream>

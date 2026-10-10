@@ -46,7 +46,7 @@ for config, build, scope, count in (
     assert animation_log.stat().st_mtime >= (bin_dir / 'weft_animation_frame_tests.exe').stat().st_mtime
     tests[config]['final_animation_scope_passed'] = final_count
     tests[config]['final_animation_scope_seconds'] = float(re.search(r'Total Test time \(real\) =\s+([\d.]+)', animation_text).group(1))
-    names = ['weft_animation_frame_tests.exe', 'weft_script_dom_tests.exe', 'weft_page_probe_tests.exe']
+    names = ['weft_animation_frame_tests.exe', 'weft_script_dom_tests.exe', 'weft_page_tests.exe']
     if config != 'gc-stress':
         names += ['weft_gallery_probe.exe', 'weft_d3d11_probe.exe']
         final = (folder / 'ctest-final-gallery.log').read_text(encoding='utf-8-sig')

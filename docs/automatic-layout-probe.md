@@ -1,6 +1,6 @@
 # 自动布局实际合同
 
-这是 M0 的受限页面探针。新增 `caseelephant_auto_page_probe` 和 `build_auto_page`，接收配对的 DOM/computed-style 值树、逻辑 viewport 和固定字体集合，输出自己的 box/paint 值。旧 positioned、Flex 页面接口及旧证据继续保留。
+这是 M0 的受限页面探针。新增 `layout/auto_page`（属 `weft::layout`）和 `build_auto_page`，接收配对的 DOM/computed-style 值树、逻辑 viewport 和固定字体集合，输出自己的 box/paint 值。旧 positioned、Flex 页面接口及旧证据继续保留。
 
 ## 已实现
 

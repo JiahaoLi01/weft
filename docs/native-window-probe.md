@@ -18,9 +18,9 @@
 
 [Win32 宿主](../probes/react_window_host.hpp) 的 WindowProc 只排队输入值与窗口元数据，不执行 JS、layout 或 GPU。队列最多 1,024 条，连续 move 可合并；overflow 停止样例。关闭请求延后到 owner 安全点，避免 Present 重入时销毁 HWND。
 
-[page adapter](../src/layout/page_probe.cpp) 输出自有布局、paint 与 hit 列表。命中项仅含弱代际身份、parent 索引和逻辑盒，不含 Node/JSValue。当前限定静态 Flex，无 positioned stacking、z-index、clip；不支持的声明报错。透明 box 也可命中，按已支持 paint 顺序逆向选择，边界为半开区间。
+[page adapter](../src/layout/page.cpp) 输出自有布局、paint 与 hit 列表。命中项仅含弱代际身份、parent 索引和逻辑盒，不含 Node/JSValue。当前限定静态 Flex，无 positioned stacking、z-index、clip；不支持的声明报错。透明 box 也可命中，按已支持 paint 顺序逆向选择，边界为半开区间。
 
-[mouse router](../src/input/input_probe.cpp) 每次命中前 flush 当前布局。mousedown 保存弱身份；mouseup 派发后重读当前树，再以 down/up 最近共同祖先为 click 目标。disabled 禁止激活；display:none 排除子树；pointer-events 支持 auto/none 的继承与后代覆盖。移除节点或 View reset 不向旧目标派发 click。[鼠标序列参考](https://www.w3.org/TR/2015/WD-uievents-20151215/#events-mouseevent-event-order)
+[mouse router](../src/input/mouse_router.cpp) 每次命中前 flush 当前布局。mousedown 保存弱身份；mouseup 派发后重读当前树，再以 down/up 最近共同祖先为 click 目标。disabled 禁止激活；display:none 排除子树；pointer-events 支持 auto/none 的继承与后代覆盖。移除节点或 View reset 不向旧目标派发 click。[鼠标序列参考](https://www.w3.org/TR/2015/WD-uievents-20151215/#events-mouseevent-event-order)
 
 平台 SetCapture 用于收到窗口外的 release；这不等于 DOM setPointerCapture。WM_CAPTURECHANGED、WM_CANCELMODE、失去 OS 焦点、最小化和关闭取消 press。按下按钮、在页面外松开不激活按钮；在另一个元素松开时只 click 共同祖先。client 坐标使用实际视口的物理 → 逻辑变换，负坐标保留。[Win32 mouse message](https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-lbuttondown)
 

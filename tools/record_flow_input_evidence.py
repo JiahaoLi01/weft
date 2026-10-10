@@ -54,7 +54,7 @@ for name, build, config, count, suffix in [
     folder.mkdir(parents=True, exist_ok=True)
     binary_dir = ROOT / 'build' / build / 'bin' / config
     binaries = {n: binary_dir / n for n in ('weft_d3d11_probe.exe', 'weft_flow_input_tests.exe',
-                                          'weft_input_probe_tests.exe', 'weft_script_dom_tests.exe')}
+                                          'weft_input_tests.exe', 'weft_script_dom_tests.exe')}
     log = ROOT / 'artifacts/local' / ('flow-input-ctest-' + suffix + '.log')
     text = log.read_text(encoding='utf-8')
     assert f'0 tests failed out of {count}' in text

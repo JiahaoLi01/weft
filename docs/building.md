@@ -1,6 +1,6 @@
 # Weft 构建与 M0 探针
 
-当前交付十六个实验模块：`caseelephant_core`、`caseelephant_script`、`caseelephant_render_lifetime`、`caseelephant_render_backend`、`caseelephant_text_probe`、`caseelephant_flex_probe`、`caseelephant_page_probe`、`caseelephant_input_probe`、`caseelephant_positioned_page_probe`、`caseelephant_style_probe`、`caseelephant_auto_page_probe`、`caseelephant_inline_probe`、`caseelephant_rounded_probe`、`caseelephant_flow_page_probe`、图形 API 无关的 `caseelephant_canvas_probe` 和 Windows `caseelephant_canvas_d2d_probe`。受限 React 页面与原样 CaseCheetah 九宫格已串联 native DOM、CSS profile、布局、字体/图片、GPU 和 Windows 窗口；一般 HTML → CSS 页面加载尚未实现。公开头文件是实验接口，当前不交付稳定 SDK 或第三方符号隔离承诺。
+当前交付的实验模块按 `src/<模块>` 组织，每个模块是一个静态库 `weft::<模块>`：`base`、`core`、`render`、`canvas`、`script`、`text`、`style`、`layout`、`scene`、`input`；Windows 另有 Direct2D 参考 raster `weft::canvas_d2d` 与 `weft::scene_d2d`。公开 C ABI 头位于 `include/weft/`，模块内部头以 `"<模块>/<文件>.hpp"` 从 `src/` 根引用。CMake 辅助函数 `weft_add_library`、`weft_add_executable`、`weft_add_test`、`weft_add_python_test` 在 `cmake/WeftTargets.cmake`，固定第三方依赖在 `cmake/WeftThirdParty.cmake`。受限 React 页面与原样 CaseCheetah 九宫格已串联 native DOM、CSS profile、布局、字体/图片、GPU 和 Windows 窗口；一般 HTML → CSS 页面加载尚未实现。公开头文件是实验接口，当前不交付稳定 SDK 或第三方符号隔离承诺。
 
 ## Windows x64
 
@@ -62,7 +62,7 @@ python tools/compare_gpu_reports.py tests/fixtures/gpu_color_browser_reference.j
 
 ## 可扩展 GPU 后端 API
 
-`caseelephant_render_backend` 不链接图形 API、窗口、字体或脚本库。它实现 v1 C ABI facade，由 host 注册 adapter function table、传具体 native pass、实际提交与完成。D3D11 reference 和 React window 已接入；Vulkan/原生 Metal adapter 尚未实现。运行 `weft_d3d11_probe.exe --backend-hardware artifacts/local/backend-debug/api-hardware` 可验证宿主 context/target、保留已有内容、颜色/SDF 对照、float alpha、取消/失败与真实 query 退休；软件入口为 --backend-warp。接口与限制见 [后端 API](render-backend-api.md)。
+`render/render_backend`（属 `weft::render`）不链接图形 API、窗口、字体或脚本库。它实现 v1 C ABI facade，由 host 注册 adapter function table、传具体 native pass、实际提交与完成。D3D11 reference 和 React window 已接入；Vulkan/原生 Metal adapter 尚未实现。运行 `weft_d3d11_probe.exe --backend-hardware artifacts/local/backend-debug/api-hardware` 可验证宿主 context/target、保留已有内容、颜色/SDF 对照、float alpha、取消/失败与真实 query 退休；软件入口为 --backend-warp。接口与限制见 [后端 API](render-backend-api.md)。
 
 ## SDF 字体
 
@@ -163,7 +163,7 @@ ScriptConfig 可配置受限执行预算，默认仍为 2 秒。只有 QJS_ENABL
 
 resource_lifetime 测试模拟生命周期；独立 d3d11_warp_color_lifetime 实际执行 GPU API、shader、query 与 readback。`weft_view_record_tick` 仍仅记录 host 时间，没有运行脚本或渲染。全部测试通过也不能宣称完整页面、SVG、移动平台或性能预算通过。完整退出条件见 [实现计划](implementation-plan.md)。
 
-自动布局追加 `caseelephant_auto_page_probe`、`weft_auto_page_tests`、fixture integrity 与两类 browser diff。`--cheetah-auto-hardware` / `--cheetah-auto-warp` 复用固定原版 bundle，内部使用自动尺寸。浏览器准备、离线测试和 sealed evidence 见 [自动布局合同](automatic-layout-probe.md)。
+自动布局追加 `layout/auto_page`、`weft_auto_page_tests`、fixture integrity 与两类 browser diff。`--cheetah-auto-hardware` / `--cheetah-auto-warp` 复用固定原版 bundle，内部使用自动尺寸。浏览器准备、离线测试和 sealed evidence 见 [自动布局合同](automatic-layout-probe.md)。
 
 可见 flow 窗口的 `--cheetah-flow-window-hardware/warp` 默认使用 4K 离屏目标、最大化窗口和 FPS HUD；新 hidden 4K 场景为 `--cheetah-flow-window-test-4k-hardware/warp`。旧 hidden 640×420 入口不变；实际 client、logical/raster 区别与 FPS 定义见 [flow 窗口](flow-input-window-probe.md#4k-与-fps2026-10-08)。
 

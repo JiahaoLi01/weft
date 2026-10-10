@@ -16,7 +16,7 @@
 
 ## 实际实现与边界
 
-`caseelephant_canvas_probe` 定义 owner raster factory、绘制值、尺寸/颜色/路径状态与完整不可变像素快照；不暴露 COM、D3D 或 Node/JSValue。Windows adapter 使用 Direct2D **SOFTWARE** 与 WIC PBGRA；这是首先可验证的全量路径，尚非 GPU 共享纹理路径。[Microsoft WIC render target](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1factory-createwicbitmaprendertarget%28iwicbitmap_constd2d1_render_target_properties__id2d1rendertarget%29) 和 [格式/alpha 合同](https://learn.microsoft.com/en-us/windows/win32/direct2d/supported-pixel-formats-and-alpha-modes) 是 adapter 的依据。
+`weft::canvas` 定义 owner raster factory、绘制值、尺寸/颜色/路径状态与完整不可变像素快照；不暴露 COM、D3D 或 Node/JSValue。Windows adapter 使用 Direct2D **SOFTWARE** 与 WIC PBGRA；这是首先可验证的全量路径，尚非 GPU 共享纹理路径。[Microsoft WIC render target](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1factory-createwicbitmaprendertarget%28iwicbitmap_constd2d1_render_target_properties__id2d1rendertarget%29) 和 [格式/alpha 合同](https://learn.microsoft.com/en-us/windows/win32/direct2d/supported-pixel-formats-and-alpha-modes) 是 adapter 的依据。
 
 已实现可选 `getContext('2d')`、context 身份与 `canvas` 回指、alpha/sRGB；width/height 默认 300×150，属性/attribute 同值写入也重置 bitmap、绘制状态与路径，旧 context 身份保持。CSS 尺寸独立于 backing，positioned profile 支持显式 block 的固有尺寸/比例与同步 geometry values。[HTML Canvas 标准](https://html.spec.whatwg.org/multipage/canvas.html) 是支持语义的依据。通用 positioned hit-test 与一般 inline replaced formatting 尚未开放。
 

@@ -20,6 +20,11 @@
         "sha256": "6bf561322a890e6caf04bf83c28cbfb6a0dc06961cfaf1aa26bf89e2312ac2d1",
         "date": "2026-10-10",
         "reason": "Refactor step 4: CaseElephant/ce/Probe names renamed to Weft (namespace, C ABI, WEFT_* macros, Probe-free types); hit scenario and oracle points unchanged."
+      },
+      {
+        "sha256": "c82fc2146badd52974ec269669d4e3a2cffae1720199eb78a9c0b41f81f394e7",
+        "date": "2026-10-10",
+        "reason": "Refactor step 4 layout: module headers moved to src/<module>/ and included as \"<module>/<file>.hpp\" (flow_page, script_platform, mouse_router); include lines only, hit scenario and oracle points unchanged."
       }
     ]
   }
