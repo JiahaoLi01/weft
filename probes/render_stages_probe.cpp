@@ -17,6 +17,7 @@ namespace probes {
         SceneGpuSurfaces surfaces(gpu, pipeline);
         surfaces.retain_paint = true;
         weft::SceneRaster reference{weft::testing::thread_scene_text()};
+        weft::SceneGeometry geometry{weft::testing::thread_scene_text()};
         unsigned comparisons{};
         double worst_mean{};
         double minimum_iou = 1;
@@ -102,7 +103,7 @@ namespace probes {
             if (f % 37 == 0) {
                 root.children.pop_back();
             }
-            scene.elements = reference.geometry(scene);
+            scene.elements = geometry.geometry(scene);
             auto value = std::make_shared<const weft::SceneFrame>(scene);
             const auto crop = ((f >= 100 && f < 110) || (f >= 260 && f < 270))
                                   ? std::optional<std::array<float, 4>>{{0, 12, 320, 164}}

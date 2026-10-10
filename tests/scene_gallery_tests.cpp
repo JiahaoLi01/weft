@@ -7,6 +7,7 @@
 #include <cstring>
 #include "support/check.hpp"
 #include "scene_test_image.hpp"
+#include "scene_geometry_compare.hpp"
 
 using weft::testing::require;
 
@@ -19,6 +20,7 @@ int main(int argc, char** argv) {
         report
             << "{\"format\":\"scene-gallery-native-v1\",\"seed\":3458213392,\"dpi\":2,\"frames_per_case\":121,\"cases\":[";
         unsigned cases{};
+        SceneGeometryDifference geometry_difference;
         for (unsigned group = 0; group < 2; ++group) {
             for (unsigned index = 0; index < (group ? 8u : 26u); ++index) {
                 const auto id = std::string(group ? "d3-" : "css-") + (index < 10 ? "0" : "") + std::to_string(index);
@@ -68,6 +70,8 @@ int main(int argc, char** argv) {
                                     "visual oracle accepted missing original content");
                         }
                         png(out / (id + "-" + std::to_string(frame) + ".png"), image);
+                        compare_scene_geometry(s.raster, s.scene_geometry, s.current, s.svg_geometry, s.width, s.height,
+                                               geometry_difference);
                         std::ofstream raw(out / (id + "-" + std::to_string(frame) + ".rgba"), std::ios::binary);
                         raw.write(reinterpret_cast<const char*>(image.rgba.data()), std::streamsize(image.rgba.size()));
                         if (!previous.empty()) {
@@ -115,6 +119,13 @@ int main(int argc, char** argv) {
         report << "]}\n";
         std::ofstream(out / "native-report.json") << report.str();
         require(cases == 34, "original registry count");
+        require(geometry_difference.max_rect <= weft::test_constants::scene::geometry_rect_tolerance_px &&
+                    geometry_difference.max_matrix <= weft::test_constants::scene::geometry_matrix_tolerance,
+                "portable geometry outside the reference tolerance");
+        std::cout << "portable geometry vs D2D reference: " << geometry_difference.frames << " frames, "
+                  << geometry_difference.elements << " elements, max rect difference " << geometry_difference.max_rect
+                  << " px, max matrix difference " << geometry_difference.max_matrix << "; " << geometry_difference.hits
+                  << " hit tests, " << geometry_difference.boundary_hits << " differing only at boundaries\n";
         std::cout
             << "PASS 26 original CSS + 8 D3: native owner, layout, raster, animation/input, retained values/unmount\n";
         CoUninitialize();

@@ -131,6 +131,8 @@ namespace weft::constants::scene {
     inline constexpr int border_geometry_cache_max_entries = 256;
     // Flattening tolerance when border geometry is widened and intersected.
     inline constexpr float geometry_flattening_tolerance = .01f;
+    // Recursion bound of portable Bezier flattening (SceneGeometry); 2^16 segments per curve at most.
+    inline constexpr int geometry_max_subdivision = 16;
     // Side index that selects the whole border ring instead of one side wedge.
     inline constexpr int border_side_all = 4;
     // Border widths closer than this share the box center as the wedge apex.

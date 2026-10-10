@@ -1,4 +1,5 @@
 #include "scene/scene.hpp"
+#include "scene/scene_geometry.hpp"
 #include "support/scene_fonts.hpp"
 #include "script/script_platform.hpp"
 #include "support/check.hpp"
@@ -44,6 +45,7 @@ int main() {
         vm.reset_document();
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         weft::SceneRaster raster{weft::testing::thread_scene_text()};
+        weft::SceneGeometry geometry{weft::testing::thread_scene_text()};
         weft::SceneSolver scene(
             ".bg-gold\\/20{background-color:rgba(212,168,67,.2)}.parent{transition-property:color;transition-duration:1s;transition-timing-function:linear}.explicit{color:#ff0000}",
             "@keyframes k{from{transform:translateX(0);opacity:0}to{transform:translateX(20px);opacity:1}}",
@@ -73,8 +75,8 @@ int main() {
                                weft::test_constants::scene::timeline_view_size, 1600);
         require(mid.root.children[0].style.at("transform") == "translateX(10px)",
                 "unitless zero transform did not interpolate");
-        require(raster.hit_test(mid, 35, 15) == mid.root.children[0].identity &&
-                    raster.hit_test(mid, 15, 15) != mid.root.children[0].identity,
+        require(geometry.hit_test(mid, 35, 15) == mid.root.children[0].identity &&
+                    geometry.hit_test(mid, 15, 15) != mid.root.children[0].identity,
                 "transformed hit region used stale box");
         auto bitmap = raster.raster(mid);
         require(bitmap.rgba[(15 * weft::test_constants::scene::timeline_view_size + 35) * 4] > 10 &&
@@ -215,8 +217,8 @@ int main() {
                 false);
             auto expected = fresh.frame(snapshot, weft::test_constants::scene::contract_view_size,
                                         weft::test_constants::scene::contract_view_size, iteration);
-            auto a_geometry = raster.geometry(actual);
-            auto b_geometry = raster.geometry(expected);
+            auto a_geometry = geometry.geometry(actual);
+            auto b_geometry = geometry.geometry(expected);
             require(a_geometry.size() == b_geometry.size(), "mutation changed retained scene node count");
             for (std::size_t i = 0; i < a_geometry.size(); ++i) {
                 require(a_geometry[i].identity == b_geometry[i].identity && a_geometry[i].rect == b_geometry[i].rect,
@@ -264,8 +266,8 @@ int main() {
             auto w = i >= 35 ? 90.f : static_cast<float>(weft::test_constants::scene::contract_view_size);
             auto optimized_frame = retained.frame(d, w, weft::test_constants::scene::contract_view_size, i * 25);
             auto reference_frame = full.frame(d, w, weft::test_constants::scene::contract_view_size, i * 25);
-            auto ag = raster.geometry(optimized_frame);
-            auto bg = raster.geometry(reference_frame);
+            auto ag = geometry.geometry(optimized_frame);
+            auto bg = geometry.geometry(reference_frame);
             require(ag.size() == bg.size(), "timeline cache geometry count");
             for (std::size_t j = 0; j < ag.size(); ++j) {
                 require(ag[j].identity == bg[j].identity && ag[j].rect == bg[j].rect, "timeline cache geometry");
@@ -519,7 +521,7 @@ int main() {
         child.style = {{"background-color", "#ffffff"}, {"opacity", ".500000"}};
         child.paint = weft::compile_scene_paint_values(child.style);
         previous.root.children.push_back(child);
-        previous.elements = raster.geometry(previous);
+        previous.elements = geometry.geometry(previous);
         auto changed = previous;
         changed.root.children[0].paint->values[weft::constants::scene::paint_slot_opacity]->scalar.absolute = .4999999;
         require(previous.root == changed.root && !weft::scene_paint_source_equal(previous.root, changed.root),

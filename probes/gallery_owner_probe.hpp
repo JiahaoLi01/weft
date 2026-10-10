@@ -256,10 +256,10 @@ namespace probes {
                             s.input(weft::MouseType::Move, float(value.x), float(value.y));
                         }
                         if (value.action == weft::MouseAction::Down) {
-                            s.pressed = s.raster.hit_test(s.current, float(value.x), float(value.y));
+                            s.pressed = s.scene_geometry.hit_test(s.current, float(value.x), float(value.y));
                         }
                         if (value.action == weft::MouseAction::Up) {
-                            auto hit = s.raster.hit_test(s.current, float(value.x), float(value.y));
+                            auto hit = s.scene_geometry.hit_test(s.current, float(value.x), float(value.y));
                             if (hit == s.pressed) {
                                 s.input(weft::MouseType::Click, float(value.x), float(value.y));
                             }

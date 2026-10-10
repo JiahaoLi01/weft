@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include "scene/scene.hpp"
+#include "scene/scene_geometry.hpp"
 #include "base/css_scalar.hpp"
 #include "base/owner_thread.hpp"
 #include "constants/scene.hpp"
@@ -131,57 +132,24 @@ namespace weft {
         // for column vectors, hence prepend each local operation here.
         D2D1::Matrix3x2F transform(std::string s, float w, float h, bool svg) {
             auto matrix = D2D1::Matrix3x2F::Identity();
-            std::size_t p{};
-            if (s.empty() || s == "none") {
-                return matrix;
-            }
-            while (p < s.size()) {
-                while (p < s.size() && std::isspace(static_cast<unsigned char>(s[p]))) {
-                    ++p;
+            for (const auto& op : scene_transform_ops(s, w, h, svg)) {
+                const auto& a = op.args;
+                auto local = D2D1::Matrix3x2F::Identity();
+                switch (op.kind) {
+                    case SceneTransformOp::Kind::Translate:
+                        local = D2D1::Matrix3x2F::Translation(a[0], a[1]);
+                        break;
+                    case SceneTransformOp::Kind::Scale:
+                        local = D2D1::Matrix3x2F::Scale(a[0], a[1]);
+                        break;
+                    case SceneTransformOp::Kind::Rotate:
+                        local = D2D1::Matrix3x2F::Rotation(a[0], D2D1::Point2F(a[1], a[2]));
+                        break;
+                    case SceneTransformOp::Kind::Matrix:
+                        local = {a[0], a[1], a[2], a[3], a[4], a[5]};
+                        break;
                 }
-                if (p == s.size()) {
-                    break;
-                }
-                auto b = s.find('(', p);
-                auto e = s.find(')', b);
-                if (b == s.npos || e == s.npos) {
-                    fail("transform syntax");
-                }
-                auto name = trim(s.substr(p, b - p));
-                auto args = s.substr(b + 1, e - b - 1);
-                std::replace(args.begin(), args.end(), ',', ' ');
-                auto a = split(args);
-                auto n = [&](unsigned i, float ref = 1) {
-                    return i < a.size() ? len(a[i], ref) : 0;
-                };
-                auto op = D2D1::Matrix3x2F::Identity();
-                if (name == "translate" || name == "translateX" || name == "translateY") {
-                    op = D2D1::Matrix3x2F::Translation(name == "translateY" ? 0 : n(0, w),
-                                                       name == "translateY"   ? n(0, h)
-                                                       : name == "translateX" ? 0
-                                                                              : n(1, h));
-                } else if (name == "scale" || name == "scaleX" || name == "scaleY") {
-                    float x = name == "scaleY" ? 1 : n(0);
-                    float y = name == "scaleX" ? 1 : name == "scaleY" ? n(0) : a.size() > 1 ? n(1) : x;
-                    op = D2D1::Matrix3x2F::Scale(x, y);
-                } else if (name == "rotate") {
-                    auto v = a.at(0);
-                    float angle = v.ends_with("deg") ? num(v.substr(0, v.size() - 3))
-                                                     : len(v) * constants::degrees_per_half_turn / pi;
-                    op = D2D1::Matrix3x2F::Rotation(angle,
-                                                    svg && a.size() > 2 ? D2D1::Point2F(n(1), n(2)) : D2D1::Point2F());
-                } else if (name == "matrix") {
-                    if (a.size() != 6) {
-                        fail("matrix arity");
-                    }
-                    op = {n(0), n(1), n(2), n(3), n(4), n(5)};
-                } else if (name == "perspective" || name == "rotateY") {
-                    fail("projective transform requires layer");
-                } else {
-                    fail("unsupported transform " + name);
-                }
-                matrix = op * matrix;
-                p = e + 1;
+                matrix = local * matrix;
             }
             return matrix;
         }
@@ -227,12 +195,7 @@ namespace weft {
         }
 
         std::array<float, 2> origin(const Style& s, float w, float h) {
-            auto v = get(s, "transform-origin", "50% 50%");
-            if (v == "top") {
-                return {w / 2, 0};
-            }
-            auto a = split(v);
-            return {a.empty() ? w / 2 : len(a[0], w), a.size() < 2 ? h / 2 : len(a[1], h)};
+            return scene_transform_origin(s, w, h);
         }
 
         struct Plane {
@@ -308,53 +271,8 @@ namespace weft {
         }
 
         D2D1::Matrix3x2F svg_viewport(const SceneNode& n) {
-            auto i = n.attributes.find("viewBox");
-            if (i == n.attributes.end()) {
-                return D2D1::Matrix3x2F::Identity();
-            }
-            Scanner s{i->second};
-            const auto x = s.number();
-            const auto y = s.number();
-            const auto w = s.number();
-            const auto h = s.number();
-            if (!s.end() || w <= 0 || h <= 0) {
-                fail("viewBox dimensions");
-            }
-            float sx = n.box[2] / w;
-            float sy = n.box[3] / h;
-            float dx{};
-            float dy{};
-            auto aspect =
-                n.attributes.contains("preserveAspectRatio") ? n.attributes.at("preserveAspectRatio") : "xMidYMid meet";
-            auto a = split(aspect);
-            if (a.empty()) {
-                fail("preserveAspectRatio");
-            }
-            if (a[0] != "none") {
-                if (a[0].size() != 8 || a[0][0] != 'x' || a[0][4] != 'Y' || a.size() > 2) {
-                    fail("preserveAspectRatio alignment");
-                }
-                auto mode = a.size() > 1 ? a[1] : "meet";
-                if (mode != "meet" && mode != "slice") {
-                    fail("preserveAspectRatio mode");
-                }
-                sx = sy = mode == "slice" ? std::max(sx, sy) : std::min(sx, sy);
-                auto align = [](std::string v) {
-                    if (v == "Min") {
-                        return 0.f;
-                    }
-                    if (v == "Mid") {
-                        return .5f;
-                    }
-                    if (v == "Max") {
-                        return 1.f;
-                    }
-                    fail("preserveAspectRatio alignment");
-                };
-                dx = (n.box[2] - w * sx) * align(a[0].substr(1, 3));
-                dy = (n.box[3] - h * sy) * align(a[0].substr(5, 3));
-            }
-            return {sx, 0, 0, sy, dx - x * sx, dy - y * sy};
+            const auto v = scene_svg_viewport(n);
+            return {v.sx, 0, 0, v.sy, v.tx, v.ty};
         }
     } // namespace
 
@@ -532,9 +450,6 @@ namespace weft {
         }
 
         ComPtr<ID2D1PathGeometry> path(std::string value, bool evenodd = false) {
-            if (value.size() > constants::scene::max_svg_path_bytes) {
-                fail("SVG path byte bound");
-            }
             if (auto i = path_cache.find((evenodd ? "evenodd:" : "winding:") + value); i != path_cache.end()) {
                 return i->second;
             }
@@ -544,115 +459,51 @@ namespace weft {
             ComPtr<ID2D1GeometrySink> sink;
             check(geometry->Open(&sink));
             sink->SetFillMode(evenodd ? D2D1_FILL_MODE_ALTERNATE : D2D1_FILL_MODE_WINDING);
-            Scanner s{std::move(value)};
-            char command{};
             D2D1_POINT_2F point{};
-            D2D1_POINT_2F start{};
             bool open{};
-            unsigned segments{};
-            char previous{};
-            D2D1_POINT_2F control{};
-            while (!s.end()) {
-                if (++segments > constants::scene::max_svg_path_segments) {
-                    fail("path segment bound");
-                }
-                if (!s.has_number()) {
-                    command = s.value[s.p++];
-                }
-                const bool relative = std::islower(static_cast<unsigned char>(command));
-                const char c = char(std::toupper(static_cast<unsigned char>(command)));
-                auto endpoint = [&] {
-                    float x = s.number();
-                    float y = s.number();
-                    return D2D1::Point2F(x + (relative ? point.x : 0), y + (relative ? point.y : 0));
-                };
-                if (c == 'M') {
-                    auto p = endpoint();
-                    if (open) {
-                        sink->EndFigure(D2D1_FIGURE_END_OPEN);
-                    }
-                    sink->BeginFigure(p, D2D1_FIGURE_BEGIN_FILLED);
-                    point = start = p;
-                    open = true;
-                    command = relative ? 'l' : 'L';
-                } else if (c == 'Z') {
-                    if (open) {
-                        sink->EndFigure(D2D1_FIGURE_END_CLOSED);
-                    }
-                    open = false;
-                    point = start;
-                    command = 0;
-                } else {
-                    if (!open) {
-                        sink->BeginFigure(point, D2D1_FIGURE_BEGIN_FILLED);
-                        start = point;
-                        open = true;
-                    }
-                    if (c == 'L') {
-                        point = endpoint();
-                        sink->AddLine(point);
-                    } else if (c == 'H') {
-                        point.x = s.number() + (relative ? point.x : 0);
-                        sink->AddLine(point);
-                    } else if (c == 'V') {
-                        point.y = s.number() + (relative ? point.y : 0);
-                        sink->AddLine(point);
-                    } else if (c == 'C') {
-                        auto p1 = endpoint();
-                        auto p2 = endpoint();
-                        auto p3 = endpoint();
-                        sink->AddBezier(D2D1::BezierSegment(p1, p2, p3));
-                        control = p2;
-                        point = p3;
-                    } else if (c == 'S') {
-                        auto p1 = previous == 'C' || previous == 'S'
-                                      ? D2D1::Point2F(2 * point.x - control.x, 2 * point.y - control.y)
-                                      : point;
-                        auto p2 = endpoint();
-                        auto p3 = endpoint();
-                        sink->AddBezier(D2D1::BezierSegment(p1, p2, p3));
-                        control = p2;
-                        point = p3;
-                    } else if (c == 'Q') {
-                        auto p1 = endpoint();
-                        auto p2 = endpoint();
-                        sink->AddQuadraticBezier(D2D1::QuadraticBezierSegment(p1, p2));
-                        control = p1;
-                        point = p2;
-                    } else if (c == 'T') {
-                        auto p1 = previous == 'Q' || previous == 'T'
-                                      ? D2D1::Point2F(2 * point.x - control.x, 2 * point.y - control.y)
-                                      : point;
-                        auto p2 = endpoint();
-                        sink->AddQuadraticBezier(D2D1::QuadraticBezierSegment(p1, p2));
-                        control = p1;
-                        point = p2;
-                    } else if (c == 'A') {
-                        auto rx = std::abs(s.number());
-                        auto ry = std::abs(s.number());
-                        auto angle = s.number();
-                        auto large = s.number();
-                        auto sweep = s.number();
-                        auto p = endpoint();
-                        if ((large != 0 && large != 1) || (sweep != 0 && sweep != 1)) {
-                            fail("arc flags");
+            for (const auto& c : parse_scene_path(value)) {
+                const auto& v = c.v;
+                switch (c.kind) {
+                    case ScenePathCommand::Kind::Move:
+                        if (open) {
+                            sink->EndFigure(D2D1_FIGURE_END_OPEN);
                         }
+                        point = {v[0], v[1]};
+                        sink->BeginFigure(point, D2D1_FIGURE_BEGIN_FILLED);
+                        open = true;
+                        break;
+                    case ScenePathCommand::Kind::Line:
+                        point = {v[0], v[1]};
+                        sink->AddLine(point);
+                        break;
+                    case ScenePathCommand::Kind::Cubic:
+                        sink->AddBezier(D2D1::BezierSegment({v[0], v[1]}, {v[2], v[3]}, {v[4], v[5]}));
+                        point = {v[4], v[5]};
+                        break;
+                    case ScenePathCommand::Kind::Quadratic:
+                        sink->AddQuadraticBezier(D2D1::QuadraticBezierSegment({v[0], v[1]}, {v[2], v[3]}));
+                        point = {v[2], v[3]};
+                        break;
+                    case ScenePathCommand::Kind::Arc: {
+                        const D2D1_POINT_2F p{v[5], v[6]};
                         if (p.x != point.x || p.y != point.y) {
-                            if (rx == 0 || ry == 0) {
+                            if (v[0] == 0 || v[1] == 0) {
                                 sink->AddLine(p);
                             } else {
-                                sink->AddArc(D2D1::ArcSegment(p, D2D1::SizeF(rx, ry), angle,
-                                                              sweep ? D2D1_SWEEP_DIRECTION_CLOCKWISE
-                                                                    : D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE,
-                                                              large ? D2D1_ARC_SIZE_LARGE : D2D1_ARC_SIZE_SMALL));
+                                sink->AddArc(D2D1::ArcSegment(p, D2D1::SizeF(v[0], v[1]), v[2],
+                                                              v[4] != 0 ? D2D1_SWEEP_DIRECTION_CLOCKWISE
+                                                                        : D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE,
+                                                              v[3] != 0 ? D2D1_ARC_SIZE_LARGE : D2D1_ARC_SIZE_SMALL));
                             }
                         }
                         point = p;
-                    } else {
-                        fail("unsupported SVG path command " + std::string(1, c));
+                        break;
                     }
+                    case ScenePathCommand::Kind::Close:
+                        sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+                        open = false;
+                        break;
                 }
-                previous = c;
             }
             if (open) {
                 sink->EndFigure(D2D1_FIGURE_END_OPEN);

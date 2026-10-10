@@ -473,12 +473,12 @@ namespace probes {
                                 scene.input(weft::MouseType::Move, float(point[0] - r[0]), float(point[1] - r[1]));
                             }
                             if (value.action == weft::MouseAction::Down) {
-                                scene.pressed = scene.raster.hit_test(scene.current, float(point[0] - r[0]),
-                                                                      float(point[1] - r[1]));
+                                scene.pressed = scene.scene_geometry.hit_test(scene.current, float(point[0] - r[0]),
+                                                                              float(point[1] - r[1]));
                             }
                             if (value.action == weft::MouseAction::Up) {
-                                auto hit = scene.raster.hit_test(scene.current, float(point[0] - r[0]),
-                                                                 float(point[1] - r[1]));
+                                auto hit = scene.scene_geometry.hit_test(scene.current, float(point[0] - r[0]),
+                                                                         float(point[1] - r[1]));
                                 if (scene.pressed == hit) {
                                     scene.input(weft::MouseType::Click, float(point[0] - r[0]), float(point[1] - r[1]));
                                 }

@@ -4,6 +4,7 @@
 #include "script/script_platform.hpp"
 #include "gallery_constants.hpp"
 #include "scene/scene.hpp"
+#include "scene/scene_geometry.hpp"
 #include "../tests/support/files.hpp"
 #include "../tests/support/host_time.hpp"
 #include "../tests/support/scene_fonts.hpp"
@@ -20,6 +21,8 @@ inline std::string scene_read(const std::string& path) {
 // unchanged. The declared host is the same body formatting context as gallery.
 struct GallerySceneSession {
     weft::SceneRaster raster{weft::testing::thread_scene_text()};
+    // Element boxes and hit testing; the D2D raster only paints.
+    weft::SceneGeometry scene_geometry{weft::testing::thread_scene_text()};
     weft::SceneSolver scene;
     weft::ScriptDom vm{
         {weft::probe_constants::gallery::vm_stack_bytes, weft::probe_constants::gallery::scene_vm_execution_budget_ms}};
@@ -195,7 +198,7 @@ struct GallerySceneSession {
                     if (!s.contains("transform") || s["transform"].empty() || s["transform"] == "none") {
                         s["transform"] = "none";
                     } else {
-                        auto m = raster.transform_matrix(n);
+                        auto m = scene_geometry.transform_matrix(n);
                         s["transform"] = "matrix(";
                         for (unsigned i = 0; i < 6; ++i) {
                             if (i) {
@@ -309,7 +312,7 @@ struct GallerySceneSession {
     void ensure_geometry() {
         if (!geometry_valid) {
             ProfileScope timer(profile.geometry_builds, profile.geometry_ms, profiling);
-            current.elements = raster.geometry(current, svg_geometry);
+            current.elements = scene_geometry.geometry(current, svg_geometry);
             geometry_valid = true;
         }
     }
@@ -351,7 +354,7 @@ struct GallerySceneSession {
             input_value(type, x, y);
             return;
         }
-        auto target = raster.hit_test(current, x, y);
+        auto target = scene_geometry.hit_test(current, x, y);
         weft::MouseEvent e;
         e.type = type;
         e.client_x = x;
@@ -381,7 +384,7 @@ struct GallerySceneSession {
         weft::NodeIdentity target;
         {
             ProfileScope timer(profile.hits, profile.hit_ms, profiling);
-            target = raster.hit_test(current, x, y);
+            target = scene_geometry.hit_test(current, x, y);
         }
         const auto destination = target.generation ? target : root_id;
         ProfileScope timer(profile.dispatches, profile.dispatch_ms, profiling);

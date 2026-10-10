@@ -8,6 +8,7 @@
 #include "script/script_platform.hpp"
 #include "layout/flow_page.hpp"
 #include "scene/scene.hpp"
+#include "scene/scene_geometry.hpp"
 #include "scene/scene_native.hpp"
 #include "core/owner_executor.hpp"
 #include "render/resource_lifetime.hpp"

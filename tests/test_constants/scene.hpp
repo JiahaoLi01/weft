@@ -54,4 +54,16 @@ namespace weft::test_constants::scene {
     inline constexpr int collect_garbage_interval = 16;
     // Random mutations compared against the full path in the cluster contract test.
     inline constexpr int cluster_mutation_iterations = 64;
+    // Portable geometry versus the D2D reference. Hit tests run on a grid (sparser for the larger cluster cards);
+    // a differing answer is a boundary point when the reference answers like the portable code within the boundary
+    // distance. D2D FillContainsPoint and StrokeContainsPoint treat points within their 0.25 DIP flattening tolerance
+    // of the outline as inside; at the cards' up to 2x viewBox scale that is about 1 device px.
+    inline constexpr float geometry_hit_grid_px = 6.f;
+    inline constexpr float cluster_geometry_hit_grid_px = 24.f;
+    inline constexpr float geometry_hit_boundary_px = 1.f;
+    // Element rect/offset (px) and matrix entry differences accepted between the portable and reference geometry:
+    // D2D composes float matrices and bounds curves within its flattening tolerance; the portable bounds are the
+    // exact extrema in double.
+    inline constexpr double geometry_rect_tolerance_px = .05;
+    inline constexpr double geometry_matrix_tolerance = .0001;
 } // namespace weft::test_constants::scene

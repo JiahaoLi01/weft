@@ -160,6 +160,8 @@ namespace weft {
         ~SceneRaster();
         SceneRaster(const SceneRaster&) = delete;
         SceneRaster& operator=(const SceneRaster&) = delete;
+        // Reference geometry (D2D geometry objects): SceneGeometry is the portable implementation; tests compare
+        // the two (tests/scene_geometry_compare.hpp).
         std::array<double, 6> transform_matrix(const SceneNode&) const;
         SceneBitmap raster(const SceneFrame&, float scale = 1);
 
@@ -182,6 +184,7 @@ namespace weft {
         };
 
         Work work() const;
+        // Reference geometry, see transform_matrix.
         std::vector<ElementGeometry> geometry(const SceneFrame&, bool svg_descendants = false) const;
 #ifdef _WIN32
         // Private Windows adapter: borrowed target for this call, owned scene only.
@@ -194,6 +197,7 @@ namespace weft {
         void paint_d2d_damage(const SceneFrame&, ID2D1RenderTarget*, float scale, std::array<float, 4> damage,
                               std::optional<std::array<float, 4>> clip = std::nullopt);
 #endif
+        // Reference hit testing; D2D treats points within its 0.25 DIP flattening tolerance as inside.
         NodeIdentity hit_test(const SceneFrame&, float x, float y) const;
 
     private:

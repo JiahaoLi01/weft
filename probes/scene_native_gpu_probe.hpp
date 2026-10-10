@@ -1,6 +1,7 @@
 #pragma once
 
 #include "probe_common.hpp"
+#include "scene/scene_geometry.hpp"
 #include "scene/scene_native.hpp"
 #include "gallery_constants.hpp"
 
@@ -62,6 +63,7 @@ namespace probes {
         ComPtr<ID3D11PixelShader> ps_;
         ComPtr<ID3D11RasterizerState> raster_;
         weft::SceneRaster text_{weft::testing::thread_scene_text()};
+        weft::SceneGeometry geometry_{weft::testing::thread_scene_text()};
         std::map<std::array<std::uint64_t, 4>, std::shared_ptr<const Image>> images_;
         std::size_t image_bytes_{};
         std::size_t scratch_bytes_{};
@@ -120,7 +122,7 @@ namespace probes {
                 if (overflow == n.style.end() || overflow->second != "hidden") {
                     weft::SceneFrame bounds;
                     bounds.root = n;
-                    for (const auto& e : text_.geometry(bounds)) {
+                    for (const auto& e : geometry_.geometry(bounds)) {
                         if (e.rect[0] < -weft::probe_constants::gallery::layer_bounds_tolerance ||
                             e.rect[1] < -weft::probe_constants::gallery::layer_bounds_tolerance ||
                             e.rect[0] + e.rect[2] > n.box[2] + weft::probe_constants::gallery::layer_bounds_tolerance ||

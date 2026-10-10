@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include "../probes/gallery_cluster_input.hpp"
+#include "scene_geometry_compare.hpp"
 #include "test_constants/scene.hpp"
 #include <windows.h>
 #include <filesystem>
@@ -14,6 +15,7 @@ using weft::testing::require;
 int main(int argc, char** argv) {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     unsigned failed{};
+    SceneGeometryDifference geometry_difference;
     unsigned captures{};
     unsigned passed{};
     const auto out = std::filesystem::path(argc > 1 ? argv[1] : "artifacts/local/gallery-cluster/native");
@@ -82,6 +84,10 @@ int main(int argc, char** argv) {
                         << session.vm.eval(
                                "JSON.stringify(Array.from(document.getElementById('root').querySelectorAll('*'),n=>({tag:n.localName,style:n.getAttribute('style'),text:n.children.length?'':n.textContent})))")
                         << "}\n";
+                    compare_scene_geometry(session.raster, session.scene_geometry, session.current,
+                                           session.svg_geometry, session.width, session.height, geometry_difference,
+                                           weft::test_constants::scene::cluster_geometry_hit_grid_px,
+                                           n == 24 || n == weft::test_constants::scene::cluster_last_frame);
                     std::cout << " [" << n << ":" << mean << "," << d.soft_iou << "]" << std::flush;
                     ++captures;
                     // Diagnostic mode retains every failure/capture during integration.
@@ -101,6 +107,14 @@ int main(int argc, char** argv) {
             }
         }
     }
+    if (geometry_difference.max_rect > weft::test_constants::scene::geometry_rect_tolerance_px ||
+        geometry_difference.max_matrix > weft::test_constants::scene::geometry_matrix_tolerance) {
+        ++failed;
+    }
+    std::cout << "portable geometry vs D2D reference: " << geometry_difference.frames << " frames, "
+              << geometry_difference.elements << " elements, max rect difference " << geometry_difference.max_rect
+              << " px, max matrix difference " << geometry_difference.max_matrix << "; " << geometry_difference.hits
+              << " hit tests, " << geometry_difference.boundary_hits << " differing only at boundaries\n";
     std::cout << "cases=" << passed << " captures=" << captures << " failures=" << failed << '\n';
     CoUninitialize();
     return failed ? 1 : 0;
