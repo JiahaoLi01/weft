@@ -59,7 +59,7 @@ $exe = 'F:\Projects\CaseElephant\build\windows-msvc\bin\Release\weft_d3d11_probe
 python tools/analyze_gallery_trace.py artifacts/local/interaction-profile/manual
 ```
 
-普通4K窗口仍用 `--gallery-window-hardware`。profiler窗口额外写 `owner-trace.json`、`render-trace.json`，二者用同一个steady-clock微秒时钟、17位精度。分析脚本离线验证时间、publication/input覆盖和排空计数，合并到 `combined-trace.json` 并输出 `profile-summary.json`。Trace为Chrome/Perfetto trace-event JSON，每条含tid、ts、dur和拥有值参数；owner显示input queue age/各案例style/build/layout/geometry，render显示每卡绘制和整帧（包括owner等待）。HUD显示Present/Owner Hz、owner active P50/P99、frame age P99、inputQ。
+普通4K窗口仍用 `--gallery-window-hardware`。`tools\gallery.bat 2` 一步完成 profiler 窗口和关闭后的分析，`tools\gallery.bat 3` 运行 live 基准并用 `tools/summarize_gallery_live.py` 汇总。profiler窗口额外写 `owner-trace.json`、`render-trace.json`，二者用同一个steady-clock微秒时钟、17位精度。分析脚本离线验证时间、publication/input覆盖和排空计数，合并到 `combined-trace.json` 并输出 `profile-summary.json`。Trace为Chrome/Perfetto trace-event JSON，每条含tid、ts、dur和拥有值参数；owner显示input queue age/各案例style/build/layout/geometry，render显示每卡绘制和整帧（包括owner等待）。HUD显示Present/Owner Hz、owner active P50/P99、frame age P99、inputQ。
 
 每个线程文件上限65536事件，超限只记dropped数量；停止采集后退出以写入合法JSON结尾。输出包含profiling/文件写入开销；普通窗口不开trace。queue_age从WindowProc接收消息计到owner开始执行，不含此前OS队列等待。自动五组是确定性逐帧wait，age为0，不证明真实异步手操时延；manual trace用于后者。没有自动上传任何数据。
 

@@ -410,7 +410,8 @@ namespace probes {
             return render_trace.enabled() ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
         };
         auto trace_end = [&](const char* name, std::chrono::steady_clock::time_point begin) {
-            if (render_trace.enabled()) {
+            // A span that began before profiling was switched on has no start stamp.
+            if (render_trace.enabled() && begin != std::chrono::steady_clock::time_point{}) {
                 render_trace.emit(
                     name, begin,
                     std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count());

@@ -7,5 +7,8 @@
 *.md text eol=lf
 *.json text eol=lf
 *.cmake text eol=lf
+# cmd parses labels in blocks; LF-only batch files break goto.
+*.bat text eol=crlf
+*.cmd text eol=crlf
 # Preserve reviewed dependency bytes across Git checkouts.
 third_party/** -text
