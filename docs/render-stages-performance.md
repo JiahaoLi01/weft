@@ -6,12 +6,12 @@
 
 ```powershell
 cmake --build --preset windows-release --parallel 8
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/render-stages/interactive
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/render-stages/interactive
 ```
 
 4K 检查窗口默认使用独立 UI owner。FPS 表示成功可见的 Present；HUD 另列 OWNER 更新 Hz、owner active P50 和已发布帧年龄，重复呈现同一完整 UI 帧不会被算成新的 owner 更新。检查 shell 的目录、几何与字体仍在主线程的独立诊断 runtime 上；真实 34 个 CSS/D3 VM 和 2 个 Canvas VM 在同一个 worker 上创建、访问、关闭和销毁。它没有让同一个 DOM 被多个线程访问。
 
-`OwnerExecutorProbe<Request, Input, Frame>` 是内部 C++ adapter：宿主发送 owned 输入和刷新值；输入按可靠顺序处理，队列默认 256、最大 4096，满时显式返回 Full，让宿主重试或施加背压。被丢弃的完整快照/请求移到队列锁外销毁，阻塞析构反例验证不会阻塞另一个游戏线程的发送 API。刷新请求可合并为最新一次；发布最多保留两个完整不可变值快照。身份携带 epoch，reset 后拒绝旧输入，正在执行的旧世代 publication 被丢弃。accepted 输入在正常 close 时排空，异常传回 host；不会在 render 线程销毁 owner 的 VM。独立 executor 验证真实 DOM/GC/reset，gallery 检查器重新加载则重建 executor 与对应 surface domain。
+`OwnerExecutor<Request, Input, Frame>` 是内部 C++ adapter：宿主发送 owned 输入和刷新值；输入按可靠顺序处理，队列默认 256、最大 4096，满时显式返回 Full，让宿主重试或施加背压。被丢弃的完整快照/请求移到队列锁外销毁，阻塞析构反例验证不会阻塞另一个游戏线程的发送 API。刷新请求可合并为最新一次；发布最多保留两个完整不可变值快照。身份携带 epoch，reset 后拒绝旧输入，正在执行的旧世代 publication 被丢弃。accepted 输入在正常 close 时排空，异常传回 host；不会在 render 线程销毁 owner 的 VM。独立 executor 验证真实 DOM/GC/reset，gallery 检查器重新加载则重建 executor 与对应 surface domain。
 
 输入命中前在 owner 刷新同步几何；内部 measure 不回调 JS。renderer 只消费 `shared_ptr<const GalleryOwnerFrame>` 中的 owned scene 和 Canvas pixels，没有 Node 指针、JSValue 或借用 DOM 子树。交互窗口用 latest 非阻塞读取，owner 落后时保留完整旧帧；确定性 benchmark/self-test 显式等待当前更新，这两种口径不同。实际游戏引擎的输入队列、帧调度与 C ABI 接入仍需实现，本轮不是已经接入用户游戏的性能承诺。
 
@@ -27,7 +27,7 @@ D2D 局部重绘以**将要重写的已完成 backing version 自己保存的完
 
 ## 图形 API 无关的 native pass
 
-`ProbeNativeScene`/`ProbeNativePaint` 只含 owned 数值、仿射矩阵、clip、四角圆角、四边样式、最多八个梯度 stop、字形/源图值和 begin/end opacity group，没有 D3D11 类型。当前 adapter 使用结构化 instance buffer 与 shader 绘制矩形、圆角、solid 边框/圆环、linear/radial/conic 梯度，并按原透明顺序批处理连续 shapes。多绘制操作的 opacity 用最多四层独立 scratch group，合成后才乘整组透明度。全 adapter scratch accounted texture budget 为 128 MiB，超限回退；buffer 每 slot 最多 2048 records。所有可重写 buffer/group target 属于已确认完成的 slot。
+`NativeScene`/`NativePaint` 只含 owned 数值、仿射矩阵、clip、四角圆角、四边样式、最多八个梯度 stop、字形/源图值和 begin/end opacity group，没有 D3D11 类型。当前 adapter 使用结构化 instance buffer 与 shader 绘制矩形、圆角、solid 边框/圆环、linear/radial/conic 梯度，并按原透明顺序批处理连续 shapes。多绘制操作的 opacity 用最多四层独立 scratch group，合成后才乘整组透明度。全 adapter scratch accounted texture budget 为 128 MiB，超限回退；buffer 每 slot 最多 2048 records。所有可重写 buffer/group target 属于已确认完成的 slot。
 
 支持的 opaque full-card root 可以直接清屏代替全卡通用 shader；crop、圆角、梯度、半透明或变换时保留正常绘制。encoded BGRA8 的 brush 量化顺序与参考一致，之后仍经逐 texel decode 到 linear-premultiplied RGBA16F 与既有 external lease 合成。没有取消转换和卡片合成成本，也没有改变引擎颜色合同。
 
@@ -48,12 +48,12 @@ SVG、projective、圆角/变换子树裁剪和其他超出 native pass 的组�
 ```powershell
 ctest --preset windows-release --output-on-failure
 ctest --preset windows-debug --output-on-failure
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --scene-native-test-hardware artifacts/local/render-stages/check-native
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --render-stages-test-hardware artifacts/local/render-stages/check-damage
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --owner-async-test-hardware artifacts/local/render-stages/check-owner
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --scene-native-test-hardware artifacts/local/render-stages/check-native
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --render-stages-test-hardware artifacts/local/render-stages/check-damage
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --owner-async-test-hardware artifacts/local/render-stages/check-owner
 ```
 
-保留的基线在 `baseline/source` 与 `baseline/build`；固定采样脚本 `tools/benchmark_render_stages.ps1` 默认写 `sampling-v2`，拒绝覆盖已有 benchmark。新测量应使用新的输出前缀，不能覆盖封存样本。记录中的 executable 仍会读取其编译时 CE_SOURCE_DIR 的脚本/shader，复现历史代码时应从相应 source-snapshot 独立重建，不能把一个旧 exe 与新 runtime assets 混用。
+保留的基线在 `baseline/source` 与 `baseline/build`；固定采样脚本 `tools/benchmark_render_stages.ps1` 默认写 `sampling-v2`，拒绝覆盖已有 benchmark。新测量应使用新的输出前缀，不能覆盖封存样本。记录中的 executable 仍会读取其编译时 WEFT_SOURCE_DIR 的脚本/shader，复现历史代码时应从相应 source-snapshot 独立重建，不能把一个旧 exe 与新 runtime assets 混用。
 
 ## 实测结果
 
@@ -82,7 +82,7 @@ controlled 中段进程峰值 working set 中位 238.51→253.61MiB、关闭时 
 
 仅一对默认 sanity：CSS top 162.40→172.85 FPS；D3 215.09→212.17，基本持平且不可由一对断言回归/提升。D3 仍使用 reference SVG producer。第一轮较广的 native layer policy 完整原始数据在根 paired/controlled/sanity：controlled 中段吞吐中位 156.88→160.10、每对并非都更快；最终 narrowed host policy 的三轮数据在 sampling-v2，不丢弃第一轮、不混合计分。
 
-产物与 SHA-256 seal 位于 `artifacts/local/render-stages/`。baseline 650 个旧封存源在自己的 CE_SOURCE_DIR 重新构建；前两项及更早 seals 校验保持，原文件 101 项核对无 drift。当前新封存覆盖 663 个源文件（含 source-snapshot）与各配置 binaries；完整命令、报告和失败探索均保存。
+产物与 SHA-256 seal 位于 `artifacts/local/render-stages/`。baseline 650 个旧封存源在自己的 WEFT_SOURCE_DIR 重新构建；前两项及更早 seals 校验保持，原文件 101 项核对无 drift。当前新封存覆盖 663 个源文件（含 source-snapshot）与各配置 binaries；完整命令、报告和失败探索均保存。
 
 环境：Windows 11 26200 / Ryzen 9 9950X3D / RTX 5090 driver 32.0.16.1062 / MSVC 19.42 C++20 Release + D3D11 debug layer；3840×2160 surface、1920×1080 shell，34 scene VM / 560 mount 节点、2 个 Canvas VM。shell 固定 Roboto/Noto CJK/Mplus；scene 使用本机 Microsoft YaHei UI(system-ui)/Arial/Consolas/Emoji，图片、原例与 bundle 固定。240 固定 60Hz owner 帧 / 16 warmup / 224 样本，无 readback，最后 drain 实际 query；三交替对，默认与两版同 affinity 0xFFFF/High 子进程条件分开。构建/测试停止后串行采样。
 

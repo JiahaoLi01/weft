@@ -11,32 +11,32 @@
 #include <thread>
 #include <algorithm>
 
-using namespace caseelephant;
+using namespace weft;
 
 namespace {
-    using caseelephant::testing::format_host_time;
-    using caseelephant::testing::read_source_file;
-    using caseelephant::testing::require;
+    using weft::testing::format_host_time;
+    using weft::testing::read_source_file;
+    using weft::testing::require;
 
-    void install(ScriptDomProbe& vm, bool old = false) {
+    void install(ScriptDom& vm, bool old = false) {
         // old: the platform modules before the owner hot-path optimization, kept as a differential.
         if (old) {
             vm.eval(read_source_file("/tests/fixtures/owner-hotpath/web_host_before.js"));
             vm.eval(read_source_file("/tests/fixtures/owner-hotpath/animation_frame_before.js"));
             return;
         }
-        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
-        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::AnimationFrame);
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::AnimationFrame);
     }
 
-    void legacy_frame(ScriptDomProbe& vm, double time, bool drawable) {
+    void legacy_frame(ScriptDom& vm, double time, bool drawable) {
         vm.eval("__ceAnimationHost.begin(" + format_host_time(time) + "," + (drawable ? "true" : "false") + ")");
         while (vm.eval("__ceAnimationHost.next()") != "0") {
         }
     }
 
     void scheduling() {
-        ScriptDomProbe missing;
+        ScriptDom missing;
         bool absent = false;
         try {
             missing.pump_tasks(0);
@@ -47,10 +47,10 @@ namespace {
         install(missing);
         require(missing.pump_tasks(0).ready == 0 && missing.animation_frame(0).pending == 0,
                 "missing module poisoned later installation");
-        ScriptDomProbe fast({caseelephant::constants::script::probe_vm_stack_bytes,
-                             caseelephant::constants::script::max_execution_budget_ms});
-        ScriptDomProbe full({caseelephant::constants::script::probe_vm_stack_bytes,
-                             caseelephant::constants::script::max_execution_budget_ms});
+        ScriptDom fast(
+            {weft::constants::script::probe_vm_stack_bytes, weft::constants::script::max_execution_budget_ms});
+        ScriptDom full(
+            {weft::constants::script::probe_vm_stack_bytes, weft::constants::script::max_execution_budget_ms});
         install(fast);
         install(full, true);
         const auto script = R"JS(
@@ -69,13 +69,13 @@ globalThis.mutate=()=>{
         fast.eval(script);
         full.eval(script);
         const auto before = fast.stats().script_evaluations;
-        for (unsigned i = 0; i < caseelephant::test_constants::script::scheduler_differential_frames; ++i) {
-            const double time = i * caseelephant::test_constants::script::scheduler_frame_interval_ms +
-                                caseelephant::test_constants::script::legacy_rounding_time_ms;
+        for (unsigned i = 0; i < weft::test_constants::script::scheduler_differential_frames; ++i) {
+            const double time = i * weft::test_constants::script::scheduler_frame_interval_ms +
+                                weft::test_constants::script::legacy_rounding_time_ms;
             fast.eval("mutate()");
             full.eval("mutate()");
             auto pump = [&] {
-                for (unsigned k = 0; k < caseelephant::constants::script::max_task_pump_turns; ++k) {
+                for (unsigned k = 0; k < weft::constants::script::max_task_pump_turns; ++k) {
                     const auto a = fast.pump_tasks(time);
                     const auto b = full.eval("__ceHost.pump(" + format_host_time(time) + ")");
                     require(std::to_string(a.ready) == b, "native timer batch differs from preserved full module");
@@ -86,7 +86,7 @@ globalThis.mutate=()=>{
                 throw std::runtime_error("pump limit");
             };
             pump();
-            const bool visible = i % caseelephant::test_constants::script::hidden_frame_period != 0;
+            const bool visible = i % weft::test_constants::script::hidden_frame_period != 0;
             fast.animation_frame(time, visible);
             legacy_frame(full, time, visible);
             pump();
@@ -94,7 +94,7 @@ globalThis.mutate=()=>{
                     "timer/rAF/microtask clock/cancel/order differential");
             require(fast.snapshot_subtree("#root").attributes == full.snapshot_subtree("#root").attributes,
                     "scheduled mutation differs");
-            if (i % caseelephant::test_constants::script::scheduler_gc_period == 0) {
+            if (i % weft::test_constants::script::scheduler_gc_period == 0) {
                 fast.collect_garbage();
                 full.collect_garbage();
             }
@@ -103,7 +103,7 @@ globalThis.mutate=()=>{
                     full.stats().script_evaluations > fast.stats().script_evaluations + 1000 &&
                     fast.stats().script_evaluations > before,
                 "scheduler never used direct calls");
-        for (unsigned cycle = 0; cycle < caseelephant::test_constants::script::reset_cycles; ++cycle) {
+        for (unsigned cycle = 0; cycle < weft::test_constants::script::reset_cycles; ++cycle) {
             fast.reset_document();
             install(fast);
             fast.eval(
@@ -112,7 +112,7 @@ globalThis.mutate=()=>{
                     "cached host function crossed reset");
             fast.reset_document();
             fast.collect_garbage();
-            require(fast.stats().live_nodes == caseelephant::test_constants::script::bootstrap_document_nodes &&
+            require(fast.stats().live_nodes == weft::test_constants::script::bootstrap_document_nodes &&
                         fast.stats().native_roots == 1,
                     "cached host functions or journal rooted old nodes");
         }
@@ -158,8 +158,8 @@ globalThis.mutate=()=>{
         });
         thread.join();
         require(rejected, "cross-owner direct call accepted");
-        ScriptDomProbe budget({caseelephant::constants::script::probe_vm_stack_bytes,
-                               caseelephant::test_constants::script::spin_execution_budget_ms});
+        ScriptDom budget(
+            {weft::constants::script::probe_vm_stack_bytes, weft::test_constants::script::spin_execution_budget_ms});
         install(budget);
         budget.eval("setTimeout(()=>{for(;;){}},0)");
         rejected = false;
@@ -175,8 +175,7 @@ globalThis.mutate=()=>{
     }
 
     void revisions() {
-        ScriptDomProbe vm({caseelephant::constants::script::probe_vm_stack_bytes,
-                           caseelephant::constants::script::max_execution_budget_ms});
+        ScriptDom vm({weft::constants::script::probe_vm_stack_bytes, weft::constants::script::max_execution_budget_ms});
         install(vm);
         vm.eval(
             "globalThis.root=document.getElementById('root');globalThis.side=document.createElement('div');side.id='side';document.body.appendChild(side);globalThis.p=document.createElement('div');p.id='p';root.appendChild(p);globalThis.n=document.createElement('span');n.id='n';p.appendChild(n);globalThis.t=document.createTextNode('x');n.appendChild(t)");
@@ -223,7 +222,7 @@ globalThis.mutate=()=>{
         snapshot = vm.snapshot_subtree(root);
         version = vm.subtree_revision(root);
         unsigned reused{};
-        for (unsigned i = 0; i < caseelephant::test_constants::script::mutation_differential_steps; ++i) {
+        for (unsigned i = 0; i < weft::test_constants::script::mutation_differential_steps; ++i) {
             const auto cursor = vm.changes_since(0).revision;
             vm.eval("mutate()");
             const auto current = vm.subtree_revision(root);
@@ -240,7 +239,7 @@ globalThis.mutate=()=>{
             for (auto id : changes.nodes) {
                 require(vm.is_live(id), "journal returned finalized generation");
             }
-            if (i % caseelephant::test_constants::script::mutation_gc_period == 0) {
+            if (i % weft::test_constants::script::mutation_gc_period == 0) {
                 vm.collect_garbage();
             }
         }
@@ -248,8 +247,8 @@ globalThis.mutate=()=>{
         // Layout callbacks cannot reenter the owner. Use only captured value state.
         double scroll_x{};
         double scroll_y{};
-        vm.install_layout_host([&](const ProbeDomSnapshot& d) {
-            auto find = [&](auto&& self, const auto& node) -> const ProbeDomSnapshot* {
+        vm.install_layout_host([&](const DomSnapshot& d) {
+            auto find = [&](auto&& self, const auto& node) -> const DomSnapshot* {
                 if (node.identity == root) {
                     return &node;
                 }
@@ -262,7 +261,7 @@ globalThis.mutate=()=>{
             };
             auto n = find(find, d);
             require(n, "layout root missing");
-            ProbeElementGeometry g;
+            ElementGeometry g;
             g.identity = root;
             g.rect = {0, 0, 100, 100};
             g.client_width = g.client_height = 100;

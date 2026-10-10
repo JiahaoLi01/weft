@@ -6,10 +6,10 @@
 #include <numbers>
 #include <stdexcept>
 
-namespace caseelephant {
+namespace weft {
     namespace {
         using Matrix = std::array<float, 6>;
-        using Style = ProbeSceneStyle;
+        using Style = SceneStyle;
 
         using css::trim;
 
@@ -48,7 +48,7 @@ namespace caseelephant {
             if (s == "transparent" || s == "none") {
                 return {};
             }
-            return parse_probe_css_color(css::expand_color_shorthand(s, false));
+            return parse_css_color(css::expand_color_shorthand(s, false));
         }
 
         Matrix multiply(Matrix a, Matrix b) {
@@ -60,11 +60,11 @@ namespace caseelephant {
             return {m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]};
         }
 
-        Matrix matrix(const ProbeSceneNode& n) {
+        Matrix matrix(const SceneNode& n) {
             auto t = n.paint && n.paint->values[constants::scene::paint_slot_transform]
                          ? n.paint->values[constants::scene::paint_slot_transform]
                          : parse_scene_paint_value(get(n.style, "transform", "none"));
-            if (!t || t->kind != ProbePaintValue::Transform) {
+            if (!t || t->kind != PaintValue::Transform) {
                 throw std::invalid_argument("transform grammar");
             }
             Matrix m{1, 0, 0, 1, 0, 0};
@@ -74,32 +74,32 @@ namespace caseelephant {
                 };
                 Matrix a{1, 0, 0, 1, 0, 0};
                 switch (op.kind) {
-                    case ProbePaintOp::Translate:
+                    case PaintOp::Translate:
                         a[4] = v(0, n.box[2]);
                         a[5] = op.count > 1 ? v(1, n.box[3]) : 0;
                         break;
-                    case ProbePaintOp::TranslateX:
+                    case PaintOp::TranslateX:
                         a[4] = v(0, n.box[2]);
                         break;
-                    case ProbePaintOp::TranslateY:
+                    case PaintOp::TranslateY:
                         a[5] = v(0, n.box[3]);
                         break;
-                    case ProbePaintOp::Scale:
+                    case PaintOp::Scale:
                         a[0] = v(0);
                         a[3] = op.count > 1 ? v(1) : v(0);
                         break;
-                    case ProbePaintOp::ScaleX:
+                    case PaintOp::ScaleX:
                         a[0] = v(0);
                         break;
-                    case ProbePaintOp::ScaleY:
+                    case PaintOp::ScaleY:
                         a[3] = v(0);
                         break;
-                    case ProbePaintOp::Rotate: {
+                    case PaintOp::Rotate: {
                         float r = v(0) * std::numbers::pi_v<float> / constants::degrees_per_half_turn;
                         a = {std::cos(r), std::sin(r), -std::sin(r), std::cos(r), 0, 0};
                         break;
                     }
-                    case ProbePaintOp::Matrix:
+                    case PaintOp::Matrix:
                         for (unsigned i = 0; i < 6; ++i) {
                             a[i] = v(i);
                         }
@@ -126,7 +126,7 @@ namespace caseelephant {
             return multiply(Matrix{1, 0, 0, 1, n.box[0] + x, n.box[1] + y}, multiply(m, Matrix{1, 0, 0, 1, -x, -y}));
         }
 
-        void gradient(ProbeNativePaint& p, const Style& s) {
+        void gradient(NativePaint& p, const Style& s) {
             auto image = get(s, "background-image", "none");
             if (image == "none") {
                 return;
@@ -231,12 +231,11 @@ namespace caseelephant {
         }
     } // namespace
 
-    ProbeNativeScene compile_native_scene_probe(const ProbeSceneFrame& f,
-                                                const std::vector<ProbeNodeIdentity>& layers) {
-        ProbeNativeScene out;
+    NativeScene compile_native_scene(const SceneFrame& f, const std::vector<NodeIdentity>& layers) {
+        NativeScene out;
         try {
             unsigned groups{};
-            auto visit = [&](auto&& self, const ProbeSceneNode& n, Matrix parent, std::array<float, 4> clip) -> void {
+            auto visit = [&](auto&& self, const SceneNode& n, Matrix parent, std::array<float, 4> clip) -> void {
                 if (get(n.style, "display") == "none" || n.box[2] <= 0 || n.box[3] <= 0) {
                     return;
                 }
@@ -249,7 +248,7 @@ namespace caseelephant {
                 if (!get(n.style, "box-shadow").empty() && get(n.style, "box-shadow") != "none") {
                     throw std::invalid_argument("shadow reference");
                 }
-                ProbeNativePaint p;
+                NativePaint p;
                 p.matrix = multiply(parent, matrix(n));
                 p.clip = clip;
                 p.width = n.box[2];
@@ -280,7 +279,7 @@ namespace caseelephant {
                     r *= factor;
                 }
                 auto paint_color = [&](unsigned i, const char* key, const char* def) {
-                    if (n.paint && n.paint->values[i] && n.paint->values[i]->kind == ProbePaintValue::Color) {
+                    if (n.paint && n.paint->values[i] && n.paint->values[i]->kind == PaintValue::Color) {
                         std::array<float, 4> c{};
                         for (unsigned j = 0; j < 4; ++j) {
                             c[j] = float(n.paint->values[i]->color[j]);
@@ -317,7 +316,7 @@ namespace caseelephant {
                     source.style.erase("opacity");
                     source.attributes.erase("style");
                     source.paint.reset();
-                    p.kind = ProbeNativePaint::Layer;
+                    p.kind = NativePaint::Layer;
                     p.opacity = opacity;
                     p.text = std::move(source);
                     out.paints.push_back(std::move(p));
@@ -337,8 +336,8 @@ namespace caseelephant {
                     if (++groups > constants::scene::max_opacity_group_depth) {
                         throw std::invalid_argument("opacity depth bound");
                     }
-                    ProbeNativePaint g;
-                    g.kind = ProbeNativePaint::BeginGroup;
+                    NativePaint g;
+                    g.kind = NativePaint::BeginGroup;
                     g.opacity = opacity;
                     g.clip = clip;
                     out.paints.push_back(g);
@@ -364,7 +363,7 @@ namespace caseelephant {
                 }
                 if (!n.text.empty()) {
                     auto t = p;
-                    t.kind = ProbeNativePaint::Text;
+                    t.kind = NativePaint::Text;
                     t.clip = clip;
                     t.text = n;
                     t.text->children.clear();
@@ -411,8 +410,8 @@ namespace caseelephant {
                     self(self, n.children[i], p.matrix, clip);
                 }
                 if (isolated) {
-                    ProbeNativePaint g;
-                    g.kind = ProbeNativePaint::EndGroup;
+                    NativePaint g;
+                    g.kind = NativePaint::EndGroup;
                     g.opacity = opacity;
                     g.clip = p.clip;
                     out.paints.push_back(g);
@@ -432,4 +431,4 @@ namespace caseelephant {
         }
         return out;
     }
-} // namespace caseelephant
+} // namespace weft

@@ -30,10 +30,10 @@ def main():
               '#pragma once\n'
               '#include "caseelephant/flex_probe.hpp"\n'
               '\n'
-              'namespace caseelephant::fixtures {\n'
+              'namespace weft::fixtures {\n'
               '    struct Case {\n'
               '        std::string id;\n'
-              '        FlexProbeNode root;\n'
+              '        FlexNode root;\n'
               '    };\n'
               '\n'
               '    inline std::vector<Case> flex_cases() {\n'
@@ -42,7 +42,7 @@ def main():
               '    }\n'
               '\n'
               '    inline constexpr const char* input_sha256 = "' + hashlib.sha256(raw).hexdigest() + '";\n'
-              '} // namespace caseelephant::fixtures\n')
+              '} // namespace weft::fixtures\n')
     browser_data = dict(data, input_sha256=hashlib.sha256(raw).hexdigest())
     browser = 'globalThis.caseElephantFlexFixture = ' + json.dumps(browser_data, ensure_ascii=False, indent=2) + ';\n'
     for filename, content in [('flex_layout_cases.hpp', header), ('flex_layout_cases.js', browser)]:

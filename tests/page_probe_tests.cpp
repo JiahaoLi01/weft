@@ -9,11 +9,11 @@
 #include <stdexcept>
 
 namespace {
-    using caseelephant::testing::read_source_file;
-    using caseelephant::testing::require;
+    using weft::testing::read_source_file;
+    using weft::testing::require;
 
-    void pump(caseelephant::ScriptDomProbe& p, unsigned t = 0) {
-        for (unsigned i = 0; i < caseelephant::test_constants::layout::max_pump_rounds; ++i) {
+    void pump(weft::ScriptDom& p, unsigned t = 0) {
+        for (unsigned i = 0; i < weft::test_constants::layout::max_pump_rounds; ++i) {
             p.eval("__ceHost.pump(" + std::to_string(t) + ")");
             if (p.eval("__ceHost.pending()") == "0") {
                 return;
@@ -25,14 +25,14 @@ namespace {
 
 int main() {
     try {
-        caseelephant::TextProbeFont font(CE_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
-        caseelephant::ScriptProbeConfig config{caseelephant::test_constants::layout::script_stack_bytes};
-#ifdef CE_REACT_GC_STRESS
-        config.execution_budget_ms = caseelephant::test_constants::layout::
+        weft::Font font(WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
+        weft::ScriptConfig config{weft::test_constants::layout::script_stack_bytes};
+#ifdef WEFT_REACT_GC_STRESS
+        config.execution_budget_ms = weft::test_constants::layout::
             gc_stress_execution_budget_ms; // GC at every allocation is deliberate instrumentation.
 #endif
-        caseelephant::ScriptDomProbe p(config);
-        const std::string bootstrap(caseelephant::script_platform_source(caseelephant::ScriptPlatformModule::WebHost));
+        weft::ScriptDom p(config);
+        const std::string bootstrap(weft::script_platform_source(weft::ScriptPlatformModule::WebHost));
         const auto bundle = read_source_file("/examples/react-vite/native/app.js");
         p.eval(bootstrap);
         require(p.eval(R"JS(
@@ -44,14 +44,14 @@ int main() {
         )JS") == "true",
                 "CSS declaration diverged from native style attribute / exact ID lookup");
         p.reset_document();
-        for (unsigned cycle = 0; cycle < caseelephant::test_constants::layout::react_page_cycles; ++cycle) {
+        for (unsigned cycle = 0; cycle < weft::test_constants::layout::react_page_cycles; ++cycle) {
             p.eval(bootstrap);
             p.eval(bundle);
             pump(p);
             p.collect_garbage();
             const auto identity = p.node_identity("#increment");
             auto snapshot = p.snapshot_subtree("#page");
-            const auto page = caseelephant::build_page_probe(snapshot, font);
+            const auto page = weft::build_page(snapshot, font);
             require(page.boxes.size() == 25 && page.paints.size() > 15, "real React page layout/paint");
             p.eval("document.getElementById('increment').dispatchEvent(new Event('click',{bubbles:true}));");
             pump(p, 16);
@@ -62,7 +62,7 @@ int main() {
             invalid.attributes["style"] += " opacity:0.5;";
             bool rejected{};
             try {
-                (void)caseelephant::build_page_probe(invalid, font);
+                (void)weft::build_page(invalid, font);
             } catch (const std::invalid_argument&) {
                 rejected = true;
             }
@@ -71,7 +71,7 @@ int main() {
             invalid.attributes["style"] = "width:640px;";
             rejected = false;
             try {
-                (void)caseelephant::build_page_probe(invalid, font);
+                (void)weft::build_page(invalid, font);
             } catch (const std::invalid_argument&) {
                 rejected = true;
             }
@@ -80,7 +80,7 @@ int main() {
             invalid.attributes["style"] += " border-left-width:2px;";
             rejected = false;
             try {
-                (void)caseelephant::build_page_probe(invalid, font);
+                (void)weft::build_page(invalid, font);
             } catch (const std::invalid_argument&) {
                 rejected = true;
             }
@@ -92,8 +92,7 @@ int main() {
             p.reset_document();
             require(p.stats().live_nodes == 3 && !p.is_live(identity),
                     "React VM reset leaked or retained node identity");
-            require(caseelephant::build_page_probe(snapshot, font).boxes.size() == 25,
-                    "value snapshot depends on destroyed VM");
+            require(weft::build_page(snapshot, font).boxes.size() == 25, "value snapshot depends on destroyed VM");
         }
         p.eval(bootstrap);
         p.eval("queueMicrotask(()=>{throw Error('microtask-proof');})");

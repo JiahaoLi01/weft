@@ -7,7 +7,7 @@
 #include <string_view>
 #include <thread>
 
-namespace caseelephant {
+namespace weft {
     // The thread that owns a single-threaded object (DOM, script VM, style memo, layout, text, raster).
     // Constructed on, and bound to, the creating thread.
     class OwnerThread {
@@ -36,4 +36,4 @@ namespace caseelephant {
     private:
         std::thread::id id_;
     };
-} // namespace caseelephant
+} // namespace weft

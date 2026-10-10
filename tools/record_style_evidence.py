@@ -19,8 +19,8 @@ sources+=sorted(p.relative_to(root).as_posix() for directory in ('src','include'
 for name,build,config,count,log in [('debug','windows-msvc','Debug',37,'ctest-full.log'),
  ('release','windows-msvc','Release',37,'ctest-full.log'),('gc-stress','windows-gc-stress','Debug',7,'ctest-focused.log')]:
     folder=root/'artifacts/local'/('style-'+name);gpu_folder=root/'artifacts/local'/('cheetah-style-'+name)
-    binary=root/'build'/build/'bin'/config/'ce_d3d11_probe.exe'
-    style_binary=binary.with_name('ce_style_probe_tests.exe')
+    binary=root/'build'/build/'bin'/config/'weft_d3d11_probe.exe'
+    style_binary=binary.with_name('weft_style_probe_tests.exe')
     text=(folder/log).read_text(encoding='utf-8');assert f'0 tests failed out of {count}' in text
     assert (folder/log).stat().st_mtime>=max(binary.stat().st_mtime,style_binary.stat().st_mtime)
     duration=float(re.search(r'Total Test time \(real\) =\s+([\d.]+)',text).group(1))

@@ -3,7 +3,7 @@
 #include "gallery_constants.hpp"
 
 class SceneNativeGpu {
-    using Paint = caseelephant::ProbeNativePaint;
+    using Paint = weft::NativePaint;
 
     struct Record {
         Color bounds;
@@ -17,15 +17,15 @@ class SceneNativeGpu {
         std::array<Color, 4> edges;
         Color tile;
         Color extra;
-        std::array<Color, caseelephant::probe_constants::gallery::max_gradient_stops> stops;
-        std::array<Color, caseelephant::probe_constants::gallery::gradient_offset_vectors> offsets;
+        std::array<Color, weft::probe_constants::gallery::max_gradient_stops> stops;
+        std::array<Color, weft::probe_constants::gallery::gradient_offset_vectors> offsets;
     };
 
-    static_assert(sizeof(Record) == caseelephant::probe_constants::gallery::native_record_bytes);
+    static_assert(sizeof(Record) == weft::probe_constants::gallery::native_record_bytes);
 
 public:
     struct Image {
-        caseelephant::ProbeSceneNode key;
+        weft::SceneNode key;
         float scale{};
         ComPtr<ID3D11ShaderResourceView> view;
         std::size_t bytes{};
@@ -35,7 +35,7 @@ public:
         ComPtr<ID3D11Buffer> records;
         ComPtr<ID3D11Buffer> constants;
         ComPtr<ID3D11ShaderResourceView> view;
-        std::array<Surface, caseelephant::probe_constants::gallery::native_max_group_depth> groups;
+        std::array<Surface, weft::probe_constants::gallery::native_max_group_depth> groups;
         std::vector<std::shared_ptr<const Image>> leases;
         unsigned width{};
         unsigned height{};
@@ -58,7 +58,7 @@ private:
     ComPtr<ID3D11VertexShader> vs_;
     ComPtr<ID3D11PixelShader> ps_;
     ComPtr<ID3D11RasterizerState> raster_;
-    caseelephant::SceneRasterProbe text_;
+    weft::SceneRaster text_;
     std::map<std::array<std::uint64_t, 4>, std::shared_ptr<const Image>> images_;
     std::size_t image_bytes_{};
     std::size_t scratch_bytes_{};
@@ -82,8 +82,7 @@ private:
         const auto& n = *p.text;
         std::array<std::uint64_t, 4> id{view_index, n.identity.view_epoch, n.identity.slot, n.identity.generation};
         auto it = images_.find(id);
-        if (it != images_.end() && caseelephant::scene_paint_source_equal_probe(it->second->key, n) &&
-            it->second->scale == scale) {
+        if (it != images_.end() && weft::scene_paint_source_equal(it->second->key, n) && it->second->scale == scale) {
             if (p.kind == Paint::Layer) {
                 ++layer_reuses;
             } else {
@@ -93,8 +92,8 @@ private:
         }
         if (p.kind == Paint::Layer) {
             bool supported = true;
-            auto inspect = [&](auto&& self, const caseelephant::ProbeSceneNode& node) -> void {
-                if (!node.space.empty() && node.space != caseelephant::constants::xhtml_namespace_uri) {
+            auto inspect = [&](auto&& self, const weft::SceneNode& node) -> void {
+                if (!node.space.empty() && node.space != weft::constants::xhtml_namespace_uri) {
                     supported = false;
                 }
                 auto t = node.style.find("transform");
@@ -103,8 +102,8 @@ private:
                 }
                 if (!node.text.empty()) {
                     auto m = text_.measure(node.text, node.style);
-                    if (m.width > node.box[2] + caseelephant::probe_constants::gallery::text_fit_tolerance ||
-                        m.height > node.box[3] + caseelephant::probe_constants::gallery::text_fit_tolerance) {
+                    if (m.width > node.box[2] + weft::probe_constants::gallery::text_fit_tolerance ||
+                        m.height > node.box[3] + weft::probe_constants::gallery::text_fit_tolerance) {
                         supported = false;
                     }
                 }
@@ -115,15 +114,13 @@ private:
             inspect(inspect, n);
             auto overflow = n.style.find("overflow");
             if (overflow == n.style.end() || overflow->second != "hidden") {
-                caseelephant::ProbeSceneFrame bounds;
+                weft::SceneFrame bounds;
                 bounds.root = n;
                 for (const auto& e : text_.geometry(bounds)) {
-                    if (e.rect[0] < -caseelephant::probe_constants::gallery::layer_bounds_tolerance ||
-                        e.rect[1] < -caseelephant::probe_constants::gallery::layer_bounds_tolerance ||
-                        e.rect[0] + e.rect[2] >
-                            n.box[2] + caseelephant::probe_constants::gallery::layer_bounds_tolerance ||
-                        e.rect[1] + e.rect[3] >
-                            n.box[3] + caseelephant::probe_constants::gallery::layer_bounds_tolerance) {
+                    if (e.rect[0] < -weft::probe_constants::gallery::layer_bounds_tolerance ||
+                        e.rect[1] < -weft::probe_constants::gallery::layer_bounds_tolerance ||
+                        e.rect[0] + e.rect[2] > n.box[2] + weft::probe_constants::gallery::layer_bounds_tolerance ||
+                        e.rect[1] + e.rect[3] > n.box[3] + weft::probe_constants::gallery::layer_bounds_tolerance) {
                         supported = false;
                     }
                 }
@@ -135,30 +132,30 @@ private:
         auto metrics = text_.measure(n.text, n.style);
         auto overflow = n.style.find("overflow");
         if (p.kind == Paint::Text && (overflow == n.style.end() || overflow->second != "hidden") &&
-            (metrics.width > n.box[2] + caseelephant::probe_constants::gallery::text_fit_tolerance ||
-             metrics.height > n.box[3] + caseelephant::probe_constants::gallery::text_fit_tolerance)) {
+            (metrics.width > n.box[2] + weft::probe_constants::gallery::text_fit_tolerance ||
+             metrics.height > n.box[3] + weft::probe_constants::gallery::text_fit_tolerance)) {
             throw std::invalid_argument("text overflow reference");
         }
-        caseelephant::ProbeSceneFrame frame;
+        weft::SceneFrame frame;
         frame.root.tag = "div";
         frame.root.identity = {UINT32_MAX, 1, n.identity.view_epoch};
-        frame.root.box = {0, 0, n.box[2] + caseelephant::probe_constants::gallery::text_source_margins,
-                          n.box[3] + caseelephant::probe_constants::gallery::text_source_margins};
+        frame.root.box = {0, 0, n.box[2] + weft::probe_constants::gallery::text_source_margins,
+                          n.box[3] + weft::probe_constants::gallery::text_source_margins};
         frame.root.style = {{"background-color", "transparent"}};
         auto child = n;
-        child.box[0] = child.box[1] = caseelephant::probe_constants::gallery::text_source_margin;
+        child.box[0] = child.box[1] = weft::probe_constants::gallery::text_source_margin;
         frame.root.children.push_back(std::move(child));
         auto bitmap = text_.raster(frame, scale);
         const auto bytes = bitmap.rgba.size();
-        if (bytes > caseelephant::probe_constants::gallery::native_image_cache_budget_bytes) {
+        if (bytes > weft::probe_constants::gallery::native_image_cache_budget_bytes) {
             throw std::invalid_argument("text source byte bound");
         }
         for (std::size_t i = 0; i < bitmap.rgba.size(); i += 4) {
             std::swap(bitmap.rgba[i], bitmap.rgba[i + 2]);
             for (unsigned c = 0; c < 3; ++c) {
                 bitmap.rgba[i + c] = std::uint8_t((unsigned(bitmap.rgba[i + c]) * bitmap.rgba[i + 3] +
-                                                   caseelephant::probe_constants::gallery::color_channel_rounding) /
-                                                  caseelephant::constants::color_channel_max);
+                                                   weft::probe_constants::gallery::color_channel_rounding) /
+                                                  weft::constants::color_channel_max);
             }
         }
         auto image = std::make_shared<Image>();
@@ -182,8 +179,8 @@ private:
         } else {
             ++text_builds;
         }
-        if (images_.size() >= caseelephant::probe_constants::gallery::native_image_cache_max_entries ||
-            image_bytes_ + bytes > caseelephant::probe_constants::gallery::native_image_cache_budget_bytes) {
+        if (images_.size() >= weft::probe_constants::gallery::native_image_cache_max_entries ||
+            image_bytes_ + bytes > weft::probe_constants::gallery::native_image_cache_budget_bytes) {
             images_.clear();
             image_bytes_ = 0;
             ++image_evictions;
@@ -209,34 +206,33 @@ private:
         r.edges = p.edges;
         r.tile = {p.tile_width, p.tile_height, p.offset_x, p.offset_y};
         r.extra = {p.angle, p.opacity,
-                   (p.kind == Paint::Text || p.kind == Paint::Layer)
-                       ? caseelephant::probe_constants::gallery::flag_enabled
-                       : caseelephant::probe_constants::gallery::flag_disabled,
-                   p.text_mask ? caseelephant::probe_constants::gallery::flag_enabled
-                               : caseelephant::probe_constants::gallery::flag_disabled};
+                   (p.kind == Paint::Text || p.kind == Paint::Layer) ? weft::probe_constants::gallery::flag_enabled
+                                                                     : weft::probe_constants::gallery::flag_disabled,
+                   p.text_mask ? weft::probe_constants::gallery::flag_enabled
+                               : weft::probe_constants::gallery::flag_disabled};
         for (unsigned i = 0; i < p.stops.size(); ++i) {
             r.stops[i] = p.stops[i].color;
-            r.offsets[i / caseelephant::probe_constants::gallery::stops_per_offset_vector]
-                     [i % caseelephant::probe_constants::gallery::stops_per_offset_vector] = p.stops[i].offset;
+            r.offsets[i / weft::probe_constants::gallery::stops_per_offset_vector]
+                     [i % weft::probe_constants::gallery::stops_per_offset_vector] = p.stops[i].offset;
         }
         if (p.kind == Paint::EndGroup) {
             m = {1, 0, 0, 1, 0, 0};
             r.size = {float(w) / scale, float(h) / scale, 0, 0};
-            r.extra = {0, p.opacity, caseelephant::probe_constants::gallery::flag_enabled,
-                       caseelephant::probe_constants::gallery::flag_disabled};
+            r.extra = {0, p.opacity, weft::probe_constants::gallery::flag_enabled,
+                       weft::probe_constants::gallery::flag_disabled};
         } else if (p.kind == Paint::Text || p.kind == Paint::Layer) {
-            m[4] -= caseelephant::probe_constants::gallery::text_source_margin * (m[0] + m[2]);
-            m[5] -= caseelephant::probe_constants::gallery::text_source_margin * (m[1] + m[3]);
-            r.size[0] += caseelephant::probe_constants::gallery::text_source_margins;
-            r.size[1] += caseelephant::probe_constants::gallery::text_source_margins;
+            m[4] -= weft::probe_constants::gallery::text_source_margin * (m[0] + m[2]);
+            m[5] -= weft::probe_constants::gallery::text_source_margin * (m[1] + m[3]);
+            r.size[0] += weft::probe_constants::gallery::text_source_margins;
+            r.size[1] += weft::probe_constants::gallery::text_source_margins;
         }
         float det = m[0] * m[3] - m[1] * m[2];
         r.inv_x = {m[3] / det, -m[2] / det, (m[2] * m[5] - m[3] * m[4]) / det, 0};
         r.inv_y = {-m[1] / det, m[0] / det, (m[1] * m[4] - m[0] * m[5]) / det, 0};
-        float left = caseelephant::probe_constants::gallery::record_bounds_sentinel;
-        float top = caseelephant::probe_constants::gallery::record_bounds_sentinel;
-        float right = -caseelephant::probe_constants::gallery::record_bounds_sentinel;
-        float bottom = -caseelephant::probe_constants::gallery::record_bounds_sentinel;
+        float left = weft::probe_constants::gallery::record_bounds_sentinel;
+        float top = weft::probe_constants::gallery::record_bounds_sentinel;
+        float right = -weft::probe_constants::gallery::record_bounds_sentinel;
+        float bottom = -weft::probe_constants::gallery::record_bounds_sentinel;
         for (auto point :
              std::array<std::array<float, 2>, 4>{{{0, 0}, {r.size[0], 0}, {0, r.size[1]}, {r.size[0], r.size[1]}}}) {
             float x = m[0] * point[0] + m[2] * point[1] + m[4];
@@ -246,10 +242,10 @@ private:
             right = std::max(right, x);
             bottom = std::max(bottom, y);
         }
-        r.bounds = {left - caseelephant::probe_constants::gallery::record_bounds_outset / scale,
-                    top - caseelephant::probe_constants::gallery::record_bounds_outset / scale,
-                    right - left + caseelephant::probe_constants::gallery::record_bounds_outsets / scale,
-                    bottom - top + caseelephant::probe_constants::gallery::record_bounds_outsets / scale};
+        r.bounds = {left - weft::probe_constants::gallery::record_bounds_outset / scale,
+                    top - weft::probe_constants::gallery::record_bounds_outset / scale,
+                    right - left + weft::probe_constants::gallery::record_bounds_outsets / scale,
+                    bottom - top + weft::probe_constants::gallery::record_bounds_outsets / scale};
         return r;
     }
 
@@ -270,7 +266,7 @@ public:
         ComPtr<ID3DBlob> vs;
         ComPtr<ID3DBlob> ps;
         ComPtr<ID3DBlob> errors;
-        auto path = std::filesystem::path(CE_SOURCE_DIR) / "shaders/scene_native_probe.hlsl";
+        auto path = std::filesystem::path(WEFT_SOURCE_DIR) / "shaders/scene_native_probe.hlsl";
         UINT flags = D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_WARNINGS_ARE_ERRORS | D3DCOMPILE_OPTIMIZATION_LEVEL3;
         auto compile = [&](const char* entry, const char* target, ComPtr<ID3DBlob>& result) {
             auto hr = D3DCompileFromFile(path.c_str(), nullptr, nullptr, entry, target, flags, 0, &result, &errors);
@@ -293,10 +289,10 @@ public:
         check_hresult(gpu.device->CreateRasterizerState(&raster, &raster_), "native scene raster state");
     }
 
-    bool paint(Slot& slot, const caseelephant::ProbeSceneFrame& frame, ID3D11RenderTargetView* destination, float scale,
+    bool paint(Slot& slot, const weft::SceneFrame& frame, ID3D11RenderTargetView* destination, float scale,
                unsigned target_width, unsigned target_height, std::optional<std::array<float, 4>> crop,
-               unsigned view_index, const std::vector<caseelephant::ProbeNodeIdentity>& layers) {
-        auto plan = caseelephant::compile_native_scene_probe(frame, layers);
+               unsigned view_index, const std::vector<weft::NodeIdentity>& layers) {
+        auto plan = weft::compile_native_scene(frame, layers);
         if (!plan.fallback.empty()) {
             ++fallbacks;
             ++reasons[plan.fallback];
@@ -336,7 +332,7 @@ public:
         }
         const auto desired_bytes = std::size_t(target_width) * target_height * 4 * depth_needed;
         if (scratch_bytes_ - slot.group_bytes + desired_bytes >
-            caseelephant::probe_constants::gallery::native_scratch_budget_bytes) {
+            weft::probe_constants::gallery::native_scratch_budget_bytes) {
             ++fallbacks;
             ++reasons["native scratch budget reference"];
             return false;
@@ -351,7 +347,7 @@ public:
         }
         slot.leases = images;
         if (!slot.records || slot.capacity < records.size()) {
-            unsigned capacity = caseelephant::probe_constants::gallery::native_record_initial_capacity;
+            unsigned capacity = weft::probe_constants::gallery::native_record_initial_capacity;
             while (capacity < records.size()) {
                 capacity *= 2;
             }
@@ -371,7 +367,7 @@ public:
             check_hresult(gpu_.device->CreateShaderResourceView(slot.records.Get(), &v, &slot.view),
                           "native instance view");
             d = {};
-            d.ByteWidth = caseelephant::probe_constants::gallery::native_view_constants_bytes;
+            d.ByteWidth = weft::probe_constants::gallery::native_view_constants_bytes;
             d.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
             check_hresult(gpu_.device->CreateBuffer(&d, nullptr, &slot.constants), "native view constants");
         }
@@ -429,7 +425,7 @@ public:
             view[3] = float(start);
             ctx->UpdateSubresource(slot.constants.Get(), 0, nullptr, view.data(), 0, 0);
             ctx->PSSetShaderResources(1, 1, &image);
-            ctx->DrawInstanced(caseelephant::probe_constants::gallery::quad_vertex_count, count, 0, 0);
+            ctx->DrawInstanced(weft::probe_constants::gallery::quad_vertex_count, count, 0, 0);
             ++draws;
             ID3D11ShaderResourceView* empty = nullptr;
             ctx->PSSetShaderResources(1, 1, &empty);

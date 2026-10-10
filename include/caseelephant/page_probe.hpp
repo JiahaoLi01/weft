@@ -5,14 +5,14 @@
 #include "caseelephant/rounded_probe.hpp"
 #include <array>
 
-namespace caseelephant {
-    enum class ProbePaintKind {
+namespace weft {
+    enum class PaintKind {
         Rectangle,
         Text
     };
 
-    struct ProbePagePaint {
-        ProbePaintKind kind{};
+    struct PagePaint {
+        PaintKind kind{};
         std::string id;
         std::string text;
         float x{};
@@ -21,12 +21,12 @@ namespace caseelephant {
         float height{};
         float font_size{};
         std::array<float, 4> srgb{};
-        ProbeShapedText shaped; // Logical glyphs and positions, no atlas coordinates.
+        ShapedText shaped; // Logical glyphs and positions, no atlas coordinates.
     };
 
-    struct ProbePage {
+    struct Page {
         struct Hit {
-            ProbeNodeIdentity identity;
+            NodeIdentity identity;
             std::size_t parent; // Index in hits; root uses size_t max. No Node/JSValue.
             float x{};
             float y{};
@@ -36,15 +36,15 @@ namespace caseelephant {
             bool disabled_button{};
         };
 
-        std::vector<FlexProbeBox> boxes;
-        std::vector<ProbePagePaint> paints;
+        std::vector<FlexBox> boxes;
+        std::vector<PagePaint> paints;
         std::vector<Hit> hits; // Logical identities/parents; legacy profile also orders these by paint.
 
         struct HitRegion {
             std::size_t hit; // Index in the logical identity/parent tree above.
             std::array<float, 4> rect{};
             std::array<float, 4> clip{};
-            std::vector<ProbeRoundedClip> rounded_clips;
+            std::vector<RoundedClip> rounded_clips;
         };
 
         // Optional explicit paint-order regions. Inline fragments are separate;
@@ -54,6 +54,6 @@ namespace caseelephant {
 
     // Experimental inline-style/flex/single-line HTML profile. Explicit diagnostics
     // for unsupported formatting and paint. Uses shared bounded style cascade.
-    ProbePage build_page_probe(const ProbeDomSnapshot& root, TextProbeFont& font);
-    ProbePage build_page_probe(const ProbeDomSnapshot& root, std::string_view stylesheet, TextProbeFont& font);
-} // namespace caseelephant
+    Page build_page(const DomSnapshot& root, Font& font);
+    Page build_page(const DomSnapshot& root, std::string_view stylesheet, Font& font);
+} // namespace weft

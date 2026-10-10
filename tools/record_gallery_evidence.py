@@ -43,19 +43,19 @@ for config, build, scope, count in (
     animation_text = animation_log.read_text(encoding='utf-8-sig')
     final_count = 1 if config == 'gc-stress' else 5
     assert f'0 tests failed out of {final_count}' in animation_text
-    assert animation_log.stat().st_mtime >= (bin_dir / 'ce_animation_frame_tests.exe').stat().st_mtime
+    assert animation_log.stat().st_mtime >= (bin_dir / 'weft_animation_frame_tests.exe').stat().st_mtime
     tests[config]['final_animation_scope_passed'] = final_count
     tests[config]['final_animation_scope_seconds'] = float(re.search(r'Total Test time \(real\) =\s+([\d.]+)', animation_text).group(1))
-    names = ['ce_animation_frame_tests.exe', 'ce_script_dom_tests.exe', 'ce_page_probe_tests.exe']
+    names = ['weft_animation_frame_tests.exe', 'weft_script_dom_tests.exe', 'weft_page_probe_tests.exe']
     if config != 'gc-stress':
-        names += ['ce_gallery_probe.exe', 'ce_d3d11_probe.exe']
+        names += ['weft_gallery_probe.exe', 'weft_d3d11_probe.exe']
         final = (folder / 'ctest-final-gallery.log').read_text(encoding='utf-8-sig')
         assert '0 tests failed out of 4' in final
-        assert (folder / 'ctest-final-gallery.log').stat().st_mtime >= (bin_dir / 'ce_gallery_probe.exe').stat().st_mtime
+        assert (folder / 'ctest-final-gallery.log').stat().st_mtime >= (bin_dir / 'weft_gallery_probe.exe').stat().st_mtime
         tests[config]['final_gallery_passed'] = 4
         tests[config]['final_gallery_seconds'] = float(re.search(r'Total Test time \(real\) =\s+([\d.]+)', final).group(1))
         generated = root / 'build' / build / 'artifacts' / ('gallery-' + ('Release' if config == 'release' else 'Debug')) / 'native-execution.json'
-        assert generated.stat().st_mtime >= (bin_dir / 'ce_gallery_probe.exe').stat().st_mtime
+        assert generated.stat().st_mtime >= (bin_dir / 'weft_gallery_probe.exe').stat().st_mtime
         shutil.copyfile(generated, folder / 'native-execution.json')
         subprocess.run([sys.executable, str(root / 'tools/verify_gallery_execution.py'), str(folder / 'native-execution.json')], check=True)
         # CTest's preset interprets relative JUnit destinations inside its test dir.

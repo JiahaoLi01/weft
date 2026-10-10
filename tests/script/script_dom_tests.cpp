@@ -13,32 +13,31 @@
 #include <thread>
 
 namespace {
-    using caseelephant::testing::read_file;
-    using caseelephant::testing::require;
+    using weft::testing::read_file;
+    using weft::testing::require;
 
     // The platform modules are compiled into the library: the embedded text equals the checked-in
     // source (CRLF normalized), and they install in order without any file access.
     void embedded_platform_modules() {
-        using caseelephant::ScriptPlatformModule;
+        using weft::ScriptPlatformModule;
         for (const auto module : {ScriptPlatformModule::WebHost, ScriptPlatformModule::AnimationFrame,
                                   ScriptPlatformModule::ScenePlatform}) {
-            auto source = read_file(std::string(CE_SOURCE_DIR) + "/src/script/js/" +
-                                    std::string(caseelephant::script_platform_file(module)));
+            auto source = read_file(std::string(WEFT_SOURCE_DIR) + "/src/script/js/" +
+                                    std::string(weft::script_platform_file(module)));
             std::erase(source, '\r');
-            require(caseelephant::script_platform_source(module) == source,
-                    "embedded platform module differs from source");
+            require(weft::script_platform_source(module) == source, "embedded platform module differs from source");
         }
-        caseelephant::ScriptDomProbe vm;
-        caseelephant::install_script_platform(vm, ScriptPlatformModule::WebHost);
-        caseelephant::install_script_platform(vm, ScriptPlatformModule::AnimationFrame);
-        caseelephant::install_script_platform(vm, ScriptPlatformModule::ScenePlatform);
+        weft::ScriptDom vm;
+        weft::install_script_platform(vm, ScriptPlatformModule::WebHost);
+        weft::install_script_platform(vm, ScriptPlatformModule::AnimationFrame);
+        weft::install_script_platform(vm, ScriptPlatformModule::ScenePlatform);
         require(vm.eval("[typeof setTimeout, typeof requestAnimationFrame, typeof ResizeObserver].join()") ==
                     "function,function,function",
                 "embedded platform modules install");
     }
 
     void wrapper_identity() {
-        caseelephant::ScriptDomProbe probe;
+        weft::ScriptDom probe;
         const auto result = probe.eval(R"JS(
 (() => {
  const n = document.createElement('div'); n.setAttribute('id', 'identity');
@@ -61,7 +60,7 @@ namespace {
     }
 
     void native_roots_and_cycles() {
-        caseelephant::ScriptDomProbe probe;
+        weft::ScriptDom probe;
         const auto baseline = probe.stats().live_nodes;
         probe.eval(R"JS(
 (() => {
@@ -100,7 +99,7 @@ namespace {
     }
 
     void js_root_preserves_detached() {
-        caseelephant::ScriptDomProbe probe;
+        weft::ScriptDom probe;
         probe.eval(R"JS(
 globalThis.heldNode = document.createElement('div');
 heldNode.setAttribute('id','held'); document.body.appendChild(heldNode);
@@ -117,7 +116,7 @@ heldNode.textContent = '中文 detached';
     }
 
     void event_path_and_listener_snapshot() {
-        caseelephant::ScriptDomProbe probe;
+        weft::ScriptDom probe;
         require(probe.eval(R"JS(
 (() => {
  const parent = document.createElement('div'), child = document.createElement('span');
@@ -161,7 +160,7 @@ heldNode.textContent = '中文 detached';
     }
 
     void random_tree_mutations() {
-        caseelephant::ScriptDomProbe probe;
+        weft::ScriptDom probe;
         require(probe.eval(R"JS(
 (() => {
  let seed = 0x51a37;
@@ -197,12 +196,12 @@ heldNode.textContent = '中文 detached';
 )JS") == "true",
                 "random mutation result");
         probe.collect_garbage();
-        require(probe.stats().live_nodes == caseelephant::test_constants::script::bootstrap_document_nodes,
+        require(probe.stats().live_nodes == weft::test_constants::script::bootstrap_document_nodes,
                 "random mutation graph leaked");
     }
 
     void reentrant_attribute_conversion() {
-        caseelephant::ScriptDomProbe probe;
+        weft::ScriptDom probe;
         require(probe.eval(R"JS(
 (() => {
  const n = document.createElement('div'); n.setAttribute('existing', 'before');
@@ -227,7 +226,7 @@ heldNode.textContent = '中文 detached';
     }
 
     void conversion_exceptions() {
-        caseelephant::ScriptDomProbe probe;
+        weft::ScriptDom probe;
         require(probe.eval(R"JS(
 (() => {
  const n = document.createElement('div'); n.setAttribute('existing', 'before');
@@ -255,7 +254,7 @@ heldNode.textContent = '中文 detached';
  if (!rejected) throw Error('event getter exception swallowed');
  rejected = false;
  try { document.createElementNS('http://www.w3.org/2000/svg', 'svg:rect'); }
- catch (e) { rejected = String(e).includes('CE_UNSUPPORTED_DOM'); }
+ catch (e) { rejected = String(e).includes('WEFT_UNSUPPORTED_DOM'); }
  if (!rejected) throw Error('prefixed unsupported element names silently changed semantics');
  n.addEventListener('ordinary-error', () => { throw sentinel; });
  n.addEventListener('ordinary-error', () => ++calls);
@@ -269,8 +268,8 @@ heldNode.textContent = '中文 detached';
     }
 
     void lifetime_pressure() {
-        caseelephant::ScriptDomProbe probe;
-        for (int round = 0; round < caseelephant::test_constants::script::lifetime_pressure_rounds; ++round) {
+        weft::ScriptDom probe;
+        for (int round = 0; round < weft::test_constants::script::lifetime_pressure_rounds; ++round) {
             probe.eval(R"JS(
 (() => {
  for (let i = 0; i < 64; ++i) {
@@ -283,16 +282,16 @@ heldNode.textContent = '中文 detached';
 })()
 )JS");
             probe.collect_garbage();
-            require(probe.stats().live_nodes == caseelephant::test_constants::script::bootstrap_document_nodes,
+            require(probe.stats().live_nodes == weft::test_constants::script::bootstrap_document_nodes,
                     "lifecycle stress cycle leak");
         }
         require(probe.stats().created_nodes ==
-                    probe.stats().finalized_nodes + caseelephant::test_constants::script::bootstrap_document_nodes,
+                    probe.stats().finalized_nodes + weft::test_constants::script::bootstrap_document_nodes,
                 "native node accounting mismatch");
     }
 
     void owner_and_epoch() {
-        caseelephant::ScriptDomProbe probe;
+        weft::ScriptDom probe;
         std::atomic_bool rejected{};
         std::thread wrong_thread([&] {
             try {
@@ -315,7 +314,7 @@ heldNode.textContent = '中文 detached';
     }
 
     void execution_limits() {
-        caseelephant::ScriptDomProbe probe;
+        weft::ScriptDom probe;
         bool recursion_rejected{};
         try {
             (void)probe.eval("(function recurse(){ return recurse(); })()", "stack-limit-fixture.js");
@@ -331,13 +330,13 @@ heldNode.textContent = '中文 detached';
         try {
             (void)probe.eval("while (true) {}", "infinite-loop-fixture.js");
         } catch (const std::runtime_error& e) {
-            interrupted = std::string(e.what()).find("CE_VIEW_FAULTED") != std::string::npos;
+            interrupted = std::string(e.what()).find("WEFT_VIEW_FAULTED") != std::string::npos;
         }
         require(interrupted, "infinite loop was not interrupted and faulted");
         try {
             (void)probe.eval("1 + 1");
         } catch (const std::runtime_error& e) {
-            faulted = std::string(e.what()).find("CE_VIEW_FAULTED") != std::string::npos;
+            faulted = std::string(e.what()).find("WEFT_VIEW_FAULTED") != std::string::npos;
         }
         require(faulted, "interrupted View resumed without reset");
         probe.reset_document();
@@ -347,15 +346,15 @@ heldNode.textContent = '中文 detached';
             (void)probe.eval("Promise.resolve().then(function forever(){ Promise.resolve().then(forever); });");
         } catch (const std::runtime_error& e) {
             const std::string message(e.what());
-            microtask_limit = message.find("CE_MICROTASK_LIMIT") != std::string::npos ||
-                              message.find("CE_VIEW_FAULTED") != std::string::npos;
+            microtask_limit = message.find("WEFT_MICROTASK_LIMIT") != std::string::npos ||
+                              message.find("WEFT_VIEW_FAULTED") != std::string::npos;
         }
         require(microtask_limit, "unbounded microtasks were not faulted");
         bool microtask_sticky_fault{};
         try {
             (void)probe.eval("1 + 1");
         } catch (const std::runtime_error& e) {
-            microtask_sticky_fault = std::string(e.what()).find("CE_VIEW_FAULTED") != std::string::npos;
+            microtask_sticky_fault = std::string(e.what()).find("WEFT_VIEW_FAULTED") != std::string::npos;
         }
         require(microtask_sticky_fault, "microtask View resumed without reset");
         probe.reset_document();
@@ -364,7 +363,7 @@ heldNode.textContent = '中文 detached';
         try {
             (void)probe.eval("try { new ArrayBuffer(80 * 1024 * 1024); } catch (_) {}", "caught-oom-fixture.js");
         } catch (const std::runtime_error& e) {
-            caught_oom_faulted = std::string(e.what()).find("CE_VIEW_FAULTED") != std::string::npos;
+            caught_oom_faulted = std::string(e.what()).find("WEFT_VIEW_FAULTED") != std::string::npos;
         }
         require(caught_oom_faulted, "caught VM OOM did not fault View");
         probe.reset_document();
@@ -391,15 +390,15 @@ int main(int argc, char** argv) {
             d3_path = argv[1];
             fixture_path = argv[2];
         }
-#ifdef CE_SOURCE_DIR
+#ifdef WEFT_SOURCE_DIR
         else if (argc == 1) {
-            d3_path = std::string(CE_SOURCE_DIR) + "/third_party/d3/d3.js";
-            fixture_path = std::string(CE_SOURCE_DIR) + "/tests/fixtures/d3_probe.js";
+            d3_path = std::string(WEFT_SOURCE_DIR) + "/third_party/d3/d3.js";
+            fixture_path = std::string(WEFT_SOURCE_DIR) + "/tests/fixtures/d3_probe.js";
         }
 #endif
         else
             throw std::runtime_error("Usage: script_dom_tests <d3.js> <d3_probe.js>");
-        caseelephant::ScriptDomProbe probe;
+        weft::ScriptDom probe;
         probe.eval(read_file(d3_path), d3_path);
         const auto report = probe.eval(read_file(fixture_path), fixture_path);
         probe.collect_garbage();

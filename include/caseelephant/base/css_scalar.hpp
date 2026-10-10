@@ -14,7 +14,7 @@
 //
 // They replace per-profile copies. Profiles keep their own grammar (accepted units, numeric limits)
 // and their own diagnostic text by passing options and wrapping the result.
-namespace caseelephant::css {
+namespace weft::css {
     // Whitespace trimmed around declared values by the layout and scene profiles.
     inline constexpr std::string_view value_whitespace = " \t\r\n";
     // CSS Syntax whitespace, which also includes form feed (style sheets, canvas colors).
@@ -168,7 +168,7 @@ namespace caseelephant::css {
         return value;
     }
 
-    // Rewrites the color forms parse_probe_css_color does not accept: the black and white keywords
+    // Rewrites the color forms parse_css_color does not accept: the black and white keywords
     // and, when expand_short_hex is set, #rgb short hex.
     inline std::string expand_color_shorthand(std::string text, bool expand_short_hex = true) {
         if (text == "black") {
@@ -182,4 +182,4 @@ namespace caseelephant::css {
         }
         return text;
     }
-} // namespace caseelephant::css
+} // namespace weft::css

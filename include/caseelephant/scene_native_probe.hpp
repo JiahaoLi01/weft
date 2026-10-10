@@ -2,9 +2,9 @@
 #include "caseelephant/scene_probe.hpp"
 #include "caseelephant/constants/scene.hpp"
 
-namespace caseelephant {
+namespace weft {
     // Complete, owned native pass input. No device API, DOM pointer or VM value.
-    struct ProbeNativePaint {
+    struct NativePaint {
         enum Kind {
             Shape,
             Text,
@@ -36,16 +36,15 @@ namespace caseelephant {
         };
 
         std::vector<Stop> stops;
-        std::optional<ProbeSceneNode> text; // normalized glyph/layer source, derived owned value
+        std::optional<SceneNode> text; // normalized glyph/layer source, derived owned value
     };
 
-    struct ProbeNativeScene {
-        std::vector<ProbeNativePaint> paints;
+    struct NativeScene {
+        std::vector<NativePaint> paints;
         std::string fallback;
     };
 
     // Unsupported clips/SVG/projective grammar return one explicit fallback for
     // the complete scene; no partially accepted pass changes stacking semantics.
-    ProbeNativeScene compile_native_scene_probe(const ProbeSceneFrame&,
-                                                const std::vector<ProbeNodeIdentity>& layers = {});
-} // namespace caseelephant
+    NativeScene compile_native_scene(const SceneFrame&, const std::vector<NodeIdentity>& layers = {});
+} // namespace weft

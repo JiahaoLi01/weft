@@ -34,7 +34,7 @@ public:
             return;
         }
         auto& values = series_[name];
-        if (values.size() == caseelephant::probe_constants::gallery::sample_window) {
+        if (values.size() == weft::probe_constants::gallery::sample_window) {
             values.pop_front();
         }
         values.push_back({time, value});
@@ -79,15 +79,15 @@ public:
                 v[std::size_t((v.size() - 1) * .99)]};
     }
 
-    FramePacket packet(caseelephant::TextProbeFontSet& fonts, const WindowFrameRate& fps,
-                       const WindowFrameRate& owner_rate, unsigned live, std::size_t pending, double time) {
+    FramePacket packet(weft::FontSet& fonts, const WindowFrameRate& fps, const WindowFrameRate& owner_rate,
+                       unsigned live, std::size_t pending, double time) {
         ++hud_updates;
         last_draw = time;
-        caseelephant::ProbePositionedPage page;
+        weft::PositionedPage page;
         const std::array<float, 4> clip{2440, 16, 1384, 1328};
         auto rect = [&](float x, float y, float w, float h, std::array<float, 4> color) {
-            caseelephant::ProbePositionedPaint item;
-            item.paint.kind = caseelephant::ProbePaintKind::Rectangle;
+            weft::PositionedPaint item;
+            item.paint.kind = weft::PaintKind::Rectangle;
             item.paint.x = x;
             item.paint.y = y;
             item.paint.width = w;
@@ -98,8 +98,8 @@ public:
         };
         auto text = [&](std::string value, float x, float y, float size,
                         std::array<float, 4> color = std::array<float, 4>{.83f, .94f, .86f, 1}) {
-            caseelephant::ProbePositionedPaint item;
-            item.paint.kind = caseelephant::ProbePaintKind::Text;
+            weft::PositionedPaint item;
+            item.paint.kind = weft::PaintKind::Text;
             item.paint.x = x;
             item.paint.y = y;
             item.paint.font_size = size;
@@ -125,19 +125,19 @@ public:
                                                                                   {"GPU elapsed", {.8f, .5f, 1, 1}},
                                                                                   {"Frame age", {1, .45f, .45f, 1}},
                                                                                   {"Input queue", {.3f, 1, .6f, 1}}}};
-        double scale = caseelephant::probe_constants::gallery::profiler_60hz_frame_ms;
+        double scale = weft::probe_constants::gallery::profiler_60hz_frame_ms;
         for (const auto& c : curves) {
             scale = std::max(scale, stats(c.first)[0]);
         }
-        scale = std::ceil(scale / caseelephant::probe_constants::gallery::profiler_scale_step_ms) *
-                caseelephant::probe_constants::gallery::profiler_scale_step_ms;
+        scale = std::ceil(scale / weft::probe_constants::gallery::profiler_scale_step_ms) *
+                weft::probe_constants::gallery::profiler_scale_step_ms;
         const float left = 2490;
         const float top = 190;
         const float plot_width = 1280;
         const float plot_height = 270;
-        for (double ms : {caseelephant::probe_constants::gallery::profiler_low_line_ms,
-                          caseelephant::probe_constants::gallery::profiler_120hz_frame_ms,
-                          caseelephant::probe_constants::gallery::profiler_60hz_frame_ms}) {
+        for (double ms : {weft::probe_constants::gallery::profiler_low_line_ms,
+                          weft::probe_constants::gallery::profiler_120hz_frame_ms,
+                          weft::probe_constants::gallery::profiler_60hz_frame_ms}) {
             float y = top + plot_height - float(ms / scale) * plot_height;
             rect(left, y, plot_width, 1, {.27f, .3f, .3f, 1});
             text(number(ms) + "ms", left + 2, y - 4, 18);
@@ -158,17 +158,16 @@ public:
                 double last{};
             };
 
-            std::array<Bucket, caseelephant::probe_constants::gallery::profiler_plot_buckets> buckets{};
+            std::array<Bucket, weft::probe_constants::gallery::profiler_plot_buckets> buckets{};
             for (const auto& sample : found->second) {
-                if (sample.time < time - caseelephant::probe_constants::gallery::profiler_plot_seconds ||
-                    sample.time > time) {
+                if (sample.time < time - weft::probe_constants::gallery::profiler_plot_seconds || sample.time > time) {
                     continue;
                 }
                 auto& b = buckets[std::min<std::size_t>(
-                    caseelephant::probe_constants::gallery::profiler_plot_buckets - 1,
-                    std::size_t((sample.time - (time - caseelephant::probe_constants::gallery::profiler_plot_seconds)) /
-                                caseelephant::probe_constants::gallery::profiler_plot_seconds *
-                                caseelephant::probe_constants::gallery::profiler_plot_buckets))];
+                    weft::probe_constants::gallery::profiler_plot_buckets - 1,
+                    std::size_t((sample.time - (time - weft::probe_constants::gallery::profiler_plot_seconds)) /
+                                weft::probe_constants::gallery::profiler_plot_seconds *
+                                weft::probe_constants::gallery::profiler_plot_buckets))];
                 if (!b.seen) {
                     b.seen = true;
                     b.low = b.high = sample.value;
@@ -185,7 +184,7 @@ public:
                 if (!b.seen) {
                     continue;
                 }
-                const float x = left + plot_width * i / caseelephant::probe_constants::gallery::profiler_plot_buckets;
+                const float x = left + plot_width * i / weft::probe_constants::gallery::profiler_plot_buckets;
                 const float y = top + plot_height - float(b.last / scale) * plot_height;
                 const float hi = top + plot_height - float(b.high / scale) * plot_height;
                 const float lo = top + plot_height - float(b.low / scale) * plot_height;
@@ -224,8 +223,7 @@ public:
         }
         std::sort(hot.rbegin(), hot.rend());
         std::string line = "Last owner update: ";
-        for (unsigned i = 0; i < caseelephant::probe_constants::gallery::profiler_hot_case_count && i < hot.size();
-             ++i) {
+        for (unsigned i = 0; i < weft::probe_constants::gallery::profiler_hot_case_count && i < hot.size(); ++i) {
             const auto d = gallery_scene_descriptors[hot[i].second];
             line += std::string(d.group) + "/" + std::to_string(d.index) + " " + number(hot[i].first) + "ms  ";
         }

@@ -20,9 +20,9 @@
 #include <vector>
 
 namespace {
-    using namespace caseelephant;
+    using namespace weft;
 
-    using caseelephant::testing::require;
+    using weft::testing::require;
 
     // Verbatim behavior of the per-profile helpers that src/base replaces. The differential tests
     // below require the shared helpers to reproduce each of them on random input.
@@ -186,8 +186,9 @@ namespace {
 
     void diagnostics() {
         const auto d = make_diagnostic(Diag::SceneProfile, "transform grammar");
-        require(d.code == Diag::SceneProfile && d.message == "CE_SCENE_PROFILE: transform grammar", "diagnostic text");
-        require(diag_message(Diag::CanvasVersionLimit, {}) == "CE_CANVAS_VERSION_LIMIT", "name-only diagnostic");
+        require(d.code == Diag::SceneProfile && d.message == "WEFT_SCENE_PROFILE: transform grammar",
+                "diagnostic text");
+        require(diag_message(Diag::CanvasVersionLimit, {}) == "WEFT_CANVAS_VERSION_LIMIT", "name-only diagnostic");
         require(diag_message(Diag::CanvasIndexSize, "negative arc radius") == "IndexSizeError: negative arc radius",
                 "DOM exception name");
         try {
@@ -195,7 +196,7 @@ namespace {
         } catch (const std::invalid_argument& e) {
             const auto* error = dynamic_cast<const DiagnosticError*>(&e);
             require(error && error->code() == Diag::FlowProfile, "DiagnosticError keeps its code");
-            require(std::string(e.what()) == "CE_FLOW_PROFILE: px required: 1em", "DiagnosticError message");
+            require(std::string(e.what()) == "WEFT_FLOW_PROFILE: px required: 1em", "DiagnosticError message");
         }
     }
 
@@ -213,7 +214,7 @@ namespace {
         require(thrown, "value() bridges to DiagnosticError");
         Status done;
         Status rejected = make_diagnostic(Diag::StyleProfile, "rule bound");
-        require(done && !rejected && rejected.error().message == "CE_STYLE_PROFILE: rule bound", "status");
+        require(done && !rejected && rejected.error().message == "WEFT_STYLE_PROFILE: rule bound", "status");
         Result<std::string> moved = std::string("moved");
         require(std::move(moved).value() == "moved", "rvalue value");
     }
@@ -232,7 +233,7 @@ namespace {
                     css::expand_color_shorthand("#abc", false) == "#abc",
                 "color shorthand");
         const auto parsed = css::parse_number<float>("1e9", 1e6f);
-        require(!parsed && parsed.error().message == "CE_CSS_VALUE: invalid numeric value 1e9", "number limit text");
+        require(!parsed && parsed.error().message == "WEFT_CSS_VALUE: invalid numeric value 1e9", "number limit text");
         require(css::parse_number<float>("1e-50").has_value() == false, "float underflow rejected like std::stof");
         require(css::parse_number<double>("1e-50").has_value(), "double keeps small values");
         const auto overlap = geometry::intersect({0, 0, 10, 10}, {5, 6, 10, 10});
@@ -327,7 +328,7 @@ namespace {
             }
         });
         outsider.join();
-        require(!current && message == "CE_WRONG_THREAD: font owner", "owner thread violation");
+        require(!current && message == "WEFT_WRONG_THREAD: font owner", "owner thread violation");
     }
 } // namespace
 

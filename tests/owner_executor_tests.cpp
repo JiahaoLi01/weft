@@ -7,10 +7,10 @@
 #include <latch>
 #include <future>
 #include <vector>
-using namespace caseelephant;
+using namespace weft;
 
 namespace {
-    using caseelephant::testing::require;
+    using weft::testing::require;
 
     struct Request {
         unsigned value{};
@@ -21,15 +21,15 @@ namespace {
     };
 
     struct Frame {
-        ProbeDomSnapshot dom;
+        DomSnapshot dom;
         std::string log;
     };
 
-    using Owner = OwnerExecutorProbe<Request, Input, Frame>;
+    using Owner = OwnerExecutor<Request, Input, Frame>;
 
     struct State {
         const std::thread::id thread = std::this_thread::get_id();
-        ScriptDomProbe vm;
+        ScriptDom vm;
         std::atomic<unsigned>& destroyed;
 
         State(std::atomic<unsigned>& d) : destroyed(d) {
@@ -45,7 +45,7 @@ namespace {
             require(std::this_thread::get_id() == thread, "input changed owner");
             vm.eval("log.push(" + std::to_string(v.value) + ");n.textContent='v" + std::to_string(v.value) +
                     "';n.setAttribute('value'," + std::to_string(v.value) + ")");
-            if (v.value % caseelephant::test_constants::script::owner_gc_input_period == 0) {
+            if (v.value % weft::test_constants::script::owner_gc_input_period == 0) {
                 vm.collect_garbage();
             }
         }
@@ -65,7 +65,7 @@ namespace {
             require(std::this_thread::get_id() == thread, "VM destructor crossed thread");
             vm.reset_document();
             vm.collect_garbage();
-            require(vm.stats().live_nodes == caseelephant::test_constants::script::bootstrap_document_nodes,
+            require(vm.stats().live_nodes == weft::test_constants::script::bootstrap_document_nodes,
                     "owner VM teardown");
             ++destroyed;
         }
@@ -90,12 +90,12 @@ namespace {
         State full(destroyed);
         std::shared_ptr<const Frame> frozen;
         std::uint64_t seq{};
-        for (unsigned i = 0; i < caseelephant::test_constants::script::owner_differential_inputs; ++i) {
+        for (unsigned i = 0; i < weft::test_constants::script::owner_differential_inputs; ++i) {
             require(owner.input(1, {i}) == Owner::Accepted, "input not accepted");
             full.input({i});
             seq = owner.request(1, {i});
-            if (i % caseelephant::test_constants::script::owner_wait_period ==
-                caseelephant::test_constants::script::owner_wait_period - 1) {
+            if (i % weft::test_constants::script::owner_wait_period ==
+                weft::test_constants::script::owner_wait_period - 1) {
                 auto p = owner.wait(1, seq);
                 auto reference = full.frame({i});
                 require(*p.value->dom.attributes.find("value") == *reference->dom.attributes.find("value") &&
@@ -263,7 +263,7 @@ namespace {
             }
         };
 
-        using Queue = OwnerExecutorProbe<Request, Input, SlowFrame>;
+        using Queue = OwnerExecutor<Request, Input, SlowFrame>;
         std::latch entered(1);
         std::latch release(1);
         Queue owner([&] {
@@ -293,7 +293,7 @@ namespace {
             }
         });
         const bool ready =
-            future.wait_for(std::chrono::seconds(caseelephant::test_constants::script::queue_api_timeout_seconds)) ==
+            future.wait_for(std::chrono::seconds(weft::test_constants::script::queue_api_timeout_seconds)) ==
             std::future_status::ready;
         release.count_down();
         game.join();

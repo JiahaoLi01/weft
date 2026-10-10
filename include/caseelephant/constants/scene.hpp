@@ -7,7 +7,7 @@
 //
 // Each constant has the type of the literals it replaced (a plain integer literal is int), so
 // arithmetic, comparisons and generated code at every use site stay exactly as before.
-namespace caseelephant::constants::scene {
+namespace weft::constants::scene {
     // Parsing and profile bounds.
     // Largest magnitude accepted for any parsed scene number.
     inline constexpr double max_numeric_magnitude = 1e7;
@@ -54,7 +54,7 @@ namespace caseelephant::constants::scene {
     inline constexpr int paint_pair_cache_max_entries = 512;
     inline constexpr int paint_pair_cache_max_bytes = 512 * constants::bytes_per_kib;
 
-    // Slots of ProbeScenePaintValues::values, in scene_paint_properties() order.
+    // Slots of ScenePaintValues::values, in scene_paint_properties() order.
     inline constexpr int paint_property_count = 8;
     inline constexpr int paint_slot_opacity = 0;
     inline constexpr int paint_slot_transform = 1;
@@ -72,7 +72,7 @@ namespace caseelephant::constants::scene {
     inline constexpr float damage_full_repaint_ratio = .65f;
 
     // Native paint compiler.
-    // ProbeNativePaint::gradient codes, mirrored by shaders/scene_native_probe.hlsl.
+    // NativePaint::gradient codes, mirrored by shaders/scene_native_probe.hlsl.
     inline constexpr unsigned gradient_none = 0u;
     inline constexpr unsigned gradient_linear = 1u;
     inline constexpr unsigned gradient_radial = 2u;
@@ -177,4 +177,4 @@ namespace caseelephant::constants::scene {
     inline constexpr int retained_layer_cache_max_bytes = 32 * constants::bytes_per_mib;
     // D2D DIPs per inch at scale 1.
     inline constexpr int d2d_default_dpi = 96;
-} // namespace caseelephant::constants::scene
+} // namespace weft::constants::scene

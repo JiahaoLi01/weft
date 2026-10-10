@@ -3,11 +3,10 @@
 
 // Inspection diagnostics use a retained host overlay. They do not invalidate
 // the page whose input/rendering performance is being inspected.
-inline void gallery_append_detail(FramePacket& packet, caseelephant::TextProbeFontSet& fonts,
-                                  const std::string& value) {
-    caseelephant::ProbePositionedPage page;
-    caseelephant::ProbePositionedPaint line;
-    line.paint.kind = caseelephant::ProbePaintKind::Text;
+inline void gallery_append_detail(FramePacket& packet, weft::FontSet& fonts, const std::string& value) {
+    weft::PositionedPage page;
+    weft::PositionedPaint line;
+    line.paint.kind = weft::PaintKind::Text;
     line.paint.x = 584;
     line.paint.y = 2088;
     line.paint.font_size = 28;
@@ -70,8 +69,7 @@ std::string gallery_preview_json(const std::vector<GalleryPreviewCase>& cases) {
             << ",\"label\":" << json_string(c.label) << ",\"index\":" << c.index
             << ",\"execution\":" << json_string(c.execution) << ",\"failure\":" << json_string(c.failure)
             << ",\"reason\":" << json_string(c.reason) << ",\"pixels\":"
-            << json_string(c.group == "WEBGL_TESTS" &&
-                                   c.index < caseelephant::probe_constants::gallery::canvas_case_count
+            << json_string(c.group == "WEBGL_TESTS" && c.index < weft::probe_constants::gallery::canvas_case_count
                                ? "native_canvas_profile"
                            : c.group == "CSS_TESTS" || c.group == "D3_TESTS" || gallery_cluster_group(c.group)
                                ? "native_scene_profile"
@@ -82,14 +80,14 @@ std::string gallery_preview_json(const std::vector<GalleryPreviewCase>& cases) {
 }
 
 std::vector<GalleryPreviewCase> gallery_preview_observe() {
-    caseelephant::ScriptDomProbe registry({caseelephant::probe_constants::gallery::vm_stack_bytes,
-                                           caseelephant::probe_constants::gallery::host_vm_execution_budget_ms});
-    const auto directory = std::filesystem::path(CE_SOURCE_DIR) / "examples/crpg-gallery/native";
+    weft::ScriptDom registry(
+        {weft::probe_constants::gallery::vm_stack_bytes, weft::probe_constants::gallery::host_vm_execution_budget_ms});
+    const auto directory = std::filesystem::path(WEFT_SOURCE_DIR) / "examples/crpg-gallery/native";
     registry.eval(read_file(directory / "case-list.js"));
     require(registry.eval("__ceGalleryCases.length") == "72", "gallery inventory changed; review preview scope");
     std::map<std::string, std::string> scripts;
     std::vector<GalleryPreviewCase> cases;
-    for (unsigned i = 0; i < caseelephant::probe_constants::gallery::catalog_case_count; ++i) {
+    for (unsigned i = 0; i < weft::probe_constants::gallery::catalog_case_count; ++i) {
         const auto lookup = "__ceGalleryCases[" + std::to_string(i) + "]";
         GalleryPreviewCase c;
         c.id = registry.eval(lookup + ".id");
@@ -101,7 +99,7 @@ std::vector<GalleryPreviewCase> gallery_preview_observe() {
             c.reason +=
                 "; ORIGINAL ISSUE: throw is stationary in Chrome and native; valid-transform inertia is verified separately";
         }
-#ifdef CE_REACT_GC_STRESS
+#ifdef WEFT_REACT_GC_STRESS
         // The 72 large original module loads have a separate normal-build audit,
         // as in gallery_foundation. Allocation GC instrumentation tests the
         // full 72-node shell and two live original Canvas VMs below instead.
@@ -109,11 +107,11 @@ std::vector<GalleryPreviewCase> gallery_preview_observe() {
         c.failure =
             "Isolated module observation runs in normal Debug/Release; GC window tests shell, 34 CSS/D3 and 2 Canvas lifecycles";
 #else
-        if (c.group == "WEBGL_TESTS" && c.index < caseelephant::probe_constants::gallery::canvas_case_count) {
+        if (c.group == "WEBGL_TESTS" && c.index < weft::probe_constants::gallery::canvas_case_count) {
             GalleryCanvasSession session(c.index);
-            for (unsigned frame = 0; frame < caseelephant::probe_constants::gallery::observation_frames; ++frame) {
-                const double time = frame * caseelephant::probe_constants::gallery::observation_step_ms +
-                                    caseelephant::probe_constants::gallery::host_clock_offset_ms;
+            for (unsigned frame = 0; frame < weft::probe_constants::gallery::observation_frames; ++frame) {
+                const double time = frame * weft::probe_constants::gallery::observation_step_ms +
+                                    weft::probe_constants::gallery::host_clock_offset_ms;
                 session.pump(time);
                 const auto r = session.vm.animation_frame(time);
                 session.pump(time);
@@ -130,41 +128,40 @@ std::vector<GalleryPreviewCase> gallery_preview_observe() {
                     return c.group == d.group && c.index == d.index;
                 });
             GallerySceneSession session(c.group, c.index, it->width, it->height, "cluster-utilities.css");
-            for (unsigned f = 0; f < caseelephant::probe_constants::gallery::observation_frames; ++f) {
-                session.step(f * caseelephant::probe_constants::gallery::observation_step_ms +
-                             caseelephant::probe_constants::gallery::host_clock_offset_ms);
+            for (unsigned f = 0; f < weft::probe_constants::gallery::observation_frames; ++f) {
+                session.step(f * weft::probe_constants::gallery::observation_step_ms +
+                             weft::probe_constants::gallery::host_clock_offset_ms);
             }
             c.execution = "no_error_observed";
             session.unmount();
-            require(session.vm.stats().live_nodes == caseelephant::probe_constants::gallery::unmounted_live_nodes,
+            require(session.vm.stats().live_nodes == weft::probe_constants::gallery::unmounted_live_nodes,
                     "cluster observation leak");
         } else {
-            caseelephant::ScriptDomProbe vm({caseelephant::probe_constants::gallery::vm_stack_bytes,
-                                             caseelephant::probe_constants::gallery::host_vm_execution_budget_ms});
+            weft::ScriptDom vm({weft::probe_constants::gallery::vm_stack_bytes,
+                                weft::probe_constants::gallery::host_vm_execution_budget_ms});
             const auto baseline = vm.stats();
             bool clean{};
             try {
-                vm.install_canvas_host(caseelephant::make_d2d_canvas_factory_probe());
-                caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
-                caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::AnimationFrame);
+                vm.install_canvas_host(weft::make_d2d_canvas_factory());
+                weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
+                weft::install_script_platform(vm, weft::ScriptPlatformModule::AnimationFrame);
                 vm.eval(read_file(directory / "platform.js"));
                 if (!scripts.contains(c.group)) {
                     scripts[c.group] = read_file(directory / (c.group + ".js"));
                 }
                 vm.eval(scripts.at(c.group), c.group + ".js");
                 vm.eval("__ceGallery.mount(" + json_string(c.group) + "," + std::to_string(c.index) + ")");
-                for (unsigned frame = 0; frame < caseelephant::probe_constants::gallery::observation_frames; ++frame) {
-                    const double time = frame * caseelephant::probe_constants::gallery::observation_step_ms +
-                                        caseelephant::probe_constants::gallery::host_clock_offset_ms;
+                for (unsigned frame = 0; frame < weft::probe_constants::gallery::observation_frames; ++frame) {
+                    const double time = frame * weft::probe_constants::gallery::observation_step_ms +
+                                        weft::probe_constants::gallery::host_clock_offset_ms;
                     const auto stamp = format_host_time(time);
                     auto pump = [&] {
-                        for (unsigned turn = 0; turn < caseelephant::probe_constants::gallery::task_pump_turn_limit;
-                             ++turn) {
+                        for (unsigned turn = 0; turn < weft::probe_constants::gallery::task_pump_turn_limit; ++turn) {
                             if (vm.eval("__ceHost.pump(" + stamp + ")") == "0") {
                                 return;
                             }
                         }
-                        throw std::runtime_error("CE_GALLERY_TASK_LIMIT: preview observation");
+                        throw std::runtime_error("WEFT_GALLERY_TASK_LIMIT: preview observation");
                     };
                     pump();
                     const auto r = vm.animation_frame(time);
@@ -204,7 +201,7 @@ struct GalleryPreviewSamples {
     std::deque<double> interval;
 
     static void add(std::deque<double>& values, double v) {
-        if (values.size() == caseelephant::probe_constants::gallery::sample_window) {
+        if (values.size() == weft::probe_constants::gallery::sample_window) {
             values.pop_front();
         }
         values.push_back(v);
@@ -226,13 +223,13 @@ struct GalleryPreviewSamples {
     }
 };
 
-FramePacket gallery_preview_hud(caseelephant::TextProbeFontSet& fonts, const WindowFrameRate& rate, unsigned live,
+FramePacket gallery_preview_hud(weft::FontSet& fonts, const WindowFrameRate& rate, unsigned live,
                                 const GalleryPreviewSamples& samples, bool paused, std::string owner_label = {},
                                 bool detailed = true) {
-    caseelephant::ProbePositionedPage page;
+    weft::PositionedPage page;
     const std::array<float, 4> clip{3000, 16, 824, detailed ? 180.f : 100.f};
-    caseelephant::ProbePositionedPaint bg;
-    bg.paint.kind = caseelephant::ProbePaintKind::Rectangle;
+    weft::PositionedPaint bg;
+    bg.paint.kind = weft::PaintKind::Rectangle;
     bg.paint.x = clip[0];
     bg.paint.y = clip[1];
     bg.paint.width = clip[2];
@@ -241,8 +238,8 @@ FramePacket gallery_preview_hud(caseelephant::TextProbeFontSet& fonts, const Win
     bg.clip = clip;
     page.paints.push_back(bg);
     auto text = [&](std::string value, float y, float size) {
-        caseelephant::ProbePositionedPaint p;
-        p.paint.kind = caseelephant::ProbePaintKind::Text;
+        weft::PositionedPaint p;
+        p.paint.kind = weft::PaintKind::Text;
         p.paint.x = 3020;
         p.paint.y = y;
         p.paint.font_size = size;
@@ -276,44 +273,44 @@ FramePacket gallery_preview_hud(caseelephant::TextProbeFontSet& fonts, const Win
     return cheetah_packet(page, fonts, {});
 }
 
-FramePacket gallery_preview_packet(caseelephant::ProbePositionedPage page, caseelephant::TextProbeFontSet& fonts,
+FramePacket gallery_preview_packet(weft::PositionedPage page, weft::FontSet& fonts,
                                    const std::map<std::string, std::shared_ptr<const Asset>>& images,
                                    CheetahPacketCache* cache) {
     for (auto& item : page.paints) {
         auto& p = item.paint;
-        if (p.kind == caseelephant::ProbePaintKind::Rectangle && p.id.starts_with("slot-") && images.contains(p.id)) {
+        if (p.kind == weft::PaintKind::Rectangle && p.id.starts_with("slot-") && images.contains(p.id)) {
             item.image_source = p.id;
         }
-        for (unsigned i = 0; i < caseelephant::probe_constants::gallery::canvas_case_count; ++i) {
-            if (p.kind == caseelephant::ProbePaintKind::Rectangle && p.id == (i ? "slot-webgl-01" : "slot-webgl-00") &&
+        for (unsigned i = 0; i < weft::probe_constants::gallery::canvas_case_count; ++i) {
+            if (p.kind == weft::PaintKind::Rectangle && p.id == (i ? "slot-webgl-01" : "slot-webgl-00") &&
                 images.contains(i ? "live-1" : "live-0")) {
                 item.image_source = i ? "live-1" : "live-0";
             }
         }
-        p.x *= caseelephant::probe_constants::gallery::shell_device_scale;
-        p.y *= caseelephant::probe_constants::gallery::shell_device_scale;
-        p.width *= caseelephant::probe_constants::gallery::shell_device_scale;
-        p.height *= caseelephant::probe_constants::gallery::shell_device_scale;
-        p.font_size *= caseelephant::probe_constants::gallery::shell_device_scale;
-        p.shaped.advance *= caseelephant::probe_constants::gallery::shell_device_scale;
+        p.x *= weft::probe_constants::gallery::shell_device_scale;
+        p.y *= weft::probe_constants::gallery::shell_device_scale;
+        p.width *= weft::probe_constants::gallery::shell_device_scale;
+        p.height *= weft::probe_constants::gallery::shell_device_scale;
+        p.font_size *= weft::probe_constants::gallery::shell_device_scale;
+        p.shaped.advance *= weft::probe_constants::gallery::shell_device_scale;
         for (auto& g : p.shaped.glyphs) {
-            g.advance_x *= caseelephant::probe_constants::gallery::shell_device_scale;
-            g.advance_y *= caseelephant::probe_constants::gallery::shell_device_scale;
-            g.offset_x *= caseelephant::probe_constants::gallery::shell_device_scale;
-            g.offset_y *= caseelephant::probe_constants::gallery::shell_device_scale;
+            g.advance_x *= weft::probe_constants::gallery::shell_device_scale;
+            g.advance_y *= weft::probe_constants::gallery::shell_device_scale;
+            g.offset_x *= weft::probe_constants::gallery::shell_device_scale;
+            g.offset_y *= weft::probe_constants::gallery::shell_device_scale;
         }
         for (auto& v : item.clip) {
-            v *= caseelephant::probe_constants::gallery::shell_device_scale;
+            v *= weft::probe_constants::gallery::shell_device_scale;
         }
         for (auto& c : item.rounded_clips) {
             for (auto& v : c.rect) {
-                v *= caseelephant::probe_constants::gallery::shell_device_scale;
+                v *= weft::probe_constants::gallery::shell_device_scale;
             }
             for (auto& v : c.radius_x) {
-                v *= caseelephant::probe_constants::gallery::shell_device_scale;
+                v *= weft::probe_constants::gallery::shell_device_scale;
             }
             for (auto& v : c.radius_y) {
-                v *= caseelephant::probe_constants::gallery::shell_device_scale;
+                v *= weft::probe_constants::gallery::shell_device_scale;
             }
         }
     }
@@ -349,7 +346,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
     profile_control->enabled = profile || !benchmark.empty();
     GalleryLiveProfiler live_profiler;
     live_profiler.enabled = profile;
-    OwnerTrace render_trace(folder / "render-trace.json", caseelephant::probe_constants::gallery::render_trace_tid,
+    OwnerTrace render_trace(folder / "render-trace.json", weft::probe_constants::gallery::render_trace_tid,
                             profile_control);
     double shell_layout_ms{};
     double shell_input_ms{};
@@ -363,11 +360,11 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
         "{\"format\":\"gallery-preview-cases-v1\",\"case_count\":72,\"native_pixel_cases\":66,\"original_full_gallery_rendered\":false,\"conditions\":{\"isolated_opportunities\":12,\"canvas_host\":true,\"css\":\"Fixed Tailwind utilities, 64 original CSS/SVG/animation scenes and two original Canvas cases\",\"input_dispatched\":false},\"cases\":" +
             records + "}");
     NativeReactWindow window(!self_test && benchmark.empty(), true);
-    window.state.logical_width = caseelephant::probe_constants::gallery::shell_width;
-    window.state.logical_height = caseelephant::probe_constants::gallery::shell_height;
-    Experiment gpu(warp, caseelephant::constants::uhd_width, caseelephant::constants::uhd_height);
+    window.state.logical_width = weft::probe_constants::gallery::shell_width;
+    window.state.logical_height = weft::probe_constants::gallery::shell_height;
+    Experiment gpu(warp, weft::constants::uhd_width, weft::constants::uhd_height);
     gpu.cache_assets = true;
-    gpu.cache_byte_limit = caseelephant::probe_constants::gallery::asset_cache_budget_bytes;
+    gpu.cache_byte_limit = weft::probe_constants::gallery::asset_cache_budget_bytes;
     gpu.enable_timing();
     WindowPresenter presenter(gpu, window.state.hwnd);
     TwoFramePipeline pipeline(gpu);
@@ -376,39 +373,38 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
     scene_gpu.native_paint = true;
     pipeline.set_timing(profile || self_test || !benchmark.empty());
     if (self_test || !benchmark.empty()) {
-        window.client_size(caseelephant::constants::uhd_width, caseelephant::constants::uhd_height);
+        window.client_size(weft::constants::uhd_width, weft::constants::uhd_height);
     }
     if (self_test) {
-        window.client_size(caseelephant::constants::uhd_width, caseelephant::constants::uhd_height);
+        window.client_size(weft::constants::uhd_width, weft::constants::uhd_height);
         presenter.capture = true;
         if (scroll_test) {
-            window.state.wheel_lines = caseelephant::probe_constants::gallery::scroll_test_wheel_lines;
+            window.state.wheel_lines = weft::probe_constants::gallery::scroll_test_wheel_lines;
         }
     }
-    caseelephant::TextProbeFontSet fonts({CE_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf",
-                                          CE_SOURCE_DIR "/third_party/noto-cjk/source/NotoSansCJKsc-Regular.otf",
-                                          CE_SOURCE_DIR
-                                          "/third_party/harfbuzz/source/test/api/fonts/Mplus1p-Regular.ttf"});
+    weft::FontSet fonts({WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf",
+                         WEFT_SOURCE_DIR "/third_party/noto-cjk/source/NotoSansCJKsc-Regular.otf",
+                         WEFT_SOURCE_DIR "/third_party/harfbuzz/source/test/api/fonts/Mplus1p-Regular.ttf"});
     CheetahPacketCache cache;
-    caseelephant::ScriptDomProbe shell({caseelephant::probe_constants::gallery::vm_stack_bytes,
-                                        caseelephant::probe_constants::gallery::host_vm_execution_budget_ms});
-    caseelephant::install_script_platform(shell, caseelephant::ScriptPlatformModule::WebHost);
-    shell.eval(read_file(CE_SOURCE_DIR "/examples/crpg-gallery/native/case-list.js"));
-    shell.eval(read_file(CE_SOURCE_DIR "/examples/crpg-gallery/preview.js"));
+    weft::ScriptDom shell(
+        {weft::probe_constants::gallery::vm_stack_bytes, weft::probe_constants::gallery::host_vm_execution_budget_ms});
+    weft::install_script_platform(shell, weft::ScriptPlatformModule::WebHost);
+    shell.eval(read_file(WEFT_SOURCE_DIR "/examples/crpg-gallery/native/case-list.js"));
+    shell.eval(read_file(WEFT_SOURCE_DIR "/examples/crpg-gallery/preview.js"));
     shell.eval("__cePreview.update(" + records + ")");
-    const auto css = read_file(CE_SOURCE_DIR "/examples/crpg-gallery/preview.css");
-    caseelephant::CompiledStyleProbe shell_styles(css, caseelephant::flow_page_style_profile());
-    caseelephant::StyleMemoProbe shell_memo;
-    std::optional<caseelephant::ProbeComputedStyle> shell_computed;
-    std::optional<caseelephant::ProbeDomSnapshot> shell_style_key;
-    std::optional<caseelephant::ProbeDomSnapshot> layout_input;
-    std::optional<caseelephant::ProbeFlowPage> layout_result;
-    std::function<void(const caseelephant::ProbeDomSnapshot&)> check_text = [&](const auto& n) {
+    const auto css = read_file(WEFT_SOURCE_DIR "/examples/crpg-gallery/preview.css");
+    weft::CompiledStyle shell_styles(css, weft::flow_page_style_profile());
+    weft::StyleMemo shell_memo;
+    std::optional<weft::ComputedStyle> shell_computed;
+    std::optional<weft::DomSnapshot> shell_style_key;
+    std::optional<weft::DomSnapshot> layout_input;
+    std::optional<weft::FlowPage> layout_result;
+    std::function<void(const weft::DomSnapshot&)> check_text = [&](const auto& n) {
         if (n.type == 3) {
             auto text = n.data;
             std::replace(text.begin(), text.end(), '\n', ' ');
-            if (fonts.shape(text, caseelephant::constants::default_font_size_px).shaped.missing_glyph) {
-                throw std::runtime_error("CE_GALLERY_FONT: " + text);
+            if (fonts.shape(text, weft::constants::default_font_size_px).shaped.missing_glyph) {
+                throw std::runtime_error("WEFT_GALLERY_FONT: " + text);
             }
         }
         for (const auto& c : n.children) {
@@ -416,7 +412,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
         }
     };
     check_text(shell.snapshot_subtree("#shell"));
-    auto layout = [&](const caseelephant::ProbeDomSnapshot& dom) {
+    auto layout = [&](const weft::DomSnapshot& dom) {
         auto key = dom;
         shell_styles.normalize_selector_state(key);
         if (layout_input && *layout_input == key) {
@@ -433,9 +429,8 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             shell_styles.update(key, *shell_computed, shell_memo);
             shell_style_key = std::move(style_key);
         }
-        auto result = caseelephant::build_flow_page_probe(dom, *shell_computed,
-                                                          caseelephant::probe_constants::gallery::shell_width,
-                                                          caseelephant::probe_constants::gallery::shell_height, fonts);
+        auto result = weft::build_flow_page(dom, *shell_computed, weft::probe_constants::gallery::shell_width,
+                                            weft::probe_constants::gallery::shell_height, fonts);
         layout_input = std::move(key);
         layout_result = result;
         if (render_trace.enabled()) {
@@ -453,7 +448,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
     auto page = [&] {
         return layout(shell.snapshot_subtree("#shell"));
     };
-    caseelephant::ProbeMouseRouter mouse(shell, [&] {
+    weft::MouseRouter mouse(shell, [&] {
         return page().page.geometry;
     });
     std::unique_ptr<GalleryOwnerExecutor> owner;
@@ -469,21 +464,20 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
     std::size_t reused_owner_frames{};
     double last_owner_active{};
     WindowFrameRate owner_rate;
-    std::array<std::unique_ptr<caseelephant::SceneRasterProbe>, gallery_scene_count> scene_reference;
+    std::array<std::unique_ptr<weft::SceneRaster>, gallery_scene_count> scene_reference;
     if (owner && self_test) {
         for (auto& r : scene_reference) {
-            r = std::make_unique<caseelephant::SceneRasterProbe>();
+            r = std::make_unique<weft::SceneRaster>();
         }
     }
-    std::array<std::unique_ptr<GalleryCanvasSession>, caseelephant::probe_constants::gallery::canvas_case_count>
-        sessions;
+    std::array<std::unique_ptr<GalleryCanvasSession>, weft::probe_constants::gallery::canvas_case_count> sessions;
     if (!owner) {
-        for (unsigned i = 0; i < caseelephant::probe_constants::gallery::canvas_case_count; ++i) {
+        for (unsigned i = 0; i < weft::probe_constants::gallery::canvas_case_count; ++i) {
             sessions[i] = std::make_unique<GalleryCanvasSession>(i);
         }
     }
     std::vector<std::unique_ptr<GallerySceneSession>> scenes;
-    std::vector<caseelephant::ProbeNodeIdentity> scene_slots;
+    std::vector<weft::NodeIdentity> scene_slots;
     std::vector<std::shared_ptr<const Asset>> scene_images(gallery_scene_count);
     std::array<int, gallery_scene_count> scene_asset_indices{};
     scene_asset_indices.fill(-1);
@@ -493,10 +487,10 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
         require(cases[d.catalog_index].group == d.group && cases[d.catalog_index].index == d.index,
                 "scene/catalog manifest drift");
         if (!owner) {
-            scenes.push_back(std::make_unique<GallerySceneSession>(
-                d.group, d.index, d.width, d.height,
-                i < caseelephant::probe_constants::gallery::core_scene_count ? "scene-utilities.css"
-                                                                             : "cluster-utilities.css"));
+            scenes.push_back(std::make_unique<GallerySceneSession>(d.group, d.index, d.width, d.height,
+                                                                   i < weft::probe_constants::gallery::core_scene_count
+                                                                       ? "scene-utilities.css"
+                                                                       : "cluster-utilities.css"));
         }
         if (!owner) {
             scenes.back()->set_profiling(profile || !benchmark.empty());
@@ -538,19 +532,19 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
     unsigned pixel_error{};
     unsigned captures{};
     unsigned seen_cases{};
-    std::array<unsigned, caseelephant::probe_constants::gallery::canvas_case_count> raf_calls{};
+    std::array<unsigned, weft::probe_constants::gallery::canvas_case_count> raf_calls{};
     const char* groups[]{"CSS_TESTS",    "D3_TESTS",     "D3_INTERACTIVE_TESTS", "KLINE_TESTS", "WEBGL_TESTS",
                          "FRAMER_TESTS", "SPRING_TESTS", "ICON_TESTS",           "ANIME_TESTS", "LOTTIE_TESTS"};
-    std::array<bool, caseelephant::probe_constants::gallery::catalog_case_count> seen{};
-    std::array<bool, caseelephant::probe_constants::gallery::canvas_case_count> visible{};
-    const std::array<caseelephant::ProbeNodeIdentity, caseelephant::probe_constants::gallery::canvas_case_count>
-        slot_ids{shell.node_identity("#slot-webgl-00"), shell.node_identity("#slot-webgl-01")};
+    std::array<bool, weft::probe_constants::gallery::catalog_case_count> seen{};
+    std::array<bool, weft::probe_constants::gallery::canvas_case_count> visible{};
+    const std::array<weft::NodeIdentity, weft::probe_constants::gallery::canvas_case_count> slot_ids{
+        shell.node_identity("#slot-webgl-00"), shell.node_identity("#slot-webgl-01")};
     const auto scroll_id = shell.node_identity("#scroller");
     const auto profiler_id = shell.node_identity("#profiler-toggle");
     std::uint64_t profiler_revision{};
     FramePacket static_packet;
-    std::optional<caseelephant::ProbeDomSnapshot> packet_input;
-    std::array<int, caseelephant::probe_constants::gallery::canvas_case_count> canvas_assets{-1, -1};
+    std::optional<weft::DomSnapshot> packet_input;
+    std::array<int, weft::probe_constants::gallery::canvas_case_count> canvas_assets{-1, -1};
     std::size_t static_rebuilds{};
     std::map<std::uint64_t, unsigned> measured_serials;
     unsigned sample_epoch{};
@@ -580,7 +574,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
                   << (owner->work().accepted_inputs - owner->work().processed_inputs - owner->work().coalesced_inputs);
         }
         if (live_profiler.enabled && live_profiler.last_draw >= 0 &&
-            seconds() - live_profiler.last_draw < caseelephant::probe_constants::gallery::hud_refresh_interval_s) {
+            seconds() - live_profiler.last_draw < weft::probe_constants::gallery::hud_refresh_interval_s) {
             return;
         }
         auto overlay =
@@ -665,13 +659,11 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
                 hud();
             }
             if (self_test) {
-                require(
-                    PostMessageW(window.state.hwnd, WM_SIZE, SIZE_RESTORED,
-                                 MAKELPARAM(caseelephant::constants::uhd_width, caseelephant::constants::uhd_height)),
-                    "gallery restore");
+                require(PostMessageW(window.state.hwnd, WM_SIZE, SIZE_RESTORED,
+                                     MAKELPARAM(weft::constants::uhd_width, weft::constants::uhd_height)),
+                        "gallery restore");
             }
-            std::this_thread::sleep_for(
-                std::chrono::milliseconds(caseelephant::probe_constants::gallery::minimized_poll_ms));
+            std::this_thread::sleep_for(std::chrono::milliseconds(weft::probe_constants::gallery::minimized_poll_ms));
             continue;
         }
         if (window.state.resize) {
@@ -685,9 +677,9 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             reset();
         }
         // Shared exact wall-clock timestamp, never a rounded timer timestamp.
-        const double time = (benchmark.empty() ? seconds() * caseelephant::constants::milliseconds_per_second
-                                               : frames * caseelephant::probe_constants::gallery::fixed_clock_step_ms) +
-                            caseelephant::probe_constants::gallery::host_clock_offset_ms;
+        const double time = (benchmark.empty() ? seconds() * weft::constants::milliseconds_per_second
+                                               : frames * weft::probe_constants::gallery::fixed_clock_step_ms) +
+                            weft::probe_constants::gallery::host_clock_offset_ms;
         require(time >= last_time, "preview owner clock regressed");
         last_time = time;
         auto current = page();
@@ -711,7 +703,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             const auto value = window.state.input.front();
             window.state.input.pop_front();
             const auto point = value.viewport.logical(value.x, value.y);
-            if (value.action == caseelephant::ProbeMouseAction::Cancel && !value.wheel) {
+            if (value.action == weft::MouseAction::Cancel && !value.wheel) {
                 if (owner) {
                     require(gallery_owner_input(*owner, {-1, -1, value.action, 0, 0, time}) ==
                                 GalleryOwnerExecutor::Accepted,
@@ -733,12 +725,10 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             for (unsigned i = 0; i < gallery_scene_count; ++i) {
                 auto r = scene_rect(i);
                 if (point[0] >= r[0] && point[0] < r[0] + r[2] &&
-                    point[1] >=
-                        std::max(static_cast<double>(caseelephant::probe_constants::gallery::shell_viewport_top),
-                                 double(r[1])) &&
-                    point[1] <
-                        std::min(static_cast<double>(caseelephant::probe_constants::gallery::shell_viewport_bottom),
-                                 double(r[1] + r[3]))) {
+                    point[1] >= std::max(static_cast<double>(weft::probe_constants::gallery::shell_viewport_top),
+                                         double(r[1])) &&
+                    point[1] < std::min(static_cast<double>(weft::probe_constants::gallery::shell_viewport_bottom),
+                                        double(r[1] + r[3]))) {
                     scene_target = int(i);
                     break;
                 }
@@ -746,12 +736,12 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             // The inspection host reserves wheel over the zoomable SVG for the
             // original D3 zoom handler. Other wheel input scrolls the shell.
             if (value.wheel) {
-                if (scene_target == caseelephant::probe_constants::gallery::scatter_scene) {
-                    const auto r = scene_rect(caseelephant::probe_constants::gallery::scatter_scene);
+                if (scene_target == weft::probe_constants::gallery::scatter_scene) {
+                    const auto r = scene_rect(weft::probe_constants::gallery::scatter_scene);
                     if (owner) {
-                        GalleryOwnerInput input{caseelephant::probe_constants::gallery::scatter_scene,
+                        GalleryOwnerInput input{weft::probe_constants::gallery::scatter_scene,
                                                 -1,
-                                                caseelephant::ProbeMouseAction::Move,
+                                                weft::MouseAction::Move,
                                                 point[0] - r[0],
                                                 point[1] - r[1],
                                                 time};
@@ -762,10 +752,10 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
                         require(gallery_owner_input(*owner, input) == GalleryOwnerExecutor::Accepted,
                                 "owner wheel backpressure");
                     } else {
-                        scenes[caseelephant::probe_constants::gallery::scatter_scene]->time = time;
-                        scenes[caseelephant::probe_constants::gallery::scatter_scene]->input_value(
-                            caseelephant::ProbeMouseType::Move, float(point[0] - r[0]), float(point[1] - r[1]),
-                            value.buttons, value.delta_y);
+                        scenes[weft::probe_constants::gallery::scatter_scene]->time = time;
+                        scenes[weft::probe_constants::gallery::scatter_scene]->input_value(
+                            weft::MouseType::Move, float(point[0] - r[0]), float(point[1] - r[1]), value.buttons,
+                            value.delta_y);
                     }
                 } else {
                     mouse.wheel({value.delta_x, value.delta_y, point[0], point[1], double(value.screen_x),
@@ -774,8 +764,8 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
                 }
                 continue;
             }
-            if (value.action == caseelephant::ProbeMouseAction::Down &&
-                scene_target >= caseelephant::probe_constants::gallery::core_scene_count) {
+            if (value.action == weft::MouseAction::Down &&
+                scene_target >= weft::probe_constants::gallery::core_scene_count) {
                 captured_scene = scene_target;
             }
             const int recipient = captured_scene >= 0 ? captured_scene : scene_target;
@@ -793,70 +783,64 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
                     scene.pump();
                     scene.flush_scene();
                     if (scene.svg_geometry) {
-                        scene.input_value(
-                            value.action == caseelephant::ProbeMouseAction::Down ? caseelephant::ProbeMouseType::Down
-                            : value.action == caseelephant::ProbeMouseAction::Up ? caseelephant::ProbeMouseType::Up
-                                                                                 : caseelephant::ProbeMouseType::Move,
-                            float(point[0] - r[0]), float(point[1] - r[1]), value.buttons);
+                        scene.input_value(value.action == weft::MouseAction::Down ? weft::MouseType::Down
+                                          : value.action == weft::MouseAction::Up ? weft::MouseType::Up
+                                                                                  : weft::MouseType::Move,
+                                          float(point[0] - r[0]), float(point[1] - r[1]), value.buttons);
                     } else {
-                        if (value.action == caseelephant::ProbeMouseAction::Move) {
-                            scene.input(caseelephant::ProbeMouseType::Move, float(point[0] - r[0]),
-                                        float(point[1] - r[1]));
+                        if (value.action == weft::MouseAction::Move) {
+                            scene.input(weft::MouseType::Move, float(point[0] - r[0]), float(point[1] - r[1]));
                         }
-                        if (value.action == caseelephant::ProbeMouseAction::Down) {
+                        if (value.action == weft::MouseAction::Down) {
                             scene.pressed =
                                 scene.raster.hit_test(scene.current, float(point[0] - r[0]), float(point[1] - r[1]));
                         }
-                        if (value.action == caseelephant::ProbeMouseAction::Up) {
+                        if (value.action == weft::MouseAction::Up) {
                             auto hit =
                                 scene.raster.hit_test(scene.current, float(point[0] - r[0]), float(point[1] - r[1]));
                             if (scene.pressed == hit) {
-                                scene.input(caseelephant::ProbeMouseType::Click, float(point[0] - r[0]),
-                                            float(point[1] - r[1]));
+                                scene.input(weft::MouseType::Click, float(point[0] - r[0]), float(point[1] - r[1]));
                             }
                             scene.pressed = {};
                         }
                     }
                 }
             }
-            if (value.action == caseelephant::ProbeMouseAction::Up) {
+            if (value.action == weft::MouseAction::Up) {
                 captured_scene = -1;
             }
-            if (owner && recipient < 0 && value.action == caseelephant::ProbeMouseAction::Move) {
+            if (owner && recipient < 0 && value.action == weft::MouseAction::Move) {
                 require(gallery_owner_input(*owner, {-1, -1, value.action, 0, 0, time}) ==
                             GalleryOwnerExecutor::Accepted,
                         "owner hover exit backpressure");
             }
-            if (!owner && value.action == caseelephant::ProbeMouseAction::Move) {
+            if (!owner && value.action == weft::MouseAction::Move) {
                 for (unsigned i = 0; i < gallery_scene_count; ++i) {
                     if (int(i) != recipient && scenes[i]->hovered.generation) {
                         scenes[i]->time = time;
                         scenes[i]->pump();
-                        scenes[i]->input(caseelephant::ProbeMouseType::Move,
-                                         caseelephant::probe_constants::gallery::offscreen_pointer,
-                                         caseelephant::probe_constants::gallery::offscreen_pointer);
+                        scenes[i]->input(weft::MouseType::Move, weft::probe_constants::gallery::offscreen_pointer,
+                                         weft::probe_constants::gallery::offscreen_pointer);
                     }
                 }
             }
 
-            for (unsigned i = 0; i < caseelephant::probe_constants::gallery::canvas_case_count; ++i) {
+            for (unsigned i = 0; i < weft::probe_constants::gallery::canvas_case_count; ++i) {
                 const auto r = slot_rect(i);
                 if (point[0] >= r[0] && point[0] < r[0] + r[2] &&
-                    point[1] >=
-                        std::max(static_cast<double>(caseelephant::probe_constants::gallery::shell_viewport_top),
-                                 double(r[1])) &&
-                    point[1] <
-                        std::min(static_cast<double>(caseelephant::probe_constants::gallery::shell_viewport_bottom),
-                                 double(r[1] + r[3]))) {
+                    point[1] >= std::max(static_cast<double>(weft::probe_constants::gallery::shell_viewport_top),
+                                         double(r[1])) &&
+                    point[1] < std::min(static_cast<double>(weft::probe_constants::gallery::shell_viewport_bottom),
+                                        double(r[1] + r[3]))) {
                     target = int(i);
-                    x = (point[0] - r[0]) * caseelephant::probe_constants::gallery::canvas_backing_width / r[2];
-                    y = (point[1] - r[1]) * caseelephant::probe_constants::gallery::canvas_backing_height / r[3];
+                    x = (point[0] - r[0]) * weft::probe_constants::gallery::canvas_backing_width / r[2];
+                    y = (point[1] - r[1]) * weft::probe_constants::gallery::canvas_backing_height / r[3];
                 }
             }
-            if (value.action == caseelephant::ProbeMouseAction::Down) {
+            if (value.action == weft::MouseAction::Down) {
                 pressed = target;
             }
-            if (target >= 0 && value.action == caseelephant::ProbeMouseAction::Move) {
+            if (target >= 0 && value.action == weft::MouseAction::Move) {
                 if (owner) {
                     require(gallery_owner_input(*owner, {-1, target, value.action, x, y, time}) ==
                                 GalleryOwnerExecutor::Accepted,
@@ -867,7 +851,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
                 }
                 ++canvas_inputs;
             }
-            if (value.action == caseelephant::ProbeMouseAction::Up) {
+            if (value.action == weft::MouseAction::Up) {
                 if (target >= 0 && pressed == target) {
                     if (owner) {
                         require(gallery_owner_input(*owner, {-1, target, value.action, x, y, time}) ==
@@ -881,7 +865,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
                 }
                 pressed = -1;
             }
-            caseelephant::ProbeMouseEvent e;
+            weft::MouseEvent e;
             e.client_x = point[0];
             e.client_y = point[1];
             e.time_ms = time;
@@ -889,7 +873,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             const auto begin =
                 render_trace.enabled() ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
             mouse.route(value.action, e);
-            if (value.action == caseelephant::ProbeMouseAction::Up) {
+            if (value.action == weft::MouseAction::Up) {
                 auto selected = shell.eval("__cePreview.detail");
                 if (selected != detail) {
                     detail = std::move(selected);
@@ -927,15 +911,15 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             request.audit = self_test && !scroll_test && (frames == 21 || frames == 34);
             for (unsigned i = 0; i < gallery_scene_count; ++i) {
                 auto r = scene_rect(i);
-                request.scenes[i] = r[1] < caseelephant::probe_constants::gallery::shell_viewport_bottom &&
-                                    r[1] + r[3] > caseelephant::probe_constants::gallery::shell_viewport_top;
+                request.scenes[i] = r[1] < weft::probe_constants::gallery::shell_viewport_bottom &&
+                                    r[1] + r[3] > weft::probe_constants::gallery::shell_viewport_top;
             }
-            for (unsigned i = 0; i < caseelephant::probe_constants::gallery::canvas_case_count; ++i) {
+            for (unsigned i = 0; i < weft::probe_constants::gallery::canvas_case_count; ++i) {
                 auto r = slot_rect(i);
-                request.canvas[i] = r[1] < caseelephant::probe_constants::gallery::shell_viewport_bottom &&
-                                    r[1] + r[3] > caseelephant::probe_constants::gallery::shell_viewport_top;
+                request.canvas[i] = r[1] < weft::probe_constants::gallery::shell_viewport_bottom &&
+                                    r[1] + r[3] > weft::probe_constants::gallery::shell_viewport_top;
             }
-            const auto sequence = owner->request(caseelephant::probe_constants::gallery::owner_epoch, request);
+            const auto sequence = owner->request(weft::probe_constants::gallery::owner_epoch, request);
             std::optional<GalleryOwnerExecutor::Publication> publication;
             // The deterministic correctness path includes Debug builds and
             // large original SVG geometry reads. Its host wait is separate
@@ -943,9 +927,9 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             try {
                 if (self_test || !benchmark.empty() || !owner_frame) {
                     publication = owner->wait(
-                        caseelephant::probe_constants::gallery::owner_epoch, sequence,
-                        self_test ? std::chrono::seconds(caseelephant::probe_constants::gallery::owner_self_test_wait_s)
-                                  : std::chrono::seconds(caseelephant::probe_constants::gallery::owner_wait_s));
+                        weft::probe_constants::gallery::owner_epoch, sequence,
+                        self_test ? std::chrono::seconds(weft::probe_constants::gallery::owner_self_test_wait_s)
+                                  : std::chrono::seconds(weft::probe_constants::gallery::owner_wait_s));
                 } else {
                     publication = owner->latest();
                 }
@@ -974,10 +958,10 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             }
         }
         live_count = 0;
-        for (unsigned i = 0; i < caseelephant::probe_constants::gallery::canvas_case_count; ++i) {
+        for (unsigned i = 0; i < weft::probe_constants::gallery::canvas_case_count; ++i) {
             const auto r = slot_rect(i);
-            visible[i] = r[1] < caseelephant::probe_constants::gallery::shell_viewport_bottom &&
-                         r[1] + r[3] > caseelephant::probe_constants::gallery::shell_viewport_top;
+            visible[i] = r[1] < weft::probe_constants::gallery::shell_viewport_bottom &&
+                         r[1] + r[3] > weft::probe_constants::gallery::shell_viewport_top;
             live_count += visible[i];
             next_scope += visible[i] ? "/live" : "/hidden";
             if (owner) {
@@ -1004,8 +988,8 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
         }
         for (unsigned i = 0; i < gallery_scene_count; ++i) {
             const auto r = scene_rect(i);
-            scene_visible[i] = r[1] < caseelephant::probe_constants::gallery::shell_viewport_bottom &&
-                               r[1] + r[3] > caseelephant::probe_constants::gallery::shell_viewport_top;
+            scene_visible[i] = r[1] < weft::probe_constants::gallery::shell_viewport_bottom &&
+                               r[1] + r[3] > weft::probe_constants::gallery::shell_viewport_top;
         }
         scene_gpu.retire_hidden(scene_visible);
         for (unsigned i = 0; i < gallery_scene_count; ++i) {
@@ -1028,19 +1012,16 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             const auto& frame = owner ? *owner_frame->scenes[i] : scenes[i]->current;
             const bool dirty = owner ? owner_frame->revisions[i] != rendered_revisions[i] : scenes[i]->dirty;
             const std::array<float, 4> crop{
-                0, float(std::max(0., caseelephant::probe_constants::gallery::shell_viewport_top - r[1])), float(r[2]),
-                float(std::min(r[3], caseelephant::probe_constants::gallery::shell_viewport_bottom - r[1]))};
+                0, float(std::max(0., weft::probe_constants::gallery::shell_viewport_top - r[1])), float(r[2]),
+                float(std::min(r[3], weft::probe_constants::gallery::shell_viewport_bottom - r[1]))};
             if (scene_visible[i] && (dirty || scene_gpu.needs_clip(i, crop))) {
                 const auto paint_trace_start =
                     render_trace.enabled() ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
                 const auto paint_start = phase_seconds();
-                auto snapshot =
-                    owner ? owner_frame->scenes[i] : std::make_shared<const caseelephant::ProbeSceneFrame>(frame);
-                scene_gpu.paint_owned(i, std::move(snapshot),
-                                      caseelephant::probe_constants::gallery::scene_raster_scale, crop,
+                auto snapshot = owner ? owner_frame->scenes[i] : std::make_shared<const weft::SceneFrame>(frame);
+                scene_gpu.paint_owned(i, std::move(snapshot), weft::probe_constants::gallery::scene_raster_scale, crop,
                                       gallery_layer_manifest(i, frame, true));
-                const auto paint_ms =
-                    (phase_seconds() - paint_start) * caseelephant::constants::milliseconds_per_second;
+                const auto paint_ms = (phase_seconds() - paint_start) * weft::constants::milliseconds_per_second;
                 raster_ms += paint_ms;
                 if (render_trace.enabled()) {
                     render_trace.emit(
@@ -1048,7 +1029,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
                         "{\"native\":" +
                             (scene_gpu.image(i)->last_native ? std::string("true") : std::string("false")) + "}");
                 }
-                if (!benchmark.empty() && frames >= caseelephant::probe_constants::gallery::warmup_frames) {
+                if (!benchmark.empty() && frames >= weft::probe_constants::gallery::warmup_frames) {
                     GalleryPreviewSamples::add(stages["paint-" + cases[gallery_scene_descriptors[i].catalog_index].id],
                                                paint_ms);
                 }
@@ -1056,16 +1037,16 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             if (scene_visible[i] && (dirty || !scene_images[i])) {
                 const auto raster_start = phase_seconds();
                 if (self_test) {
-                    const auto b = owner ? scene_reference[i]->raster(
-                                               frame, caseelephant::probe_constants::gallery::scene_raster_scale)
-                                         : scenes[i]->bitmap();
+                    const auto b =
+                        owner ? scene_reference[i]->raster(frame, weft::probe_constants::gallery::scene_raster_scale)
+                              : scenes[i]->bitmap();
                     scene_images[i] =
                         std::make_shared<const Asset>(Asset{b.width, b.height, Encoding::SrgbStraight, b.rgba});
                 } else {
                     scene_images[i] =
                         std::make_shared<const Asset>(Asset{1, 1, Encoding::SrgbStraight, {5, 4, 3, 255}});
                 }
-                raster_ms += (phase_seconds() - raster_start) * caseelephant::constants::milliseconds_per_second;
+                raster_ms += (phase_seconds() - raster_start) * weft::constants::milliseconds_per_second;
             }
             if (scene_visible[i]) {
                 if (owner) {
@@ -1078,7 +1059,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
         {
             const auto publish_start = phase_seconds();
             scene_gpu.publish();
-            raster_ms += (phase_seconds() - publish_start) * caseelephant::constants::milliseconds_per_second;
+            raster_ms += (phase_seconds() - publish_start) * weft::constants::milliseconds_per_second;
         }
         if (scope != next_scope) {
             scope = next_scope;
@@ -1096,7 +1077,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
                     images.emplace("slot-" + cases[gallery_scene_descriptors[i].catalog_index].id, scene_images[i]);
                 }
             }
-            for (unsigned i = 0; i < caseelephant::probe_constants::gallery::canvas_case_count; ++i) {
+            for (unsigned i = 0; i < weft::probe_constants::gallery::canvas_case_count; ++i) {
                 if (visible[i]) {
                     images.emplace(i ? "live-1" : "live-0",
                                    std::make_shared<const Asset>(Asset{1, 1, Encoding::SrgbStraight, {10, 8, 6, 255}}));
@@ -1106,7 +1087,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             static_packet = gallery_preview_packet(current.page, fonts, images, &cache);
             packet_input = dom;
             ++static_rebuilds;
-            for (unsigned i = 0; i < caseelephant::probe_constants::gallery::canvas_case_count; ++i) {
+            for (unsigned i = 0; i < weft::probe_constants::gallery::canvas_case_count; ++i) {
                 if (visible[i]) {
                     const auto asset = images.at(i ? "live-1" : "live-0");
                     for (std::size_t a = 0; a < static_packet.assets.size(); ++a) {
@@ -1136,7 +1117,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
                 packet.assets[unsigned(scene_asset_indices[i])] = scene_images[i];
             }
         }
-        for (unsigned i = 0; i < caseelephant::probe_constants::gallery::canvas_case_count; ++i) {
+        for (unsigned i = 0; i < weft::probe_constants::gallery::canvas_case_count; ++i) {
             if (visible[i]) {
                 const auto bitmap =
                     owner ? owner_frame->canvas[i] : sessions[i]->vm.canvas_snapshot(sessions[i]->identity());
@@ -1152,7 +1133,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
                     images.emplace("slot-" + cases[gallery_scene_descriptors[i].catalog_index].id, scene_images[i]);
                 }
             }
-            for (unsigned i = 0; i < caseelephant::probe_constants::gallery::canvas_case_count; ++i) {
+            for (unsigned i = 0; i < weft::probe_constants::gallery::canvas_case_count; ++i) {
                 if (visible[i]) {
                     images.emplace(i ? "live-1" : "live-0", packet.assets[unsigned(canvas_assets[i])]);
                 }
@@ -1174,8 +1155,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
         ++frames;
         if (render_trace.enabled() && frame_trace_start != std::chrono::steady_clock::time_point{}) {
             render_trace.emit(
-                "render frame", frame_trace_start,
-                (seconds() - tick) * caseelephant::constants::milliseconds_per_second,
+                "render frame", frame_trace_start, (seconds() - tick) * weft::constants::milliseconds_per_second,
                 "{\"owner_time_ms\":" + format_host_time(owner_frame ? owner_frame->time : time) +
                     ",\"owner_age_ms\":" + format_host_time(owner_frame ? std::max(0., time - owner_frame->time) : 0) +
                     ",\"serial\":" + std::to_string(serial) + "}");
@@ -1186,7 +1166,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
         if (live_profiler.enabled) {
             ++live_profiler.render_samples;
             const auto t = seconds();
-            live_profiler.add("Render CPU", t, (t - tick) * caseelephant::constants::milliseconds_per_second);
+            live_profiler.add("Render CPU", t, (t - tick) * weft::constants::milliseconds_per_second);
             live_profiler.add("Frame age", t, owner_frame ? std::max(0., time - owner_frame->time) : 0);
             live_profiler.add("Shell layout", t, shell_layout_ms);
             live_profiler.add("Shell input", t, shell_input_ms);
@@ -1195,14 +1175,14 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             live_profiler.add("Encode", t, gpu.encode_ms);
             live_profiler.add("Present CPU", t, gpu.present_ms);
             live_profiler.add("Pipeline wait", t, gpu.wait_ms);
-            if (t - live_profiler.last_draw >= caseelephant::probe_constants::gallery::hud_refresh_interval_s) {
+            if (t - live_profiler.last_draw >= weft::probe_constants::gallery::hud_refresh_interval_s) {
                 hud();
             }
         }
-        if (!benchmark.empty() && frames == caseelephant::probe_constants::gallery::warmup_frames) {
+        if (!benchmark.empty() && frames == weft::probe_constants::gallery::warmup_frames) {
             benchmark_start = seconds();
         }
-        if (!benchmark.empty() && frames > caseelephant::probe_constants::gallery::warmup_frames) {
+        if (!benchmark.empty() && frames > weft::probe_constants::gallery::warmup_frames) {
             GalleryPreviewSamples::add(stages["owner_active"],
                                        owner ? last_owner_active : js_ms + snapshot_ms + scene_ms);
             GalleryPreviewSamples::add(stages["js"], js_ms);
@@ -1213,21 +1193,20 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             GalleryPreviewSamples::add(stages["encode"], gpu.encode_ms);
             GalleryPreviewSamples::add(stages["present"], gpu.present_ms);
             GalleryPreviewSamples::add(stages["submit"],
-                                       (seconds() - submit_start) * caseelephant::constants::milliseconds_per_second);
-            GalleryPreviewSamples::add(stages["scene_total"], (submit_start - scene_started) *
-                                                                  caseelephant::constants::milliseconds_per_second);
+                                       (seconds() - submit_start) * weft::constants::milliseconds_per_second);
+            GalleryPreviewSamples::add(stages["scene_total"],
+                                       (submit_start - scene_started) * weft::constants::milliseconds_per_second);
         }
         if (presenter.last_visible || !benchmark.empty()) {
             ++settling;
-            if (settling > caseelephant::probe_constants::gallery::warmup_frames) {
-                GalleryPreviewSamples::add(samples.cpu,
-                                           (seconds() - tick) * caseelephant::constants::milliseconds_per_second);
+            if (settling > weft::probe_constants::gallery::warmup_frames) {
+                GalleryPreviewSamples::add(samples.cpu, (seconds() - tick) * weft::constants::milliseconds_per_second);
                 if (live_profiler.enabled || self_test || !benchmark.empty()) {
                     measured_serials[serial] = sample_epoch;
                 }
                 if (last_present) {
-                    GalleryPreviewSamples::add(samples.interval, (seconds() - last_present) *
-                                                                     caseelephant::constants::milliseconds_per_second);
+                    GalleryPreviewSamples::add(samples.interval,
+                                               (seconds() - last_present) * weft::constants::milliseconds_per_second);
                 }
             }
             last_present = seconds();
@@ -1239,20 +1218,19 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             reset();
             hud();
             std::this_thread::sleep_for(
-                std::chrono::milliseconds(caseelephant::probe_constants::gallery::hidden_frame_sleep_ms));
+                std::chrono::milliseconds(weft::probe_constants::gallery::hidden_frame_sleep_ms));
         }
-        if (!benchmark.empty() && frames == caseelephant::probe_constants::gallery::fixed_clock_run_frames) {
+        if (!benchmark.empty() && frames == weft::probe_constants::gallery::fixed_clock_run_frames) {
             pipeline.drain();
             benchmark_end = seconds();
             window.state.close_requested = true;
         }
         if (self_test && !scroll_test) {
             // Pixel oracle and every original registry id, across the ten sections.
-            if (frames <= caseelephant::probe_constants::gallery::catalog_group_count) {
+            if (frames <= weft::probe_constants::gallery::catalog_group_count) {
                 pipeline.drain();
                 auto oracle_packet = packet;
-                for (unsigned i = caseelephant::probe_constants::gallery::core_scene_count; i < gallery_scene_count;
-                     ++i) {
+                for (unsigned i = weft::probe_constants::gallery::core_scene_count; i < gallery_scene_count; ++i) {
                     if (scene_visible[i]) {
                         const auto source = scene_gpu.read(i);
                         oracle_packet.assets[unsigned(scene_asset_indices[i])] = std::make_shared<const Asset>(
@@ -1260,18 +1238,17 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
                     }
                 }
                 const auto pixels = gallery_output(gpu);
-                for (int y = caseelephant::probe_constants::gallery::oracle_grid_origin;
-                     y < caseelephant::constants::uhd_height;
-                     y += caseelephant::probe_constants::gallery::oracle_grid_stride_y) {
-                    for (int x = caseelephant::probe_constants::gallery::oracle_grid_origin;
-                         x < caseelephant::probe_constants::gallery::oracle_grid_right;
-                         x += caseelephant::probe_constants::gallery::oracle_grid_stride_x) {
+                for (int y = weft::probe_constants::gallery::oracle_grid_origin; y < weft::constants::uhd_height;
+                     y += weft::probe_constants::gallery::oracle_grid_stride_y) {
+                    for (int x = weft::probe_constants::gallery::oracle_grid_origin;
+                         x < weft::probe_constants::gallery::oracle_grid_right;
+                         x += weft::probe_constants::gallery::oracle_grid_stride_x) {
                         auto expected = cheetah_sample(oracle_packet, x, y);
-                        const auto actual = pixels[std::size_t(y) * caseelephant::constants::uhd_width + x];
+                        const auto actual = pixels[std::size_t(y) * weft::constants::uhd_width + x];
                         for (unsigned c = 0; c < 4; ++c) {
                             if (auto error = unsigned(std::abs(int(expected[c]) - actual[c])); error > pixel_error) {
                                 pixel_error = error;
-                                if (error > caseelephant::probe_constants::gallery::max_cpu_oracle_difference) {
+                                if (error > weft::probe_constants::gallery::max_cpu_oracle_difference) {
                                     std::cerr << "window frame " << frames << " point " << x << "," << y << "," << c
                                               << " expected " << unsigned(expected[c]) << " actual "
                                               << unsigned(actual[c]) << " error " << error << "\n";
@@ -1281,17 +1258,17 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
                         ++oracle_samples;
                     }
                 }
-                require(pixel_error <= caseelephant::probe_constants::gallery::max_cpu_oracle_difference,
+                require(pixel_error <= weft::probe_constants::gallery::max_cpu_oracle_difference,
                         "4K gallery shell/canvas pixel oracle");
                 save_png(folder / ("group-" + std::to_string(frames - 1) + ".png"), presenter.pixels(),
-                         caseelephant::constants::uhd_width, caseelephant::constants::uhd_height);
+                         weft::constants::uhd_width, weft::constants::uhd_height);
                 ++captures;
-                for (unsigned i = 0; i < caseelephant::probe_constants::gallery::catalog_case_count; ++i) {
+                for (unsigned i = 0; i < weft::probe_constants::gallery::catalog_case_count; ++i) {
                     const auto identity = shell.node_identity("#case-" + cases[i].id);
                     for (const auto& e : current.elements) {
                         if (e.identity == identity &&
-                            e.rect[1] < caseelephant::probe_constants::gallery::shell_viewport_bottom &&
-                            e.rect[1] + e.rect[3] > caseelephant::probe_constants::gallery::shell_viewport_top) {
+                            e.rect[1] < weft::probe_constants::gallery::shell_viewport_bottom &&
+                            e.rect[1] + e.rect[3] > weft::probe_constants::gallery::shell_viewport_top) {
                             seen[i] = true;
                         }
                     }
@@ -1318,8 +1295,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
                             scroll = e.scroll_top;
                         }
                     }
-                    for (unsigned group = 0; group < caseelephant::probe_constants::gallery::catalog_group_count;
-                         ++group) {
+                    for (unsigned group = 0; group < weft::probe_constants::gallery::catalog_group_count; ++group) {
                         unsigned count{};
                         const double w = (1600. - gaps[group] * (columns[group] - 1)) / columns[group];
                         for (const auto& c : cases) {
@@ -1352,7 +1328,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
                     }
                     require(geometry_checks == 288, "gallery geometry coverage");
                 }
-                if (frames < caseelephant::probe_constants::gallery::catalog_group_count) {
+                if (frames < weft::probe_constants::gallery::catalog_group_count) {
                     jump(frames);
                 } else {
                     jump(4);
@@ -1360,26 +1336,24 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             }
             if (frames == 11) { // Real queued mouse input, with scaled canvas coordinates.
                 const auto r = slot_rect(0);
-                const auto pt =
-                    MAKELPARAM(int((r[0] + 260) * caseelephant::probe_constants::gallery::shell_device_scale),
-                               int((r[1] + 180) * caseelephant::probe_constants::gallery::shell_device_scale));
+                const auto pt = MAKELPARAM(int((r[0] + 260) * weft::probe_constants::gallery::shell_device_scale),
+                                           int((r[1] + 180) * weft::probe_constants::gallery::shell_device_scale));
                 require(PostMessageW(window.state.hwnd, WM_MOUSEMOVE, 0, pt), "gallery queued particle input");
                 shell.eval("__cePreview.scroll(480)");
             }
             if (frames == 12) {
                 current = page();
                 const auto r = slot_rect(1);
-                const auto pt =
-                    MAKELPARAM(int((r[0] + 260) * caseelephant::probe_constants::gallery::shell_device_scale),
-                               int((r[1] + 180) * caseelephant::probe_constants::gallery::shell_device_scale));
+                const auto pt = MAKELPARAM(int((r[0] + 260) * weft::probe_constants::gallery::shell_device_scale),
+                                           int((r[1] + 180) * weft::probe_constants::gallery::shell_device_scale));
                 require(PostMessageW(window.state.hwnd, WM_LBUTTONDOWN, MK_LBUTTON, pt) &&
                             PostMessageW(window.state.hwnd, WM_LBUTTONUP, 0, pt),
                         "gallery queued fireworks click");
             }
             if (frames == 14) {
                 pipeline.drain();
-                save_png(folder / "canvas-input.png", presenter.pixels(), caseelephant::constants::uhd_width,
-                         caseelephant::constants::uhd_height);
+                save_png(folder / "canvas-input.png", presenter.pixels(), weft::constants::uhd_width,
+                         weft::constants::uhd_height);
                 require(canvas_inputs >= 2 && raf_calls[0] > 0 && raf_calls[1] > 0,
                         "gallery live visibility/input missing");
                 shell.eval("__cePreview.jump('CSS_TESTS')");
@@ -1409,13 +1383,13 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             }
             if (frames == 21) {
                 current = page();
-                for (unsigned i : {static_cast<unsigned>(caseelephant::probe_constants::gallery::css_hover_scene),
-                                   static_cast<unsigned>(caseelephant::probe_constants::gallery::css_toggle_scene)}) {
+                for (unsigned i : {static_cast<unsigned>(weft::probe_constants::gallery::css_hover_scene),
+                                   static_cast<unsigned>(weft::probe_constants::gallery::css_toggle_scene)}) {
                     const auto r = scene_rect(i);
                     const auto pt =
-                        MAKELPARAM(int((r[0] + r[2] / 2) * caseelephant::probe_constants::gallery::shell_device_scale),
-                                   int((r[1] + 60) * caseelephant::probe_constants::gallery::shell_device_scale));
-                    if (i == caseelephant::probe_constants::gallery::css_hover_scene) {
+                        MAKELPARAM(int((r[0] + r[2] / 2) * weft::probe_constants::gallery::shell_device_scale),
+                                   int((r[1] + 60) * weft::probe_constants::gallery::shell_device_scale));
+                    if (i == weft::probe_constants::gallery::css_hover_scene) {
                         require(PostMessageW(window.state.hwnd, WM_MOUSEMOVE, 0, pt), "native CSS hover queue");
                     } else {
                         require(PostMessageW(window.state.hwnd, WM_LBUTTONDOWN, MK_LBUTTON, pt) &&
@@ -1426,27 +1400,27 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             }
             if (frames == 22) {
                 require((owner ? owner_frame->hover_transform
-                               : scenes[caseelephant::probe_constants::gallery::css_hover_scene]->vm.eval(
+                               : scenes[weft::probe_constants::gallery::css_hover_scene]->vm.eval(
                                      "document.getElementById('root').childNodes[0].style.transform")) == "scale(1.4)",
                         "window CSS hover did not update React");
                 require(
                     (owner
                          ? owner_frame->toggle_width
-                         : scenes[caseelephant::probe_constants::gallery::css_toggle_scene]->vm.eval(
+                         : scenes[weft::probe_constants::gallery::css_toggle_scene]->vm.eval(
                                "document.getElementById('root').childNodes[0].childNodes[0].childNodes[0].style.width")) ==
                         "100%",
                     "window CSS click did not update React");
             }
             if (frames == 24) {
                 pipeline.drain();
-                save_png(folder / "css-hover-input.png", presenter.pixels(), caseelephant::constants::uhd_width,
-                         caseelephant::constants::uhd_height);
+                save_png(folder / "css-hover-input.png", presenter.pixels(), weft::constants::uhd_width,
+                         weft::constants::uhd_height);
                 shell.eval("document.getElementById('scroller').scrollTop=1000");
             }
             if (frames == 27) {
                 pipeline.drain();
-                save_png(folder / "css-middle.png", presenter.pixels(), caseelephant::constants::uhd_width,
-                         caseelephant::constants::uhd_height);
+                save_png(folder / "css-middle.png", presenter.pixels(), weft::constants::uhd_width,
+                         weft::constants::uhd_height);
                 shell.eval("document.getElementById('scroller').scrollTop=1800");
             }
             if (frames == 31) {
@@ -1455,31 +1429,28 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             }
             if (frames == 32) {
                 current = page();
-                const auto r = scene_rect(caseelephant::probe_constants::gallery::anime_drag_scene);
-                const auto pt =
-                    MAKELPARAM(int((r[0] + 44) * caseelephant::probe_constants::gallery::shell_device_scale),
-                               int((r[1] + 84) * caseelephant::probe_constants::gallery::shell_device_scale));
+                const auto r = scene_rect(weft::probe_constants::gallery::anime_drag_scene);
+                const auto pt = MAKELPARAM(int((r[0] + 44) * weft::probe_constants::gallery::shell_device_scale),
+                                           int((r[1] + 84) * weft::probe_constants::gallery::shell_device_scale));
                 require(PostMessageW(window.state.hwnd, WM_LBUTTONDOWN, MK_LBUTTON, pt), "new scene queued drag down");
             }
             if (frames == 33) {
                 current = page();
-                const auto r = scene_rect(caseelephant::probe_constants::gallery::anime_drag_scene);
-                const auto pt =
-                    MAKELPARAM(int((r[0] + 124) * caseelephant::probe_constants::gallery::shell_device_scale),
-                               int((r[1] + 84) * caseelephant::probe_constants::gallery::shell_device_scale));
+                const auto r = scene_rect(weft::probe_constants::gallery::anime_drag_scene);
+                const auto pt = MAKELPARAM(int((r[0] + 124) * weft::probe_constants::gallery::shell_device_scale),
+                                           int((r[1] + 84) * weft::probe_constants::gallery::shell_device_scale));
                 require(PostMessageW(window.state.hwnd, WM_MOUSEMOVE, MK_LBUTTON, pt), "new scene queued drag move");
             }
             if (frames == 34) {
-                const auto r = scene_rect(caseelephant::probe_constants::gallery::anime_drag_scene);
-                const auto pt =
-                    MAKELPARAM(int((r[0] + 500) * caseelephant::probe_constants::gallery::shell_device_scale),
-                               int((r[1] + 84) * caseelephant::probe_constants::gallery::shell_device_scale));
+                const auto r = scene_rect(weft::probe_constants::gallery::anime_drag_scene);
+                const auto pt = MAKELPARAM(int((r[0] + 500) * weft::probe_constants::gallery::shell_device_scale),
+                                           int((r[1] + 84) * weft::probe_constants::gallery::shell_device_scale));
                 require(PostMessageW(window.state.hwnd, WM_LBUTTONUP, 0, pt),
                         "new scene queued drag release outside card");
             }
             if (frames == 35) {
                 require(!(owner ? owner_frame->anime_drag_transform
-                                : scenes[caseelephant::probe_constants::gallery::anime_drag_scene]->vm.eval(
+                                : scenes[weft::probe_constants::gallery::anime_drag_scene]->vm.eval(
                                       "document.querySelector('.drag-item').style.transform"))
                              .empty(),
                         "queued HWND/owner Anime drag did not change native style");
@@ -1487,14 +1458,14 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             }
             if (frames == 30) {
                 pipeline.drain();
-                save_png(folder / "css-end.png", presenter.pixels(), caseelephant::constants::uhd_width,
-                         caseelephant::constants::uhd_height);
+                save_png(folder / "css-end.png", presenter.pixels(), weft::constants::uhd_width,
+                         weft::constants::uhd_height);
                 jump(1);
             }
             if (frames == 33) {
                 pipeline.drain();
-                save_png(folder / "d3-live.png", presenter.pixels(), caseelephant::constants::uhd_width,
-                         caseelephant::constants::uhd_height);
+                save_png(folder / "d3-live.png", presenter.pixels(), weft::constants::uhd_width,
+                         weft::constants::uhd_height);
                 jump(0);
                 shell.eval("document.getElementById('scroller').scrollTop=1000");
             }
@@ -1502,8 +1473,8 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
                 pipeline.drain();
                 require(fps.ready && fps.fps > 0 && pause_count > 0 && static_rebuilds < 30,
                         "gallery FPS/resume/static cache absent");
-                save_png(folder / "window-4k.png", presenter.pixels(), caseelephant::constants::uhd_width,
-                         caseelephant::constants::uhd_height);
+                save_png(folder / "window-4k.png", presenter.pixels(), weft::constants::uhd_width,
+                         weft::constants::uhd_height);
                 window.state.close_requested = true;
             }
         }
@@ -1511,9 +1482,9 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             if (frames == 95) {
                 for (const auto& e : current.elements) {
                     if (e.identity == profiler_id) {
-                        const auto pt = MAKELPARAM(
-                            int((e.rect[0] + 30) * caseelephant::probe_constants::gallery::shell_device_scale),
-                            int((e.rect[1] + 20) * caseelephant::probe_constants::gallery::shell_device_scale));
+                        const auto pt =
+                            MAKELPARAM(int((e.rect[0] + 30) * weft::probe_constants::gallery::shell_device_scale),
+                                       int((e.rect[1] + 20) * weft::probe_constants::gallery::shell_device_scale));
                         require(PostMessageW(window.state.hwnd, WM_LBUTTONDOWN, MK_LBUTTON, pt) &&
                                     PostMessageW(window.state.hwnd, WM_LBUTTONUP, 0, pt),
                                 "profiler real checkbox click");
@@ -1525,11 +1496,10 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
                     layouts_before_profile_click = shell_layout_builds;
                     captures_before_profile_click = window.state.capture_losses;
                 }
-                const auto r = scene_rect(frames == 105 ? caseelephant::probe_constants::gallery::css_hover_scene
-                                                        : caseelephant::probe_constants::gallery::css_toggle_scene);
-                const auto pt =
-                    MAKELPARAM(int((r[0] + r[2] / 2) * caseelephant::probe_constants::gallery::shell_device_scale),
-                               int((r[1] + 60) * caseelephant::probe_constants::gallery::shell_device_scale));
+                const auto r = scene_rect(frames == 105 ? weft::probe_constants::gallery::css_hover_scene
+                                                        : weft::probe_constants::gallery::css_toggle_scene);
+                const auto pt = MAKELPARAM(int((r[0] + r[2] / 2) * weft::probe_constants::gallery::shell_device_scale),
+                                           int((r[1] + 60) * weft::probe_constants::gallery::shell_device_scale));
                 if (frames == 105) {
                     require(PostMessageW(window.state.hwnd, WM_MOUSEMOVE, 0, pt), "profiled shared hover input");
                 } else {
@@ -1550,8 +1520,8 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
                         "profiler did not enable owner curves/input timers");
                 hud();
                 pipeline.drain();
-                save_png(folder / "profiler-detail-4k.png", presenter.pixels(), caseelephant::constants::uhd_width,
-                         caseelephant::constants::uhd_height);
+                save_png(folder / "profiler-detail-4k.png", presenter.pixels(), weft::constants::uhd_width,
+                         weft::constants::uhd_height);
             }
             if (frames == 143) {
                 require(PostMessageW(window.state.hwnd, WM_KEYDOWN, VK_F8, 0), "profiler keyboard toggle");
@@ -1575,21 +1545,21 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             if (frames == 56) {
                 require(std::abs(std::stod(shell.eval("document.getElementById('scroller').scrollTop")) - 3600) <=
                                 .01 &&
-                            scene_visible[caseelephant::probe_constants::gallery::sunburst_scene],
+                            scene_visible[weft::probe_constants::gallery::sunburst_scene],
                         "continuous wheel did not reach Sunburst");
                 pipeline.drain();
-                save_png(folder / "scroll-sunburst-4k.png", presenter.pixels(), caseelephant::constants::uhd_width,
-                         caseelephant::constants::uhd_height);
-                const auto actual = scene_gpu.read(caseelephant::probe_constants::gallery::sunburst_scene);
-                auto expected = ::scene_reference(std::filesystem::path(CE_SOURCE_DIR) /
+                save_png(folder / "scroll-sunburst-4k.png", presenter.pixels(), weft::constants::uhd_width,
+                         weft::constants::uhd_height);
+                const auto actual = scene_gpu.read(weft::probe_constants::gallery::sunburst_scene);
+                auto expected = ::scene_reference(std::filesystem::path(WEFT_SOURCE_DIR) /
                                                   "tests/fixtures/gallery-cluster-reference/d3_interactive-00-24.png");
-                const auto crop = scene_gpu.image(caseelephant::probe_constants::gallery::sunburst_scene)->clip.value();
+                const auto crop = scene_gpu.image(weft::probe_constants::gallery::sunburst_scene)->clip.value();
                 for (unsigned y = 0; y < expected.height; ++y) {
                     for (unsigned x = 0; x < expected.width; ++x) {
-                        if (x < crop[0] * caseelephant::probe_constants::gallery::scene_raster_scale ||
-                            x >= crop[2] * caseelephant::probe_constants::gallery::scene_raster_scale ||
-                            y < crop[1] * caseelephant::probe_constants::gallery::scene_raster_scale ||
-                            y >= crop[3] * caseelephant::probe_constants::gallery::scene_raster_scale) {
+                        if (x < crop[0] * weft::probe_constants::gallery::scene_raster_scale ||
+                            x >= crop[2] * weft::probe_constants::gallery::scene_raster_scale ||
+                            y < crop[1] * weft::probe_constants::gallery::scene_raster_scale ||
+                            y >= crop[3] * weft::probe_constants::gallery::scene_raster_scale) {
                             std::fill_n(expected.rgba.data() + (std::size_t(y) * expected.width + x) * 4, 4,
                                         std::uint8_t{});
                         }
@@ -1606,18 +1576,17 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
                             scene_visible[0] && scene_gpu.hidden_retirements > 0,
                         "reverse wheel did not rebuild CSS source");
                 pipeline.drain();
-                save_png(folder / "scroll-return-css-4k.png", presenter.pixels(), caseelephant::constants::uhd_width,
-                         caseelephant::constants::uhd_height);
+                save_png(folder / "scroll-return-css-4k.png", presenter.pixels(), weft::constants::uhd_width,
+                         weft::constants::uhd_height);
                 require(scene_difference(scene_gpu.read(0),
-                                         ::scene_reference(std::filesystem::path(CE_SOURCE_DIR) /
+                                         ::scene_reference(std::filesystem::path(WEFT_SOURCE_DIR) /
                                                            "tests/fixtures/scene-gallery-reference/css-00-24.png"))
                             .passes(),
                         "reverse wheel CSS browser pixels");
                 ++captures;
             }
             if (frames == 120) {
-                require(scene_gpu.peak_imported_bytes <=
-                            caseelephant::probe_constants::gallery::external_import_budget_bytes,
+                require(scene_gpu.peak_imported_bytes <= weft::probe_constants::gallery::external_import_budget_bytes,
                         "continuous wheel exceeded original import budget");
                 window.state.close_requested = true;
             }
@@ -1625,15 +1594,14 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
         if (input_benchmark) {
             auto send = [&](unsigned scene, double x, double y, UINT message, WPARAM buttons) {
                 const auto r = scene_rect(scene);
-                require(PostMessageW(
-                            window.state.hwnd, message, buttons,
-                            MAKELPARAM(int((r[0] + x) * caseelephant::probe_constants::gallery::shell_device_scale),
-                                       int((r[1] + y) * caseelephant::probe_constants::gallery::shell_device_scale))),
+                require(PostMessageW(window.state.hwnd, message, buttons,
+                                     MAKELPARAM(int((r[0] + x) * weft::probe_constants::gallery::shell_device_scale),
+                                                int((r[1] + y) * weft::probe_constants::gallery::shell_device_scale))),
                         "profile queued native mouse");
             };
             if ((scenario == "kline" || scenario == "scatter") && frames >= 24 && frames < 144) {
-                const unsigned index = scenario == "kline" ? caseelephant::probe_constants::gallery::kline_scene
-                                                           : caseelephant::probe_constants::gallery::scatter_scene;
+                const unsigned index = scenario == "kline" ? weft::probe_constants::gallery::kline_scene
+                                                           : weft::probe_constants::gallery::scatter_scene;
                 if (scenario == "scatter" && frames == 24) {
                     send(index, 320, 360, WM_LBUTTONDOWN, MK_LBUTTON);
                 }
@@ -1645,7 +1613,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
                 }
             }
             if (scenario == "scatter" && frames == 144) {
-                send(caseelephant::probe_constants::gallery::scatter_scene, 416, 360, WM_LBUTTONUP, 0);
+                send(weft::probe_constants::gallery::scatter_scene, 416, 360, WM_LBUTTONUP, 0);
             }
             if (scenario == "framer" && (frames == 30 || frames == 150)) {
                 send(40, 259, 160, WM_LBUTTONDOWN, MK_LBUTTON);
@@ -1742,7 +1710,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
             folder / "benchmark.json",
             "{\"scenario\":" + json_string(benchmark) + ",\"input_benchmark\":" + (input_benchmark ? "true" : "false") +
                 ",\"frames\":240,\"warm_frames\":224,\"fixed_clock_step_ms\":16.666666666666668,\"capture_readback\":false,\"warm_throughput_fps\":" +
-                format_host_time(caseelephant::probe_constants::gallery::fixed_clock_warm_frames /
+                format_host_time(weft::probe_constants::gallery::fixed_clock_warm_frames /
                                  (benchmark_end - benchmark_start)) +
                 ",\"stages_ms\":" + data + "}");
     }
@@ -1779,7 +1747,7 @@ int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool sel
     }
     for (auto& s : scenes) {
         s->unmount();
-        require(s->vm.stats().live_nodes == caseelephant::probe_constants::gallery::unmounted_live_nodes,
+        require(s->vm.stats().live_nodes == weft::probe_constants::gallery::unmounted_live_nodes,
                 "gallery scene teardown");
     }
     for (auto& s : sessions) {

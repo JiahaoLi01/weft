@@ -4,24 +4,24 @@
 #include <cmath>
 #include <stdexcept>
 
-namespace caseelephant {
-    ProbeRoundedClip normalize_rounded_probe(ProbeRoundedClip c) {
+namespace weft {
+    RoundedClip normalize_rounded(RoundedClip c) {
         for (float v : c.rect) {
             if (!std::isfinite(v) || std::abs(v) > constants::render::rounded_clip_max_magnitude) {
-                throw std::invalid_argument("CE_ROUNDED_LIMIT: rectangle");
+                throw std::invalid_argument("WEFT_ROUNDED_LIMIT: rectangle");
             }
         }
         if (c.rect[2] < 0 || c.rect[3] < 0) {
-            throw std::invalid_argument("CE_ROUNDED_LIMIT: negative size");
+            throw std::invalid_argument("WEFT_ROUNDED_LIMIT: negative size");
         }
         for (float v : c.radius_x) {
             if (!std::isfinite(v) || v < 0 || v > constants::render::rounded_clip_max_magnitude) {
-                throw std::invalid_argument("CE_ROUNDED_LIMIT: radius");
+                throw std::invalid_argument("WEFT_ROUNDED_LIMIT: radius");
             }
         }
         for (float v : c.radius_y) {
             if (!std::isfinite(v) || v < 0 || v > constants::render::rounded_clip_max_magnitude) {
-                throw std::invalid_argument("CE_ROUNDED_LIMIT: radius");
+                throw std::invalid_argument("WEFT_ROUNDED_LIMIT: radius");
             }
         }
         float f = 1;
@@ -43,7 +43,7 @@ namespace caseelephant {
         return c;
     }
 
-    bool contains_rounded_probe(const ProbeRoundedClip& c, float x, float y) {
+    bool contains_rounded(const RoundedClip& c, float x, float y) {
         const float l = c.rect[0];
         const float t = c.rect[1];
         const float r = l + c.rect[2];
@@ -70,17 +70,17 @@ namespace caseelephant {
         return true;
     }
 
-    std::vector<std::uint8_t> rounded_coverage_probe(const std::vector<ProbeRoundedClip>& clips, std::array<float, 4> r,
-                                                     std::uint32_t w, std::uint32_t h) {
+    std::vector<std::uint8_t> rounded_coverage(const std::vector<RoundedClip>& clips, std::array<float, 4> r,
+                                               std::uint32_t w, std::uint32_t h) {
         if (clips.size() > constants::render::rounded_mask_max_clips || !w || !h ||
             w > constants::render::rounded_mask_max_dimension || h > constants::render::rounded_mask_max_dimension ||
             std::size_t(w) * h > constants::render::rounded_mask_max_pixels || !std::isfinite(r[0]) ||
             !std::isfinite(r[1]) || !std::isfinite(r[2]) || !std::isfinite(r[3]) || r[2] <= 0 || r[3] <= 0) {
-            throw std::invalid_argument("CE_ROUNDED_LIMIT: mask work bound");
+            throw std::invalid_argument("WEFT_ROUNDED_LIMIT: mask work bound");
         }
-        std::vector<ProbeRoundedClip> normalized;
+        std::vector<RoundedClip> normalized;
         for (const auto& c : clips) {
-            normalized.push_back(normalize_rounded_probe(c));
+            normalized.push_back(normalize_rounded(c));
         }
         std::vector<std::uint8_t> mask(std::size_t(w) * h);
         constexpr unsigned samples = constants::render::rounded_mask_samples_per_axis;
@@ -93,8 +93,8 @@ namespace caseelephant {
                 const float right = r[0] + (x + 1) * r[2] / w;
                 const float bottom = r[1] + (y + 1) * r[3] / h;
                 for (const auto& c : normalized) {
-                    if (!contains_rounded_probe(c, left, top) || !contains_rounded_probe(c, right, top) ||
-                        !contains_rounded_probe(c, left, bottom) || !contains_rounded_probe(c, right, bottom)) {
+                    if (!contains_rounded(c, left, top) || !contains_rounded(c, right, top) ||
+                        !contains_rounded(c, left, bottom) || !contains_rounded(c, right, bottom)) {
                         full = false;
                         break;
                     }
@@ -109,7 +109,7 @@ namespace caseelephant {
                         const float py = r[1] + (y + (sy + .5f) / samples) * r[3] / h;
                         bool okay = true;
                         for (const auto& c : normalized) {
-                            if (!contains_rounded_probe(c, px, py)) {
+                            if (!contains_rounded(c, px, py)) {
                                 okay = false;
                                 break;
                             }
@@ -123,4 +123,4 @@ namespace caseelephant {
         }
         return mask;
     }
-} // namespace caseelephant
+} // namespace weft

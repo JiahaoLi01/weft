@@ -3,7 +3,7 @@
 #include "probe_constants.hpp"
 
 struct WindowMouse {
-    caseelephant::ProbeMouseAction action;
+    weft::MouseAction action;
     int x{};
     int y{};
     int screen_x{};
@@ -13,7 +13,7 @@ struct WindowMouse {
     bool shift{};
     bool alt{};
     bool meta{};
-    caseelephant::ProbeViewport viewport; // Transform at message receipt, before a later resize.
+    weft::Viewport viewport; // Transform at message receipt, before a later resize.
     bool wheel{};
     double delta_x{};
     double delta_y{};
@@ -22,12 +22,12 @@ struct WindowMouse {
 
 struct WindowState {
     HWND hwnd{};
-    UINT width{caseelephant::constants::default_view_width};
-    UINT height{caseelephant::constants::default_view_height};
-    UINT surface_width{caseelephant::constants::default_view_width};
-    UINT surface_height{caseelephant::constants::default_view_height};
-    float logical_width{caseelephant::constants::default_view_width};
-    float logical_height{caseelephant::constants::default_view_height};
+    UINT width{weft::constants::default_view_width};
+    UINT height{weft::constants::default_view_height};
+    UINT surface_width{weft::constants::default_view_width};
+    UINT surface_height{weft::constants::default_view_height};
+    float logical_width{weft::constants::default_view_width};
+    float logical_height{weft::constants::default_view_height};
     bool closed{};
     bool close_requested{};
     bool repaint{true};
@@ -41,22 +41,22 @@ struct WindowState {
     unsigned size_messages{};
     unsigned wheel_messages{};
     bool releasing_capture{};
-    UINT wheel_lines{caseelephant::probe_constants::default_wheel_scroll_lines};
-    UINT wheel_chars{caseelephant::probe_constants::default_wheel_scroll_chars};
+    UINT wheel_lines{weft::probe_constants::default_wheel_scroll_lines};
+    UINT wheel_chars{weft::probe_constants::default_wheel_scroll_chars};
 
-    caseelephant::ProbeViewport viewport() const {
-        return caseelephant::ProbeViewport::through_surface(float(width), float(height), float(surface_width),
-                                                            float(surface_height), logical_width, logical_height);
+    weft::Viewport viewport() const {
+        return weft::Viewport::through_surface(float(width), float(height), float(surface_width), float(surface_height),
+                                               logical_width, logical_height);
     }
 
     void enqueue(WindowMouse value) {
-        if (input.size() >= caseelephant::probe_constants::max_queued_input) {
+        if (input.size() >= weft::probe_constants::max_queued_input) {
             input.clear();
             overflow = true;
             return;
         }
-        if (!value.wheel && value.action == caseelephant::ProbeMouseAction::Move && !input.empty() &&
-            !input.back().wheel && input.back().action == caseelephant::ProbeMouseAction::Move) {
+        if (!value.wheel && value.action == weft::MouseAction::Move && !input.empty() && !input.back().wheel &&
+            input.back().action == weft::MouseAction::Move) {
             input.back() = value;
         } else {
             input.push_back(value);
@@ -77,12 +77,12 @@ LRESULT CALLBACK react_window_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) no
     try {
         switch (msg) {
             case WM_GETMINMAXINFO:
-                if (state->surface_width == caseelephant::constants::uhd_width) {
+                if (state->surface_width == weft::constants::uhd_width) {
                     // The hidden 4K oracle needs an exact 2160px client even when
                     // desktop chrome leaves a shorter work area. Maximized bounds
                     // remain the OS work area; only the tracking limit is widened.
-                    RECT extent{0, 0, caseelephant::probe_constants::max_surface_dimension,
-                                caseelephant::probe_constants::max_surface_dimension};
+                    RECT extent{0, 0, weft::probe_constants::max_surface_dimension,
+                                weft::probe_constants::max_surface_dimension};
                     require(AdjustWindowRectExForDpi(&extent, WS_OVERLAPPEDWINDOW, FALSE, 0, GetDpiForWindow(hwnd)) !=
                                 0,
                             "4K client tracking bounds");
@@ -96,7 +96,7 @@ LRESULT CALLBACK react_window_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) no
                 POINT screen{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
                 POINT point = screen;
                 require(ScreenToClient(hwnd, &point) != 0, "wheel signed screen-to-client coordinates");
-                WindowMouse input{caseelephant::ProbeMouseAction::Move,
+                WindowMouse input{weft::MouseAction::Move,
                                   point.x,
                                   point.y,
                                   screen.x,
@@ -113,20 +113,20 @@ LRESULT CALLBACK react_window_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) no
                 // Zero settings disable default movement; fractional ticks stay fractional.
                 if (msg == WM_MOUSEWHEEL) {
                     input.delta_y =
-                        -delta * (state->wheel_lines == WHEEL_PAGESCROLL
-                                      ? caseelephant::probe_constants::wheel_page_height_px
-                                      : std::min(state->wheel_lines,
-                                                 static_cast<unsigned>(
-                                                     caseelephant::probe_constants::max_wheel_scroll_setting)) *
-                                            caseelephant::probe_constants::wheel_line_px);
+                        -delta *
+                        (state->wheel_lines == WHEEL_PAGESCROLL
+                             ? weft::probe_constants::wheel_page_height_px
+                             : std::min(state->wheel_lines,
+                                        static_cast<unsigned>(weft::probe_constants::max_wheel_scroll_setting)) *
+                                   weft::probe_constants::wheel_line_px);
                 } else {
                     input.delta_x =
-                        delta * (state->wheel_chars == WHEEL_PAGESCROLL
-                                     ? caseelephant::probe_constants::wheel_page_width_px
-                                     : std::min(state->wheel_chars,
-                                                static_cast<unsigned>(
-                                                    caseelephant::probe_constants::max_wheel_scroll_setting)) *
-                                           caseelephant::probe_constants::wheel_char_px);
+                        delta *
+                        (state->wheel_chars == WHEEL_PAGESCROLL
+                             ? weft::probe_constants::wheel_page_width_px
+                             : std::min(state->wheel_chars,
+                                        static_cast<unsigned>(weft::probe_constants::max_wheel_scroll_setting)) *
+                                   weft::probe_constants::wheel_char_px);
                 }
                 state->enqueue(input);
                 ++state->wheel_messages;
@@ -138,9 +138,9 @@ LRESULT CALLBACK react_window_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) no
                 POINT point{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
                 POINT screen = point;
                 require(ClientToScreen(hwnd, &screen) != 0, "mouse screen coordinates");
-                const auto action = msg == WM_LBUTTONDOWN ? caseelephant::ProbeMouseAction::Down
-                                    : msg == WM_LBUTTONUP ? caseelephant::ProbeMouseAction::Up
-                                                          : caseelephant::ProbeMouseAction::Move;
+                const auto action = msg == WM_LBUTTONDOWN ? weft::MouseAction::Down
+                                    : msg == WM_LBUTTONUP ? weft::MouseAction::Up
+                                                          : weft::MouseAction::Move;
                 state->enqueue({action, point.x, point.y, screen.x, screen.y, unsigned((wp & MK_LBUTTON) != 0),
                                 bool(wp & MK_CONTROL), bool(wp & MK_SHIFT), GetKeyState(VK_MENU) < 0,
                                 GetKeyState(VK_LWIN) < 0 || GetKeyState(VK_RWIN) < 0, state->viewport()});
@@ -162,7 +162,7 @@ LRESULT CALLBACK react_window_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) no
                     return 0;
                 }
                 ++state->capture_losses;
-                state->enqueue({caseelephant::ProbeMouseAction::Cancel});
+                state->enqueue({weft::MouseAction::Cancel});
                 if (msg != WM_CAPTURECHANGED && GetCapture() == hwnd) {
                     state->releasing_capture = true;
                     ReleaseCapture();
@@ -176,7 +176,7 @@ LRESULT CALLBACK react_window_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) no
                 state->resize = state->repaint = true;
                 ++state->size_messages;
                 if (state->minimized) {
-                    state->enqueue({caseelephant::ProbeMouseAction::Cancel});
+                    state->enqueue({weft::MouseAction::Cancel});
                 }
                 return 0;
             case WM_DPICHANGED: {
@@ -219,8 +219,8 @@ public:
 
     NativeReactWindow(bool visible, bool high_resolution = false) {
         if (high_resolution) {
-            state.surface_width = caseelephant::constants::uhd_width;
-            state.surface_height = caseelephant::constants::uhd_height;
+            state.surface_width = weft::constants::uhd_width;
+            state.surface_height = weft::constants::uhd_height;
         }
         require(SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) != nullptr,
                 "per-monitor DPI context");
@@ -230,11 +230,11 @@ public:
         cls.hInstance = GetModuleHandleW(nullptr);
         cls.lpfnWndProc = react_window_proc;
         cls.lpszClassName = L"CaseElephantReactWindow";
-        cls.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(caseelephant::probe_constants::arrow_cursor_resource));
+        cls.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(weft::probe_constants::arrow_cursor_resource));
         atom = RegisterClassExW(&cls);
         require(atom != 0, "register native window");
         try {
-            RECT r{0, 0, caseelephant::constants::default_view_width, caseelephant::constants::default_view_height};
+            RECT r{0, 0, weft::constants::default_view_width, weft::constants::default_view_height};
             require(AdjustWindowRectExForDpi(&r, WS_OVERLAPPEDWINDOW, FALSE, 0, GetDpiForSystem()) != 0,
                     "initial client rectangle");
             state.hwnd = CreateWindowExW(0, cls.lpszClassName, L"CaseElephant - React / native D3D11",
@@ -263,7 +263,7 @@ public:
     void messages() {
         MSG msg{};
         unsigned count{};
-        while (count++ < caseelephant::probe_constants::max_messages_per_pump &&
+        while (count++ < weft::probe_constants::max_messages_per_pump &&
                PeekMessageW(&msg, state.hwnd, 0, 0, PM_REMOVE)) {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
@@ -274,7 +274,7 @@ public:
         if (state.failure) {
             std::rethrow_exception(state.failure);
         }
-        require(!state.overflow, "CE_INPUT_LIMIT: window queue overflow; cancel and reset sample required");
+        require(!state.overflow, "WEFT_INPUT_LIMIT: window queue overflow; cancel and reset sample required");
         if (state.close_requested && state.hwnd) {
             DestroyWindow(state.hwnd);
         }
@@ -323,12 +323,12 @@ public:
         ComPtr<IDXGIFactory2> factory;
         check_hresult(adapter->GetParent(IID_PPV_ARGS(&factory)), "present DXGI factory");
         DXGI_SWAP_CHAIN_DESC1 desc{};
-        desc.Width = caseelephant::constants::default_view_width;
-        desc.Height = caseelephant::constants::default_view_height;
+        desc.Width = weft::constants::default_view_width;
+        desc.Height = weft::constants::default_view_height;
         desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
         desc.SampleDesc.Count = 1;
         desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-        desc.BufferCount = caseelephant::probe_constants::swap_chain_buffer_count;
+        desc.BufferCount = weft::probe_constants::swap_chain_buffer_count;
         desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
         desc.Scaling = DXGI_SCALING_STRETCH;
         check_hresult(factory->CreateSwapChainForHwnd(r.device.Get(), hwnd, &desc, nullptr, nullptr, &swap),
@@ -353,16 +353,16 @@ public:
 
     void resize(UINT w, UINT h) {
         require(!renderer.async_in_flight, "resize requires actual two-frame drain");
-        require(w && h && w <= caseelephant::probe_constants::max_surface_dimension &&
-                    h <= caseelephant::probe_constants::max_surface_dimension,
+        require(w && h && w <= weft::probe_constants::max_surface_dimension &&
+                    h <= weft::probe_constants::max_surface_dimension,
                 "bounded swapchain size");
         renderer.immediate->ClearState();
         rtv.Reset();
         back.Reset();
         readback.Reset();
-        check_hresult(swap->ResizeBuffers(caseelephant::probe_constants::swap_chain_buffer_count, w, h,
-                                          DXGI_FORMAT_R8G8B8A8_UNORM, 0),
-                      "ResizeBuffers after unbinding/releasing views");
+        check_hresult(
+            swap->ResizeBuffers(weft::probe_constants::swap_chain_buffer_count, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, 0),
+            "ResizeBuffers after unbinding/releasing views");
         check_hresult(swap->GetBuffer(0, IID_PPV_ARGS(&back)), "swapchain backbuffer");
         D3D11_RENDER_TARGET_VIEW_DESC view{};
         view.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
@@ -382,12 +382,12 @@ public:
 
     void overlay(const FramePacket& packet) {
         require(!renderer.submitted || renderer.acknowledged, "replace overlay only after actual host completion");
-        require(packet.assets.size() < caseelephant::probe_constants::max_frame_assets &&
-                    packet.draws.size() < caseelephant::probe_constants::overlay_max_draws,
+        require(packet.assets.size() < weft::probe_constants::max_frame_assets &&
+                    packet.draws.size() < weft::probe_constants::overlay_max_draws,
                 "bounded diagnostic overlay");
         std::size_t bytes{};
         for (const auto& asset : packet.assets) {
-            require(asset && asset->bytes.size() <= caseelephant::probe_constants::overlay_max_bytes - bytes,
+            require(asset && asset->bytes.size() <= weft::probe_constants::overlay_max_bytes - bytes,
                     "diagnostic overlay byte bound");
             bytes += asset->bytes.size();
         }
@@ -433,11 +433,11 @@ public:
         context->OMSetRenderTargets(1, &target, nullptr);
         const float background[]{0, 0, 0, 1};
         context->ClearRenderTargetView(target, background);
-        const auto viewport = caseelephant::ProbeViewport::fit(float(width), float(height), float(renderer.width),
-                                                               float(renderer.height));
+        const auto viewport =
+            weft::Viewport::fit(float(width), float(height), float(renderer.width), float(renderer.height));
         Constants constants{{viewport.x, viewport.y, viewport.width, viewport.height},
                             {float(width), float(height)},
-                            caseelephant::probe_constants::shader_material::texture,
+                            weft::probe_constants::shader_material::texture,
                             1,
                             {1, 1, 1, 1},
                             {0, 0, 1, 1},
@@ -461,7 +461,7 @@ public:
         context->PSSetShaderResources(0, 1, &texture);
         auto* sampler = renderer.sampler.Get();
         context->PSSetSamplers(0, 1, &sampler);
-        context->Draw(caseelephant::probe_constants::quad_vertex_count, 0);
+        context->Draw(weft::probe_constants::quad_vertex_count, 0);
         for (const auto& d : overlay_draws) {
             Color color = d.srgb;
             for (int c = 0; c < 3; ++c) {
@@ -470,8 +470,8 @@ public:
             Constants hud{{viewport.x + d.rect.x * viewport.scale, viewport.y + d.rect.y * viewport.scale,
                            d.rect.w * viewport.scale, d.rect.h * viewport.scale},
                           {float(width), float(height)},
-                          d.asset < 0 ? caseelephant::probe_constants::shader_material::solid
-                                      : caseelephant::probe_constants::shader_material::coverage,
+                          d.asset < 0 ? weft::probe_constants::shader_material::solid
+                                      : weft::probe_constants::shader_material::coverage,
                           d.opacity,
                           color,
                           d.uv,
@@ -480,14 +480,14 @@ public:
             context->UpdateSubresource(renderer.constants.Get(), 0, nullptr, &hud, 0, 0);
             ID3D11ShaderResourceView* asset = d.asset < 0 ? nullptr : overlay_assets.at(d.asset).Get();
             context->PSSetShaderResources(0, 1, &asset);
-            context->Draw(caseelephant::probe_constants::quad_vertex_count, 0);
+            context->Draw(weft::probe_constants::quad_vertex_count, 0);
         }
         context->ClearState();
         if (capture) {
             context->CopyResource(readback.Get(), back.Get());
         }
         const DXGI_PRESENT_PARAMETERS parameters{};
-        const auto result = swap->Present1(caseelephant::probe_constants::present_sync_interval, 0, &parameters);
+        const auto result = swap->Present1(weft::probe_constants::present_sync_interval, 0, &parameters);
         check_hresult(result, "Present1");
         last_visible = result != DXGI_STATUS_OCCLUDED;
         if (!last_visible) {
@@ -516,20 +516,19 @@ public:
 int run_react_window(bool warp, bool self_test, const std::filesystem::path& folder) {
     std::filesystem::create_directories(folder);
     NativeReactWindow window(!self_test);
-    Experiment renderer(warp, caseelephant::constants::default_view_width,
-                        caseelephant::constants::default_view_height);
+    Experiment renderer(warp, weft::constants::default_view_width, weft::constants::default_view_height);
     WindowPresenter presenter(renderer, window.state.hwnd);
-    caseelephant::ScriptProbeConfig config{caseelephant::constants::script::probe_vm_stack_bytes};
-#ifdef CE_REACT_GC_STRESS
-    config.execution_budget_ms = caseelephant::constants::script::max_execution_budget_ms;
+    weft::ScriptConfig config{weft::constants::script::probe_vm_stack_bytes};
+#ifdef WEFT_REACT_GC_STRESS
+    config.execution_budget_ms = weft::constants::script::max_execution_budget_ms;
 #endif
-    caseelephant::ScriptDomProbe script(config);
-    caseelephant::TextProbeFont font(CE_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
-    caseelephant::install_script_platform(script, caseelephant::ScriptPlatformModule::WebHost);
-    script.eval(read_file(std::filesystem::path(CE_SOURCE_DIR) / "examples/react-vite/native/app.js"),
+    weft::ScriptDom script(config);
+    weft::Font font(WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
+    weft::install_script_platform(script, weft::ScriptPlatformModule::WebHost);
+    script.eval(read_file(std::filesystem::path(WEFT_SOURCE_DIR) / "examples/react-vite/native/app.js"),
                 "react-vite-app.js");
     pump_react(script, 0);
-    caseelephant::ProbeMouseRouter input(script, font);
+    weft::MouseRouter input(script, font);
     const auto started = std::chrono::steady_clock::now();
     std::string previous_dom;
     unsigned time{};
@@ -547,7 +546,7 @@ int run_react_window(bool warp, bool self_test, const std::filesystem::path& fol
             const auto value = window.state.input.front();
             window.state.input.pop_front();
             const auto point = value.viewport.logical(value.x, value.y);
-            caseelephant::ProbeMouseEvent event;
+            weft::MouseEvent event;
             event.client_x = point[0];
             event.client_y = point[1];
             event.screen_x = value.screen_x;
@@ -575,7 +574,7 @@ int run_react_window(bool warp, bool self_test, const std::filesystem::path& fol
                 presenter.resize(window.state.width, window.state.height);
                 window.state.resize = false;
             }
-            auto page = caseelephant::build_page_probe(script.snapshot_subtree("#page"), font);
+            auto page = weft::build_page(script.snapshot_subtree("#page"), font);
             presenter.capture = capture;
             auto packet = prepare_page_glyphs(page, font);
             expected_textures += packet.assets.size();
@@ -604,7 +603,7 @@ int run_react_window(bool warp, bool self_test, const std::filesystem::path& fol
         return script.eval("caseElephantReact.snapshot().count");
     };
     if (self_test) {
-        window.client_size(caseelephant::constants::default_view_width, caseelephant::constants::default_view_height);
+        window.client_size(weft::constants::default_view_width, weft::constants::default_view_height);
         step(0, true);
         const auto capture_losses_before = window.state.capture_losses;
         mouse(WM_LBUTTONDOWN, 100, 220);
@@ -660,13 +659,11 @@ int run_react_window(bool warp, bool self_test, const std::filesystem::path& fol
         step(17, true);
         require(!window.state.minimized && presenter.width == 480, "resize restored host");
         require(renderer.native_releases == expected_textures &&
-                    renderer.tracker.Stats().completed_serial ==
-                        frames * caseelephant::probe_constants::serials_per_ui_frame,
+                    renderer.tracker.Stats().completed_serial == frames * weft::probe_constants::serials_per_ui_frame,
                 "persistent device submission serial and glyph retirement");
         {
-            Experiment failed(warp, caseelephant::constants::default_view_width,
-                              caseelephant::constants::default_view_height);
-            const auto page = caseelephant::build_page_probe(script.snapshot_subtree("#page"), font);
+            Experiment failed(warp, weft::constants::default_view_width, weft::constants::default_view_height);
+            const auto page = weft::build_page(script.snapshot_subtree("#page"), font);
             auto packet = prepare_page_glyphs(page, font);
             const auto expected = packet.assets.size();
             bool rejected{};
@@ -696,7 +693,7 @@ int run_react_window(bool warp, bool self_test, const std::filesystem::path& fol
             require(elapsed < UINT_MAX, "sample host time bound");
             step(unsigned(elapsed));
             if (!window.state.closed) {
-                MsgWaitForMultipleObjectsEx(0, nullptr, caseelephant::probe_constants::idle_wait_ms, QS_ALLINPUT,
+                MsgWaitForMultipleObjectsEx(0, nullptr, weft::probe_constants::idle_wait_ms, QS_ALLINPUT,
                                             MWMO_INPUTAVAILABLE);
             }
         }

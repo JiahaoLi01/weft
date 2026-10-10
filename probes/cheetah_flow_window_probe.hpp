@@ -1,7 +1,7 @@
 #include "scroll_timing.hpp"
 #include "probe_constants.hpp"
 
-bool same_style_input(const caseelephant::ProbeDomSnapshot& a, const caseelephant::ProbeDomSnapshot& b) {
+bool same_style_input(const weft::DomSnapshot& a, const weft::DomSnapshot& b) {
     if (a.identity != b.identity || a.type != b.type || a.local_name != b.local_name ||
         a.namespace_uri != b.namespace_uri || a.data != b.data || a.attributes != b.attributes ||
         a.children.size() != b.children.size()) {
@@ -17,8 +17,8 @@ bool same_style_input(const caseelephant::ProbeDomSnapshot& a, const caseelephan
 
 // Logical layout/identities stay intact. Rasterize glyphs again at surface ppem
 // after scaling bearings-independent glyph advances, offsets and all clips.
-caseelephant::ProbePositionedPage raster_flow_page(caseelephant::ProbePositionedPage page, UINT w, UINT h) {
-    const auto v = caseelephant::ProbeViewport::fit(float(w), float(h));
+weft::PositionedPage raster_flow_page(weft::PositionedPage page, UINT w, UINT h) {
+    const auto v = weft::Viewport::fit(float(w), float(h));
     auto rect = [&](std::array<float, 4>& r) {
         r = {v.x + r[0] * v.scale, v.y + r[1] * v.scale, r[2] * v.scale, r[3] * v.scale};
     };
@@ -47,8 +47,8 @@ caseelephant::ProbePositionedPage raster_flow_page(caseelephant::ProbePositioned
             }
         }
     }
-    caseelephant::ProbePositionedPaint background;
-    background.paint.kind = caseelephant::ProbePaintKind::Rectangle;
+    weft::PositionedPaint background;
+    background.paint.kind = weft::PaintKind::Rectangle;
     background.paint.width = float(w);
     background.paint.height = float(h);
     background.paint.srgb = {0, 0, 0, 1};
@@ -57,11 +57,11 @@ caseelephant::ProbePositionedPage raster_flow_page(caseelephant::ProbePositioned
     return page;
 }
 
-FramePacket frame_rate_overlay(caseelephant::TextProbeFontSet& fonts, const std::string& text) {
-    caseelephant::ProbePositionedPage page;
-    const std::array<float, 4> clip{caseelephant::probe_constants::fps_hud_x, 16, 524, 112};
-    caseelephant::ProbePositionedPaint background;
-    background.paint.kind = caseelephant::ProbePaintKind::Rectangle;
+FramePacket frame_rate_overlay(weft::FontSet& fonts, const std::string& text) {
+    weft::PositionedPage page;
+    const std::array<float, 4> clip{weft::probe_constants::fps_hud_x, 16, 524, 112};
+    weft::PositionedPaint background;
+    background.paint.kind = weft::PaintKind::Rectangle;
     background.paint.x = clip[0];
     background.paint.y = clip[1];
     background.paint.width = clip[2];
@@ -70,9 +70,9 @@ FramePacket frame_rate_overlay(caseelephant::TextProbeFontSet& fonts, const std:
     background.clip = clip;
     page.paints.push_back(std::move(background));
     auto line = [&](const std::string& value, float y, float size) {
-        caseelephant::ProbePositionedPaint item;
+        weft::PositionedPaint item;
         auto& p = item.paint;
-        p.kind = caseelephant::ProbePaintKind::Text;
+        p.kind = weft::PaintKind::Text;
         p.x = 3320;
         p.y = y;
         p.font_size = size;
@@ -92,9 +92,8 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
                             bool motion_test = false) {
     std::filesystem::create_directories(folder);
     NativeReactWindow window(!self_test, high_resolution);
-    Experiment gpu(
-        warp, high_resolution ? caseelephant::constants::uhd_width : caseelephant::constants::default_view_width,
-        high_resolution ? caseelephant::constants::uhd_height : caseelephant::constants::default_view_height);
+    Experiment gpu(warp, high_resolution ? weft::constants::uhd_width : weft::constants::default_view_width,
+                   high_resolution ? weft::constants::uhd_height : weft::constants::default_view_height);
     WindowPresenter presenter(gpu, window.state.hwnd);
     gpu.cache_assets = high_resolution;
     if (performance || motion_test) {
@@ -103,31 +102,31 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
     const UINT os_lines = window.state.wheel_lines;
     const UINT os_chars = window.state.wheel_chars;
     if (self_test) {
-        window.state.wheel_lines = caseelephant::probe_constants::default_wheel_scroll_lines;
-        window.state.wheel_chars = caseelephant::probe_constants::default_wheel_scroll_chars;
+        window.state.wheel_lines = weft::probe_constants::default_wheel_scroll_lines;
+        window.state.wheel_chars = weft::probe_constants::default_wheel_scroll_chars;
     } // Local fixture policy, never changes OS settings.
     const auto images = load_cheetah_images();
     CheetahPacketCache packet_cache;
-    caseelephant::TextProbeFontSet fonts({CE_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf",
-                                          CE_SOURCE_DIR "/third_party/noto-cjk/source/NotoSansCJKsc-Regular.otf"});
-    caseelephant::ScriptProbeConfig config{caseelephant::constants::script::probe_vm_stack_bytes};
-#ifdef CE_REACT_GC_STRESS
-    config.execution_budget_ms = caseelephant::constants::script::max_execution_budget_ms;
+    weft::FontSet fonts({WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf",
+                         WEFT_SOURCE_DIR "/third_party/noto-cjk/source/NotoSansCJKsc-Regular.otf"});
+    weft::ScriptConfig config{weft::constants::script::probe_vm_stack_bytes};
+#ifdef WEFT_REACT_GC_STRESS
+    config.execution_budget_ms = weft::constants::script::max_execution_budget_ms;
 #endif
-    caseelephant::ScriptDomProbe script(config);
-    caseelephant::install_script_platform(script, caseelephant::ScriptPlatformModule::WebHost);
-    script.eval(read_file(CE_SOURCE_DIR "/examples/cheetah-alert/native/app.js"));
+    weft::ScriptDom script(config);
+    weft::install_script_platform(script, weft::ScriptPlatformModule::WebHost);
+    script.eval(read_file(WEFT_SOURCE_DIR "/examples/cheetah-alert/native/app.js"));
     pump_react(script, 0);
     const bool motion = motion_test || (high_resolution && !self_test);
     if (motion) {
-        script.eval(read_file(CE_SOURCE_DIR "/examples/cheetah-flow/motion.js"));
+        script.eval(read_file(WEFT_SOURCE_DIR "/examples/cheetah-flow/motion.js"));
     }
-    const auto css = read_file(CE_SOURCE_DIR "/examples/cheetah-flow/profile.css") +
-                     (motion ? read_file(CE_SOURCE_DIR "/examples/cheetah-flow/motion.css") : "");
-    std::optional<caseelephant::ProbeDomSnapshot> layout_input;
-    std::optional<caseelephant::ProbeFlowPage> layout_result;
-    std::optional<caseelephant::ProbeDomSnapshot> style_input;
-    std::optional<caseelephant::ProbeComputedStyle> style_result;
+    const auto css = read_file(WEFT_SOURCE_DIR "/examples/cheetah-flow/profile.css") +
+                     (motion ? read_file(WEFT_SOURCE_DIR "/examples/cheetah-flow/motion.css") : "");
+    std::optional<weft::DomSnapshot> layout_input;
+    std::optional<weft::FlowPage> layout_result;
+    std::optional<weft::DomSnapshot> style_input;
+    std::optional<weft::ComputedStyle> style_result;
     auto layout_dom = [&](const auto& document) {
         // Full owning input includes epoch/generation, attributes, text,
         // order and scroll offsets. Never reuse geometry on a dirty snapshot.
@@ -136,13 +135,13 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
             return *layout_result;
         }
         if (!high_resolution || !style_input || !same_style_input(*style_input, html)) {
-            style_result = caseelephant::compute_style_probe(html, css, caseelephant::flow_page_style_profile());
+            style_result = weft::compute_style(html, css, weft::flow_page_style_profile());
             style_input = html;
         }
         const auto& computed = *style_result;
         const auto [dom, style] = alert_style_subtree(html, computed);
-        auto result = caseelephant::build_flow_page_probe(dom, style, caseelephant::constants::default_view_width,
-                                                          caseelephant::constants::default_view_height, fonts);
+        auto result = weft::build_flow_page(dom, style, weft::constants::default_view_width,
+                                            weft::constants::default_view_height, fonts);
         if (high_resolution) {
             layout_input = html;
             layout_result = result;
@@ -154,11 +153,11 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
     });
     // layout_dom expects a Document. Wrap the html snapshot as an owning value.
     auto page = [&] {
-        caseelephant::ProbeDomSnapshot document;
+        weft::DomSnapshot document;
         document.children.push_back(script.snapshot_subtree("html"));
         return layout_dom(document);
     };
-    caseelephant::ProbeMouseRouter input(script, [&] {
+    weft::MouseRouter input(script, [&] {
         return page().page.geometry;
     });
     script.eval(
@@ -195,8 +194,9 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
         pipeline->completed_timing = [&](std::uint64_t serial, double ms) {
             const auto i = std::find(timing_serials.begin(), timing_serials.end(), serial);
             if (i != timing_serials.end()) {
-                timings.rows[std::size_t(i - timing_serials.begin())]
-                            [caseelephant::probe_constants::scroll_timing_gpu_ui_column] = ms;
+                timings
+                    .rows[std::size_t(i - timing_serials.begin())][weft::probe_constants::scroll_timing_gpu_ui_column] =
+                    ms;
             }
         };
     }
@@ -235,20 +235,20 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
             window.state.input.pop_front();
             const auto point = value.viewport.logical(value.x, value.y);
             if (value.wheel) {
-                caseelephant::ProbeWheelEvent event{value.delta_x,
-                                                    value.delta_y,
-                                                    point[0],
-                                                    point[1],
-                                                    double(value.screen_x),
-                                                    double(value.screen_y),
-                                                    double(time),
-                                                    value.ctrl,
-                                                    value.shift,
-                                                    value.alt,
-                                                    value.meta};
+                weft::WheelEvent event{value.delta_x,
+                                       value.delta_y,
+                                       point[0],
+                                       point[1],
+                                       double(value.screen_x),
+                                       double(value.screen_y),
+                                       double(time),
+                                       value.ctrl,
+                                       value.shift,
+                                       value.alt,
+                                       value.meta};
                 input.wheel(event);
             } else {
-                caseelephant::ProbeMouseEvent event;
+                weft::MouseEvent event;
                 event.client_x = point[0];
                 event.client_y = point[1];
                 event.screen_x = value.screen_x;
@@ -287,7 +287,7 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
         const auto input_finished = seconds();
         auto current = page();
         std::ostringstream key;
-        key << std::setprecision(caseelephant::probe_constants::double_round_trip_digits) << script.dump_document();
+        key << std::setprecision(weft::probe_constants::double_round_trip_digits) << script.dump_document();
         for (const auto& g : current.elements) {
             key << '/' << g.scroll_left << ',' << g.scroll_top;
         }
@@ -304,8 +304,8 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
             auto raster = high_resolution ? raster_flow_page(current.page, gpu.width, gpu.height) : current.page;
             if (high_resolution) {
                 for (const auto& p : raster.paints) {
-                    if (p.paint.kind == caseelephant::ProbePaintKind::Text &&
-                        p.paint.font_size > caseelephant::probe_constants::high_ppem_font_size) {
+                    if (p.paint.kind == weft::PaintKind::Text &&
+                        p.paint.font_size > weft::probe_constants::high_ppem_font_size) {
                         high_ppem_glyphs += p.paint.shaped.glyphs.size();
                     }
                 }
@@ -329,12 +329,12 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
             gpu.check_debug_messages();
             if (measure) {
                 timing_serials.push_back(gpu.window_serial);
-                timings.rows.push_back(
-                    {(input_finished - tick_started) * caseelephant::constants::milliseconds_per_second,
-                     (layout_finished - input_finished) * caseelephant::constants::milliseconds_per_second,
-                     (packet_finished - layout_finished) * caseelephant::constants::milliseconds_per_second,
-                     gpu.prepare_ms, gpu.encode_ms, gpu.present_ms, gpu.wait_ms, pipeline ? 0 : gpu.gpu_ui_ms,
-                     (seconds() - tick_started) * caseelephant::constants::milliseconds_per_second});
+                timings.rows.push_back({(input_finished - tick_started) * weft::constants::milliseconds_per_second,
+                                        (layout_finished - input_finished) * weft::constants::milliseconds_per_second,
+                                        (packet_finished - layout_finished) * weft::constants::milliseconds_per_second,
+                                        gpu.prepare_ms, gpu.encode_ms, gpu.present_ms, gpu.wait_ms,
+                                        pipeline ? 0 : gpu.gpu_ui_ms,
+                                        (seconds() - tick_started) * weft::constants::milliseconds_per_second});
             }
             previous_key = key.str();
             window.state.repaint = false;
@@ -346,40 +346,38 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
                 const auto pixels = presenter.pixels();
                 save_png(folder / ("window-" + std::to_string(frames - 1) + ".png"), pixels, presenter.width,
                          presenter.height);
-                if (!high_resolution && presenter.width == caseelephant::constants::default_view_width &&
-                    presenter.height == caseelephant::constants::default_view_height) {
-                    for (int y = 1; y < caseelephant::constants::default_view_height; y += 7) {
-                        for (int x = 1; x < caseelephant::constants::default_view_width; x += 7) {
+                if (!high_resolution && presenter.width == weft::constants::default_view_width &&
+                    presenter.height == weft::constants::default_view_height) {
+                    for (int y = 1; y < weft::constants::default_view_height; y += 7) {
+                        for (int x = 1; x < weft::constants::default_view_width; x += 7) {
                             const auto expected = cheetah_sample(packet, x, y);
-                            const auto actual =
-                                pixels[std::size_t(y) * caseelephant::constants::default_view_width + x];
+                            const auto actual = pixels[std::size_t(y) * weft::constants::default_view_width + x];
                             for (int c = 0; c < 4; ++c) {
                                 max_error = std::max(max_error, std::abs(int(actual[c]) - int(expected[c])));
                             }
                             ++samples;
                         }
                     }
-                    require(max_error <= caseelephant::probe_constants::cpu_oracle_tolerance,
-                            "flow window CPU pixel oracle");
+                    require(max_error <= weft::probe_constants::cpu_oracle_tolerance, "flow window CPU pixel oracle");
                 }
-                if (high_resolution && presenter.width == caseelephant::constants::uhd_width &&
-                    presenter.height == caseelephant::constants::uhd_height) {
+                if (high_resolution && presenter.width == weft::constants::uhd_width &&
+                    presenter.height == weft::constants::uhd_height) {
                     // Independent packet/sample oracle at actual raster resolution.
                     // Avoid the separate native diagnostic HUD in this comparison.
-                    for (int y = 11; y < caseelephant::constants::uhd_height; y += 97) {
-                        for (int x = 11; x < caseelephant::probe_constants::fps_hud_x; x += 97) {
+                    for (int y = 11; y < weft::constants::uhd_height; y += 97) {
+                        for (int x = 11; x < weft::probe_constants::fps_hud_x; x += 97) {
                             const auto expected = cheetah_sample(packet, x, y);
-                            const auto actual = pixels[std::size_t(y) * caseelephant::constants::uhd_width + x];
+                            const auto actual = pixels[std::size_t(y) * weft::constants::uhd_width + x];
                             for (int c = 0; c < 4; ++c) {
                                 max_error = std::max(max_error, std::abs(int(actual[c]) - int(expected[c])));
                             }
                             ++samples;
                         }
                     }
-                    require(max_error <= caseelephant::probe_constants::cpu_oracle_tolerance, "4K native pixel oracle");
-                    require(pixels[1000 * caseelephant::constants::uhd_width + 8] == Pixel{0, 0, 0, 255},
+                    require(max_error <= weft::probe_constants::cpu_oracle_tolerance, "4K native pixel oracle");
+                    require(pixels[1000 * weft::constants::uhd_width + 8] == Pixel{0, 0, 0, 255},
                             "4K internal letterbox");
-                    require(pixels[1000 * caseelephant::constants::uhd_width + 300] == Pixel{89, 104, 100, 255},
+                    require(pixels[1000 * weft::constants::uhd_width + 300] == Pixel{89, 104, 100, 255},
                             "4K page background");
                 }
                 if (!first) {
@@ -415,11 +413,11 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
             if (measure) {
                 timing_serials.push_back(gpu.window_serial);
                 timings.rows.push_back(
-                    {(input_finished - tick_started) * caseelephant::constants::milliseconds_per_second,
-                     (layout_finished - input_finished) * caseelephant::constants::milliseconds_per_second, 0, 0, 0,
-                     std::max(0., (seconds() - compose_started) * caseelephant::constants::milliseconds_per_second -
-                                      gpu.wait_ms),
-                     gpu.wait_ms, 0, (seconds() - tick_started) * caseelephant::constants::milliseconds_per_second});
+                    {(input_finished - tick_started) * weft::constants::milliseconds_per_second,
+                     (layout_finished - input_finished) * weft::constants::milliseconds_per_second, 0, 0, 0,
+                     std::max(0.,
+                              (seconds() - compose_started) * weft::constants::milliseconds_per_second - gpu.wait_ms),
+                     gpu.wait_ms, 0, (seconds() - tick_started) * weft::constants::milliseconds_per_second});
             }
         }
         if (high_resolution) {
@@ -455,13 +453,13 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
         return std::stod(script.eval("document.querySelector('.alert-list').scrollTop"));
     };
     auto verify_scroll = [&](double expected, const char* reason) {
-        require(std::abs(top() - expected) < caseelephant::probe_constants::scroll_tolerance_px, reason);
+        require(std::abs(top() - expected) < weft::probe_constants::scroll_tolerance_px, reason);
     };
     if (motion_test) {
-        window.client_size(caseelephant::constants::uhd_width, caseelephant::constants::uhd_height);
+        window.client_size(weft::constants::uhd_width, weft::constants::uhd_height);
         const auto cold = seconds();
         step(0, true);
-        startup_ms = (seconds() - cold) * caseelephant::constants::milliseconds_per_second;
+        startup_ms = (seconds() - cold) * weft::constants::milliseconds_per_second;
         auto live_x = [&] {
             return std::stod(script.eval("__ceMotion.snapshot().live_x"));
         };
@@ -469,7 +467,7 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
             return std::stod(script.eval("__ceMotion.snapshot().reference_x"));
         };
         auto expect_x = [&](double expected) {
-            require(std::abs(live_x() - expected) < caseelephant::probe_constants::scroll_tolerance_px,
+            require(std::abs(live_x() - expected) < weft::probe_constants::scroll_tolerance_px,
                     "motion must follow elapsed time, not tick count");
             require(script.eval("Math.abs(document.getElementById('ce-motion-live').getBoundingClientRect().x-" +
                                 std::to_string(104 + expected) + ")<.002") == "true",
@@ -483,19 +481,17 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
         require(reference_x() == 0, "extra tick must not advance held reference");
         step(40);
         expect_x(12);
-        require(std::abs(reference_x() - 12) < caseelephant::probe_constants::scroll_tolerance_px,
-                "30 Hz reference sample");
+        require(std::abs(reference_x() - 12) < weft::probe_constants::scroll_tolerance_px, "30 Hz reference sample");
         step(44, true);
         expect_x(13.2);
-        require(std::abs(reference_x() - 12) < caseelephant::probe_constants::scroll_tolerance_px,
-                "live vs held motion");
+        require(std::abs(reference_x() - 12) < weft::probe_constants::scroll_tolerance_px, "live vs held motion");
         auto coords = [&](float x, float y) {
             const auto vp = window.state.viewport();
             return std::array<int, 2>{int(std::lround(vp.x + x * vp.scale)), int(std::lround(vp.y + y * vp.scale))};
         };
         auto colored = [&](double x, float y, Pixel expected) {
             const auto p = coords(float(104 + x + 9), y);
-            require(presenter.pixels()[std::size_t(p[1]) * caseelephant::constants::uhd_width + p[0]] == expected,
+            require(presenter.pixels()[std::size_t(p[1]) * weft::constants::uhd_width + p[0]] == expected,
                     "animated DOM rectangle native pixels");
         };
         colored(live_x(), 317, {230, 201, 139, 255});
@@ -525,13 +521,13 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
         require(script.eval("__ceMotion.snapshot().speed") == "2", "native speed button");
         const auto fast_before = live_x();
         step(time + 10);
-        require(std::abs(live_x() - (fast_before - 6)) < caseelephant::probe_constants::motion_speed_tolerance_px,
+        require(std::abs(live_x() - (fast_before - 6)) < weft::probe_constants::motion_speed_tolerance_px,
                 "2x time-based speed");
         click(p[0], p[1]);
         require(script.eval("__ceMotion.snapshot().speed") == "0.5", "native half speed button");
         const auto slow_before = live_x();
         step(time + 10);
-        require(std::abs(live_x() - (slow_before - 1.5)) < caseelephant::probe_constants::motion_speed_tolerance_px,
+        require(std::abs(live_x() - (slow_before - 1.5)) < weft::probe_constants::motion_speed_tolerance_px,
                 "half time-based speed");
         click(p[0], p[1]);
         click(p[0], p[1]);
@@ -541,9 +537,9 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
         const auto hidden = live_x();
         step(time + 1000);
         require(live_x() == hidden, "minimized motion must freeze");
-        window.client_size(caseelephant::constants::uhd_width, caseelephant::constants::uhd_height);
+        window.client_size(weft::constants::uhd_width, weft::constants::uhd_height);
         PostMessageW(window.state.hwnd, WM_SIZE, SIZE_RESTORED,
-                     MAKELPARAM(caseelephant::constants::uhd_width, caseelephant::constants::uhd_height));
+                     MAKELPARAM(weft::constants::uhd_width, weft::constants::uhd_height));
         step(++time, true);
         require(!window.state.minimized && live_x() == hidden, "restore must not include hidden time");
         // The original React/store remains interactive while the demo is mounted.
@@ -556,8 +552,8 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
                 "caseCheetahAlert.snapshot().many==='true' && caseCheetahAlert.snapshot().expanded==='true' && !!document.getElementById('ce-motion')") ==
                 "true",
             "original React update coexists with motion");
-        for (int i = 0; i < caseelephant::probe_constants::perf_warmup_frames; ++i) {
-            step(time + caseelephant::probe_constants::motion_tick_ms);
+        for (int i = 0; i < weft::probe_constants::perf_warmup_frames; ++i) {
+            step(time + weft::probe_constants::motion_tick_ms);
         }
         measured_dom_elements = page().elements.size();
         if (pipeline) {
@@ -566,18 +562,18 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
         const auto measured = seconds();
         const auto presents_before = presenter.presents;
         measure = true;
-        for (int i = 0; i < caseelephant::probe_constants::perf_sample_frames; ++i) {
-            step(time + caseelephant::probe_constants::motion_tick_ms);
+        for (int i = 0; i < weft::probe_constants::perf_sample_frames; ++i) {
+            step(time + weft::probe_constants::motion_tick_ms);
         }
         measure = false;
         const auto draining = seconds();
         if (pipeline) {
             pipeline->drain();
         }
-        measurement_drain_ms = (seconds() - draining) * caseelephant::constants::milliseconds_per_second;
-        measurement_ms = (seconds() - measured) * caseelephant::constants::milliseconds_per_second;
-        require(timings.rows.size() == caseelephant::probe_constants::perf_sample_frames &&
-                    presenter.presents - presents_before == caseelephant::probe_constants::perf_sample_frames,
+        measurement_drain_ms = (seconds() - draining) * weft::constants::milliseconds_per_second;
+        measurement_ms = (seconds() - measured) * weft::constants::milliseconds_per_second;
+        require(timings.rows.size() == weft::probe_constants::perf_sample_frames &&
+                    presenter.presents - presents_before == weft::probe_constants::perf_sample_frames,
                 "every motion tick must present current DOM or equal retained pixels");
         window.client_size(1000, 420);
         step(++time, true);
@@ -586,7 +582,7 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
         click(p[0], p[1]);
         require(script.eval("__ceMotion.snapshot().running") == "false", "resized native motion hit");
         click(p[0], p[1]);
-        window.client_size(caseelephant::constants::uhd_width, caseelephant::constants::uhd_height);
+        window.client_size(weft::constants::uhd_width, weft::constants::uhd_height);
         step(++time, true);
         script.eval("__ceMotion.dispose();__ceMotion.dispose()");
         const auto disposed_dom = script.dump_document();
@@ -599,13 +595,13 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
         step(++time);
         require(window.state.closed, "motion close");
     } else if (performance) {
-        window.client_size(caseelephant::constants::uhd_width, caseelephant::constants::uhd_height);
+        window.client_size(weft::constants::uhd_width, weft::constants::uhd_height);
         const auto cold = seconds();
         step(0);
         if (pipeline) {
             pipeline->drain();
         }
-        startup_ms = (seconds() - cold) * caseelephant::constants::milliseconds_per_second;
+        startup_ms = (seconds() - cold) * weft::constants::milliseconds_per_second;
         const auto vp = window.state.viewport();
         auto coords = [&](float x, float y) {
             return std::array<int, 2>{int(std::lround(vp.x + x * vp.scale)), int(std::lround(vp.y + y * vp.scale))};
@@ -615,7 +611,7 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
         p = coords(100, 104);
         click(p[0], p[1]);
         p = coords(160, 175);
-        for (int i = 0; i < caseelephant::probe_constants::perf_warmup_frames; ++i) {
+        for (int i = 0; i < weft::probe_constants::perf_warmup_frames; ++i) {
             wheel(WM_MOUSEWHEEL, i % 2 ? 60 : -60, p[0], p[1]);
         }
         measured_dom_elements = page().elements.size();
@@ -624,7 +620,7 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
         }
         const auto measured = seconds();
         measure = true;
-        for (int i = 0; i < caseelephant::probe_constants::perf_sample_frames; ++i) {
+        for (int i = 0; i < weft::probe_constants::perf_sample_frames; ++i) {
             wheel(WM_MOUSEWHEEL, i % 2 ? 60 : -60, p[0], p[1]);
         }
         measure = false;
@@ -632,20 +628,19 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
         if (pipeline) {
             pipeline->drain();
         }
-        measurement_drain_ms = (seconds() - draining) * caseelephant::constants::milliseconds_per_second;
-        measurement_ms = (seconds() - measured) * caseelephant::constants::milliseconds_per_second;
-        require(timings.rows.size() == caseelephant::probe_constants::perf_sample_frames,
-                "every benchmark wheel must repaint");
+        measurement_drain_ms = (seconds() - draining) * weft::constants::milliseconds_per_second;
+        measurement_ms = (seconds() - measured) * weft::constants::milliseconds_per_second;
+        require(timings.rows.size() == weft::probe_constants::perf_sample_frames, "every benchmark wheel must repaint");
         verify_scroll(0, "benchmark net scroll offset");
         PostMessageW(window.state.hwnd, WM_CLOSE, 0, 0);
         step(++time);
     } else if (self_test && high_resolution) {
         Draw precision{{3000.25f, 100, 16.f / 11.f, 8}};
         const auto original_width = precision.rect.w;
-        crop_draw(precision, {0, 0, caseelephant::constants::uhd_width, caseelephant::constants::uhd_height});
+        crop_draw(precision, {0, 0, weft::constants::uhd_width, weft::constants::uhd_height});
         require(precision.rect.w <= original_width && precision.uv[2] <= 1,
                 "4K crop expanded source UV from float cancellation");
-        window.client_size(caseelephant::constants::uhd_width, caseelephant::constants::uhd_height);
+        window.client_size(weft::constants::uhd_width, weft::constants::uhd_height);
         step(0, true);
         auto pixel = [&](float x, float y) {
             const auto v = window.state.viewport();
@@ -698,7 +693,7 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
         require(high_ppem_glyphs > 0 && gpu.cache_hits > 0 && gpu.tracker.Stats().submitted_tokens == 0,
                 "native-resolution glyph cache completion");
         require(gpu.tracker.Stats().completed_serial ==
-                    frames * caseelephant::probe_constants::serials_per_ui_frame + compositions,
+                    frames * weft::probe_constants::serials_per_ui_frame + compositions,
                 "host-only composition actual serial");
         step(++time);
         PostMessageW(window.state.hwnd, WM_CLOSE, 0, 0);
@@ -708,7 +703,7 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
         require(
             SetWindowPos(window.state.hwnd, nullptr, -500, -500, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE) != 0,
             "hidden signed-coordinate fixture");
-        window.client_size(caseelephant::constants::default_view_width, caseelephant::constants::default_view_height);
+        window.client_size(weft::constants::default_view_width, weft::constants::default_view_height);
         step(0, true);
         click(100, 104);
         require(script.eval("caseCheetahAlert.snapshot().expanded") == "true", "HWND expands original AlertBar");
@@ -746,14 +741,14 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
         window.state.wheel_chars = WHEEL_PAGESCROLL;
         wheel(WM_MOUSEHWHEEL, 60, 160, 175);
         require(script.eval("windowWheels[windowWheels.length-1][0]") == "320", "horizontal page policy");
-        window.state.wheel_chars = caseelephant::probe_constants::default_wheel_scroll_chars;
+        window.state.wheel_chars = weft::probe_constants::default_wheel_scroll_chars;
         window.state.wheel_lines = 0;
         wheel(WM_MOUSEWHEEL, -120, 160, 175);
         verify_scroll(56.6, "zero wheel setting moved content");
         window.state.wheel_lines = WHEEL_PAGESCROLL;
         wheel(WM_MOUSEWHEEL, 120, 160, 175);
         verify_scroll(0, "page policy scroll clamp");
-        window.state.wheel_lines = caseelephant::probe_constants::default_wheel_scroll_lines;
+        window.state.wheel_lines = weft::probe_constants::default_wheel_scroll_lines;
         wheel(WM_MOUSEWHEEL, -60, 160, 175);
         verify_scroll(36, "restored line policy");
         script.eval("document.querySelector('.alert-list').scrollTop=0");
@@ -781,7 +776,7 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
         });
         require(region != current.elements.end(), "visible original company row");
         const int logical_y = int(region->rect[1] + region->rect[3] * .5);
-        const auto hit = caseelephant::hit_page_probe(current.page.geometry, 160, logical_y);
+        const auto hit = weft::hit_page(current.page.geometry, 160, logical_y);
         require(hit && current.page.geometry.hits[*hit].identity == target, "scrolled row hit before physical routing");
         click(340, logical_y);
         require(script.eval("caseCheetahAlert.snapshot().events.length") == "2" &&
@@ -802,13 +797,12 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
         mouse(WM_LBUTTONUP, 75, 461);
         step(++time);
         require(script.eval("caseCheetahAlert.snapshot().many") == "false", "minimize canceled press");
-        const auto vp = caseelephant::ProbeViewport::fit(480, 640);
+        const auto vp = weft::Viewport::fit(480, 640);
         click(int(vp.x + 300 * vp.scale), int(vp.y + 399 * vp.scale));
         require(script.eval("caseCheetahAlert.snapshot().reply") == "回执已进入原始 store / fixture-q1",
                 "resized HWND reply to original store");
         require(gpu.native_releases == expected_textures &&
-                    gpu.tracker.Stats().completed_serial ==
-                        frames * caseelephant::probe_constants::serials_per_ui_frame,
+                    gpu.tracker.Stats().completed_serial == frames * weft::probe_constants::serials_per_ui_frame,
                 "flow textures retired by real query");
         PostMessageW(window.state.hwnd, WM_CLOSE, 0, 0);
         step(++time);
@@ -824,7 +818,7 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
             if (!window.state.closed) {
                 const DWORD wait = high_resolution && !window.state.minimized && presenter.last_visible
                                        ? 0
-                                       : caseelephant::probe_constants::idle_wait_ms;
+                                       : weft::probe_constants::idle_wait_ms;
                 MsgWaitForMultipleObjectsEx(0, nullptr, wait, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
             }
         }
@@ -848,7 +842,7 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
                 if (i) {
                     csv << ',';
                 }
-                csv << std::setprecision(caseelephant::probe_constants::report_significant_digits) << row[i];
+                csv << std::setprecision(weft::probe_constants::report_significant_digits) << row[i];
             }
             csv << '\n';
         }
@@ -869,13 +863,12 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
             << ",\"completion_wait_metric\":"
             << json_string(pipeline ? "bounded queue capacity wait only" : "per-frame actual completion wait")
             << ",\"motion_enabled\":" << (motion ? "true" : "false")
-            << ",\"synthetic_motion_tick_ms\":" << (motion_test ? caseelephant::probe_constants::motion_tick_ms : 0)
-            << ",\"pipeline_depth\":" << (pipeline ? caseelephant::probe_constants::frames_in_flight : 1)
+            << ",\"synthetic_motion_tick_ms\":" << (motion_test ? weft::probe_constants::motion_tick_ms : 0)
+            << ",\"pipeline_depth\":" << (pipeline ? weft::probe_constants::frames_in_flight : 1)
             << ",\"peak_in_flight\":" << (pipeline ? pipeline->peak_in_flight : 1)
             << ",\"measurement_wall_ms\":" << measurement_ms
             << ",\"measurement_tail_drain_ms\":" << measurement_drain_ms << ",\"completed_frames_per_second\":"
-            << caseelephant::probe_constants::perf_sample_frames * caseelephant::constants::milliseconds_per_second /
-                   measurement_ms
+            << weft::probe_constants::perf_sample_frames * weft::constants::milliseconds_per_second / measurement_ms
             << ",\"capacity_waits\":" << (pipeline ? pipeline->capacity_waits : 0) << ",\"timings\":" << timings.json()
             << '}';
         // Counters distinguish cached resources from real per-frame uploads.
@@ -927,7 +920,7 @@ int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::pa
         << ",\"gpu_cache_peak_bytes\":" << gpu.peak_cached_bytes << ",\"glyph_cache_hits\":" << packet_cache.glyph_hits
         << ",\"mask_cache_hits\":" << packet_cache.mask_hits << ",\"motion_enabled\":" << (motion ? "true" : "false")
         << ",\"motion\":" << motion_state
-        << ",\"pipeline_depth\":" << (pipeline ? caseelephant::probe_constants::frames_in_flight : 1)
+        << ",\"pipeline_depth\":" << (pipeline ? weft::probe_constants::frames_in_flight : 1)
         << ",\"peak_in_flight\":" << (pipeline ? pipeline->peak_in_flight : 1)
         << ",\"pipeline_submissions\":" << (pipeline ? pipeline->submissions : 0)
         << ",\"pipeline_completions\":" << (pipeline ? pipeline->completions : 0)

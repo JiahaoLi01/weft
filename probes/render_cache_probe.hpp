@@ -2,16 +2,14 @@
 
 int run_render_cache(bool warp, const std::filesystem::path& folder) {
     std::filesystem::create_directories(folder);
-    Experiment cached(warp, caseelephant::probe_constants::small_target_size,
-                      caseelephant::probe_constants::small_target_size);
-    Experiment reference(warp, caseelephant::probe_constants::small_target_size,
-                         caseelephant::probe_constants::small_target_size);
+    Experiment cached(warp, weft::probe_constants::small_target_size, weft::probe_constants::small_target_size);
+    Experiment reference(warp, weft::probe_constants::small_target_size, weft::probe_constants::small_target_size);
     cached.cache_assets = true;
-    cached.cache_resource_limit = caseelephant::probe_constants::stress_cache_max_resources;
+    cached.cache_resource_limit = weft::probe_constants::stress_cache_max_resources;
     // Traffic past the former 64 MiB threshold must preserve live IDs.
     auto stable = std::make_shared<const Asset>(Asset{1, 1, Encoding::Coverage, {255}});
     const auto stable_id = cached.asset_identity(stable);
-    for (unsigned i = 0; i < caseelephant::probe_constants::identity_traffic_bitmaps; ++i) {
+    for (unsigned i = 0; i < weft::probe_constants::identity_traffic_bitmaps; ++i) {
         auto transient = std::make_shared<const Asset>(
             Asset{1024, 1024, Encoding::SrgbStraight, std::vector<std::uint8_t>(4 * 1024 * 1024, 255)});
         cached.asset_identity(transient);
@@ -19,17 +17,17 @@ int run_render_cache(bool warp, const std::filesystem::path& folder) {
                 "live texture identity changed under animated bitmap traffic");
     }
     std::uint64_t previous{};
-    for (unsigned i = 0; i < caseelephant::probe_constants::identity_churn_assets; ++i) {
+    for (unsigned i = 0; i < weft::probe_constants::identity_churn_assets; ++i) {
         auto transient = std::make_shared<const Asset>(Asset{1, 1, Encoding::Coverage, {255}});
         auto id = cached.asset_identity(transient);
         require(id > previous && cached.asset_identity(transient) == id, "recycled asset address aliased dead version");
         previous = id;
     }
     require(cached.asset_identity(stable) == stable_id &&
-                cached.asset_identities.size() <= caseelephant::probe_constants::max_asset_identities,
+                cached.asset_identities.size() <= weft::probe_constants::max_asset_identities,
             "identity metadata lost bounded stable asset");
-    caseelephant::TextProbeFontSet fonts({CE_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf",
-                                          CE_SOURCE_DIR "/third_party/noto-cjk/source/NotoSansCJKsc-Regular.otf"});
+    weft::FontSet fonts({WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf",
+                         WEFT_SOURCE_DIR "/third_party/noto-cjk/source/NotoSansCJKsc-Regular.otf"});
     CheetahPacketCache cpu;
     std::map<std::string, std::shared_ptr<const Asset>> images;
     auto image = [&](unsigned state) {
@@ -44,18 +42,17 @@ int run_render_cache(bool warp, const std::filesystem::path& folder) {
     };
     image(0);
     auto page = [&](unsigned state) {
-        caseelephant::ProbePositionedPage out;
-        caseelephant::ProbePositionedPaint item;
-        item.paint.kind = caseelephant::ProbePaintKind::Rectangle;
-        item.paint.width = item.paint.height = caseelephant::probe_constants::small_target_size;
+        weft::PositionedPage out;
+        weft::PositionedPaint item;
+        item.paint.kind = weft::PaintKind::Rectangle;
+        item.paint.width = item.paint.height = weft::probe_constants::small_target_size;
         item.paint.srgb = {.1f, .1f, .1f, 1};
-        item.clip = {0, 0, caseelephant::probe_constants::small_target_size,
-                     caseelephant::probe_constants::small_target_size};
+        item.clip = {0, 0, weft::probe_constants::small_target_size, weft::probe_constants::small_target_size};
         out.paints.push_back(item);
         const float x = 4 + float(state % 5);
         const float y = 4 + float(state % 7);
         const float r = 3 + float(state % 4);
-        auto clip = caseelephant::normalize_rounded_probe({{x, y, 50, 46}, {r, r, r, r}, {r + 2, r + 2, r + 2, r + 2}});
+        auto clip = weft::normalize_rounded({{x, y, 50, 46}, {r, r, r, r}, {r + 2, r + 2, r + 2, r + 2}});
         item.paint.x = x;
         item.paint.y = y;
         item.paint.width = 50;
@@ -71,7 +68,7 @@ int run_render_cache(bool warp, const std::filesystem::path& folder) {
         item.uv = {.1f, .05f, .8f, .85f};
         out.paints.push_back(item);
         item.image_source.clear();
-        item.paint.kind = caseelephant::ProbePaintKind::Text;
+        item.paint.kind = weft::PaintKind::Text;
         item.paint.x = 8;
         item.paint.y = 32;
         item.paint.font_size = 12 + float(state % 3);
@@ -87,14 +84,14 @@ int run_render_cache(bool warp, const std::filesystem::path& folder) {
         renderer.render_window(std::move(packet), [&] {
             renderer.immediate->CopyResource(renderer.staging.Get(), renderer.output.texture.Get());
         });
-        std::vector<Pixel> pixels(caseelephant::probe_constants::small_target_pixels);
+        std::vector<Pixel> pixels(weft::probe_constants::small_target_pixels);
         D3D11_MAPPED_SUBRESOURCE mapped{};
         check_hresult(renderer.immediate->Map(renderer.staging.Get(), 0, D3D11_MAP_READ, 0, &mapped),
                       "cache completed readback");
-        for (UINT y = 0; y < caseelephant::probe_constants::small_target_size; ++y) {
-            std::memcpy(pixels.data() + y * caseelephant::probe_constants::small_target_size,
+        for (UINT y = 0; y < weft::probe_constants::small_target_size; ++y) {
+            std::memcpy(pixels.data() + y * weft::probe_constants::small_target_size,
                         static_cast<const std::uint8_t*>(mapped.pData) + y * mapped.RowPitch,
-                        caseelephant::probe_constants::small_target_size * sizeof(Pixel));
+                        weft::probe_constants::small_target_size * sizeof(Pixel));
         }
         renderer.immediate->Unmap(renderer.staging.Get(), 0);
         return pixels;
@@ -128,18 +125,17 @@ int run_render_cache(bool warp, const std::filesystem::path& folder) {
                 max_error = std::max(max_error, std::abs(int(a[i][c]) - int(b[i][c])));
             }
         }
-        require(max_error <= caseelephant::probe_constants::pipeline_pixel_tolerance,
-                "cached/full mutation pixels differ");
+        require(max_error <= weft::probe_constants::pipeline_pixel_tolerance, "cached/full mutation pixels differ");
     };
     compare(retry, fresh);
     // Deterministic mutations change clips/ellipses, fontsize, font IDs,
     // position, source versions and transparent paint order. Skip unpublished
     // packets as well: the next input must remain complete by itself.
-    std::uint32_t seed = caseelephant::probe_constants::render_cache_seed;
+    std::uint32_t seed = weft::probe_constants::render_cache_seed;
     unsigned frames{};
-    for (unsigned i = 0; i < caseelephant::probe_constants::render_cache_mutation_frames; ++i) {
-        seed = seed * caseelephant::constants::lcg_multiplier + caseelephant::constants::lcg_increment;
-        const auto state = seed % caseelephant::probe_constants::mutation_states;
+    for (unsigned i = 0; i < weft::probe_constants::render_cache_mutation_frames; ++i) {
+        seed = seed * weft::constants::lcg_multiplier + weft::constants::lcg_increment;
+        const auto state = seed % weft::probe_constants::mutation_states;
         if (i % 9 == 0) {
             image(i + 1);
         }
@@ -152,18 +148,18 @@ int run_render_cache(bool warp, const std::filesystem::path& folder) {
         ++frames;
     }
     require(cached.cache_hits > 0 && cached.native_releases > 0 &&
-                cached.asset_cache.size() <= caseelephant::probe_constants::stress_cache_max_resources,
+                cached.asset_cache.size() <= weft::probe_constants::stress_cache_max_resources,
             "cache reuse/eviction pressure absent");
     // A packet with more simultaneous dependencies than this deliberately
     // tiny cache must fail without an orphan tracked lease. Drain and reuse.
     FramePacket over_capacity;
-    for (unsigned i = 0; i < caseelephant::probe_constants::stress_cache_max_resources + 1; ++i) {
+    for (unsigned i = 0; i < weft::probe_constants::stress_cache_max_resources + 1; ++i) {
         over_capacity.assets.push_back(
             std::make_shared<const Asset>(Asset{1, 1, Encoding::Coverage, {std::uint8_t(i + 1)}}));
     }
     PacketView over_view(over_capacity, cached.window_serial + 1, &cached);
-    ce_render_handle rejected{};
-    require(ce_renderer_prepare(backend.renderer, &over_view.frame, &rejected) == CE_RENDER_BACKEND_ERROR &&
+    weft_render_handle rejected{};
+    require(weft_renderer_prepare(backend.renderer, &over_view.frame, &rejected) == WEFT_RENDER_BACKEND_ERROR &&
                 !rejected.slot && !cached.tracker.Stats().prepared_frames,
             "cache capacity rejection retained prepared frame");
     cached.evict_assets(0, true);
@@ -199,10 +195,10 @@ int run_render_cache(bool warp, const std::filesystem::path& folder) {
     std::ostringstream report;
     report
         << "{\"fixture\":\"render-cache-v1\",\"driver\":" << json_string(warp ? "warp" : "hardware")
-        << ",\"mutation_frames\":" << frames << ",\"seed\":\"0xCE902026\",\"compared_pixels\":"
-        << (frames + 1) * caseelephant::probe_constants::small_target_pixels << ",\"max_difference\":" << max_error
-        << ",\"native_creations\":" << cached.native_creations << ",\"native_releases\":" << cached.native_releases
-        << ",\"cache_hits\":" << cached.cache_hits
+        << ",\"mutation_frames\":" << frames
+        << ",\"seed\":\"0xCE902026\",\"compared_pixels\":" << (frames + 1) * weft::probe_constants::small_target_pixels
+        << ",\"max_difference\":" << max_error << ",\"native_creations\":" << cached.native_creations
+        << ",\"native_releases\":" << cached.native_releases << ",\"cache_hits\":" << cached.cache_hits
         << ",\"capacity_failure_verified\":true,\"partial_retry_verified\":true,\"post_submit_drain_verified\":true,\"debug_warning_error_count\":0,\"passed\":true}";
     write_text(folder / "report.json", report.str());
     std::cout << "PASS cached/full paint mutation, source/font/clip/order, eviction and failure drain; max "

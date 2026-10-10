@@ -5,15 +5,14 @@
 // shape oracle. Their additional oracle uses RGB energy and 1 physical pixel
 // nearest-neighbour coverage, in both directions. Dense scenes keep the
 // unchanged mean <=3 / mask IoU >=.75 test.
-inline bool cluster_sparse_match(const caseelephant::ProbeSceneBitmap& a, const caseelephant::ProbeSceneBitmap& b) {
-    caseelephant::testing::require(a.width == b.width && a.height == b.height, "sparse extent");
+inline bool cluster_sparse_match(const weft::SceneBitmap& a, const weft::SceneBitmap& b) {
+    weft::testing::require(a.width == b.width && a.height == b.height, "sparse extent");
     double ae{};
     double be{};
     double ab{};
     double ba{};
-    constexpr int background[]{caseelephant::test_constants::scene::backdrop_red,
-                               caseelephant::test_constants::scene::backdrop_green,
-                               caseelephant::test_constants::scene::backdrop_blue};
+    constexpr int background[]{weft::test_constants::scene::backdrop_red, weft::test_constants::scene::backdrop_green,
+                               weft::test_constants::scene::backdrop_blue};
     for (unsigned y = 0; y < a.height; ++y) {
         for (unsigned x = 0; x < a.width; ++x) {
             for (unsigned c = 0; c < 3; ++c) {
@@ -42,17 +41,17 @@ inline bool cluster_sparse_match(const caseelephant::ProbeSceneBitmap& a, const 
         }
     }
     return ae > 0 && be > 0 &&
-           std::min(ae, be) / std::max(ae, be) >= caseelephant::test_constants::scene::sparse_min_energy_ratio &&
-           ab / ae >= caseelephant::test_constants::scene::sparse_min_coverage &&
-           ba / be >= caseelephant::test_constants::scene::sparse_min_coverage;
+           std::min(ae, be) / std::max(ae, be) >= weft::test_constants::scene::sparse_min_energy_ratio &&
+           ab / ae >= weft::test_constants::scene::sparse_min_coverage &&
+           ba / be >= weft::test_constants::scene::sparse_min_coverage;
 }
 
-inline bool cluster_image_match(const caseelephant::ProbeSceneBitmap& a, const caseelephant::ProbeSceneBitmap& b) {
+inline bool cluster_image_match(const weft::SceneBitmap& a, const weft::SceneBitmap& b) {
     const auto d = scene_difference(a, b);
     const auto mean = *std::max_element(d.mean.begin(), d.mean.end());
-    return mean <= caseelephant::test_constants::scene::max_channel_mean_difference &&
-           (d.foreground < caseelephant::test_constants::scene::min_foreground_pixels ||
-            d.soft_iou >= caseelephant::test_constants::scene::min_soft_iou ||
-            (d.foreground < caseelephant::test_constants::scene::sparse_max_foreground_pixels &&
-             mean < caseelephant::test_constants::scene::sparse_max_channel_mean && cluster_sparse_match(a, b)));
+    return mean <= weft::test_constants::scene::max_channel_mean_difference &&
+           (d.foreground < weft::test_constants::scene::min_foreground_pixels ||
+            d.soft_iou >= weft::test_constants::scene::min_soft_iou ||
+            (d.foreground < weft::test_constants::scene::sparse_max_foreground_pixels &&
+             mean < weft::test_constants::scene::sparse_max_channel_mean && cluster_sparse_match(a, b)));
 }

@@ -3,8 +3,8 @@
 #include <string>
 #include <string_view>
 
-namespace caseelephant {
-    class ScriptDomProbe;
+namespace weft {
+    class ScriptDom;
 
     // Owner-hosted JS platform modules. Their sources live in src/script/js/ and are compiled into
     // the script library, so a running engine needs no source tree. Install WebHost first;
@@ -23,6 +23,6 @@ namespace caseelephant {
     // File name reported in script stack traces.
     std::string_view script_platform_file(ScriptPlatformModule module) noexcept;
 
-    // Evaluates the module in vm; returns the evaluation result like ScriptDomProbe::eval.
-    std::string install_script_platform(ScriptDomProbe& vm, ScriptPlatformModule module);
-} // namespace caseelephant
+    // Evaluates the module in vm; returns the evaluation result like ScriptDom::eval.
+    std::string install_script_platform(ScriptDom& vm, ScriptPlatformModule module);
+} // namespace weft

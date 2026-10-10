@@ -16,12 +16,12 @@
 
 #include "caseelephant/constants/script.hpp"
 
-namespace caseelephant {
+namespace weft {
     // Private C++ host adapter, not the external C ABI. Request/Input/Frame must
     // contain owned values; never put a Node*, JSValue or device handle in them.
     // Factory, hooks and their captures are created AND destroyed on the worker.
     template <class Request, class Input, class Frame>
-    class OwnerExecutorProbe {
+    class OwnerExecutor {
     public:
         struct Hooks {
             std::function<void(const Input&)> input;
@@ -113,7 +113,7 @@ namespace caseelephant {
                 hooks = factory();
                 factory = {};
                 if (!hooks->frame || !hooks->input || !hooks->reset || !hooks->close) {
-                    throw std::invalid_argument("CE_OWNER_HOOKS");
+                    throw std::invalid_argument("WEFT_OWNER_HOOKS");
                 }
                 {
                     std::lock_guard lock(mutex_);
@@ -153,7 +153,7 @@ namespace caseelephant {
                         const auto start = std::chrono::steady_clock::now();
                         auto value = hooks->frame(tick->value);
                         if (!value) {
-                            throw std::runtime_error("CE_OWNER_NULL_FRAME");
+                            throw std::runtime_error("WEFT_OWNER_NULL_FRAME");
                         }
                         const auto finish = std::chrono::steady_clock::now();
                         Publication publication{tick->epoch,
@@ -211,11 +211,11 @@ namespace caseelephant {
         }
 
     public:
-        explicit OwnerExecutorProbe(std::function<Hooks()> factory,
-                                    std::size_t capacity = constants::script::default_owner_input_capacity)
+        explicit OwnerExecutor(std::function<Hooks()> factory,
+                               std::size_t capacity = constants::script::default_owner_input_capacity)
             : capacity_(capacity) {
             if (!factory || !capacity || capacity > constants::script::max_owner_input_capacity) {
-                throw std::invalid_argument("CE_OWNER_CAPACITY");
+                throw std::invalid_argument("WEFT_OWNER_CAPACITY");
             }
             worker_ = std::thread([this, factory = std::move(factory)]() mutable {
                 run(std::move(factory));
@@ -231,15 +231,15 @@ namespace caseelephant {
             }
         }
 
-        ~OwnerExecutorProbe() {
+        ~OwnerExecutor() {
             try {
                 close();
             } catch (...) { /* A worker failure is rethrown by the explicit host close/read. */
             }
         }
 
-        OwnerExecutorProbe(const OwnerExecutorProbe&) = delete;
-        OwnerExecutorProbe& operator=(const OwnerExecutorProbe&) = delete;
+        OwnerExecutor(const OwnerExecutor&) = delete;
+        OwnerExecutor& operator=(const OwnerExecutor&) = delete;
 
         Result input(std::uint64_t epoch, Input value) {
             std::lock_guard lock(mutex_);
@@ -254,7 +254,7 @@ namespace caseelephant {
                 return Full;
             }
             if (input_sequence_ == UINT64_MAX) {
-                throw std::overflow_error("CE_OWNER_INPUT_SERIAL");
+                throw std::overflow_error("WEFT_OWNER_INPUT_SERIAL");
             }
             inputs_.push_back({std::move(value), ++input_sequence_});
             ++work_.accepted_inputs;
@@ -278,7 +278,7 @@ namespace caseelephant {
                     return Stale;
                 }
                 if (input_sequence_ == UINT64_MAX) {
-                    throw std::overflow_error("CE_OWNER_INPUT_SERIAL");
+                    throw std::overflow_error("WEFT_OWNER_INPUT_SERIAL");
                 }
                 bool replace{};
                 if (!inputs_.empty()) {
@@ -309,13 +309,13 @@ namespace caseelephant {
                 std::lock_guard lock(mutex_);
                 check();
                 if (stopping_ || closed_) {
-                    throw std::logic_error("CE_OWNER_CLOSED");
+                    throw std::logic_error("WEFT_OWNER_CLOSED");
                 }
                 if (epoch != epoch_) {
-                    throw std::invalid_argument("CE_OWNER_STALE_EPOCH");
+                    throw std::invalid_argument("WEFT_OWNER_STALE_EPOCH");
                 }
                 if (sequence_ == UINT64_MAX) {
-                    throw std::overflow_error("CE_OWNER_FRAME_SERIAL");
+                    throw std::overflow_error("WEFT_OWNER_FRAME_SERIAL");
                 }
                 Tick tick{std::move(value), epoch, ++sequence_, std::chrono::steady_clock::now()};
                 serial = sequence_;
@@ -378,19 +378,19 @@ namespace caseelephant {
             std::deque<Publication> retired;
             std::unique_lock lock(mutex_);
             if (timeout.count() <= 0 || timeout > std::chrono::seconds(constants::script::max_owner_wait_seconds)) {
-                throw std::invalid_argument("CE_OWNER_WAIT_BOUND");
+                throw std::invalid_argument("WEFT_OWNER_WAIT_BOUND");
             }
             if (!cv_.wait_for(lock, timeout, [&] {
                     return failure_ || closed_ || epoch != epoch_ || (last_ && last_->sequence >= sequence);
                 })) {
-                throw std::runtime_error("CE_OWNER_DEADLINE");
+                throw std::runtime_error("WEFT_OWNER_DEADLINE");
             }
             check();
             if (epoch != epoch_) {
-                throw std::invalid_argument("CE_OWNER_STALE_EPOCH");
+                throw std::invalid_argument("WEFT_OWNER_STALE_EPOCH");
             }
             if (!last_ || last_->sequence < sequence) {
-                throw std::logic_error("CE_OWNER_CLOSED");
+                throw std::logic_error("WEFT_OWNER_CLOSED");
             }
             auto result = *last_;
             if (!frames_.empty()) {
@@ -416,7 +416,7 @@ namespace caseelephant {
             cv_.notify_all();
             if (worker_.joinable()) {
                 if (worker_.get_id() == std::this_thread::get_id()) {
-                    throw std::logic_error("CE_OWNER_JOIN_SELF");
+                    throw std::logic_error("WEFT_OWNER_JOIN_SELF");
                 }
                 worker_.join();
             }
@@ -424,4 +424,4 @@ namespace caseelephant {
             check();
         }
     };
-} // namespace caseelephant
+} // namespace weft

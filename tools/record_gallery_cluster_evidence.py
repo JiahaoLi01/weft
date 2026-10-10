@@ -66,7 +66,7 @@ for name, config in [('release', 'Release'), ('debug', 'Debug')]:
     else:
         text = test_log.read_text(encoding='utf-8', errors='replace')
         assert '98% tests passed, 2 tests failed out of 86' in text
-        assert 'kline-00 FAIL CE_VIEW_FAULTED: InternalError: interrupted' in text
+        assert 'kline-00 FAIL WEFT_VIEW_FAULTED: InternalError: interrupted' in text
         failures = text.split('The following tests FAILED:')[1]
         assert re.findall(r'\d+ - (\w+) \(', failures) == ['scene_cluster_browser_contract', 'scene_cluster_original']
         runs[name] = {'full_attempt': {'count': 86, 'passed': 84, 'failure': 'K-Line all-SVG diagnostic geometry reads exceeded per-eval 30s limit; dependent audit incomplete'}, 'accepted_test_count': 86}
@@ -92,9 +92,9 @@ for name, config in [('release', 'Release'), ('debug', 'Debug')]:
     runs[name]['previous_34_scene_warp'] = old
     binary_path = destination / 'bin'
     binary_path.mkdir(exist_ok=True)
-    for binary in ['ce_d3d11_probe.exe', 'ce_scene_cluster_tests.exe', 'ce_scene_cluster_contract_tests.exe', 'ce_script_dom_tests.exe', 'ce_owner_executor_tests.exe', 'ce_animation_frame_tests.exe', 'ce_scene_gallery_tests.exe']:
+    for binary in ['weft_d3d11_probe.exe', 'weft_scene_cluster_tests.exe', 'weft_scene_cluster_contract_tests.exe', 'weft_script_dom_tests.exe', 'weft_owner_executor_tests.exe', 'weft_animation_frame_tests.exe', 'weft_scene_gallery_tests.exe']:
         shutil.copy2(build / 'bin' / config / binary, binary_path / binary)
-    data = (binary_path / 'ce_d3d11_probe.exe').read_bytes()
+    data = (binary_path / 'weft_d3d11_probe.exe').read_bytes()
     pe = struct.unpack_from('<I', data, 0x3c)[0]
     assert struct.unpack_from('<Q', data, pe + 24 + 72)[0] == 8388608
     runs[name]['exe_stack_reserve_bytes'] = 8388608
@@ -114,7 +114,7 @@ gc_log = root / 'artifacts/local/gallery-cluster-gc-tests.log'
 runs['gc'] = {'scope': test_run(gc_log, 5), 'full_original_301_frame_suite_repeated': False}
 shutil.copy2(gc_log, gc / 'ctest.log')
 (gc / 'bin').mkdir(exist_ok=True)
-for binary in ['ce_script_dom_tests.exe', 'ce_scene_cluster_contract_tests.exe', 'ce_animation_frame_tests.exe', 'ce_owner_executor_tests.exe', 'ce_scene_contract_tests.exe']:
+for binary in ['weft_script_dom_tests.exe', 'weft_scene_cluster_contract_tests.exe', 'weft_animation_frame_tests.exe', 'weft_owner_executor_tests.exe', 'weft_scene_contract_tests.exe']:
     shutil.copy2(root / 'build/windows-gc-stress/bin/Debug' / binary, gc / 'bin' / binary)
 
 benchmarks = {}

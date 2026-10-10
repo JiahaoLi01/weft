@@ -1,8 +1,8 @@
-# CaseElephant 核心架构
+# Weft 核心架构
 
 设计基线日期为 2026 年 10 月 7 日。本项目自研 DOM、CSS 语义、更新机制、绘制组织和宿主接口，面向 Windows、Android 和 iOS 游戏 UI。此文规定实现时的合同；当前已有 M0 核心与探针，实际行为和平台证据见 [status](status.md)。下列完整架构尚未全部实现，候选基础库与性能目标均需验证。
 
-当前新增受限 React/Vite 页面链路：native DOM owner 复制值快照，经 inline-style/Flex adapter 和文字塑形生成 GPU-free ProbePage，再由实验 D3D11 runner 准备/提交/退休。JS 和 Node 不进入 renderer，unmount/reset 后快照仍可绘制。该实现不是通用 HTML/CSS parser 或稳定 FramePacket API，实际范围见 [React 页面](react-vite-probe.md)。
+当前新增受限 React/Vite 页面链路：native DOM owner 复制值快照，经 inline-style/Flex adapter 和文字塑形生成 GPU-free Page，再由实验 D3D11 runner 准备/提交/退休。JS 和 Node 不进入 renderer，unmount/reset 后快照仍可绘制。该实现不是通用 HTML/CSS parser 或稳定 FramePacket API，实际范围见 [React 页面](react-vite-probe.md)。
 
 当前又增加独立 Windows HWND/swapchain 主鼠标宿主：WindowProc 只排队值，owner 命中前 flush 布局，以弱节点身份派发真实 MouseEvent；GPU completion 覆盖 UI 与宿主合成，resize/close 在安全点处理。单击、取消、隐藏节点、共同祖先与实际提交通过；完整 PointerEvent/focus/IME、CSS/HTML 加载尚未实现，见 [窗口合同](native-window-probe.md)。
 
@@ -108,7 +108,7 @@ ViewEpoch 标记整个页面世代；RequestEpoch 标记资源请求；FocusEpoc
 
 时间来自宿主单调时钟。rAF 不等于游戏 tick：同一 View 的同一绘制机会最多派发一批 rAF；后台行为由显式暂停策略控制。恢复时不会无界补发所有历史 timer。
 
-2026-10-09 的可选 M0 rAF 模块现由 `ScriptDomProbe::animation_frame` 实际驱动，整批共享执行预算并在每个回调后执行微任务检查点。注册/取消、隐藏恢复、代际/GC 与故障合同经过验证；原版 React Spring 三例已修改 native DOM，但尚无其 transform/opacity 绘制验证。公共 View/C ABI、旧 motion 时钟和完整 document lifecycle 不因此扩张，见 [gallery/rAF 实际合同](gallery-foundation.md)。
+2026-10-09 的可选 M0 rAF 模块现由 `ScriptDom::animation_frame` 实际驱动，整批共享执行预算并在每个回调后执行微任务检查点。注册/取消、隐藏恢复、代际/GC 与故障合同经过验证；原版 React Spring 三例已修改 native DOM，但尚无其 transform/opacity 绘制验证。公共 View/C ABI、旧 motion 时钟和完整 document lifecycle 不因此扩张，见 [gallery/rAF 实际合同](gallery-foundation.md)。
 
 默认 task、微任务和 JS 执行有资源与时间上限。QuickJS interrupt 只在 VM 检查点终止脚本；原生桥接函数必须自己有界。微任务无限生成等情况走 Faulted 策略，残余队列不在下一帧自动续跑；不把任意截断微任务当作正常浏览器行为。
 
@@ -230,9 +230,9 @@ HarfBuzz 候选负责字形塑形，FreeType 候选负责字体解析与栅格�
 
 首个验收覆盖打包字体的中文和拉丁文字。基础实现保留 RTL 与复杂脚本接口，但其他文字只有通过字体与排版测试后才列为支持。彩色 Emoji、竖排、通用 SVG 字体与富文本编辑不在首个验收范围。缺字仍保留正确字符边界并显示明确 fallback。
 
-当前独立 TextProbeFontSet 已验证固定 Roboto/Noto CJK 的 LTR Latin/Han 回退：整个缺字 HarfBuzz cluster 选 face、相邻 span 重塑形，glyph 带集合内 font_id。该索引只在其 immutable font set 下解释；owner 在同一集合仍存活时栅格，FramePacket 复制像素，不让 renderer 访问 face。它不代替上述 paragraph/inline/editing 系统。单行 positioned profile 使用主字体 strut；四个浏览器度量和字体 ID 缓存碰撞证据见 [中文与状态组件](cjk-alert-probe.md)。
+当前独立 FontSet 已验证固定 Roboto/Noto CJK 的 LTR Latin/Han 回退：整个缺字 HarfBuzz cluster 选 face、相邻 span 重塑形，glyph 带集合内 font_id。该索引只在其 immutable font set 下解释；owner 在同一集合仍存活时栅格，FramePacket 复制像素，不让 renderer 访问 face。它不代替上述 paragraph/inline/editing 系统。单行 positioned profile 使用主字体 strut；四个浏览器度量和字体 ID 缓存碰撞证据见 [中文与状态组件](cjk-alert-probe.md)。
 
-2026-10-09 的 M0 优化在同一 owner font 内复用 HarfBuzz OpenType font 对象；immutable TextProbeFontSet 按完整 UTF-8/字号缓存拥有值塑形结果，上限 1,024 项/4 MiB 有效载荷。4K 样例另在该固定 font set 生命周期内按 font_id/glyph_id/ppem 缓存灰度像素，上限 2,048 项/16 MiB；裁剪缓存键包含拥有值的源图和完整位置、UV、圆角链，上限 1,024 项/32 MiB 输出像素。资源替换必须使用新 immutable 资产/新字体作用域，不支持原地修改。缓存返回值仍独立拥有，无字体/JS 对象进入 GPU；不宣称生产动态 atlas 或通用字体热重载已实现。
+2026-10-09 的 M0 优化在同一 owner font 内复用 HarfBuzz OpenType font 对象；immutable FontSet 按完整 UTF-8/字号缓存拥有值塑形结果，上限 1,024 项/4 MiB 有效载荷。4K 样例另在该固定 font set 生命周期内按 font_id/glyph_id/ppem 缓存灰度像素，上限 2,048 项/16 MiB；裁剪缓存键包含拥有值的源图和完整位置、UV、圆角链，上限 1,024 项/32 MiB 输出像素。资源替换必须使用新 immutable 资产/新字体作用域，不支持原地修改。缓存返回值仍独立拥有，无字体/JS 对象进入 GPU；不宣称生产动态 atlas 或通用字体热重载已实现。
 
 编辑与 DOM 的字符 offset 使用 UTF-16 code units；UTF-8 只用于外部文本资产与部分宿主字符串接口。移动、删除和选择扩展使用 Unicode grapheme，不能把字节、code point 或 HarfBuzz cluster 当作所有可编辑单位。每行保存逻辑位置与视觉 caret 的映射。
 
@@ -288,9 +288,9 @@ JS 源码或 bundle 为基础资产格式，VM bytecode 仅作为绑定引擎版
 2026-10-09 Gallery 检查 host 的时间合同补充：同一次 owner opportunity 的 timers 与 rAF 必须使用同一个有限、单调的 double。需要从 C++ 向 JS 传数字时，使用 classic locale 与 max_digits10 的可往返表示；不得分别舍入不同宿主步骤或靠时钟容差掩盖倒退。新增目录 shell 仍在同一 owner 上复制 DOM/几何值，renderer 只读完整不可变包；静态 shell 绘制快照可复用，但每个包独立持有本帧 Canvas 位图和全部字体资产。未提交包可被丢弃，不成为后一个包的依赖。范围与测试见 [检查窗口](gallery-preview.md)。
 
 
-2026-10-09 CSS/D3 scene probe 补充：owner 在线程内从 native DOM 复制 `ProbeDomSnapshot`，公共 cascade 的显式 scene profile 计算声明来源，SceneProbe 求关键帧/transition 和 Yoga 盒子，生成只含 owned strings、数值、代际身份与子树的 `ProbeSceneFrame`。同步 geometry host 从最新快照求布局与变换后的 AABB；measure/layout 内不调用 JS。节点动画状态按 view_epoch/slot/generation 隔离，移除后清理，重插入重新开始。
+2026-10-09 CSS/D3 scene probe 补充：owner 在线程内从 native DOM 复制 `DomSnapshot`，公共 cascade 的显式 scene profile 计算声明来源，SceneSolver 求关键帧/transition 和 Yoga 盒子，生成只含 owned strings、数值、代际身份与子树的 `SceneFrame`。同步 geometry host 从最新快照求布局与变换后的 AABB；measure/layout 内不调用 JS。节点动画状态按 view_epoch/slot/generation 隔离，移除后清理，重插入重新开始。
 
-Windows `SceneRasterProbe` 是可替换的软件矢量参考适配器：DirectWrite measure/shape，Direct2D SOFTWARE/WIC raster，输出独立的 straight encoded-sRGB RGBA8。它和 SceneProbe 当前均由 UI owner 调用；既不向 renderer 传 Node/JSValue，也不把 D2D 类型放进公共 backend API。原来的 D3D11 adapter 转 linear-premultiplied 图像并合成完整 FramePacket，按真实完成 serial 退休；之后可以换矢量 GPU backend/字体适配器而不用改变 DOM/动画 owner 合同。公共 renderer/frame/backend C ABI 不变，移动尚未编译。
+Windows `SceneRaster` 是可替换的软件矢量参考适配器：DirectWrite measure/shape，Direct2D SOFTWARE/WIC raster，输出独立的 straight encoded-sRGB RGBA8。它和 SceneSolver 当前均由 UI owner 调用；既不向 renderer 传 Node/JSValue，也不把 D2D 类型放进公共 backend API。原来的 D3D11 adapter 转 linear-premultiplied 图像并合成完整 FramePacket，按真实完成 serial 退休；之后可以换矢量 GPU backend/字体适配器而不用改变 DOM/动画 owner 合同。公共 renderer/frame/backend C ABI 不变，移动尚未编译。
 
 2026-10-09 性能阶段：相同 owned scene 值可由 Windows 私有 `paint_d2d` 适配器绘制到宿主明确分配的卡片 GPU surface；没有新增公共 C ABI 的 D2D 类型。宿主每卡最多三个 backing version，UI 仍最多两帧在途；有界池只在真实 completion serial 达到该 version 的最后消费 serial、旧 caller lease 已释放后重写。encoded-premultiplied BGRA8 经逐 texel GPU decode 转 linear-premultiplied RGBA16F，再通过既有 external texture lease 作为完整帧依赖；透明输入先转换后滤波，不能在滤波后才解除预乘。CPU WIC 路径保留，固定原例使用不变的 Chrome 阈值分别验证 CPU/GPU。窗口只在当前 viewport 的有效裁剪区绘制；裁剪变化必须发布新完整版本，不能把旧裁剪图用于滚动露出。颜色字体缓存仅缓存有界设备字号文本像素，布局、opacity、transform、命中保持当前值；这是字体适配器缓存，不实现自动图层提升。3D 平面仍使用已有软件投影，重用未变化的平面内容。源/样式 key、布局签名与 full reference 反例见 [性能阶段](gallery-performance.md)。
 
@@ -303,9 +303,9 @@ Windows `SceneRasterProbe` 是可替换的软件矢量参考适配器：DirectWr
 2026-10-09 CSS 中段后续：私有 Windows GPU adapter 将同一 border stroke 与 outer/side mask 的交集编译为 factory-owned filled geometry，完整参数键/256 项上限，较大矩阵走原 mask 路径；software oracle 不变。group opacity/overflow 继续整体合成，没有自动图层提升。owner 的保守布局参考在 layout reuse 时保持不变，返回的新 scene 仍完整独立拥有当前 paint 值；cascade shorthand 展开只缓存 underlying computed 值，逐帧继承/动画与同步 geometry read 不改变。反例与实际调度条件见 [CSS 中段证据](css-middle-performance.md)。
 
 
-2026-10-09 后续 3/4/5 探针：新增内部 C++ `OwnerExecutorProbe`，每个 runtime 的 DOM/JS/style/layout 仍由同一 UI owner 持有；可靠 owned 输入与可合并 refresh request 分离，最多两个完整 immutable publications，epoch/reset 验证与 close 排空，render 不访问 Node/JSValue。gallery 的真实 34 scene + 2 Canvas VM 统一移到 worker，目录 shell 为主线程独立诊断 runtime；不是并行 DOM。交互 latest 可复用完整旧帧，确定性测试显式 wait，呈现 FPS 与 owner 更新 Hz 分开。外部 C ABI 尚未导出这项 executor。
+2026-10-09 后续 3/4/5 探针：新增内部 C++ `OwnerExecutor`，每个 runtime 的 DOM/JS/style/layout 仍由同一 UI owner 持有；可靠 owned 输入与可合并 refresh request 分离，最多两个完整 immutable publications，epoch/reset 验证与 close 排空，render 不访问 Node/JSValue。gallery 的真实 34 scene + 2 Canvas VM 统一移到 worker，目录 shell 为主线程独立诊断 runtime；不是并行 DOM。交互 latest 可复用完整旧帧，确定性测试显式 wait，呈现 FPS 与 owner 更新 Hz 分开。外部 C ABI 尚未导出这项 executor。
 
-宿主显式选择源图身份，缓存仅消去根 transform/opacity/位置，保持内容/后代/字体/裁剪/order key；opacity 合成整层一次，不自动提升。D2D damage 相对实际已完成 slot 保存的 frame，未知 bounds/full clip 或 resize 走全量，资源重写/退休保持 actual serial。新 owned `ProbeNativeScene` 与 paint commands 不含 GPU API 类型，Windows adapter 实现 shader shapes/gradients/borders、cached glyph/source textures 与隔离透明组；unsupported 完整 scene 继续 D2D，不部分提交。native 全卡 producer、encoded-to-linear conversion、卡片 composite 仍保留，移动/其他 API 未验证。容量、图像与线程反例、实测界限见 [本轮合同与证据](render-stages-performance.md)。
+宿主显式选择源图身份，缓存仅消去根 transform/opacity/位置，保持内容/后代/字体/裁剪/order key；opacity 合成整层一次，不自动提升。D2D damage 相对实际已完成 slot 保存的 frame，未知 bounds/full clip 或 resize 走全量，资源重写/退休保持 actual serial。新 owned `NativeScene` 与 paint commands 不含 GPU API 类型，Windows adapter 实现 shader shapes/gradients/borders、cached glyph/source textures 与隔离透明组；unsupported 完整 scene 继续 D2D，不部分提交。native 全卡 producer、encoded-to-linear conversion、卡片 composite 仍保留，移动/其他 API 未验证。容量、图像与线程反例、实测界限见 [本轮合同与证据](render-stages-performance.md)。
 
 
 2026-10-10 共享簇扩展：64 个原始 scene 加两例 Canvas 的 VM 在同一 UI owner；shell 是独立诊断 runtime。新增真实 native geometry/computed-style/CTM 读回及布局后 ResizeObserver，callback 不进入内部 layout/measure。可靠输入传值，卡片 capture 路由和 wheel zoom 在 inspection host 显式实现；完整快照与 actual serial retirement 合同保持。固定样例驱动的 SVG、Flex/Grid、事件和 fragment 子集、原例缺陷、Windows 证据与尚未验证能力见 [共享簇实际合同](gallery-shared-cluster.md)，不是一般浏览器支持承诺。
@@ -318,6 +318,6 @@ Windows `SceneRasterProbe` 是可替换的软件矢量参考适配器：DirectWr
 
 检查宿主对连续待处理Move显式选择latest采样策略，仅同card/buttons且无wheel或测试延迟可合并，执行中事件和Down/Up/Cancel/Wheel/reset保持边界；常规input()可靠语义不变，新增coalesced计数。Unicode/emoji字体图像只去除已经composite的authored transform/opacity冗余，computed字体/颜色/尺寸/文本继续失效。双线程profiler以共同steady-clock微秒时钟写owned数值事件，文件有上限，不改变外部C ABI；具体证据和仍偏慢的K-Line/Anime见[交互阶段](gallery-interaction-profile.md)。
 
-2026-10-10 增量更新补充：`CompiledStyleProbe::update` 保留canonical raw computed值，可报告变化/重建的own节点身份。同父重排保留值，跨父挂载重建；输出不是shorthand展开表示。Scene另存expanded派生值，按changed identities及代际重建，不把展开值写回cascade。`SceneProbe::update`可修改owner专属输出，异常后必须丢弃部分输出/reset；跨线程发布仍创建完整独立immutable snapshot。geometry reuse由字体/文本/盒子/transform/SVG geometry/身份投影证明，pure paint变化不失效，measure/layout仍不调用JS。
+2026-10-10 增量更新补充：`CompiledStyle::update` 保留canonical raw computed值，可报告变化/重建的own节点身份。同父重排保留值，跨父挂载重建；输出不是shorthand展开表示。Scene另存expanded派生值，按changed identities及代际重建，不把展开值写回cascade。`SceneSolver::update`可修改owner专属输出，异常后必须丢弃部分输出/reset；跨线程发布仍创建完整独立immutable snapshot。geometry reuse由字体/文本/盒子/transform/SVG geometry/身份投影证明，pure paint变化不失效，measure/layout仍不调用JS。
 
 检查host区分主动正常ReleaseCapture和真实捕获/焦点丢失；hover/active只更新weak generational旧/新路径。诊断footer在native overlay，原应用DOM/事件正常更新。所有不可见卡片统一暂停rAF、继续timer，属于Gallery显式host策略。详细profiler默认关闭，关闭时无阶段timestamp/trace；保留必要completion及调度/FPS。开启后每线程有界latest trace、600样本曲线、5Hz HUD；串联共同steady-clock和run_id，不能把旧文件或采样子集当全运行。Windows factory-scoped shape/stroke缓存与本次solve局部bounds不跨线程保留DOM引用，GPU重写/退休继续只按actual serial。实际证据见[增量与profiler](incremental-ui-profiler.md)。

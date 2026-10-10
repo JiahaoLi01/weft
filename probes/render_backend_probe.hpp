@@ -17,9 +17,9 @@ int run_backend(bool warp, const std::filesystem::path& folder) {
         } else if (mode == 1) {
             packet = sdf_scene().packet;
         } else {
-            packet.draws.push_back({{0, 0, caseelephant::probe_constants::color_fixture_width,
-                                     caseelephant::probe_constants::color_fixture_height},
-                                    {0, 1, 0, 0.5f}});
+            packet.draws.push_back(
+                {{0, 0, weft::probe_constants::color_fixture_width, weft::probe_constants::color_fixture_height},
+                 {0, 1, 0, 0.5f}});
         }
         std::vector<Pixel> baseline;
         if (mode < 2) {
@@ -36,15 +36,15 @@ int run_backend(bool warp, const std::filesystem::path& folder) {
         auto target = mode == 2 ? gpu.surface(DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT)
                                 : gpu.surface(DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB);
         PacketView input(packet, 1);
-        ce_render_handle prepared{};
-        ce_render_handle use{};
-        render_result(ce_renderer_prepare(backend.renderer, &input.frame, &prepared), "API complete input snapshot");
+        weft_render_handle prepared{};
+        weft_render_handle use{};
+        render_result(weft_renderer_prepare(backend.renderer, &input.frame, &prepared), "API complete input snapshot");
         packet = {}; // All call-scoped source pixels and draw arrays can disappear.
         void* native_commands{};
-        ce_render_d3d11_pass native{};
+        weft_render_d3d11_pass native{};
         auto pass = backend.pass(context.Get(), target.rtv.Get(), &native_commands, native);
         if (mode == 2) {
-            pass.target_format = CE_RENDER_TARGET_LINEAR_RGBA32F;
+            pass.target_format = WEFT_RENDER_TARGET_LINEAR_RGBA32F;
         }
         if (mode == 3) {
             const float red[4]{1, 0, 0, 1};
@@ -55,27 +55,28 @@ int run_backend(bool warp, const std::filesystem::path& folder) {
             const auto before = gpu.uploads;
             auto invalid = pass;
             invalid.sample_count = 4;
-            gpu.test(ce_renderer_encode(backend.renderer, prepared, &invalid, &use) == CE_RENDER_UNSUPPORTED_FEATURE &&
+            gpu.test(weft_renderer_encode(backend.renderer, prepared, &invalid, &use) ==
+                             WEFT_RENDER_UNSUPPORTED_FEATURE &&
                          !use.renderer_id,
                      "unsupported target rejected before recording");
             {
                 Experiment foreign(warp);
                 native.deferred_context = foreign.deferred.Get();
-                gpu.test(ce_renderer_encode(backend.renderer, prepared, &pass, &use) == CE_RENDER_WRONG_BACKEND &&
+                gpu.test(weft_renderer_encode(backend.renderer, prepared, &pass, &use) == WEFT_RENDER_WRONG_BACKEND &&
                              !native_commands,
                          "foreign native device rejected");
                 native.deferred_context = context.Get();
             }
             gpu.test(gpu.uploads == before, "invalid native pass wrote no upload commands");
-            render_result(ce_renderer_encode(backend.renderer, prepared, &pass, &use), "API cancelled recording");
+            render_result(weft_renderer_encode(backend.renderer, prepared, &pass, &use), "API cancelled recording");
             ComPtr<ID3D11CommandList> cancelled;
             cancelled.Attach(static_cast<ID3D11CommandList*>(native_commands));
             cancelled.Reset();
             native_commands = nullptr;
-            render_result(ce_renderer_discard_encoded(backend.renderer, use),
+            render_result(weft_renderer_discard_encoded(backend.renderer, use),
                           "API discard AFTER native list destruction");
             backend.inject_recording_failure = true;
-            gpu.test(ce_renderer_encode(backend.renderer, prepared, &pass, &use) == CE_RENDER_BACKEND_ERROR &&
+            gpu.test(weft_renderer_encode(backend.renderer, prepared, &pass, &use) == WEFT_RENDER_BACKEND_ERROR &&
                          !use.renderer_id && !native_commands,
                      "partial recording fully rolled back before unpin");
             backend.inject_recording_failure = false;
@@ -86,8 +87,8 @@ int run_backend(bool warp, const std::filesystem::path& folder) {
                          "cancelled API upload never Ready");
             }
         }
-        render_result(ce_renderer_encode(backend.renderer, prepared, &pass, &use), "API native encode");
-        render_result(ce_renderer_release_prepared(backend.renderer, prepared),
+        render_result(weft_renderer_encode(backend.renderer, prepared, &pass, &use), "API native encode");
+        render_result(weft_renderer_release_prepared(backend.renderer, prepared),
                       "API release snapshot before submission");
         ComPtr<ID3D11CommandList> commands;
         commands.Attach(static_cast<ID3D11CommandList*>(native_commands));
@@ -99,18 +100,18 @@ int run_backend(bool warp, const std::filesystem::path& folder) {
         gpu.immediate->End(gpu.host_done.Get());
         gpu.submitted = true;
         gpu.pending_completion = 2;
-        render_result(
-            ce_renderer_notify_submitted(backend.renderer, use, caseelephant::probe_constants::immediate_queue, 1),
-            "API acknowledge actual host submission");
+        render_result(weft_renderer_notify_submitted(backend.renderer, use, weft::probe_constants::immediate_queue, 1),
+                      "API acknowledge actual host submission");
         commands.Reset();
-        gpu.test(ce_renderer_discard_encoded(backend.renderer, use) == CE_RENDER_INVALID_STATE,
+        gpu.test(weft_renderer_discard_encoded(backend.renderer, use) == WEFT_RENDER_INVALID_STATE,
                  "submitted API use cannot be cancelled");
-        gpu.test(ce_renderer_destroy(backend.renderer) == CE_RENDER_BUSY, "API destroy requires actual GPU completion");
+        gpu.test(weft_renderer_destroy(backend.renderer) == WEFT_RENDER_BUSY,
+                 "API destroy requires actual GPU completion");
         gpu.test(!gpu.native_releases, "API release snapshot did not retire submitted textures");
         gpu.complete();
-        ce_render_info info{};
+        weft_render_info info{};
         info.struct_size = sizeof(info);
-        render_result(ce_renderer_get_info(backend.renderer, &info), "API completion state");
+        render_result(weft_renderer_get_info(backend.renderer, &info), "API completion state");
         gpu.test(info.completed_serial == 2 && !info.submitted_uses, "host-only copy serial completes UI use");
         D3D11_VIEWPORT restored{};
         UINT count = 1;

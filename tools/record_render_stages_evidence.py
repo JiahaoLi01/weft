@@ -16,7 +16,7 @@ for name, expected in prior['artifacts'].items(): assert sha(root/name)==expecte
 for name, expected in prior['sources'].items():
     assert sha(root/'artifacts/local/owner-hotpath/source-snapshot'/name)==expected,name
     assert sha(out/'baseline/source'/name)==expected,name
-assert sha(out/'baseline/bin/ce_d3d11_probe.exe')==sha(root/'artifacts/local/owner-hotpath/final/release/bin/ce_d3d11_probe.exe')
+assert sha(out/'baseline/bin/weft_d3d11_probe.exe')==sha(root/'artifacts/local/owner-hotpath/final/release/bin/weft_d3d11_probe.exe')
 runs={}
 for name,config in [('release','Release'),('debug','Debug'),('gc','Debug')]:
     build=root/'build'/('windows-gc-stress' if name=='gc' else 'windows-msvc')
@@ -31,8 +31,8 @@ for name,config in [('release','Release'),('debug','Debug'),('gc','Debug')]:
     for folder in folders:
         src=build/'artifacts'/f'{folder}-{config}'
         shutil.copytree(src,dest/f'{folder}-ctest',dirs_exist_ok=True)
-    binaries=['ce_d3d11_probe.exe','ce_owner_executor_tests.exe','ce_owner_hotpath_tests.exe','ce_scene_contract_tests.exe','ce_script_dom_tests.exe','ce_animation_frame_tests.exe']
-    if name!='gc': binaries+=['ce_scene_gallery_tests.exe']
+    binaries=['weft_d3d11_probe.exe','weft_owner_executor_tests.exe','weft_owner_hotpath_tests.exe','weft_scene_contract_tests.exe','weft_script_dom_tests.exe','weft_animation_frame_tests.exe']
+    if name!='gc': binaries+=['weft_scene_gallery_tests.exe']
     (dest/'bin').mkdir(exist_ok=True)
     for binary in binaries: shutil.copy2(build/'bin'/config/binary,dest/'bin'/binary)
     runs[name]=record
@@ -111,14 +111,14 @@ artifacts={}
 for p in out.rglob('*'):
     if not p.is_file() or p.name=='run-metadata.json':continue
     relative=p.relative_to(out).as_posix()
-    if relative.startswith('baseline/build/') and relative not in ['baseline/build/bin/Release/ce_d3d11_probe.exe','baseline/build/CMakeCache.txt']:continue
+    if relative.startswith('baseline/build/') and relative not in ['baseline/build/bin/Release/weft_d3d11_probe.exe','baseline/build/CMakeCache.txt']:continue
     if relative.startswith('baseline/source/') and relative[len('baseline/source/'):] not in prior['sources']:continue
     artifacts[p.relative_to(root).as_posix()]=sha(p)
 record={'format':'render-stages-seal-v1','recorded_utc':datetime.now(timezone.utc).isoformat(),'tests':runs,'benchmarks':benchmarks,'sources':source_hashes,'artifacts':artifacts,
         'binaries':{k:v for k,v in artifacts.items() if k.endswith('.exe')},
         'previous_seal':{'path':prior_path.relative_to(root).as_posix(),'sha256':sha(prior_path),'verified_records':len(prior['sources'])+len(prior['artifacts'])},
-        'baseline_provenance':'isolated MSVC Release rebuild from 650 unchanged owner-hotpath sealed sources; own CE_SOURCE_DIR and bootstrap; pinned dependencies/non-gallery assets unchanged; original binary retained separately',
-        'baseline_build_cache_sha256':sha(out/'baseline/build/CMakeCache.txt'),'baseline_measured_executable_sha256':sha(out/'baseline/build/bin/Release/ce_d3d11_probe.exe'),
+        'baseline_provenance':'isolated MSVC Release rebuild from 650 unchanged owner-hotpath sealed sources; own WEFT_SOURCE_DIR and bootstrap; pinned dependencies/non-gallery assets unchanged; original binary retained separately',
+        'baseline_build_cache_sha256':sha(out/'baseline/build/CMakeCache.txt'),'baseline_measured_executable_sha256':sha(out/'baseline/build/bin/Release/weft_d3d11_probe.exe'),
         'environment':prior['environment']|{'sampling':'240 deterministic owner frames, 16 warmup, 224 samples, three alternating before/after pairs, final query drain, no readback; default and both-child affinity 0xFFFF/High conditions; no concurrent builds/tests'},
         'source_drift':drift,'native_cases':36,'catalogue_cases':72,'pending_cases':36,'original_full_gallery_rendered':False,'ultralight_comparable':False,'mobile_verified':False,
         'limits':['internal C++ owner/native pass adapters; external C ABI threading/game integration still pending','native full-card paint and encoded-to-linear conversion retained; partial damage primarily fallback','ASCII glyph coverage/other color glyph textures use Windows reference font raster, no page SDF atlas','accounted cache bytes exclude keys/active leases/driver VRAM','GPU elapsed includes CPU queue gaps and owner wait; Canvas scope changed, not pure busy time','cold-first-frame spike, long-run clocks/power, actual game integration/input-to-display latency and mobile unmeasured'],

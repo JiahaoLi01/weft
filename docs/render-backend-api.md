@@ -10,11 +10,11 @@
 | 图形 API 适配器 | 复制输入快照、创建和保护资源、材质/上传/录制、退休；解释自己的原生 pass payload | D3D11、Vulkan、Metal 或宿主自定义 function table |
 | 宿主/示例壳 | device、窗口/surface、原生录制范围、目标、实际提交、present、真实完成通知 | device epoch、队列身份、submission/completion serial |
 
-公共入口在 [render_backend.h](../include/caseelephant/render_backend.h)。使用 `ce_renderer_create` 注册复制后的 `ce_render_backend` function table；`user_data` 借用到成功 destroy。核心不按 API 编写渲染分支，也不自动创建 Vulkan/Metal device。新增 backend API ID 可按约定从 1024 起分配。所有回调和 renderer 操作都在创建 owner；同步重入返回 busy，异常不能跨 C ABI。
+公共入口在 [render_backend.h](../include/caseelephant/render_backend.h)。使用 `weft_renderer_create` 注册复制后的 `weft_render_backend` function table；`user_data` 借用到成功 destroy。核心不按 API 编写渲染分支，也不自动创建 Vulkan/Metal device。新增 backend API ID 可按约定从 1024 起分配。所有回调和 renderer 操作都在创建 owner；同步重入返回 busy，异常不能跨 C ABI。
 
 ## 当前绘制 profile
 
-`ce_render_frame` 是 prepare 调用期间借用的完整数组：有序 quad、纯色、sRGB straight 图像、线性 coverage、单通道 signed distance。资产使用非零 immutable asset ID/version、尺寸、encoding、字节数和 SDF spread；同一个身份/version 的内容不得修改。准备成功后，适配器必须拥有完整输入快照，调用者可以立即释放原始数组与像素。不同帧不依赖前一个未提交包的上传 delta。
+`weft_render_frame` 是 prepare 调用期间借用的完整数组：有序 quad、纯色、sRGB straight 图像、线性 coverage、单通道 signed distance。资产使用非零 immutable asset ID/version、尺寸、encoding、字节数和 SDF spread；同一个身份/version 的内容不得修改。准备成功后，适配器必须拥有完整输入快照，调用者可以立即释放原始数组与像素。不同帧不依赖前一个未提交包的上传 delta。
 
 默认上限为两个 prepared、两个未提交 use、64 个总在途 use、65,536 draw、512 asset 和 16 MiB 输入像素，可在 creation descriptor 进一步限制。在录制前校验 asset index、字节数、有限几何/颜色、opacity、UV、SDF 描边范围、capabilities 和 target。不支持能力显式返回错误；当前不支持通用 group、clip/path/SVG、生产 atlas。
 
@@ -24,7 +24,7 @@
 
 ## 原生 pass 与后端扩展
 
-`ce_render_pass` 带 renderer instance、API ID、device epoch、queue、target extent/format/sample count，外加 call-scoped `native_pass` 与字节长度。核心拒绝错实例/API、错 epoch、错误队列和不支持的目标，具体适配器再校验自己的 payload schema 与原生对象。opaque pointer 不是任意对象的通用解释方式；宿主必须传对应后端的有效类型。
+`weft_render_pass` 带 renderer instance、API ID、device epoch、queue、target extent/format/sample count，外加 call-scoped `native_pass` 与字节长度。核心拒绝错实例/API、错 epoch、错误队列和不支持的目标，具体适配器再校验自己的 payload schema 与原生对象。opaque pointer 不是任意对象的通用解释方式；宿主必须传对应后端的有效类型。
 
 [D3D11 payload](../include/caseelephant/render_backend_d3d11.h) 借用新建的 exclusive deferred context 和同 device RTV，返回一份由宿主持有的 command list COM 引用。默认保留目标内容；显式 clear 可用于独立样例。适配器只录制/关闭这份专用 list，不 Execute、Present 或等待。示例支持固定 reference canvas 尺寸，不宣称任意 target geometry 已验收。
 
@@ -37,13 +37,13 @@
 1. prepare 成功返回 owner/epoch/generation handle；输入快照归适配器。
 2. encode 在写任何 GPU 资源引用前保护依赖，预留提交容量。核心也在调用 callback 前预留固定 use slot。
 3. release_prepared 只释放缓存与 CPU 快照。编码 use 独立保持资源存活。
-4. 宿主实际 submit 后调用 `ce_renderer_notify_submitted`。同一次 submit 可绑定多个 use；合法通知不得分配或因容量满而失败。错队列/serial 保留 pin，允许纠正重试。
-5. 宿主报告真实完成 timeline，`ce_renderer_notify_completed` 才退休 use。完成 serial 可以覆盖同队列里没有 UI use 的宿主工作。
-6. 取消必须先销毁/撤销该 use 的全部原生命令，再 `ce_renderer_discard_encoded`。已提交 use 不能取消。
+4. 宿主实际 submit 后调用 `weft_renderer_notify_submitted`。同一次 submit 可绑定多个 use；合法通知不得分配或因容量满而失败。错队列/serial 保留 pin，允许纠正重试。
+5. 宿主报告真实完成 timeline，`weft_renderer_notify_completed` 才退休 use。完成 serial 可以覆盖同队列里没有 UI use 的宿主工作。
+6. 取消必须先销毁/撤销该 use 的全部原生命令，再 `weft_renderer_discard_encoded`。已提交 use 不能取消。
 
 encode 的错误不总等于“没录制任何命令”。若 callback 完整撤销所有部分命令，它返回 native_use=0；否则错误仍返回有效 use handle，由宿主先取消原生命令再 discard，或者在确实提交部分命令后履行提交/完成协议。这保证失败不会释放仍被引用的资源；提交了部分命令并不代表正确绘制了 UI。
 
-destroy 开始 drain，存在 prepared/encoded/submitted handle 时返回 busy，保留 renderer 与 callback data；继续释放、取消或完成后再 destroy。设备真正丢失时，宿主首先取消未提交 native scope，并保证旧设备永远不会再访问资源，才能 `ce_renderer_abandon_device`。surface 丢失、暂停或窗口关闭不够。旧 prepared 正常 release，新设备创建新 adapter/renderer epoch；实际 driver device-removal 尚未测试。
+destroy 开始 drain，存在 prepared/encoded/submitted handle 时返回 busy，保留 renderer 与 callback data；继续释放、取消或完成后再 destroy。设备真正丢失时，宿主首先取消未提交 native scope，并保证旧设备永远不会再访问资源，才能 `weft_renderer_abandon_device`。surface 丢失、暂停或窗口关闭不够。旧 prepared 正常 release，新设备创建新 adapter/renderer epoch；实际 driver device-removal 尚未测试。
 
 ## 实际实现与复现
 
@@ -58,8 +58,8 @@ destroy 开始 drain，存在 prepared/encoded/submitted handle 时返回 busy�
 ```powershell
 cmake --build --preset windows-debug --parallel 4
 ctest --preset windows-debug
-.\build\windows-msvc\bin\Debug\ce_d3d11_probe.exe --backend-hardware artifacts/local/backend-debug/api-hardware
-.\build\windows-msvc\bin\Debug\ce_d3d11_probe.exe --react-window-test-hardware artifacts/local/backend-debug/window-hardware
+.\build\windows-msvc\bin\Debug\weft_d3d11_probe.exe --backend-hardware artifacts/local/backend-debug/api-hardware
+.\build\windows-msvc\bin\Debug\weft_d3d11_probe.exe --react-window-test-hardware artifacts/local/backend-debug/window-hardware
 ```
 
 `render_backend_contract` 验证不同 API/native schema、独立 instance、BGRA 能力、最新世代、输入 ownership、线程/重入、容量、分配失败期间提交/完成、部分录制失败、drain 与 host-confirmed abandon。`render_backend_c_abi` 用 C11 编译公开头文件并调用实际导出符号。

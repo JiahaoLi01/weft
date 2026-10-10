@@ -61,7 +61,7 @@ for name, expected in prior['artifacts'].items():
 for name, expected in prior['sources'].items():
     assert sha(root / 'artifacts/local/css-middle-performance/source-snapshot' / name) == expected, name
     assert sha(out / 'baseline/source' / name) == expected, name
-assert sha(out / 'baseline/bin/ce_d3d11_probe.exe') == sha(root / 'artifacts/local/css-middle-performance/final/release/bin/ce_d3d11_probe.exe')
+assert sha(out / 'baseline/bin/weft_d3d11_probe.exe') == sha(root / 'artifacts/local/css-middle-performance/final/release/bin/weft_d3d11_probe.exe')
 
 runs = {}
 for name, config in [('release', 'Release'), ('debug', 'Debug'), ('gc', 'Debug')]:
@@ -91,9 +91,9 @@ for name, config in [('release', 'Release'), ('debug', 'Debug'), ('gc', 'Debug')
         record['scope'] = 'DOM lifecycle, native scheduler/revisions, rAF, scene, complex GPU/software, external texture, two frame, render cache; original large gallery/window GC not rerun'
         for item in ['external-texture', 'two-frame', 'render-cache']:
             shutil.copytree(build / f'artifacts/{item}-{config}/warp', destination / item, dirs_exist_ok=True)
-    names = ['ce_d3d11_probe.exe', 'ce_scene_contract_tests.exe', 'ce_owner_hotpath_tests.exe', 'ce_script_dom_tests.exe', 'ce_animation_frame_tests.exe']
+    names = ['weft_d3d11_probe.exe', 'weft_scene_contract_tests.exe', 'weft_owner_hotpath_tests.exe', 'weft_script_dom_tests.exe', 'weft_animation_frame_tests.exe']
     if name != 'gc':
-        names += ['ce_scene_gallery_tests.exe']
+        names += ['weft_scene_gallery_tests.exe']
     (destination / 'bin').mkdir(exist_ok=True)
     for binary in names:
         shutil.copy2(build / 'bin' / config / binary, destination / 'bin' / binary)
@@ -153,7 +153,7 @@ for p in out.rglob('*'):
     relative = p.relative_to(out).as_posix()
     # Build intermediates and dependency hardlinks are reproducible inputs,
     # not separate measured artifacts. The measured isolated binary is sealed.
-    if relative.startswith('baseline/build/') and relative not in ['baseline/build/bin/Release/ce_d3d11_probe.exe', 'baseline/build/CMakeCache.txt']:
+    if relative.startswith('baseline/build/') and relative not in ['baseline/build/bin/Release/weft_d3d11_probe.exe', 'baseline/build/CMakeCache.txt']:
         continue
     if relative.startswith('baseline/source/') and relative[len('baseline/source/'):] not in prior['sources']:
         continue
@@ -162,9 +162,9 @@ record = {'format': 'owner-hotpath-seal-v1', 'recorded_utc': datetime.now(timezo
           'tests': runs, 'benchmarks': benchmarks, 'sources': source_hashes, 'artifacts': artifacts,
           'binaries': {k: v for k, v in artifacts.items() if k.endswith('.exe')},
           'previous_seal': {'path': prior_path.relative_to(root).as_posix(), 'sha256': sha(prior_path), 'verified_records': len(prior['sources']) + len(prior['artifacts'])},
-          'baseline_provenance': 'MSVC Release rebuilt from 642 unchanged previous sealed source files; isolated CE_SOURCE_DIR and previous bootstrap modules; unchanged pinned dependencies/non-gallery assets hardlinked and integrity checked; previous original binary retained separately',
+          'baseline_provenance': 'MSVC Release rebuilt from 642 unchanged previous sealed source files; isolated WEFT_SOURCE_DIR and previous bootstrap modules; unchanged pinned dependencies/non-gallery assets hardlinked and integrity checked; previous original binary retained separately',
           'baseline_build_cache_sha256': sha(out / 'baseline/build/CMakeCache.txt'),
-          'baseline_measured_executable_sha256': sha(out / 'baseline/build/bin/Release/ce_d3d11_probe.exe'),
+          'baseline_measured_executable_sha256': sha(out / 'baseline/build/bin/Release/weft_d3d11_probe.exe'),
           'environment': prior['environment'] | {'sampling': '240 fixed 60Hz owner frames, 16 warmup, 224 CPU/GPU intervals, final query drain, no readback; 3 alternating pairs per scenario/condition; no concurrent builds/tests',
                                                   'controlled_sampling': 'both child processes affinity 0xFFFF (logical CPUs 0-15), High priority set during startup; interactive window unchanged'},
           'source_drift': drift, 'native_cases': 36, 'catalogue_cases': 72, 'pending_cases': 36,

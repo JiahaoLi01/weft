@@ -6,10 +6,10 @@
 #include <iostream>
 #include <stdexcept>
 #include <thread>
-using namespace caseelephant;
+using namespace weft;
 
 namespace {
-    using caseelephant::testing::require;
+    using weft::testing::require;
 
     template <class F>
     void rejects(F f, const char* prefix) {
@@ -26,9 +26,10 @@ namespace {
 int main() {
     try {
         const auto latin =
-            std::filesystem::path(CE_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
-        const auto cjk = std::filesystem::path(CE_SOURCE_DIR "/third_party/noto-cjk/source/NotoSansCJKsc-Regular.otf");
-        TextProbeFontSet fonts({latin, cjk});
+            std::filesystem::path(WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
+        const auto cjk =
+            std::filesystem::path(WEFT_SOURCE_DIR "/third_party/noto-cjk/source/NotoSansCJKsc-Regular.otf");
+        FontSet fonts({latin, cjk});
         require(fonts.primary().shape("仓库", 16).missing_glyph, "primary font unexpectedly covers Chinese");
         const auto mixed = fonts.shape("A仓B", 16);
         require(!mixed.shaped.missing_glyph && mixed.runs.size() == 3, "Chinese fallback failed");
@@ -42,7 +43,7 @@ int main() {
                     latin_shape.glyphs.size() == set_shape.shaped.glyphs.size(),
                 "Latin ligatures split by cluster fallback");
         require(std::abs(latin_shape.advance - set_shape.shaped.advance) <
-                    caseelephant::test_constants::style_text::float_tolerance,
+                    weft::test_constants::style_text::float_tolerance,
                 "Latin advance changed");
         const auto hits = fonts.shape_cache_stats().hits;
         const auto repeated = fonts.shape("A仓B", 16);
@@ -53,7 +54,7 @@ int main() {
         poisoned.shaped.glyphs.front().glyph_id = 0;
         require(fonts.shape("A仓B", 16).shaped.glyphs.front().glyph_id == mixed.shaped.glyphs.front().glyph_id,
                 "shape cache exposes mutable storage");
-        TextProbeFontSet reference({latin, cjk});
+        FontSet reference({latin, cjk});
         for (const auto size : {13.25f, 52.f, 16.f, 27.f, 13.25f}) {
             const auto actual = fonts.shape("AV 仓库 office", size);
             const auto expected = reference.shape("AV 仓库 office", size);
@@ -68,11 +69,11 @@ int main() {
                         "cached source cluster/font/position differs");
             }
         }
-        for (unsigned i = 0; i < caseelephant::test_constants::style_text::shape_cache_churn_inserts; ++i) {
+        for (unsigned i = 0; i < weft::test_constants::style_text::shape_cache_churn_inserts; ++i) {
             (void)fonts.shape("cache-churn-" + std::to_string(i), 16);
         }
-        require(fonts.shape_cache_stats().entries <= caseelephant::constants::text::shape_cache_max_entries &&
-                    fonts.shape_cache_stats().bytes <= caseelephant::constants::text::shape_cache_max_bytes &&
+        require(fonts.shape_cache_stats().entries <= weft::constants::text::shape_cache_max_entries &&
+                    fonts.shape_cache_stats().bytes <= weft::constants::text::shape_cache_max_bytes &&
                     fonts.shape("A仓B", 16).shaped.advance == mixed.shaped.advance,
                 "bounded shape cache eviction changed output");
         const auto composed = fonts.shape("仓\xcc\x81", 20);
@@ -87,40 +88,40 @@ int main() {
         }
         require(fonts.shape("\xf0\xb1\x8d\x90", 16).shaped.missing_glyph,
                 "missing Extension-H glyph silently accepted");
-        TextProbeFontSet missing({latin});
+        FontSet missing({latin});
         require(missing.shape("仓", 16).shaped.missing_glyph, "missing fallback needs diagnostic data");
         rejects(
             [&] {
                 fonts.shape(std::string("\xc0\xaf", 2), 16);
             },
-            "CE_TEXT_UTF8:");
+            "WEFT_TEXT_UTF8:");
         rejects(
             [&] {
                 fonts.shape("العربية", 16);
             },
-            "CE_TEXT_SCRIPT:");
+            "WEFT_TEXT_SCRIPT:");
         rejects(
             [&] {
                 fonts.shape("A\xe2\x80\xae", 16);
             },
-            "CE_TEXT_SCRIPT:");
+            "WEFT_TEXT_SCRIPT:");
         rejects(
             [&] {
                 fonts.shape("test", 0);
             },
-            "CE_FONT_SIZE:");
+            "WEFT_FONT_SIZE:");
         auto bad = mixed.shaped.glyphs[0];
         bad.font_id = 99;
         rejects(
             [&] {
                 fonts.rasterize(bad, 16);
             },
-            "CE_FONT_ID:");
+            "WEFT_FONT_ID:");
         rejects(
             [&] {
                 fonts.primary().rasterize(mixed.shaped.glyphs[1], 16);
             },
-            "CE_FONT_ID:");
+            "WEFT_FONT_ID:");
         bool owner_rejected{};
         std::thread other([&] {
             try {

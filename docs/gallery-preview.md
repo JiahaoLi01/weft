@@ -1,6 +1,6 @@
 # 当前检查入口（2026-10-10）
 
-`ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/gallery-cluster/interactive`：4K、FPS/OWNER Hz、72标签/十组，66原例像素、6诊断。新30例的交互、共享能力和原始 Throw 问题见 [本轮合同](gallery-shared-cluster.md)。以下为此前36例阶段的历史记录，其计数和旧封存路径不代表当前二进制。
+`weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/gallery-cluster/interactive`：4K、FPS/OWNER Hz、72标签/十组，66原例像素、6诊断。新30例的交互、共享能力和原始 Throw 问题见 [本轮合同](gallery-shared-cluster.md)。以下为此前36例阶段的历史记录，其计数和旧封存路径不代表当前二进制。
 
 # 4K Gallery 检查窗口
 
@@ -12,7 +12,7 @@
 
 ```powershell
 cmake --build --preset windows-release --parallel 10
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/render-stages/interactive
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/render-stages/interactive
 ```
 
 窗口默认最大化，内部目标为 **3840×2160**；逻辑 shell 为 1920×1080，文字以设备字号重新栅格。实际窗口较小时等比例显示，不改变内部目标。鼠标坐标经过窗口、4K surface、shell 和 Canvas 卡片映射。原样 Canvas backing 仍是 800×600，卡片居中显示；4K 合成不等于把原始位图细节变成 4K。
@@ -28,7 +28,7 @@ cmake --build --preset windows-release --parallel 10
 
 ## 时钟错误修复
 
-原可见 Canvas host 用 `std::to_string(double)` 给 timer pump 传时间，只保留 6 位小数；rAF 则使用 17 位精度。同一个 `.2500006` 会先被 timer 舍入到 `.250001`，随后 rAF 读到更小的时间，触发 `CE_HOST_TIME`。新增 classic locale / `max_digits10` 的可往返序列化，两者使用同一个宿主时间。单调性检查保留。
+原可见 Canvas host 用 `std::to_string(double)` 给 timer pump 传时间，只保留 6 位小数；rAF 则使用 17 位精度。同一个 `.2500006` 会先被 timer 舍入到 `.250001`，随后 rAF 读到更小的时间，触发 `WEFT_HOST_TIME`。新增 classic locale / `max_digits10` 的可往返序列化，两者使用同一个宿主时间。单调性检查保留。
 
 `animation_frame_contract` 明确证明旧格式会被拒绝，再验证 1,024 个不同小数时间的 timer/rAF/pump 与共同时间戳。旧 Canvas 窗口隐藏测试现在也使用会触发旧 bug 的小数；新目录窗口直接使用实际 steady clock，覆盖离屏暂停、恢复和输入。
 
@@ -49,8 +49,8 @@ CPU tick 截止到本帧提交/Present 返回；确定性 benchmark 包含等待
 ```powershell
 ctest --preset windows-release --output-on-failure
 ctest --preset windows-debug --output-on-failure
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-window-test-hardware artifacts/local/gallery-performance/manual/release/window-hardware
-& .\build\windows-msvc\bin\Debug\ce_d3d11_probe.exe --gallery-window-test-hardware artifacts/local/gallery-performance/manual/debug/window-hardware
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-window-test-hardware artifacts/local/gallery-performance/manual/release/window-hardware
+& .\build\windows-msvc\bin\Debug\weft_d3d11_probe.exe --gallery-window-test-hardware artifacts/local/gallery-performance/manual/debug/window-hardware
 ```
 
 首次软件路径34例的实际结果与 seal 在 `artifacts/local/gallery-css-d3/`，当前 GPU/优化版证据在 `artifacts/local/gallery-performance/`；完整 Debug/Release/GC 命令和通过数见 [status](status.md)。原例102张截图与1476字段独立浏览器对照、120轮随机mutation和卸载反例见 [scene gallery](scene-gallery.md)。隐藏4K窗口仍跑160帧/72标签/288卡片几何/17完整绘制包差分/1680 GPU-CPU像素采样，并新增 CSS悬停/点击与滚动中段/末段/D3截图。10组首屏截图只覆盖当时可见的53张卡；其余位置通过全目录几何检查，不声称十张图片展示所有卡片。

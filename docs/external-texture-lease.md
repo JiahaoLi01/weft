@@ -4,13 +4,13 @@
 
 ## 所有权与同步
 
-宿主创建普通 renderer，在空闲时安装一次 `ce_render_external_backend`。扩展提供 import/release/prepare 回调，原 backend 的 encode/release/submitted/completed 负责扩展生成的 prepared frame；两套回调必须理解同一个 native frame/use 命名空间。通用层没有 COM、Vulkan 或 Metal 分支。
+宿主创建普通 renderer，在空闲时安装一次 `weft_render_external_backend`。扩展提供 import/release/prepare 回调，原 backend 的 encode/release/submitted/completed 负责扩展生成的 prepared frame；两套回调必须理解同一个 native frame/use 命名空间。通用层没有 COM、Vulkan 或 Metal 分支。
 
 成功 import 后，adapter 持有强 native 引用，通用层返回带 renderer/device epoch/slot/generation 的调用方 lease。描述与 native payload 只在 import 调用期间借用；退休 callback 的 user data 必须保持到 callback。失败没有引用转移，也不触发 callback。当前没有跨线程调用或隐式 retain；同一个有效调用方 lease 可用于多个 prepared/use。
 
-`ce_render_external_frame` 传完整 CPU 资产和完整 external handle 数组，draw 索引先 CPU 后 external。prepare 复制完整绘制数据并保护全部依赖；encode 在命令开始前独立增加 use pin，部分错误返回有效 use 时也保留 pin。帧可独立录制，不依赖被丢弃的旧帧。调用方数组、native view 和 prepared 可随后销毁。
+`weft_render_external_frame` 传完整 CPU 资产和完整 external handle 数组，draw 索引先 CPU 后 external。prepare 复制完整绘制数据并保护全部依赖；encode 在命令开始前独立增加 use pin，部分错误返回有效 use 时也保留 pin。帧可独立录制，不依赖被丢弃的旧帧。调用方数组、native view 和 prepared 可随后销毁。
 
-`ce_renderer_release_texture` 立即使调用方句柄失效，已有 prepared/encoded/submitted pin 继续有效。所有 pin 和调用方 lease 都消失后，先调用 adapter release，再在 owner 调用退休 callback，恰好一次。已提交使用只能等宿主真实 completion serial；等待固定帧数、录制结束或释放 prepared 都不能提前退休。callback 不得分配、抛出异常或重入 renderer。合法 submitted/completed 的容量已在安装/encode 前预留，不再分配。
+`weft_renderer_release_texture` 立即使调用方句柄失效，已有 prepared/encoded/submitted pin 继续有效。所有 pin 和调用方 lease 都消失后，先调用 adapter release，再在 owner 调用退休 callback，恰好一次。已提交使用只能等宿主真实 completion serial；等待固定帧数、录制结束或释放 prepared 都不能提前退休。callback 不得分配、抛出异常或重入 renderer。合法 submitted/completed 的容量已在安装/encode 前预留，不再分配。
 
 当前同步模式仅 `SAME_QUEUE_ORDERED`：生产者写入必须在每个 UI 消费提交之前进入同 device、同宿主队列。import 到退休期间内容冻结，不能原地刷新仍在途的纹理。动态生产者轮换两张或更多纹理，每次发布新的版本，回调后才允许复用；只 release 调用方句柄还不够。adapter 拒绝同一 native resource 在旧 import 存活时伪装成新版本重新导入。跨 device、keyed mutex、共享资源和异步多队列没有自动 wait/signal 路径。
 
@@ -35,7 +35,7 @@ cmake --build --preset windows-debug --parallel 10
 ctest --preset windows-debug
 cmake --build --preset windows-release --parallel 10
 ctest --preset windows-release
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --external-texture-hardware artifacts/local/external-texture/release/hardware
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --external-texture-hardware artifacts/local/external-texture/release/hardware
 # 显式软件 GPU：--external-texture-warp
 ```
 

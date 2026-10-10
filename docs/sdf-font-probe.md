@@ -6,7 +6,7 @@
 
 HarfBuzz 的 glyph ID、advance、offset 与 cluster 决定逻辑排版；SDF 只改变字形图像与 shader 材质。生成时记录 base ppem、spread、generator 和包含 padding 的 bitmap bearing。绘制 quad 使用该 bearing，不能把 padding 加进 advance、line box 或文本 hit box。空格继续保留 advance，返回空 bitmap，不分配 quad。
 
-`TextProbeFont::rasterize_sdf` 接受 base 16..128 ppem、spread 2..32 源 texel，字体仍在 owner 线程串行使用。默认先生成普通灰度 bitmap，再让 FreeType 的 bsdf renderer 生成距离场；显式 Outline 选项直接使用 sdf renderer，不做隐式 generator fallback。每次重置 range、sign、Y 方向与 outline overlap 策略。FreeType 此处的 flip_sign/flip_y 属性参数是 FT_Int，overlaps 是 FT_Bool；两者不能混用。
+`Font::rasterize_sdf` 接受 base 16..128 ppem、spread 2..32 源 texel，字体仍在 owner 线程串行使用。默认先生成普通灰度 bitmap，再让 FreeType 的 bsdf renderer 生成距离场；显式 Outline 选项直接使用 sdf renderer，不做隐式 generator fallback。每次重置 range、sign、Y 方向与 outline overlap 策略。FreeType 此处的 flip_sign/flip_y 属性参数是 FT_Int，overlaps 是 FT_Bool；两者不能混用。
 
 bsdf 避免直接 outline renderer 对细小特征、重叠/自交轮廓的部分限制，但保留了基础 bitmap 的精度边界。单通道距离场的尖角与大倍率效果需要独立质量验收；不会承诺任意倍率与字体都精确。FreeType 的限制与 generator 说明见 [官方 spread 文档](https://freetype.org/freetype2/docs/reference/ft2-properties.html#spread)；实际实现以本仓库固定 2.13.3 的头文件和源码为准。
 
@@ -52,11 +52,11 @@ Roboto Regular 2.138 已包含于固定 HarfBuzz perf/fonts，未复制或修改
 ```powershell
 cmake --build --preset windows-debug --parallel 4
 ctest --preset windows-debug
-.\build\windows-msvc\bin\Debug\ce_d3d11_probe.exe --sdf-hardware artifacts/local/sdf-debug/hardware
-.\build\windows-msvc\bin\Debug\ce_d3d11_probe.exe --sdf-warp artifacts/local/sdf-debug/warp
+.\build\windows-msvc\bin\Debug\weft_d3d11_probe.exe --sdf-hardware artifacts/local/sdf-debug/hardware
+.\build\windows-msvc\bin\Debug\weft_d3d11_probe.exe --sdf-warp artifacts/local/sdf-debug/warp
 cmake --build --preset windows-release --parallel 4
 ctest --preset windows-release
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --sdf-hardware artifacts/local/sdf-release/hardware
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --sdf-hardware artifacts/local/sdf-release/hardware
 ```
 
 每次 GPU 运行产生 report.json、direct.png、rtt.png 和 distance-atlas.png。最后一张展示的是距离字节，不能作为 coverage 截图解读。CTest 自动 WARP 产物在 `build/windows-msvc/artifacts/sdf-Debug/warp` 与 `sdf-Release/warp`；硬件产物、最终 CTest 日志和代码/报告 hash 元数据在 `artifacts/local/sdf-debug`、`sdf-release`。生成产物被 Git 忽略。

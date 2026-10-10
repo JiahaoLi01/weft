@@ -57,29 +57,28 @@
 // An independent M0 host/renderer experiment. No DOM or stable renderer API.
 namespace {
     using Microsoft::WRL::ComPtr;
-    using namespace caseelephant::render;
-    constexpr UINT width = caseelephant::probe_constants::color_fixture_width;
-    constexpr UINT height = caseelephant::probe_constants::color_fixture_height;
+    using namespace weft::render;
+    constexpr UINT width = weft::probe_constants::color_fixture_width;
+    constexpr UINT height = weft::probe_constants::color_fixture_height;
 
-    using caseelephant::testing::check_hresult;
-    using caseelephant::testing::format_host_time;
-    using caseelephant::testing::json_string;
-    using caseelephant::testing::OwnerTrace;
-    using caseelephant::testing::read_file;
-    using caseelephant::testing::require;
-    using caseelephant::testing::TraceControl;
-    using caseelephant::testing::WindowFrameRate;
+    using weft::testing::check_hresult;
+    using weft::testing::format_host_time;
+    using weft::testing::json_string;
+    using weft::testing::OwnerTrace;
+    using weft::testing::read_file;
+    using weft::testing::require;
+    using weft::testing::TraceControl;
+    using weft::testing::WindowFrameRate;
 
     void lifetime(LifetimeResult r, const char* operation) {
         require(r == LifetimeResult::Ok, operation);
     }
 
     float decode(float c) {
-        return c <= caseelephant::probe_constants::srgb_decode_threshold
-                   ? c / caseelephant::probe_constants::srgb_linear_slope
-                   : std::pow((c + caseelephant::probe_constants::srgb_offset) /
-                                  caseelephant::probe_constants::srgb_scale,
-                              caseelephant::probe_constants::srgb_gamma);
+        return c <= weft::probe_constants::srgb_decode_threshold
+                   ? c / weft::probe_constants::srgb_linear_slope
+                   : std::pow((c + weft::probe_constants::srgb_offset) / weft::probe_constants::srgb_scale,
+                              weft::probe_constants::srgb_gamma);
     }
 
     std::string utf8(const wchar_t* text) {
@@ -138,14 +137,14 @@ namespace {
         // Fully transparent blue must not pollute filtered opaque red.
         p.assets.push_back(
             std::make_shared<const Asset>(Asset{2, 1, Encoding::SrgbStraight, {255, 0, 0, 255, 0, 0, 255, 0}}));
-        caseelephant::TextProbeFont font(CE_SOURCE_DIR "/third_party/ahem/Ahem.ttf");
+        weft::Font font(WEFT_SOURCE_DIR "/third_party/ahem/Ahem.ttf");
         const auto shaped = font.shape("X", 24);
         const auto glyph = font.rasterize(shaped.glyphs[0].glyph_id, 24);
         p.assets.push_back(
             std::make_shared<const Asset>(Asset{glyph.width, glyph.height, Encoding::Coverage, glyph.coverage}));
-        p.draws.push_back({{0, 0, caseelephant::probe_constants::color_fixture_width,
-                            caseelephant::probe_constants::color_fixture_height},
-                           {0, 0, 0, 1}});
+        p.draws.push_back(
+            {{0, 0, weft::probe_constants::color_fixture_width, weft::probe_constants::color_fixture_height},
+             {0, 0, 0, 1}});
         p.draws.push_back({{0, 0, 64, 64}, {1, 1, 1, 0.5f}});
         p.draws.push_back({{64, 0, 64, 64}, {1, 0, 0, 0.5f}});
         p.draws.push_back({{64, 0, 64, 64}, {0, 0, 1, 0.5f}});
@@ -168,20 +167,18 @@ namespace {
 
     SdfScene sdf_scene() {
         SdfScene scene;
-        auto atlas =
-            std::make_shared<Asset>(Asset{caseelephant::probe_constants::sdf_atlas_width,
-                                          caseelephant::probe_constants::sdf_atlas_height, Encoding::SignedDistance,
-                                          std::vector<std::uint8_t>(caseelephant::probe_constants::sdf_atlas_width *
-                                                                    caseelephant::probe_constants::sdf_atlas_height),
-                                          caseelephant::constants::text::sdf_default_spread});
+        auto atlas = std::make_shared<Asset>(Asset{
+            weft::probe_constants::sdf_atlas_width, weft::probe_constants::sdf_atlas_height, Encoding::SignedDistance,
+            std::vector<std::uint8_t>(weft::probe_constants::sdf_atlas_width * weft::probe_constants::sdf_atlas_height),
+            weft::constants::text::sdf_default_spread});
 
         struct Cell {
-            caseelephant::ProbeSdfBitmap bitmap;
+            weft::SdfBitmap bitmap;
             UINT x{};
             UINT y{};
         };
 
-        const auto pack = [&](caseelephant::ProbeSdfBitmap bitmap, UINT x, UINT y) {
+        const auto pack = [&](weft::SdfBitmap bitmap, UINT x, UINT y) {
             require(x + bitmap.width + 1 < atlas->width && y + bitmap.height + 1 < atlas->height,
                     "fixed probe atlas capacity");
             for (UINT row = 0; row < bitmap.height; ++row) {
@@ -192,42 +189,42 @@ namespace {
             scene.distance_bytes += bitmap.distances.size();
             return Cell{std::move(bitmap), x, y};
         };
-        caseelephant::TextProbeFont ahem(CE_SOURCE_DIR "/third_party/ahem/Ahem.ttf");
-        const auto shape = ahem.shape("X", caseelephant::constants::text::sdf_default_base_ppem);
+        weft::Font ahem(WEFT_SOURCE_DIR "/third_party/ahem/Ahem.ttf");
+        const auto shape = ahem.shape("X", weft::constants::text::sdf_default_base_ppem);
         const auto square =
-            pack(ahem.rasterize_sdf(shape.glyphs[0].glyph_id, caseelephant::constants::text::sdf_default_base_ppem,
-                                    caseelephant::constants::text::sdf_default_spread),
+            pack(ahem.rasterize_sdf(shape.glyphs[0].glyph_id, weft::constants::text::sdf_default_base_ppem,
+                                    weft::constants::text::sdf_default_spread),
                  1, 1);
-        scene.packet.draws.push_back({{0, 0, caseelephant::probe_constants::color_fixture_width,
-                                       caseelephant::probe_constants::color_fixture_height},
-                                      {0, 0, 0, 1}});
+        scene.packet.draws.push_back(
+            {{0, 0, weft::probe_constants::color_fixture_width, weft::probe_constants::color_fixture_height},
+             {0, 0, 0, 1}});
         const auto glyph_draw = [&](const Cell& cell, float pen, float baseline, float scale) {
             const auto& b = cell.bitmap;
             Draw d{
                 {pen + b.left * scale, baseline - b.top * scale, b.width * scale, b.height * scale}, {1, 1, 1, 1}, 0};
-            d.uv = {cell.x / static_cast<float>(caseelephant::probe_constants::sdf_atlas_width),
-                    cell.y / static_cast<float>(caseelephant::probe_constants::sdf_atlas_height),
-                    b.width / static_cast<float>(caseelephant::probe_constants::sdf_atlas_width),
-                    b.height / static_cast<float>(caseelephant::probe_constants::sdf_atlas_height)};
+            d.uv = {cell.x / static_cast<float>(weft::probe_constants::sdf_atlas_width),
+                    cell.y / static_cast<float>(weft::probe_constants::sdf_atlas_height),
+                    b.width / static_cast<float>(weft::probe_constants::sdf_atlas_width),
+                    b.height / static_cast<float>(weft::probe_constants::sdf_atlas_height)};
             return d;
         };
         // Same generated glyph, unchanged logical shape; only device quad scale varies.
         for (const auto& body : scene.squares) {
-            const float scale = body.w / caseelephant::constants::text::sdf_default_base_ppem;
+            const float scale = body.w / weft::constants::text::sdf_default_base_ppem;
             scene.packet.draws.push_back(glyph_draw(square, body.x, body.y + 32 * scale, scale));
         }
         auto stroke = glyph_draw(square, scene.stroked.x, scene.stroked.y + 16, 0.5f);
         stroke.stroke = 2;
         stroke.outline = {0, 0, 1, 1};
         scene.packet.draws.push_back(stroke);
-        caseelephant::TextProbeFont roboto(CE_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
-        const auto latin = roboto.shape("SDF", caseelephant::constants::text::sdf_default_base_ppem);
+        weft::Font roboto(WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
+        const auto latin = roboto.shape("SDF", weft::constants::text::sdf_default_base_ppem);
         require(!latin.missing_glyph && latin.glyphs.size() == 3, "actual Latin glyph shape");
         UINT cursor = 70;
         std::vector<Cell> letters;
         for (const auto& glyph : latin.glyphs) {
-            auto cell = pack(roboto.rasterize_sdf(glyph.glyph_id, caseelephant::constants::text::sdf_default_base_ppem,
-                                                  caseelephant::constants::text::sdf_default_spread),
+            auto cell = pack(roboto.rasterize_sdf(glyph.glyph_id, weft::constants::text::sdf_default_base_ppem,
+                                                  weft::constants::text::sdf_default_spread),
                              cursor, 1);
             cursor += cell.bitmap.width + 2;
             letters.push_back(std::move(cell));
@@ -245,12 +242,12 @@ namespace {
         // Poison immediately beyond each one-texel guard. Any atlas UV bleed is visible.
         for (UINT y = 0; y < 65; ++y) {
             for (UINT x = 58; x < 64; ++x) {
-                atlas->bytes[y * caseelephant::probe_constants::sdf_atlas_width + x] = 255;
+                atlas->bytes[y * weft::probe_constants::sdf_atlas_width + x] = 255;
             }
         }
         for (UINT y = 70; y < 74; ++y) {
-            std::fill_n(atlas->bytes.data() + y * caseelephant::probe_constants::sdf_atlas_width,
-                        caseelephant::probe_constants::sdf_atlas_width, std::uint8_t{255});
+            std::fill_n(atlas->bytes.data() + y * weft::probe_constants::sdf_atlas_width,
+                        weft::probe_constants::sdf_atlas_width, std::uint8_t{255});
         }
         scene.packet.assets.push_back(std::move(atlas));
         return scene;
@@ -352,14 +349,14 @@ namespace {
         std::size_t peak_cached_bytes{};
         std::size_t cache_hits{};
         std::size_t native_creations{};
-        std::size_t cache_resource_limit{caseelephant::probe_constants::gpu_cache_max_resources};
-        std::size_t cache_byte_limit{caseelephant::probe_constants::gpu_cache_max_bytes};
+        std::size_t cache_resource_limit{weft::probe_constants::gpu_cache_max_resources};
+        std::size_t cache_byte_limit{weft::probe_constants::gpu_cache_max_bytes};
         std::string adapter;
         D3D_FEATURE_LEVEL level{};
         bool debug_layer{};
         bool submitted{};
         bool acknowledged{};
-        SubmissionSerial pending_completion{caseelephant::probe_constants::fixture_host_serial};
+        SubmissionSerial pending_completion{weft::probe_constants::fixture_host_serial};
         SubmissionSerial window_serial{};
         ProbeBackend* backend{}; // Owned; destroyed only after actual GPU drain.
         ProbeBackend& ensure_backend();
@@ -369,11 +366,11 @@ namespace {
         std::size_t native_releases{};
         Color transparent_sample{};
 
-        explicit Experiment(bool warp, UINT w = caseelephant::probe_constants::color_fixture_width,
-                            UINT h = caseelephant::probe_constants::color_fixture_height)
+        explicit Experiment(bool warp, UINT w = weft::probe_constants::color_fixture_width,
+                            UINT h = weft::probe_constants::color_fixture_height)
             : width(w), height(h) {
-            require(w && h && w <= caseelephant::probe_constants::max_surface_dimension &&
-                        h <= caseelephant::probe_constants::max_surface_dimension,
+            require(w && h && w <= weft::probe_constants::max_surface_dimension &&
+                        h <= weft::probe_constants::max_surface_dimension,
                     "bounded probe surface");
             ComPtr<IDXGIFactory1> factory;
             check_hresult(CreateDXGIFactory1(IID_PPV_ARGS(&factory)), "CreateDXGIFactory1");
@@ -424,7 +421,7 @@ namespace {
             ComPtr<ID3DBlob> vertex_code;
             ComPtr<ID3DBlob> pixel_code;
             ComPtr<ID3DBlob> errors;
-            const auto shader = std::filesystem::path(CE_SOURCE_DIR) / "shaders/m0_probe.hlsl";
+            const auto shader = std::filesystem::path(WEFT_SOURCE_DIR) / "shaders/m0_probe.hlsl";
             UINT flags = D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_WARNINGS_ARE_ERRORS;
 #ifndef NDEBUG
             flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
@@ -526,12 +523,12 @@ namespace {
                 asset_identities.erase(i); // Address reuse cannot alias an old version.
             }
             // Weak metadata retains no CPU bitmap and keeps all live identities stable.
-            if (asset_identities.size() >= caseelephant::probe_constants::asset_identity_prune_threshold) {
+            if (asset_identities.size() >= weft::probe_constants::asset_identity_prune_threshold) {
                 std::erase_if(asset_identities, [](const auto& entry) {
                     return entry.second.first.expired();
                 });
             }
-            require(asset_identities.size() < caseelephant::probe_constants::max_asset_identities,
+            require(asset_identities.size() < weft::probe_constants::max_asset_identities,
                     "live asset identity metadata bound");
             require(next_asset_identity != UINT64_MAX, "asset identity generation bound");
             const auto id = next_asset_identity++;
@@ -631,35 +628,35 @@ namespace {
                 }
                 require(a.width && a.height &&
                             a.bytes.size() == static_cast<std::size_t>(a.width) * a.height *
-                                                  (r8 ? 1 : caseelephant::constants::rgba8_bytes_per_pixel),
+                                                  (r8 ? 1 : weft::constants::rgba8_bytes_per_pixel),
                         "asset dimensions/encoding");
                 if (a.encoding == Encoding::SignedDistance) {
-                    require(a.spread >= caseelephant::constants::render::min_sdf_spread &&
-                                a.spread <= caseelephant::constants::render::max_sdf_spread,
+                    require(a.spread >= weft::constants::render::min_sdf_spread &&
+                                a.spread <= weft::constants::render::max_sdf_spread,
                             "distance spread metadata");
                 }
                 // sRGB textures decode before filtering; exact for opaque inputs.
                 // Translucent inputs keep linear premultiplied floats to avoid halos.
                 bool opaque = !r8;
                 for (std::size_t p = 3; opaque && p < a.bytes.size(); p += 4) {
-                    opaque = a.bytes[p] == caseelephant::constants::color_channel_max;
+                    opaque = a.bytes[p] == weft::constants::color_channel_max;
                 }
                 if (r8) {
                     n.upload = a.bytes;
                     n.pitch = a.width;
                 } else if (opaque) {
                     n.upload = a.bytes;
-                    n.pitch = a.width * caseelephant::constants::rgba8_bytes_per_pixel;
+                    n.pitch = a.width * weft::constants::rgba8_bytes_per_pixel;
                 } else {
                     std::vector<Color> pixels(static_cast<std::size_t>(a.width) * a.height);
                     for (std::size_t p = 0; p < pixels.size(); ++p) {
-                        const float alpha = a.bytes[p * 4 + 3] / caseelephant::probe_constants::color_channel_max_float;
+                        const float alpha = a.bytes[p * 4 + 3] / weft::probe_constants::color_channel_max_float;
                         // Source channels are bytes: cache the exact reference decode for
                         // every possible value instead of evaluating pow per pixel.
                         static const auto transfer = [] {
                             std::array<float, 256> table{};
                             for (unsigned i = 0; i < 256; ++i) {
-                                table[i] = decode(i / caseelephant::probe_constants::color_channel_max_float);
+                                table[i] = decode(i / weft::probe_constants::color_channel_max_float);
                             }
                             return table;
                         }();
@@ -756,8 +753,8 @@ namespace {
             for (int c = 0; c < 3; ++c) {
                 outline[c] = decode(outline[c]) * outline[3];
             }
-            require(d.stroke >= 0 && (material != caseelephant::probe_constants::shader_material::signed_distance ||
-                                      d.stroke < spread - 1),
+            require(d.stroke >= 0 &&
+                        (material != weft::probe_constants::shader_material::signed_distance || d.stroke < spread - 1),
                     "SDF stroke exceeds distance padding");
             Constants data{{d.rect.x, d.rect.y, d.rect.w, d.rect.h},
                            {static_cast<float>(width), static_cast<float>(height)},
@@ -771,13 +768,13 @@ namespace {
             deferred->PSSetShaderResources(0, 1, &texture);
             D3D11_RECT clip{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
             if (d.clipped) {
-                clip = {static_cast<LONG>(d.rect.x + caseelephant::probe_constants::scissor_test_inset),
-                        static_cast<LONG>(d.rect.y + caseelephant::probe_constants::scissor_test_inset),
-                        static_cast<LONG>(d.rect.x + d.rect.w - caseelephant::probe_constants::scissor_test_inset),
-                        static_cast<LONG>(d.rect.y + d.rect.h - caseelephant::probe_constants::scissor_test_inset)};
+                clip = {static_cast<LONG>(d.rect.x + weft::probe_constants::scissor_test_inset),
+                        static_cast<LONG>(d.rect.y + weft::probe_constants::scissor_test_inset),
+                        static_cast<LONG>(d.rect.x + d.rect.w - weft::probe_constants::scissor_test_inset),
+                        static_cast<LONG>(d.rect.y + d.rect.h - weft::probe_constants::scissor_test_inset)};
             }
             deferred->RSSetScissorRects(1, &clip);
-            deferred->Draw(caseelephant::probe_constants::quad_vertex_count, 0);
+            deferred->Draw(weft::probe_constants::quad_vertex_count, 0);
         }
 
         Encoded encode(const PreparedFrame& frame, bool rtt, bool fail_after_upload = false,
@@ -848,32 +845,31 @@ namespace {
                         red.group = false;
                         red.opacity = 1;
                         red.srgb = {1, 0, 0, 1};
-                        draw(red, nullptr, caseelephant::probe_constants::shader_material::solid);
+                        draw(red, nullptr, weft::probe_constants::shader_material::solid);
                         Draw blue = red;
                         blue.srgb = {0, 0, 1, 1};
-                        draw(blue, nullptr, caseelephant::probe_constants::shader_material::solid);
+                        draw(blue, nullptr, weft::probe_constants::shader_material::solid);
                         bind_target(destination);
                         Draw composite = d;
                         composite.uv = {d.rect.x / width, d.rect.y / height, d.rect.w / width, d.rect.h / height};
-                        draw(composite, group.srv.Get(), caseelephant::probe_constants::shader_material::texture);
+                        draw(composite, group.srv.Get(), weft::probe_constants::shader_material::texture);
                     } else {
                         if (d.asset >= 0 && size_t(d.asset) >= frame.snapshot.assets.size()) {
                             const auto& external = frame.external.at(size_t(d.asset) - frame.snapshot.assets.size());
                             draw(d, external.srv.Get(),
-                                 external.bottom_left
-                                     ? caseelephant::probe_constants::shader_material::texture_bottom_up
-                                     : caseelephant::probe_constants::shader_material::texture);
+                                 external.bottom_left ? weft::probe_constants::shader_material::texture_bottom_up
+                                                      : weft::probe_constants::shader_material::texture);
                             continue;
                         }
                         auto* texture = d.asset < 0 ? nullptr : assets[static_cast<std::size_t>(d.asset)].srv.Get();
                         const auto* asset =
                             d.asset < 0 ? nullptr : frame.snapshot.assets[static_cast<std::size_t>(d.asset)].get();
-                        const UINT material = !asset ? caseelephant::probe_constants::shader_material::solid
+                        const UINT material = !asset ? weft::probe_constants::shader_material::solid
                                               : asset->encoding == Encoding::Coverage
-                                                  ? caseelephant::probe_constants::shader_material::coverage
+                                                  ? weft::probe_constants::shader_material::coverage
                                               : asset->encoding == Encoding::SignedDistance
-                                                  ? caseelephant::probe_constants::shader_material::signed_distance
-                                                  : caseelephant::probe_constants::shader_material::texture;
+                                                  ? weft::probe_constants::shader_material::signed_distance
+                                                  : weft::probe_constants::shader_material::texture;
                         draw(d, texture, material, asset ? asset->spread : 0);
                     }
                 }
@@ -881,7 +877,7 @@ namespace {
                     bind_target(output);
                     deferred->ClearRenderTargetView(output.rtv.Get(), transparent);
                     draw({{0, 0, static_cast<float>(width), static_cast<float>(height)}}, intermediate.srv.Get(),
-                         caseelephant::probe_constants::shader_material::texture);
+                         weft::probe_constants::shader_material::texture);
                 }
                 // A transparent linear destination checks premultiplied RGB/alpha
                 // independently of the opaque screenshot's alpha=1 background.
@@ -889,7 +885,7 @@ namespace {
                     bind_target(group);
                     deferred->ClearRenderTargetView(group.rtv.Get(), transparent);
                     draw({{0, 0, static_cast<float>(width), static_cast<float>(height)}, {0, 1, 0, 0.5f}}, nullptr,
-                         caseelephant::probe_constants::shader_material::solid);
+                         weft::probe_constants::shader_material::solid);
                 }
                 deferred->ClearState();
                 check_hresult(deferred->FinishCommandList(FALSE, &encoded.commands), "FinishCommandList");
@@ -908,7 +904,7 @@ namespace {
         void complete() {
             const auto deadline =
                 std::chrono::steady_clock::now() +
-                std::chrono::seconds(static_cast<int>(caseelephant::probe_constants::completion_timeout_seconds));
+                std::chrono::seconds(static_cast<int>(weft::probe_constants::completion_timeout_seconds));
             immediate->Flush();
             BOOL done = FALSE;
             for (;;) {
@@ -920,7 +916,7 @@ namespace {
                 }
                 require(std::chrono::steady_clock::now() < deadline, "GPU completion deadline");
                 std::this_thread::sleep_for(
-                    std::chrono::milliseconds(static_cast<int>(caseelephant::probe_constants::completion_poll_ms)));
+                    std::chrono::milliseconds(static_cast<int>(weft::probe_constants::completion_poll_ms)));
             }
             BOOL ui = FALSE;
             check_hresult(immediate->GetData(ui_done.Get(), &ui, sizeof(ui), D3D11_ASYNC_GETDATA_DONOTFLUSH),
@@ -929,9 +925,8 @@ namespace {
             if (backend) {
                 complete_backend();
             } else {
-                lifetime(tracker.NotifyCompletedSerial(caseelephant::probe_constants::device_epoch,
-                                                       caseelephant::probe_constants::immediate_queue,
-                                                       pending_completion),
+                lifetime(tracker.NotifyCompletedSerial(weft::probe_constants::device_epoch,
+                                                       weft::probe_constants::immediate_queue, pending_completion),
                          "NotifyCompletedSerial actual shared host query");
             }
             acknowledged = true;
@@ -979,8 +974,8 @@ namespace {
             immediate->CopyResource(alpha_staging.Get(), group.texture.Get());
             immediate->End(host_done.Get());
             submitted = true;
-            lifetime(tracker.NotifySubmitted(encoded.token, caseelephant::probe_constants::immediate_queue,
-                                             caseelephant::probe_constants::fixture_ui_serial),
+            lifetime(tracker.NotifySubmitted(encoded.token, weft::probe_constants::immediate_queue,
+                                             weft::probe_constants::fixture_ui_serial),
                      "NotifySubmitted after ExecuteCommandList");
             encoded.commands.Reset();
             D3D11_VIEWPORT restored_viewport{};
@@ -1005,8 +1000,8 @@ namespace {
             }
             complete();
             test(native_releases == assets.size(), "native registry releases after actual completion");
-            test(tracker.Stats().completed_serial == caseelephant::probe_constants::fixture_host_serial &&
-                     tracker.Stats().last_submitted_serial == caseelephant::probe_constants::fixture_ui_serial,
+            test(tracker.Stats().completed_serial == weft::probe_constants::fixture_host_serial &&
+                     tracker.Stats().last_submitted_serial == weft::probe_constants::fixture_ui_serial,
                  "shared queue progresses beyond UI serial");
             test(tracker.Shutdown() == LifetimeResult::Ok, "shutdown drained");
             std::vector<Pixel> pixels(static_cast<std::size_t>(width) * height);
@@ -1026,7 +1021,7 @@ namespace {
             const Color expected_alpha{0, 0.5f, 0, 0.5f};
             for (std::size_t c = 0; c < 4; ++c) {
                 test(std::abs(transparent_sample[c] - expected_alpha[c]) <
-                         caseelephant::probe_constants::linear_alpha_tolerance,
+                         weft::probe_constants::linear_alpha_tolerance,
                      "transparent linear premultiplied RGBA");
             }
             immediate->ClearState();
@@ -1093,9 +1088,9 @@ namespace {
     }
 
     void save_png(const std::filesystem::path& path, const std::vector<Pixel>& pixels,
-                  UINT w = caseelephant::probe_constants::color_fixture_width,
-                  UINT h = caseelephant::probe_constants::color_fixture_height) {
-        caseelephant::testing::write_png(path, w, h, pixel_bytes(pixels));
+                  UINT w = weft::probe_constants::color_fixture_width,
+                  UINT h = weft::probe_constants::color_fixture_height) {
+        weft::testing::write_png(path, w, h, pixel_bytes(pixels));
     }
 
     std::string rgba(Pixel p) {
@@ -1107,13 +1102,13 @@ namespace {
 
     std::string linear_rgba(Color c) {
         std::ostringstream s;
-        s << std::setprecision(caseelephant::probe_constants::report_significant_digits) << '[' << c[0] << ',' << c[1]
-          << ',' << c[2] << ',' << c[3] << ']';
+        s << std::setprecision(weft::probe_constants::report_significant_digits) << '[' << c[0] << ',' << c[1] << ','
+          << c[2] << ',' << c[3] << ']';
         return s.str();
     }
 
     std::vector<Pixel> read_png(const std::filesystem::path& path) {
-        const auto image = caseelephant::testing::read_png(path);
+        const auto image = weft::testing::read_png(path);
         require(image.width == width && image.height == height, "Browser capture must be 256x128 at DPR 1");
         std::vector<Pixel> pixels(static_cast<std::size_t>(image.width) * image.height);
         std::memcpy(pixels.data(), image.rgba.data(), image.rgba.size());
@@ -1160,10 +1155,10 @@ namespace {
             const auto q = rtt_pixels[static_cast<std::size_t>(check.y) * width + check.x];
             for (std::size_t c = 0; c < 4; ++c) {
                 direct.test(std::abs(int(p[c]) - int(check.expected[c])) <=
-                                (c == 3 ? 0 : caseelephant::probe_constants::rgba8_parity_tolerance),
+                                (c == 3 ? 0 : weft::probe_constants::rgba8_parity_tolerance),
                             check.id);
                 rtt.test(std::abs(int(q[c]) - int(check.expected[c])) <=
-                             (c == 3 ? 0 : caseelephant::probe_constants::rgba8_parity_tolerance),
+                             (c == 3 ? 0 : weft::probe_constants::rgba8_parity_tolerance),
                          check.id);
             }
             if (comma) {
@@ -1179,8 +1174,7 @@ namespace {
                 max_difference = std::max(max_difference, std::abs(int(direct_pixels[i][c]) - int(rtt_pixels[i][c])));
             }
         }
-        direct.test(max_difference <= caseelephant::probe_constants::rgba8_parity_tolerance,
-                    "full-image direct/RTT parity");
+        direct.test(max_difference <= weft::probe_constants::rgba8_parity_tolerance, "full-image direct/RTT parity");
         direct.check_debug_messages();
         rtt.check_debug_messages();
         report
@@ -1219,8 +1213,7 @@ namespace {
         std::size_t latin_pixels{};
         int max_difference{};
         for (std::size_t i = 0; i < p.size(); ++i) {
-            direct.test(p[i][3] == caseelephant::constants::color_channel_max &&
-                            q[i][3] == caseelephant::constants::color_channel_max,
+            direct.test(p[i][3] == weft::constants::color_channel_max && q[i][3] == weft::constants::color_channel_max,
                         "SDF opaque background alpha");
             for (std::size_t c = 0; c < 4; ++c) {
                 max_difference = std::max(max_difference, std::abs(int(p[i][c]) - int(q[i][c])));
@@ -1231,16 +1224,14 @@ namespace {
         for (const auto& r : scene.squares) {
             float case_error{};
             std::size_t partial{};
-            for (int y = static_cast<int>(r.y) - caseelephant::probe_constants::sdf_edge_scan_margin;
-                 y < r.y + r.h + caseelephant::probe_constants::sdf_edge_scan_margin; ++y) {
-                for (int x = static_cast<int>(r.x) - caseelephant::probe_constants::sdf_edge_scan_margin;
-                     x < r.x + r.w + caseelephant::probe_constants::sdf_edge_scan_margin; ++x) {
-                    const bool near_x =
-                        std::abs(x + 0.5f - r.x) < caseelephant::probe_constants::sdf_corner_exclusion ||
-                        std::abs(x + 0.5f - r.x - r.w) < caseelephant::probe_constants::sdf_corner_exclusion;
-                    const bool near_y =
-                        std::abs(y + 0.5f - r.y) < caseelephant::probe_constants::sdf_corner_exclusion ||
-                        std::abs(y + 0.5f - r.y - r.h) < caseelephant::probe_constants::sdf_corner_exclusion;
+            for (int y = static_cast<int>(r.y) - weft::probe_constants::sdf_edge_scan_margin;
+                 y < r.y + r.h + weft::probe_constants::sdf_edge_scan_margin; ++y) {
+                for (int x = static_cast<int>(r.x) - weft::probe_constants::sdf_edge_scan_margin;
+                     x < r.x + r.w + weft::probe_constants::sdf_edge_scan_margin; ++x) {
+                    const bool near_x = std::abs(x + 0.5f - r.x) < weft::probe_constants::sdf_corner_exclusion ||
+                                        std::abs(x + 0.5f - r.x - r.w) < weft::probe_constants::sdf_corner_exclusion;
+                    const bool near_y = std::abs(y + 0.5f - r.y) < weft::probe_constants::sdf_corner_exclusion ||
+                                        std::abs(y + 0.5f - r.y - r.h) < weft::probe_constants::sdf_corner_exclusion;
                     if (near_x && near_y) {
                         continue;
                     }
@@ -1249,12 +1240,12 @@ namespace {
                     const auto& pixel = p[static_cast<std::size_t>(y) * width + x];
                     direct.test(pixel[0] == pixel[1] && pixel[1] == pixel[2], "SDF square neutral fill");
                     const float error =
-                        std::abs(decode(pixel[0] / caseelephant::probe_constants::color_channel_max_float) - expected);
+                        std::abs(decode(pixel[0] / weft::probe_constants::color_channel_max_float) - expected);
                     case_error = std::max(case_error, error);
                     ++edge_samples;
                     if (expected > 0 && expected < 1) {
                         ++partial;
-                        if (pixel[0] > 0 && pixel[0] < caseelephant::constants::color_channel_max) {
+                        if (pixel[0] > 0 && pixel[0] < weft::constants::color_channel_max) {
                             ++partial_samples;
                         }
                     }
@@ -1262,11 +1253,11 @@ namespace {
             }
             max_edge_error = std::max(max_edge_error, case_error);
             direct.test(partial > 40, "subpixel square edges sampled");
-            if (case_error > caseelephant::probe_constants::sdf_edge_tolerance) {
-                std::cerr << "scale=" << r.w / caseelephant::constants::text::sdf_default_base_ppem
+            if (case_error > weft::probe_constants::sdf_edge_tolerance) {
+                std::cerr << "scale=" << r.w / weft::constants::text::sdf_default_base_ppem
                           << " edge error=" << case_error << '\n';
             }
-            direct.test(case_error <= caseelephant::probe_constants::sdf_edge_tolerance,
+            direct.test(case_error <= weft::probe_constants::sdf_edge_tolerance,
                         "SDF straight-edge area coverage (0.12 linear tolerance)");
         }
         direct.test(partial_samples > 200, "derivative AA produced partial coverage at all scales");
@@ -1275,15 +1266,13 @@ namespace {
             const auto& pixel = p[24 * width + x];
             const float fill = overlap(static_cast<float>(x), scene.stroked.x, 20);
             const float outer = overlap(static_cast<float>(x), scene.stroked.x - 1, 22);
-            stroke_error =
-                std::max({stroke_error,
-                          std::abs(decode(pixel[0] / caseelephant::probe_constants::color_channel_max_float) - fill),
-                          std::abs(decode(pixel[2] / caseelephant::probe_constants::color_channel_max_float) - outer)});
+            stroke_error = std::max(
+                {stroke_error, std::abs(decode(pixel[0] / weft::probe_constants::color_channel_max_float) - fill),
+                 std::abs(decode(pixel[2] / weft::probe_constants::color_channel_max_float) - outer)});
             direct.test(pixel[0] == pixel[1], "blue stroke leaves equal red/green fill");
         }
-        direct.test(stroke_error <= caseelephant::probe_constants::sdf_edge_tolerance,
-                    "SDF stroke source-distance coverage");
-        for (UINT y = 78; y < caseelephant::probe_constants::color_fixture_height; ++y) {
+        direct.test(stroke_error <= weft::probe_constants::sdf_edge_tolerance, "SDF stroke source-distance coverage");
+        for (UINT y = 78; y < weft::probe_constants::color_fixture_height; ++y) {
             for (UINT x = 0; x < 210; ++x) {
                 if (p[y * width + x][0] > 200) {
                     ++latin_pixels;
@@ -1305,7 +1294,7 @@ namespace {
                 }
             }
         }
-        direct.test(max_difference <= caseelephant::probe_constants::rgba8_parity_tolerance,
+        direct.test(max_difference <= weft::probe_constants::rgba8_parity_tolerance,
                     "SDF full-image direct/RTT parity");
         direct.check_debug_messages();
         rtt.check_debug_messages();
@@ -1320,7 +1309,7 @@ namespace {
         save_png(folder / "distance-atlas.png", distance_image);
         std::ostringstream report;
         report
-            << std::setprecision(caseelephant::probe_constants::report_significant_digits)
+            << std::setprecision(weft::probe_constants::report_significant_digits)
             << "{\"fixture\":\"caseelephant-sdf-v1\",\"driver\":" << json_string(warp ? "warp" : "hardware")
             << ",\"adapter\":" << json_string(direct.adapter)
             << ",\"debug_layer\":" << (direct.debug_layer ? "true" : "false")
@@ -1349,21 +1338,21 @@ namespace {
 
     // Evidence text files end with a newline.
     void write_text(const std::filesystem::path& path, const std::string& text) {
-        caseelephant::testing::write_file(path, text + '\n');
+        weft::testing::write_file(path, text + '\n');
     }
 
-    FramePacket prepare_page_glyphs(const caseelephant::ProbePage& page, caseelephant::TextProbeFont& font) {
+    FramePacket prepare_page_glyphs(const weft::Page& page, weft::Font& font) {
         FramePacket packet;
 
         struct Cached {
             int asset{-1};
-            caseelephant::ProbeGlyphBitmap bitmap;
+            weft::GlyphBitmap bitmap;
         };
 
         std::map<std::pair<std::uint32_t, float>, Cached> cache;
         std::size_t bytes{};
         for (const auto& paint : page.paints) {
-            if (paint.kind == caseelephant::ProbePaintKind::Rectangle) {
+            if (paint.kind == weft::PaintKind::Rectangle) {
                 packet.draws.push_back({{paint.x, paint.y, paint.width, paint.height}, paint.srgb});
                 continue;
             }
@@ -1376,8 +1365,8 @@ namespace {
                     Cached cached;
                     if (bitmap.width && bitmap.height) {
                         bytes += bitmap.coverage.size();
-                        require(bytes <= caseelephant::probe_constants::page_glyph_max_bytes &&
-                                    cache.size() < caseelephant::probe_constants::max_frame_assets,
+                        require(bytes <= weft::probe_constants::page_glyph_max_bytes &&
+                                    cache.size() < weft::probe_constants::max_frame_assets,
                                 "page glyph budget");
                         cached.asset = static_cast<int>(packet.assets.size());
                         packet.assets.push_back(std::make_shared<const Asset>(
@@ -1401,9 +1390,9 @@ namespace {
         return packet;
     }
 
-    std::string page_json(const caseelephant::ProbePage& page) {
+    std::string page_json(const weft::Page& page) {
         std::ostringstream s;
-        s << std::setprecision(caseelephant::probe_constants::report_significant_digits) << "{\"boxes\":[";
+        s << std::setprecision(weft::probe_constants::report_significant_digits) << "{\"boxes\":[";
         bool comma{};
         for (const auto& box : page.boxes) {
             if (comma) {
@@ -1416,7 +1405,7 @@ namespace {
         s << "],\"text_runs\":[";
         comma = false;
         for (const auto& p : page.paints) {
-            if (p.kind == caseelephant::ProbePaintKind::Text) {
+            if (p.kind == weft::PaintKind::Text) {
                 if (comma) {
                     s << ',';
                 }
@@ -1428,56 +1417,56 @@ namespace {
         return s.str() + "]}";
     }
 
-    void pump_react(caseelephant::ScriptDomProbe& script, unsigned time) {
-        for (unsigned batch = 0; batch < caseelephant::constants::script::max_task_pump_turns; ++batch) {
+    void pump_react(weft::ScriptDom& script, unsigned time) {
+        for (unsigned batch = 0; batch < weft::constants::script::max_task_pump_turns; ++batch) {
             (void)script.eval("__ceHost.pump(" + std::to_string(time) + ")", "<host-timer-checkpoint>");
             // This separate eval happens after the previous microtask checkpoint.
             if (script.eval("__ceHost.pending()") == "0") {
                 return;
             }
         }
-        throw std::runtime_error("CE_TASK_LIMIT: React probe did not become idle");
+        throw std::runtime_error("WEFT_TASK_LIMIT: React probe did not become idle");
     }
 
     int run_react(bool warp, const std::filesystem::path& folder) {
         std::filesystem::create_directories(folder);
-        caseelephant::ScriptProbeConfig config{caseelephant::constants::script::probe_vm_stack_bytes};
-#ifdef CE_REACT_GC_STRESS
-        config.execution_budget_ms = caseelephant::constants::script::max_execution_budget_ms;
+        weft::ScriptConfig config{weft::constants::script::probe_vm_stack_bytes};
+#ifdef WEFT_REACT_GC_STRESS
+        config.execution_budget_ms = weft::constants::script::max_execution_budget_ms;
 #endif
-        caseelephant::ScriptDomProbe script(config);
-        caseelephant::install_script_platform(script, caseelephant::ScriptPlatformModule::WebHost);
-        script.eval(read_file(std::filesystem::path(CE_SOURCE_DIR) / "examples/react-vite/native/app.js"),
+        weft::ScriptDom script(config);
+        weft::install_script_platform(script, weft::ScriptPlatformModule::WebHost);
+        script.eval(read_file(std::filesystem::path(WEFT_SOURCE_DIR) / "examples/react-vite/native/app.js"),
                     "react-vite-app.js");
         pump_react(script, 0);
         require(script.eval("caseElephantReact.version") == "19.3.0", "fixed real React version");
         require(script.eval("caseElephantReact.errors.length") == "0", "React initial error");
         const auto item = script.node_identity("#item-ember");
         const auto button = script.node_identity("#increment");
-        caseelephant::TextProbeFont font(CE_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
-        std::array<caseelephant::ProbePage, caseelephant::probe_constants::interaction_frames> pages;
-        std::array<std::string, caseelephant::probe_constants::interaction_frames> states;
-        pages[0] = caseelephant::build_page_probe(script.snapshot_subtree("#page"), font);
+        weft::Font font(WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
+        std::array<weft::Page, weft::probe_constants::interaction_frames> pages;
+        std::array<std::string, weft::probe_constants::interaction_frames> states;
+        pages[0] = weft::build_page(script.snapshot_subtree("#page"), font);
         states[0] = script.eval("JSON.stringify(caseElephantReact.snapshot())");
         script.eval("document.getElementById('increment').dispatchEvent(new Event('click',{bubbles:true}));");
-        pump_react(script, caseelephant::probe_constants::fixture_frame_ms);
+        pump_react(script, weft::probe_constants::fixture_frame_ms);
         require(script.eval("document.getElementById('count').textContent") == "Count: 1",
                 "React useState click update");
         require(script.node_identity("#increment") == button, "React state update replaced button identity");
-        pages[1] = caseelephant::build_page_probe(script.snapshot_subtree("#page"), font);
+        pages[1] = weft::build_page(script.snapshot_subtree("#page"), font);
         states[1] = script.eval("JSON.stringify(caseElephantReact.snapshot())");
         script.eval("document.getElementById('reverse').dispatchEvent(new Event('click',{bubbles:true}));");
-        pump_react(script, 2 * caseelephant::probe_constants::fixture_frame_ms);
+        pump_react(script, 2 * weft::probe_constants::fixture_frame_ms);
         require(script.eval("caseElephantReact.snapshot().order.join(',')") == "moss,tide,ember",
                 "React keyed reorder");
         require(script.node_identity("#item-ember") == item, "keyed update did not retain native node identity");
         require(script.eval("caseElephantReact.errors.length") == "0" && script.stats().listener_exceptions == 0,
                 "React interaction error");
-        pages[2] = caseelephant::build_page_probe(script.snapshot_subtree("#page"), font);
+        pages[2] = weft::build_page(script.snapshot_subtree("#page"), font);
         states[2] = script.eval("JSON.stringify(caseElephantReact.snapshot())");
         write_text(folder / "native-dom.json", script.dump_document());
         script.eval("caseElephantReact.unmount();");
-        pump_react(script, 3 * caseelephant::probe_constants::fixture_frame_ms);
+        pump_react(script, 3 * weft::probe_constants::fixture_frame_ms);
         script.collect_garbage();
         require(script.eval("document.getElementById('root').childNodes.length") == "0", "React root unmount");
         script.reset_document(); // GPU and page value snapshots cannot depend on the VM.
@@ -1495,10 +1484,8 @@ namespace {
             auto packet = prepare_page_glyphs(pages[i], font);
             const auto textures = packet.assets.size();
             const auto draws = packet.draws.size();
-            Experiment direct(warp, caseelephant::constants::default_view_width,
-                              caseelephant::constants::default_view_height);
-            Experiment rtt(warp, caseelephant::constants::default_view_width,
-                           caseelephant::constants::default_view_height);
+            Experiment direct(warp, weft::constants::default_view_width, weft::constants::default_view_height);
+            Experiment rtt(warp, weft::constants::default_view_width, weft::constants::default_view_height);
             auto p = direct.execute(false, packet);
             auto q = rtt.execute(true, std::move(packet));
             int difference{};
@@ -1507,17 +1494,17 @@ namespace {
                     difference = std::max(difference, std::abs(int(p[pixel][c]) - int(q[pixel][c])));
                 }
             }
-            direct.test(difference <= caseelephant::probe_constants::rgba8_parity_tolerance,
+            direct.test(difference <= weft::probe_constants::rgba8_parity_tolerance,
                         "React full-image direct/RTT parity");
-            direct.test(p[8 * caseelephant::constants::default_view_width + 8] == Pixel{16, 21, 30, 255},
+            direct.test(p[8 * weft::constants::default_view_width + 8] == Pixel{16, 21, 30, 255},
                         "React inline background native pixels");
             const Pixel first_color = i == 2 ? Pixel{146, 200, 121, 255} : Pixel{244, 162, 97, 255};
-            direct.test(p[166 * caseelephant::constants::default_view_width + 330] == first_color,
+            direct.test(p[166 * weft::constants::default_view_width + 330] == first_color,
                         "React keyed bars reach GPU paint order");
             std::size_t text_pixels{};
             for (UINT y = 48; y < 84; ++y) {
                 for (UINT x = 24; x < 220; ++x) {
-                    if (p[y * caseelephant::constants::default_view_width + x][0] > 120) {
+                    if (p[y * weft::constants::default_view_width + x][0] > 120) {
                         ++text_pixels;
                     }
                 }
@@ -1529,10 +1516,10 @@ namespace {
             if (i == 1) {
                 std::size_t changed{};
                 bool outside_unchanged = true;
-                for (UINT y = 0; y < caseelephant::constants::default_view_height; ++y) {
-                    for (UINT x = 0; x < caseelephant::constants::default_view_width; ++x) {
-                        if (p[y * caseelephant::constants::default_view_width + x] !=
-                            initial_pixels[y * caseelephant::constants::default_view_width + x]) {
+                for (UINT y = 0; y < weft::constants::default_view_height; ++y) {
+                    for (UINT x = 0; x < weft::constants::default_view_width; ++x) {
+                        if (p[y * weft::constants::default_view_width + x] !=
+                            initial_pixels[y * weft::constants::default_view_width + x]) {
                             if (x >= 40 && x < 208 && y >= 158 && y < 198) {
                                 ++changed;
                             } else {
@@ -1548,8 +1535,8 @@ namespace {
                 std::size_t changed{};
                 for (UINT y = 158; y < 258; ++y) {
                     for (UINT x = 256; x < 600; ++x) {
-                        if (p[y * caseelephant::constants::default_view_width + x] !=
-                            count_pixels[y * caseelephant::constants::default_view_width + x]) {
+                        if (p[y * weft::constants::default_view_width + x] !=
+                            count_pixels[y * weft::constants::default_view_width + x]) {
                             ++changed;
                         }
                     }
@@ -1561,10 +1548,10 @@ namespace {
             debug = debug && direct.debug_layer && rtt.debug_layer;
             retired += direct.native_releases + rtt.native_releases;
             assertions += direct.assertions + rtt.assertions;
-            save_png(folder / ("frame-" + std::to_string(i) + ".png"), p, caseelephant::constants::default_view_width,
-                     caseelephant::constants::default_view_height);
-            save_png(folder / ("frame-" + std::to_string(i) + "-rtt.png"), q,
-                     caseelephant::constants::default_view_width, caseelephant::constants::default_view_height);
+            save_png(folder / ("frame-" + std::to_string(i) + ".png"), p, weft::constants::default_view_width,
+                     weft::constants::default_view_height);
+            save_png(folder / ("frame-" + std::to_string(i) + "-rtt.png"), q, weft::constants::default_view_width,
+                     weft::constants::default_view_height);
             if (i) {
                 report << ',';
             }
@@ -1691,7 +1678,7 @@ int main(int argc, char** argv) {
                 gallery_canvas || pipeline_probe || cache_probe || flow_window || cheetah_flow || flow || automatic ||
                 browser || sdf || react || window || backend || cheetah || alert || theme ||
                 (argc == 3 && (std::string(argv[1]) == "--warp" || std::string(argv[1]) == "--hardware")),
-            "Usage: ce_d3d11_probe --gallery-window-[test-]hardware|warp <output-directory> (or an existing probe mode)");
+            "Usage: weft_d3d11_probe --gallery-window-[test-]hardware|warp <output-directory> (or an existing probe mode)");
         check_hresult(CoInitializeEx(nullptr, COINIT_MULTITHREADED), "CoInitializeEx");
         try {
             const auto result =

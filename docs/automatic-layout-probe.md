@@ -1,6 +1,6 @@
 # 自动布局实际合同
 
-这是 M0 的受限页面探针。新增 `caseelephant_auto_page_probe` 和 `build_auto_page_probe`，接收配对的 DOM/computed-style 值树、逻辑 viewport 和固定字体集合，输出自己的 box/paint 值。旧 positioned、Flex 页面接口及旧证据继续保留。
+这是 M0 的受限页面探针。新增 `caseelephant_auto_page_probe` 和 `build_auto_page`，接收配对的 DOM/computed-style 值树、逻辑 viewport 和固定字体集合，输出自己的 box/paint 值。旧 positioned、Flex 页面接口及旧证据继续保留。
 
 ## 已实现
 
@@ -33,7 +33,7 @@ Debug/Release 的 RTX 5090/WARP 各输出八帧及 font_id cache collision 反�
 ```powershell
 cmake --build --preset windows-debug --parallel 10
 ctest --preset windows-debug --output-on-failure
-& build/windows-msvc/bin/Debug/ce_d3d11_probe.exe --cheetah-auto-hardware artifacts/local/cheetah-auto-debug/hardware
+& build/windows-msvc/bin/Debug/weft_d3d11_probe.exe --cheetah-auto-hardware artifacts/local/cheetah-auto-debug/hardware
 cmake --build --preset windows-release --parallel 10
 ctest --preset windows-release --output-on-failure
 cmake --build build/windows-gc-stress --config Debug --parallel 10

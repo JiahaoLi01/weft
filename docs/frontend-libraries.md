@@ -4,7 +4,7 @@
 
 ## 支持的含义
 
-同一份固定版本、未经修改的库代码，在 CaseElephant 自己的 JavaScript VM、原生 DOM、样式/布局、绘制和输入系统中工作。正常运行不委托 WebView，不使用 jsdom，不把测试专用 JavaScript DOM 模拟器带入运行时。库可以沿用其标准 Web API 调用方式；我们负责补齐依赖接口与语义。
+同一份固定版本、未经修改的库代码，在 Weft 自己的 JavaScript VM、原生 DOM、样式/布局、绘制和输入系统中工作。正常运行不委托 WebView，不使用 jsdom，不把测试专用 JavaScript DOM 模拟器带入运行时。库可以沿用其标准 Web API 调用方式；我们负责补齐依赖接口与语义。
 
 兼容性按真实 workload 声明，不承诺任意浏览器库和全部插件。对 D3 的工作拆分是验收进度，不能据此把用户要求缩减成纯计算库支持。
 

@@ -8,8 +8,8 @@
 #include <filesystem>
 
 // Windows fixture decoder; production never loads reference images.
-inline caseelephant::ProbeSceneBitmap scene_reference(const std::filesystem::path& path) {
-    auto image = caseelephant::testing::read_png(path);
+inline weft::SceneBitmap scene_reference(const std::filesystem::path& path) {
+    auto image = weft::testing::read_png(path);
     return {image.width, image.height, std::move(image.rgba)};
 }
 
@@ -20,15 +20,14 @@ struct SceneDifference {
 
     bool passes() const {
         return *std::max_element(mean.begin(), mean.end()) <=
-                   caseelephant::test_constants::scene::max_channel_mean_difference &&
-               soft_iou >= caseelephant::test_constants::scene::min_soft_iou &&
-               foreground >= caseelephant::test_constants::scene::min_foreground_pixels;
+                   weft::test_constants::scene::max_channel_mean_difference &&
+               soft_iou >= weft::test_constants::scene::min_soft_iou &&
+               foreground >= weft::test_constants::scene::min_foreground_pixels;
     }
 };
 
-inline SceneDifference scene_difference(const caseelephant::ProbeSceneBitmap& a,
-                                        const caseelephant::ProbeSceneBitmap& b) {
-    caseelephant::testing::require(a.width == b.width && a.height == b.height, "reference extent");
+inline SceneDifference scene_difference(const weft::SceneBitmap& a, const weft::SceneBitmap& b) {
+    weft::testing::require(a.width == b.width && a.height == b.height, "reference extent");
     const auto pixels = std::size_t(a.width) * a.height;
     SceneDifference d;
     std::vector<unsigned char> am(pixels);
@@ -37,17 +36,17 @@ inline SceneDifference scene_difference(const caseelephant::ProbeSceneBitmap& a,
         for (unsigned c = 0; c < 4; ++c) {
             d.mean[c] += std::abs(int(a.rgba[i * 4 + c]) - b.rgba[i * 4 + c]);
         }
-        am[i] = std::max({std::abs(int(a.rgba[i * 4]) - caseelephant::test_constants::scene::backdrop_red),
-                          std::abs(int(a.rgba[i * 4 + 1]) - caseelephant::test_constants::scene::backdrop_green),
-                          std::abs(int(a.rgba[i * 4 + 2]) - caseelephant::test_constants::scene::backdrop_blue)}) >
-                        caseelephant::test_constants::scene::foreground_channel_threshold
-                    ? caseelephant::constants::color_channel_max
+        am[i] = std::max({std::abs(int(a.rgba[i * 4]) - weft::test_constants::scene::backdrop_red),
+                          std::abs(int(a.rgba[i * 4 + 1]) - weft::test_constants::scene::backdrop_green),
+                          std::abs(int(a.rgba[i * 4 + 2]) - weft::test_constants::scene::backdrop_blue)}) >
+                        weft::test_constants::scene::foreground_channel_threshold
+                    ? weft::constants::color_channel_max
                     : 0;
-        bm[i] = std::max({std::abs(int(b.rgba[i * 4]) - caseelephant::test_constants::scene::backdrop_red),
-                          std::abs(int(b.rgba[i * 4 + 1]) - caseelephant::test_constants::scene::backdrop_green),
-                          std::abs(int(b.rgba[i * 4 + 2]) - caseelephant::test_constants::scene::backdrop_blue)}) >
-                        caseelephant::test_constants::scene::foreground_channel_threshold
-                    ? caseelephant::constants::color_channel_max
+        bm[i] = std::max({std::abs(int(b.rgba[i * 4]) - weft::test_constants::scene::backdrop_red),
+                          std::abs(int(b.rgba[i * 4 + 1]) - weft::test_constants::scene::backdrop_green),
+                          std::abs(int(b.rgba[i * 4 + 2]) - weft::test_constants::scene::backdrop_blue)}) >
+                        weft::test_constants::scene::foreground_channel_threshold
+                    ? weft::constants::color_channel_max
                     : 0;
     }
     for (auto& m : d.mean) {
@@ -70,7 +69,7 @@ inline SceneDifference scene_difference(const caseelephant::ProbeSceneBitmap& a,
                 result[p] = (temp[std::size_t(y ? y - 1 : y) * a.width + x] + 2 * temp[p] +
                              temp[std::size_t(std::min(y + 1, a.height - 1)) * a.width + x]) /
                                 4 >
-                            caseelephant::test_constants::scene::blurred_foreground_threshold;
+                            weft::test_constants::scene::blurred_foreground_threshold;
             }
         }
         return result;

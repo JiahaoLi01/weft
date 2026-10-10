@@ -14,21 +14,21 @@ namespace {
         return stream.str();
     }
 
-    std::string report(caseelephant::TextProbeFont& font, caseelephant::FlexProbeMode mode) {
+    std::string report(weft::Font& font, weft::FlexMode mode) {
         std::ostringstream out;
         out << std::setprecision(std::numeric_limits<float>::max_digits10); // Round-trips every float box value.
-        out << "{\"fixture\":\"caseelephant-flex-v1\",\"input_sha256\":\"" << caseelephant::fixtures::input_sha256
+        out << "{\"fixture\":\"caseelephant-flex-v1\",\"input_sha256\":\"" << weft::fixtures::input_sha256
             << "\",\"backend\":\"yoga-3.2.1+ce-definite-basis-1\",\"mode\":\""
-            << (mode == caseelephant::FlexProbeMode::RawYoga ? "raw-yoga" : "css-adapter") << "\",\"cases\":[";
+            << (mode == weft::FlexMode::RawYoga ? "raw-yoga" : "css-adapter") << "\",\"cases\":[";
         bool comma{};
-        for (const auto& test : caseelephant::fixtures::flex_cases()) {
+        for (const auto& test : weft::fixtures::flex_cases()) {
             if (comma) {
                 out << ',';
             }
             comma = true;
             out << "{\"id\":" << quoted(test.id) << ",\"boxes\":[";
             bool box_comma{};
-            for (const auto& b : caseelephant::run_flex_probe(test.root, font, mode)) {
+            for (const auto& b : weft::run_flex(test.root, font, mode)) {
                 if (box_comma) {
                     out << ',';
                 }
@@ -50,10 +50,10 @@ int main(int argc, char** argv) {
         if (argc != 3) {
             throw std::runtime_error("Usage: flex_layout_probe <font-path> <output-directory>");
         }
-        caseelephant::TextProbeFont font(argv[1]);
+        weft::Font font(argv[1]);
         std::filesystem::create_directories(argv[2]);
-        for (const auto mode : {caseelephant::FlexProbeMode::RawYoga, caseelephant::FlexProbeMode::CssAdapter}) {
-            const auto name = mode == caseelephant::FlexProbeMode::RawYoga ? "raw-yoga.json" : "css-adapter.json";
+        for (const auto mode : {weft::FlexMode::RawYoga, weft::FlexMode::CssAdapter}) {
+            const auto name = mode == weft::FlexMode::RawYoga ? "raw-yoga.json" : "css-adapter.json";
             std::ofstream file(std::filesystem::path(argv[2]) / name, std::ios::binary);
             const auto content = report(font, mode);
             if (!file || !(file << content)) {
@@ -61,7 +61,7 @@ int main(int argc, char** argv) {
             }
         }
         std::cout
-            << caseelephant::fixtures::flex_cases().size()
+            << weft::fixtures::flex_cases().size()
             << " shared Flex cases written (Yoga + ce1, with/without CSS adapter). No DOM or renderer integration.\n";
         return 0;
     } catch (const std::exception& e) {

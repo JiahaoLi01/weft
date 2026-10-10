@@ -9,7 +9,7 @@
 #include "scene_test_image.hpp"
 #include "cluster_visual_compare.hpp"
 
-using caseelephant::testing::require;
+using weft::testing::require;
 
 int main(int argc, char** argv) {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -38,8 +38,8 @@ int main(int argc, char** argv) {
                 bool oracle_rejected{};
                 std::size_t changed{};
                 std::vector<std::uint8_t> previous;
-                for (unsigned n = 0; n <= caseelephant::test_constants::scene::cluster_last_frame; ++n) {
-                    const auto time = n * caseelephant::test_constants::scene::frame_interval_ms;
+                for (unsigned n = 0; n <= weft::test_constants::scene::cluster_last_frame; ++n) {
+                    const auto time = n * weft::test_constants::scene::frame_interval_ms;
                     session.step(time);
                     gallery_cluster_inputs(session, n, &std::cout);
                     if (n != 24 && n != 63 && n != 90 && n != 120 && n != 180 && n != 240 && n != 300) {
@@ -47,7 +47,7 @@ int main(int argc, char** argv) {
                     }
                     const auto image = session.bitmap();
                     png(out / (id + "-" + std::to_string(n) + ".png"), image);
-                    auto ref = scene_reference(std::filesystem::path(CE_SOURCE_DIR) /
+                    auto ref = scene_reference(std::filesystem::path(WEFT_SOURCE_DIR) /
                                                "tests/fixtures/gallery-cluster-reference" /
                                                (id + "-" + std::to_string(n) + ".png"));
                     auto d = scene_difference(image, ref);
@@ -65,14 +65,13 @@ int main(int argc, char** argv) {
                         }
                     }
                     previous = image.rgba;
-                    if (!oracle_rejected &&
-                        d.foreground >= caseelephant::test_constants::scene::min_foreground_pixels) {
+                    if (!oracle_rejected && d.foreground >= weft::test_constants::scene::min_foreground_pixels) {
                         auto blank = image;
                         for (std::size_t p = 0; p < blank.rgba.size(); p += 4) {
-                            blank.rgba[p] = caseelephant::test_constants::scene::backdrop_red;
-                            blank.rgba[p + 1] = caseelephant::test_constants::scene::backdrop_green;
-                            blank.rgba[p + 2] = caseelephant::test_constants::scene::backdrop_blue;
-                            blank.rgba[p + 3] = caseelephant::constants::color_channel_max;
+                            blank.rgba[p] = weft::test_constants::scene::backdrop_red;
+                            blank.rgba[p + 1] = weft::test_constants::scene::backdrop_green;
+                            blank.rgba[p + 2] = weft::test_constants::scene::backdrop_blue;
+                            blank.rgba[p + 3] = weft::constants::color_channel_max;
                         }
                         oracle_rejected = !scene_difference(blank, ref).passes();
                     }
@@ -92,7 +91,7 @@ int main(int argc, char** argv) {
                 }
                 require(oracle_rejected, "blank content was not rejected");
                 session.unmount();
-                require(session.vm.stats().live_nodes == caseelephant::test_constants::scene::empty_document_live_nodes,
+                require(session.vm.stats().live_nodes == weft::test_constants::scene::empty_document_live_nodes,
                         "node leak");
                 ++passed;
                 std::cout << " done changed=" << changed << "\n";

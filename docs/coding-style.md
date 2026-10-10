@@ -14,9 +14,9 @@
 
 非显然的字面量用命名常量，在头文件中统一定义，不在使用处直接写数字：
 
-- 跨模块共享的单位、Web 常量、文档上限、默认视口和测试随机数参数在 `include/caseelephant/constants/common.hpp`（`caseelephant::constants`）。
-- 模块专属的预算、上限、阈值与调优值在 `include/caseelephant/constants/<模块>.hpp`（`caseelephant::constants::<模块>`）；`include/caseelephant/constants.hpp` 汇总全部模块头。
-- 测试专用值在 `tests/test_constants/<领域>.hpp`（`caseelephant::test_constants::<领域>`），探针专用值在 `probes/` 下的常量头。
+- 跨模块共享的单位、Web 常量、文档上限、默认视口和测试随机数参数在 `include/caseelephant/constants/common.hpp`（`weft::constants`）。
+- 模块专属的预算、上限、阈值与调优值在 `include/caseelephant/constants/<模块>.hpp`（`weft::constants::<模块>`）；`include/caseelephant/constants.hpp` 汇总全部模块头。
+- 测试专用值在 `tests/test_constants/<领域>.hpp`（`weft::test_constants::<领域>`），探针专用值在 `probes/` 下的常量头。
 
 需要命名：资源预算与容量上限、超时与重试次数、阈值/容差/epsilon、数值钳制、单位换算与物理常量、URI、类别或材质编号、位掩码、随机种子、帧数/预热/采样数、固定视口尺寸、在多处重复且含义相同的值。
 
@@ -34,7 +34,7 @@
 
 - **运行时代码**：用 `include/caseelephant/base/` 的 `Diag`/`Result`、CSS 标量解析、`GenerationalSlots`、`OwnerThread`，不再新写 trim/split/number 解析、代际槽表或 owner 检查。
 - **按错误码分派**：控制流按 `Diag` 码分支，不匹配错误消息文本。
-- **测试与探针**：用 `tests/support/` 的 `require`/`CE_REQUIRE`、文件读写、`json_string`、PNG 读写，不在各文件里重定义。
+- **测试与探针**：用 `tests/support/` 的 `require`/`WEFT_REQUIRE`、文件读写、`json_string`、PNG 读写，不在各文件里重定义。
 - **`d3d11_probe.cpp` 的包含顺序**：新的 support 头要先在文件顶部的全局作用域包含。
 
 ## 语义等价验证

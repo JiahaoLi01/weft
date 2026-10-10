@@ -20,7 +20,7 @@ Vite 是构建工具。native 没有 ESM loader、dev client、HMR 或开发服�
 1. [平台 bootstrap](../src/script/js/web_host_bootstrap.js)（构建时内嵌进脚本库） 补充受限的 CSSStyleDeclaration、宿主时间和任务接口；节点、属性、树操作和事件传播仍由 C++ native DOM 提供。
 2. React 挂载后，owner 执行有限批次的任务与微任务；实际 native `Event` 冒泡触发 React 事件系统。计数变为 1，反转列表时 Ember 保持原生节点身份。
 3. [snapshot_subtree](../include/caseelephant/script_probe.hpp) 复制自己的 native 节点树；[page adapter](../src/layout/page_probe.cpp) 读取行内声明、有限继承，生成已有 Flex adapter 的输入。
-4. Yoga 输出唯一盒几何，HarfBuzz 生成逻辑 glyph/advance，FreeType 产生灰度 coverage；背景矩形与文字组成值类型 `ProbePage`。
+4. Yoga 输出唯一盒几何，HarfBuzz 生成逻辑 glyph/advance，FreeType 产生灰度 coverage；背景矩形与文字组成值类型 `Page`。
 5. [GPU runner](../probes/d3d11_probe.cpp) 准备 R8 glyph 纹理，实际宿主执行 command list；query 确认完成后退休资源，staging readback 保存 PNG。
 
 三份页面和塑形结果在 React unmount、GC、VM reset 之后才送入 GPU。renderer 不读取 Node 指针或 JSValue；逻辑 glyph 不携带 atlas UV。这也验证了快照可以独立于 VM 存活。实验每帧最多 512 个不同 glyph、4 MiB coverage，用独立 glyph texture 验证链路；尚非正式 atlas/cache 或稳定 FramePacket SDK。
@@ -58,7 +58,7 @@ Vite 是构建工具。native 没有 ESM loader、dev client、HMR 或开发服�
 ```powershell
 cmake --build --preset windows-debug --parallel 4
 ctest --preset windows-debug
-.\build\windows-msvc\bin\Debug\ce_d3d11_probe.exe --react-hardware artifacts/local/react-debug/hardware
+.\build\windows-msvc\bin\Debug\weft_d3d11_probe.exe --react-hardware artifacts/local/react-debug/hardware
 python tools/compare_react_reports.py tests/fixtures/react_browser_reference.json artifacts/local/react-debug/hardware/report.json --output artifacts/local/react-debug/hardware/browser-comparison.json
 ```
 

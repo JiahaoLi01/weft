@@ -1,24 +1,24 @@
 // Optional M0 platform module. The owner drives one batch per drawing opportunity;
 // it calls next() directly with native per-callback microtask checkpoints.
 (() => {
-  if (typeof __ceHost === 'undefined' || typeof __ceAnimationHost !== 'undefined') throw new Error('CE_RAF_INSTALL');
+  if (typeof __ceHost === 'undefined' || typeof __ceAnimationHost !== 'undefined') throw new Error('WEFT_RAF_INSTALL');
   const pending = new Map(), invoke = Reflect.apply;
   let nextId = 1, batch = null, cursor = 0, errors = [], errorCount = 0, frameTime = 0;
   globalThis.requestAnimationFrame = callback => {
-    if (typeof callback !== 'function') throw new TypeError('CE_RAF_CALLBACK: function required');
-    if (pending.size >= 4096) throw new Error('CE_RAF_LIMIT: pending capacity');
-    if (nextId > 0xffffffff) throw new Error('CE_RAF_LIMIT: handle exhausted');
+    if (typeof callback !== 'function') throw new TypeError('WEFT_RAF_CALLBACK: function required');
+    if (pending.size >= 4096) throw new Error('WEFT_RAF_LIMIT: pending capacity');
+    if (nextId > 0xffffffff) throw new Error('WEFT_RAF_LIMIT: handle exhausted');
     const id = nextId++; pending.set(id, callback); return id;
   };
   globalThis.cancelAnimationFrame = id => {
-    if (typeof id === 'bigint' || typeof id === 'symbol') throw new TypeError('CE_RAF_HANDLE: number required');
+    if (typeof id === 'bigint' || typeof id === 'symbol') throw new TypeError('WEFT_RAF_HANDLE: number required');
     pending.delete((+id) >>> 0);
   };
   Object.defineProperty(globalThis, '__ceAnimationHost', { value: Object.freeze({
     begin(time, drawable = true) {
-      if (batch !== null) throw new Error('CE_RAF_BUSY: nested frame');
+      if (batch !== null) throw new Error('WEFT_RAF_BUSY: nested frame');
       const ready = drawable && pending.size ? Array.from(pending.keys()) : [];
-      if (ready.length > 1000) throw new Error('CE_RAF_LIMIT: ready batch');
+      if (ready.length > 1000) throw new Error('WEFT_RAF_LIMIT: ready batch');
       __ceHost.advanceClock(time); // Validation precedes changes to frame state.
       errors = []; errorCount = 0; cursor = 0; frameTime = time; batch = drawable ? ready : null;
       return ready.length;
@@ -33,7 +33,7 @@
         catch (error) {
           ++errorCount;
           if (errors.length < 64) {
-            let message = 'CE_RAF_CALLBACK_EXCEPTION';
+            let message = 'WEFT_RAF_CALLBACK_EXCEPTION';
             try { message = String(error).slice(0, 512); } catch (_) {}
             errors.push(message);
           }

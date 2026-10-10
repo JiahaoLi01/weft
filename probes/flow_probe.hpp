@@ -1,6 +1,6 @@
 #include "probe_constants.hpp"
 
-const caseelephant::ProbeDomSnapshot& flow_find(const caseelephant::ProbeDomSnapshot& n, const std::string& id) {
+const weft::DomSnapshot& flow_find(const weft::DomSnapshot& n, const std::string& id) {
     if (n.attributes.contains("id") && n.attributes.at("id") == id) {
         return n;
     }
@@ -16,32 +16,30 @@ const caseelephant::ProbeDomSnapshot& flow_find(const caseelephant::ProbeDomSnap
 int run_flow(bool warp, const std::filesystem::path& folder) {
     std::filesystem::create_directories(folder);
     NativeReactWindow window(false);
-    Experiment gpu(warp, caseelephant::constants::default_view_width, caseelephant::constants::default_view_height);
+    Experiment gpu(warp, weft::constants::default_view_width, weft::constants::default_view_height);
     WindowPresenter presenter(gpu, window.state.hwnd);
-    presenter.resize(caseelephant::constants::default_view_width, caseelephant::constants::default_view_height);
+    presenter.resize(weft::constants::default_view_width, weft::constants::default_view_height);
     presenter.capture = true;
-    caseelephant::TextProbeFontSet fonts({CE_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf",
-                                          CE_SOURCE_DIR "/third_party/noto-cjk/source/NotoSansCJKsc-Regular.otf"});
-    const auto css = read_file(CE_SOURCE_DIR "/tests/fixtures/flow-layout/profile.css");
-    caseelephant::ScriptDomProbe vm;
-    caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
-    vm.eval(read_file(CE_SOURCE_DIR "/tests/fixtures/flow-layout/fixture.js"));
+    weft::FontSet fonts({WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf",
+                         WEFT_SOURCE_DIR "/third_party/noto-cjk/source/NotoSansCJKsc-Regular.otf"});
+    const auto css = read_file(WEFT_SOURCE_DIR "/tests/fixtures/flow-layout/profile.css");
+    weft::ScriptDom vm;
+    weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
+    vm.eval(read_file(WEFT_SOURCE_DIR "/tests/fixtures/flow-layout/fixture.js"));
     vm.install_layout_host([&](const auto& dom) {
-        return caseelephant::build_flow_page_probe(flow_find(dom, "gallery"), css,
-                                                   caseelephant::constants::default_view_width,
-                                                   caseelephant::constants::default_view_height, fonts)
+        return weft::build_flow_page(flow_find(dom, "gallery"), css, weft::constants::default_view_width,
+                                     weft::constants::default_view_height, fonts)
             .elements;
     });
-    std::array<caseelephant::ProbeFlowPage, caseelephant::probe_constants::interaction_frames> pages;
-    for (int i = 0; i < caseelephant::probe_constants::interaction_frames; ++i) {
+    std::array<weft::FlowPage, weft::probe_constants::interaction_frames> pages;
+    for (int i = 0; i < weft::probe_constants::interaction_frames; ++i) {
         if (i) {
-            require(vm.dispatch_mouse(vm.node_identity("#advance"), {caseelephant::ProbeMouseType::Click, 30, 320}) ==
-                        caseelephant::ProbeDispatchResult::DefaultAllowed,
+            require(vm.dispatch_mouse(vm.node_identity("#advance"), {weft::MouseType::Click, 30, 320}) ==
+                        weft::DispatchResult::DefaultAllowed,
                     "flow native button dispatch");
         }
-        pages[i] = caseelephant::build_flow_page_probe(vm.snapshot_subtree("#gallery"), css,
-                                                       caseelephant::constants::default_view_width,
-                                                       caseelephant::constants::default_view_height, fonts);
+        pages[i] = weft::build_flow_page(vm.snapshot_subtree("#gallery"), css, weft::constants::default_view_width,
+                                         weft::constants::default_view_height, fonts);
     }
     const auto old = vm.node_identity("#viewport");
     vm.reset_document();
@@ -58,7 +56,7 @@ int run_flow(bool warp, const std::filesystem::path& folder) {
     report << "{\"fixture\":\"flow-layout-gpu-v1\",\"driver\":" << json_string(warp ? "warp" : "hardware")
            << ",\"adapter\":" << json_string(gpu.adapter) << ",\"frames\":[";
     std::vector<Pixel> previous;
-    auto render = [&](const caseelephant::ProbePositionedPage& page) {
+    auto render = [&](const weft::PositionedPage& page) {
         auto packet = cheetah_packet(page, fonts, images);
         retired += unsigned(packet.assets.size());
         gpu.render_window(packet, [&] {
@@ -66,48 +64,46 @@ int run_flow(bool warp, const std::filesystem::path& folder) {
             presenter.present();
         });
         // Inspect the RGBA UI target before the host's opaque-black presentation.
-        std::vector<Pixel> pixels(caseelephant::constants::default_view_width *
-                                  caseelephant::constants::default_view_height);
+        std::vector<Pixel> pixels(weft::constants::default_view_width * weft::constants::default_view_height);
         D3D11_MAPPED_SUBRESOURCE mapped{};
         check_hresult(gpu.immediate->Map(gpu.staging.Get(), 0, D3D11_MAP_READ, 0, &mapped),
                       "flow completed RGBA target");
-        for (unsigned y = 0; y < caseelephant::constants::default_view_height; ++y) {
-            std::memcpy(pixels.data() + y * caseelephant::constants::default_view_width,
+        for (unsigned y = 0; y < weft::constants::default_view_height; ++y) {
+            std::memcpy(pixels.data() + y * weft::constants::default_view_width,
                         static_cast<std::uint8_t*>(mapped.pData) + y * mapped.RowPitch,
-                        caseelephant::constants::default_view_width * sizeof(Pixel));
+                        weft::constants::default_view_width * sizeof(Pixel));
         }
         gpu.immediate->Unmap(gpu.staging.Get(), 0);
-        for (int y = 0; y < caseelephant::constants::default_view_height; y += 3) {
-            for (int x = 0; x < caseelephant::constants::default_view_width; x += 3) {
+        for (int y = 0; y < weft::constants::default_view_height; y += 3) {
+            for (int x = 0; x < weft::constants::default_view_width; x += 3) {
                 auto expected = cheetah_sample(packet, x, y);
                 for (int c = 0; c < 4; ++c) {
                     error = std::max(
-                        error,
-                        std::abs(int(expected[c]) -
-                                 int(pixels[std::size_t(y) * caseelephant::constants::default_view_width + x][c])));
+                        error, std::abs(int(expected[c]) -
+                                        int(pixels[std::size_t(y) * weft::constants::default_view_width + x][c])));
                 }
                 ++samples;
             }
         }
         return std::pair{std::move(packet), std::move(pixels)};
     };
-    for (int i = 0; i < caseelephant::probe_constants::interaction_frames; ++i) {
+    for (int i = 0; i < weft::probe_constants::interaction_frames; ++i) {
         for (const auto& p : pages[i].page.paints) {
             masks += !p.rounded_clips.empty();
             for (const auto& g : p.paint.shaped.glyphs) {
-                fallback += g.font_id == caseelephant::probe_constants::cjk_fallback_font_id;
+                fallback += g.font_id == weft::probe_constants::cjk_fallback_font_id;
             }
         }
         auto [packet, pixels] = render(pages[i].page);
         require(pixels.front() == Pixel{0, 0, 0, 0}, "rounded root corner transparent");
-        require(pixels[10 * caseelephant::constants::default_view_width + 320] == Pixel{20, 34, 45, 255},
+        require(pixels[10 * weft::constants::default_view_width + 320] == Pixel{20, 34, 45, 255},
                 "rounded root center background");
         if (i) {
             require(pixels != previous, "flow mutation changes GPU pixels");
         }
         previous = pixels;
-        save_png(folder / ("frame-" + std::to_string(i) + ".png"), pixels, caseelephant::constants::default_view_width,
-                 caseelephant::constants::default_view_height);
+        save_png(folder / ("frame-" + std::to_string(i) + ".png"), pixels, weft::constants::default_view_width,
+                 weft::constants::default_view_height);
         if (i) {
             report << ',';
         }
@@ -115,12 +111,11 @@ int run_flow(bool warp, const std::filesystem::path& folder) {
                << '}';
     }
     // Separate dense area integration does not reuse the mask generation code.
-    caseelephant::ProbePositionedPage shape;
-    caseelephant::ProbePositionedPaint solid;
-    solid.paint = {caseelephant::ProbePaintKind::Rectangle, "ellipse", {}, 10, 10, 100, 80, 0, {1, 1, 1, 1}, {}};
-    solid.clip = {0, 0, caseelephant::constants::default_view_width, caseelephant::constants::default_view_height};
-    solid.rounded_clips = {
-        caseelephant::normalize_rounded_probe({{10, 10, 100, 80}, {70, 70, 70, 70}, {56, 56, 56, 56}})};
+    weft::PositionedPage shape;
+    weft::PositionedPaint solid;
+    solid.paint = {weft::PaintKind::Rectangle, "ellipse", {}, 10, 10, 100, 80, 0, {1, 1, 1, 1}, {}};
+    solid.clip = {0, 0, weft::constants::default_view_width, weft::constants::default_view_height};
+    solid.rounded_clips = {weft::normalize_rounded({{10, 10, 100, 80}, {70, 70, 70, 70}, {56, 56, 56, 56}})};
     shape.paints.push_back(solid);
     auto isolated = cheetah_packet(shape, fonts, {});
     require(isolated.assets.size() == 1, "solid coverage mask prepared");
@@ -142,11 +137,10 @@ int run_flow(bool warp, const std::filesystem::path& folder) {
             mask_error = std::max(mask_error, std::abs(reference - int(mask[std::size_t(y) * 100 + x])));
         }
     }
-    if (mask_error > caseelephant::probe_constants::ellipse_area_tolerance) {
+    if (mask_error > weft::probe_constants::ellipse_area_tolerance) {
         std::cerr << "ellipse difference " << mask_error << '\n';
     }
-    require(mask_error <= caseelephant::probe_constants::ellipse_area_tolerance,
-            "dense independent elliptical area oracle");
+    require(mask_error <= weft::probe_constants::ellipse_area_tolerance, "dense independent elliptical area oracle");
     shape.paints[0].image_source = "art/ink-panel-v2.png";
     auto translucent = solid;
     translucent.paint.srgb = {.2f, .8f, .4f, .35f};
@@ -154,12 +148,10 @@ int run_flow(bool warp, const std::filesystem::path& folder) {
     translucent.paint.y = 30;
     shape.paints.push_back(translucent);
     auto [packet, pixels] = render(shape);
-    save_png(folder / "masked-original-image.png", pixels, caseelephant::constants::default_view_width,
-             caseelephant::constants::default_view_height);
-    require(pixels[10 * caseelephant::constants::default_view_width + 10] == Pixel{0, 0, 0, 0},
-            "masked PNG outside corner");
-    require(error <= caseelephant::probe_constants::cpu_oracle_tolerance,
-            "flow bilinear linear-premultiplied GPU oracle");
+    save_png(folder / "masked-original-image.png", pixels, weft::constants::default_view_width,
+             weft::constants::default_view_height);
+    require(pixels[10 * weft::constants::default_view_width + 10] == Pixel{0, 0, 0, 0}, "masked PNG outside corner");
+    require(error <= weft::probe_constants::cpu_oracle_tolerance, "flow bilinear linear-premultiplied GPU oracle");
     gpu.check_debug_messages();
     require(retired == gpu.native_releases, "all textures retire on actual completion");
     report

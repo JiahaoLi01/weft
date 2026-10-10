@@ -9,7 +9,7 @@
 #include <sstream>
 #include <stdexcept>
 
-namespace caseelephant {
+namespace weft {
     namespace {
         using Style = std::map<std::string, std::string>;
 
@@ -61,12 +61,12 @@ namespace caseelephant {
         };
 
         struct Builder {
-            TextProbeFontSet& fonts;
+            FontSet& fonts;
             std::vector<Node> nodes;
             std::vector<Calc> calcs;
 
-            FlexProbeNode make(const ProbeDomSnapshot& dom, const ProbeComputedStyle& computed, std::size_t parent,
-                               bool hidden = false) {
+            FlexNode make(const DomSnapshot& dom, const ComputedStyle& computed, std::size_t parent,
+                          bool hidden = false) {
                 static const std::set<std::string> tags{"div", "button", "i", "b", "span", "ul", "li", "img"};
                 if (dom.type != constants::element_node_type || dom.namespace_uri != constants::xhtml_namespace_uri ||
                     !tags.contains(dom.local_name)) {
@@ -169,7 +169,7 @@ namespace caseelephant {
                     image = dom.attributes.at("src");
                 }
                 nodes.push_back({s, text, id, image, {}, parent, z, hidden});
-                FlexProbeNode out{id, s, hidden ? std::string{} : text, {}};
+                FlexNode out{id, s, hidden ? std::string{} : text, {}};
                 for (const auto* key :
                      {"color", "background-color", "font-family", "font-weight", "font-style", "text-align",
                       "pointer-events", "isolation", "list-style", "user-select", "z-index", "border"}) {
@@ -233,7 +233,7 @@ namespace caseelephant {
                 return out;
             }
 
-            void paint(std::size_t index, const std::vector<FlexProbeBox>& boxes, Rect clip, ProbePositionedPage& out) {
+            void paint(std::size_t index, const std::vector<FlexBox>& boxes, Rect clip, PositionedPage& out) {
                 const auto& n = nodes[index];
                 if (n.hidden) {
                     return;
@@ -245,15 +245,15 @@ namespace caseelephant {
                     if (b.w <= 0 || b.h <= 0) {
                         return;
                     }
-                    ProbePositionedPaint p;
-                    p.paint = {ProbePaintKind::Rectangle, n.id, {}, b.x, b.y, b.w, b.h, 0, c, {}};
+                    PositionedPaint p;
+                    p.paint = {PaintKind::Rectangle, n.id, {}, b.x, b.y, b.w, b.h, 0, c, {}};
                     p.image_source = image;
                     p.uv = {(b.x - r.x) / r.w, (b.y - r.y) / r.h, b.w / r.w, b.h / r.h};
                     p.clip = {clip.x, clip.y, clip.w, clip.h};
                     out.paints.push_back(std::move(p));
                 };
                 if (n.style.contains("background-color")) {
-                    quad(parse_probe_css_color(n.style.at("background-color")), {});
+                    quad(parse_css_color(n.style.at("background-color")), {});
                 }
                 if (!n.image.empty()) {
                     quad({1, 1, 1, 1}, n.image);
@@ -269,16 +269,16 @@ namespace caseelephant {
                     const auto line = pixels(get(n.style, "line-height", constants::default_line_height));
                     const auto width = std::max(0.f, r.w - edge("padding-left") - edge("padding-right"));
                     const auto lines =
-                        layout_probe_text(n.text, size, width, get(n.style, "white-space", "normal") == "nowrap",
-                                          fonts.primary(), &fonts);
+                        layout_text(n.text, size, width, get(n.style, "white-space", "normal") == "nowrap",
+                                    fonts.primary(), &fonts);
                     float y = r.y + edge("padding-top") + box.baseline;
                     for (const auto& l : lines) {
                         const auto align = get(n.style, "text-align", "left");
                         float dx = align == "center"  ? (width - l.shaped.advance) / 2
                                    : align == "right" ? width - l.shaped.advance
                                                       : 0;
-                        ProbePositionedPaint p;
-                        p.paint = {ProbePaintKind::Text,
+                        PositionedPaint p;
+                        p.paint = {PaintKind::Text,
                                    n.id,
                                    l.text,
                                    r.x + edge("padding-left") + dx,
@@ -286,7 +286,7 @@ namespace caseelephant {
                                    0,
                                    0,
                                    size,
-                                   parse_probe_css_color(get(n.style, "color", constants::default_color)),
+                                   parse_css_color(get(n.style, "color", constants::default_color)),
                                    l.shaped};
                         p.clip = {clip.x, clip.y, clip.w, clip.h};
                         out.paints.push_back(std::move(p));
@@ -304,8 +304,8 @@ namespace caseelephant {
         };
     } // namespace
 
-    ProbePositionedPage build_auto_page_probe(const ProbeDomSnapshot& root, const ProbeComputedStyle& style, float w,
-                                              float h, TextProbeFontSet& fonts) {
+    PositionedPage build_auto_page(const DomSnapshot& root, const ComputedStyle& style, float w, float h,
+                                   FontSet& fonts) {
         if (!std::isfinite(w) || !std::isfinite(h) || w <= 0 || h <= 0 || w > constants::layout::max_viewport_size_px ||
             h > constants::layout::max_viewport_size_px) {
             fail("viewport bound");
@@ -331,15 +331,15 @@ namespace caseelephant {
                                 "px";
             }
         }
-        std::vector<FlexProbeNode*> inputs;
-        auto visit = [&](auto&& self, FlexProbeNode& n) -> void {
+        std::vector<FlexNode*> inputs;
+        auto visit = [&](auto&& self, FlexNode& n) -> void {
             inputs.push_back(&n);
             for (auto& c : n.children) {
                 self(self, c);
             }
         };
         visit(visit, tree);
-        auto boxes = run_flex_probe(tree, fonts);
+        auto boxes = run_flex(tree, fonts);
         // Absolute calc dependencies follow containing-block ancestry. Recompute
         // from the root, bounded and convergent, with no JS callback or stale cache.
         for (unsigned pass = 0; !builder.calcs.empty(); ++pass) {
@@ -370,7 +370,7 @@ namespace caseelephant {
                 (pass + 1) * boxes.size() > constants::layout::max_calc_relayout_box_work) {
                 fail("absolute calc dependency work bound");
             }
-            boxes = run_flex_probe(tree, fonts);
+            boxes = run_flex(tree, fonts);
         }
         for (auto& b : boxes) {
             if (!std::isfinite(b.x) || !std::isfinite(b.y) || !std::isfinite(b.width) || !std::isfinite(b.height) ||
@@ -381,14 +381,13 @@ namespace caseelephant {
                 fail("box bounds");
             }
         }
-        ProbePositionedPage out;
+        PositionedPage out;
         out.geometry.boxes = std::move(boxes);
         builder.paint(0, out.geometry.boxes, {0, 0, w, h}, out);
         return out;
     }
 
-    ProbePositionedPage build_auto_page_probe(const ProbeDomSnapshot& root, std::string_view css, float w, float h,
-                                              TextProbeFontSet& fonts) {
-        return build_auto_page_probe(root, compute_style_probe(root, css, auto_page_style_profile()), w, h, fonts);
+    PositionedPage build_auto_page(const DomSnapshot& root, std::string_view css, float w, float h, FontSet& fonts) {
+        return build_auto_page(root, compute_style(root, css, auto_page_style_profile()), w, h, fonts);
     }
-} // namespace caseelephant
+} // namespace weft

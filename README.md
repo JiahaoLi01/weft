@@ -1,12 +1,12 @@
-# CaseElephant 游戏 UI 运行时
+# Weft 游戏 UI 运行时
 
-CaseElephant 的目标是在 Windows、Android 和 iOS 上，用同一套 HTML、CSS 和 DOM 行为构建游戏 UI，并让宿主引擎控制资源、线程和 GPU 执行。采用自研运行时，复用 JavaScript、字体和 Unicode 基础库。
+Weft 的目标是在 Windows、Android 和 iOS 上，用同一套 HTML、CSS 和 DOM 行为构建游戏 UI，并让宿主引擎控制资源、线程和 GPU 执行。采用自研运行时，复用 JavaScript、字体和 Unicode 基础库。
 
 实现语言为 C++20，当前处于 M0：已有可构建核心、实验 C ABI、原生 DOM/QuickJS、Flex/字体和 GPU 探针。真实 React/Vite JSX 应用已贯通 native DOM → 行内样式 → Yoga → 字体 → D3D11，计数与 keyed 重排输出三帧原生像素，并接入 Windows HWND/swapchain 主鼠标窗口。原版 D3 的 29 项 DOM 检查、33 个 Flex 场景的 452 项浏览器对照继续通过。一般 HTML parser、完整 CSS 格式上下文、通用 SVG、键盘/IME 与移动后端尚未实现；当前不是完整运行时。设计预算仍是验收目标，实际探针测量另列运行条件。
 
-当前 Gallery 已加入 D3 Interactive 4、K-Line 1、Framer Motion 6、React Spring 3、Icons 2、Anime.js 14，共新增 30 个原样案例，连同此前 36 例为 **66/72 可绘制**。新增共享 SVG/事件/几何、布局和 JS 动画能力；原始组件与库包不改。4K/FPS 预览：`ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/gallery-cluster/interactive`，详细运行、独立浏览器对照和限制见 [共享技术簇](docs/gallery-shared-cluster.md)。剩余两例 WebGL、四例 Lottie；原始 Anime Throw 在浏览器也静止，惯性另有同库反例验证。
+当前 Gallery 已加入 D3 Interactive 4、K-Line 1、Framer Motion 6、React Spring 3、Icons 2、Anime.js 14，共新增 30 个原样案例，连同此前 36 例为 **66/72 可绘制**。新增共享 SVG/事件/几何、布局和 JS 动画能力；原始组件与库包不改。4K/FPS 预览：`weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/gallery-cluster/interactive`，详细运行、独立浏览器对照和限制见 [共享技术簇](docs/gallery-shared-cluster.md)。剩余两例 WebGL、四例 Lottie；原始 Anime Throw 在浏览器也静止，惯性另有同库反例验证。
 
-新增 [通用交互优化与可切换 profiler](docs/incremental-ui-profiler.md)：Gallery 侧栏/F8 开启曲线、分项 timer 与 P50/P95/P99/Max，默认关闭、全速运行。修正正常松开鼠标的误 Cancel，精确 style memo 与 owner 增量值/几何复用，诊断 footer 移至 native overlay；原始组件/库不改。当前预览：`ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/incremental-ui/interactive`。Esc 后 `python tools/analyze_gallery_trace.py <输出目录>` 合并有界双线程 trace。Release/Debug 各87/87，K-Line/多案例 Anime 仍需按游戏 UI 毫秒预算继续优化。
+新增 [通用交互优化与可切换 profiler](docs/incremental-ui-profiler.md)：Gallery 侧栏/F8 开启曲线、分项 timer 与 P50/P95/P99/Max，默认关闭、全速运行。修正正常松开鼠标的误 Cancel，精确 style memo 与 owner 增量值/几何复用，诊断 footer 移至 native overlay；原始组件/库不改。当前预览：`weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/incremental-ui/interactive`。Esc 后 `python tools/analyze_gallery_trace.py <输出目录>` 合并有界双线程 trace。Release/Debug 各87/87，K-Line/多案例 Anime 仍需按游戏 UI 毫秒预算继续优化。
 
 代码规范化（2026-10-10）：全部 C/C++ 与 HLSL 按 [代码规范](docs/coding-style.md) 重排并命名常量，Release 反汇编逐函数对照证明行为不变；后续架构重构按 [重构计划](docs/refactoring-plan.md) 分步进行。 第 1 步已完成：`src/base` 提供 `Diag`/`Result<T>`、共享 CSS 标量解析、代际槽表与 `OwnerThread`，替换 10 个 profile 的解析副本和四套槽表，全量测试与 owner CPU 对照不变，见 [status](docs/status.md)。
 
@@ -38,7 +38,7 @@ flow 命中与 HWND 滚轮已接入：命中复用真实绘制顺序、inline �
 
 可见 4K flow 样例现默认带连续运动区：金色滑块每个 owner tick 更新，绿色滑块刻意按 30 Hz 采样；Pause/Resume 与 Speed 0.5x/1x/2x 可直接比较观感。JS 按高精度宿主时间改变 DOM `left`，经过原生样式、布局和 D3D11；最小化/遮挡恢复不追赶隐藏时间。它是独立演示，不宣称 CSS animation/transition 或通用 rAF 已实现，静态 golden 和原始 React bundle 不变。验证与运行见 [连续运动](docs/flow-input-window-probe.md#连续运动展示2026-10-09)。
 
-此前 CSS/D3 阶段（历史记录）的 [4K Gallery 检查窗口](docs/gallery-preview.md)：`ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/render-stages/interactive`。保留全部 72 个案例/10 组，默认 CSS，侧栏跳转与滚轮浏览。**26 个原样 CSS + 8 个原样 D3 已在 native DOM/布局/Windows GPU 矢量 raster/D3D11 中通过，连同两例 Canvas 共 36 例实时绘制；36 例继续显示缺口。** 34 例有 121 帧调度、102 张真实 Chrome 对照、悬停/点击、几何和卸载证据，见 [CSS/D3 实际范围](docs/scene-gallery.md)。使用固定 Tailwind utility 编译适配器与 Windows DirectWrite/D2D，不是完整原始 Tailwind/Grid 页面；可见 scene 现通过 D2D GPU 目标与 linear 外部纹理租约合成，CPU 路径保留为正确性参考；固定 4K 基准与限制见 [性能阶段](docs/gallery-performance.md)。翻转平面 GPU 投影、圆环边框和动画计划的后续优化见 [复杂 CSS 阶段](docs/complex-css-performance.md)，边框 filled geometry 与布局复用复制优化、默认/相同 affinity 的完整对照见 [CSS 中段阶段](docs/css-middle-performance.md)。
+此前 CSS/D3 阶段（历史记录）的 [4K Gallery 检查窗口](docs/gallery-preview.md)：`weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/render-stages/interactive`。保留全部 72 个案例/10 组，默认 CSS，侧栏跳转与滚轮浏览。**26 个原样 CSS + 8 个原样 D3 已在 native DOM/布局/Windows GPU 矢量 raster/D3D11 中通过，连同两例 Canvas 共 36 例实时绘制；36 例继续显示缺口。** 34 例有 121 帧调度、102 张真实 Chrome 对照、悬停/点击、几何和卸载证据，见 [CSS/D3 实际范围](docs/scene-gallery.md)。使用固定 Tailwind utility 编译适配器与 Windows DirectWrite/D2D，不是完整原始 Tailwind/Grid 页面；可见 scene 现通过 D2D GPU 目标与 linear 外部纹理租约合成，CPU 路径保留为正确性参考；固定 4K 基准与限制见 [性能阶段](docs/gallery-performance.md)。翻转平面 GPU 投影、圆环边框和动画计划的后续优化见 [复杂 CSS 阶段](docs/complex-css-performance.md)，边框 filled geometry 与布局复用复制优化、默认/相同 affinity 的完整对照见 [CSS 中段阶段](docs/css-middle-performance.md)。
 
 新增 [owner 热路径优化](docs/owner-hotpath-performance.md)：task/rAF 直接调用、子树 revision 避免无变化快照、数值 paint 与有界静态绘制参数复用。相同 affinity 的三组 4K 中段 CPU P50 6.724→5.738ms、吞吐 140.74→163.04 FPS；主要收益来自调度/快照，scene/诊断字符串仍有成本，未达到 2ms 目标。Debug/Release 全量各76/76，最终相关与 GC 范围各8/8。
 

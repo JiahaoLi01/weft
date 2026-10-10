@@ -5,7 +5,7 @@
 ## 预览与操作
 
 ```powershell
-& 'F:\Projects\CaseElephant\build\windows-msvc\bin\Release\ce_d3d11_probe.exe' --gallery-window-hardware 'F:\Projects\CaseElephant\artifacts\local\incremental-ui\interactive'
+& 'F:\Projects\CaseElephant\build\windows-msvc\bin\Release\weft_d3d11_probe.exe' --gallery-window-hardware 'F:\Projects\CaseElephant\artifacts\local\incremental-ui\interactive'
 ```
 
 默认 **Profiler OFF**，保留基本 Present FPS / Owner Hz，UI 按原调度全速运行。点击侧栏 `Profiler: OFF (F8)` 或按 F8 开启详细面板；再次操作关闭。开启时显示 Owner、Render CPU、GPU elapsed、Frame age、输入排队曲线，及 JS、style、build、layout、geometry、snapshot、hit、dispatch、shell、raster、prepare、encode、Present、pipeline wait 的 Latest/P50/P95/P99/Max 和最近最重的三个案例。每条曲线最多 600 个样本，显示最近五秒；高帧率下保留时长可能不足五秒。HUD 最多 5Hz 更新，不增加 UI 帧率上限。
@@ -28,9 +28,9 @@ python tools/analyze_gallery_trace.py artifacts/local/incremental-ui/interactive
 
 共享 style memo 使用受支持 selector 的精确依赖：祖先的标签、namespace、id/class、显式属性和静态匹配所需 pseudo 状态；自身 inline/presentation 声明仍参加原层叠。父值通常只取实际继承字段，显式 inherit/var 保守保留完整父值依赖，typed custom properties 单独作键。稳定 rule winner 与 computed 两个 LRU 各最多 2,048 项/2MiB 有效载荷；容器分配开销不计入该载荷上限。命中照常收取 token/output quota，编译器世代隔离。
 
-`CompiledStyleProbe::update` 在 owner 中保留 unchanged own maps；可选 changed identities 报告字段变化或输出重建。同父重排不触发 own 重建，跨父挂载会重建。Scene 分开保存 canonical raw cascade 与 shorthand 展开派生值，避免每次动画更新因混用两种表示把全树重写。仅变化/重建节点重新展开；继承、CSS-wide、custom properties、无效 computed value 和计划失效仍由全量参考差分验证。
+`CompiledStyle::update` 在 owner 中保留 unchanged own maps；可选 changed identities 报告字段变化或输出重建。同父重排不触发 own 重建，跨父挂载会重建。Scene 分开保存 canonical raw cascade 与 shorthand 展开派生值，避免每次动画更新因混用两种表示把全树重写。仅变化/重建节点重新展开；继承、CSS-wide、custom properties、无效 computed value 和计划失效仍由全量参考差分验证。
 
-`SceneProbe::update` 接受 owner 专属 mutable 输出，复用未变节点和几何。几何投影包含字体、文本、盒子、transform、SVG geometry 与身份；纯 paint 变化复用 geometry，影响命中/布局的变化立即重算。发布时仍复制为独立完整 immutable snapshot，render 不读 owner 输出、DOM Node 或 JSValue，不依赖可能丢弃的前一未提交包。异常后丢弃部分输出并 reset。
+`SceneSolver::update` 接受 owner 专属 mutable 输出，复用未变节点和几何。几何投影包含字体、文本、盒子、transform、SVG geometry 与身份；纯 paint 变化复用 geometry，影响命中/布局的变化立即重算。发布时仍复制为独立完整 immutable snapshot，render 不读 owner 输出、DOM Node 或 JSValue，不依赖可能丢弃的前一未提交包。异常后丢弃部分输出并 reset。
 
 Windows 矢量适配器增加 factory-scoped SVG shape（1,024 项/4MiB key bytes）、stroke（128 项/2MiB key bytes）缓存，同次 geometry solve 的 bounds 按 owned Scene 节点局部复用；factory 改变清空缓存，不跨帧保存 Node 指针。缓存保持绘制、透明、裁剪与层叠顺序。
 
@@ -47,8 +47,8 @@ cmake --build --preset windows-release --parallel 4
 cmake --build --preset windows-debug --parallel 4
 ctest --preset windows-release --parallel 4 --output-on-failure --output-log artifacts/local/incremental-ui/complete-release-ctest.log
 ctest --preset windows-debug --parallel 4 --output-on-failure --output-log artifacts/local/incremental-ui/complete-debug-ctest.log
-& build/windows-msvc/bin/Release/ce_d3d11_probe.exe --gallery-window-test-hardware artifacts/local/incremental-ui/complete-window-release
-& build/windows-msvc/bin/Debug/ce_d3d11_probe.exe --gallery-window-test-hardware artifacts/local/incremental-ui/complete-window-debug
+& build/windows-msvc/bin/Release/weft_d3d11_probe.exe --gallery-window-test-hardware artifacts/local/incremental-ui/complete-window-release
+& build/windows-msvc/bin/Debug/weft_d3d11_probe.exe --gallery-window-test-hardware artifacts/local/incremental-ui/complete-window-debug
 ```
 
 新增/扩展反例：512 次 cached/in-place/full cascade mutation，覆盖共享相同样式、祖先/class/custom inheritance、generation/reparent/sibling reorder 和 changed identities 精度；命中 quota 拒绝与 reset 恢复。128 次 hover/active/祖先 `[style]`/显式 inherit/SVG presentation 对照，160 次动态 Scene 和 64 次 layout/transition owner 输出对 full 值、数值 paint、像素；geometry paint-only 复用与 transform 失效。新增 `gallery_trace_contract` 验证关闭无文件 I/O、65,540 次事件的 latest ring 覆盖、scope 开关和退出保留。原 Chrome 图像/几何门槛与生命周期/退休测试未放宽。

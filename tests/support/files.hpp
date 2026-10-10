@@ -8,7 +8,7 @@
 #include <string_view>
 
 // File helpers shared by the behavior tests and the probes.
-namespace caseelephant::testing {
+namespace weft::testing {
     // Exact bytes of a file.
     inline std::string read_file(const std::filesystem::path& path) {
         std::ifstream input(path, std::ios::binary);
@@ -35,13 +35,13 @@ namespace caseelephant::testing {
         }
     }
 
-#ifdef CE_SOURCE_DIR
+#ifdef WEFT_SOURCE_DIR
     // Path of a checked-in file, relative to the source tree root (leading '/' optional).
     inline std::filesystem::path source_path(std::string_view relative) {
         while (!relative.empty() && (relative.front() == '/' || relative.front() == '\\')) {
             relative.remove_prefix(1);
         }
-        return std::filesystem::path(CE_SOURCE_DIR) / std::filesystem::path(relative);
+        return std::filesystem::path(WEFT_SOURCE_DIR) / std::filesystem::path(relative);
     }
 
     inline std::string read_source_file(std::string_view relative) {
@@ -52,4 +52,4 @@ namespace caseelephant::testing {
         return read_text_file(source_path(relative));
     }
 #endif
-} // namespace caseelephant::testing
+} // namespace weft::testing

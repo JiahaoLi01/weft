@@ -12,19 +12,19 @@
 #include <windows.h>
 
 inline std::string scene_read(const std::string& path) {
-    return caseelephant::testing::read_file(path);
+    return weft::testing::read_file(path);
 }
 
 // One owner VM per original case. The fixture and its React/D3 bundles are
 // unchanged. The declared host is the same body formatting context as gallery.
 struct GallerySceneSession {
-    caseelephant::SceneRasterProbe raster;
-    caseelephant::SceneProbe scene;
-    caseelephant::ScriptDomProbe vm{{caseelephant::probe_constants::gallery::vm_stack_bytes,
-                                     caseelephant::probe_constants::gallery::scene_vm_execution_budget_ms}};
-    caseelephant::ProbeSceneFrame current;
-    caseelephant::ProbeNodeIdentity hovered{};
-    caseelephant::ProbeNodeIdentity pressed{};
+    weft::SceneRaster raster;
+    weft::SceneSolver scene;
+    weft::ScriptDom vm{
+        {weft::probe_constants::gallery::vm_stack_bytes, weft::probe_constants::gallery::scene_vm_execution_budget_ms}};
+    weft::SceneFrame current;
+    weft::NodeIdentity hovered{};
+    weft::NodeIdentity pressed{};
     bool input_down{};
     double js_ms{};
     double snapshot_ms{};
@@ -69,7 +69,7 @@ struct GallerySceneSession {
         }
     };
 
-    caseelephant::ProbeNodeIdentity root_id{};
+    weft::NodeIdentity root_id{};
     std::uint64_t dom_revision{};
     std::size_t snapshots{};
     std::size_t snapshot_reuses{};
@@ -80,8 +80,8 @@ struct GallerySceneSession {
     double time{};
     bool dirty = true;
     bool svg_geometry{};
-    std::optional<caseelephant::ProbeDomSnapshot> last_dom;
-    caseelephant::ProbeSceneBitmap cached;
+    std::optional<weft::DomSnapshot> last_dom;
+    weft::SceneBitmap cached;
     float cached_scale{};
     double last_scene_time = -1;
     double cache_time = -1;
@@ -90,29 +90,29 @@ struct GallerySceneSession {
     std::uint64_t layout_epoch = 1;
     bool geometry_valid{};
 
-    GallerySceneSession(bool d3, unsigned index, float w = caseelephant::probe_constants::gallery::d3_card_size)
+    GallerySceneSession(bool d3, unsigned index, float w = weft::probe_constants::gallery::d3_card_size)
         : GallerySceneSession(d3 ? "D3_TESTS" : "CSS_TESTS", index, w,
-                              d3 ? static_cast<float>(caseelephant::probe_constants::gallery::d3_card_size)
-                                 : static_cast<float>(caseelephant::probe_constants::gallery::css_card_height)) {
+                              d3 ? static_cast<float>(weft::probe_constants::gallery::d3_card_size)
+                                 : static_cast<float>(weft::probe_constants::gallery::css_card_height)) {
     }
 
     GallerySceneSession(std::string group, unsigned index, float w, float h,
                         std::string stylesheet = "scene-utilities.css")
-        : scene{scene_read(std::string(CE_SOURCE_DIR) + "/examples/crpg-gallery/" + stylesheet),
-                scene_read(std::string(CE_SOURCE_DIR) + "/examples/crpg-gallery/" +
+        : scene{scene_read(std::string(WEFT_SOURCE_DIR) + "/examples/crpg-gallery/" + stylesheet),
+                scene_read(std::string(WEFT_SOURCE_DIR) + "/examples/crpg-gallery/" +
                            (stylesheet == "cluster-utilities.css" ? "cluster-keyframes.css" : "scene-keyframes.css")),
                 [this](auto text, const auto& style) {
                     return raster.measure(text, style);
                 }},
           vm{{std::size_t(group == "CSS_TESTS" || group == "D3_TESTS"
-                              ? caseelephant::probe_constants::gallery::vm_stack_bytes
-                              : caseelephant::probe_constants::gallery::cluster_vm_stack_bytes),
-              caseelephant::probe_constants::gallery::scene_vm_execution_budget_ms}},
+                              ? weft::probe_constants::gallery::vm_stack_bytes
+                              : weft::probe_constants::gallery::cluster_vm_stack_bytes),
+              weft::probe_constants::gallery::scene_vm_execution_budget_ms}},
           width(w),
           height(h) {
-        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
-        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::AnimationFrame);
-        vm.eval(scene_read(CE_SOURCE_DIR "/examples/crpg-gallery/native/platform.js"));
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::AnimationFrame);
+        vm.eval(scene_read(WEFT_SOURCE_DIR "/examples/crpg-gallery/native/platform.js"));
         if (group != "CSS_TESTS" && group != "D3_TESTS") {
             svg_geometry = true;
             vm.install_integer_format_host([](std::int64_t value) {
@@ -120,30 +120,30 @@ struct GallerySceneSession {
                 wchar_t decimal[] = L".";
                 wchar_t separator[] = L",";
                 NUMBERFMTW format{0, 1, 3, decimal, separator, 1};
-                wchar_t output[caseelephant::probe_constants::gallery::number_format_buffer_chars]{};
+                wchar_t output[weft::probe_constants::gallery::number_format_buffer_chars]{};
                 if (!GetNumberFormatEx(L"en-US", 0, input.c_str(), &format, output,
-                                       caseelephant::probe_constants::gallery::number_format_buffer_chars)) {
-                    throw std::runtime_error("CE_NUMBER_FORMAT_HOST");
+                                       weft::probe_constants::gallery::number_format_buffer_chars)) {
+                    throw std::runtime_error("WEFT_NUMBER_FORMAT_HOST");
                 }
                 std::string result;
                 for (auto c : output) {
                     if (!c) {
                         break;
                     }
-                    if (c > caseelephant::probe_constants::gallery::max_ascii_code_unit) {
-                        throw std::runtime_error("CE_NUMBER_FORMAT_ENCODING");
+                    if (c > weft::probe_constants::gallery::max_ascii_code_unit) {
+                        throw std::runtime_error("WEFT_NUMBER_FORMAT_ENCODING");
                     }
                     result += char(c);
                 }
                 return result;
             });
-            caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::ScenePlatform);
-            vm.eval("globalThis.innerWidth=" + caseelephant::testing::format_host_time(w) +
-                    ";globalThis.innerHeight=" + caseelephant::testing::format_host_time(h));
+            weft::install_script_platform(vm, weft::ScriptPlatformModule::ScenePlatform);
+            vm.eval("globalThis.innerWidth=" + weft::testing::format_host_time(w) +
+                    ";globalThis.innerHeight=" + weft::testing::format_host_time(h));
         }
         vm.eval(
             "(()=>{let seed=0xce202610;Math.random=()=>((seed=(Math.imul(seed,1664525)+1013904223)>>>0)/4294967296)})()");
-        vm.eval(scene_read(std::string(CE_SOURCE_DIR) + "/examples/crpg-gallery/native/" + group + ".js"));
+        vm.eval(scene_read(std::string(WEFT_SOURCE_DIR) + "/examples/crpg-gallery/native/" + group + ".js"));
         vm.eval(
             "document.getElementById('root').setAttribute('style','position:relative;overflow:hidden;background-color:#050403;color:#f5e6c8;font-family:system-ui;font-size:16px;line-height:1.5;" +
             std::string(group == "D3_TESTS" ? "display:flex;align-items:center;justify-content:center;" : "") + "')");
@@ -160,7 +160,7 @@ struct GallerySceneSession {
             return layout_epoch;
         });
         auto root = [](const auto& document) {
-            auto find = [&](auto&& self, const auto& n) -> const caseelephant::ProbeDomSnapshot* {
+            auto find = [&](auto&& self, const auto& n) -> const weft::DomSnapshot* {
                 if (n.attributes.contains("id") && n.attributes.at("id") == "root") {
                     return &n;
                 }
@@ -173,7 +173,7 @@ struct GallerySceneSession {
             };
             auto* value = find(find, document);
             if (!value) {
-                throw std::runtime_error("CE_SCENE_ROOT");
+                throw std::runtime_error("WEFT_SCENE_ROOT");
             }
             return value;
         };
@@ -186,11 +186,11 @@ struct GallerySceneSession {
         vm.install_computed_style_host([this, root](const auto& document, auto identity) {
             ProfileScope timer(profile.style_reads, profile.style_ms, profiling);
             sync_scene(*root(document));
-            auto find = [&](auto&& self, const auto& n) -> caseelephant::ProbeSceneStyle {
+            auto find = [&](auto&& self, const auto& n) -> weft::SceneStyle {
                 if (n.identity == identity) {
                     auto s = n.style;
-                    s["width"] = caseelephant::testing::format_host_time(n.box[2]) + "px";
-                    s["height"] = caseelephant::testing::format_host_time(n.box[3]) + "px";
+                    s["width"] = weft::testing::format_host_time(n.box[2]) + "px";
+                    s["height"] = weft::testing::format_host_time(n.box[3]) + "px";
                     if (!s.contains("transform") || s["transform"].empty() || s["transform"] == "none") {
                         s["transform"] = "none";
                     } else {
@@ -200,7 +200,7 @@ struct GallerySceneSession {
                             if (i) {
                                 s["transform"] += ",";
                             }
-                            s["transform"] += caseelephant::testing::format_host_time(m[i]);
+                            s["transform"] += weft::testing::format_host_time(m[i]);
                         }
                         s["transform"] += ")";
                     }
@@ -234,12 +234,12 @@ struct GallerySceneSession {
     }
 
     void pump() {
-        for (unsigned i = 0; i < caseelephant::probe_constants::gallery::task_pump_turn_limit; ++i) {
+        for (unsigned i = 0; i < weft::probe_constants::gallery::task_pump_turn_limit; ++i) {
             if (vm.pump_tasks(time).ready == 0) {
                 return;
             }
         }
-        throw std::runtime_error("CE_SCENE_TASK_LIMIT");
+        throw std::runtime_error("WEFT_SCENE_TASK_LIMIT");
     }
 
     void step(double stamp, bool drawable = true) {
@@ -251,7 +251,7 @@ struct GallerySceneSession {
         pump();
         auto f = vm.animation_frame(time, drawable);
         if (f.exceptions) {
-            throw std::runtime_error("CE_SCENE_RAF: " + f.exception_messages_json);
+            throw std::runtime_error("WEFT_SCENE_RAF: " + f.exception_messages_json);
         }
         pump();
         if (vm.eval("__ceGallery.state().errors.length") != "0") {
@@ -266,7 +266,7 @@ struct GallerySceneSession {
         scene_ms = elapsed() - js_ms - snapshot_ms;
     }
 
-    void sync_scene(const caseelephant::ProbeDomSnapshot& root) {
+    void sync_scene(const weft::DomSnapshot& root) {
         const bool changed = !last_dom || *last_dom != root;
         const bool resized = width != last_scene_width || height != last_scene_height;
         if (changed) {
@@ -282,8 +282,7 @@ struct GallerySceneSession {
         }
         {
             ProfileScope timer(profile.scene_builds, profile.scene_build_ms, profiling);
-            auto geometry =
-                geometry_valid ? std::move(current.elements) : std::vector<caseelephant::ProbeElementGeometry>{};
+            auto geometry = geometry_valid ? std::move(current.elements) : std::vector<weft::ElementGeometry>{};
             try {
                 scene.update(*last_dom, current, width, height, time);
             } catch (...) {
@@ -337,8 +336,7 @@ struct GallerySceneSession {
         scene_ms = elapsed() - snapshot_ms;
     }
 
-    const caseelephant::ProbeSceneBitmap&
-    bitmap(float scale = caseelephant::probe_constants::gallery::scene_raster_scale) {
+    const weft::SceneBitmap& bitmap(float scale = weft::probe_constants::gallery::scene_raster_scale) {
         if (dirty || cached.rgba.empty() || cached_scale != scale) {
             cached = raster.raster(current, scale);
             cached_scale = scale;
@@ -347,25 +345,25 @@ struct GallerySceneSession {
         return cached;
     }
 
-    void input(caseelephant::ProbeMouseType type, float x, float y) {
+    void input(weft::MouseType type, float x, float y) {
         if (svg_geometry) {
             input_value(type, x, y);
             return;
         }
         auto target = raster.hit_test(current, x, y);
-        caseelephant::ProbeMouseEvent e;
+        weft::MouseEvent e;
         e.type = type;
         e.client_x = x;
         e.client_y = y;
         e.time_ms = time;
-        if (type == caseelephant::ProbeMouseType::Move && hovered != target) {
+        if (type == weft::MouseType::Move && hovered != target) {
             if (hovered.generation) {
-                e.type = caseelephant::ProbeMouseType::Out;
+                e.type = weft::MouseType::Out;
                 e.related_target = target;
                 vm.dispatch_mouse(hovered, e);
             }
             if (target.generation) {
-                e.type = caseelephant::ProbeMouseType::Over;
+                e.type = weft::MouseType::Over;
                 e.related_target = hovered;
                 vm.dispatch_mouse(target, e);
             }
@@ -377,21 +375,20 @@ struct GallerySceneSession {
         }
     }
 
-    void input_value(caseelephant::ProbeMouseType type, float x, float y, unsigned buttons = 0, double wheel = 0) {
+    void input_value(weft::MouseType type, float x, float y, unsigned buttons = 0, double wheel = 0) {
         flush_scene();
-        caseelephant::ProbeNodeIdentity target;
+        weft::NodeIdentity target;
         {
             ProfileScope timer(profile.hits, profile.hit_ms, profiling);
             target = raster.hit_test(current, x, y);
         }
         const auto destination = target.generation ? target : root_id;
         ProfileScope timer(profile.dispatches, profile.dispatch_ms, profiling);
-        auto emit = [&](caseelephant::ProbeNodeIdentity identity, caseelephant::ProbeMouseType event_type,
-                        caseelephant::ProbeNodeIdentity related = {}) {
+        auto emit = [&](weft::NodeIdentity identity, weft::MouseType event_type, weft::NodeIdentity related = {}) {
             if (!identity.generation) {
                 return;
             }
-            caseelephant::ProbeMouseEvent e;
+            weft::MouseEvent e;
             e.type = event_type;
             e.client_x = x;
             e.client_y = y;
@@ -401,7 +398,7 @@ struct GallerySceneSession {
             vm.dispatch_mouse(identity, e);
         };
         auto chain = [&](auto id) {
-            std::vector<caseelephant::ProbeNodeIdentity> values;
+            std::vector<weft::NodeIdentity> values;
             auto visit = [&](auto&& self, const auto& n) -> bool {
                 if (n.identity == id) {
                     values.push_back(n.identity);
@@ -418,59 +415,59 @@ struct GallerySceneSession {
             visit(visit, current.root);
             return values;
         };
-        if (type == caseelephant::ProbeMouseType::Move && hovered != target) {
+        if (type == weft::MouseType::Move && hovered != target) {
             auto old = chain(hovered);
             auto next = chain(target);
-            emit(hovered, caseelephant::ProbeMouseType::PointerOut, target);
-            emit(hovered, caseelephant::ProbeMouseType::Out, target);
+            emit(hovered, weft::MouseType::PointerOut, target);
+            emit(hovered, weft::MouseType::Out, target);
             for (auto n : old) {
                 if (std::find(next.begin(), next.end(), n) == next.end()) {
-                    emit(n, caseelephant::ProbeMouseType::PointerLeave, target);
-                    emit(n, caseelephant::ProbeMouseType::Leave, target);
+                    emit(n, weft::MouseType::PointerLeave, target);
+                    emit(n, weft::MouseType::Leave, target);
                 }
             }
-            emit(target, caseelephant::ProbeMouseType::PointerOver, hovered);
-            emit(target, caseelephant::ProbeMouseType::Over, hovered);
+            emit(target, weft::MouseType::PointerOver, hovered);
+            emit(target, weft::MouseType::Over, hovered);
             for (auto i = next.rbegin(); i != next.rend(); ++i) {
                 if (std::find(old.begin(), old.end(), *i) == old.end()) {
-                    emit(*i, caseelephant::ProbeMouseType::PointerEnter, hovered);
-                    emit(*i, caseelephant::ProbeMouseType::Enter, hovered);
+                    emit(*i, weft::MouseType::PointerEnter, hovered);
+                    emit(*i, weft::MouseType::Enter, hovered);
                 }
             }
             hovered = target;
         }
         if (wheel) {
-            caseelephant::ProbeWheelEvent e;
+            weft::WheelEvent e;
             e.delta_y = wheel;
             e.client_x = x;
             e.client_y = y;
             e.time_ms = time;
             vm.dispatch_wheel(destination, e);
-        } else if (type == caseelephant::ProbeMouseType::Down) {
+        } else if (type == weft::MouseType::Down) {
             input_down = true;
             buttons = 1;
-            emit(destination, caseelephant::ProbeMouseType::PointerDown);
+            emit(destination, weft::MouseType::PointerDown);
             emit(destination, type);
             pressed = target;
-        } else if (type == caseelephant::ProbeMouseType::Up) {
+        } else if (type == weft::MouseType::Up) {
             input_down = false;
             buttons = 0;
-            emit(destination, caseelephant::ProbeMouseType::PointerUp);
+            emit(destination, weft::MouseType::PointerUp);
             emit(destination, type);
             if (target.generation && target == pressed) {
-                emit(target, caseelephant::ProbeMouseType::Click);
+                emit(target, weft::MouseType::Click);
             }
             pressed = {};
-        } else if (type == caseelephant::ProbeMouseType::Click) {
+        } else if (type == weft::MouseType::Click) {
             buttons = 1;
-            emit(destination, caseelephant::ProbeMouseType::PointerDown);
-            emit(destination, caseelephant::ProbeMouseType::Down);
+            emit(destination, weft::MouseType::PointerDown);
+            emit(destination, weft::MouseType::Down);
             buttons = 0;
-            emit(destination, caseelephant::ProbeMouseType::PointerUp);
-            emit(destination, caseelephant::ProbeMouseType::Up);
+            emit(destination, weft::MouseType::PointerUp);
+            emit(destination, weft::MouseType::Up);
             emit(destination, type);
         } else {
-            emit(destination, caseelephant::ProbeMouseType::PointerMove);
+            emit(destination, weft::MouseType::PointerMove);
             emit(destination, type);
         }
     }
@@ -480,14 +477,14 @@ struct GallerySceneSession {
             return;
         }
         if (svg_geometry && root_id.generation) {
-            caseelephant::ProbeMouseEvent e;
+            weft::MouseEvent e;
             e.time_ms = time;
-            e.type = caseelephant::ProbeMouseType::PointerCancel;
+            e.type = weft::MouseType::PointerCancel;
             vm.dispatch_mouse(root_id, e);
-            e.type = caseelephant::ProbeMouseType::Up;
+            e.type = weft::MouseType::Up;
             vm.dispatch_mouse(root_id, e);
-            input_value(caseelephant::ProbeMouseType::Move, caseelephant::probe_constants::gallery::offscreen_pointer,
-                        caseelephant::probe_constants::gallery::offscreen_pointer);
+            input_value(weft::MouseType::Move, weft::probe_constants::gallery::offscreen_pointer,
+                        weft::probe_constants::gallery::offscreen_pointer);
         }
         hovered = pressed = {};
         input_down = false;

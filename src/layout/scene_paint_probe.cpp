@@ -9,12 +9,12 @@
 #include <numbers>
 #include <sstream>
 
-namespace caseelephant {
+namespace weft {
     namespace {
         using css::trim;
 
         // Percentages resolve against the reference box (as hundredths), em against the font size.
-        ProbePaintNumber number(std::string_view input) {
+        PaintNumber number(std::string_view input) {
             const auto s = trim(input);
             const auto [digits, unit] = css::split_unit(s, {.px = true, .percent = true, .em = true});
             const double reference = unit == css::Unit::Percent ? .01 : unit == css::Unit::Em ? 1 : 0;
@@ -33,30 +33,30 @@ namespace caseelephant {
         return keys;
     }
 
-    std::optional<ProbePaintValue> parse_scene_paint_value(const std::string& input) {
+    std::optional<PaintValue> parse_scene_paint_value(const std::string& input) {
         try {
             auto s = trim(input);
-            ProbePaintValue out;
+            PaintValue out;
             if (s == "transparent" || s == "black" || s == "white" || s.starts_with('#') || s.starts_with("rgb(") ||
                 s.starts_with("rgba(") || s.starts_with("hsl(") || s.starts_with("hsla(")) {
-                out.kind = ProbePaintValue::Color;
+                out.kind = PaintValue::Color;
                 s = css::expand_color_shorthand(s);
-                const auto color = parse_probe_css_color(s);
+                const auto color = parse_css_color(s);
                 for (unsigned i = 0; i < 4; ++i) {
                     out.color[i] = color[i];
                 }
                 return out;
             }
             if (s == "none") {
-                out.kind = ProbePaintValue::Transform;
+                out.kind = PaintValue::Transform;
                 return out;
             }
             if (s.find('(') == s.npos) {
-                out.kind = ProbePaintValue::Scalar;
+                out.kind = PaintValue::Scalar;
                 out.scalar = number(s);
                 return out;
             }
-            out.kind = ProbePaintValue::Transform;
+            out.kind = PaintValue::Transform;
             std::size_t pos{};
             while (pos < s.size()) {
                 while (pos < s.size() && std::isspace(static_cast<unsigned char>(s[pos]))) {
@@ -71,13 +71,13 @@ namespace caseelephant {
                     return {};
                 }
                 const auto name = trim(s.substr(pos, b - pos));
-                ProbePaintOperation op;
-                static const std::map<std::string, ProbePaintOp> kinds{
-                    {"translate", ProbePaintOp::Translate},     {"translateX", ProbePaintOp::TranslateX},
-                    {"translateY", ProbePaintOp::TranslateY},   {"scale", ProbePaintOp::Scale},
-                    {"scaleX", ProbePaintOp::ScaleX},           {"scaleY", ProbePaintOp::ScaleY},
-                    {"rotate", ProbePaintOp::Rotate},           {"matrix", ProbePaintOp::Matrix},
-                    {"perspective", ProbePaintOp::Perspective}, {"rotateY", ProbePaintOp::RotateY}};
+                PaintOperation op;
+                static const std::map<std::string, PaintOp> kinds{
+                    {"translate", PaintOp::Translate},     {"translateX", PaintOp::TranslateX},
+                    {"translateY", PaintOp::TranslateY},   {"scale", PaintOp::Scale},
+                    {"scaleX", PaintOp::ScaleX},           {"scaleY", PaintOp::ScaleY},
+                    {"rotate", PaintOp::Rotate},           {"matrix", PaintOp::Matrix},
+                    {"perspective", PaintOp::Perspective}, {"rotateY", PaintOp::RotateY}};
                 auto k = kinds.find(name);
                 if (k == kinds.end()) {
                     return {};
@@ -91,7 +91,7 @@ namespace caseelephant {
                     if (op.count >= 6) {
                         return {};
                     }
-                    const bool angular = op.kind == ProbePaintOp::Rotate || op.kind == ProbePaintOp::RotateY;
+                    const bool angular = op.kind == PaintOp::Rotate || op.kind == PaintOp::RotateY;
                     if (angular && op.count == 0) {
                         const bool degrees = arg.ends_with("deg");
                         if (degrees) {
@@ -108,14 +108,14 @@ namespace caseelephant {
                         op.args[op.count++] = number(arg);
                     }
                 }
-                if (!op.count || (op.kind == ProbePaintOp::Matrix && op.count != 6) ||
-                    (op.kind == ProbePaintOp::Rotate && op.count != 1) ||
-                    ((op.kind == ProbePaintOp::Translate || op.kind == ProbePaintOp::Scale)
+                if (!op.count || (op.kind == PaintOp::Matrix && op.count != 6) ||
+                    (op.kind == PaintOp::Rotate && op.count != 1) ||
+                    ((op.kind == PaintOp::Translate || op.kind == PaintOp::Scale)
                          ? op.count > 2
-                         : (op.kind != ProbePaintOp::Matrix && op.count != 1))) {
+                         : (op.kind != PaintOp::Matrix && op.count != 1))) {
                     return {};
                 }
-                if (op.kind == ProbePaintOp::Perspective && !trim(args).ends_with("px")) {
+                if (op.kind == PaintOp::Perspective && !trim(args).ends_with("px")) {
                     return {};
                 }
                 if (out.operations.size() >= constants::scene::max_paint_transform_operations) {
@@ -130,18 +130,17 @@ namespace caseelephant {
         }
     }
 
-    ProbePaintValue interpolate_scene_paint_value(const ProbePaintValue& a, const ProbePaintValue& b, double t) {
+    PaintValue interpolate_scene_paint_value(const PaintValue& a, const PaintValue& b, double t) {
         if (a.kind != b.kind) {
             return t < constants::scene::discrete_interpolation_midpoint ? a : b;
         }
         auto out = a;
-        auto mix = [&](ProbePaintNumber x, ProbePaintNumber y) {
-            return ProbePaintNumber{x.absolute + (y.absolute - x.absolute) * t,
-                                    x.relative + (y.relative - x.relative) * t};
+        auto mix = [&](PaintNumber x, PaintNumber y) {
+            return PaintNumber{x.absolute + (y.absolute - x.absolute) * t, x.relative + (y.relative - x.relative) * t};
         };
-        if (a.kind == ProbePaintValue::Scalar) {
+        if (a.kind == PaintValue::Scalar) {
             out.scalar = mix(a.scalar, b.scalar);
-        } else if (a.kind == ProbePaintValue::Color) {
+        } else if (a.kind == PaintValue::Color) {
             out.color[3] = a.color[3] + (b.color[3] - a.color[3]) * t;
             for (unsigned i = 0; i < 3; ++i) {
                 out.color[i] =
@@ -163,8 +162,8 @@ namespace caseelephant {
         return out;
     }
 
-    ProbeScenePaintValues compile_scene_paint_values(const std::map<std::string, std::string>& style) {
-        ProbeScenePaintValues out;
+    ScenePaintValues compile_scene_paint_values(const std::map<std::string, std::string>& style) {
+        ScenePaintValues out;
         const auto& keys = scene_paint_properties();
         for (unsigned i = 0; i < keys.size(); ++i) {
             auto it = style.find(keys[i]);
@@ -182,4 +181,4 @@ namespace caseelephant {
         }
         return out;
     }
-} // namespace caseelephant
+} // namespace weft

@@ -58,7 +58,7 @@ for name, config in (('release', 'Release'), ('debug', 'Debug'), ('gc', 'Debug')
     runs[name]['warp'] = window(target / 'warp', gc)
     if not gc: runs[name]['hardware'] = window(target / 'hardware')
     else: runs[name]['scope'] = '34 original scenes/121 frames/102 references/1476 geometry, scene contracts, 160-frame WARP window; 72 isolated module audit not repeated; only pending-count wording fixed afterward, final binary shared Canvas window rerun'
-    for filename in ('ce_d3d11_probe.exe', 'ce_scene_gallery_tests.exe', 'ce_scene_contract_tests.exe'):
+    for filename in ('weft_d3d11_probe.exe', 'weft_scene_gallery_tests.exe', 'weft_scene_contract_tests.exe'):
         dst = target / 'bin' / filename
         dst.parent.mkdir(exist_ok=True)
         shutil.copy2(build / 'bin' / config / filename, dst)

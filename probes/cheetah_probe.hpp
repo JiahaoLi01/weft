@@ -5,10 +5,10 @@ std::map<std::string, std::shared_ptr<const Asset>> load_cheetah_images() {
     std::map<std::string, std::shared_ptr<const Asset>> result;
     for (const auto* name : {"ink-panel-v2.png", "ink-dock-left-v1.png", "ink-dock-right-v1.png"}) {
         // Explicit host resource allowlist, no DOM-driven filesystem access.
-        const auto path = std::filesystem::path(CE_SOURCE_DIR) / "tests/fixtures/casecheetah/UI/public/art" / name;
-        auto image = caseelephant::testing::read_png(path);
-        require(image.width == caseelephant::probe_constants::cheetah_art_width &&
-                    image.height == caseelephant::probe_constants::cheetah_art_height,
+        const auto path = std::filesystem::path(WEFT_SOURCE_DIR) / "tests/fixtures/casecheetah/UI/public/art" / name;
+        auto image = weft::testing::read_png(path);
+        require(image.width == weft::probe_constants::cheetah_art_width &&
+                    image.height == weft::probe_constants::cheetah_art_height,
                 "fixed source art dimensions");
         result.emplace(
             std::string("art/") + name,
@@ -38,7 +38,7 @@ struct CheetahPacketCache {
     using GlyphKey = std::tuple<std::uint32_t, std::uint32_t, float>;
 
     struct Glyph {
-        caseelephant::ProbeGlyphBitmap bitmap;
+        weft::GlyphBitmap bitmap;
         std::shared_ptr<const Asset> asset;
     };
 
@@ -78,8 +78,8 @@ struct CheetahPacketCache {
     }
 };
 
-template <class Font>
-FramePacket cheetah_packet(const caseelephant::ProbePositionedPage& page, Font& font,
+template <class FontT>
+FramePacket cheetah_packet(const weft::PositionedPage& page, FontT& font,
                            const std::map<std::string, std::shared_ptr<const Asset>>& images,
                            CheetahPacketCache* persistent = nullptr) {
     FramePacket packet;
@@ -96,25 +96,24 @@ FramePacket cheetah_packet(const caseelephant::ProbePositionedPage& page, Font& 
         return i->second;
     };
     std::size_t mask_bytes{};
-    auto append = [&](Draw d, const std::array<float, 4>& clip,
-                      const std::vector<caseelephant::ProbeRoundedClip>& masks) {
+    auto append = [&](Draw d, const std::array<float, 4>& clip, const std::vector<weft::RoundedClip>& masks) {
         crop_draw(d, clip);
         if (d.rect.w <= 0 || d.rect.h <= 0) {
             return;
         }
         bool full = true;
         for (const auto& c : masks) {
-            if (!caseelephant::contains_rounded_probe(c, d.rect.x, d.rect.y) ||
-                !caseelephant::contains_rounded_probe(c, d.rect.x + d.rect.w, d.rect.y) ||
-                !caseelephant::contains_rounded_probe(c, d.rect.x, d.rect.y + d.rect.h) ||
-                !caseelephant::contains_rounded_probe(c, d.rect.x + d.rect.w, d.rect.y + d.rect.h)) {
+            if (!weft::contains_rounded(c, d.rect.x, d.rect.y) ||
+                !weft::contains_rounded(c, d.rect.x + d.rect.w, d.rect.y) ||
+                !weft::contains_rounded(c, d.rect.x, d.rect.y + d.rect.h) ||
+                !weft::contains_rounded(c, d.rect.x + d.rect.w, d.rect.y + d.rect.h)) {
                 full = false;
                 break;
             }
         }
         if (!full) {
-            require(d.rect.w <= caseelephant::constants::render::rounded_mask_max_dimension &&
-                        d.rect.h <= caseelephant::constants::render::rounded_mask_max_dimension,
+            require(d.rect.w <= weft::constants::render::rounded_mask_max_dimension &&
+                        d.rect.h <= weft::constants::render::rounded_mask_max_dimension,
                     "rounded quad size bound");
             const auto w = UINT(std::ceil(d.rect.w));
             const auto h = UINT(std::ceil(d.rect.h));
@@ -139,12 +138,12 @@ FramePacket cheetah_packet(const caseelephant::ProbePositionedPage& page, Font& 
                 }
                 ++cache.mask_misses;
             }
-            auto coverage = caseelephant::rounded_coverage_probe(masks, {d.rect.x, d.rect.y, d.rect.w, d.rect.h}, w, h);
+            auto coverage = weft::rounded_coverage(masks, {d.rect.x, d.rect.y, d.rect.w, d.rect.h}, w, h);
             const Asset* old = d.asset < 0 ? nullptr : packet.assets[d.asset].get();
             const bool image = old && old->encoding == Encoding::SrgbStraight;
             require(!old || old->encoding != Encoding::SignedDistance, "rounded SDF preparation pending");
-            const auto bytes = std::size_t(w) * h * (image ? caseelephant::constants::rgba8_bytes_per_pixel : 1);
-            require(bytes <= caseelephant::probe_constants::packet_mask_max_bytes - mask_bytes,
+            const auto bytes = std::size_t(w) * h * (image ? weft::constants::rgba8_bytes_per_pixel : 1);
+            require(bytes <= weft::probe_constants::packet_mask_max_bytes - mask_bytes,
                     "rounded preparation byte bound");
             mask_bytes += bytes;
             auto combined = std::make_shared<Asset>(
@@ -152,7 +151,7 @@ FramePacket cheetah_packet(const caseelephant::ProbePositionedPage& page, Font& 
             for (UINT y = 0; y < h; ++y) {
                 for (UINT x = 0; x < w; ++x) {
                     auto index = std::size_t(y) * w + x;
-                    float alpha = coverage[index] / caseelephant::probe_constants::color_channel_max_float;
+                    float alpha = coverage[index] / weft::probe_constants::color_channel_max_float;
                     if (!old) {
                         combined->bytes[index] = coverage[index];
                         continue;
@@ -171,15 +170,13 @@ FramePacket cheetah_packet(const caseelephant::ProbePositionedPage& page, Font& 
                             const auto j = std::size_t(py) * old->width + px;
                             float weight = (xx ? fx : 1 - fx) * (yy ? fy : 1 - fy);
                             if (!image) {
-                                sampled[3] +=
-                                    old->bytes[j] / caseelephant::probe_constants::color_channel_max_float * weight;
+                                sampled[3] += old->bytes[j] / weft::probe_constants::color_channel_max_float * weight;
                             } else {
-                                float a =
-                                    old->bytes[j * 4 + 3] / caseelephant::probe_constants::color_channel_max_float;
+                                float a = old->bytes[j * 4 + 3] / weft::probe_constants::color_channel_max_float;
                                 for (int c = 0; c < 3; ++c) {
-                                    sampled[c] += decode(old->bytes[j * 4 + c] /
-                                                         caseelephant::probe_constants::color_channel_max_float) *
-                                                  a * weight;
+                                    sampled[c] +=
+                                        decode(old->bytes[j * 4 + c] / weft::probe_constants::color_channel_max_float) *
+                                        a * weight;
                                 }
                                 sampled[3] += a * weight;
                             }
@@ -187,26 +184,26 @@ FramePacket cheetah_packet(const caseelephant::ProbePositionedPage& page, Font& 
                     }
                     if (!image) {
                         combined->bytes[index] =
-                            std::uint8_t(std::lround(alpha * sampled[3] * caseelephant::constants::color_channel_max));
+                            std::uint8_t(std::lround(alpha * sampled[3] * weft::constants::color_channel_max));
                     } else {
                         for (int c = 0; c < 3; ++c) {
                             float linear = sampled[3] > 0 ? std::clamp(sampled[c] / sampled[3], 0.f, 1.f) : 0;
-                            float srgb = linear <= caseelephant::probe_constants::srgb_encode_threshold
-                                             ? linear * caseelephant::probe_constants::srgb_linear_slope
-                                             : caseelephant::probe_constants::srgb_scale *
-                                                       std::pow(linear, 1 / caseelephant::probe_constants::srgb_gamma) -
-                                                   caseelephant::probe_constants::srgb_offset;
+                            float srgb = linear <= weft::probe_constants::srgb_encode_threshold
+                                             ? linear * weft::probe_constants::srgb_linear_slope
+                                             : weft::probe_constants::srgb_scale *
+                                                       std::pow(linear, 1 / weft::probe_constants::srgb_gamma) -
+                                                   weft::probe_constants::srgb_offset;
                             combined->bytes[index * 4 + c] =
-                                std::uint8_t(std::lround(srgb * caseelephant::constants::color_channel_max));
+                                std::uint8_t(std::lround(srgb * weft::constants::color_channel_max));
                         }
                         combined->bytes[index * 4 + 3] =
-                            std::uint8_t(std::lround(sampled[3] * alpha * caseelephant::constants::color_channel_max));
+                            std::uint8_t(std::lround(sampled[3] * alpha * weft::constants::color_channel_max));
                     }
                 }
             }
-            if (persistent && bytes <= caseelephant::probe_constants::mask_cache_max_bytes) {
-                if (cache.masks.size() >= caseelephant::probe_constants::mask_cache_max_entries ||
-                    bytes > caseelephant::probe_constants::mask_cache_max_bytes - cache.mask_bytes) {
+            if (persistent && bytes <= weft::probe_constants::mask_cache_max_bytes) {
+                if (cache.masks.size() >= weft::probe_constants::mask_cache_max_entries ||
+                    bytes > weft::probe_constants::mask_cache_max_bytes - cache.mask_bytes) {
                     cache.masks.clear();
                     cache.mask_bytes = 0;
                 }
@@ -221,14 +218,14 @@ FramePacket cheetah_packet(const caseelephant::ProbePositionedPage& page, Font& 
     for (const auto& item : page.paints) {
         const auto& p = item.paint;
         if (!item.image_source.empty()) {
-            require(images.contains(item.image_source), "CE_RESOURCE_PROFILE: image not in fixture host allowlist");
+            require(images.contains(item.image_source), "WEFT_RESOURCE_PROFILE: image not in fixture host allowlist");
             if (!image_indices.contains(item.image_source)) {
                 image_indices[item.image_source] = add_asset(images.at(item.image_source));
             }
             Draw d{{p.x, p.y, p.width, p.height}, {1, 1, 1, 1}, image_indices.at(item.image_source)};
             d.uv = item.uv;
             append(d, item.clip, item.rounded_clips);
-        } else if (p.kind == caseelephant::ProbePaintKind::Rectangle) {
+        } else if (p.kind == weft::PaintKind::Rectangle) {
             append({{p.x, p.y, p.width, p.height}, p.srgb}, item.clip, item.rounded_clips);
         } else {
             float pen_x = p.x;
@@ -241,11 +238,10 @@ FramePacket cheetah_packet(const caseelephant::ProbePositionedPage& page, Font& 
                     cached.bitmap = font.rasterize(glyph, p.font_size);
                     auto& b = cached.bitmap;
                     const auto bytes = b.coverage.size();
-                    require(!persistent || bytes <= caseelephant::probe_constants::glyph_cache_max_bytes,
+                    require(!persistent || bytes <= weft::probe_constants::glyph_cache_max_bytes,
                             "glyph preparation cache byte bound");
-                    if (persistent &&
-                        (cache.glyphs.size() >= caseelephant::probe_constants::glyph_cache_max_entries ||
-                         bytes > caseelephant::probe_constants::glyph_cache_max_bytes - cache.glyph_bytes)) {
+                    if (persistent && (cache.glyphs.size() >= weft::probe_constants::glyph_cache_max_entries ||
+                                       bytes > weft::probe_constants::glyph_cache_max_bytes - cache.glyph_bytes)) {
                         cache.glyphs.clear();
                         cache.glyph_bytes = 0;
                     }
@@ -272,8 +268,7 @@ FramePacket cheetah_packet(const caseelephant::ProbePositionedPage& page, Font& 
             }
         }
     }
-    require(packet.assets.size() < caseelephant::probe_constants::max_frame_assets,
-            "bounded game image/glyph/mask resources");
+    require(packet.assets.size() < weft::probe_constants::max_frame_assets, "bounded game image/glyph/mask resources");
     return packet;
 }
 
@@ -303,14 +298,13 @@ Pixel cheetah_sample(const FramePacket& packet, int x, int y) {
                     const auto index = std::size_t(py) * a.width + px;
                     const float weight = (xx ? fx : 1 - fx) * (yy ? fy : 1 - fy);
                     if (a.encoding == Encoding::Coverage) {
-                        sample[3] += a.bytes[index] / caseelephant::probe_constants::color_channel_max_float * weight;
+                        sample[3] += a.bytes[index] / weft::probe_constants::color_channel_max_float * weight;
                     } else {
-                        const float alpha =
-                            a.bytes[index * 4 + 3] / caseelephant::probe_constants::color_channel_max_float;
+                        const float alpha = a.bytes[index * 4 + 3] / weft::probe_constants::color_channel_max_float;
                         for (int c = 0; c < 3; ++c) {
-                            sample[c] += decode(a.bytes[index * 4 + c] /
-                                                caseelephant::probe_constants::color_channel_max_float) *
-                                         alpha * weight;
+                            sample[c] +=
+                                decode(a.bytes[index * 4 + c] / weft::probe_constants::color_channel_max_float) *
+                                alpha * weight;
                         }
                         sample[3] += alpha * weight;
                     }
@@ -337,12 +331,11 @@ Pixel cheetah_sample(const FramePacket& packet, int x, int y) {
     for (int c = 0; c < 4; ++c) {
         const float v = std::clamp(destination[c], 0.f, 1.f);
         const float e = c == 3 ? v
-                        : v <= caseelephant::probe_constants::srgb_encode_threshold
-                            ? v * caseelephant::probe_constants::srgb_linear_slope
-                            : caseelephant::probe_constants::srgb_scale *
-                                      std::pow(v, 1 / caseelephant::probe_constants::srgb_gamma) -
-                                  caseelephant::probe_constants::srgb_offset;
-        result[c] = std::uint8_t(std::lround(e * caseelephant::constants::color_channel_max));
+                        : v <= weft::probe_constants::srgb_encode_threshold
+                            ? v * weft::probe_constants::srgb_linear_slope
+                            : weft::probe_constants::srgb_scale * std::pow(v, 1 / weft::probe_constants::srgb_gamma) -
+                                  weft::probe_constants::srgb_offset;
+        result[c] = std::uint8_t(std::lround(e * weft::constants::color_channel_max));
     }
     return result;
 }
@@ -351,37 +344,36 @@ int run_cheetah(bool warp, bool visible, const std::filesystem::path& folder) {
     std::filesystem::create_directories(folder);
     NativeReactWindow window(visible);
     SetWindowTextW(window.state.hwnd, L"CaseElephant - CaseCheetah original NineSlice / D3D11");
-    Experiment gpu(warp, caseelephant::constants::default_view_width, caseelephant::constants::default_view_height);
+    Experiment gpu(warp, weft::constants::default_view_width, weft::constants::default_view_height);
     WindowPresenter presenter(gpu, window.state.hwnd);
-    presenter.resize(caseelephant::constants::default_view_width, caseelephant::constants::default_view_height);
+    presenter.resize(weft::constants::default_view_width, weft::constants::default_view_height);
     presenter.capture = true;
     const auto images = load_cheetah_images();
-    caseelephant::TextProbeFont font(CE_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
-    caseelephant::ScriptProbeConfig config{caseelephant::constants::script::probe_vm_stack_bytes};
-#ifdef CE_REACT_GC_STRESS
-    config.execution_budget_ms = caseelephant::constants::script::max_execution_budget_ms;
+    weft::Font font(WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
+    weft::ScriptConfig config{weft::constants::script::probe_vm_stack_bytes};
+#ifdef WEFT_REACT_GC_STRESS
+    config.execution_budget_ms = weft::constants::script::max_execution_budget_ms;
 #endif
-    caseelephant::ScriptDomProbe script(config);
-    caseelephant::install_script_platform(script, caseelephant::ScriptPlatformModule::WebHost);
-    script.eval(read_file(CE_SOURCE_DIR "/examples/cheetah-nine-slice/native/app.js"));
+    weft::ScriptDom script(config);
+    weft::install_script_platform(script, weft::ScriptPlatformModule::WebHost);
+    script.eval(read_file(WEFT_SOURCE_DIR "/examples/cheetah-nine-slice/native/app.js"));
     pump_react(script, 0);
     require(script.eval("caseCheetahFixture.version") == "19.3.0", "pinned fixture React runtime");
-    const auto css = read_file(CE_SOURCE_DIR "/examples/cheetah-nine-slice/src/profile.css");
+    const auto css = read_file(WEFT_SOURCE_DIR "/examples/cheetah-nine-slice/src/profile.css");
     const auto card = script.node_identity("#card");
     const auto image = script.node_identity(".nine-slice-art");
-    std::array<caseelephant::ProbePositionedPage, caseelephant::probe_constants::interaction_frames> pages;
-    std::array<std::string, caseelephant::probe_constants::interaction_frames> states;
-    for (int i = 0; i < caseelephant::probe_constants::interaction_frames; ++i) {
+    std::array<weft::PositionedPage, weft::probe_constants::interaction_frames> pages;
+    std::array<std::string, weft::probe_constants::interaction_frames> states;
+    for (int i = 0; i < weft::probe_constants::interaction_frames; ++i) {
         if (i) {
-            caseelephant::ProbeMouseEvent e{caseelephant::ProbeMouseType::Click, 250, 368};
-            require(script.dispatch_mouse(script.node_identity("#resize"), e) !=
-                        caseelephant::ProbeDispatchResult::StaleTarget,
+            weft::MouseEvent e{weft::MouseType::Click, 250, 368};
+            require(script.dispatch_mouse(script.node_identity("#resize"), e) != weft::DispatchResult::StaleTarget,
                     "host weak-identity native MouseEvent");
-            pump_react(script, i * caseelephant::probe_constants::fixture_frame_ms);
+            pump_react(script, i * weft::probe_constants::fixture_frame_ms);
         }
-        pages[i] = caseelephant::build_positioned_page_probe(script.snapshot_subtree("#gallery"), css,
-                                                             caseelephant::constants::default_view_width,
-                                                             caseelephant::constants::default_view_height, font);
+        pages[i] =
+            weft::build_positioned_page(script.snapshot_subtree("#gallery"), css, weft::constants::default_view_width,
+                                        weft::constants::default_view_height, font);
         states[i] = script.eval("JSON.stringify(caseCheetahFixture.snapshot())");
         require(script.node_identity("#card") == card && script.node_identity(".nine-slice-art") == image,
                 "original component wrappers retain native identities");
@@ -410,7 +402,7 @@ int run_cheetah(bool warp, bool visible, const std::filesystem::path& folder) {
         });
         return std::pair{std::move(packet), presenter.pixels()};
     };
-    for (int i = 0; i < caseelephant::probe_constants::interaction_frames; ++i) {
+    for (int i = 0; i < weft::probe_constants::interaction_frames; ++i) {
         auto [packet, pixels] = render(pages[i]);
         unsigned image_draws{};
         for (const auto& d : packet.draws) {
@@ -419,10 +411,10 @@ int run_cheetah(bool warp, bool visible, const std::filesystem::path& folder) {
             }
         }
         require(image_draws == 13, "original 9 card + 2 left + 2 right pieces reach GPU");
-        for (int y = 3; y < caseelephant::constants::default_view_height; y += 11) {
-            for (int x = 2; x < caseelephant::constants::default_view_width; x += 11) {
+        for (int y = 3; y < weft::constants::default_view_height; y += 11) {
+            for (int x = 2; x < weft::constants::default_view_width; x += 11) {
                 const auto expected = cheetah_sample(packet, x, y);
-                const auto actual = pixels[std::size_t(y) * caseelephant::constants::default_view_width + x];
+                const auto actual = pixels[std::size_t(y) * weft::constants::default_view_width + x];
                 for (int c = 0; c < 4; ++c) {
                     max_error = std::max(max_error, std::abs(int(actual[c]) - int(expected[c])));
                 }
@@ -436,15 +428,15 @@ int run_cheetah(bool warp, bool visible, const std::filesystem::path& folder) {
         } else {
             require(pixels == initial, "React second resize restores full-image original exactly");
         }
-        save_png(folder / ("frame-" + std::to_string(i) + ".png"), pixels, caseelephant::constants::default_view_width,
-                 caseelephant::constants::default_view_height);
+        save_png(folder / ("frame-" + std::to_string(i) + ".png"), pixels, weft::constants::default_view_width,
+                 weft::constants::default_view_height);
         if (i) {
             report << ',';
         }
         report << "{\"state\":" << states[i] << ",\"layout\":" << page_json(pages[i].geometry)
                << ",\"image_draws\":" << image_draws << ",\"textures\":" << packet.assets.size() << '}';
     }
-    require(max_error <= caseelephant::probe_constants::cpu_oracle_tolerance, "game PNG/crop/linear-alpha CPU oracle");
+    require(max_error <= weft::probe_constants::cpu_oracle_tolerance, "game PNG/crop/linear-alpha CPU oracle");
     gpu.check_debug_messages();
     require(expected_releases == gpu.native_releases, "all image/glyph resources retire after actual completion");
     report
@@ -477,14 +469,13 @@ int run_cheetah(bool warp, bool visible, const std::filesystem::path& folder) {
                 window.state.input.pop_front();
                 const auto p = v.viewport.logical(v.x, v.y);
                 const bool inside = p[0] >= 228 && p[0] < 392 && p[1] >= 354 && p[1] < 386;
-                if (v.action == caseelephant::ProbeMouseAction::Down) {
+                if (v.action == weft::MouseAction::Down) {
                     pressed = inside;
-                } else if (v.action == caseelephant::ProbeMouseAction::Cancel) {
+                } else if (v.action == weft::MouseAction::Cancel) {
                     pressed = false;
-                } else if (v.action == caseelephant::ProbeMouseAction::Up) {
+                } else if (v.action == weft::MouseAction::Up) {
                     if (pressed && inside) {
-                        script.dispatch_mouse(script.node_identity("#resize"),
-                                              {caseelephant::ProbeMouseType::Click, p[0], p[1]});
+                        script.dispatch_mouse(script.node_identity("#resize"), {weft::MouseType::Click, p[0], p[1]});
                         pump_react(script, time);
                     }
                     pressed = false;
@@ -496,15 +487,15 @@ int run_cheetah(bool warp, bool visible, const std::filesystem::path& folder) {
                     presenter.resize(window.state.width, window.state.height);
                     window.state.resize = false;
                 }
-                auto page = caseelephant::build_positioned_page_probe(
-                    script.snapshot_subtree("#gallery"), css, caseelephant::constants::default_view_width,
-                    caseelephant::constants::default_view_height, font);
+                auto page = weft::build_positioned_page(script.snapshot_subtree("#gallery"), css,
+                                                        weft::constants::default_view_width,
+                                                        weft::constants::default_view_height, font);
                 render(page);
                 previous = dom;
                 window.state.repaint = false;
             }
             std::this_thread::sleep_for(
-                std::chrono::milliseconds(static_cast<int>(caseelephant::probe_constants::visible_poll_ms)));
+                std::chrono::milliseconds(static_cast<int>(weft::probe_constants::visible_poll_ms)));
         }
     }
     return 0;

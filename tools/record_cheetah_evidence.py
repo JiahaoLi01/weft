@@ -16,7 +16,7 @@ for name,build,config,log,count in [('debug','windows-msvc','Debug','ctest-final
                                   ('release','windows-msvc','Release','ctest-final.log',28),
                                   ('gc-stress','windows-gc-stress','Debug','ctest-focused.log',4)]:
     folder=root/'artifacts/local'/('cheetah-'+name)
-    binary=root/'build'/build/'bin'/config/'ce_d3d11_probe.exe'
+    binary=root/'build'/build/'bin'/config/'weft_d3d11_probe.exe'
     warp=root/'build'/build/'artifacts'/('cheetah-'+config)/'warp'
     shutil.copytree(warp,folder/'warp',dirs_exist_ok=True)
     text=(folder/log).read_text(encoding='utf-8')

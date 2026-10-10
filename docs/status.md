@@ -1,4 +1,4 @@
-# CaseElephant 当前状态
+# Weft 当前状态
 
 更新日期：2026 年 10 月 10 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG、键盘/IME 与移动尚未实现，仍未达到 M0 全部退出条件。
 
@@ -17,12 +17,12 @@
 
 仍保留的源码树依赖都属于测试与证据：浏览器参考时钟、fixture、字体、gallery 原样 bundle。
 
-下一步：第 4 步，按模块拆分 CMake 并改用 `ce::` 目标，加 `ce_add_test()`，分离公开/私有头，去掉 `Probe` 前缀。
+下一步：第 4 步，按模块拆分 CMake 并改用 `ce::` 目标，加 `weft_add_test()`，分离公开/私有头，去掉 `Probe` 前缀。
 
 以下第 2 步及更早内容为历史阶段证据：
 
 重构第 2 步：`tests/support`（2026-10-10）。按 [重构计划](refactoring-plan.md#第-2-步记录2026-10-10) 新增测试与探针共用的头文件库：
-- **内容**：断言（`require`/`CE_REQUIRE`）、文件读写（保留字节/文本两种读取模式）、`json_string`、WIC PNG 读写，以及从 `probes/` 移来的 host time 格式化、帧率计与 owner trace 记录器。
+- **内容**：断言（`require`/`WEFT_REQUIRE`）、文件读写（保留字节/文本两种读取模式）、`json_string`、WIC PNG 读写，以及从 `probes/` 移来的 host time 格式化、帧率计与 owner trace 记录器。
 - **替换的副本**：22 份测试断言函数、14 份读文件函数、3 份 JSON 转义、7 份 PNG 编解码、1 份 HRESULT 检查。
 - **自包含**：图像比较头和 trace 头不再依赖包含方预先定义的辅助函数；测试也不再包含 `host_time`、`window_frame_rate`、`gallery_owner_trace` 这三个探针头。
 - **来源记录**：`flow_input_tests.cpp` 只改了辅助函数接线，在 `tests/fixtures/flow_input_source_revisions.json` 追加了等价后继 hash。
@@ -33,12 +33,12 @@
 
 仍存在的依赖：四个 scene 测试依赖 `probes/gallery_scene_session.hpp`，留到第 5、6 步迁出。
 
-下一步：第 3 步，用 CMake 生成 `.inc` 内嵌 bootstrap JS，去掉运行时对 `CE_SOURCE_DIR` 的依赖。
+下一步：第 3 步，用 CMake 生成 `.inc` 内嵌 bootstrap JS，去掉运行时对 `WEFT_SOURCE_DIR` 的依赖。
 
 以下第 1 步及更早内容为历史阶段证据：
 
 重构第 1 步：`src/base`（2026-10-10）。按 [重构计划](refactoring-plan.md#第-1-步记录2026-10-10) 新增 `caseelephant_base`：
-- **诊断与结果类型**：`Diag` 诊断码与 `Result<T>`；过渡用的 `DiagnosticError` 保留原 `CE_*` 消息文本。
+- **诊断与结果类型**：`Diag` 诊断码与 `Result<T>`；过渡用的 `DiagnosticError` 保留原 `WEFT_*` 消息文本。
 - **共享 CSS 标量解析**：trim/split/number/unit/color/rect 求交，替换 10 个 profile 中的副本。
 - **`GenerationalSlots`**：替换 runtime、renderer、resource lifetime 与脚本 DOM 的四套代际槽表。
 - **`OwnerThread`**：统一 8 个文件的 owner 检查。
@@ -76,7 +76,7 @@ C ABI 布局、句柄代际序列、异常类型和诊断文本保持不变。�
 - **结果**：
   - 46 个逐函数指令相同（其中 32 个连原始反汇编文本都相同，其余只差 MSVC 作用域编号/COMDAT 顺序）。
   - `render_backend_tests` 只差 `#expression` 字符串化后的空格，`resource_lifetime_tests` 只差 `__LINE__`。
-  - 剩下 3 个函数（`page_probe` 的 `Builder::convert`、`auto_page_probe` 的 `Builder::make`、`ScriptDomProbe::Impl::matches_compound`）是与字符串常量比较时，内联 memcmp 改为调用 `operator==`，已逐一人工确认比较内容相同。
+  - 剩下 3 个函数（`page_probe` 的 `Builder::convert`、`auto_page_probe` 的 `Builder::make`、`ScriptDom::Impl::matches_compound`）是与字符串常量比较时，内联 memcmp 改为调用 `operator==`，已逐一人工确认比较内容相同。
 - **着色器**：两个 HLSL 以运行时参数 `fxc /Ges /WX /O3` 前后编译，指令相同；m0 像素着色器的 Debug `/Od` 结构不同，数学等价。
 
 实际运行：
@@ -110,7 +110,7 @@ ctest --preset windows-debug --parallel 6 --output-on-failure --output-log artif
 
 独立封存旧源1352份重建baseline；默认priority/affinity、相同4K/字体/bundle、固定240×60Hz、16/224 warm、trace计时开启但曲线HUD关闭，无并发编译/测试。最终25例CPU及K-Line/Anime/Scatter各三组交替、Framer/Spring单对；22个窗口各240真实完成与完整trace覆盖。K-Line隔离CPU P50/P99 22.607/39.188→15.608/22.481ms；完整窗口Owner P99 **49.46→31.93ms**，Anime12卡 **23.27→14.72**，Scatter **20.00→10.86**。warm完成吞吐分别31.29→43.93、44.74→59.46、73.12→88.55FPS，不能当实体窗口FPS或关闭profiler保证。七个轻例P50未改善，部分render/GPU尾部也不改善，全部结果与峰值WS/private/启动见 `comparison-accepted/summary.json` 和新文档。K-Line输入机会build6.39/style3.55/layout3.12ms仍偏重，远未达2ms预算；下一步缩小Scene构建/布局失效范围及降低多卡raster成本。
 
-当前运行：`build/windows-msvc/bin/Release/ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/incremental-ui/interactive`。开启Profiler后操作，Esc退出，再 `python tools/analyze_gallery_trace.py artifacts/local/incremental-ui/interactive`。最终源/二进制/正确性/交替性能/手操副本与新seal在 `artifacts/local/incremental-ui/`，旧seal校验保留。实体输入到显示、长期游戏、公平Ultralight、移动和剩余6例仍未验收。
+当前运行：`build/windows-msvc/bin/Release/weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/incremental-ui/interactive`。开启Profiler后操作，Esc退出，再 `python tools/analyze_gallery_trace.py artifacts/local/incremental-ui/interactive`。最终源/二进制/正确性/交替性能/手操副本与新seal在 `artifacts/local/incremental-ui/`，旧seal校验保留。实体输入到显示、长期游戏、公平Ultralight、移动和剩余6例仍未验收。
 
 以下为此前阶段的历史证据；单轮数据和旧缓存/profiler策略对应当时版本：
 
@@ -128,13 +128,13 @@ Sunburst连续wheel退出已复现为512MiB import预算拒绝（result8），�
 
 ```powershell
 cmake --build --preset windows-release --parallel 4
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/interaction-profile/interactive
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/interaction-profile/interactive
 # 手操采样，Esc退出后合并owner/render共同时间轴：
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-window-profile-hardware artifacts/local/interaction-profile/manual
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-window-profile-hardware artifacts/local/interaction-profile/manual
 python tools/analyze_gallery_trace.py artifacts/local/interaction-profile/manual
 # 可重复的隔离CPU/真实HWND输入采样：
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-owner-profile artifacts/local/interaction-profile/new-cpu all
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-input-benchmark-hardware artifacts/local/interaction-profile/new-kline kline
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-owner-profile artifacts/local/interaction-profile/new-cpu all
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-input-benchmark-hardware artifacts/local/interaction-profile/new-kline kline
 ```
 
 最终产物在 `artifacts/local/interaction-profile/accepted-cpu/`、`final-trace/`、`hardware-release/`、`hardware-debug/`；完整日志为 `gallery-profile-{release,debug}-tests.log`、`gallery-profile-gc-contracts.log` 与hardware四项日志。`tools/record_gallery_interaction_evidence.py` 校验最终结果并保存来源、二进制、产物SHA及旧render-stages seal，输出本阶段 `run-metadata.json`；历史未跑完的gallery-cluster seal脚本不作为本阶段验收。优化前baseline仅有二进制/数据，无完整独立baseline源快照，限制明示。
@@ -149,7 +149,7 @@ python tools/analyze_gallery_trace.py artifacts/local/interaction-profile/manual
 
 Release/Debug 全量各80/80、最后相关各7/7，安静 GC 10/10；两配置 hardware native scene/window，Release hardware damage/三线程 async 重跑。原34例102 Chrome图 unchanged mean/IoU阈值通过（2.32729/.798493），native2605/fallback1512/source6 build720reuse、4117实际退休；新增320帧160对照 mean .20115 / IoU1与缓存淘汰、crop、透明重叠/代际变化，窗口160帧/288几何/17包/1680像素最大差1，debug层零warning/error。GC大型原例/window未重复；实体输入、总VRAM、冷首帧尖峰、实际游戏/Ultralight公平对照、Metal/Vulkan/移动配置到真机均未验证。
 
-当前：`build/windows-msvc/bin/Release/ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/render-stages/interactive`。4K HUD分开显示Present FPS / OWNER更新Hz。产物、663源快照与seal在 `artifacts/local/render-stages/`，650旧源独立重建baseline，旧seal保持、原101文件drift0。下一步缩减完整scene/诊断字符串、转换/producer与字体atlas成本，追踪末段等待尾部，推进实际引擎C ABI接入与移动验证。
+当前：`build/windows-msvc/bin/Release/weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/render-stages/interactive`。4K HUD分开显示Present FPS / OWNER更新Hz。产物、663源快照与seal在 `artifacts/local/render-stages/`，650旧源独立重建baseline，旧seal保持、原101文件drift0。下一步缩减完整scene/诊断字符串、转换/producer与字体atlas成本，追踪末段等待尾部，推进实际引擎C ABI接入与移动验证。
 
 以下 owner-hotpath 与更早内容为历史阶段证据：
 
@@ -159,7 +159,7 @@ Windows RTX5090 / 9950X3D / MSVC Release、4K、240 帧/16 预热/224 样本、3
 
 实际 Release/Debug 全量各76/76（27.65/62.67秒），最后 quota/module/owner 边界修正后相关8/8（27.42/57.59秒），hardware complex / 原 scene GPU / window 两配置重跑。新增320 scheduler旧模块差分、512随机revision/full快照、quota/deadline/reset/weak GC/scroll/viewport，complex316图像对照（128typed+4缓存容量）hardware mean/IoU .720556/.958484、4 program evictions/316真实退休。原102图/1476字段/4117真实退休，窗口160帧/288几何/17包/1680像素差最大1保持，调试层零warning/error。GC相关8/8 46.86秒，最后边界同范围8/8 44.22秒；未重复GC大型原gallery/window，非实体输入验收。
 
-当前运行：`build/windows-msvc/bin/Release/ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/owner-hotpath/interactive`。产物、源快照与新seal在 `artifacts/local/owner-hotpath/`，保留并校验上一阶段seal；基准旧版从642封存源在独立runtime source root重新构建，避免误读新bootstrap。原游戏/包/bundle只读不改。下一步消除剩余诊断字符串与完整scene更新、降低producer提交成本，再按游戏UI毫秒预算验收；移动、完整72实绘与公平Ultralight对照仍未验证。
+当前运行：`build/windows-msvc/bin/Release/weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/owner-hotpath/interactive`。产物、源快照与新seal在 `artifacts/local/owner-hotpath/`，保留并校验上一阶段seal；基准旧版从642封存源在独立runtime source root重新构建，避免误读新bootstrap。原游戏/包/bundle只读不改。下一步消除剩余诊断字符串与完整scene更新、降低producer提交成本，再按游戏UI毫秒预算验收；移动、完整72实绘与公平Ultralight对照仍未验证。
 
 以下为此前阶段的历史证据：
 
@@ -169,7 +169,7 @@ CSS 中段继续优化（2026-10-09）：Windows GPU border 的原 stroke/outer-
 
 实际 Release/Debug build + CTest 各 **75/75，26.82/63.75 秒**；两配置另跑硬件复杂 CSS / 原 scene GPU / window。新增 64 帧 owner 布局参考/shorthand/transition/containing-block/viewport 与 full 值/几何/软件图对照；复杂 GPU 对照扩到184（增加96 fractional/异色/不等宽/旋转/重叠透明/越界反例），真实184提交退休，硬件 mean/IoU 0.595009/0.958484；原102图/1476字段、4117提交退休、160帧窗口/288几何/17包/1680像素与零调试 warning/error 保持。强制 GC owner/复杂 CSS/external/two-frame/cache **5/5，15.02秒**，本轮未重复 GC 大型原 gallery/geometry/window，命令和历史证据范围明确列账。
 
-当前预览：`build/windows-msvc/bin/Release/ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/css-middle-performance/interactive`。源/9个executable/图片/两类调度条件全24个主要run/日志/原游戏drift封存 `artifacts/local/css-middle-performance/run-metadata.json`，之前 seal 校验并保留。72目录/36实绘/36诊断与平台未验证项不变；下一步定位默认调度整页波动和降低 JS/scene/producer 提交成本。
+当前预览：`build/windows-msvc/bin/Release/weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/css-middle-performance/interactive`。源/9个executable/图片/两类调度条件全24个主要run/日志/原游戏drift封存 `artifacts/local/css-middle-performance/run-metadata.json`，之前 seal 校验并保留。72目录/36实绘/36诊断与平台未验证项不变；下一步定位默认调度整页波动和降低 JS/scene/producer 提交成本。
 
 以下为前一轮复杂 CSS 与更早阶段的历史证据，当前结论以上述中段阶段为准。
 
@@ -179,9 +179,9 @@ CSS 中段继续优化（2026-10-09）：Windows GPU border 的原 stroke/outer-
 
 普通 Release/Debug build 与 CTest presets 实际执行，各 **75/75，26.92/65.26 秒**；两配置另硬件跑 `--complex-css-test-hardware`、`--scene-gpu-test-hardware`、`--gallery-window-test-hardware`，产物 `artifacts/local/complex-css/final/{release,debug}/`，WARP 为 CTest。新增 160 帧 owner 动态 mutation 与关闭增量的 scene 值/软件图对照；GPU 64 mutation +24 angle-only、8 target switch、88 真提交/退休和 fast/fallback 计数，硬件 mean / IoU 0.592469 / 0.964642；24 次 angle-only source upload 1 次。原102图/1476字段/120随机mutation、4117 GPU提交退休/透明滤波/滚动露出、160帧窗口/288几何/17包/1680像素继续通过，阈值不放宽，调试层零 warning/error。
 
-强制 GC scene/geometry/原 GPU/复杂 CSS/external/two-frame/cache **8/8，446.67 秒**；追加 cache proof 后只重建 ce_d3d11_probe / 新复杂 CSS 1/1、2.90 秒。最后仅测试变量更名消除 shadow warning，三配置重建 scene_contract 并复跑各 1/1（0.38/3.21/3.48 秒），没有改测量 executable；本轮不重复 GC gallery window，完整实际命令与未测项见上述文档。最终源/九个二进制/图片/全部性能样本/日志 SHA 和原游戏 drift 在 `artifacts/local/complex-css/run-metadata.json`，旧 seal 保留。
+强制 GC scene/geometry/原 GPU/复杂 CSS/external/two-frame/cache **8/8，446.67 秒**；追加 cache proof 后只重建 weft_d3d11_probe / 新复杂 CSS 1/1、2.90 秒。最后仅测试变量更名消除 shadow warning，三配置重建 scene_contract 并复跑各 1/1（0.38/3.21/3.48 秒），没有改测量 executable；本轮不重复 GC gallery window，完整实际命令与未测项见上述文档。最终源/九个二进制/图片/全部性能样本/日志 SHA 和原游戏 drift 在 `artifacts/local/complex-css/run-metadata.json`，旧 seal 保留。
 
-当前预览：`build/windows-msvc/bin/Release/ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/complex-css/interactive`。完整 72 目录 / 36 实绘 / 36 诊断、4K/FPS 保持；仅验证 Windows 固定 CSS/planar 3D 范围，移动/Metal/Vulkan/device-loss/一般 CSS 3D/完整 gallery 与长时真实游戏 UI 未验证。下一步继续降低 scene/group isolation 成本，并定位轻场景吞吐的变动，不能保证所有复杂动画达到 90 FPS。
+当前预览：`build/windows-msvc/bin/Release/weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/complex-css/interactive`。完整 72 目录 / 36 实绘 / 36 诊断、4K/FPS 保持；仅验证 Windows 固定 CSS/planar 3D 范围，移动/Metal/Vulkan/device-loss/一般 CSS 3D/完整 gallery 与长时真实游戏 UI 未验证。下一步继续降低 scene/group isolation 成本，并定位轻场景吞吐的变动，不能保证所有复杂动画达到 90 FPS。
 
 以下为首次 GPU 和此前阶段的历史证据，当前结果以上述复杂 CSS 阶段为准。
 
@@ -191,21 +191,21 @@ Gallery 性能阶段（2026-10-09）：**26 CSS + 8 D3 的可见 body 已接 Win
 
 实际执行 `cmake --build --preset windows-release/windows-debug --parallel 8` 及对应 `ctest --preset windows-release/windows-debug --parallel 6 --output-on-failure --output-log artifacts/local/gallery-performance/final-{release,debug}-ctest.log`（每个 preset 分别运行）：**Release 74/74，32.39 秒；Debug 74/74，73.08 秒**。两配置另实际运行 `--scene-gpu-test-hardware artifacts/local/gallery-performance/final/{release,debug}/scene-gpu-hardware` 和 `--gallery-window-test-hardware artifacts/local/gallery-performance/final/{release,debug}/window-hardware`，WARP 从 CTest 执行。34 原例/102 张真实 Chrome 图仍过 mean<=3 / IoU>=0.75（硬件实际 2.39076 / 0.757239），新增半透明 filter/opacity oracle 最大差 1，裁剪/滚动露出验证、4117 提交退休、两帧 peak/零调试 warning。窗口 160 帧/288 几何/17 缓存full/1680 像素最大差 1；1476 浏览器几何与 120 随机 mutation、40 动画帧缓存/full、selector key/owner/reset/卸载反例保持通过。
 
-强制 GC 实际重建 ce_scene_contract_tests / ce_scene_gallery_tests / ce_d3d11_probe，运行 scene/geometry/GPU original/window/external/two-frame/cache 共 8 项；首轮并行 7/8（269.16 秒），窗口加载触及原 5000ms JS 预算，单独复跑 1/1（342.68 秒）。8 项不同检查最终均有通过证据，预算/断言/超时未改，初次失败日志保留；完整实际命令在上述性能文档。源/最终三配置二进制/图片/基准/日志 SHA 与只读原游戏 drift 在 `artifacts/local/gallery-performance/run-metadata.json`，先前 seal 不覆盖。
+强制 GC 实际重建 weft_scene_contract_tests / weft_scene_gallery_tests / weft_d3d11_probe，运行 scene/geometry/GPU original/window/external/two-frame/cache 共 8 项；首轮并行 7/8（269.16 秒），窗口加载触及原 5000ms JS 预算，单独复跑 1/1（342.68 秒）。8 项不同检查最终均有通过证据，预算/断言/超时未改，初次失败日志保留；完整实际命令在上述性能文档。源/最终三配置二进制/图片/基准/日志 SHA 与只读原游戏 drift 在 `artifacts/local/gallery-performance/run-metadata.json`，先前 seal 不覆盖。
 
-预览：`build/windows-msvc/bin/Release/ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/gallery-performance/interactive`。本轮仅 Windows 固定范围；Android/iOS、Metal/Vulkan、device-loss、长时性能与完整 72 原例尚未验证。projective 投影、部分 gradient、color text 首次生成和 Canvas 仍有软件工作；下一步优先降低复杂 CSS 中段 scene/producer 成本，继续按真实阻断接 SVG 交互与其余案例。
+预览：`build/windows-msvc/bin/Release/weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/gallery-performance/interactive`。本轮仅 Windows 固定范围；Android/iOS、Metal/Vulkan、device-loss、长时性能与完整 72 原例尚未验证。projective 投影、部分 gradient、color text 首次生成和 Canvas 仍有软件工作；下一步优先降低复杂 CSS 中段 scene/producer 成本，继续按真实阻断接 SVG 交互与其余案例。
 
 以下 CSS/D3 首次渲染及更早记录为历史证据，软件性能缺口和旧未实现描述对应当时版本；本轮当前结果以上述性能阶段为准。
 
-CSS/D3 scene 阶段（2026-10-09）：**26 CSS + 8 D3 原样案例已新增 native 渲染通过**，连同已有两个 Canvas 共 36/72。已接独立 SceneProbe/Windows D2D SOFTWARE+DirectWrite adapter，固定原 Tailwind utility 离线语义编译（123 utility / 29 原 keyframe），关键帧/transition、gradient/变换/边框/圆角/group opacity、基础 SVG path/轴/文字；native DOM descendant query、function-only interval 和 mouseover/out relatedTarget 扩展。旧 flow/auto/positioned profile 与公共 C ABI 不变，原游戏/函数/包/bundle 未修改。显式范围与诊断见 [scene gallery](scene-gallery.md)。
+CSS/D3 scene 阶段（2026-10-09）：**26 CSS + 8 D3 原样案例已新增 native 渲染通过**，连同已有两个 Canvas 共 36/72。已接独立 SceneSolver/Windows D2D SOFTWARE+DirectWrite adapter，固定原 Tailwind utility 离线语义编译（123 utility / 29 原 keyframe），关键帧/transition、gradient/变换/边框/圆角/group opacity、基础 SVG path/轴/文字；native DOM descendant query、function-only interval 和 mouseover/out relatedTarget 扩展。旧 flow/auto/positioned profile 与公共 C ABI 不变，原游戏/函数/包/bundle 未修改。显式范围与诊断见 [scene gallery](scene-gallery.md)。
 
 每个原例 121 帧，seed 0xce202610 / 60Hz / 0–2000ms；CSS 4–6 悬停/离开、CSS7 两次点击，400/1050/2000ms 三张图，共 **102 张 native PNG 对照真实 Chrome 155.0.8059.39、DPR2、完整原 CSS**。各 RGBA channel mean <=3 色阶、soft foreground IoU>=0.75；实际最差 2.33236 / 0.765045。34 个空底色反例必须全部失败。同步变换几何 **1476 字段**，阈值0.3 CSSpx，实际最大0.274975。SVG descendant 通过独立像素检查，尚不宣称 SVG geometry/hit。动画changed pixels、原React状态与卸载后保留bitmap/scene、live_nodes回到3均验证。另120轮随机mutation/full场景布局与像素差分、线程owner拒绝、隐式border终点和alternate-reverse反例通过。
 
-实际构建：`cmake --build build/windows-msvc --config Release/Debug --parallel 8`（两配置分别执行）；最终 `ctest --test-dir build/windows-msvc -C Release/Debug --output-on-failure --output-log artifacts/local/gallery-css-d3/{release,debug}/full-ctest.log` 各 **73/73，69.62/342.14秒**。新增 scene_contract / scene_gallery_original / scene_fixture_integrity / scene_browser_geometry，250项fixture SHA校验通过。Debug/Release另执行 `ce_d3d11_probe.exe --gallery-window-test-hardware artifacts/local/gallery-css-d3/{debug,release}/hardware`，WARP由CTest执行；窗口保持160帧/72标签/288卡片几何/17完整包差分/1680像素采样，新增CSS悬停/点击和中段/末段/D3截图。实际两帧完成退休、最小化恢复和FPS更新通过，调试层零warning/error。各时间含不同验证并行，不是性能指标。
+实际构建：`cmake --build build/windows-msvc --config Release/Debug --parallel 8`（两配置分别执行）；最终 `ctest --test-dir build/windows-msvc -C Release/Debug --output-on-failure --output-log artifacts/local/gallery-css-d3/{release,debug}/full-ctest.log` 各 **73/73，69.62/342.14秒**。新增 scene_contract / scene_gallery_original / scene_fixture_integrity / scene_browser_geometry，250项fixture SHA校验通过。Debug/Release另执行 `weft_d3d11_probe.exe --gallery-window-test-hardware artifacts/local/gallery-css-d3/{debug,release}/hardware`，WARP由CTest执行；窗口保持160帧/72标签/288卡片几何/17完整包差分/1680像素采样，新增CSS悬停/点击和中段/末段/D3截图。实际两帧完成退休、最小化恢复和FPS更新通过，调试层零warning/error。各时间含不同验证并行，不是性能指标。
 
-强制GC实际执行 `cmake --build build/windows-gc-stress --config Debug --parallel 8 --target ce_scene_contract_tests ce_scene_gallery_tests ce_d3d11_probe`，`ctest --test-dir build/windows-gc-stress -C Debug -R '^scene_contract$|^scene_gallery_original$|^scene_browser_geometry$|^d3d11_warp_gallery_preview$' --output-on-failure --output-log artifacts/local/gallery-css-d3/gc/final-ctest.log`，最终 **4/4，715.87秒**。完整34例/121帧/102图/1476字段与160帧WARP窗口通过，未重复72模块的隔离短观察，该项明确not_run_gc_instrumentation。初次普通240秒超时（scene在force前、随后窗口），依赖geometry缺文件而失败，日志保留 `gc/initial-timeout-ctest.log`；仅GC把两个大型测试超时设为600秒，不改JS预算/采样/断言。最后纠正“38 pending”文案为36（72减36），重建三配置，普通两配置重跑硬件窗口；GC重跑共享renderer/原Canvas窗口范围，记录 `final-wording-scope.log`，该文字改动不改变34例功能。
+强制GC实际执行 `cmake --build build/windows-gc-stress --config Debug --parallel 8 --target weft_scene_contract_tests weft_scene_gallery_tests weft_d3d11_probe`，`ctest --test-dir build/windows-gc-stress -C Debug -R '^scene_contract$|^scene_gallery_original$|^scene_browser_geometry$|^d3d11_warp_gallery_preview$' --output-on-failure --output-log artifacts/local/gallery-css-d3/gc/final-ctest.log`，最终 **4/4，715.87秒**。完整34例/121帧/102图/1476字段与160帧WARP窗口通过，未重复72模块的隔离短观察，该项明确not_run_gc_instrumentation。初次普通240秒超时（scene在force前、随后窗口），依赖geometry缺文件而失败，日志保留 `gc/initial-timeout-ctest.log`；仅GC把两个大型测试超时设为600秒，不改JS预算/采样/断言。最后纠正“38 pending”文案为36（72减36），重建三配置，普通两配置重跑硬件窗口；GC重跑共享renderer/原Canvas窗口范围，记录 `final-wording-scope.log`，该文字改动不改变34例功能。
 
-运行：`build/windows-msvc/bin/Release/ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/gallery-css-d3/interactive`，默认CSS，侧栏D3，4K/FPS/LIVE36，全部72目录可滚动。原其余36例仍显示缺口。34VM保留，8D3离屏继续timer/rAF，可见body才raster/upload；原两Canvas继续离屏暂停。Windows body由OS DirectWrite（本机Microsoft YaHei UI/Arial/Consolas/Emoji）塑形，跨机器字体、移动和矢量GPU路径未验证。
+运行：`build/windows-msvc/bin/Release/weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/gallery-css-d3/interactive`，默认CSS，侧栏D3，4K/FPS/LIVE36，全部72目录可滚动。原其余36例仍显示缺口。34VM保留，8D3离屏继续timer/rAF，可见body才raster/upload；原两Canvas继续离屏暂停。Windows body由OS DirectWrite（本机Microsoft YaHei UI/Arial/Consolas/Emoji）塑形，跨机器字体、移动和矢量GPU路径未验证。
 
 Release RTX5090隐藏正确性窗口末段同时显示16个CSS body：111个暖帧CPU P50/P95/P99/max为203.586/224.414/228.085/249.822ms，GPU离屏UI为4.201/5.314/5.413/5.620ms，成功Present约4.75FPS。带readback并与其他验证并行，**不能用作Ultralight性能对照**；但已明确本全量software raster/布局/RGBA32F上传路径仍有性能缺口，不套用旧flow的200FPS。gallery缓存预算512MiB（旧默认128MiB不变），该run peak缓存536685801 bytes，进程peak working set1413697536 bytes/private at close2195726336 bytes。源/二进制/产物与条件seal在 `artifacts/local/gallery-css-d3/run-metadata.json`，旧seal保留；初期字体/时钟探索输出不算最终通过。完整CSS/Grid、另4个D3 Interactive、WebGL、36待接例、实体设备与移动仍未验收。下一步分项profile并扩展GPU paint/纹理格式，按实际阻断接SVG交互。
 
@@ -213,16 +213,16 @@ Release RTX5090隐藏正确性窗口末段同时显示16个CSS body：111个暖�
 
 4K Gallery 检查窗口阶段（2026-10-09）：修复可见粒子/烟花的 timer/rAF 精度不一致；`std::to_string` 向上舍入导致时间倒退，现统一 classic locale / max_digits10，同一 raw double 传给两者，保留单调性验证。新增 72 例/10 组的原生 DOM/CSS 检查 shell，保留原始标签、分组顺序、列数和内容高度；侧栏、原生 wheel、案例摘要、Home/End/PageUp/PageDown、4K/FPS/CPU 分位数和两例原始 Canvas 的同页输入已接通。其他 70 例展示 JS/像素缺口，未新增原始像素通过。普通 Debug/Release 启用现有 Canvas 的隔离 12 次观察为 40 例执行未报错/32 例阻断，与之前无 Canvas 的 38/34 条件不同。
 
-实际命令：`cmake --build --preset windows-debug/windows-release --parallel 10 --target ce_d3d11_probe ce_animation_frame_tests`（各 preset 分别运行），对应 `ctest --preset windows-debug/windows-release --output-on-failure` 全量分别 **69/69，120.17/37.95 秒**；最后仅 GC instrumentation 的观察分支调整后，普通两配置重建并复跑 animation_frame、gallery_preview、gallery_canvas_window 范围，各 3/3，记录在 `final-scope.log`。Debug/Release 均另执行 `--gallery-window-test-hardware artifacts/local/gallery-preview/{debug,release}/hardware`；WARP 为 CTest。每 run 160 帧、288 卡片几何字段、17 次缓存/全量包逐绘制/资产/UV/顺序对照、10 组首屏截图、1,680 个实际 GPU/CPU 像素采样最大差 1（容差 3）；粒子 move/烟花 click/目录 wheel、最小化恢复、FPS 已更新、峰值两帧在途和全部真实 query 退休通过，调试层零 warning/error。
+实际命令：`cmake --build --preset windows-debug/windows-release --parallel 10 --target weft_d3d11_probe weft_animation_frame_tests`（各 preset 分别运行），对应 `ctest --preset windows-debug/windows-release --output-on-failure` 全量分别 **69/69，120.17/37.95 秒**；最后仅 GC instrumentation 的观察分支调整后，普通两配置重建并复跑 animation_frame、gallery_preview、gallery_canvas_window 范围，各 3/3，记录在 `final-scope.log`。Debug/Release 均另执行 `--gallery-window-test-hardware artifacts/local/gallery-preview/{debug,release}/hardware`；WARP 为 CTest。每 run 160 帧、288 卡片几何字段、17 次缓存/全量包逐绘制/资产/UV/顺序对照、10 组首屏截图、1,680 个实际 GPU/CPU 像素采样最大差 1（容差 3）；粒子 move/烟花 click/目录 wheel、最小化恢复、FPS 已更新、峰值两帧在途和全部真实 query 退休通过，调试层零 warning/error。
 
-强制 GC 实际重建 `build/windows-gc-stress` 的 ce_animation_frame_tests / ce_d3d11_probe，并运行 `ctest --test-dir build/windows-gc-stress -C Debug -R '^animation_frame_contract$|^d3d11_warp_gallery_canvas_window$|^d3d11_warp_gallery_preview$' --output-on-failure`，最终 **3/3，92.42 秒**。GC 下只验证 72 卡片 shell、两例 live Canvas VM 的完整 160 帧/输入/退休，不重复 72 个大型模块的隔离加载；报告明确标 not_run_gc_instrumentation。第一次把全量模块审计也放入强制 GC，在进入窗口前耗时超过 200 秒后主动停止，失败日志保留 `gc/initial-stopped-module-audit.log`，不是通过证据。
+强制 GC 实际重建 `build/windows-gc-stress` 的 weft_animation_frame_tests / weft_d3d11_probe，并运行 `ctest --test-dir build/windows-gc-stress -C Debug -R '^animation_frame_contract$|^d3d11_warp_gallery_canvas_window$|^d3d11_warp_gallery_preview$' --output-on-failure`，最终 **3/3，92.42 秒**。GC 下只验证 72 卡片 shell、两例 live Canvas VM 的完整 160 帧/输入/退休，不重复 72 个大型模块的隔离加载；报告明确标 not_run_gc_instrumentation。第一次把全量模块审计也放入强制 GC，在进入窗口前耗时超过 200 秒后主动停止，失败日志保留 `gc/initial-stopped-module-audit.log`，不是通过证据。
 
-运行入口：`build/windows-msvc/bin/Release/ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/gallery-preview/interactive`。产物/完整错误栈/截图/统计和最终 seal 位于 `artifacts/local/gallery-preview/`；旧 Canvas 与 external-texture seal 保留。可见模式无每帧 readback，隐藏测试带截图复制；FPS 的负载是 shell + 可见 Canvas，尚不能与 Ultralight 原完整 gallery 的 40 FPS 比较。800×600 backing 未变，4K 文字按设备字号生成。原游戏/第三方源码/bundle 未改；SVG/WebGL/原始完整 CSS、其余 70 例可见内容、实体输入、移动和公平性能对照仍待验证，下一步按目录中的真实阻断扩展。详见 [运行和实际限制](gallery-preview.md)。
+运行入口：`build/windows-msvc/bin/Release/weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/gallery-preview/interactive`。产物/完整错误栈/截图/统计和最终 seal 位于 `artifacts/local/gallery-preview/`；旧 Canvas 与 external-texture seal 保留。可见模式无每帧 readback，隐藏测试带截图复制；FPS 的负载是 shell + 可见 Canvas，尚不能与 Ultralight 原完整 gallery 的 40 FPS 比较。800×600 backing 未变，4K 文字按设备字号生成。原游戏/第三方源码/bundle 未改；SVG/WebGL/原始完整 CSS、其余 70 例可见内容、实体输入、移动和公平性能对照仍待验证，下一步按目录中的真实阻断扩展。详见 [运行和实际限制](gallery-preview.md)。
 
 
 外部纹理 lease 阶段（2026-10-09）：新增图形 API 无关的 optional C ABI extension，保留原 renderer/frame/backend v1 布局。代际 caller lease、prepare/encode/use 独立 pin、有界 registry/byte budget、caller release 失效、真实 completion 退休与 host-confirmed abandon 已实现；D3D11 reference 导入有效 SRV、验证实际 device/format/dimensions，拒绝 native resource 重复发布和 input/RTV alias。支持同 device/queue 的 linear-premultiplied RGBA8/16F/32F、top/bottom origin、UV/opacity 和有序合成，见 [实际外部纹理合同](external-texture-lease.md)。
 
-最终 **Debug 68/68，74.25 秒；Release 68/68，27.12 秒**。实际执行 `cmake --build --preset windows-debug --parallel 10` / `ctest --preset windows-debug --output-on-failure` 和对应 Release preset。Debug/Release 均显式运行 `ce_d3d11_probe.exe --external-texture-hardware artifacts/local/external-texture/{debug,release}/hardware`，WARP 从 CTest 执行。两配置/两驱动各 48 个 GPU producer 纹理/提交、峰值两个在途、实际 query 退休 48 个 external lease 和 24 个缓存 CPU coverage texture，源像素没有 CPU 读回/重传；每 run 1,572,864 个 CPU bilinear/透明合成采样，WARP sRGB 最大差 3 色阶/linear 0.00263887，RTX 5090 为 2/0.00331104，最终调试层 warning/error 为零。阈值为 sRGB 3 色阶和 linear 1/256；有限 subtexel 精度使初始 2/0.003 的假设过严，已记录边界，不宣称逐像素一致。producer sampler 缺失和 query 重复覆盖的探针 warning 已修正。
+最终 **Debug 68/68，74.25 秒；Release 68/68，27.12 秒**。实际执行 `cmake --build --preset windows-debug --parallel 10` / `ctest --preset windows-debug --output-on-failure` 和对应 Release preset。Debug/Release 均显式运行 `weft_d3d11_probe.exe --external-texture-hardware artifacts/local/external-texture/{debug,release}/hardware`，WARP 从 CTest 执行。两配置/两驱动各 48 个 GPU producer 纹理/提交、峰值两个在途、实际 query 退休 48 个 external lease 和 24 个缓存 CPU coverage texture，源像素没有 CPU 读回/重传；每 run 1,572,864 个 CPU bilinear/透明合成采样，WARP sRGB 最大差 3 色阶/linear 0.00263887，RTX 5090 为 2/0.00331104，最终调试层 warning/error 为零。阈值为 sRGB 3 色阶和 linear 1/256；有限 subtexel 精度使初始 2/0.003 的假设过严，已记录边界，不宣称逐像素一致。producer sampler 缺失和 query 重复覆盖的探针 warning 已修正。
 
 合同测试新增 512 轮固定 seed 生命周期压力，覆盖 import/prepare failure、caller 提前释放与两个 use、取消/部分命令错误、容量/owner/epoch/重入、无分配提交/完成和 abandon；C11 新扩展头/入口通过。源/二进制/产物 SHA、最终日志、四张预览 PNG/每 run report 和只读原游戏 drift 在 `artifacts/local/external-texture/run-metadata.json` 及 `{debug,release}/`。本轮没有改 DOM/JS，未重跑 GC instrumentation；普通全量既有 DOM/Canvas/React 通过。测试时长不是性能指标，机器/画幅/资产与未测指标见上述合同。
 
@@ -231,7 +231,7 @@ Release RTX5090隐藏正确性窗口末段同时显示16个CSS body：111个暖�
 
 Canvas2D 阶段（2026-10-09）：两个原样 gallery 案例（粒子/烟花）已在自己的 QuickJS、native context、positioned 几何和 D3D11 中运行，各 64 个 rAF、两次移动/点击、400×300 CSS 缩放并恢复，分别 6,500/5,006 次 fill；原游戏与原始函数/包未改。图形 API 无关的 owner raster factory 接 Windows D2D SOFTWARE/WIC，输出完整 immutable sRGB straight RGBA8，Node/context tracing、detached 保活、尺寸同值重置、容量/故障/epoch 均验证。已加入最大化 4K 合成/FPS 窗口，Tab 切换、移动/点击、Esc 退出；原 Canvas backing 仍为 800×600。运行命令、精确值范围与限制见 [Canvas 阶段](gallery-canvas.md)。
 
-最终 **Debug 67/67，74.12 秒；Release 67/67，26.16 秒；强制 GC 的 Canvas/DOM/rAF/八轮 React 4/4，51.32 秒**。实际执行两组 `cmake --build --preset windows-{debug,release} --parallel 10` / 对应 CTest preset；GC 使用 `cmake --build build/windows-gc-stress --config Debug --target ce_canvas_probe_tests ce_script_dom_tests ce_animation_frame_tests ce_page_probe_tests --parallel 10` 与 `ctest --test-dir build/windows-gc-stress -C Debug -R 'canvas_2d_contract|script_dom_lifecycle|animation_frame_contract|page_react_contract' --output-on-failure`。Release 首轮新增 style 断言误用了序列化空格（已改为比较颜色值）；后续发现旧 HUD probe 假设资源必在途，已增加实际提交且完成确认前检查保活。修正后 Release 全量通过，Debug 最终 Canvas/4K 范围另 5/5、9.74 秒。日志分开保存，测试时间不是性能指标；部分任务并行，不用于比较性能。
+最终 **Debug 67/67，74.12 秒；Release 67/67，26.16 秒；强制 GC 的 Canvas/DOM/rAF/八轮 React 4/4，51.32 秒**。实际执行两组 `cmake --build --preset windows-{debug,release} --parallel 10` / 对应 CTest preset；GC 使用 `cmake --build build/windows-gc-stress --config Debug --target weft_canvas_probe_tests weft_script_dom_tests weft_animation_frame_tests weft_page_probe_tests --parallel 10` 与 `ctest --test-dir build/windows-gc-stress -C Debug -R 'canvas_2d_contract|script_dom_lifecycle|animation_frame_contract|page_react_contract' --output-on-failure`。Release 首轮新增 style 断言误用了序列化空格（已改为比较颜色值）；后续发现旧 HUD probe 假设资源必在途，已增加实际提交且完成确认前检查保活。修正后 Release 全量通过，Debug 最终 Canvas/4K 范围另 5/5、9.74 秒。日志分开保存，测试时间不是性能指标；部分任务并行，不用于比较性能。
 
 Debug/Release 的硬件 RTX 5090 与 WARP 各运行两个原样案例。每 run 20,460 个 GPU/独立 CPU 合成采样最大 1 色阶，每例 65 个真实完成提交/65 张退休纹理，峰值两帧；VM reset 后旧 FramePacket 重放一致。Chrome 155 的六张固定 bitmap 有显式 AA/低 alpha 舍入差异：分量最大 51–76、亮区均差 2.16–5.08、交并比 0.9208–0.9843，属于有界形状/颜色回归，非逐像素一致。另自动验证隐藏 4K HWND 点击队列、切换与 FPS HUD 像素；实体输入仍未人工验收。256 mutation snapshot 分批差分、200 detached callback/context 循环、quota/overlap/版本/故障合同通过。
 
@@ -242,14 +242,14 @@ Gallery/rAF 阶段（2026-10-09）：只读捕获 CRPG UI 的 101 个文本文�
 
 72 例原生短观察为 **38 例未发现执行错误、34 例阻断**，不标为渲染通过。主要缺口是 Canvas/WebGL、组合 selector、setInterval、NodeList、computed style/geometry 与第三方动画所需浏览器对象。完整模块能够初始化，完整原页面运行仍有错误。真实 Chrome 155.0.8059.39 的 800×600 / DPR 1 / 250 ms 单例参照没有观察到脚本错误，两个 Three.js context 确认 WebGL2；四个 Lottie 远程 JSON 明确阻止，动画未成功加载。浏览器参照不等于自己的 renderer 通过。所有 gallery native pixels/interaction/performance 与移动均未验证。
 
-本阶段全量 **Debug 63/63，83.29 秒；Release 63/63，46.46 秒；强制 GC 的 DOM/rAF/八轮 React 生命周期 3/3，46.09 秒**。实际构建使用两个 build preset，以及 `cmake --build build/windows-gc-stress --config Debug --target ce_animation_frame_tests ce_script_dom_tests ce_page_probe_tests --parallel 10`；全量用对应 CTest preset，GC 用 `ctest --test-dir build/windows-gc-stress -C Debug -R 'animation_frame_contract|script_dom_lifecycle|page_react_contract' --output-on-failure`。随后补充 Spring DOM 变化审计、异常消息/stack 和 callback invocation/coercion 反例，并重跑最终 rAF/gallery 范围（Debug/Release 各 5/5、GC rAF 1/1）；最终细分时间与 binary/source/产物 SHA 记录在 `artifacts/local/gallery-foundation/run-metadata.json`，全量和最终日志分开保存。部分任务并行，耗时不是性能指标。
+本阶段全量 **Debug 63/63，83.29 秒；Release 63/63，46.46 秒；强制 GC 的 DOM/rAF/八轮 React 生命周期 3/3，46.09 秒**。实际构建使用两个 build preset，以及 `cmake --build build/windows-gc-stress --config Debug --target weft_animation_frame_tests weft_script_dom_tests weft_page_probe_tests --parallel 10`；全量用对应 CTest preset，GC 用 `ctest --test-dir build/windows-gc-stress -C Debug -R 'animation_frame_contract|script_dom_lifecycle|page_react_contract' --output-on-failure`。随后补充 Spring DOM 变化审计、异常消息/stack 和 callback invocation/coercion 反例，并重跑最终 rAF/gallery 范围（Debug/Release 各 5/5、GC rAF 1/1）；最终细分时间与 binary/source/产物 SHA 记录在 `artifacts/local/gallery-foundation/run-metadata.json`，全量和最终日志分开保存。部分任务并行，耗时不是性能指标。
 
 最新 native JSON 在 `artifacts/local/gallery-foundation/{debug,release}/native-execution.json`，参照/截图在 `artifacts/local/gallery-foundation/reference/`，固定 bundle/metadata 在 `examples/crpg-gallery/native/`。正常构建不联网、不需要原游戏，源码 drift 检查只读。该 Foundation 阶段尚未实现 Canvas；现两例进展见上方。该 Foundation 阶段的公共 external texture API 尚未实现，现进展见上方；ANGLE 继续待实现；SVG/CSS/动画按逐例缺口扩展。旧连续运动窗口和 C ABI 不改变；下方为此前阶段证据。
 
 | 模块 | 实际行为 | 边界 |
 | --- | --- | --- |
 | 构建 | CMake/CTest、Windows x64 Debug/Release presets、静态库、C11 调用测试 | 未验证 portable-ninja、SDK 打包与符号隔离 |
-| 核心 | 实验 C ABI、Runtime/View、owner 检查、有界 View slots、跨 Runtime/代际句柄、busy destroy、失败原子性、单调 host 时间 | ce_view_record_tick 不执行 JS、布局或渲染；React 链路在独立实验宿主 |
+| 核心 | 实验 C ABI、Runtime/View、owner 检查、有界 View slots、跨 Runtime/代际句柄、busy destroy、失败原子性、单调 host 时间 | weft_view_record_tick 不执行 JS、布局或渲染；React 链路在独立实验宿主 |
 | 原生 DOM 与脚本 | QuickJS-NG custom class 与 C++ Node graph；统一 tracing、roots、detached/expando/listener 循环回收、事件 capture/bubble、epoch、getElementById、自有值 snapshot；可安装 owner layout host 提供 fresh geometry/scroll/client rects 和可取消 wheel | 有限子集，无 HTML parser、computed style、焦点或完整 DOMRectList；scroll job 当前微任务时序，尚非完整 HTML scroll tasks |
 | D3 | 原版 D3 7.9.0，在自己 VM/native DOM 执行共享 fixture；真实 keyed join、axis、line、HTML/SVG 与事件 | 固定 workload 的 L0/L1，未实现 native SVG/style/paint/GPU、transition 或 drag/zoom |
 | 资源生命周期 | CPU/Prepared/Encoded/Submitted pin、取消、失败、提交前容量预留、epoch/abandon、shutdown drain；已由独立 GPU 探针接入实际 query | 此模块自身是合同状态机；device removal/移动 GPU 尚未实际验证 |
@@ -271,19 +271,19 @@ Gallery/rAF 阶段（2026-10-09）：只读捕获 CRPG UI 的 101 个文本文�
 
 连续运动展示阶段：可见 4K 窗口默认增加每帧金色 LIVE / 30 Hz 绿色参照轨道，支持原生 Pause/Resume 与 0.5x/1x/2x。高精度单调宿主时间在 UI owner 修改 DOM inline `left`，经全量 style/layout、缓存与两帧 D3D11；最小化/暂停恢复不追赶隐藏时间，dispose 撤销本地 listener/node。原游戏、原始 React bundle、web host bootstrap、依赖与 C ABI 未改；这是局部演示时钟，不是通用 rAF/CSS animation 实现。
 
-本阶段完整 **Debug 58/58，54.19 秒；Release 58/58，19.89 秒；强制 GC 的 DOM 生命周期/两帧/640+4K+motion HWND 五项 5/5，48.44 秒**。实际构建 `cmake --build --preset windows-release/windows-debug --parallel 10`（分别调用），GC `cmake --build build/windows-gc-stress --config Debug --target ce_d3d11_probe --parallel 10`；完整对应 CTest preset，GC 命令 `ctest --test-dir build/windows-gc-stress -C Debug -R 'd3d11_warp_(cheetah_flow_window|two_frame)|script_dom_lifecycle' --output-on-failure`。之后仅收紧 motion 场景的 React 字符串状态断言，三配置重建 probe 并复跑新增 motion test，Debug/Release/GC 各 1/1，22.68/3.89/27.04 秒；结果记录于同阶段 `ctest-final-motion.log`。部分构建/测试并行，时长不是性能指标。
+本阶段完整 **Debug 58/58，54.19 秒；Release 58/58，19.89 秒；强制 GC 的 DOM 生命周期/两帧/640+4K+motion HWND 五项 5/5，48.44 秒**。实际构建 `cmake --build --preset windows-release/windows-debug --parallel 10`（分别调用），GC `cmake --build build/windows-gc-stress --config Debug --target weft_d3d11_probe --parallel 10`；完整对应 CTest preset，GC 命令 `ctest --test-dir build/windows-gc-stress -C Debug -R 'd3d11_warp_(cheetah_flow_window|two_frame)|script_dom_lifecycle' --output-on-failure`。之后仅收紧 motion 场景的 React 字符串状态断言，三配置重建 probe 并复跑新增 motion test，Debug/Release/GC 各 1/1，22.68/3.89/27.04 秒；结果记录于同阶段 `ctest-final-motion.log`。部分构建/测试并行，时长不是性能指标。
 
-Hardware 实际命令 `ce_d3d11_probe.exe --cheetah-flow-window-test-4k-motion-hardware artifacts/local/motion/hardware`；新增 motion hardware/WARP 范围各 158 page/3 retained/161 Present，161 actual completion、serial 319、148 texture 全退休、peak=2，3,910 CPU sample 最大 1 色阶，debug warning/error=0。测试覆盖浮点时间、跳帧反转、30 Hz 保持、非法时钟原子性、按钮速度/暂停、最小化恢复、resize 命中、React 共存和重复退出。Windows / 9950X3D / RTX 5090 / MSVC Release、3840×2160、固定字体图片、13 行/70 DOM、8 warmup+120 合成 +4 ms tick，含最终 drain 的完成吞吐 130.034 tick/s；owner 至 submission P50/P95/P99/max 7.495/8.197/8.325/8.422 ms，layout P50 6.728 ms。持续位置变化比静止 UI 多出每帧全量 style/layout，隐藏长列表吞吐不等于实体 FPS。冷帧/尾部/GPU/内存、可运行步骤及限制见 [连续运动证据](flow-input-window-probe.md#连续运动展示2026-10-09)；产物与源/二进制 hash 在 `artifacts/local/motion/`。实体遮挡/显示延迟、长时间动画 soak、CSS/rAF 与移动未验收。以下两帧及更早数字是历史阶段证据。
+Hardware 实际命令 `weft_d3d11_probe.exe --cheetah-flow-window-test-4k-motion-hardware artifacts/local/motion/hardware`；新增 motion hardware/WARP 范围各 158 page/3 retained/161 Present，161 actual completion、serial 319、148 texture 全退休、peak=2，3,910 CPU sample 最大 1 色阶，debug warning/error=0。测试覆盖浮点时间、跳帧反转、30 Hz 保持、非法时钟原子性、按钮速度/暂停、最小化恢复、resize 命中、React 共存和重复退出。Windows / 9950X3D / RTX 5090 / MSVC Release、3840×2160、固定字体图片、13 行/70 DOM、8 warmup+120 合成 +4 ms tick，含最终 drain 的完成吞吐 130.034 tick/s；owner 至 submission P50/P95/P99/max 7.495/8.197/8.325/8.422 ms，layout P50 6.728 ms。持续位置变化比静止 UI 多出每帧全量 style/layout，隐藏长列表吞吐不等于实体 FPS。冷帧/尾部/GPU/内存、可运行步骤及限制见 [连续运动证据](flow-input-window-probe.md#连续运动展示2026-10-09)；产物与源/二进制 hash 在 `artifacts/local/motion/`。实体遮挡/显示延迟、长时间动画 soak、CSS/rAF 与移动未验收。以下两帧及更早数字是历史阶段证据。
 
-两帧宿主阶段：**Debug 57/57，35.95 秒；Release 57/57，16.30 秒；字体/输入/browser、HWND wheel、DOM 生命周期、缓存和八轮 React 强制 GC 范围 11/11，66.33 秒**。实际构建为 `cmake --build --preset windows-release --parallel 10 --target ce_d3d11_probe`、`cmake --build --preset windows-debug --parallel 10`、`cmake --build build/windows-gc-stress --config Debug --parallel 10`；测试为对应 Debug/Release CTest preset 的 `--output-on-failure`，GC 为 `ctest --test-dir build/windows-gc-stress -C Debug -R 'flow_input|flow_window|mouse_input|script_dom_lifecycle|page_react|render_cache|font_fallback|two_frame' --output-on-failure`。部分测试并行运行，时长不是性能指标；日志与源/二进制/产物 hash 在 `artifacts/local/two-frame/run-metadata.json` 及各 debug/release/gc 目录。
+两帧宿主阶段：**Debug 57/57，35.95 秒；Release 57/57，16.30 秒；字体/输入/browser、HWND wheel、DOM 生命周期、缓存和八轮 React 强制 GC 范围 11/11，66.33 秒**。实际构建为 `cmake --build --preset windows-release --parallel 10 --target weft_d3d11_probe`、`cmake --build --preset windows-debug --parallel 10`、`cmake --build build/windows-gc-stress --config Debug --parallel 10`；测试为对应 Debug/Release CTest preset 的 `--output-on-failure`，GC 为 `ctest --test-dir build/windows-gc-stress -C Debug -R 'flow_input|flow_window|mouse_input|script_dom_lifecycle|page_react|render_cache|font_fallback|two_frame' --output-on-failure`。部分测试并行运行，时长不是性能指标；日志与源/二进制/产物 hash 在 `artifacts/local/two-frame/run-metadata.json` 及各 debug/release/gc 目录。
 
 4K 窗口默认最多两份宿主提交记录，两个独立 constant buffer/event query，command list 与 immutable HUD/host lease 保留到真实 completion；DOM/JS/style/layout 仍同 owner。正常 tick 非阻塞 poll，队列满等待最旧 slot，截图/resize/close 先 drain。UI 和 host-only composition 同一队列排序；实际 Submitted 上传可被后续同队列 use 复用，只有 completion 标 Ready，取消/录制失败不留下假 ready。C ABI v1 不变，同步 reference 和旧 640×420 golden 保留。独立 hardware 与 Debug/Release/GC WARP 两帧 probe：seed 0xCE102026、48 帧随机 RGBA/coverage/位置/透明顺序、196,608 像素最大差异 0；两个 Submitted pin、host lease、上传复用、丢包、录制失败、第三帧容量、提交后失败和带两份 pending slot 退出均通过。55 实际提交/55 完成、serial 110、57 texture 全退休，调试层零 warning/error。原样 4K React 仍 7 page/5 idle/12 Present、serial 19、128 texture 退休、3,128 CPU sample 最大 1 色阶，额外验证在途 HUD 替换与 resize/close drain。
 
 同一新版 Release exe 分别运行 `--cheetah-flow-window-perf-sync-hardware artifacts/local/two-frame/sequential` 和 `--cheetah-flow-window-perf-hardware artifacts/local/two-frame/pipelined`。Windows、Ryzen 9 9950X3D / RTX 5090、调试层开启、真实 3840×2160、固定 React/Roboto/Noto/三张 PNG、13 项列表/60 DOM 元素，8 帧 warmup 后 120 次 wheel，无测量期 readback，测量后再运行构建/测试。120 帧包含最终实际 GPU drain 的 wall clock **1858.030 → 701.837 ms**，全完成吞吐 **64.585 → 170.980 帧/秒**；两帧 peak pending=2，本轮 capacity wait=0，尾部 drain 14.190 ms 已计入总区间。同步 owner tick P50/P95/P99/max 为 15.340/15.899/16.051/16.297 ms；两帧为 5.658/6.059/6.184/7.657 ms，但前者截止到 completion、后者截止到 submission，不能直接当相同的端到端显示延迟。GPU UI P50 0.068 → 0.067 ms，P95/P99/max 同步 0.072/0.084/0.090、两帧 0.073/0.077/0.083 ms，不含窗口合成/Present。冷首帧 88.538 → 75.616 ms 是各一次观察；working set 峰值 169.496 → 169.555 MiB、末尾 private usage 638.184 → 639.188 MiB；GPU cache 有效载荷峰值均 25.924 MiB，未测总 VRAM。隐藏脚本吞吐不是实体 FPS 保证，垂直同步和桌面调度仍影响窗口。实际命令、数据定义和步骤见 [两帧流水线](flow-input-window-probe.md#两帧流水线2026-10-09)。原游戏、固定 bundle、依赖未改；移动、实际 device removal、游戏宿主和实体输入延迟未验收。以下缓存同步及更早数字保留为历史证据。
 
-4K 滚动优化阶段：主改动全量 **Debug 56/56，37.05 秒；Release 56/56，17.05 秒；字体/输入/browser、HWND wheel、DOM 生命周期、缓存和八轮 React 强制 GC 范围 10/10，77.59 秒**。实际执行 `cmake --build --preset windows-debug/windows-release --parallel 10`（各 preset 单独调用）及对应 `ctest --preset windows-debug/windows-release --output-on-failure`。GC 实际命令为 `ctest --test-dir build/windows-gc-stress -C Debug -R 'flow_input|flow_window|mouse_input|script_dom_lifecycle|page_react|render_cache|font_fallback' --output-on-failure`。之后补空字形缓存配额和超容量准备失败回滚，三配置分别重建 `--target ce_d3d11_probe`，复跑 `-R 'd3d11_warp_(render_cache|cheetah_flow_window_4k)'`；Debug/Release/GC 各 2/2，3.44/2.70/5.26 秒。完整与最后局部日志在 `artifacts/local/flow-scroll-perf/{debug,release,gc}/`；测试时长不当性能数据。
+4K 滚动优化阶段：主改动全量 **Debug 56/56，37.05 秒；Release 56/56，17.05 秒；字体/输入/browser、HWND wheel、DOM 生命周期、缓存和八轮 React 强制 GC 范围 10/10，77.59 秒**。实际执行 `cmake --build --preset windows-debug/windows-release --parallel 10`（各 preset 单独调用）及对应 `ctest --preset windows-debug/windows-release --output-on-failure`。GC 实际命令为 `ctest --test-dir build/windows-gc-stress -C Debug -R 'flow_input|flow_window|mouse_input|script_dom_lifecycle|page_react|render_cache|font_fallback' --output-on-failure`。之后补空字形缓存配额和超容量准备失败回滚，三配置分别重建 `--target weft_d3d11_probe`，复跑 `-R 'd3d11_warp_(render_cache|cheetah_flow_window_4k)'`；Debug/Release/GC 各 2/2，3.44/2.70/5.26 秒。完整与最后局部日志在 `artifacts/local/flow-scroll-perf/{debug,release,gc}/`；测试时长不当性能数据。
 
-先保存带相同阶段计时器的优化前基线，再在 RTX 5090 / Ryzen 9 9950X3D、MSVC Release、真实 3840×2160、固定原版 React/Roboto/Noto/PNG、13 项列表/60 DOM 元素下测量。隐藏 own-HWND、8 帧 warmup 后 120 次 wheel，测量中不 readback：总帧 P50/P95/P99/max 从 **155.257/201.367/217.471/218.812 ms** 降为 **15.384/15.996/16.558/16.963 ms**，131 次页面提交 texture 创建/上传从 16,563 次降为 128 次，GPU cache hit 16,435。GPU UI command-list P50 1.255 → 0.069 ms，不含 host composition/Present。冷首帧 82.946 → 88.849 ms；进程峰值 working set 179.840 → 170.188 MiB、末尾 private usage 693.574 → 639.090 MiB；GPU cache 有效载荷峰值 25.924 MiB，不是总 VRAM。前一轮有 total 92.576 ms/query wait 84.993 ms 尖峰及冷首帧 205.410 ms，保留在 `optimized/previous-run`，没有掩盖等待尾部和首次加载成本。实际命令 `ce_d3d11_probe.exe --cheetah-flow-window-perf-hardware artifacts/local/flow-scroll-perf/optimized`；这是固定脚本路径测量，实体长时间 FPS/移动/产品预算仍未验收。
+先保存带相同阶段计时器的优化前基线，再在 RTX 5090 / Ryzen 9 9950X3D、MSVC Release、真实 3840×2160、固定原版 React/Roboto/Noto/PNG、13 项列表/60 DOM 元素下测量。隐藏 own-HWND、8 帧 warmup 后 120 次 wheel，测量中不 readback：总帧 P50/P95/P99/max 从 **155.257/201.367/217.471/218.812 ms** 降为 **15.384/15.996/16.558/16.963 ms**，131 次页面提交 texture 创建/上传从 16,563 次降为 128 次，GPU cache hit 16,435。GPU UI command-list P50 1.255 → 0.069 ms，不含 host composition/Present。冷首帧 82.946 → 88.849 ms；进程峰值 working set 179.840 → 170.188 MiB、末尾 private usage 693.574 → 639.090 MiB；GPU cache 有效载荷峰值 25.924 MiB，不是总 VRAM。前一轮有 total 92.576 ms/query wait 84.993 ms 尖峰及冷首帧 205.410 ms，保留在 `optimized/previous-run`，没有掩盖等待尾部和首次加载成本。实际命令 `weft_d3d11_probe.exe --cheetah-flow-window-perf-hardware artifacts/local/flow-scroll-perf/optimized`；这是固定脚本路径测量，实体长时间 FPS/移动/产品预算仍未验收。
 
 缓存 hardware 与三配置 WARP probe 用 seed 0xCE902026 的 48 帧随机源图/字号/位置/椭圆/透明顺序 mutation 对照全量路径，200,704 像素最大差异 0；丢包、整包 LRU 依赖保护、9 项输入超过 8 项 cache 的失败 drain/reuse、录制失败后 Created 重传、提交后失败与真实 query 前拒绝退休均通过。164 个 texture 最终全退休，调试层零 warning/error。4K hardware/WARP 场景保留 7 次页面重绘、5 idle/12 Present、serial 19，当前 128 texture 创建/上传/退休、687 cache hit；四张 4K PNG 的 3,128 CPU sample 最大 1 色阶。旧 640×420 路径和像素阈值未改。源/二进制/产物 hash 封存在 `artifacts/local/flow-scroll-perf/run-metadata.json`，基线有独立旧 exe/hash，运行步骤与各阶段计时见 [flow 窗口与滚动优化](flow-input-window-probe.md#4k-滚动优化2026-10-09)。没有修改原游戏、刷新 bundle 或更改 renderer C ABI v1。
 

@@ -25,7 +25,7 @@ import shutil
 import subprocess
 import sys
 
-SKIP = ("ce_unibreak.dir", "ce_unicode_upstream_tests.dir", "third_party")
+SKIP = ("weft_unibreak.dir", "weft_unicode_upstream_tests.dir", "third_party")
 SCOPE_MANGLED = re.compile(r"\?(?:[0-9]|[A-P]+@)\?\?")
 SCOPE_DEMANGLED = re.compile(r"`\d+'")
 STRING_SYMBOL = re.compile(r"\?\?_C@_[0-9A-P]+@[A-P]+@[^\]\s,]*")

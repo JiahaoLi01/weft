@@ -4,11 +4,11 @@
 
 ## 实际合同
 
-`ProbePage.hits` 保存每个逻辑元素一次的代际 identity、DOM parent index、pointer-events 和 disabled button 祖先状态；`hit_regions` 按真实绘制顺序保存矩形、视口/overflow clip 和拥有值的圆角链。inline 每个分片独立注册，祖先到子元素按绘制顺序进入列表。命中反向遍历 regions，不用 inline union rect，也不以反向 DOM 代替层叠。透明背景仍可命中；pointer-events:none 的自身跳过，显式 auto 后代仍可命中和沿事件路径传播。
+`Page.hits` 保存每个逻辑元素一次的代际 identity、DOM parent index、pointer-events 和 disabled button 祖先状态；`hit_regions` 按真实绘制顺序保存矩形、视口/overflow clip 和拥有值的圆角链。inline 每个分片独立注册，祖先到子元素按绘制顺序进入列表。命中反向遍历 regions，不用 inline union rect，也不以反向 DOM 代替层叠。透明背景仍可命中；pointer-events:none 的自身跳过，显式 auto 后代仍可命中和沿事件路径传播。
 
 圆角按同一归一化椭圆判断；overflow visible 后代不会继承自身圆角，hidden/auto/scroll 后代继承裁剪链。视口外和已滚出的内容不能命中。逻辑 parent 与 paint region 分开后，click 的共同祖先和 disabled 检查不依赖绘制顺序。旧 Flex-only router 保留原范围。
 
-`ProbeMouseRouter(script, owner_layout_callback)` 接收每次返回新 `ProbePage` 的 owner 回调；输入前检查 owner，鼠标释放回调后再读取几何。`wheel(ProbeWheelEvent)` 先 fresh hit，再派发到代际身份。WheelEvent 保留像素 delta、client/screen 坐标、modifiers 和宿主时间，deltaMode=0。旧 `dispatch_wheel(identity, x, y)` 仍默认零坐标/modifiers/time；新 overload 使用完整值。preventDefault、回调移除 target、旧 epoch、错误线程沿原 DOM/scroll 合同处理。
+`MouseRouter(script, owner_layout_callback)` 接收每次返回新 `Page` 的 owner 回调；输入前检查 owner，鼠标释放回调后再读取几何。`wheel(WheelEvent)` 先 fresh hit，再派发到代际身份。WheelEvent 保留像素 delta、client/screen 坐标、modifiers 和宿主时间，deltaMode=0。旧 `dispatch_wheel(identity, x, y)` 仍默认零坐标/modifiers/time；新 overload 使用完整值。preventDefault、回调移除 target、旧 epoch、错误线程沿原 DOM/scroll 合同处理。
 
 Win32 WindowProc 只入队拥有值，不访问 DOM、JS、布局或 GPU。WM_MOUSEWHEEL/HWHEEL 的 LPARAM 是有符号屏幕坐标；转换为 client 后记录当时的 letterbox viewport。之后 resize 不改变已收到消息的映射。wheel 不与 mousemove 合并；原有队列上限/取消合同保持。owner 消费每条消息后运行 React 检查点，下条输入能看到新状态。
 
@@ -42,9 +42,9 @@ native 另有 seed `0xCE802026` 的 64 次独立算术 oracle mutation（128 个
 
 ~~~powershell
 cmake --build --preset windows-release --parallel 10
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --cheetah-flow-window-hardware artifacts/local/flow-4k-interactive
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --cheetah-flow-window-hardware artifacts/local/flow-4k-interactive
 # 新 4K 隐藏场景，旧 --cheetah-flow-window-test-* 仍保持 640×420 golden。
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --cheetah-flow-window-test-4k-hardware artifacts/local/flow-4k-release/hardware
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --cheetah-flow-window-test-4k-hardware artifacts/local/flow-4k-release/hardware
 ~~~
 
 ## 4K 滚动优化（2026-10-09）
@@ -74,9 +74,9 @@ total 的基线 P99/max 为 217.471/218.812 ms，当前为 16.558/16.963 ms；�
 当前 4K hidden 场景仍为 7 次页面重绘/5 次 idle 合成/12 次 Present、serial 19，texture 创建/上传/退休各 128 次，687 个 cache hit，3,128 CPU pixel sample 最大 1 色阶；旧 640×420 golden 继续原全量路径和 2,389 次纹理退休。产物和源/二进制/结果 hash 保存在 `artifacts/local/flow-scroll-perf/`；`baseline` 是优化前带相同计时器的保存版本，`optimized` 为最终版本，WARP/GC 报告和实际命令见 [status](status.md)。没有修改原游戏或刷新原版 bundle。随后已接两帧宿主，见下节；scroll-only 几何成本、实体滚动、移动与性能预算仍分别待验收。
 
 ~~~powershell
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --cheetah-flow-window-hardware artifacts/local/motion/interactive
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --cheetah-flow-window-perf-hardware artifacts/local/flow-scroll-perf/optimized
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --cache-hardware artifacts/local/flow-scroll-perf/render-cache-hardware
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --cheetah-flow-window-hardware artifacts/local/motion/interactive
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --cheetah-flow-window-perf-hardware artifacts/local/flow-scroll-perf/optimized
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --cache-hardware artifacts/local/flow-scroll-perf/render-cache-hardware
 ~~~
 
 ## 两帧流水线（2026-10-09）
@@ -107,10 +107,10 @@ Debug/Release 全量各 57/57（35.95/16.30 秒），强制 GC 范围 11/11（66
 
 ~~~powershell
 cmake --build --preset windows-release --parallel 10
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --pipeline-hardware artifacts/local/two-frame/hardware
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --cheetah-flow-window-perf-sync-hardware artifacts/local/two-frame/sequential
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --cheetah-flow-window-perf-hardware artifacts/local/two-frame/pipelined
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --cheetah-flow-window-hardware artifacts/local/motion/interactive
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --pipeline-hardware artifacts/local/two-frame/hardware
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --cheetah-flow-window-perf-sync-hardware artifacts/local/two-frame/sequential
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --cheetah-flow-window-perf-hardware artifacts/local/two-frame/pipelined
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --cheetah-flow-window-hardware artifacts/local/motion/interactive
 ~~~
 
 ## 运行
@@ -118,7 +118,7 @@ cmake --build --preset windows-release --parallel 10
 ~~~powershell
 cmake --build --preset windows-debug --parallel 10
 ctest --preset windows-debug --output-on-failure
-.\build\windows-msvc\bin\Debug\ce_d3d11_probe.exe --cheetah-flow-window-test-hardware artifacts/local/cheetah-flow-window-debug/hardware
+.\build\windows-msvc\bin\Debug\weft_d3d11_probe.exe --cheetah-flow-window-test-hardware artifacts/local/cheetah-flow-window-debug/hardware
 ctest --test-dir build/windows-gc-stress -C Debug -R 'flow_input|flow_window|mouse_input|script_dom_lifecycle|page_react' --output-on-failure
 ~~~
 
@@ -127,7 +127,7 @@ Release 换对应 preset/config；强制 GC 配置见 [building](building.md)。
 可见样例已准备，可从项目目录运行：
 
 ~~~powershell
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --cheetah-flow-window-hardware artifacts/local/motion/interactive
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --cheetah-flow-window-hardware artifacts/local/motion/interactive
 ~~~
 
 点击左下“切换 2 / 13 项”，点“仓”展开，在列表上滚轮，再点击一项；resize 后继续滚动/选择，右下按钮接收 fixture 回执。关闭窗口生成 report。当前只自动验证 hidden HWND 注入消息，实体鼠标/滚轮、触摸/惯性、键盘/焦点/IME、可见 scrollbar、多显示器 DPI、完整 PointerEvent/HTML task 时序、Android/iOS 与产品性能预算均未验收。下一步扩大真实档案 UI/样式和 D3 SVG 像素，同时继续准备移动工具链。
@@ -146,8 +146,8 @@ Release 换对应 preset/config；强制 GC 配置见 [building](building.md)。
 硬件脚本测量先于构建/回归运行，Windows / Ryzen 9 9950X3D / RTX 5090 / MSVC Release，D3D11 调试层开启，3840×2160、固定 Roboto/Noto CJK/原始三张 PNG、展开的 13 行列表加动画共 70 DOM elements。8 warmup 后 120 次合成时钟 +4 ms tick，测量中无 readback；含实际最终 drain 共 922.839 ms，完成吞吐 130.034 tick/s，tail drain 9.692 ms 已包含。Owner 至提交 P50/P95/P99/max 7.495/8.197/8.325/8.422 ms，其中 layout 6.728/7.100/7.276/7.405 ms；GPU UI 0.073/0.077/0.081/0.081 ms，不含窗口合成/显示。冷首帧 248.246 ms 包含截图/readback/PNG，不应与先前无 readback 冷帧相比；峰值 working set 251.734 MiB、末尾 private usage 672.961 MiB 包含场景截图阶段，GPU cache 有效载荷 26.047 MiB，不是总 VRAM。这里测的是固定合成时钟的隐藏长列表吞吐，不能当实体 FPS/显示延迟；持续 DOM 位置变化会每帧重算样式/布局，负载高于静止画面的 host-only 合成。原始 profile/120 CSV 样本和封存二进制/hash 在 `artifacts/local/motion/`。
 
 ~~~powershell
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --cheetah-flow-window-hardware artifacts/local/motion/interactive
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --cheetah-flow-window-test-4k-motion-hardware artifacts/local/motion/hardware
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --cheetah-flow-window-hardware artifacts/local/motion/interactive
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --cheetah-flow-window-test-4k-motion-hardware artifacts/local/motion/hardware
 ctest --test-dir build/windows-msvc -C Release -R '^d3d11_warp_cheetah_flow_window_motion$' --output-on-failure
 ~~~
 

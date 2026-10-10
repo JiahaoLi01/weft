@@ -21,7 +21,7 @@ class TwoFramePipeline {
 
     Experiment& gpu_;
     ProbeBackend& backend_;
-    std::array<Slot, caseelephant::probe_constants::frames_in_flight> slots_;
+    std::array<Slot, weft::probe_constants::frames_in_flight> slots_;
     std::size_t head_{};
     std::size_t count_{};
     Slot* timed_slot_{};
@@ -62,9 +62,9 @@ class TwoFramePipeline {
 
     Slot& reserve() {
         gpu_.wait_ms = 0;
-        if (count_ == caseelephant::probe_constants::frames_in_flight) {
+        if (count_ == weft::probe_constants::frames_in_flight) {
             poll();
-            if (count_ == caseelephant::probe_constants::frames_in_flight) {
+            if (count_ == weft::probe_constants::frames_in_flight) {
                 ++capacity_waits;
                 const auto start = clock();
                 wait_oldest();
@@ -72,12 +72,12 @@ class TwoFramePipeline {
                 capacity_wait_ms += gpu_.wait_ms;
             }
         }
-        require(count_ < caseelephant::probe_constants::frames_in_flight, "two-frame bounded host capacity");
-        return slots_[(head_ + count_) % caseelephant::probe_constants::frames_in_flight];
+        require(count_ < weft::probe_constants::frames_in_flight, "two-frame bounded host capacity");
+        return slots_[(head_ + count_) % weft::probe_constants::frames_in_flight];
     }
 
     void commit(Slot& slot, bool ui) {
-        const auto increment = ui ? static_cast<unsigned>(caseelephant::probe_constants::serials_per_ui_frame) : 1u;
+        const auto increment = ui ? static_cast<unsigned>(weft::probe_constants::serials_per_ui_frame) : 1u;
         // Serial capacity is checked before any commands are executed.
         slot.serial = gpu_.window_serial + increment;
         slot.ui = ui;
@@ -90,9 +90,8 @@ class TwoFramePipeline {
 
     void wait_oldest() {
         gpu_.immediate->Flush();
-        const auto deadline =
-            std::chrono::steady_clock::now() +
-            std::chrono::seconds(static_cast<int>(caseelephant::probe_constants::completion_timeout_seconds));
+        const auto deadline = std::chrono::steady_clock::now() +
+                              std::chrono::seconds(static_cast<int>(weft::probe_constants::completion_timeout_seconds));
         const auto old_count = count_;
         while (count_ == old_count) {
             poll();
@@ -101,7 +100,7 @@ class TwoFramePipeline {
             }
             require(std::chrono::steady_clock::now() < deadline, "two-frame actual completion deadline");
             std::this_thread::sleep_for(
-                std::chrono::milliseconds(static_cast<int>(caseelephant::probe_constants::completion_poll_ms)));
+                std::chrono::milliseconds(static_cast<int>(weft::probe_constants::completion_poll_ms)));
         }
     }
 
@@ -184,15 +183,15 @@ public:
                                                     D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK &&
                             end >= start,
                         "pipeline completed GPU timestamps");
-                gpu_ms = double(end - start) * caseelephant::constants::milliseconds_per_second / data.Frequency;
+                gpu_ms = double(end - start) * weft::constants::milliseconds_per_second / data.Frequency;
             }
-            render_result(ce_renderer_notify_completed(backend_.renderer, caseelephant::probe_constants::device_epoch,
-                                                       caseelephant::probe_constants::immediate_queue, serial),
+            render_result(weft_renderer_notify_completed(backend_.renderer, weft::probe_constants::device_epoch,
+                                                         weft::probe_constants::immediate_queue, serial),
                           "pipeline host-confirmed completion");
             slot.commands.Reset();
             slot.host_lease.reset();
             slot.serial = 0;
-            head_ = (head_ + 1) % caseelephant::probe_constants::frames_in_flight;
+            head_ = (head_ + 1) % weft::probe_constants::frames_in_flight;
             --count_;
             gpu_.async_in_flight = count_;
             ++completions;
@@ -237,30 +236,31 @@ public:
 
     template <class Present>
     std::uint64_t submit(FramePacket packet, Present&& present, std::shared_ptr<const void> host_lease = {},
-                         const std::vector<ce_render_handle>& external = {}) {
+                         const std::vector<weft_render_handle>& external = {}) {
         auto& slot = reserve();
-        require(gpu_.window_serial <= UINT64_MAX - caseelephant::probe_constants::serials_per_ui_frame,
+        require(gpu_.window_serial <= UINT64_MAX - weft::probe_constants::serials_per_ui_frame,
                 "pipeline serial bound");
         ConstantScope constants(gpu_, slot.constants);
         PacketView view(packet, gpu_.window_serial + 1, &gpu_);
-        ce_render_handle frame{};
-        ce_render_handle use{};
+        weft_render_handle frame{};
+        weft_render_handle use{};
         const auto started = clock();
         if (external.empty()) {
-            render_result(ce_renderer_prepare(backend_.renderer, &view.frame, &frame), "pipeline prepare");
+            render_result(weft_renderer_prepare(backend_.renderer, &view.frame, &frame), "pipeline prepare");
         } else {
-            const ce_render_external_frame input{
-                sizeof(input),  CE_RENDER_EXTERNAL_ABI_VERSION, view.frame, uint32_t(external.size()), 0,
+            const weft_render_external_frame input{
+                sizeof(input),  WEFT_RENDER_EXTERNAL_ABI_VERSION, view.frame, uint32_t(external.size()), 0,
                 external.data()};
-            render_result(ce_renderer_prepare_external(backend_.renderer, &input, &frame), "pipeline external prepare");
+            render_result(weft_renderer_prepare_external(backend_.renderer, &input, &frame),
+                          "pipeline external prepare");
         }
         gpu_.prepare_ms = elapsed(started);
         void* native_commands{};
-        ce_render_d3d11_pass native{};
+        weft_render_d3d11_pass native{};
         auto pass = backend_.pass(gpu_.deferred.Get(), gpu_.output.rtv.Get(), &native_commands, native);
         const auto encoding = clock();
-        const auto encoded = ce_renderer_encode(backend_.renderer, frame, &pass, &use);
-        render_result(ce_renderer_release_prepared(backend_.renderer, frame), "pipeline release prepared input");
+        const auto encoded = weft_renderer_encode(backend_.renderer, frame, &pass, &use);
+        render_result(weft_renderer_release_prepared(backend_.renderer, frame), "pipeline release prepared input");
         render_result(encoded, "pipeline encode");
         gpu_.encode_ms = elapsed(encoding);
         slot.commands.Attach(static_cast<ID3D11CommandList*>(native_commands));
@@ -282,8 +282,8 @@ public:
         }
         commit(slot, true);
         CompletionMarker marker{gpu_, slot};
-        render_result(ce_renderer_notify_submitted(backend_.renderer, use,
-                                                   caseelephant::probe_constants::immediate_queue, slot.serial - 1),
+        render_result(weft_renderer_notify_submitted(backend_.renderer, use, weft::probe_constants::immediate_queue,
+                                                     slot.serial - 1),
                       "pipeline actual UI submission");
         const auto presenting = clock();
         present();

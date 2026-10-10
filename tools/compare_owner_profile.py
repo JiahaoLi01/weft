@@ -1,4 +1,4 @@
-"""Alternate two ce_d3d11_probe builds on --gallery-owner-profile and compare owner CPU ticks.
+"""Alternate two weft_d3d11_probe builds on --gallery-owner-profile and compare owner CPU ticks.
 
     python tools/compare_owner_profile.py <baseline.exe> <candidate.exe> <out_dir> [--rounds 3] [cases...]
 

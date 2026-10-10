@@ -62,11 +62,11 @@ Chrome 文件版本为 154.0.8037.98。参考由独立 CSS/Canvas/Ahem 页面实
 cmake --preset windows-msvc
 cmake --build --preset windows-debug --parallel 4
 ctest --preset windows-debug
-.\build\windows-msvc\bin\Debug\ce_d3d11_probe.exe --hardware artifacts/local/gpu-debug/hardware
+.\build\windows-msvc\bin\Debug\weft_d3d11_probe.exe --hardware artifacts/local/gpu-debug/hardware
 python tools/compare_gpu_reports.py tests/fixtures/gpu_color_browser_reference.json artifacts/local/gpu-debug/hardware/report.json --output artifacts/local/gpu-debug/hardware/browser-comparison.json
 cmake --build --preset windows-release --parallel 4
 ctest --preset windows-release
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --hardware artifacts/local/gpu-release/hardware
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --hardware artifacts/local/gpu-release/hardware
 ```
 
 默认 CTest 注册 WARP 的真实执行与离线浏览器合同比较，硬件通过显式 --hardware 执行，不会静默降级到 WARP。启动尝试 D3D11 debug layer，SDK component 缺失时报告不可用；本机四次最终执行均启用成功。InfoQueue 若发现 warning/error，测试失败。
@@ -85,7 +85,7 @@ ctest --preset windows-release
 New-Item -ItemType Directory -Path 'artifacts/local/gpu-browser' -Force | Out-Null
 $colorBrowser = Start-Process -FilePath 'C:\Program Files\Google\Chrome\Application\chrome.exe' -WindowStyle Hidden -ArgumentList @('--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check','--hide-scrollbars','--force-color-profile=srgb','--force-device-scale-factor=1','--window-size=256,128','--virtual-time-budget=5000','--user-data-dir=F:\Projects\CaseElephant\artifacts\local\gpu-browser\profile','--dump-dom','--screenshot=F:\Projects\CaseElephant\artifacts\local\gpu-browser\reference.png','file:///F:/Projects/CaseElephant/tests/fixtures/gpu_color_reference.html') -RedirectStandardOutput 'F:\Projects\CaseElephant\artifacts\local\gpu-browser\browser-dom.html' -RedirectStandardError 'F:\Projects\CaseElephant\artifacts\local\gpu-browser\stderr.txt' -Wait -PassThru
 if ($colorBrowser.ExitCode -ne 0) { throw 'Chrome capture failed' }
-.\build\windows-msvc\bin\Debug\ce_d3d11_probe.exe --browser-png artifacts/local/gpu-browser/reference.png artifacts/local/gpu-browser/pixels.json
+.\build\windows-msvc\bin\Debug\weft_d3d11_probe.exe --browser-png artifacts/local/gpu-browser/reference.png artifacts/local/gpu-browser/pixels.json
 Copy-Item -LiteralPath 'artifacts/local/gpu-browser/reference.png' -Destination 'tests/fixtures/gpu_color_browser_reference.png'
 Copy-Item -LiteralPath 'artifacts/local/gpu-browser/browser-dom.html' -Destination 'tests/fixtures/gpu_color_browser_reference.dom.html'
 python tools/capture_gpu_reference.py artifacts/local/gpu-browser/pixels.json tests/fixtures/gpu_color_browser_reference.png --dom tests/fixtures/gpu_color_browser_reference.dom.html --browser-version 154.0.8037.98 --output tests/fixtures/gpu_color_browser_reference.json

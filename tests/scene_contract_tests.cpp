@@ -8,7 +8,7 @@
 #include <thread>
 #include <windows.h>
 
-using caseelephant::testing::require;
+using weft::testing::require;
 
 int main() {
     try {
@@ -22,9 +22,9 @@ int main() {
             }
         } com;
 
-        caseelephant::ScriptDomProbe vm;
-        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
-        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::AnimationFrame);
+        weft::ScriptDom vm;
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::AnimationFrame);
         require(
             vm.eval(
                 R"JS((()=>{const root=document.getElementById('root');const parent=document.createElementNS('http://www.w3.org/2000/svg','g');parent.setAttribute('class','tick');const a=document.createElementNS(parent.namespaceURI,'line'),b=document.createElementNS(parent.namespaceURI,'text');parent.appendChild(a);parent.appendChild(b);root.appendChild(parent);let errors=0;for(const s of ['.tick > line',' ','.tick [x]','line,']){try{root.querySelectorAll(s)}catch(e){errors++}}return root.querySelectorAll('.tick line').length===1&&root.querySelectorAll('line,.tick line').length===1&&a.matches('g line')&&root.querySelector('.tick text')===b&&!b.matches('.tick line')&&errors===4})())JS") ==
@@ -41,9 +41,9 @@ int main() {
                 "true",
             "interval error/cancel leaked task");
         vm.reset_document();
-        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
-        caseelephant::SceneRasterProbe raster;
-        caseelephant::SceneProbe scene(
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
+        weft::SceneRaster raster;
+        weft::SceneSolver scene(
             ".bg-gold\\/20{background-color:rgba(212,168,67,.2)}.parent{transition-property:color;transition-duration:1s;transition-timing-function:linear}.explicit{color:#ff0000}",
             "@keyframes k{from{transform:translateX(0);opacity:0}to{transform:translateX(20px);opacity:1}}",
             [&](auto t, const auto& s) {
@@ -51,57 +51,56 @@ int main() {
             });
         vm.eval(
             "document.getElementById('root').setAttribute('style','background:#000000;position:relative');const p=document.createElement('div');p.setAttribute('class','parent');p.setAttribute('style','color:#000000');const a=document.createElement('span');a.textContent='A';const b=document.createElement('span');b.setAttribute('class','explicit');b.textContent='B';p.appendChild(a);p.appendChild(b);document.getElementById('root').appendChild(p)");
-        scene.frame(vm.snapshot_subtree("#root"), caseelephant::test_constants::scene::timeline_view_size,
-                    caseelephant::test_constants::scene::timeline_view_size, 0);
+        scene.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::timeline_view_size,
+                    weft::test_constants::scene::timeline_view_size, 0);
         vm.eval("p.style.color='#ffffff'");
-        scene.frame(vm.snapshot_subtree("#root"), caseelephant::test_constants::scene::timeline_view_size,
-                    caseelephant::test_constants::scene::timeline_view_size, 10);
-        auto f = scene.frame(vm.snapshot_subtree("#root"), caseelephant::test_constants::scene::timeline_view_size,
-                             caseelephant::test_constants::scene::timeline_view_size, 510);
-        auto c = caseelephant::parse_probe_css_color(f.root.children[0].children[0].style.at("color"));
-        require(std::abs(c[0] - .5f) < caseelephant::test_constants::scene::paint_sample_tolerance,
+        scene.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::timeline_view_size,
+                    weft::test_constants::scene::timeline_view_size, 10);
+        auto f = scene.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::timeline_view_size,
+                             weft::test_constants::scene::timeline_view_size, 510);
+        auto c = weft::parse_css_color(f.root.children[0].children[0].style.at("color"));
+        require(std::abs(c[0] - .5f) < weft::test_constants::scene::paint_sample_tolerance,
                 "animated inherited color jumped to target");
         require(f.root.children[0].children[1].style.at("color") == "#ff0000",
                 "animation replaced explicitly specified child color");
         vm.eval(
             "document.getElementById('root').textContent='';const n=document.createElement('div');n.setAttribute('class','bg-gold/20');n.setAttribute('style','position:absolute;left:10px;top:10px;width:20px;height:20px;animation:k 1s linear forwards;animation-delay:.5s');document.getElementById('root').appendChild(n)");
-        auto a = scene.frame(vm.snapshot_subtree("#root"), caseelephant::test_constants::scene::timeline_view_size,
-                             caseelephant::test_constants::scene::timeline_view_size, 600);
+        auto a = scene.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::timeline_view_size,
+                             weft::test_constants::scene::timeline_view_size, 600);
         require(!a.root.children[0].style.contains("transform"), "animation delay applied without backwards fill");
-        auto mid = scene.frame(vm.snapshot_subtree("#root"), caseelephant::test_constants::scene::timeline_view_size,
-                               caseelephant::test_constants::scene::timeline_view_size, 1600);
+        auto mid = scene.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::timeline_view_size,
+                               weft::test_constants::scene::timeline_view_size, 1600);
         require(mid.root.children[0].style.at("transform") == "translateX(10px)",
                 "unitless zero transform did not interpolate");
         require(raster.hit_test(mid, 35, 15) == mid.root.children[0].identity &&
                     raster.hit_test(mid, 15, 15) != mid.root.children[0].identity,
                 "transformed hit region used stale box");
         auto bitmap = raster.raster(mid);
-        require(bitmap.rgba[(15 * caseelephant::test_constants::scene::timeline_view_size + 35) * 4] > 10 &&
-                    bitmap.rgba[(15 * caseelephant::test_constants::scene::timeline_view_size + 15) * 4] == 0,
+        require(bitmap.rgba[(15 * weft::test_constants::scene::timeline_view_size + 35) * 4] > 10 &&
+                    bitmap.rgba[(15 * weft::test_constants::scene::timeline_view_size + 15) * 4] == 0,
                 "transform/opacity/escaped utility raster");
-        auto end = scene.frame(vm.snapshot_subtree("#root"), caseelephant::test_constants::scene::timeline_view_size,
-                               caseelephant::test_constants::scene::timeline_view_size, 2100);
+        auto end = scene.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::timeline_view_size,
+                               weft::test_constants::scene::timeline_view_size, 2100);
         require(end.root.children[0].style.at("transform") == "translateX(20px)", "forwards end fill");
         vm.eval("document.getElementById('root').removeChild(n)");
-        scene.frame(vm.snapshot_subtree("#root"), caseelephant::test_constants::scene::timeline_view_size,
-                    caseelephant::test_constants::scene::timeline_view_size, 2200);
+        scene.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::timeline_view_size,
+                    weft::test_constants::scene::timeline_view_size, 2200);
         vm.eval("document.getElementById('root').appendChild(n)");
-        auto reinsert =
-            scene.frame(vm.snapshot_subtree("#root"), caseelephant::test_constants::scene::timeline_view_size,
-                        caseelephant::test_constants::scene::timeline_view_size, 2300);
+        auto reinsert = scene.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::timeline_view_size,
+                                    weft::test_constants::scene::timeline_view_size, 2300);
         require(!reinsert.root.children[0].style.contains("transform"), "removed animation state crossed reinsertion");
         bool invalid = false;
         try {
-            scene.frame(vm.snapshot_subtree("#root"), caseelephant::test_constants::scene::timeline_view_size,
-                        caseelephant::test_constants::scene::timeline_view_size, 2299);
+            scene.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::timeline_view_size,
+                        weft::test_constants::scene::timeline_view_size, 2299);
         } catch (const std::exception&) {
             invalid = true;
         }
         require(invalid, "backwards scene clock");
         invalid = false;
         try {
-            caseelephant::compute_style_probe(vm.snapshot_subtree("#root"), ".bg-gold\\/20{background-color:#ffffff}",
-                                              caseelephant::flow_page_style_profile());
+            weft::compute_style(vm.snapshot_subtree("#root"), ".bg-gold\\/20{background-color:#ffffff}",
+                                weft::flow_page_style_profile());
         } catch (const std::exception&) {
             invalid = true;
         }
@@ -113,15 +112,14 @@ int main() {
                 "true",
             "timer WebIDL coercion / fractional delay");
         vm.reset_document();
-        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(
             "const r=document.getElementById('root');r.style.backgroundColor='#000000';const parent=document.createElement('div');parent.setAttribute('style','width:30px;height:30px;transform:scale(1)');const inner=document.createElement('div');inner.setAttribute('style','position:absolute;inset:0;background-color:#ffffff');parent.appendChild(inner);r.appendChild(parent)");
-        caseelephant::SceneProbe containing("", "", [&](auto t, const auto& st) {
+        weft::SceneSolver containing("", "", [&](auto t, const auto& st) {
             return raster.measure(t, st);
         });
-        auto contained =
-            containing.frame(vm.snapshot_subtree("#root"), caseelephant::test_constants::scene::contract_view_size,
-                             caseelephant::test_constants::scene::contract_view_size, 0);
+        auto contained = containing.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
+                                          weft::test_constants::scene::contract_view_size, 0);
         require(contained.root.children[0].children[0].box[2] == 30 &&
                     contained.root.children[0].children[0].box[3] == 30,
                 "transform failed to establish absolute containing block");
@@ -131,8 +129,8 @@ int main() {
         auto owner_snapshot = vm.snapshot_subtree("#root");
         std::thread outsider([&] {
             try {
-                containing.frame(owner_snapshot, caseelephant::test_constants::scene::contract_view_size,
-                                 caseelephant::test_constants::scene::contract_view_size, 0);
+                containing.frame(owner_snapshot, weft::test_constants::scene::contract_view_size,
+                                 weft::test_constants::scene::contract_view_size, 0);
             } catch (const std::logic_error&) {
                 wrong_owner = true;
             }
@@ -146,79 +144,76 @@ int main() {
         require(wrong_owner && wrong_raster, "scene adapter permitted foreign-thread access");
         vm.reset_document();
         vm.collect_garbage();
-        require(raster.raster(frozen).rgba[(5 * caseelephant::test_constants::scene::contract_view_size + 5) * 4] ==
-                    caseelephant::constants::color_channel_max,
+        require(raster.raster(frozen).rgba[(5 * weft::test_constants::scene::contract_view_size + 5) * 4] ==
+                    weft::constants::color_channel_max,
                 "owned scene lost pixels after DOM teardown");
-        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(
             "const root=document.getElementById('root');const n=document.createElement('div');n.setAttribute('style','width:20px;height:20px;color:#0000ff;border-width:2px;animation:chase 1s linear infinite');root.appendChild(n)");
-        caseelephant::SceneProbe chase("", "@keyframes chase{75%{border-color:#ff0000}}", [&](auto t, const auto& st) {
+        weft::SceneSolver chase("", "@keyframes chase{75%{border-color:#ff0000}}", [&](auto t, const auto& st) {
             return raster.measure(t, st);
         });
-        chase.frame(vm.snapshot_subtree("#root"), caseelephant::test_constants::scene::contract_view_size,
-                    caseelephant::test_constants::scene::contract_view_size, 0);
-        auto implicit =
-            chase.frame(vm.snapshot_subtree("#root"), caseelephant::test_constants::scene::contract_view_size,
-                        caseelephant::test_constants::scene::contract_view_size, 875);
-        auto border = caseelephant::parse_probe_css_color(implicit.root.children[0].style.at("border-top-color"));
-        require(std::abs(border[0] - .5f) < caseelephant::test_constants::scene::paint_sample_tolerance &&
-                    std::abs(border[2] - .5f) < caseelephant::test_constants::scene::paint_sample_tolerance,
+        chase.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
+                    weft::test_constants::scene::contract_view_size, 0);
+        auto implicit = chase.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
+                                    weft::test_constants::scene::contract_view_size, 875);
+        auto border = weft::parse_css_color(implicit.root.children[0].style.at("border-top-color"));
+        require(std::abs(border[0] - .5f) < weft::test_constants::scene::paint_sample_tolerance &&
+                    std::abs(border[2] - .5f) < weft::test_constants::scene::paint_sample_tolerance,
                 "implicit border keyframe end did not use underlying currentcolor");
         vm.eval("n.setAttribute('style','width:20px;height:20px;animation:fade 1s linear infinite alternate-reverse')");
-        caseelephant::SceneProbe reverse("", "@keyframes fade{from{opacity:0}to{opacity:1}}",
-                                         [&](auto t, const auto& st) {
-                                             return raster.measure(t, st);
-                                         });
-        reverse.frame(vm.snapshot_subtree("#root"), caseelephant::test_constants::scene::contract_view_size,
-                      caseelephant::test_constants::scene::contract_view_size, 0);
-        require(std::abs(std::stof(reverse
-                                       .frame(vm.snapshot_subtree("#root"),
-                                              caseelephant::test_constants::scene::contract_view_size,
-                                              caseelephant::test_constants::scene::contract_view_size, 250)
-                                       .root.children[0]
-                                       .style.at("opacity")) -
-                         .75f) < caseelephant::test_constants::scene::paint_sample_tolerance,
-                "alternate-reverse first iteration");
-        require(std::abs(std::stof(reverse
-                                       .frame(vm.snapshot_subtree("#root"),
-                                              caseelephant::test_constants::scene::contract_view_size,
-                                              caseelephant::test_constants::scene::contract_view_size, 1250)
-                                       .root.children[0]
-                                       .style.at("opacity")) -
-                         .25f) < caseelephant::test_constants::scene::paint_sample_tolerance,
-                "alternate-reverse second iteration");
+        weft::SceneSolver reverse("", "@keyframes fade{from{opacity:0}to{opacity:1}}", [&](auto t, const auto& st) {
+            return raster.measure(t, st);
+        });
+        reverse.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
+                      weft::test_constants::scene::contract_view_size, 0);
+        require(
+            std::abs(std::stof(reverse
+                                   .frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
+                                          weft::test_constants::scene::contract_view_size, 250)
+                                   .root.children[0]
+                                   .style.at("opacity")) -
+                     .75f) < weft::test_constants::scene::paint_sample_tolerance,
+            "alternate-reverse first iteration");
+        require(
+            std::abs(std::stof(reverse
+                                   .frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
+                                          weft::test_constants::scene::contract_view_size, 1250)
+                                   .root.children[0]
+                                   .style.at("opacity")) -
+                     .25f) < weft::test_constants::scene::paint_sample_tolerance,
+            "alternate-reverse second iteration");
         vm.eval(
             "const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 10 10');document.getElementById('root').appendChild(svg)");
         invalid = false;
         try {
-            reverse.frame(vm.snapshot_subtree("#root"), caseelephant::test_constants::scene::contract_view_size,
-                          caseelephant::test_constants::scene::contract_view_size, 1300);
+            reverse.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
+                          weft::test_constants::scene::contract_view_size, 1300);
         } catch (const std::invalid_argument&) {
             invalid = true;
         }
         require(!invalid, "supported SVG viewBox rejected");
         vm.reset_document();
-        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         const std::string static_sheet = ".shade{background-color:#d4a843}.other{background-color:#225577}";
-        caseelephant::SceneProbe persisted(static_sheet, "", [&](auto t, const auto& st) {
+        weft::SceneSolver persisted(static_sheet, "", [&](auto t, const auto& st) {
             return raster.measure(t, st);
         });
         vm.eval(
             "const root=document.getElementById('root');root.setAttribute('style','background-color:#000000;position:relative;overflow:hidden');globalThis.boxes=[];globalThis.parents=[];for(let i=0;i<2;i++){let p=document.createElement('div');p.setAttribute('style','position:absolute;left:'+i*40+'px;top:0px;width:40px;height:80px');root.appendChild(p);parents.push(p)}for(let i=0;i<24;i++){let b=document.createElement('div');b.setAttribute('class','shade');b.setAttribute('style','position:absolute;left:'+i%6*5+'px;top:'+Math.floor(i/6)*15+'px;width:8px;height:8px');parents[i%2].appendChild(b);boxes.push(b)}let seed=0x9e3779b9;globalThis.mutate=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;let b=boxes[seed%24],op=(seed>>>8)%4;if(op===0){b.style.transform='translateX('+((seed>>>16)%8)+'px)'}else if(op===1)b.setAttribute('class',(seed&1)?'shade':'other');else if(op===2){if(b.parentNode)b.parentNode.removeChild(b);else parents[seed%2].appendChild(b)}else parents[seed%2].appendChild(b)}");
-        for (unsigned iteration = 0; iteration < caseelephant::test_constants::scene::mutation_iterations;
-             ++iteration) {
+        for (unsigned iteration = 0; iteration < weft::test_constants::scene::mutation_iterations; ++iteration) {
             vm.eval("mutate()");
             auto snapshot = vm.snapshot_subtree("#root");
-            auto actual = persisted.frame(snapshot, caseelephant::test_constants::scene::contract_view_size,
-                                          caseelephant::test_constants::scene::contract_view_size, iteration);
-            caseelephant::SceneProbe fresh(
+            auto actual = persisted.frame(snapshot, weft::test_constants::scene::contract_view_size,
+                                          weft::test_constants::scene::contract_view_size, iteration);
+            weft::SceneSolver fresh(
                 static_sheet, "",
                 [&](auto t, const auto& st) {
                     return raster.measure(t, st);
                 },
                 false);
-            auto expected = fresh.frame(snapshot, caseelephant::test_constants::scene::contract_view_size,
-                                        caseelephant::test_constants::scene::contract_view_size, iteration);
+            auto expected = fresh.frame(snapshot, weft::test_constants::scene::contract_view_size,
+                                        weft::test_constants::scene::contract_view_size, iteration);
             auto a_geometry = raster.geometry(actual);
             auto b_geometry = raster.geometry(expected);
             require(a_geometry.size() == b_geometry.size(), "mutation changed retained scene node count");
@@ -228,21 +223,21 @@ int main() {
             }
             require(raster.raster(actual).rgba == raster.raster(expected).rgba,
                     "retained mutation pixels differ from fresh full scene");
-            if (iteration % caseelephant::test_constants::scene::collect_garbage_interval == 0) {
+            if (iteration % weft::test_constants::scene::collect_garbage_interval == 0) {
                 vm.collect_garbage();
             }
         }
         require(persisted.work().layout_reuses > 0, "mutation did not exercise layout cache");
         vm.reset_document();
-        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(
             "const root=document.getElementById('root');root.setAttribute('style','position:relative;background-color:#000000');let n=document.createElement('div');n.setAttribute('style','position:relative;width:30px;height:30px;color:#fff;animation:move 1s linear infinite');n.textContent='x';root.appendChild(n)");
         const std::string keyframes =
             "@keyframes move{from{transform:translateX(0);color:#000000}to{transform:translateX(20px);color:#ffffff}}";
-        caseelephant::SceneProbe retained("", keyframes, [&](auto t, const auto& st) {
+        weft::SceneSolver retained("", keyframes, [&](auto t, const auto& st) {
             return raster.measure(t, st);
         });
-        caseelephant::SceneProbe full(
+        weft::SceneSolver full(
             "", keyframes,
             [&](auto t, const auto& st) {
                 return raster.measure(t, st);
@@ -265,10 +260,9 @@ int main() {
                 vm.eval("n.style.display='none'");
             }
             auto d = vm.snapshot_subtree("#root");
-            auto w = i >= 35 ? 90.f : static_cast<float>(caseelephant::test_constants::scene::contract_view_size);
-            auto optimized_frame =
-                retained.frame(d, w, caseelephant::test_constants::scene::contract_view_size, i * 25);
-            auto reference_frame = full.frame(d, w, caseelephant::test_constants::scene::contract_view_size, i * 25);
+            auto w = i >= 35 ? 90.f : static_cast<float>(weft::test_constants::scene::contract_view_size);
+            auto optimized_frame = retained.frame(d, w, weft::test_constants::scene::contract_view_size, i * 25);
+            auto reference_frame = full.frame(d, w, weft::test_constants::scene::contract_view_size, i * 25);
             auto ag = raster.geometry(optimized_frame);
             auto bg = raster.geometry(reference_frame);
             require(ag.size() == bg.size(), "timeline cache geometry count");
@@ -282,28 +276,27 @@ int main() {
                     retained.work().layout_evaluations < full.work().layout_evaluations,
                 "cache reference path was not independent");
         vm.reset_document();
-        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(
             "let root=document.getElementById('root');let svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('width','20');svg.setAttribute('height','20');let rect=document.createElementNS(svg.namespaceURI,'rect');rect.setAttribute('width','5');rect.setAttribute('height','10');rect.setAttribute('fill','#ff0000');svg.appendChild(rect);root.appendChild(svg)");
-        caseelephant::SceneProbe keyed("rect[width='10']{fill:#00ff00}", "", [&](auto t, const auto& st) {
+        weft::SceneSolver keyed("rect[width='10']{fill:#00ff00}", "", [&](auto t, const auto& st) {
             return raster.measure(t, st);
         });
-        keyed.frame(vm.snapshot_subtree("#root"), caseelephant::test_constants::scene::contract_view_size,
-                    caseelephant::test_constants::scene::contract_view_size, 0);
+        keyed.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
+                    weft::test_constants::scene::contract_view_size, 0);
         vm.eval("rect.setAttribute('x','5')");
-        keyed.frame(vm.snapshot_subtree("#root"), caseelephant::test_constants::scene::contract_view_size,
-                    caseelephant::test_constants::scene::contract_view_size, 1);
+        keyed.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
+                    weft::test_constants::scene::contract_view_size, 1);
         require(keyed.work().style_reuses == 1 && keyed.work().layout_reuses == 1,
                 "SVG paint attribute invalidated cascade/layout");
         vm.eval("rect.setAttribute('width','10')");
-        auto selected =
-            keyed.frame(vm.snapshot_subtree("#root"), caseelephant::test_constants::scene::contract_view_size,
-                        caseelephant::test_constants::scene::contract_view_size, 2);
+        auto selected = keyed.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
+                                    weft::test_constants::scene::contract_view_size, 2);
         require(selected.root.children[0].children[0].style.at("fill") == "#00ff00",
                 "attribute selector dependency was omitted from style key");
         vm.eval("rect.setAttribute('font-size','30px')");
-        keyed.frame(vm.snapshot_subtree("#root"), caseelephant::test_constants::scene::contract_view_size,
-                    caseelephant::test_constants::scene::contract_view_size, 3);
+        keyed.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
+                    weft::test_constants::scene::contract_view_size, 3);
         require(keyed.work().style_evaluations == 3, "SVG presentation attribute did not invalidate cascade");
         keyed.reset();
         require(keyed.work().style_evaluations == 0 && keyed.work().layout_reuses == 0,
@@ -314,9 +307,9 @@ int main() {
             dom.children[0].attributes["class"] = "box";
             const std::string css =
                 ".theme:hover .box{color:#ffffff}.box:active{opacity:.5}[style] > .box{width:inherit}rect{fill:#335577}";
-            caseelephant::CompiledStyleProbe styles(css, caseelephant::scene_style_profile());
-            caseelephant::StyleMemoProbe memo;
-            caseelephant::ProbeComputedStyle values;
+            weft::CompiledStyle styles(css, weft::scene_style_profile());
+            weft::StyleMemo memo;
+            weft::ComputedStyle values;
             for (unsigned i = 0; i < 128; ++i) {
                 dom.hovered = bool(i & 1);
                 dom.children[0].active = bool(i & 2);
@@ -326,7 +319,7 @@ int main() {
                                           std::string(i & 8 ? "445566" : "667788");
                 dom.children[0].children[0].attributes["fill"] = i & 16 ? "#ff0000" : "#00ff00";
                 styles.update(dom, values, memo);
-                const auto expected = caseelephant::compute_style_probe(dom, css, caseelephant::scene_style_profile());
+                const auto expected = weft::compute_style(dom, css, weft::scene_style_profile());
                 auto same = [](auto&& self, const auto& a, const auto& b) -> bool {
                     if (a.identity != b.identity || a.values != b.values ||
                         a.custom_properties != b.custom_properties ||
@@ -346,31 +339,30 @@ int main() {
                         "state, ancestor style selector, explicit inheritance or SVG cascade memo differed from full");
                 auto normalized = dom;
                 styles.normalize_selector_state(normalized);
-                require(caseelephant::compute_style_probe(normalized, css, caseelephant::scene_style_profile())
-                                .children[0]
-                                .values == expected.children[0].values,
+                require(weft::compute_style(normalized, css, weft::scene_style_profile()).children[0].values ==
+                            expected.children[0].values,
                         "irrelevant state normalization changed selector matching");
             }
         }
         vm.reset_document();
-        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(
             "const root=document.getElementById('root');root.style.backgroundColor='#000000';let parent=document.createElement('div');parent.style.color='#0000ff';let n=document.createElement('div');n.setAttribute('style','width:20px;height:20px;background-color:#445566;border-width:2px;animation:motion 1s linear infinite alternate-reverse, shade 800ms steps(4,end) infinite;animation-delay:100ms,0ms');n.textContent='x';parent.appendChild(n);root.appendChild(parent)");
         const std::string tracks =
             "@keyframes motion{25%{transform:translateX(0)}75%{transform:translateX(20px);border-color:#ff0000}}@keyframes shade{from{opacity:.2}to{opacity:.8}}";
-        caseelephant::SceneProbe planned("", tracks, [&](auto text, const auto& st) {
+        weft::SceneSolver planned("", tracks, [&](auto text, const auto& st) {
             return raster.measure(text, st);
         });
-        caseelephant::SceneProbe unplanned(
+        weft::SceneSolver unplanned(
             "", tracks,
             [&](auto text, const auto& st) {
                 return raster.measure(text, st);
             },
             false);
-        caseelephant::SceneProbe retained_solver("", tracks, [&](auto text, const auto& st) {
+        weft::SceneSolver retained_solver("", tracks, [&](auto text, const auto& st) {
             return raster.measure(text, st);
         });
-        caseelephant::ProbeSceneFrame retained_frame;
+        weft::SceneFrame retained_frame;
         for (unsigned i = 0; i < 160; ++i) {
             if (i == 12) {
                 vm.eval("parent.style.color='#00ff00'");
@@ -409,14 +401,14 @@ int main() {
                 vm.eval("n.style.transform='translateX(" + std::to_string(i) + "px)'");
             }
             auto dom = vm.snapshot_subtree("#root");
-            auto sampled = planned.frame(dom, caseelephant::test_constants::scene::contract_view_size,
-                                         caseelephant::test_constants::scene::contract_view_size, i * 25);
-            auto uncached = unplanned.frame(dom, caseelephant::test_constants::scene::contract_view_size,
-                                            caseelephant::test_constants::scene::contract_view_size, i * 25);
-            retained_solver.update(dom, retained_frame, caseelephant::test_constants::scene::contract_view_size,
-                                   caseelephant::test_constants::scene::contract_view_size, i * 25);
+            auto sampled = planned.frame(dom, weft::test_constants::scene::contract_view_size,
+                                         weft::test_constants::scene::contract_view_size, i * 25);
+            auto uncached = unplanned.frame(dom, weft::test_constants::scene::contract_view_size,
+                                            weft::test_constants::scene::contract_view_size, i * 25);
+            retained_solver.update(dom, retained_frame, weft::test_constants::scene::contract_view_size,
+                                   weft::test_constants::scene::contract_view_size, i * 25);
             require(retained_frame.root == uncached.root &&
-                        caseelephant::scene_paint_source_equal_probe(retained_frame.root, sampled.root) &&
+                        weft::scene_paint_source_equal(retained_frame.root, sampled.root) &&
                         retained_frame.animated == uncached.animated,
                     "retained owner scene differed from full mutation/animation solve");
             require(sampled.root == uncached.root && sampled.animated == uncached.animated,
@@ -431,8 +423,8 @@ int main() {
         for (unsigned i = 0; i < 2; ++i) {
             bool rejected = false;
             try {
-                planned.frame(vm.snapshot_subtree("#root"), caseelephant::test_constants::scene::contract_view_size,
-                              caseelephant::test_constants::scene::contract_view_size, 4100 + i);
+                planned.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
+                              weft::test_constants::scene::contract_view_size, 4100 + i);
             } catch (const std::invalid_argument&) {
                 rejected = true;
             }
@@ -440,31 +432,31 @@ int main() {
         }
         vm.eval("n.style.animation='shade 1s linear infinite'");
         require(planned
-                    .frame(vm.snapshot_subtree("#root"), caseelephant::test_constants::scene::contract_view_size,
-                           caseelephant::test_constants::scene::contract_view_size, 4200)
+                    .frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
+                           weft::test_constants::scene::contract_view_size, 4200)
                     .animated,
                 "valid animation did not recover after compile failure");
         planned.reset();
         require(planned.work().animation_reuses == 0 && planned.work().animation_compilations == 0,
                 "animation plan/reset statistics survived epoch reset");
         vm.reset_document();
-        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(
             "const root=document.getElementById('root');root.style.position='relative';root.style.backgroundColor='#000000';let p=document.createElement('div');p.setAttribute('style','width:30px;height:24px;color:#225577;transform:scale(1);transition-property:color;transition-duration:200ms;transition-timing-function:linear');let n=document.createElement('div');n.setAttribute('style','position:absolute;inset:0;background:#884422;border-radius:4px');p.appendChild(n);root.appendChild(p)");
-        caseelephant::SceneProbe layout_retained("", "", [&](auto text, const auto& st) {
+        weft::SceneSolver layout_retained("", "", [&](auto text, const auto& st) {
             return raster.measure(text, st);
         });
-        caseelephant::SceneProbe layout_reference(
+        weft::SceneSolver layout_reference(
             "", "",
             [&](auto text, const auto& st) {
                 return raster.measure(text, st);
             },
             false);
-        caseelephant::SceneProbe layout_updated("", "", [&](auto text, const auto& st) {
+        weft::SceneSolver layout_updated("", "", [&](auto text, const auto& st) {
             return raster.measure(text, st);
         });
-        caseelephant::ProbeSceneFrame layout_output;
-        std::optional<caseelephant::ProbeSceneFrame> independent;
+        weft::SceneFrame layout_output;
+        std::optional<weft::SceneFrame> independent;
         for (unsigned i = 0; i < 64; ++i) {
             if (i % 7 == 1) {
                 vm.eval("p.style.transform='translateX(" + std::to_string(i % 13) + "px)'");
@@ -484,16 +476,12 @@ int main() {
                         std::to_string(i % 9) + "px'");
             }
             const auto dom = vm.snapshot_subtree("#root");
-            const float width =
-                i < 48 ? static_cast<float>(caseelephant::test_constants::scene::contract_view_size) : 90.f;
-            auto actual =
-                layout_retained.frame(dom, width, caseelephant::test_constants::scene::contract_view_size, i * 17);
-            auto expected =
-                layout_reference.frame(dom, width, caseelephant::test_constants::scene::contract_view_size, i * 17);
-            layout_updated.update(dom, layout_output, width, caseelephant::test_constants::scene::contract_view_size,
-                                  i * 17);
+            const float width = i < 48 ? static_cast<float>(weft::test_constants::scene::contract_view_size) : 90.f;
+            auto actual = layout_retained.frame(dom, width, weft::test_constants::scene::contract_view_size, i * 17);
+            auto expected = layout_reference.frame(dom, width, weft::test_constants::scene::contract_view_size, i * 17);
+            layout_updated.update(dom, layout_output, width, weft::test_constants::scene::contract_view_size, i * 17);
             require(layout_output.root == expected.root &&
-                        caseelephant::scene_paint_source_equal_probe(layout_output.root, actual.root),
+                        weft::scene_paint_source_equal(layout_output.root, actual.root),
                     "in-place target/transition/layout differed from owning full frame");
             require(actual.root == expected.root && actual.elements.size() == expected.elements.size(),
                     "unchanged layout reference became stale after paint, containing-block or viewport mutation");
@@ -517,30 +505,28 @@ int main() {
         require(layout_retained.work().layout_reuses > 20, "layout reference reuse counterexample did not reuse");
         vm.reset_document();
         vm.collect_garbage();
-        require(vm.stats().live_nodes == caseelephant::test_constants::scene::empty_document_live_nodes,
+        require(vm.stats().live_nodes == weft::test_constants::scene::empty_document_live_nodes,
                 "random mutation/reset leaked detached nodes");
-        caseelephant::ProbeSceneFrame previous;
+        weft::SceneFrame previous;
         previous.root.identity = {1, 1, 1};
-        previous.root.box = {0, 0, caseelephant::test_constants::scene::contract_view_size,
-                             caseelephant::test_constants::scene::contract_view_size};
-        previous.root.space = caseelephant::constants::xhtml_namespace_uri;
+        previous.root.box = {0, 0, weft::test_constants::scene::contract_view_size,
+                             weft::test_constants::scene::contract_view_size};
+        previous.root.space = weft::constants::xhtml_namespace_uri;
         auto child = previous.root;
         child.identity.slot = 2;
         child.box = {10, 10, 20, 20};
         child.style = {{"background-color", "#ffffff"}, {"opacity", ".500000"}};
-        child.paint = caseelephant::compile_scene_paint_values(child.style);
+        child.paint = weft::compile_scene_paint_values(child.style);
         previous.root.children.push_back(child);
         previous.elements = raster.geometry(previous);
         auto changed = previous;
-        changed.root.children[0].paint->values[caseelephant::constants::scene::paint_slot_opacity]->scalar.absolute =
-            .4999999;
-        require(previous.root == changed.root &&
-                    !caseelephant::scene_paint_source_equal_probe(previous.root, changed.root),
+        changed.root.children[0].paint->values[weft::constants::scene::paint_slot_opacity]->scalar.absolute = .4999999;
+        require(previous.root == changed.root && !weft::scene_paint_source_equal(previous.root, changed.root),
                 "rounded diagnostic spelling hid a different numeric source");
-        const auto damaged = caseelephant::scene_damage_probe(previous, changed, 2);
+        const auto damaged = weft::scene_damage(previous, changed, 2);
         require(damaged.changed && !damaged.full && damaged.rect[0] <= 10 && damaged.rect[2] >= 30,
                 "numeric paint mutation did not invalidate its retained surface");
-        GallerySceneSession fixed(false, 0, caseelephant::test_constants::scene::contract_view_size);
+        GallerySceneSession fixed(false, 0, weft::test_constants::scene::contract_view_size);
         const auto copies = fixed.snapshots;
         fixed.step(1);
         require(fixed.snapshots == copies && fixed.snapshot_reuses > 0, "idle scene copied unchanged DOM");

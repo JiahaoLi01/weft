@@ -7,7 +7,7 @@
 //
 // Each constant has the type of the literals it replaced (a plain integer literal is int), so
 // arithmetic, comparisons and generated code at every use site stay exactly as before.
-namespace caseelephant::constants {
+namespace weft::constants {
     // Initial values used by the M0 CSS profiles and the text probes.
     inline constexpr int default_font_size_px = 16;
     inline constexpr int default_line_height_px = 24;
@@ -72,4 +72,4 @@ namespace caseelephant::constants {
     // Deterministic test/probe randomness: Numerical Recipes 32-bit LCG.
     inline constexpr std::uint32_t lcg_multiplier = 1664525u;
     inline constexpr std::uint32_t lcg_increment = 1013904223u;
-} // namespace caseelephant::constants
+} // namespace weft::constants

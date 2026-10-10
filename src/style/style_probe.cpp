@@ -12,7 +12,7 @@
 #include <sstream>
 #include <stdexcept>
 
-namespace caseelephant {
+namespace weft {
     namespace {
         [[noreturn]] void fail(const std::string& s) {
             throw_diagnostic(Diag::StyleProfile, s);
@@ -310,7 +310,7 @@ namespace caseelephant {
             return std::move(result.parts);
         }
 
-        std::vector<Declaration> declarations(std::string text, const ProbeStyleProfile& profile) {
+        std::vector<Declaration> declarations(std::string text, const StyleProfile& profile) {
             if (text.size() > constants::style::max_declaration_bytes) {
                 fail("declaration byte bound");
             }
@@ -440,7 +440,7 @@ namespace caseelephant {
             bool hover{};
             bool active{};
 
-            bool matches(const ProbeDomSnapshot& n, bool document_root, bool state = true) const {
+            bool matches(const DomSnapshot& n, bool document_root, bool state = true) const {
                 if ((root && !document_root) || (!tag.empty() && tag != "*" && tag != n.local_name)) {
                     return false;
                 }
@@ -478,7 +478,7 @@ namespace caseelephant {
             std::array<unsigned, 3> specificity{};
             std::vector<Declaration> declarations;
 
-            bool matches(const std::vector<const ProbeDomSnapshot*>& path) const {
+            bool matches(const std::vector<const DomSnapshot*>& path) const {
                 auto match = [&](auto&& self, std::size_t k, std::size_t p) -> bool {
                     if (!parts[k].matches(*path[p], p == 0 && path[0]->local_name == "html")) {
                         return false;
@@ -642,7 +642,7 @@ namespace caseelephant {
             return rule;
         }
 
-        std::vector<Rule> rules(std::string text, const ProbeStyleProfile& profile) {
+        std::vector<Rule> rules(std::string text, const StyleProfile& profile) {
             if (text.size() > constants::max_text_bytes) {
                 fail("stylesheet byte bound");
             }
@@ -710,18 +710,18 @@ namespace caseelephant {
                    std::isfinite(number(t.text.substr(0, t.text.size() - 2)));
         }
 
-        bool valid(const Tokens& t, const ProbeCssProperty& prop) {
+        bool valid(const Tokens& t, const CssProperty& prop) {
             const auto k = keyword(t);
             if (std::find(prop.keywords.begin(), prop.keywords.end(), k) != prop.keywords.end()) {
                 return true;
             }
-            if (prop.grammar == ProbeCssGrammar::Keyword) {
+            if (prop.grammar == CssGrammar::Keyword) {
                 return false;
             }
-            if (prop.grammar == ProbeCssGrammar::Tokens) {
+            if (prop.grammar == CssGrammar::Tokens) {
                 return !t.empty();
             }
-            if (prop.grammar == ProbeCssGrammar::Radius) {
+            if (prop.grammar == CssGrammar::Radius) {
                 if (t.empty() || t.size() > 2) {
                     return false;
                 }
@@ -736,7 +736,7 @@ namespace caseelephant {
                 }
                 return true;
             }
-            if (prop.grammar == ProbeCssGrammar::Color) {
+            if (prop.grammar == CssGrammar::Color) {
                 if (t.size() != 1) {
                     return false;
                 }
@@ -758,7 +758,7 @@ namespace caseelephant {
                     }
                 }
                 try {
-                    parse_probe_css_color(serialize(t));
+                    parse_css_color(serialize(t));
                     return true;
                 } catch (const std::invalid_argument&) {
                     return false;
@@ -767,7 +767,7 @@ namespace caseelephant {
             if (t.size() != 1) {
                 return false;
             }
-            if (prop.grammar == ProbeCssGrammar::Number) {
+            if (prop.grammar == CssGrammar::Number) {
                 return t[0].kind == Kind::Number;
             }
             if (t[0].kind == Kind::Function && lower(t[0].text) == "calc") {
@@ -783,10 +783,10 @@ namespace caseelephant {
         using Variables = std::map<std::string, std::optional<Tokens>>;
 
         struct Engine {
-            const ProbeStyleProfile& profile;
+            const StyleProfile& profile;
             const std::vector<Rule>& ua;
             const std::vector<Rule>& author;
-            std::vector<const ProbeDomSnapshot*> path;
+            std::vector<const DomSnapshot*> path;
             std::size_t nodes{};
             std::size_t work{};
             std::size_t bytes{};
@@ -801,7 +801,7 @@ namespace caseelephant {
             };
 
             struct Memo {
-                ProbeComputedStyle own;
+                ComputedStyle own;
                 Variables variables;
                 std::size_t token_work{};
                 std::size_t output_bytes{};
@@ -828,10 +828,10 @@ namespace caseelephant {
 
             MemoState local_memo;
             MemoState* memo_state = &local_memo;
-            std::vector<ProbeNodeIdentity>* changed_nodes{};
+            std::vector<NodeIdentity>* changed_nodes{};
 
-            Engine(const ProbeStyleProfile& p, const std::vector<Rule>& u, const std::vector<Rule>& a,
-                   bool reuse = false, MemoState* state = nullptr, std::vector<ProbeNodeIdentity>* changed = nullptr)
+            Engine(const StyleProfile& p, const std::vector<Rule>& u, const std::vector<Rule>& a, bool reuse = false,
+                   MemoState* state = nullptr, std::vector<NodeIdentity>* changed = nullptr)
                 : profile(p), ua(u), author(a), memoize(reuse) {
                 if (state) {
                     memo_state = state;
@@ -889,7 +889,7 @@ namespace caseelephant {
                 return selector_path;
             }
 
-            std::string memo_key(const ProbeComputedStyle* parent, const Variables& inherited,
+            std::string memo_key(const ComputedStyle* parent, const Variables& inherited,
                                  const std::string& selectors) {
                 std::string key = selectors;
                 auto add = [&](std::string_view value) {
@@ -997,8 +997,7 @@ namespace caseelephant {
                 return invalid ? std::nullopt : std::optional(std::move(out));
             }
 
-            void own_into(ProbeComputedStyle& target, const ProbeComputedStyle& own,
-                          ProbeNodeIdentity current_identity) {
+            void own_into(ComputedStyle& target, const ComputedStyle& own, NodeIdentity current_identity) {
                 if (target.identity == current_identity && target.local_name == own.local_name &&
                     target.values == own.values && target.custom_properties == own.custom_properties &&
                     target.invalid_at_computed_value == own.invalid_at_computed_value &&
@@ -1016,7 +1015,7 @@ namespace caseelephant {
                 target.specified_properties = own.specified_properties;
             }
 
-            void children_into(const ProbeDomSnapshot& dom, ProbeComputedStyle& out, const Variables& variables) {
+            void children_into(const DomSnapshot& dom, ComputedStyle& out, const Variables& variables) {
                 // Reuse owner values by identity, retaining no DOM references. Order and
                 // generation changes are verified even when the rule memo hits.
                 auto old = std::move(out.children);
@@ -1032,7 +1031,7 @@ namespace caseelephant {
                                 ++index;
                             }
                         }
-                        out.children.push_back(index < old.size() ? std::move(old[index]) : ProbeComputedStyle{});
+                        out.children.push_back(index < old.size() ? std::move(old[index]) : ComputedStyle{});
                         compute_into(child, out.children.back(), &out, variables);
                     }
                 }
@@ -1043,15 +1042,14 @@ namespace caseelephant {
                 path.pop_back();
             }
 
-            ProbeComputedStyle compute(const ProbeDomSnapshot& dom, const ProbeComputedStyle* parent,
-                                       const Variables& inherited) {
-                ProbeComputedStyle out;
+            ComputedStyle compute(const DomSnapshot& dom, const ComputedStyle* parent, const Variables& inherited) {
+                ComputedStyle out;
                 compute_into(dom, out, parent, inherited);
                 return out;
             }
 
-            void compute_into(const ProbeDomSnapshot& dom, ProbeComputedStyle& destination,
-                              const ProbeComputedStyle* parent, const Variables& inherited) {
+            void compute_into(const DomSnapshot& dom, ComputedStyle& destination, const ComputedStyle* parent,
+                              const Variables& inherited) {
                 if (path.size() >= constants::max_document_depth || ++nodes > constants::max_document_nodes) {
                     fail("node/depth bound");
                 }
@@ -1233,7 +1231,7 @@ namespace caseelephant {
                 if (variables.size() > constants::style::max_custom_properties) {
                     fail("custom property count bound");
                 }
-                ProbeComputedStyle out;
+                ComputedStyle out;
                 out.identity = dom.identity;
                 out.local_name = dom.local_name;
                 for (const auto& [k, d] : winning) {
@@ -1371,8 +1369,7 @@ namespace caseelephant {
         };
     } // namespace
 
-    ProbeComputedStyle compute_style_probe(const ProbeDomSnapshot& root, std::string_view sheet,
-                                           const ProbeStyleProfile& profile) {
+    ComputedStyle compute_style(const DomSnapshot& root, std::string_view sheet, const StyleProfile& profile) {
         if (profile.properties.size() > constants::style::max_registered_properties) {
             fail("property registry count bound");
         }
@@ -1382,32 +1379,32 @@ namespace caseelephant {
         return engine.compute(root, nullptr, {});
     }
 
-    struct StyleMemoProbe::Impl {
+    struct StyleMemo::Impl {
         OwnerThread owner;
         Engine::MemoState values;
         std::shared_ptr<const int> binding;
     };
 
-    StyleMemoProbe::StyleMemoProbe() : impl_(std::make_unique<Impl>()) {
+    StyleMemo::StyleMemo() : impl_(std::make_unique<Impl>()) {
     }
 
-    StyleMemoProbe::~StyleMemoProbe() = default;
+    StyleMemo::~StyleMemo() = default;
 
-    void StyleMemoProbe::clear() {
+    void StyleMemo::clear() {
         impl_->owner.require(Diag::StyleMemoOwner);
         impl_->values = {};
         impl_->binding.reset();
     }
 
-    struct CompiledStyleProbe::Impl {
+    struct CompiledStyle::Impl {
         std::shared_ptr<const int> identity = std::make_shared<const int>(0);
-        ProbeStyleProfile profile;
+        StyleProfile profile;
         std::vector<Rule> ua;
         std::vector<Rule> author;
         std::set<std::string> attributes{"id", "class", "style"};
         std::vector<const Compound*> state_parts;
 
-        Impl(std::string sheet, ProbeStyleProfile p) : profile(std::move(p)) {
+        Impl(std::string sheet, StyleProfile p) : profile(std::move(p)) {
             if (profile.properties.size() > constants::style::max_registered_properties) {
                 fail("property registry count bound");
             }
@@ -1436,18 +1433,18 @@ namespace caseelephant {
         }
     };
 
-    CompiledStyleProbe::CompiledStyleProbe(std::string sheet, ProbeStyleProfile profile)
+    CompiledStyle::CompiledStyle(std::string sheet, StyleProfile profile)
         : impl_(std::make_unique<Impl>(std::move(sheet), std::move(profile))) {
     }
 
-    CompiledStyleProbe::~CompiledStyleProbe() = default;
+    CompiledStyle::~CompiledStyle() = default;
 
-    ProbeComputedStyle CompiledStyleProbe::compute(const ProbeDomSnapshot& dom) const {
+    ComputedStyle CompiledStyle::compute(const DomSnapshot& dom) const {
         Engine engine{impl_->profile, impl_->ua, impl_->author, true};
         return engine.compute(dom, nullptr, {});
     }
 
-    ProbeComputedStyle CompiledStyleProbe::compute(const ProbeDomSnapshot& dom, StyleMemoProbe& memo) const {
+    ComputedStyle CompiledStyle::compute(const DomSnapshot& dom, StyleMemo& memo) const {
         auto& cache = *memo.impl_;
         cache.owner.require(Diag::StyleMemoOwner);
         if (cache.binding != impl_->identity) {
@@ -1458,8 +1455,8 @@ namespace caseelephant {
         return engine.compute(dom, nullptr, {});
     }
 
-    void CompiledStyleProbe::update(const ProbeDomSnapshot& dom, ProbeComputedStyle& output, StyleMemoProbe& memo,
-                                    std::vector<ProbeNodeIdentity>* changed) const {
+    void CompiledStyle::update(const DomSnapshot& dom, ComputedStyle& output, StyleMemo& memo,
+                               std::vector<NodeIdentity>* changed) const {
         auto& cache = *memo.impl_;
         cache.owner.require(Diag::StyleMemoOwner);
         if (cache.binding != impl_->identity) {
@@ -1473,13 +1470,13 @@ namespace caseelephant {
         engine.compute_into(dom, output, nullptr, {});
     }
 
-    ProbeDomSnapshot CompiledStyleProbe::input_key(const ProbeDomSnapshot& dom) const {
+    DomSnapshot CompiledStyle::input_key(const DomSnapshot& dom) const {
         std::size_t nodes{};
-        auto visit = [&](auto&& self, const ProbeDomSnapshot& n, unsigned depth) -> ProbeDomSnapshot {
+        auto visit = [&](auto&& self, const DomSnapshot& n, unsigned depth) -> DomSnapshot {
             if (++nodes > constants::max_document_nodes || depth >= constants::max_document_depth) {
                 fail("style input key node/depth bound");
             }
-            ProbeDomSnapshot out;
+            DomSnapshot out;
             out.identity = n.identity;
             out.type = n.type;
             out.local_name = n.local_name;
@@ -1505,9 +1502,9 @@ namespace caseelephant {
         return visit(visit, dom, 0);
     }
 
-    void CompiledStyleProbe::normalize_selector_state(ProbeDomSnapshot& dom) const {
+    void CompiledStyle::normalize_selector_state(DomSnapshot& dom) const {
         std::size_t nodes{};
-        auto visit = [&](auto&& self, ProbeDomSnapshot& n, unsigned depth) -> void {
+        auto visit = [&](auto&& self, DomSnapshot& n, unsigned depth) -> void {
             if (++nodes > constants::max_document_nodes || depth >= constants::max_document_depth) {
                 fail("state key node/depth bound");
             }
@@ -1528,9 +1525,9 @@ namespace caseelephant {
         visit(visit, dom, 0);
     }
 
-    void validate_style_pair(const ProbeDomSnapshot& dom, const ProbeComputedStyle& style) {
+    void validate_style_pair(const DomSnapshot& dom, const ComputedStyle& style) {
         std::size_t nodes{};
-        auto visit = [&](auto&& self, const ProbeDomSnapshot& n, const ProbeComputedStyle& s, unsigned depth) -> void {
+        auto visit = [&](auto&& self, const DomSnapshot& n, const ComputedStyle& s, unsigned depth) -> void {
             if (++nodes > constants::max_document_nodes || depth >= constants::max_document_depth) {
                 fail("paired snapshot node/depth bound");
             }
@@ -1553,7 +1550,7 @@ namespace caseelephant {
         visit(visit, dom, style, 0);
     }
 
-    std::array<float, 4> parse_probe_css_color(std::string_view input) {
+    std::array<float, 4> parse_css_color(std::string_view input) {
         const auto s = lower(trim(std::string(input)));
         if (s == "transparent") {
             return {0, 0, 0, 0};
@@ -1588,30 +1585,29 @@ namespace caseelephant {
         return result;
     }
 
-    ProbeStyleProfile positioned_style_profile() {
-        ProbeStyleProfile p;
+    StyleProfile positioned_style_profile() {
+        StyleProfile p;
         p.single_value_inset = true;
         p.ua_stylesheet = "i{font-style:italic}b{font-weight:700}";
         auto add = [&](std::string k, std::string initial, bool inherited = false,
-                       ProbeCssGrammar grammar = ProbeCssGrammar::Tokens, std::vector<std::string> keywords = {}) {
+                       CssGrammar grammar = CssGrammar::Tokens, std::vector<std::string> keywords = {}) {
             p.properties.emplace(std::move(k),
-                                 ProbeCssProperty{std::move(initial), inherited, grammar, std::move(keywords)});
+                                 CssProperty{std::move(initial), inherited, grammar, std::move(keywords)});
         };
         for (const auto* k : {"left", "top", "right", "bottom", "width", "height"}) {
-            add(k, "auto", false, ProbeCssGrammar::Length, {"auto"});
+            add(k, "auto", false, CssGrammar::Length, {"auto"});
         }
-        add("max-width", "none", false, ProbeCssGrammar::Length, {"none"});
+        add("max-width", "none", false, CssGrammar::Length, {"none"});
         for (const auto* k : {"margin", "padding", "border"}) {
-            add(k, "0", false, ProbeCssGrammar::Length);
+            add(k, "0", false, CssGrammar::Length);
         }
         for (const auto* k : {"font-size", "line-height"}) {
-            add(k, k == std::string("font-size") ? "medium" : "normal", true, ProbeCssGrammar::Length,
-                {"normal", "medium"});
+            add(k, k == std::string("font-size") ? "medium" : "normal", true, CssGrammar::Length, {"normal", "medium"});
         }
-        add("color", constants::default_color, true, ProbeCssGrammar::Color);
-        add("background-color", "transparent", false, ProbeCssGrammar::Color);
-        add("font-weight", constants::default_font_weight, true, ProbeCssGrammar::Number);
-        add("z-index", "auto", false, ProbeCssGrammar::Number, {"auto"});
+        add("color", constants::default_color, true, CssGrammar::Color);
+        add("background-color", "transparent", false, CssGrammar::Color);
+        add("font-weight", constants::default_font_weight, true, CssGrammar::Number);
+        add("z-index", "auto", false, CssGrammar::Number, {"auto"});
         for (const auto& [k, v] : std::map<std::string, std::string>{{"position", "static"},
                                                                      {"display", "inline"},
                                                                      {"overflow", "visible"},
@@ -1642,14 +1638,14 @@ namespace caseelephant {
             {"white-space", {"normal", "nowrap", "pre", "pre-wrap", "pre-line", "break-spaces"}},
             {"text-align", {"left", "right", "center", "justify", "start", "end"}}};
         for (const auto& [k, v] : keyword_values) {
-            p.properties[k].grammar = ProbeCssGrammar::Keyword;
+            p.properties[k].grammar = CssGrammar::Keyword;
             p.properties[k].keywords = v;
         }
         p.properties["font-weight"].keywords = {"normal", "bold", "bolder", "lighter"};
         return p;
     }
 
-    ProbeStyleProfile flex_page_style_profile() {
+    StyleProfile flex_page_style_profile() {
         auto p = positioned_style_profile();
         p.ua_stylesheet.clear();
         p.single_value_inset = false;
@@ -1678,10 +1674,10 @@ namespace caseelephant {
                               "margin-left",
                               "margin-right",
                               "margin-bottom"}) {
-            p.properties[k] = {"0", false, ProbeCssGrammar::Length, {"auto", "normal", "none"}};
+            p.properties[k] = {"0", false, CssGrammar::Length, {"auto", "normal", "none"}};
         }
         for (const auto* k : {"flex-grow", "flex-shrink"}) {
-            p.properties[k] = {k == std::string("flex-grow") ? "0" : "1", false, ProbeCssGrammar::Number, {}};
+            p.properties[k] = {k == std::string("flex-grow") ? "0" : "1", false, CssGrammar::Number, {}};
         }
         for (const auto& [k, v] : std::map<std::string, std::string>{{"flex", "0 1 auto"},
                                                                      {"flex-direction", "row"},
@@ -1690,7 +1686,7 @@ namespace caseelephant {
                                                                      {"align-self", "auto"},
                                                                      {"align-content", "normal"},
                                                                      {"justify-content", "normal"}}) {
-            p.properties[k] = {v, false, ProbeCssGrammar::Tokens, {}};
+            p.properties[k] = {v, false, CssGrammar::Tokens, {}};
         }
         p.properties["min-width"].initial = "auto";
         p.properties["min-height"].initial = "auto";
@@ -1699,16 +1695,16 @@ namespace caseelephant {
         return p;
     }
 
-    ProbeStyleProfile auto_page_style_profile() {
+    StyleProfile auto_page_style_profile() {
         auto p = flex_page_style_profile();
         p.single_value_inset = true;
         p.four_value_edges = true;
         p.ua_stylesheet = "div,button,ul,li{display:block}i{font-style:italic}b{font-weight:700}";
-        p.properties["isolation"] = {"auto", false, ProbeCssGrammar::Keyword, {"auto", "isolate"}};
-        p.properties["font-style"] = {"normal", true, ProbeCssGrammar::Keyword, {"normal", "italic"}};
-        p.properties["list-style"] = {"disc", true, ProbeCssGrammar::Tokens, {}};
-        p.properties["user-select"] = {"auto", false, ProbeCssGrammar::Tokens, {}};
-        p.properties["border"] = {"0", false, ProbeCssGrammar::Length, {}};
+        p.properties["isolation"] = {"auto", false, CssGrammar::Keyword, {"auto", "isolate"}};
+        p.properties["font-style"] = {"normal", true, CssGrammar::Keyword, {"normal", "italic"}};
+        p.properties["list-style"] = {"disc", true, CssGrammar::Tokens, {}};
+        p.properties["user-select"] = {"auto", false, CssGrammar::Tokens, {}};
+        p.properties["border"] = {"0", false, CssGrammar::Length, {}};
         for (auto& [k, v] : p.properties) {
             if (k.starts_with("padding") || k.starts_with("border")) {
                 v.keywords.clear();
@@ -1717,19 +1713,18 @@ namespace caseelephant {
         return p;
     }
 
-    ProbeStyleProfile flow_page_style_profile() {
+    StyleProfile flow_page_style_profile() {
         auto p = auto_page_style_profile();
         p.flow_shorthands = true;
         p.ua_stylesheet = "div,p,button,ul,li,section{display:block}i{font-style:italic}b{font-weight:700}";
-        p.properties["border-radius"] = {"0", false, ProbeCssGrammar::Tokens, {}};
+        p.properties["border-radius"] = {"0", false, CssGrammar::Tokens, {}};
         for (const auto* k : {"border-top-left-radius", "border-top-right-radius", "border-bottom-right-radius",
                               "border-bottom-left-radius"}) {
-            p.properties[k] = {"0", false, ProbeCssGrammar::Radius, {}};
+            p.properties[k] = {"0", false, CssGrammar::Radius, {}};
         }
         for (const auto* k : {"overflow-x", "overflow-y"}) {
-            p.properties[k] = {
-                "visible", false, ProbeCssGrammar::Keyword, {"visible", "hidden", "auto", "scroll", "clip"}};
+            p.properties[k] = {"visible", false, CssGrammar::Keyword, {"visible", "hidden", "auto", "scroll", "clip"}};
         }
         return p;
     }
-} // namespace caseelephant
+} // namespace weft

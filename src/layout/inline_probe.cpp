@@ -15,7 +15,7 @@ extern "C" {
 #include <set>
 #include <stdexcept>
 
-namespace caseelephant {
+namespace weft {
     namespace {
         [[noreturn]] void fail(const std::string& s) {
             throw_diagnostic(Diag::InlineProfile, s);
@@ -43,7 +43,7 @@ namespace caseelephant {
         };
     } // namespace
 
-    std::vector<ProbeUnicodePoint> probe_unicode_points(std::string_view text) {
+    std::vector<UnicodePoint> probe_unicode_points(std::string_view text) {
         if (text.size() > byte_limit) {
             fail("64 KiB paragraph bound");
         }
@@ -61,7 +61,7 @@ namespace caseelephant {
         }
         unsigned count{};
         const auto* points = hb_buffer_get_glyph_infos(b.get(), &count);
-        std::vector<ProbeUnicodePoint> out;
+        std::vector<UnicodePoint> out;
         out.reserve(count);
         for (unsigned i = 0; i < count; ++i) {
             if (points[i].codepoint > constants::max_unicode_codepoint) {
@@ -73,7 +73,7 @@ namespace caseelephant {
         return out;
     }
 
-    ProbeUnicodeBreaks probe_unicode_breaks(std::string_view text) {
+    UnicodeBreaks probe_unicode_breaks(std::string_view text) {
         const auto points = probe_unicode_points(text);
         static std::once_flag init;
         std::call_once(init, [] {
@@ -84,7 +84,7 @@ namespace caseelephant {
         std::vector<char> grapheme(text.size());
         set_linebreaks_utf8(reinterpret_cast<const utf8_t*>(text.data()), text.size(), nullptr, line.data());
         set_graphemebreaks_utf8(reinterpret_cast<const utf8_t*>(text.data()), text.size(), nullptr, grapheme.data());
-        ProbeUnicodeBreaks out;
+        UnicodeBreaks out;
         for (const auto& p : points) {
             const auto i = p.end - 1;
             if (grapheme[i] == GRAPHEMEBREAK_BREAK) {
@@ -104,7 +104,7 @@ namespace caseelephant {
         return out;
     }
 
-    ProbeInlineLayout layout_inline_probe(const ProbeInlineInput& input, float available, TextProbeFontSet& fonts) {
+    InlineLayout layout_inline(const InlineInput& input, float available, FontSet& fonts) {
         if (input.runs.size() > constants::layout::max_inline_runs || !std::isfinite(input.font_size) ||
             input.font_size <= 0 || input.font_size > constants::layout::max_font_size_px ||
             !std::isfinite(input.line_height) || input.line_height <= 0 ||
@@ -121,7 +121,7 @@ namespace caseelephant {
         // Decode every original run before whitespace processing (malformed tails
         // must not disappear during collapse). Preserve ownership of collapsed space.
         struct Source {
-            ProbeUnicodePoint p;
+            UnicodePoint p;
             std::size_t run;
             std::string bytes;
             bool forced{};
@@ -212,7 +212,7 @@ namespace caseelephant {
             pending = false;
             append(s.bytes, s.p.value, s.run);
         }
-        ProbeInlineLayout out;
+        InlineLayout out;
         if (units.empty()) {
             return out;
         }
@@ -262,7 +262,7 @@ namespace caseelephant {
             std::size_t run;
             float x{};
             float width{};
-            ProbeFallbackText shaped;
+            FallbackText shaped;
         };
 
         auto shape = [&](std::size_t first, std::size_t last) {
@@ -447,4 +447,4 @@ namespace caseelephant {
         }
         return out;
     }
-} // namespace caseelephant
+} // namespace weft

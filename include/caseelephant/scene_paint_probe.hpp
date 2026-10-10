@@ -6,15 +6,15 @@
 #include <string>
 #include <vector>
 
-namespace caseelephant {
+namespace weft {
     // Owned API-neutral paint parameters. Strings remain the diagnostic/reference
     // scene representation; adapters can consume numeric samples directly.
-    struct ProbePaintNumber {
+    struct PaintNumber {
         double absolute{};
         double relative{};
-        friend bool operator==(const ProbePaintNumber&, const ProbePaintNumber&) = default;
+        friend bool operator==(const PaintNumber&, const PaintNumber&) = default;
     };
-    enum class ProbePaintOp {
+    enum class PaintOp {
         Translate,
         TranslateX,
         TranslateY,
@@ -27,34 +27,34 @@ namespace caseelephant {
         RotateY
     };
 
-    struct ProbePaintOperation {
-        ProbePaintOp kind{};
-        std::array<ProbePaintNumber, 6> args{};
+    struct PaintOperation {
+        PaintOp kind{};
+        std::array<PaintNumber, 6> args{};
         unsigned count{};
-        friend bool operator==(const ProbePaintOperation&, const ProbePaintOperation&) = default;
+        friend bool operator==(const PaintOperation&, const PaintOperation&) = default;
     };
 
-    struct ProbePaintValue {
+    struct PaintValue {
         enum Kind {
             Scalar,
             Color,
             Transform
         } kind{};
 
-        ProbePaintNumber scalar;
+        PaintNumber scalar;
         std::array<double, 4> color{};
-        std::vector<ProbePaintOperation> operations;
-        friend bool operator==(const ProbePaintValue&, const ProbePaintValue&) = default;
+        std::vector<PaintOperation> operations;
+        friend bool operator==(const PaintValue&, const PaintValue&) = default;
     };
 
-    struct ProbeScenePaintValues {
+    struct ScenePaintValues {
         // opacity, transform, background, text color, top/right/bottom/left colors;
         // indexed by the constants::scene::paint_slot_* values.
-        std::array<std::optional<ProbePaintValue>, constants::scene::paint_property_count> values;
+        std::array<std::optional<PaintValue>, constants::scene::paint_property_count> values;
     };
 
     const std::array<const char*, constants::scene::paint_property_count>& scene_paint_properties();
-    std::optional<ProbePaintValue> parse_scene_paint_value(const std::string&);
-    ProbePaintValue interpolate_scene_paint_value(const ProbePaintValue&, const ProbePaintValue&, double);
-    ProbeScenePaintValues compile_scene_paint_values(const std::map<std::string, std::string>&);
-} // namespace caseelephant
+    std::optional<PaintValue> parse_scene_paint_value(const std::string&);
+    PaintValue interpolate_scene_paint_value(const PaintValue&, const PaintValue&, double);
+    ScenePaintValues compile_scene_paint_values(const std::map<std::string, std::string>&);
+} // namespace weft

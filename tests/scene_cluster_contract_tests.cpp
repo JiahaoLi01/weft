@@ -9,8 +9,8 @@
 #include <thread>
 #include <cstring>
 
-using caseelephant::testing::format_host_time;
-using caseelephant::testing::require;
+using weft::testing::format_host_time;
+using weft::testing::require;
 
 int main() {
     try {
@@ -26,7 +26,7 @@ int main() {
         s.vm.eval("__ceGallery.unmount()");
         s.pump();
         {
-            caseelephant::ProbeSceneFrame frame;
+            weft::SceneFrame frame;
             auto& n = frame.root;
             n.identity = {1, 1, 99};
             n.tag = "div";
@@ -36,9 +36,9 @@ int main() {
                 {"font-size", "24px"}, {"color", "#d4a843"}, {"transform", "translateY(20px)"}, {"opacity", "0.2"}};
             n.attributes["style"] = "transform:translateY(20px);opacity:0.2";
             auto source = [&] {
-                auto plan = caseelephant::compile_native_scene_probe(frame);
+                auto plan = weft::compile_native_scene(frame);
                 require(plan.fallback.empty() && plan.paints.size() == 1 &&
-                            plan.paints[0].kind == caseelephant::ProbeNativePaint::Text,
+                            plan.paints[0].kind == weft::NativePaint::Text,
                         "Unicode source primitive");
                 return plan.paints[0];
             };
@@ -47,23 +47,23 @@ int main() {
             n.style["opacity"] = "0.8";
             n.attributes["style"] = "transform:translateY(3px);opacity:0.8";
             const auto moved = source();
-            require(caseelephant::scene_paint_source_equal_probe(*first.text, *moved.text) &&
-                        first.matrix != moved.matrix && first.opacity != moved.opacity,
+            require(weft::scene_paint_source_equal(*first.text, *moved.text) && first.matrix != moved.matrix &&
+                        first.opacity != moved.opacity,
                     "Unicode motion must reuse source while changing composite");
             n.style["color"] = "#ff0000";
-            require(!caseelephant::scene_paint_source_equal_probe(*first.text, *source().text),
+            require(!weft::scene_paint_source_equal(*first.text, *source().text),
                     "Unicode color must invalidate source");
             n.style["color"] = "#d4a843";
             n.style["font-size"] = "28px";
-            require(!caseelephant::scene_paint_source_equal_probe(*first.text, *source().text),
+            require(!weft::scene_paint_source_equal(*first.text, *source().text),
                     "Unicode font must invalidate source");
             n.style["font-size"] = "24px";
             n.text = "⭐";
-            require(!caseelephant::scene_paint_source_equal_probe(*first.text, *source().text),
+            require(!weft::scene_paint_source_equal(*first.text, *source().text),
                     "Unicode content must invalidate source");
         }
         {
-            caseelephant::ScriptDomProbe cached;
+            weft::ScriptDom cached;
             cached.eval(
                 "globalThis.box=document.createElement('div');box.id='cachebox';box.setAttribute('data-width','10');document.appendChild(box)");
             std::uint64_t epoch = 1;
@@ -89,7 +89,7 @@ int main() {
             });
             cached.install_layout_host([&](const auto& document) {
                 ++reads;
-                auto find = [&](auto&& self, const auto& n) -> caseelephant::ProbeNodeIdentity {
+                auto find = [&](auto&& self, const auto& n) -> weft::NodeIdentity {
                     if (n.attributes.contains("id") && n.attributes.at("id") == "cachebox") {
                         return n.identity;
                     }
@@ -101,9 +101,9 @@ int main() {
                     return {};
                 };
                 auto id = find(find, document);
-                std::vector<caseelephant::ProbeElementGeometry> result;
+                std::vector<weft::ElementGeometry> result;
                 if (id.generation) {
-                    caseelephant::ProbeElementGeometry g;
+                    weft::ElementGeometry g;
                     g.identity = id;
                     g.rect = {0, 0, width(document) + external, 10};
                     g.client_width = g.scroll_width = g.rect[2];
@@ -146,11 +146,11 @@ int main() {
             require(cached.eval("box.getBoundingClientRect().width") == "0", "detached geometry survived cache");
             cached.eval("box=null");
             cached.collect_garbage();
-            require(cached.stats().live_nodes == caseelephant::test_constants::scene::empty_document_live_nodes,
+            require(cached.stats().live_nodes == weft::test_constants::scene::empty_document_live_nodes,
                     "owned layout cache retained native nodes");
             cached.reset_document();
             cached.collect_garbage();
-            require(cached.stats().live_nodes == caseelephant::test_constants::scene::empty_document_live_nodes,
+            require(cached.stats().live_nodes == weft::test_constants::scene::empty_document_live_nodes,
                     "layout cache reset epoch leak");
         }
         require(
@@ -175,8 +175,8 @@ int main() {
             "live handleEvent/abort/passive");
         s.vm.eval(
             "globalThis.events=[];globalThis.eventController=new AbortController();window.addEventListener('pointerdown',e=>events.push('capture:'+e.eventPhase+':'+(e instanceof PointerEvent)),{capture:true,signal:eventController.signal});window.addEventListener('pointerdown',e=>events.push('bubble:'+e.eventPhase),{signal:eventController.signal})");
-        caseelephant::ProbeMouseEvent event;
-        event.type = caseelephant::ProbeMouseType::PointerDown;
+        weft::MouseEvent event;
+        event.type = weft::MouseType::PointerDown;
         s.vm.dispatch_mouse(s.vm.node_identity("#fragment"), event);
         require(s.vm.eval("events.join(',')") == "capture:1:true,bubble:3", "window pointer capture/brand/bubble");
         s.vm.eval("eventController.abort();events=[]");
@@ -223,24 +223,24 @@ int main() {
                 "percentage min-width uses containing width");
         // Same pinned, unmodified Anime package, with an independently valid
         // axis transform. The original throw case also remains unchanged/compared.
-        s.vm.eval(scene_read(CE_SOURCE_DIR
+        s.vm.eval(scene_read(WEFT_SOURCE_DIR
                              "/third_party/gallery-runtime/source/animejs-4.3.6-3c7dc1c4/dist/bundles/anime.umd.js"));
         s.vm.eval(
             "document.getElementById('root').innerHTML='<div id=\"arena\" style=\"position:relative;width:500px;height:240px;overflow:hidden\"><div id=\"ball\" style=\"position:absolute;left:200px;top:100px;width:40px;height:40px;background:#ff0000;transform:translateX(0px) translateY(0px)\"></div></div>';globalThis.drag=anime.createDraggable(document.getElementById('ball'),{container:document.getElementById('arena'),containerFriction:0.5,releaseEase:'outExpo',dragSpeed:0.5});globalThis.ballX=()=>document.getElementById('ball').getBoundingClientRect().x");
         s.step(5);
         const auto initial = std::stof(s.vm.eval("ballX()"));
-        s.input_value(caseelephant::ProbeMouseType::Down, 220, 120, 1);
+        s.input_value(weft::MouseType::Down, 220, 120, 1);
         for (unsigned i = 1; i <= 5; ++i) {
-            s.step(5 + i * caseelephant::test_constants::scene::drag_frame_interval_ms);
-            s.input_value(caseelephant::ProbeMouseType::Move, 220 + i * 20.f, 120, 1);
+            s.step(5 + i * weft::test_constants::scene::drag_frame_interval_ms);
+            s.input_value(weft::MouseType::Move, 220 + i * 20.f, 120, 1);
         }
         s.step(105);
         const auto held = std::stof(s.vm.eval("ballX()"));
-        s.input_value(caseelephant::ProbeMouseType::Up, 320, 120);
+        s.input_value(weft::MouseType::Up, 320, 120);
         s.step(121.6666667);
         const auto release = std::stof(s.vm.eval("ballX()"));
         for (unsigned i = 1; i <= 90; ++i) {
-            s.step(121.6666667 + i * caseelephant::test_constants::scene::drag_frame_interval_ms);
+            s.step(121.6666667 + i * weft::test_constants::scene::drag_frame_interval_ms);
         }
         const auto settled = std::stof(s.vm.eval("ballX()"));
         std::cout << "inertia positions " << initial << " / " << held << " / " << release << " / " << settled << '\n';
@@ -253,40 +253,38 @@ int main() {
         s.vm.eval(
             "document.getElementById('root').innerHTML='<div id=\"shadow\" style=\"position:absolute;left:40px;top:40px;width:40px;height:40px;background:#ff0000;border-radius:5px;box-shadow:0px 8px 12px 0px rgba(0,0,0,0.8)\"></div>';document.getElementById('root').style.backgroundColor='#ffffff'");
         s.step(1700);
-        const auto with = s.bitmap(caseelephant::test_constants::scene::gallery_raster_scale);
-        require(!caseelephant::compile_native_scene_probe(s.current).fallback.empty(),
-                "shadow silently dropped by native subset");
+        const auto with = s.bitmap(weft::test_constants::scene::gallery_raster_scale);
+        require(!weft::compile_native_scene(s.current).fallback.empty(), "shadow silently dropped by native subset");
         s.vm.eval("document.getElementById('shadow').style.boxShadow='none'");
         s.step(1701);
-        const auto without = s.bitmap(caseelephant::test_constants::scene::gallery_raster_scale);
+        const auto without = s.bitmap(weft::test_constants::scene::gallery_raster_scale);
         require(with.rgba != without.rgba, "shadow emitted no pixels");
         // Differential mutation/reordering/detachment with actual shaping/layout.
         s.vm.eval(
             "document.getElementById('root').textContent='';globalThis.nodes=[];for(let i=0;i<24;++i){let n=document.createElement('div');n.style.cssText='position:absolute;left:'+i*10+'px;top:40px;width:12px;height:12px;background:#d4a843';nodes.push(n);document.getElementById('root').appendChild(n)}let seed=123;globalThis.mutate=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;let n=nodes[seed%nodes.length];switch(seed%4){case 0:n.style.transform='translateX('+seed%13+'px)';break;case 1:n.style.backgroundColor=seed%2?'#225577':'#ff7777';break;case 2:if(n.parentNode)n.remove();else document.getElementById('root').appendChild(n);break;case 3:document.getElementById('root').appendChild(n)}}");
-        caseelephant::SceneProbe full(
-            scene_read(CE_SOURCE_DIR "/examples/crpg-gallery/cluster-utilities.css"),
-            scene_read(CE_SOURCE_DIR "/examples/crpg-gallery/cluster-keyframes.css"),
+        weft::SceneSolver full(
+            scene_read(WEFT_SOURCE_DIR "/examples/crpg-gallery/cluster-utilities.css"),
+            scene_read(WEFT_SOURCE_DIR "/examples/crpg-gallery/cluster-keyframes.css"),
             [&](auto text, const auto& style) {
                 return s.raster.measure(text, style);
             },
             false);
-        caseelephant::SceneRasterProbe oracle;
-        for (unsigned i = 0; i < caseelephant::test_constants::scene::cluster_mutation_iterations; ++i) {
+        weft::SceneRaster oracle;
+        for (unsigned i = 0; i < weft::test_constants::scene::cluster_mutation_iterations; ++i) {
             s.vm.eval("mutate()");
             s.step(1702 + i);
             const auto fresh = full.frame(s.vm.snapshot_subtree("#root"), s.width, s.height, s.time);
-            require(s.bitmap().rgba ==
-                        oracle.raster(fresh, caseelephant::test_constants::scene::gallery_raster_scale).rgba,
+            require(s.bitmap().rgba == oracle.raster(fresh, weft::test_constants::scene::gallery_raster_scale).rgba,
                     "incremental/full mutation pixel mismatch");
         }
-        const auto sparse = scene_reference(std::filesystem::path(CE_SOURCE_DIR) /
+        const auto sparse = scene_reference(std::filesystem::path(WEFT_SOURCE_DIR) /
                                             "tests/fixtures/gallery-cluster-reference/anime-05-24.png");
         auto blank = sparse;
         for (std::size_t i = 0; i < blank.rgba.size(); i += 4) {
-            blank.rgba[i] = caseelephant::test_constants::scene::backdrop_red;
-            blank.rgba[i + 1] = caseelephant::test_constants::scene::backdrop_green;
-            blank.rgba[i + 2] = caseelephant::test_constants::scene::backdrop_blue;
-            blank.rgba[i + 3] = caseelephant::constants::color_channel_max;
+            blank.rgba[i] = weft::test_constants::scene::backdrop_red;
+            blank.rgba[i + 1] = weft::test_constants::scene::backdrop_green;
+            blank.rgba[i + 2] = weft::test_constants::scene::backdrop_blue;
+            blank.rgba[i + 3] = weft::constants::color_channel_max;
         }
         require(!cluster_image_match(blank, sparse), "sparse oracle accepted blank");
         auto displaced = blank;
@@ -298,7 +296,7 @@ int main() {
         }
         require(!cluster_image_match(displaced, sparse), "sparse oracle accepted displaced particles");
         s.unmount();
-        require(s.vm.stats().live_nodes == caseelephant::test_constants::scene::empty_document_live_nodes,
+        require(s.vm.stats().live_nodes == weft::test_constants::scene::empty_document_live_nodes,
                 "shared platform owner teardown");
         std::cout << "PASS shared cluster platform / 64 full-path mutation comparisons / oracle negatives\n";
         return 0;

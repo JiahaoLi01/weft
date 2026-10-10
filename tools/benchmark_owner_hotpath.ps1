@@ -3,8 +3,8 @@ $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
 $taskOutput = Join-Path $taskRoot 'artifacts/local/owner-hotpath'
 $executables = @{
-    before = Join-Path $taskOutput 'baseline/build/bin/Release/ce_d3d11_probe.exe'
-    after = Join-Path $taskRoot 'build/windows-msvc/bin/Release/ce_d3d11_probe.exe'
+    before = Join-Path $taskOutput 'baseline/build/bin/Release/weft_d3d11_probe.exe'
+    after = Join-Path $taskRoot 'build/windows-msvc/bin/Release/weft_d3d11_probe.exe'
 }
 $conditions = if ($Condition -eq 'all') { @('paired','controlled') } else { @($Condition) }
 foreach ($sampling in $conditions) {

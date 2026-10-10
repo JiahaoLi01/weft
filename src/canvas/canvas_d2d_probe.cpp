@@ -8,17 +8,17 @@
 #include <stdexcept>
 #include <algorithm>
 
-namespace caseelephant {
+namespace weft {
     namespace {
         using Microsoft::WRL::ComPtr;
 
         void check(HRESULT hr) {
             if (FAILED(hr)) {
-                throw std::runtime_error("CE_CANVAS_D2D: HRESULT=" + std::to_string(static_cast<unsigned long>(hr)));
+                throw std::runtime_error("WEFT_CANVAS_D2D: HRESULT=" + std::to_string(static_cast<unsigned long>(hr)));
             }
         }
 
-        class Raster final : public ProbeCanvasRaster {
+        class Raster final : public CanvasRaster {
             std::uint32_t w_;
             std::uint32_t h_;
             bool alpha_;
@@ -44,7 +44,7 @@ namespace caseelephant {
                 check(target_->EndDraw());
             }
 
-            void draw(std::span<const ProbeCanvasCommand> commands) override {
+            void draw(std::span<const CanvasCommand> commands) override {
                 if (!target_) {
                     return;
                 }
@@ -52,13 +52,13 @@ namespace caseelephant {
                 for (const auto& c : commands) {
                     const auto& g = c.geometry;
                     brush_->SetColor(D2D1::ColorF(c.srgb[0], c.srgb[1], c.srgb[2], c.srgb[3]));
-                    if (c.kind == ProbeCanvasCommand::Kind::FillCircle) {
+                    if (c.kind == CanvasCommand::Kind::FillCircle) {
                         target_->FillEllipse(
                             D2D1::Ellipse(D2D1::Point2F(float(g[0]), float(g[1])), float(g[2]), float(g[2])),
                             brush_.Get());
                     } else {
                         const auto r = D2D1::RectF(float(g[0]), float(g[1]), float(g[0] + g[2]), float(g[1] + g[3]));
-                        if (c.kind == ProbeCanvasCommand::Kind::FillRect) {
+                        if (c.kind == CanvasCommand::Kind::FillRect) {
                             target_->FillRectangle(r, brush_.Get());
                         } else {
                             target_->PushAxisAlignedClip(r, D2D1_ANTIALIAS_MODE_ALIASED);
@@ -84,7 +84,7 @@ namespace caseelephant {
                 check(lock->GetStride(&stride));
                 check(lock->GetDataPointer(&count, &data));
                 if (count < std::size_t(h_ - 1) * stride + w_ * constants::rgba8_bytes_per_pixel) {
-                    throw std::runtime_error("CE_CANVAS_WIC: short lock");
+                    throw std::runtime_error("WEFT_CANVAS_WIC: short lock");
                 }
                 for (std::uint32_t y = 0; y < h_; ++y) {
                     for (std::uint32_t x = 0; x < w_; ++x) {
@@ -107,7 +107,7 @@ namespace caseelephant {
         };
     } // namespace
 
-    ProbeCanvasFactory make_d2d_canvas_factory_probe() {
+    CanvasFactory make_d2d_canvas_factory() {
         ComPtr<ID2D1Factory> factory;
         check(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, factory.GetAddressOf()));
         ComPtr<IWICImagingFactory> wic;
@@ -116,4 +116,4 @@ namespace caseelephant {
             return std::make_unique<Raster>(factory.Get(), wic.Get(), w, h, a);
         };
     }
-} // namespace caseelephant
+} // namespace weft

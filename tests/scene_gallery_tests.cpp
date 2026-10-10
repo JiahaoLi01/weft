@@ -8,11 +8,11 @@
 #include "support/check.hpp"
 #include "scene_test_image.hpp"
 
-using caseelephant::testing::require;
+using weft::testing::require;
 
 int main(int argc, char** argv) {
     try {
-        caseelephant::testing::check_hresult(CoInitializeEx(nullptr, COINIT_MULTITHREADED), "COM initialization");
+        weft::testing::check_hresult(CoInitializeEx(nullptr, COINIT_MULTITHREADED), "COM initialization");
         auto out = std::filesystem::path(argc > 1 ? argv[1] : "artifacts/scene-gallery");
         std::filesystem::create_directories(out);
         std::ostringstream report;
@@ -30,23 +30,22 @@ int main(int argc, char** argv) {
                 unsigned captures{};
                 double worst_mean{};
                 double worst_iou = 1;
-                for (unsigned frame = 0; frame <= caseelephant::test_constants::scene::gallery_last_frame; ++frame) {
-                    const double time = frame * caseelephant::test_constants::scene::frame_interval_ms;
+                for (unsigned frame = 0; frame <= weft::test_constants::scene::gallery_last_frame; ++frame) {
+                    const double time = frame * weft::test_constants::scene::frame_interval_ms;
                     s.step(time);
                     if (!group && index >= 4 && index <= 7 && (frame == 18 || frame == 72)) {
-                        s.input(index == 7 ? caseelephant::ProbeMouseType::Click : caseelephant::ProbeMouseType::Move,
+                        s.input(index == 7 ? weft::MouseType::Click : weft::MouseType::Move,
                                 frame == 72 && index != 7 ? -10.f : s.width / 2,
                                 frame == 72 && index != 7 ? -10.f : 60.f);
                         s.step(time);
                     }
                     if (frame == 24 || frame == 63 || frame == 120) {
                         const auto& image = s.bitmap();
-                        require(image.width ==
-                                        unsigned(s.width * caseelephant::test_constants::scene::gallery_raster_scale) &&
+                        require(image.width == unsigned(s.width * weft::test_constants::scene::gallery_raster_scale) &&
                                     image.height ==
-                                        unsigned(s.height * caseelephant::test_constants::scene::gallery_raster_scale),
+                                        unsigned(s.height * weft::test_constants::scene::gallery_raster_scale),
                                 "scene pixel extent");
-                        const auto ref = scene_reference(std::filesystem::path(CE_SOURCE_DIR) /
+                        const auto ref = scene_reference(std::filesystem::path(WEFT_SOURCE_DIR) /
                                                          "tests/fixtures/scene-gallery-reference" /
                                                          (id + "-" + std::to_string(frame) + ".png"));
                         const auto diff = scene_difference(image, ref);
@@ -60,10 +59,10 @@ int main(int argc, char** argv) {
                         if (frame == 24) {
                             auto blank = image;
                             for (std::size_t i = 0; i < blank.rgba.size(); i += 4) {
-                                blank.rgba[i] = caseelephant::test_constants::scene::backdrop_red;
-                                blank.rgba[i + 1] = caseelephant::test_constants::scene::backdrop_green;
-                                blank.rgba[i + 2] = caseelephant::test_constants::scene::backdrop_blue;
-                                blank.rgba[i + 3] = caseelephant::constants::color_channel_max;
+                                blank.rgba[i] = weft::test_constants::scene::backdrop_red;
+                                blank.rgba[i + 1] = weft::test_constants::scene::backdrop_green;
+                                blank.rgba[i + 2] = weft::test_constants::scene::backdrop_blue;
+                                blank.rgba[i + 3] = weft::constants::color_channel_max;
                             }
                             require(!scene_difference(blank, ref).passes(),
                                     "visual oracle accepted missing original content");
@@ -99,7 +98,7 @@ int main(int argc, char** argv) {
                 }
                 auto retained = std::move(s.cached);
                 s.unmount();
-                require(s.vm.stats().live_nodes == caseelephant::test_constants::scene::empty_document_live_nodes &&
+                require(s.vm.stats().live_nodes == weft::test_constants::scene::empty_document_live_nodes &&
                             s.vm.stats().canvas_contexts == 0,
                         "original unmount/reset node leak");
                 require(!retained.rgba.empty(), "immutable bitmap lost after VM teardown");

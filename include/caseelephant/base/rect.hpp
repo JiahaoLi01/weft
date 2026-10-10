@@ -4,7 +4,7 @@
 #include <array>
 
 // Axis-aligned layout rectangle in logical CSS pixels, shared by the page builders.
-namespace caseelephant::geometry {
+namespace weft::geometry {
     struct Rect {
         float x{};
         float y{};
@@ -23,4 +23,4 @@ namespace caseelephant::geometry {
         return {x, y, std::max(0.f, std::min(a.x + a.w, b.x + b.w) - x),
                 std::max(0.f, std::min(a.y + a.h, b.y + b.h) - y)};
     }
-} // namespace caseelephant::geometry
+} // namespace weft::geometry

@@ -11,13 +11,13 @@
 #include <sstream>
 #include <stdexcept>
 #include <thread>
-using namespace caseelephant;
+using namespace weft;
 
 namespace {
-    using caseelephant::testing::read_source_text_file;
-    using caseelephant::testing::require;
+    using weft::testing::read_source_text_file;
+    using weft::testing::require;
 
-    const ProbeDomSnapshot& find(const ProbeDomSnapshot& n, const std::string& id) {
+    const DomSnapshot& find(const DomSnapshot& n, const std::string& id) {
         if (n.attributes.contains("id") && n.attributes.at("id") == id) {
             return n;
         }
@@ -30,8 +30,8 @@ namespace {
         throw std::out_of_range(id);
     }
 
-    std::string hit_id(const ProbePage& p, double x, double y) {
-        auto hit = hit_page_probe(p, x, y);
+    std::string hit_id(const Page& p, double x, double y) {
+        auto hit = hit_page(p, x, y);
         return hit ? p.boxes[*hit].id : "";
     }
 } // namespace
@@ -39,24 +39,23 @@ namespace {
 int main(int argc, char** argv) {
     try {
         require(argc == 2, "output path");
-        TextProbeFontSet fonts({CE_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf",
-                                CE_SOURCE_DIR "/third_party/noto-cjk/source/NotoSansCJKsc-Regular.otf"});
+        FontSet fonts({WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf",
+                       WEFT_SOURCE_DIR "/third_party/noto-cjk/source/NotoSansCJKsc-Regular.otf"});
         const auto css = read_source_text_file("/tests/fixtures/flow-input/profile.css");
-        ScriptDomProbe vm;
-        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
+        ScriptDom vm;
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(read_source_text_file("/tests/fixtures/flow-input/fixture.js"));
         vm.install_layout_host([&](const auto& d) {
-            return build_flow_page_probe(find(d, "inputpage"), css, caseelephant::constants::default_view_width,
-                                         caseelephant::constants::default_view_height, fonts)
+            return build_flow_page(find(d, "inputpage"), css, weft::constants::default_view_width,
+                                   weft::constants::default_view_height, fonts)
                 .elements;
         });
         auto layout = [&] {
-            return build_flow_page_probe(vm.snapshot_subtree("#inputpage"), css,
-                                         caseelephant::constants::default_view_width,
-                                         caseelephant::constants::default_view_height, fonts)
+            return build_flow_page(vm.snapshot_subtree("#inputpage"), css, weft::constants::default_view_width,
+                                   weft::constants::default_view_height, fonts)
                 .page.geometry;
         };
-        ProbeMouseRouter router(vm, layout);
+        MouseRouter router(vm, layout);
         const auto initial = layout();
         require(hit_id(initial, 340, 40) == "high", "paint stacking differs from reverse DOM order");
         require(hit_id(initial, 320, 315) == "inputpage" && hit_id(initial, 370, 350) == "round",
@@ -69,7 +68,7 @@ int main(int argc, char** argv) {
         std::ostringstream report;
         report << "{\"fixture\":\"flow-input-v1\",\"frames\":[";
         std::size_t points{};
-        for (int frame = 0; frame < caseelephant::test_constants::layout::fixture_frames; ++frame) {
+        for (int frame = 0; frame < weft::test_constants::layout::fixture_frames; ++frame) {
             if (frame) {
                 vm.eval("inputScenario.advance()");
             }
@@ -87,12 +86,10 @@ int main(int argc, char** argv) {
                 report << "{\"x\":" << x << ",\"y\":" << y << ",\"target\":\"" << hit_id(page, x, y) << "\"}";
                 ++points;
             };
-            for (int y = caseelephant::test_constants::layout::hit_grid_first;
-                 y < caseelephant::constants::default_view_height;
-                 y += caseelephant::test_constants::layout::hit_grid_step) {
-                for (int x = caseelephant::test_constants::layout::hit_grid_first;
-                     x < caseelephant::constants::default_view_width;
-                     x += caseelephant::test_constants::layout::hit_grid_step) {
+            for (int y = weft::test_constants::layout::hit_grid_first; y < weft::constants::default_view_height;
+                 y += weft::test_constants::layout::hit_grid_step) {
+                for (int x = weft::test_constants::layout::hit_grid_first; x < weft::constants::default_view_width;
+                     x += weft::test_constants::layout::hit_grid_step) {
                     sample(x, y);
                 }
             }
@@ -110,18 +107,18 @@ int main(int argc, char** argv) {
         report << "],\"passed\":true}";
         // Restore an independent DOM so the report's input sequence stays immutable.
         vm.reset_document();
-        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(read_source_text_file("/tests/fixtures/flow-input/fixture.js"));
         vm.install_layout_host([&](const auto& d) {
-            return build_flow_page_probe(find(d, "inputpage"), css, caseelephant::constants::default_view_width,
-                                         caseelephant::constants::default_view_height, fonts)
+            return build_flow_page(find(d, "inputpage"), css, weft::constants::default_view_width,
+                                   weft::constants::default_view_height, fonts)
                 .elements;
         });
         // Independent arithmetic oracle for random fresh-scroll and z-order mutations.
         // Fixed heights/padding make expected row identity independent of the layout code.
-        unsigned seed = caseelephant::test_constants::layout::flow_input_seed;
-        for (unsigned i = 0; i < caseelephant::test_constants::layout::flow_input_mutations; ++i) {
-            seed = seed * caseelephant::constants::lcg_multiplier + caseelephant::constants::lcg_increment;
+        unsigned seed = weft::test_constants::layout::flow_input_seed;
+        for (unsigned i = 0; i < weft::test_constants::layout::flow_input_mutations; ++i) {
+            seed = seed * weft::constants::lcg_multiplier + weft::constants::lcg_increment;
             const double offset = (seed % 140) + .25;
             const int high_z = int((seed >> 12) % 7);
             const int low_z = int((seed >> 20) % 7);
@@ -135,21 +132,21 @@ int main(int argc, char** argv) {
                     "random paint-order identity, including ties");
         }
         vm.eval("document.getElementById('scroller').scrollTop=0");
-        ProbeMouseEvent mouse;
+        MouseEvent mouse;
         mouse.client_x = 50;
         mouse.client_y = 43;
-        router.route(ProbeMouseAction::Down, mouse);
+        router.route(MouseAction::Down, mouse);
         vm.collect_garbage();
-        router.route(ProbeMouseAction::Up, mouse);
+        router.route(MouseAction::Up, mouse);
         require(vm.eval("inputScenario.clicks.join(',')") == "row-0", "fresh flow mouse routed to row");
-        ProbeWheelEvent wheel{10.25, 12.75, 50, 43, -20, 900, 123, true, true, true, true};
-        require(router.wheel(wheel) == ProbeDispatchResult::DefaultAllowed, "flow wheel delivery");
+        WheelEvent wheel{10.25, 12.75, 50, 43, -20, 900, 123, true, true, true, true};
+        require(router.wheel(wheel) == DispatchResult::DefaultAllowed, "flow wheel delivery");
         require(vm.eval("JSON.stringify(inputScenario.wheels[0])") ==
                     "[\"row-0\",10.25,12.75,0,50,43,-20,900,true,true,true,true,123,true,true]",
                 "WheelEvent payload/prototype/modifiers/time");
         require(vm.eval("document.getElementById('scroller').scrollTop") == "12.75", "fractional scroll consumed");
         vm.eval("inputScenario.blockWheel=true");
-        require(router.wheel(wheel) == ProbeDispatchResult::DefaultPrevented, "wheel canceled before default");
+        require(router.wheel(wheel) == DispatchResult::DefaultPrevented, "wheel canceled before default");
         require(vm.eval("document.getElementById('scroller').scrollTop") == "12.75", "canceled wheel scrolls");
         vm.eval("inputScenario.blockWheel=false");
         wheel.client_x = 20;
@@ -159,19 +156,19 @@ int main(int argc, char** argv) {
                 "clipped corner wheel reaches scroller");
         mouse.client_x = 350;
         mouse.client_y = 260;
-        router.route(ProbeMouseAction::Down, mouse);
-        router.route(ProbeMouseAction::Up, mouse);
+        router.route(MouseAction::Down, mouse);
+        router.route(MouseAction::Up, mouse);
         require(vm.eval("inputScenario.clicks.length") == "1", "disabled nested button activated");
         // A mutation before the next input must move targets without a render.
         vm.eval("document.getElementById('scroller').scrollTop=52;document.getElementById('scroller').scrollLeft=0");
         mouse.client_x = 50;
         mouse.client_y = 43;
-        router.route(ProbeMouseAction::Down, mouse);
-        router.route(ProbeMouseAction::Up, mouse);
+        router.route(MouseAction::Down, mouse);
+        router.route(MouseAction::Up, mouse);
         require(vm.eval("inputScenario.clicks[1]") == "row-2", "next hit ignores latest scroll");
-        router.route(ProbeMouseAction::Down, mouse);
+        router.route(MouseAction::Down, mouse);
         router.cancel();
-        router.route(ProbeMouseAction::Up, mouse);
+        router.route(MouseAction::Up, mouse);
         require(vm.eval("inputScenario.clicks.length") == "2", "cancel fabricated click");
         const auto old = vm.node_identity("#row-2");
         vm.eval(
@@ -181,7 +178,7 @@ int main(int argc, char** argv) {
         router.wheel(wheel);
         require(vm.is_live(old) && vm.eval("held.scrollTop") == "0",
                 "wheel mutation invalidated default identity or detached node");
-        require(vm.dispatch_wheel(old, wheel) == ProbeDispatchResult::StaleTarget, "detached wheel dispatched");
+        require(vm.dispatch_wheel(old, wheel) == DispatchResult::StaleTarget, "detached wheel dispatched");
         bool wrong{};
         bool wrong_mouse{};
         std::thread t([&] {
@@ -191,7 +188,7 @@ int main(int argc, char** argv) {
                 wrong = true;
             }
             try {
-                router.route(ProbeMouseAction::Move, mouse);
+                router.route(MouseAction::Move, mouse);
             } catch (const std::logic_error&) {
                 wrong_mouse = true;
             }

@@ -84,9 +84,9 @@ for name, config in (('release', 'Release'), ('debug', 'Debug'), ('gc', 'Debug')
         runs[name]['scope'] = 'scene_contract + complex CSS GPU/software + external textures + two-frame pipeline + render cache; original large gallery and window GC not rerun'
         for source in ('external-texture', 'two-frame', 'render-cache'):
             shutil.copytree(build / f'artifacts/{source}-{config}/warp', target / source, dirs_exist_ok=True)
-    filenames = ['ce_d3d11_probe.exe', 'ce_scene_contract_tests.exe']
+    filenames = ['weft_d3d11_probe.exe', 'weft_scene_contract_tests.exe']
     if name != 'gc':
-        filenames.append('ce_scene_gallery_tests.exe')
+        filenames.append('weft_scene_gallery_tests.exe')
     for filename in filenames:
         destination = target / 'bin' / filename
         destination.parent.mkdir(exist_ok=True)
@@ -134,7 +134,7 @@ for name, expected in prior['sources'].items():
         assert sha(destination) == expected, name
     else:
         shutil.copy2(source, destination)
-assert sha(out / 'baseline/bin/ce_d3d11_probe.exe') == sha(root / 'artifacts/local/complex-css/final/release/bin/ce_d3d11_probe.exe')
+assert sha(out / 'baseline/bin/weft_d3d11_probe.exe') == sha(root / 'artifacts/local/complex-css/final/release/bin/weft_d3d11_probe.exe')
 
 original = load(root / 'tests/fixtures/crpg-gallery/manifest.json')
 source_root = Path(original['source_root'])

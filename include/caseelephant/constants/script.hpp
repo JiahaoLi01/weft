@@ -6,7 +6,7 @@
 
 // Budgets, limits and Web constants of the QuickJS VM, the native DOM and the owner executor.
 // Each constant has the type of the literal it replaced (see docs/coding-style.md).
-namespace caseelephant::constants::script {
+namespace weft::constants::script {
     // QuickJS VM. The host must reserve native stack headroom above the VM stack limit.
     inline constexpr std::size_t vm_memory_limit = 64 * constants::bytes_per_mib;
     inline constexpr int default_vm_stack_bytes = 512 * constants::bytes_per_kib;
@@ -82,7 +82,7 @@ namespace caseelephant::constants::script {
     // Ready-timer turns a host runs per opportunity before it reports a runaway timer chain.
     inline constexpr int max_task_pump_turns = 32;
 
-    // OwnerExecutorProbe reliable input queue and publication wait.
+    // OwnerExecutor reliable input queue and publication wait.
     inline constexpr int default_owner_input_capacity = 256;
     inline constexpr int max_owner_input_capacity = 4096;
     // Publications kept for the host: the newest frame and the one before it.
@@ -90,4 +90,4 @@ namespace caseelephant::constants::script {
     inline constexpr int default_owner_wait_seconds = 5;
     inline constexpr int max_owner_wait_seconds = 60;
 
-} // namespace caseelephant::constants::script
+} // namespace weft::constants::script

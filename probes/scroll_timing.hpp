@@ -3,7 +3,7 @@
 
 // Bounded benchmark samples. No average-only performance reporting.
 struct ScrollTimings {
-    std::vector<std::array<double, caseelephant::probe_constants::scroll_timing_columns>> rows;
+    std::vector<std::array<double, weft::probe_constants::scroll_timing_columns>> rows;
 
     std::string json() const {
         std::ostringstream out;
@@ -11,7 +11,7 @@ struct ScrollTimings {
         bool first = true;
         const char* names[]{"owner_input_ms",    "layout_ms",          "packet_ms", "prepare_ms", "encode_ms",
                             "submit_present_ms", "completion_wait_ms", "gpu_ui_ms", "total_ms"};
-        for (std::size_t i = 0; i < caseelephant::probe_constants::scroll_timing_columns; ++i) {
+        for (std::size_t i = 0; i < weft::probe_constants::scroll_timing_columns; ++i) {
             std::vector<double> values;
             for (const auto& r : rows) {
                 values.push_back(r[i]);

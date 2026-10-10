@@ -9,7 +9,7 @@
 #include <sstream>
 #include <stdexcept>
 
-namespace caseelephant {
+namespace weft {
     namespace {
         using Style = std::map<std::string, std::string>;
         constexpr std::size_t absent = std::numeric_limits<std::size_t>::max();
@@ -68,8 +68,8 @@ namespace caseelephant {
         };
 
         struct Node {
-            const ProbeDomSnapshot* dom{};
-            const ProbeComputedStyle* computed{};
+            const DomSnapshot* dom{};
+            const ComputedStyle* computed{};
             Style style;
             std::string id;
             std::string key;
@@ -93,8 +93,8 @@ namespace caseelephant {
         struct Paragraph {
             std::size_t host;
             std::string key;
-            std::shared_ptr<ProbeInlineInput> input;
-            ProbeInlineLayout layout;
+            std::shared_ptr<InlineInput> input;
+            InlineLayout layout;
             Rect box;
         };
 
@@ -106,14 +106,14 @@ namespace caseelephant {
         };
 
         struct Builder {
-            TextProbeFontSet& fonts;
+            FontSet& fonts;
             std::vector<Node> nodes;
             std::vector<Paragraph> paragraphs;
             std::vector<Calc> calcs;
             std::map<std::string, std::size_t> ids;
             std::size_t inline_bytes{};
 
-            std::size_t collect(const ProbeDomSnapshot& dom, const ProbeComputedStyle& computed, std::size_t parent,
+            std::size_t collect(const DomSnapshot& dom, const ComputedStyle& computed, std::size_t parent,
                                 bool hidden = false) {
                 static const std::set<std::string> tags{"div",  "p",  "section", "button", "i", "b",
                                                         "span", "ul", "li",      "img",    "br"};
@@ -257,20 +257,20 @@ namespace caseelephant {
                 return index;
             }
 
-            ProbeInlineRun run(const std::string& text, std::size_t node, const std::vector<std::string>& ancestors,
-                               bool br = false) {
+            InlineRun run(const std::string& text, std::size_t node, const std::vector<std::string>& ancestors,
+                          bool br = false) {
                 const auto& s = nodes[node].style;
                 if (get(s, "font-family", constants::default_font_family) != constants::default_font_family ||
                     get(s, "font-weight", constants::default_font_weight) != constants::default_font_weight ||
                     get(s, "font-style", "normal") != "normal") {
                     fail("fixed normal-weight font set");
                 }
-                ProbeInlineRun r;
+                InlineRun r;
                 r.text = text;
                 r.ancestors = ancestors;
                 r.font_size = px(get(s, "font-size", constants::default_font_size));
                 r.line_height = px(get(s, "line-height", constants::default_line_height));
-                r.color = parse_probe_css_color(get(s, "color", constants::default_color));
+                r.color = parse_css_color(get(s, "color", constants::default_color));
                 r.white_space = get(s, "white-space", "normal");
                 r.hard_break = br;
                 for (const auto& id : ancestors) {
@@ -282,7 +282,7 @@ namespace caseelephant {
                 return r;
             }
 
-            void inline_runs(std::size_t node, std::vector<std::string> ancestors, std::vector<ProbeInlineRun>& runs) {
+            void inline_runs(std::size_t node, std::vector<std::string> ancestors, std::vector<InlineRun>& runs) {
                 const auto& n = nodes[node];
                 if (n.hidden) {
                     return;
@@ -305,7 +305,7 @@ namespace caseelephant {
                 }
             }
 
-            FlexProbeNode tree(std::size_t index) {
+            FlexNode tree(std::size_t index) {
                 const auto& n = nodes[index];
                 auto s = n.style;
                 for (auto i = s.begin(); i != s.end();) {
@@ -346,11 +346,11 @@ namespace caseelephant {
                         v = a;
                     }
                 }
-                FlexProbeNode out{n.key, s, {}, {}};
+                FlexNode out{n.key, s, {}, {}};
                 if (n.hidden) {
                     return out;
                 }
-                auto pending = std::make_shared<ProbeInlineInput>();
+                auto pending = std::make_shared<InlineInput>();
                 pending->font_size = px(get(n.style, "font-size", constants::default_font_size));
                 pending->line_height = px(get(n.style, "line-height", constants::default_line_height));
                 pending->text_align = get(n.style, "text-align", "left");
@@ -373,16 +373,16 @@ namespace caseelephant {
                     if (pure) {
                         out.inline_content = pending;
                     } else {
-                        FlexProbeNode a{key,
-                                        {{"display", "block"},
-                                         {"font-size", get(n.style, "font-size", constants::default_font_size)},
-                                         {"line-height", get(n.style, "line-height", constants::default_line_height)}},
-                                        {},
-                                        {}};
+                        FlexNode a{key,
+                                   {{"display", "block"},
+                                    {"font-size", get(n.style, "font-size", constants::default_font_size)},
+                                    {"line-height", get(n.style, "line-height", constants::default_line_height)}},
+                                   {},
+                                   {}};
                         a.inline_content = pending;
                         out.children.push_back(std::move(a));
                     }
-                    pending = std::make_shared<ProbeInlineInput>(*pending);
+                    pending = std::make_shared<InlineInput>(*pending);
                     pending->runs.clear();
                 };
                 std::size_t child{};
@@ -407,7 +407,7 @@ namespace caseelephant {
                 return out;
             }
 
-            void arrange(const std::map<std::string, FlexProbeBox>& boxes) {
+            void arrange(const std::map<std::string, FlexBox>& boxes) {
                 for (auto& n : nodes) {
                     if (!n.hidden && !n.inlined) {
                         const auto& b = boxes.at(n.key);
@@ -422,7 +422,7 @@ namespace caseelephant {
                     const float pr = direct ? edge(n.style, "padding-right") : 0;
                     const float pt = direct ? edge(n.style, "padding-top") : 0;
                     p.box = {b.x + pl, b.y + pt, std::max(0.f, b.width - pl - pr), b.height};
-                    p.layout = layout_inline_probe(*p.input, p.box.w, fonts);
+                    p.layout = layout_inline(*p.input, p.box.w, fonts);
                     for (const auto& f : p.layout.fragments) {
                         for (const auto& id : f.ancestors) {
                             auto& target = nodes[ids.at(id)];
@@ -481,8 +481,8 @@ namespace caseelephant {
                 }
             }
 
-            ProbeRoundedClip rounded(const Node& n, Rect r) {
-                ProbeRoundedClip c;
+            RoundedClip rounded(const Node& n, Rect r) {
+                RoundedClip c;
                 c.rect = r.array();
                 unsigned i{};
                 for (const auto* k : {"border-top-left-radius", "border-top-right-radius", "border-bottom-right-radius",
@@ -511,18 +511,17 @@ namespace caseelephant {
                     c.radius_y[i] = resolve(y, r.h);
                     ++i;
                 }
-                return normalize_rounded_probe(c);
+                return normalize_rounded(c);
             }
 
-            void quad(ProbePositionedPage& out, const Node& n, Rect r, Rect clip,
-                      const std::vector<ProbeRoundedClip>& masks, const std::array<float, 4>& color,
-                      const std::string& image = {}) {
+            void quad(PositionedPage& out, const Node& n, Rect r, Rect clip, const std::vector<RoundedClip>& masks,
+                      const std::array<float, 4>& color, const std::string& image = {}) {
                 auto b = intersect(r, clip);
                 if (b.w <= 0 || b.h <= 0 || (!image.size() && color[3] == 0)) {
                     return;
                 }
-                ProbePositionedPaint p;
-                p.paint = {ProbePaintKind::Rectangle, n.id, {}, b.x, b.y, b.w, b.h, 0, color, {}};
+                PositionedPaint p;
+                p.paint = {PaintKind::Rectangle, n.id, {}, b.x, b.y, b.w, b.h, 0, color, {}};
                 p.image_source = image;
                 p.uv = {(b.x - r.x) / r.w, (b.y - r.y) / r.h, b.w / r.w, b.h / r.h};
                 p.clip = clip.array();
@@ -530,8 +529,8 @@ namespace caseelephant {
                 out.paints.push_back(std::move(p));
             }
 
-            void paint(std::size_t index, float dx, float dy, Rect clip, std::vector<ProbeRoundedClip> masks,
-                       ProbeFlowPage& out) {
+            void paint(std::size_t index, float dx, float dy, Rect clip, std::vector<RoundedClip> masks,
+                       FlowPage& out) {
                 auto& n = nodes[index];
                 if (n.hidden || n.inlined) {
                     return;
@@ -553,7 +552,7 @@ namespace caseelephant {
                     fail("rounded clip depth bound");
                 }
                 out.page.geometry.hit_regions.push_back({index, r.array(), clip.array(), own});
-                quad(out.page, n, r, clip, own, parse_probe_css_color(get(n.style, "background-color", "transparent")));
+                quad(out.page, n, r, clip, own, parse_css_color(get(n.style, "background-color", "transparent")));
                 if (!n.image.empty()) {
                     quad(out.page, n, r, clip, own, {1, 1, 1, 1}, n.image);
                 }
@@ -582,12 +581,12 @@ namespace caseelephant {
                                     m.ascent + m.descent};
                             out.page.geometry.hit_regions.push_back({ids.at(id), fr.array(), clip.array(), masks});
                             quad(out.page, span, fr, clip, masks,
-                                 parse_probe_css_color(get(span.style, "background-color", "transparent")));
+                                 parse_css_color(get(span.style, "background-color", "transparent")));
                         }
-                        ProbePositionedPaint item;
+                        PositionedPaint item;
                         item.paint = {
-                            ProbePaintKind::Text, n.id,    f.text,  p.box.x + f.x - dx, p.box.y + f.baseline - dy, 0, 0,
-                            f.font_size,          f.color, f.shaped};
+                            PaintKind::Text, n.id,    f.text,  p.box.x + f.x - dx, p.box.y + f.baseline - dy, 0, 0,
+                            f.font_size,     f.color, f.shaped};
                         item.clip = clip.array();
                         item.rounded_clips = masks;
                         out.page.paints.push_back(std::move(item));
@@ -595,7 +594,7 @@ namespace caseelephant {
                 }
             }
 
-            void geometry(ProbeFlowPage& out) {
+            void geometry(FlowPage& out) {
                 for (std::size_t i = 0; i < nodes.size(); ++i) {
                     const auto& n = nodes[i];
                     float dx{};
@@ -608,7 +607,7 @@ namespace caseelephant {
                     if (n.hidden || (n.inlined && n.fragments.empty())) {
                         b = {};
                     }
-                    ProbeElementGeometry g;
+                    ElementGeometry g;
                     g.identity = n.dom->identity;
                     g.rect = {b.x, b.y, b.w, b.h};
                     if (n.inlined) {
@@ -644,8 +643,7 @@ namespace caseelephant {
         };
     } // namespace
 
-    ProbeFlowPage build_flow_page_probe(const ProbeDomSnapshot& root, const ProbeComputedStyle& style, float w, float h,
-                                        TextProbeFontSet& fonts) {
+    FlowPage build_flow_page(const DomSnapshot& root, const ComputedStyle& style, float w, float h, FontSet& fonts) {
         if (!std::isfinite(w) || !std::isfinite(h) || w <= 0 || h <= 0 || w > constants::layout::max_viewport_size_px ||
             h > constants::layout::max_viewport_size_px) {
             fail("viewport bounds");
@@ -673,8 +671,8 @@ namespace caseelephant {
                                 "px";
             }
         }
-        std::map<std::string, FlexProbeNode*> inputs;
-        auto visit = [&](auto&& self, FlexProbeNode& n) -> void {
+        std::map<std::string, FlexNode*> inputs;
+        auto visit = [&](auto&& self, FlexNode& n) -> void {
             inputs[n.id] = &n;
             for (auto& c : n.children) {
                 self(self, c);
@@ -682,8 +680,8 @@ namespace caseelephant {
         };
         visit(visit, tree);
         auto layout = [&] {
-            std::map<std::string, FlexProbeBox> boxes;
-            for (const auto& box : run_flex_probe(tree, fonts)) {
+            std::map<std::string, FlexBox> boxes;
+            for (const auto& box : run_flex(tree, fonts)) {
                 for (float v : {box.x, box.y, box.width, box.height}) {
                     if (!std::isfinite(v) || std::abs(v) > constants::layout::max_length_magnitude_px) {
                         fail("box bounds");
@@ -725,14 +723,13 @@ namespace caseelephant {
             boxes = layout();
         }
         b.arrange(boxes);
-        ProbeFlowPage out;
+        FlowPage out;
         b.geometry(out);
         b.paint(0, 0, 0, {0, 0, w, h}, {}, out);
         return out;
     }
 
-    ProbeFlowPage build_flow_page_probe(const ProbeDomSnapshot& root, std::string_view css, float w, float h,
-                                        TextProbeFontSet& fonts) {
-        return build_flow_page_probe(root, compute_style_probe(root, css, flow_page_style_profile()), w, h, fonts);
+    FlowPage build_flow_page(const DomSnapshot& root, std::string_view css, float w, float h, FontSet& fonts) {
+        return build_flow_page(root, compute_style(root, css, flow_page_style_profile()), w, h, fonts);
     }
-} // namespace caseelephant
+} // namespace weft

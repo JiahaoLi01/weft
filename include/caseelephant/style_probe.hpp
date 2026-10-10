@@ -4,10 +4,10 @@
 #include <optional>
 #include <memory>
 
-namespace caseelephant {
+namespace weft {
     // Bounded M0 author-style evaluator. All inputs/outputs are owned values. It
     // does not call JS, measure text, run layout, or retain DOM/native resources.
-    enum class ProbeCssGrammar {
+    enum class CssGrammar {
         Tokens,
         Length,
         Number,
@@ -16,15 +16,15 @@ namespace caseelephant {
         Radius
     };
 
-    struct ProbeCssProperty {
+    struct CssProperty {
         std::string initial;
         bool inherited{};
-        ProbeCssGrammar grammar{ProbeCssGrammar::Tokens};
+        CssGrammar grammar{CssGrammar::Tokens};
         std::vector<std::string> keywords;
     };
 
-    struct ProbeStyleProfile {
-        std::map<std::string, ProbeCssProperty> properties;
+    struct StyleProfile {
+        std::map<std::string, CssProperty> properties;
         std::string ua_stylesheet;
         bool single_value_inset{};
         bool four_value_edges{}; // Expand margin/padding/border-width before cascade.
@@ -32,8 +32,8 @@ namespace caseelephant {
         bool scene_syntax{};     // Explicit scene profile: escaped selectors, SVG, raw shorthands.
     };
 
-    struct ProbeComputedStyle {
-        ProbeNodeIdentity identity;
+    struct ComputedStyle {
+        NodeIdentity identity;
         std::string local_name;
         // Sparse values: absent properties use the formatting profile's defaults.
         // Explicit CSS-wide keywords and invalid computed declarations are resolved.
@@ -41,51 +41,51 @@ namespace caseelephant {
         // nullopt is guaranteed-invalid; an empty string is a valid empty value.
         std::map<std::string, std::optional<std::string>> custom_properties;
         std::vector<std::string> invalid_at_computed_value;
-        std::vector<ProbeComputedStyle> children;      // Element children, DOM order.
+        std::vector<ComputedStyle> children;           // Element children, DOM order.
         std::vector<std::string> specified_properties; // Cascade provenance for animated inheritance.
     };
 
-    ProbeComputedStyle compute_style_probe(const ProbeDomSnapshot& root, std::string_view author_stylesheet,
-                                           const ProbeStyleProfile& profile);
+    ComputedStyle compute_style(const DomSnapshot& root, std::string_view author_stylesheet,
+                                const StyleProfile& profile);
 
     // Immutable, bounded parsed stylesheet. Each evaluation has independent work
     // counters; results own all values and never retain the input DOM.
     // Optional owner-local bounded value/rule memo. Full evaluation remains
     // available; cached entries carry no DOM/VM references or GPU resources.
-    class StyleMemoProbe {
+    class StyleMemo {
     public:
-        StyleMemoProbe();
-        ~StyleMemoProbe();
+        StyleMemo();
+        ~StyleMemo();
         void clear();
-        StyleMemoProbe(const StyleMemoProbe&) = delete;
-        StyleMemoProbe& operator=(const StyleMemoProbe&) = delete;
+        StyleMemo(const StyleMemo&) = delete;
+        StyleMemo& operator=(const StyleMemo&) = delete;
 
     private:
         struct Impl;
         std::unique_ptr<Impl> impl_;
-        friend class CompiledStyleProbe;
+        friend class CompiledStyle;
     };
 
-    class CompiledStyleProbe {
+    class CompiledStyle {
     public:
-        CompiledStyleProbe(std::string author_stylesheet, ProbeStyleProfile profile);
-        ~CompiledStyleProbe();
-        CompiledStyleProbe(const CompiledStyleProbe&) = delete;
-        CompiledStyleProbe& operator=(const CompiledStyleProbe&) = delete;
-        ProbeComputedStyle compute(const ProbeDomSnapshot&) const;
-        ProbeComputedStyle compute(const ProbeDomSnapshot&, StyleMemoProbe&) const;
+        CompiledStyle(std::string author_stylesheet, StyleProfile profile);
+        ~CompiledStyle();
+        CompiledStyle(const CompiledStyle&) = delete;
+        CompiledStyle& operator=(const CompiledStyle&) = delete;
+        ComputedStyle compute(const DomSnapshot&) const;
+        ComputedStyle compute(const DomSnapshot&, StyleMemo&) const;
         // Owner-only in-place derived tree. Unchanged own values avoid copying;
         // quotas and child identity/order checks still apply. Discard on failure.
         // Optional changed_nodes reports changed or reconstructed own output values
         // by generation. Reparenting reconstructs values; sibling reorder alone
         // does not invalidate an unchanged own value.
         // Discard both output and changed_nodes on failure.
-        void update(const ProbeDomSnapshot&, ProbeComputedStyle&, StyleMemoProbe&,
-                    std::vector<ProbeNodeIdentity>* changed_nodes = nullptr) const;
-        ProbeDomSnapshot input_key(const ProbeDomSnapshot&) const;
+        void update(const DomSnapshot&, ComputedStyle&, StyleMemo&,
+                    std::vector<NodeIdentity>* changed_nodes = nullptr) const;
+        DomSnapshot input_key(const DomSnapshot&) const;
         // For a host's full layout-cache key: erase only pseudo state which cannot
         // match a supported selector. Text, scroll, attributes and identities stay.
-        void normalize_selector_state(ProbeDomSnapshot&) const;
+        void normalize_selector_state(DomSnapshot&) const;
 
     private:
         struct Impl;
@@ -94,12 +94,12 @@ namespace caseelephant {
 
     // :root matches only an HTML document-element snapshot, never a scoped div.
     // Exact pairing checks are required before passing a computed tree to layout.
-    void validate_style_pair(const ProbeDomSnapshot& dom, const ProbeComputedStyle& style);
-    ProbeStyleProfile positioned_style_profile();
-    ProbeStyleProfile flex_page_style_profile();
-    ProbeStyleProfile auto_page_style_profile();
-    ProbeStyleProfile flow_page_style_profile();
+    void validate_style_pair(const DomSnapshot& dom, const ComputedStyle& style);
+    StyleProfile positioned_style_profile();
+    StyleProfile flex_page_style_profile();
+    StyleProfile auto_page_style_profile();
+    StyleProfile flow_page_style_profile();
     // The shared color subset is #rrggbb, transparent, and legacy comma rgb/rgba
     // numbers. Components/alpha clamp as CSS requires. No color spaces/named colors.
-    std::array<float, 4> parse_probe_css_color(std::string_view value);
-} // namespace caseelephant
+    std::array<float, 4> parse_css_color(std::string_view value);
+} // namespace weft

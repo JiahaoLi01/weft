@@ -2,12 +2,10 @@
 
 int run_two_frame_probe(bool warp, const std::filesystem::path& folder) {
     std::filesystem::create_directories(folder);
-    Experiment gpu(warp, caseelephant::probe_constants::small_target_size,
-                   caseelephant::probe_constants::small_target_size);
-    Experiment reference(warp, caseelephant::probe_constants::small_target_size,
-                         caseelephant::probe_constants::small_target_size);
+    Experiment gpu(warp, weft::probe_constants::small_target_size, weft::probe_constants::small_target_size);
+    Experiment reference(warp, weft::probe_constants::small_target_size, weft::probe_constants::small_target_size);
     gpu.cache_assets = true;
-    gpu.cache_resource_limit = caseelephant::probe_constants::pipeline_cache_max_resources;
+    gpu.cache_resource_limit = weft::probe_constants::pipeline_cache_max_resources;
     auto coverage = std::make_shared<const Asset>(
         Asset{4, 4, Encoding::Coverage, {0, 64, 128, 255, 255, 128, 64, 0, 0, 128, 255, 64, 255, 64, 128, 0}});
     auto packet = [&](unsigned state) {
@@ -20,30 +18,29 @@ int run_two_frame_probe(bool warp, const std::filesystem::path& folder) {
         }
         FramePacket p;
         p.assets = {coverage, image};
-        p.draws = {
-            {{0, 0, caseelephant::probe_constants::small_target_size, caseelephant::probe_constants::small_target_size},
-             {.1f, .15f, .2f, 1}},
-            {{float(state % 13), float(state % 9), 45, 48}, {1, 1, 1, 1}, 1},
-            {{9, 12, 40, 35}, {.3f, .8f, .4f, .6f}, 0}};
+        p.draws = {{{0, 0, weft::probe_constants::small_target_size, weft::probe_constants::small_target_size},
+                    {.1f, .15f, .2f, 1}},
+                   {{float(state % 13), float(state % 9), 45, 48}, {1, 1, 1, 1}, 1},
+                   {{9, 12, 40, 35}, {.3f, .8f, .4f, .6f}, 0}};
         if (state % 2) {
             std::swap(p.draws[1], p.draws[2]);
         }
         return p;
     };
-    std::array<ComPtr<ID3D11Texture2D>, caseelephant::probe_constants::frames_in_flight> readbacks;
+    std::array<ComPtr<ID3D11Texture2D>, weft::probe_constants::frames_in_flight> readbacks;
     for (auto& texture : readbacks) {
         D3D11_TEXTURE2D_DESC desc{};
         gpu.staging->GetDesc(&desc);
         check_hresult(gpu.device->CreateTexture2D(&desc, nullptr, &texture), "independent pipeline frame readback");
     }
     auto pixels = [&](Experiment& renderer, ID3D11Texture2D* texture) {
-        std::vector<Pixel> out(caseelephant::probe_constants::small_target_pixels);
+        std::vector<Pixel> out(weft::probe_constants::small_target_pixels);
         D3D11_MAPPED_SUBRESOURCE mapped{};
         check_hresult(renderer.immediate->Map(texture, 0, D3D11_MAP_READ, 0, &mapped), "completed pipeline pixels");
-        for (UINT y = 0; y < caseelephant::probe_constants::small_target_size; ++y) {
-            std::memcpy(out.data() + y * caseelephant::probe_constants::small_target_size,
+        for (UINT y = 0; y < weft::probe_constants::small_target_size; ++y) {
+            std::memcpy(out.data() + y * weft::probe_constants::small_target_size,
                         static_cast<const std::uint8_t*>(mapped.pData) + y * mapped.RowPitch,
-                        caseelephant::probe_constants::small_target_size * sizeof(Pixel));
+                        weft::probe_constants::small_target_size * sizeof(Pixel));
         }
         renderer.immediate->Unmap(texture, 0);
         return out;
@@ -82,15 +79,15 @@ int run_two_frame_probe(bool warp, const std::filesystem::path& folder) {
         const auto uploads = gpu.uploads;
         pipeline.submit(packet(3), [] {
         });
-        require(pipeline.in_flight() == caseelephant::probe_constants::frames_in_flight &&
-                    gpu.tracker.Stats().submitted_tokens == caseelephant::probe_constants::frames_in_flight &&
+        require(pipeline.in_flight() == weft::probe_constants::frames_in_flight &&
+                    gpu.tracker.Stats().submitted_tokens == weft::probe_constants::frames_in_flight &&
                     gpu.uploads == uploads + 1,
                 "same-queue uploaded asset not reusable in next frame");
         ResourceInfo info;
         lifetime(gpu.tracker.InspectResource(gpu.asset_cache.at({shared_id, 1}).native.id, info),
                  "two-frame shared resource pins");
         require(info.phase == ResourcePhase::Submitted &&
-                    info.submitted_pins == caseelephant::probe_constants::frames_in_flight && !old_lease.expired(),
+                    info.submitted_pins == weft::probe_constants::frames_in_flight && !old_lease.expired(),
                 "in-flight resource/host lease released early");
         bool early{};
         try {
@@ -102,24 +99,24 @@ int run_two_frame_probe(bool warp, const std::filesystem::path& folder) {
         pipeline.drain();
         require(old_lease.expired() && !gpu.tracker.Stats().submitted_tokens,
                 "actual completion failed to retire two slots");
-        std::uint32_t seed = caseelephant::probe_constants::two_frame_seed;
-        for (unsigned round = 0; round < caseelephant::probe_constants::two_frame_rounds; ++round) {
-            std::array<FramePacket, caseelephant::probe_constants::frames_in_flight> values;
-            for (unsigned i = 0; i < caseelephant::probe_constants::frames_in_flight; ++i) {
-                seed = seed * caseelephant::constants::lcg_multiplier + caseelephant::constants::lcg_increment;
-                values[i] = packet(seed % caseelephant::probe_constants::mutation_states);
+        std::uint32_t seed = weft::probe_constants::two_frame_seed;
+        for (unsigned round = 0; round < weft::probe_constants::two_frame_rounds; ++round) {
+            std::array<FramePacket, weft::probe_constants::frames_in_flight> values;
+            for (unsigned i = 0; i < weft::probe_constants::frames_in_flight; ++i) {
+                seed = seed * weft::constants::lcg_multiplier + weft::constants::lcg_increment;
+                values[i] = packet(seed % weft::probe_constants::mutation_states);
                 if (round % 7 == 0) {
-                    auto dropped = packet(seed % caseelephant::probe_constants::mutation_states + 1);
+                    auto dropped = packet(seed % weft::probe_constants::mutation_states + 1);
                     require(!dropped.draws.empty(), "complete dropped frame");
                 }
                 pipeline.submit(values[i], [&, i] {
                     gpu.immediate->CopyResource(readbacks[i].Get(), gpu.output.texture.Get());
                 });
             }
-            require(pipeline.in_flight() == caseelephant::probe_constants::frames_in_flight,
+            require(pipeline.in_flight() == weft::probe_constants::frames_in_flight,
                     "test did not queue two independent submissions");
             pipeline.drain();
-            for (unsigned i = 0; i < caseelephant::probe_constants::frames_in_flight; ++i) {
+            for (unsigned i = 0; i < weft::probe_constants::frames_in_flight; ++i) {
                 auto actual = pixels(gpu, readbacks[i].Get());
                 reference.render_window(values[i], [&] {
                     reference.immediate->CopyResource(reference.staging.Get(), reference.output.texture.Get());
@@ -130,9 +127,9 @@ int run_two_frame_probe(bool warp, const std::filesystem::path& folder) {
                         max_error = std::max(max_error, std::abs(int(actual[p][c]) - int(expected[p][c])));
                     }
                 }
-                require(max_error <= caseelephant::probe_constants::pipeline_pixel_tolerance,
+                require(max_error <= weft::probe_constants::pipeline_pixel_tolerance,
                         "two-frame/full path pixels differ or constant buffers overwritten");
-                compared += caseelephant::probe_constants::small_target_pixels;
+                compared += weft::probe_constants::small_target_pixels;
                 ++frames;
             }
         }
@@ -148,12 +145,12 @@ int run_two_frame_probe(bool warp, const std::filesystem::path& folder) {
         } catch (const std::runtime_error& e) {
             failed = std::string(e.what()) == "pipeline-post-submit";
         }
-        require(failed && pipeline.in_flight() == caseelephant::probe_constants::frames_in_flight &&
-                    gpu.tracker.Stats().submitted_tokens == caseelephant::probe_constants::frames_in_flight,
+        require(failed && pipeline.in_flight() == weft::probe_constants::frames_in_flight &&
+                    gpu.tracker.Stats().submitted_tokens == weft::probe_constants::frames_in_flight,
                 "post-submit failure lost actual in-flight work");
         pipeline.submit(packet(6), [] {
         });
-        require(pipeline.in_flight() <= caseelephant::probe_constants::frames_in_flight,
+        require(pipeline.in_flight() <= weft::probe_constants::frames_in_flight,
                 "third submission exceeded bounded queue");
         pipeline.drain();
         // Leave both slots pending for the destructor: close must drain.
@@ -165,10 +162,10 @@ int run_two_frame_probe(bool warp, const std::filesystem::path& folder) {
         submitted = pipeline.submissions;
         completed = pipeline.completions;
     }
-    require(peak == caseelephant::probe_constants::frames_in_flight && !gpu.async_in_flight &&
+    require(peak == weft::probe_constants::frames_in_flight && !gpu.async_in_flight &&
                 !gpu.tracker.Stats().submitted_tokens && gpu.tracker.Stats().completed_serial == gpu.window_serial,
             "close did not drain true two-frame completion");
-    completed += caseelephant::probe_constants::frames_in_flight;
+    completed += weft::probe_constants::frames_in_flight;
     require(submitted == completed, "pipeline submission/completion accounting");
     gpu.evict_assets(0, true);
     reference.evict_assets(0, true);

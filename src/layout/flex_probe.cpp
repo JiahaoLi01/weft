@@ -11,7 +11,7 @@
 #include <sstream>
 #include <stdexcept>
 
-namespace caseelephant {
+namespace weft {
     namespace {
         using Style = std::map<std::string, std::string>;
 
@@ -45,7 +45,7 @@ namespace caseelephant {
             if (input == "0") {
                 return {};
             }
-            throw std::invalid_argument("CE_UNSUPPORTED_UNIT: " + input);
+            throw std::invalid_argument("WEFT_UNSUPPORTED_UNIT: " + input);
         }
 
         float px(const Style& style, const std::string& key, float fallback = 0) {
@@ -54,7 +54,7 @@ namespace caseelephant {
             }
             const auto n = length(style.at(key));
             if (n.automatic || n.percent) {
-                throw std::invalid_argument("CE_UNSUPPORTED_INTRINSIC: " + key +
+                throw std::invalid_argument("WEFT_UNSUPPORTED_INTRINSIC: " + key +
                                             " requires px in probe intrinsic sizing");
             }
             return n.value;
@@ -92,7 +92,7 @@ namespace caseelephant {
             if (v == "space-evenly") {
                 return YGAlignSpaceEvenly;
             }
-            throw std::invalid_argument("CE_UNSUPPORTED_ALIGN: " + v);
+            throw std::invalid_argument("WEFT_UNSUPPORTED_ALIGN: " + v);
         }
 
         struct TextLayout {
@@ -105,7 +105,7 @@ namespace caseelephant {
 
         struct Node {
             Engine* engine{};
-            const FlexProbeNode* input{};
+            const FlexNode* input{};
             YGNodeRef yoga{};
             std::vector<std::unique_ptr<Node>> children;
             float font_size{constants::layout::flex_default_font_size_px};
@@ -124,16 +124,16 @@ namespace caseelephant {
         };
 
         struct Engine {
-            TextProbeFont& font;
-            TextProbeFontSet* fonts{};
-            FlexProbeMode mode;
+            Font& font;
+            FontSet* fonts{};
+            FlexMode mode;
             YGConfigRef config{YGConfigNew()};
             std::exception_ptr callback_error;
             std::size_t node_count{};
             std::size_t text_bytes{};
             std::set<std::string> identities;
 
-            Engine(TextProbeFont& f, FlexProbeMode m, TextProbeFontSet* fs = nullptr) : font(f), fonts(fs), mode(m) {
+            Engine(Font& f, FlexMode m, FontSet* fs = nullptr) : font(f), fonts(fs), mode(m) {
                 if (!config) {
                     throw std::bad_alloc();
                 }
@@ -161,18 +161,18 @@ namespace caseelephant {
             TextLayout text(const Node& n, float available = std::numeric_limits<float>::infinity()) const {
                 if (n.input->inline_content) {
                     if (!fonts) {
-                        throw std::invalid_argument("CE_INLINE_PROFILE: font set required");
+                        throw std::invalid_argument("WEFT_INLINE_PROFILE: font set required");
                     }
-                    auto result = layout_inline_probe(*n.input->inline_content, available, *fonts);
+                    auto result = layout_inline(*n.input->inline_content, available, *fonts);
                     return {result.width, result.height, result.baseline, result.lines};
                 }
                 if (n.input->text.empty()) {
                     return {};
                 }
-                if (mode == FlexProbeMode::RestrictedBlockAdapter || fonts) {
+                if (mode == FlexMode::RestrictedBlockAdapter || fonts) {
                     const auto lines =
-                        layout_probe_text(n.input->text, n.font_size, available,
-                                          value(n.input->style, "white-space", "normal") == "nowrap", font, fonts);
+                        layout_text(n.input->text, n.font_size, available,
+                                    value(n.input->style, "white-space", "normal") == "nowrap", font, fonts);
                     float widest{};
                     for (const auto& line : lines) {
                         widest = std::max(widest, line.shaped.advance);
@@ -185,7 +185,7 @@ namespace caseelephant {
                     if ((c < constants::layout::codepoint_space && c != ' ') ||
                         c >= constants::layout::codepoint_delete) {
                         throw std::invalid_argument(
-                            "CE_UNSUPPORTED_TEXT_BREAK: M0 layout fixtures require printable ASCII");
+                            "WEFT_UNSUPPORTED_TEXT_BREAK: M0 layout fixtures require printable ASCII");
                     }
                 }
                 const bool nowrap = value(n.input->style, "white-space", "normal") == "nowrap";
@@ -296,13 +296,13 @@ namespace caseelephant {
                                                              "line-height",
                                                              "white-space"};
                 if (s.size() > supported.size()) {
-                    throw std::invalid_argument("CE_LAYOUT_LIMIT: excessive styles");
+                    throw std::invalid_argument("WEFT_LAYOUT_LIMIT: excessive styles");
                 }
                 if ((s.contains("flex") &&
                      (s.contains("flex-grow") || s.contains("flex-shrink") || s.contains("flex-basis"))) ||
                     (s.contains("gap") && (s.contains("row-gap") || s.contains("column-gap")))) {
                     throw std::invalid_argument(
-                        "CE_UNSUPPORTED_STYLE_CONFLICT: resolve declaration order before adapter");
+                        "WEFT_UNSUPPORTED_STYLE_CONFLICT: resolve declaration order before adapter");
                 }
                 for (const auto* shorthand : {"padding", "margin", "border-width"}) {
                     if (!s.contains(shorthand)) {
@@ -314,30 +314,30 @@ namespace caseelephant {
                         (void)ignored;
                         if (key != shorthand && key.starts_with(prefix)) {
                             throw std::invalid_argument(
-                                "CE_UNSUPPORTED_STYLE_CONFLICT: resolve edge declarations before adapter");
+                                "WEFT_UNSUPPORTED_STYLE_CONFLICT: resolve edge declarations before adapter");
                         }
                     }
                 }
                 for (const auto& [key, v] : s) {
                     if (!supported.contains(key)) {
-                        throw std::invalid_argument("CE_UNSUPPORTED_PROPERTY: " + key);
+                        throw std::invalid_argument("WEFT_UNSUPPORTED_PROPERTY: " + key);
                     }
                     if (v.size() > constants::layout::max_style_value_bytes) {
-                        throw std::invalid_argument("CE_LAYOUT_LIMIT: excessive style value");
+                        throw std::invalid_argument("WEFT_LAYOUT_LIMIT: excessive style value");
                     }
                     if (key == "flex-grow" || key == "flex-shrink") {
                         if (number(v) < 0) {
-                            throw std::invalid_argument("CE_CSS_VALUE: negative flex factor");
+                            throw std::invalid_argument("WEFT_CSS_VALUE: negative flex factor");
                         }
                     } else if (key.ends_with("width") || key.ends_with("height") || key.starts_with("padding") ||
                                key.ends_with("gap") || key == "font-size" || key == "flex-basis") {
                         const auto l = length(v);
                         if (!l.automatic && l.value < 0) {
-                            throw std::invalid_argument("CE_CSS_VALUE: negative dimension");
+                            throw std::invalid_argument("WEFT_CSS_VALUE: negative dimension");
                         }
                     }
                 }
-                if (mode != FlexProbeMode::RawYoga) {
+                if (mode != FlexMode::RawYoga) {
                     YGNodeStyleSetPositionType(y, YGPositionTypeStatic);
                     YGNodeStyleSetBoxSizing(y, YGBoxSizingContentBox);
                 }
@@ -348,7 +348,7 @@ namespace caseelephant {
                             if (automatic) {
                                 automatic(y);
                             } else {
-                                throw std::invalid_argument("CE_UNSUPPORTED_AUTO: " + key);
+                                throw std::invalid_argument("WEFT_UNSUPPORTED_AUTO: " + key);
                             }
                         } else if (l.percent) {
                             percent(y, l.value);
@@ -358,8 +358,8 @@ namespace caseelephant {
                     };
                     if (key == "display") {
                         if (v != "flex" && v != "inline-flex" && v != "none" &&
-                            !(mode == FlexProbeMode::RestrictedBlockAdapter && v == "block")) {
-                            throw std::invalid_argument("CE_UNSUPPORTED_FORMAT: " + v);
+                            !(mode == FlexMode::RestrictedBlockAdapter && v == "block")) {
+                            throw std::invalid_argument("WEFT_UNSUPPORTED_FORMAT: " + v);
                         }
                         YGNodeStyleSetDisplay(y, v == "none" ? YGDisplayNone : YGDisplayFlex);
                     } else if (key == "width") {
@@ -384,11 +384,11 @@ namespace caseelephant {
                         } else if (v == "column-reverse") {
                             YGNodeStyleSetFlexDirection(y, YGFlexDirectionColumnReverse);
                         } else {
-                            throw std::invalid_argument("CE_UNSUPPORTED_DIRECTION: " + v);
+                            throw std::invalid_argument("WEFT_UNSUPPORTED_DIRECTION: " + v);
                         }
                     } else if (key == "flex-wrap") {
                         if (v != "nowrap" && v != "wrap" && v != "wrap-reverse") {
-                            throw std::invalid_argument("CE_UNSUPPORTED_WRAP: " + v);
+                            throw std::invalid_argument("WEFT_UNSUPPORTED_WRAP: " + v);
                         }
                         YGNodeStyleSetFlexWrap(y, v == "nowrap" ? YGWrapNoWrap
                                                   : v == "wrap" ? YGWrapWrap
@@ -421,7 +421,7 @@ namespace caseelephant {
                             if (tokens >> b) {
                                 if (!(tokens >> c) || (tokens >> extra)) {
                                     throw std::invalid_argument(
-                                        "CE_UNSUPPORTED_FLEX: use 1 or explicit grow shrink basis");
+                                        "WEFT_UNSUPPORTED_FLEX: use 1 or explicit grow shrink basis");
                                 }
                                 shrink = number(b);
                                 basis = c;
@@ -433,7 +433,7 @@ namespace caseelephant {
                         YGNodeStyleSetFlexShrink(y, shrink);
                         const auto l = length(basis);
                         if (grow < 0 || shrink < 0 || (!l.automatic && l.value < 0)) {
-                            throw std::invalid_argument("CE_CSS_VALUE: negative flex shorthand");
+                            throw std::invalid_argument("WEFT_CSS_VALUE: negative flex shorthand");
                         }
                         if (l.automatic) {
                             YGNodeStyleSetFlexBasisAuto(y);
@@ -444,17 +444,17 @@ namespace caseelephant {
                         }
                     } else if (key == "align-items") {
                         if (v == "auto" || v.starts_with("space-")) {
-                            throw std::invalid_argument("CE_UNSUPPORTED_ALIGN: align-items " + v);
+                            throw std::invalid_argument("WEFT_UNSUPPORTED_ALIGN: align-items " + v);
                         }
                         YGNodeStyleSetAlignItems(y, align(v));
                     } else if (key == "align-content") {
                         if (v == "auto" || v == "baseline") {
-                            throw std::invalid_argument("CE_UNSUPPORTED_ALIGN: align-content " + v);
+                            throw std::invalid_argument("WEFT_UNSUPPORTED_ALIGN: align-content " + v);
                         }
                         YGNodeStyleSetAlignContent(y, align(v));
                     } else if (key == "align-self") {
                         if (v.starts_with("space-")) {
-                            throw std::invalid_argument("CE_UNSUPPORTED_ALIGN: align-self " + v);
+                            throw std::invalid_argument("WEFT_UNSUPPORTED_ALIGN: align-self " + v);
                         }
                         YGNodeStyleSetAlignSelf(y, align(v));
                     } else if (key == "justify-content") {
@@ -472,7 +472,7 @@ namespace caseelephant {
                         } else if (v == "space-evenly") {
                             j = YGJustifySpaceEvenly;
                         } else {
-                            throw std::invalid_argument("CE_UNSUPPORTED_JUSTIFY: " + v);
+                            throw std::invalid_argument("WEFT_UNSUPPORTED_JUSTIFY: " + v);
                         }
                         YGNodeStyleSetJustifyContent(y, j);
                     } else if (key == "position") {
@@ -483,7 +483,7 @@ namespace caseelephant {
                         } else if (v == "static") {
                             YGNodeStyleSetPositionType(y, YGPositionTypeStatic);
                         } else {
-                            throw std::invalid_argument("CE_UNSUPPORTED_POSITION: " + v);
+                            throw std::invalid_argument("WEFT_UNSUPPORTED_POSITION: " + v);
                         }
                     } else if (key == "overflow") {
                         if (v == "visible") {
@@ -493,17 +493,17 @@ namespace caseelephant {
                         } else if (v == "scroll" || v == "auto") {
                             YGNodeStyleSetOverflow(y, YGOverflowScroll);
                         } else {
-                            throw std::invalid_argument("CE_UNSUPPORTED_OVERFLOW: " + v);
+                            throw std::invalid_argument("WEFT_UNSUPPORTED_OVERFLOW: " + v);
                         }
                     } else if (key == "box-sizing") {
                         if (v != "border-box" && v != "content-box") {
-                            throw std::invalid_argument("CE_UNSUPPORTED_BOX_SIZING: " + v);
+                            throw std::invalid_argument("WEFT_UNSUPPORTED_BOX_SIZING: " + v);
                         }
                         YGNodeStyleSetBoxSizing(y, v == "border-box" ? YGBoxSizingBorderBox : YGBoxSizingContentBox);
                     } else if (key == "gap" || key == "row-gap" || key == "column-gap") {
                         auto l = length(v);
                         if (l.automatic) {
-                            throw std::invalid_argument("CE_UNSUPPORTED_GAP");
+                            throw std::invalid_argument("WEFT_UNSUPPORTED_GAP");
                         }
                         const auto gutter = key == "gap"       ? YGGutterAll
                                             : key == "row-gap" ? YGGutterRow
@@ -538,7 +538,7 @@ namespace caseelephant {
                             }
                         } else if (key.starts_with("padding")) {
                             if (l.automatic) {
-                                throw std::invalid_argument("CE_UNSUPPORTED_PADDING");
+                                throw std::invalid_argument("WEFT_UNSUPPORTED_PADDING");
                             }
                             if (l.percent) {
                                 YGNodeStyleSetPaddingPercent(y, edge, l.value);
@@ -547,7 +547,7 @@ namespace caseelephant {
                             }
                         } else if (key.starts_with("border")) {
                             if (l.automatic || l.percent) {
-                                throw std::invalid_argument("CE_UNSUPPORTED_BORDER");
+                                throw std::invalid_argument("WEFT_UNSUPPORTED_BORDER");
                             }
                             YGNodeStyleSetBorder(y, edge, l.value);
                         } else {
@@ -563,48 +563,48 @@ namespace caseelephant {
                                (v == "auto" && (key == "min-width" || key == "min-height"))) {
                         if (key == "white-space" && v != "normal" && v != "nowrap" &&
                             !(n.input->inline_content && v == "pre-line")) {
-                            throw std::invalid_argument("CE_UNSUPPORTED_WHITE_SPACE");
+                            throw std::invalid_argument("WEFT_UNSUPPORTED_WHITE_SPACE");
                         }
                     } else {
-                        throw std::invalid_argument("CE_UNSUPPORTED_PROPERTY: " + key);
+                        throw std::invalid_argument("WEFT_UNSUPPORTED_PROPERTY: " + key);
                     }
                 }
-                if (mode == FlexProbeMode::RestrictedBlockAdapter && value(s, "display") == "block") {
+                if (mode == FlexMode::RestrictedBlockAdapter && value(s, "display") == "block") {
                     YGNodeStyleSetFlexDirection(y, YGFlexDirectionColumn);
                     YGNodeStyleSetAlignItems(y, YGAlignStretch);
                     YGNodeStyleSetJustifyContent(y, YGJustifyFlexStart);
                 }
             }
 
-            std::unique_ptr<Node> build(const FlexProbeNode& input, const Node* parent, std::size_t depth = 0) {
+            std::unique_ptr<Node> build(const FlexNode& input, const Node* parent, std::size_t depth = 0) {
                 if (++node_count > constants::max_document_nodes || depth > constants::max_document_depth) {
-                    throw std::invalid_argument("CE_LAYOUT_LIMIT: probe tree bounds");
+                    throw std::invalid_argument("WEFT_LAYOUT_LIMIT: probe tree bounds");
                 }
                 if (input.text.size() > constants::max_text_bytes) {
-                    throw std::invalid_argument("CE_LAYOUT_LIMIT: probe text exceeds 64 KiB");
+                    throw std::invalid_argument("WEFT_LAYOUT_LIMIT: probe text exceeds 64 KiB");
                 }
-                if ((mode == FlexProbeMode::RestrictedBlockAdapter || fonts) &&
+                if ((mode == FlexMode::RestrictedBlockAdapter || fonts) &&
                     (text_bytes += input.text.size()) > constants::layout::max_aggregate_text_bytes) {
-                    throw std::invalid_argument("CE_LAYOUT_LIMIT: aggregate text bytes");
+                    throw std::invalid_argument("WEFT_LAYOUT_LIMIT: aggregate text bytes");
                 }
                 if (input.id.empty() || !identities.insert(input.id).second) {
-                    throw std::invalid_argument("CE_LAYOUT_ID: empty or duplicate");
+                    throw std::invalid_argument("WEFT_LAYOUT_ID: empty or duplicate");
                 }
                 if (input.inline_content) {
                     for (const auto& r : input.inline_content->runs) {
                         if ((text_bytes += r.text.size()) > constants::layout::max_aggregate_text_bytes) {
-                            throw std::invalid_argument("CE_LAYOUT_LIMIT: aggregate inline bytes");
+                            throw std::invalid_argument("WEFT_LAYOUT_LIMIT: aggregate inline bytes");
                         }
                     }
                 }
                 if (!input.children.empty() && (!input.text.empty() || input.inline_content)) {
-                    throw std::invalid_argument("CE_UNSUPPORTED_FORMAT: mixed text/flex children");
+                    throw std::invalid_argument("WEFT_UNSUPPORTED_FORMAT: mixed text/flex children");
                 }
                 if ((!input.children.empty() || !parent) && value(input.style, "display") != "flex" &&
                     value(input.style, "display") != "inline-flex" &&
-                    !(mode == FlexProbeMode::RestrictedBlockAdapter &&
+                    !(mode == FlexMode::RestrictedBlockAdapter &&
                       (value(input.style, "display") == "block" || value(input.style, "display") == "none"))) {
-                    throw std::invalid_argument("CE_UNSUPPORTED_FORMAT: container must explicitly be flex");
+                    throw std::invalid_argument("WEFT_UNSUPPORTED_FORMAT: container must explicitly be flex");
                 }
                 auto n = std::make_unique<Node>();
                 n->engine = this;
@@ -621,7 +621,7 @@ namespace caseelephant {
                 apply(*n);
                 // In the explicitly bounded zero-margin block subset, column packing
                 // is equivalent only when normal-flow children never flex/shrink.
-                if (mode == FlexProbeMode::RestrictedBlockAdapter && parent &&
+                if (mode == FlexMode::RestrictedBlockAdapter && parent &&
                     value(parent->input->style, "display") == "block") {
                     YGNodeStyleSetFlexGrow(n->yoga, 0);
                     YGNodeStyleSetFlexShrink(n->yoga, 0);
@@ -644,7 +644,7 @@ namespace caseelephant {
                     }
                     if (input.inline_content) {
                         n->min_width =
-                            layout_inline_probe(*input.inline_content, std::numeric_limits<float>::infinity(), *fonts)
+                            layout_inline(*input.inline_content, std::numeric_limits<float>::infinity(), *fonts)
                                 .min_content;
                     }
                     n->min_width += edges;
@@ -702,7 +702,7 @@ namespace caseelephant {
                         specified_height.value +
                         (value(input.style, "box-sizing", "content-box") == "content-box" ? vertical(input.style) : 0);
                 }
-                if (mode != FlexProbeMode::RawYoga && parent && value(parent->input->style, "display") != "block" &&
+                if (mode != FlexMode::RawYoga && parent && value(parent->input->style, "display") != "block" &&
                     value(input.style, "position") != "absolute" &&
                     value(input.style, "overflow", "visible") == "visible") {
                     const bool main_row = row(parent->input->style);
@@ -722,7 +722,7 @@ namespace caseelephant {
                                 const auto parent_width = length(value(parent->input->style, "width"));
                                 if (parent_width.automatic || parent_width.percent) {
                                     throw std::invalid_argument(
-                                        "CE_UNSUPPORTED_INTRINSIC: auto min-height needs definite cross constraint in M0");
+                                        "WEFT_UNSUPPORTED_INTRINSIC: auto min-height needs definite cross constraint in M0");
                                 }
                                 content_width = parent_width.value - (value(parent->input->style, "box-sizing",
                                                                             "content-box") == "border-box"
@@ -768,8 +768,8 @@ namespace caseelephant {
                 return n;
             }
 
-            void collect(Node& n, float x, float y, std::vector<FlexProbeBox>& output) {
-                if (mode == FlexProbeMode::RestrictedBlockAdapter && value(n.input->style, "display") == "none") {
+            void collect(Node& n, float x, float y, std::vector<FlexBox>& output) {
+                if (mode == FlexMode::RestrictedBlockAdapter && value(n.input->style, "display") == "none") {
                     output.push_back({n.input->id});
                     for (auto& c : n.children) {
                         collect(*c, 0, 0, output);
@@ -795,57 +795,57 @@ namespace caseelephant {
         };
     } // namespace
 
-    std::vector<FlexProbeBox> run_flex_probe(const FlexProbeNode& root, TextProbeFont& font, FlexProbeMode mode) {
+    std::vector<FlexBox> run_flex(const FlexNode& root, Font& font, FlexMode mode) {
         Engine engine(font, mode);
         auto tree = engine.build(root, nullptr);
         YGNodeCalculateLayout(tree->yoga, YGUndefined, YGUndefined, YGDirectionLTR);
         if (engine.callback_error) {
             std::rethrow_exception(engine.callback_error);
         }
-        std::vector<FlexProbeBox> output;
+        std::vector<FlexBox> output;
         output.reserve(engine.node_count);
         engine.collect(*tree, 0, 0, output);
         return output;
     }
 
-    std::vector<FlexProbeBox> run_flex_probe(const FlexProbeNode& root, TextProbeFontSet& fonts, FlexProbeMode mode) {
+    std::vector<FlexBox> run_flex(const FlexNode& root, FontSet& fonts, FlexMode mode) {
         Engine engine(fonts.primary(), mode, &fonts);
         auto tree = engine.build(root, nullptr);
         YGNodeCalculateLayout(tree->yoga, YGUndefined, YGUndefined, YGDirectionLTR);
         if (engine.callback_error) {
             std::rethrow_exception(engine.callback_error);
         }
-        std::vector<FlexProbeBox> out;
+        std::vector<FlexBox> out;
         out.reserve(engine.node_count);
         engine.collect(*tree, 0, 0, out);
         return out;
     }
 
-    std::vector<ProbeTextLine> layout_probe_text(std::string_view input, float size, float available, bool nowrap,
-                                                 TextProbeFont& font, TextProbeFontSet* fonts) {
+    std::vector<TextLine> layout_text(std::string_view input, float size, float available, bool nowrap, Font& font,
+                                      FontSet* fonts) {
         if (input.size() > constants::max_text_bytes) {
-            throw std::invalid_argument("CE_LAYOUT_LIMIT: text bytes");
+            throw std::invalid_argument("WEFT_LAYOUT_LIMIT: text bytes");
         }
         if (!nowrap) {
             for (unsigned char c : input) {
                 if (c >= constants::layout::codepoint_delete || (c < constants::layout::codepoint_space && c != ' ')) {
                     throw std::invalid_argument(
-                        "CE_UNSUPPORTED_TEXT_BREAK: non-ASCII needs nowrap until Unicode line breaking");
+                        "WEFT_UNSUPPORTED_TEXT_BREAK: non-ASCII needs nowrap until Unicode line breaking");
                 }
             }
         }
         std::size_t work{};
         auto shape = [&](const std::string& s) {
             if ((work += s.size()) > constants::layout::max_line_measure_work_bytes) {
-                throw std::invalid_argument("CE_LAYOUT_LIMIT: line measurement work");
+                throw std::invalid_argument("WEFT_LAYOUT_LIMIT: line measurement work");
             }
             auto shaped = fonts ? fonts->shape(s, size).shaped : font.shape(s, size);
             if (shaped.missing_glyph) {
-                throw std::invalid_argument("CE_LAYOUT_FONT: missing glyph");
+                throw std::invalid_argument("WEFT_LAYOUT_FONT: missing glyph");
             }
             return shaped;
         };
-        std::vector<ProbeTextLine> out;
+        std::vector<TextLine> out;
         if (input.empty()) {
             return out;
         }
@@ -871,4 +871,4 @@ namespace caseelephant {
         }
         return out;
     }
-} // namespace caseelephant
+} // namespace weft

@@ -16,14 +16,13 @@ struct GallerySceneDescriptor {
 inline constexpr auto gallery_scene_descriptors = [] {
     std::array<GallerySceneDescriptor, gallery_scene_count> out{};
     unsigned n{};
-    for (unsigned i = 0; i < caseelephant::probe_constants::gallery::css_scene_count; ++i) {
-        out[n++] = {"CSS_TESTS", i, i, caseelephant::probe_constants::gallery::css_card_width,
-                    caseelephant::probe_constants::gallery::css_card_height};
+    for (unsigned i = 0; i < weft::probe_constants::gallery::css_scene_count; ++i) {
+        out[n++] = {"CSS_TESTS", i, i, weft::probe_constants::gallery::css_card_width,
+                    weft::probe_constants::gallery::css_card_height};
     }
-    for (unsigned i = 0; i < caseelephant::probe_constants::gallery::d3_scene_count; ++i) {
-        out[n++] = {"D3_TESTS", i, caseelephant::probe_constants::gallery::css_scene_count + i,
-                    caseelephant::probe_constants::gallery::d3_card_size,
-                    caseelephant::probe_constants::gallery::d3_card_size};
+    for (unsigned i = 0; i < weft::probe_constants::gallery::d3_scene_count; ++i) {
+        out[n++] = {"D3_TESTS", i, weft::probe_constants::gallery::css_scene_count + i,
+                    weft::probe_constants::gallery::d3_card_size, weft::probe_constants::gallery::d3_card_size};
     }
     const char* groups[] = {"D3_INTERACTIVE_TESTS", "KLINE_TESTS", "FRAMER_TESTS",
                             "SPRING_TESTS",         "ICON_TESTS",  "ANIME_TESTS"};
@@ -40,7 +39,7 @@ inline constexpr auto gallery_scene_descriptors = [] {
 }();
 
 inline bool gallery_cluster_group(const std::string& group) {
-    for (unsigned i = caseelephant::probe_constants::gallery::core_scene_count; i < gallery_scene_count; ++i) {
+    for (unsigned i = weft::probe_constants::gallery::core_scene_count; i < gallery_scene_count; ++i) {
         if (group == gallery_scene_descriptors[i].group) {
             return true;
         }

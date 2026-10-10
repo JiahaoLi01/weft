@@ -53,7 +53,7 @@ Spring Trail 的中途对照：静态Unicode源修正前paint P50/P99/max=11.592
 ## 手操记录
 
 ```powershell
-$exe = 'F:\Projects\CaseElephant\build\windows-msvc\bin\Release\ce_d3d11_probe.exe'
+$exe = 'F:\Projects\CaseElephant\build\windows-msvc\bin\Release\weft_d3d11_probe.exe'
 & $exe --gallery-window-profile-hardware 'F:\Projects\CaseElephant\artifacts\local\interaction-profile\manual'
 # 操作D3拖拽、K-Line移入、播放/重放动画；Esc退出后写完trace。
 python tools/analyze_gallery_trace.py artifacts/local/interaction-profile/manual

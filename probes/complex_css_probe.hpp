@@ -3,12 +3,12 @@
 
 int run_complex_css_test(bool warp, const std::filesystem::path& folder) {
     std::filesystem::create_directories(folder);
-    Experiment gpu(warp, caseelephant::probe_constants::gallery::complex_css_surface_width,
-                   caseelephant::probe_constants::gallery::complex_css_surface_height);
+    Experiment gpu(warp, weft::probe_constants::gallery::complex_css_surface_width,
+                   weft::probe_constants::gallery::complex_css_surface_height);
     gpu.cache_assets = true;
     TwoFramePipeline pipeline(gpu);
     SceneGpuSurfaces surfaces(gpu, pipeline);
-    caseelephant::SceneRasterProbe reference;
+    weft::SceneRaster reference;
     unsigned comparisons{};
     double worst_mean{};
     double minimum_iou = 1;
@@ -16,15 +16,15 @@ int run_complex_css_test(bool warp, const std::filesystem::path& folder) {
     std::size_t uploads{};
     std::size_t uniform{};
     std::size_t fallback{};
-    caseelephant::ProbeSceneFrame stable;
-    for (unsigned frame = 0; frame < caseelephant::probe_constants::gallery::complex_css_projective_frames; ++frame) {
-        using Node = caseelephant::ProbeSceneNode;
-        caseelephant::ProbeSceneFrame scene;
+    weft::SceneFrame stable;
+    for (unsigned frame = 0; frame < weft::probe_constants::gallery::complex_css_projective_frames; ++frame) {
+        using Node = weft::SceneNode;
+        weft::SceneFrame scene;
         auto& root = scene.root;
         root.tag = "div";
         root.identity = {2, 1, 1};
-        root.box = {0, 0, caseelephant::probe_constants::gallery::complex_css_scene_width,
-                    caseelephant::probe_constants::gallery::complex_css_scene_height};
+        root.box = {0, 0, weft::probe_constants::gallery::complex_css_scene_width,
+                    weft::probe_constants::gallery::complex_css_scene_height};
         root.style = {{"background-color", "#050403"}, {"overflow", "hidden"}};
         Node container;
         container.tag = "div";
@@ -92,7 +92,7 @@ int run_complex_css_test(bool warp, const std::filesystem::path& folder) {
         surfaces.publish();
         FramePacket packet;
         packet.draws.push_back({{0, 0, float(image.width), float(image.height)}, {1, 1, 1, 1}, 0});
-        std::array<bool, caseelephant::probe_constants::gallery::core_scene_count> visible{};
+        std::array<bool, weft::probe_constants::gallery::core_scene_count> visible{};
         visible[0] = true;
         const auto serial = pipeline.submit(std::move(packet),
                                             [] {
@@ -128,14 +128,14 @@ int run_complex_css_test(bool warp, const std::filesystem::path& folder) {
         fallback = std::max(fallback, stats.fallback_border_draws);
     }
     require(projected > 10 && uploads > 0 && uniform > 0 && fallback > 0, "complex CSS missed fast or fallback paths");
-    for (unsigned frame = 0; frame < caseelephant::probe_constants::gallery::complex_css_border_frames; ++frame) {
-        using Node = caseelephant::ProbeSceneNode;
-        caseelephant::ProbeSceneFrame scene;
+    for (unsigned frame = 0; frame < weft::probe_constants::gallery::complex_css_border_frames; ++frame) {
+        using Node = weft::SceneNode;
+        weft::SceneFrame scene;
         auto& root = scene.root;
         root.tag = "div";
         root.identity = {3, 1, 1};
-        root.box = {0, 0, caseelephant::probe_constants::gallery::complex_css_scene_width,
-                    caseelephant::probe_constants::gallery::complex_css_scene_height};
+        root.box = {0, 0, weft::probe_constants::gallery::complex_css_scene_width,
+                    weft::probe_constants::gallery::complex_css_scene_height};
         root.style = {{"background-color", "#050403"}, {"overflow", "hidden"}};
         Node group;
         group.tag = "div";
@@ -180,7 +180,7 @@ int run_complex_css_test(bool warp, const std::filesystem::path& folder) {
         surfaces.publish();
         FramePacket packet;
         packet.draws.push_back({{0, 0, float(image.width), float(image.height)}, {1, 1, 1, 1}, 0});
-        std::array<bool, caseelephant::probe_constants::gallery::core_scene_count> visible{};
+        std::array<bool, weft::probe_constants::gallery::core_scene_count> visible{};
         visible[0] = true;
         const auto serial = pipeline.submit(std::move(packet),
                                             [] {
@@ -204,15 +204,15 @@ int run_complex_css_test(bool warp, const std::filesystem::path& folder) {
         ++comparisons;
     }
     const auto before = surfaces.raster_work();
-    for (unsigned frame = 0; frame < caseelephant::probe_constants::gallery::complex_css_angle_frames; ++frame) {
+    for (unsigned frame = 0; frame < weft::probe_constants::gallery::complex_css_angle_frames; ++frame) {
         stable.root.children[0].children[0].style["transform"] =
             "perspective(400px) rotateY(" + std::to_string(frame * 3) + "deg)";
-        const auto expected = reference.raster(stable, caseelephant::probe_constants::gallery::scene_raster_scale);
-        auto& image = surfaces.paint(0, stable, caseelephant::probe_constants::gallery::scene_raster_scale);
+        const auto expected = reference.raster(stable, weft::probe_constants::gallery::scene_raster_scale);
+        auto& image = surfaces.paint(0, stable, weft::probe_constants::gallery::scene_raster_scale);
         surfaces.publish();
         FramePacket packet;
         packet.draws.push_back({{0, 0, float(image.width), float(image.height)}, {1, 1, 1, 1}, 0});
-        std::array<bool, caseelephant::probe_constants::gallery::core_scene_count> visible{};
+        std::array<bool, weft::probe_constants::gallery::core_scene_count> visible{};
         visible[0] = true;
         const auto serial = pipeline.submit(std::move(packet),
                                             [] {
@@ -228,26 +228,26 @@ int run_complex_css_test(bool warp, const std::filesystem::path& folder) {
     const auto angles = surfaces.raster_work();
     const auto reuse_uploads = angles.gpu_plane_uploads - before.gpu_plane_uploads;
     require(angles.gpu_projective_draws - before.gpu_projective_draws ==
-                    caseelephant::probe_constants::gallery::complex_css_angle_frames &&
+                    weft::probe_constants::gallery::complex_css_angle_frames &&
                 reuse_uploads <= 3,
             "angle-only motion re-uploaded immutable plane contents");
-    caseelephant::ScriptDomProbe owner({caseelephant::probe_constants::gallery::vm_stack_bytes,
-                                        caseelephant::probe_constants::gallery::scene_vm_execution_budget_ms});
-    caseelephant::install_script_platform(owner, caseelephant::ScriptPlatformModule::WebHost);
+    weft::ScriptDom owner(
+        {weft::probe_constants::gallery::vm_stack_bytes, weft::probe_constants::gallery::scene_vm_execution_budget_ms});
+    weft::install_script_platform(owner, weft::ScriptPlatformModule::WebHost);
     owner.eval(
         "globalThis.root=document.getElementById('root');root.setAttribute('style','position:relative;overflow:hidden;background:#050403');globalThis.g=document.createElement('div');g.setAttribute('style','position:absolute;left:24.25px;top:17.5px;width:100px;height:90px;overflow:visible;border-radius:13px;border-width:3px;border-color:currentcolor;color:#dd4455;background:rgba(20,60,100,.3);transform-origin:15% 75%;animation:motion 1s linear infinite alternate;transition-property:background-color,color;transition-duration:200ms;transition-timing-function:linear');root.appendChild(g);globalThis.a=document.createElement('div');a.setAttribute('style','position:absolute;left:-11px;top:14px;width:68px;height:42px;background:rgba(255,30,20,.6);z-index:1');globalThis.b=document.createElement('div');b.setAttribute('style','position:absolute;left:25px;top:30px;width:68px;height:45px;background:rgba(20,60,255,.7);z-index:2');g.appendChild(a);g.appendChild(b)");
     const std::string timeline =
         "@keyframes motion{from{transform:translate(0,0) rotate(-25deg) scale(.8,1.1);opacity:.31}to{transform:translate(18%,9px) rotate(33deg) scale(1.1,.85);opacity:.79}}";
-    caseelephant::SceneProbe typed("", timeline, [&](auto text, const auto& style) {
+    weft::SceneSolver typed("", timeline, [&](auto text, const auto& style) {
         return reference.measure(text, style);
     });
-    caseelephant::SceneProbe full(
+    weft::SceneSolver full(
         "", timeline,
         [&](auto text, const auto& style) {
             return reference.measure(text, style);
         },
         false);
-    for (unsigned frame = 0; frame < caseelephant::probe_constants::gallery::complex_css_typed_frames; ++frame) {
+    for (unsigned frame = 0; frame < weft::probe_constants::gallery::complex_css_typed_frames; ++frame) {
         if (frame % 13 == 3) {
             owner.eval("g.style.color='" + std::string(frame % 26 < 13 ? "#224466" : "#ff8844") +
                        "';g.style.backgroundColor='" +
@@ -290,12 +290,12 @@ int run_complex_css_test(bool warp, const std::filesystem::path& folder) {
             owner.eval("g.style.animation='motion 1s linear infinite alternate'");
         }
         auto dom = owner.snapshot_subtree("#root");
-        auto scene = typed.frame(dom, caseelephant::probe_constants::gallery::complex_css_scene_width,
-                                 caseelephant::probe_constants::gallery::complex_css_scene_height,
-                                 frame * caseelephant::probe_constants::gallery::complex_css_typed_frame_ms);
-        auto oracle = full.frame(dom, caseelephant::probe_constants::gallery::complex_css_scene_width,
-                                 caseelephant::probe_constants::gallery::complex_css_scene_height,
-                                 frame * caseelephant::probe_constants::gallery::complex_css_typed_frame_ms);
+        auto scene = typed.frame(dom, weft::probe_constants::gallery::complex_css_scene_width,
+                                 weft::probe_constants::gallery::complex_css_scene_height,
+                                 frame * weft::probe_constants::gallery::complex_css_typed_frame_ms);
+        auto oracle = full.frame(dom, weft::probe_constants::gallery::complex_css_scene_width,
+                                 weft::probe_constants::gallery::complex_css_scene_height,
+                                 frame * weft::probe_constants::gallery::complex_css_typed_frame_ms);
         require(scene.root == oracle.root, "typed sampling changed reference style or layout");
         const float scale = frame % 3 == 0 ? 1.f : frame % 3 == 1 ? 1.5f : 2.f;
         const auto expected = reference.raster(oracle, scale);
@@ -303,7 +303,7 @@ int run_complex_css_test(bool warp, const std::filesystem::path& folder) {
         surfaces.publish();
         FramePacket packet;
         packet.draws.push_back({{0, 0, float(image.width), float(image.height)}, {1, 1, 1, 1}, 0});
-        std::array<bool, caseelephant::probe_constants::gallery::core_scene_count> visible{};
+        std::array<bool, weft::probe_constants::gallery::core_scene_count> visible{};
         visible[0] = true;
         const auto serial = pipeline.submit(std::move(packet),
                                             [] {
@@ -321,32 +321,32 @@ int run_complex_css_test(bool warp, const std::filesystem::path& folder) {
     }
     // More programs than one painter can retain. Eviction during recursion
     // must not invalidate the parent replay or borrow any child node pointer.
-    for (unsigned frame = 0; frame < caseelephant::probe_constants::gallery::complex_css_capacity_frames; ++frame) {
-        caseelephant::ProbeSceneFrame scene;
+    for (unsigned frame = 0; frame < weft::probe_constants::gallery::complex_css_capacity_frames; ++frame) {
+        weft::SceneFrame scene;
         scene.root.identity = {99, 1, 1};
         scene.root.tag = "div";
-        scene.root.box = {0, 0, caseelephant::probe_constants::gallery::complex_css_scene_width,
-                          caseelephant::probe_constants::gallery::complex_css_scene_height};
+        scene.root.box = {0, 0, weft::probe_constants::gallery::complex_css_scene_width,
+                          weft::probe_constants::gallery::complex_css_scene_height};
         scene.root.style = {{"background-color", "#050403"}, {"opacity", ".7"}, {"overflow", "hidden"}};
-        for (unsigned i = 0; i < caseelephant::probe_constants::gallery::complex_css_capacity_children; ++i) {
-            caseelephant::ProbeSceneNode child;
+        for (unsigned i = 0; i < weft::probe_constants::gallery::complex_css_capacity_children; ++i) {
+            weft::SceneNode child;
             child.identity = {1000 + i, 1 + frame / 2, 99};
             child.tag = "div";
             child.box = {float(i % 30) * 5, float(i / 30) * 10, 8, 13};
             child.style = {{"background-color", i % 2 ? "rgba(200,80,40,.6)" : "rgba(20,90,200,.7)"},
                            {"z-index", std::to_string(i % 7)}};
-            child.paint = caseelephant::compile_scene_paint_values(child.style);
+            child.paint = weft::compile_scene_paint_values(child.style);
             scene.root.children.push_back(std::move(child));
         }
         if (frame % 2) {
             std::reverse(scene.root.children.begin(), scene.root.children.end());
         }
-        const auto expected = reference.raster(scene, caseelephant::probe_constants::gallery::scene_raster_scale);
-        auto& image = surfaces.paint(0, scene, caseelephant::probe_constants::gallery::scene_raster_scale);
+        const auto expected = reference.raster(scene, weft::probe_constants::gallery::scene_raster_scale);
+        auto& image = surfaces.paint(0, scene, weft::probe_constants::gallery::scene_raster_scale);
         surfaces.publish();
         FramePacket packet;
         packet.draws.push_back({{0, 0, float(image.width), float(image.height)}, {1, 1, 1, 1}, 0});
-        std::array<bool, caseelephant::probe_constants::gallery::core_scene_count> visible{};
+        std::array<bool, weft::probe_constants::gallery::core_scene_count> visible{};
         visible[0] = true;
         const auto serial = pipeline.submit(std::move(packet),
                                             [] {

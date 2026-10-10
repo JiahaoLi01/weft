@@ -5,31 +5,31 @@
 #include <limits>
 #include <stdexcept>
 
-namespace caseelephant {
-    ProbeViewport ProbeViewport::fit(float pw, float ph, float lw, float lh) {
+namespace weft {
+    Viewport Viewport::fit(float pw, float ph, float lw, float lh) {
         if (!std::isfinite(pw) || !std::isfinite(ph) || !std::isfinite(lw) || !std::isfinite(lh) || pw < 0 || ph < 0 ||
             lw <= 0 || lh <= 0) {
-            throw std::invalid_argument("CE_VIEWPORT: finite positive logical extent");
+            throw std::invalid_argument("WEFT_VIEWPORT: finite positive logical extent");
         }
         const float s = std::min(pw / lw, ph / lh);
         return {(pw - lw * s) / 2, (ph - lh * s) / 2, lw * s, lh * s, s};
     }
 
-    std::array<double, 2> ProbeViewport::logical(double px, double py) const {
+    std::array<double, 2> Viewport::logical(double px, double py) const {
         if (scale <= 0 || !std::isfinite(px) || !std::isfinite(py)) {
             return {-1, -1};
         }
         return {(px - x) / scale, (py - y) / scale};
     }
 
-    ProbeViewport ProbeViewport::through_surface(float pw, float ph, float sw, float sh, float lw, float lh) {
+    Viewport Viewport::through_surface(float pw, float ph, float sw, float sh, float lw, float lh) {
         const auto raster = fit(sw, sh, lw, lh);
         const auto display = fit(pw, ph, sw, sh);
         return {display.x + raster.x * display.scale, display.y + raster.y * display.scale,
                 raster.width * display.scale, raster.height * display.scale, raster.scale * display.scale};
     }
 
-    std::optional<std::size_t> hit_page_probe(const ProbePage& page, double x, double y) {
+    std::optional<std::size_t> hit_page(const Page& page, double x, double y) {
         if (page.hits.empty() || !std::isfinite(x) || !std::isfinite(y)) {
             return {};
         }
@@ -41,14 +41,14 @@ namespace caseelephant {
             for (auto i = page.hit_regions.size(); i-- > 0;) {
                 const auto& r = page.hit_regions[i];
                 if (r.hit >= page.hits.size()) {
-                    throw std::invalid_argument("CE_HIT_PROFILE: region identity index");
+                    throw std::invalid_argument("WEFT_HIT_PROFILE: region identity index");
                 }
                 if (!page.hits[r.hit].enabled || !inside(r.rect) || !inside(r.clip)) {
                     continue;
                 }
                 bool covered = true;
                 for (const auto& c : r.rounded_clips) {
-                    if (!contains_rounded_probe(c, float(x), float(y))) {
+                    if (!contains_rounded(c, float(x), float(y))) {
                         covered = false;
                         break;
                     }
@@ -59,7 +59,7 @@ namespace caseelephant {
             }
             return {};
         }
-        const auto inside = [&](const ProbePage::Hit& h) {
+        const auto inside = [&](const Page::Hit& h) {
             return h.width > 0 && h.height > 0 && x >= h.x && y >= h.y && x < h.x + h.width && y < h.y + h.height;
         };
         if (!inside(page.hits.front())) {
@@ -73,43 +73,43 @@ namespace caseelephant {
         return {};
     }
 
-    bool ProbeMouseRouter::route(ProbeMouseAction action, ProbeMouseEvent input) {
+    bool MouseRouter::route(MouseAction action, MouseEvent input) {
         (void)script_.epoch(); // Even an empty hit or value-only callback stays on its owner.
-        if (action == ProbeMouseAction::Cancel) {
+        if (action == MouseAction::Cancel) {
             cancel();
             return false;
         }
         const auto page = layout_();
-        const auto hit = hit_page_probe(page, input.client_x, input.client_y);
-        if (action == ProbeMouseAction::Down) {
+        const auto hit = hit_page(page, input.client_x, input.client_y);
+        if (action == MouseAction::Down) {
             cancel();
             if (!hit) {
                 return false;
             }
             const auto& target = page.hits[*hit];
             pressed_ = target.identity;
-            input.type = ProbeMouseType::Down;
+            input.type = MouseType::Down;
             input.buttons = constants::input::primary_button_mask;
             try {
                 const auto result = script_.dispatch_mouse(target.identity, input);
-                if (result == ProbeDispatchResult::StaleTarget) {
+                if (result == DispatchResult::StaleTarget) {
                     cancel();
                 }
-                return result != ProbeDispatchResult::StaleTarget;
+                return result != DispatchResult::StaleTarget;
             } catch (...) {
                 cancel();
                 throw;
             }
         }
-        if (action == ProbeMouseAction::Move) {
+        if (action == MouseAction::Move) {
             if (!hit) {
                 return false;
             }
-            input.type = ProbeMouseType::Move;
-            return script_.dispatch_mouse(page.hits[*hit].identity, input) != ProbeDispatchResult::StaleTarget;
+            input.type = MouseType::Move;
+            return script_.dispatch_mouse(page.hits[*hit].identity, input) != DispatchResult::StaleTarget;
         }
-        if (action != ProbeMouseAction::Up) {
-            throw std::invalid_argument("CE_MOUSE_PROFILE: unsupported action");
+        if (action != MouseAction::Up) {
+            throw std::invalid_argument("WEFT_MOUSE_PROFILE: unsupported action");
         }
         const auto pressed = pressed_;
         cancel(); // Exception or reentrant callback cannot retain press.
@@ -117,14 +117,14 @@ namespace caseelephant {
             return false;
         }
         const auto released = page.hits[*hit].identity;
-        input.type = ProbeMouseType::Up;
+        input.type = MouseType::Up;
         input.buttons = 0;
         script_.dispatch_mouse(released, input);
         if (!pressed) {
             return false;
         }
         const auto current = layout_();
-        auto find = [&](ProbeNodeIdentity id) -> std::optional<std::size_t> {
+        auto find = [&](NodeIdentity id) -> std::optional<std::size_t> {
             for (std::size_t i = 0; i < current.hits.size(); ++i) {
                 if (current.hits[i].identity == id) {
                     return i;
@@ -142,29 +142,29 @@ namespace caseelephant {
         for (auto ancestor = *b; ancestor != absent; ancestor = current.hits[ancestor].parent) {
             for (auto down = *a; down != absent; down = current.hits[down].parent) {
                 if (down == ancestor) {
-                    input.type = ProbeMouseType::Click;
+                    input.type = MouseType::Click;
                     return script_.dispatch_mouse(current.hits[ancestor].identity, input) !=
-                           ProbeDispatchResult::StaleTarget;
+                           DispatchResult::StaleTarget;
                 }
             }
         }
         return false;
     }
 
-    ProbeDispatchResult ProbeMouseRouter::wheel(const ProbeWheelEvent& input) {
+    DispatchResult MouseRouter::wheel(const WheelEvent& input) {
         (void)script_.epoch(); // Owner/fault checks also apply when no region is hit.
         for (double v : {input.delta_x, input.delta_y, input.client_x, input.client_y, input.screen_x, input.screen_y,
                          input.time_ms}) {
             if (!std::isfinite(v)) {
-                throw std::invalid_argument("CE_WHEEL_PROFILE: finite input values");
+                throw std::invalid_argument("WEFT_WHEEL_PROFILE: finite input values");
             }
         }
         if (input.time_ms < 0 || std::abs(input.delta_x) > constants::input::max_wheel_delta_px ||
             std::abs(input.delta_y) > constants::input::max_wheel_delta_px) {
-            throw std::invalid_argument("CE_WHEEL_PROFILE: bounded logical pixel deltas/time");
+            throw std::invalid_argument("WEFT_WHEEL_PROFILE: bounded logical pixel deltas/time");
         }
         const auto page = layout_();
-        const auto hit = hit_page_probe(page, input.client_x, input.client_y);
-        return hit ? script_.dispatch_wheel(page.hits[*hit].identity, input) : ProbeDispatchResult::StaleTarget;
+        const auto hit = hit_page(page, input.client_x, input.client_y);
+        return hit ? script_.dispatch_wheel(page.hits[*hit].identity, input) : DispatchResult::StaleTarget;
     }
-} // namespace caseelephant
+} // namespace weft

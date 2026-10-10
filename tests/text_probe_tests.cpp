@@ -8,16 +8,16 @@
 #include <thread>
 
 namespace {
-    using caseelephant::testing::require;
+    using weft::testing::require;
 
     bool near(float a, float b) {
-        return std::abs(a - b) < caseelephant::test_constants::style_text::float_tolerance;
+        return std::abs(a - b) < weft::test_constants::style_text::float_tolerance;
     }
 } // namespace
 
 int main() {
     try {
-        caseelephant::TextProbeFont font(CE_SOURCE_DIR "/third_party/ahem/Ahem.ttf");
+        weft::Font font(WEFT_SOURCE_DIR "/third_party/ahem/Ahem.ttf");
         const auto metrics = font.metrics(20);
         require(near(metrics.ascent, 16) && near(metrics.descent, 4), "Ahem baseline metrics");
         const auto shaped = font.shape("XX XX", 20);

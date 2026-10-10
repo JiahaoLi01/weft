@@ -13,16 +13,14 @@
 #include <limits>
 
 namespace {
-    using caseelephant::testing::require;
+    using weft::testing::require;
 
-    void pixel(const caseelephant::ProbeCanvasSnapshot& s, unsigned x, unsigned y, std::array<int, 4> expected,
-               int tolerance = caseelephant::test_constants::style_text::canvas_pixel_tolerance) {
+    void pixel(const weft::CanvasSnapshot& s, unsigned x, unsigned y, std::array<int, 4> expected,
+               int tolerance = weft::test_constants::style_text::canvas_pixel_tolerance) {
         for (unsigned c = 0; c < 4; ++c) {
             require(
-                std::abs(
-                    int((
-                        *s.rgba)[(std::size_t(y) * s.width + x) * caseelephant::constants::rgba8_bytes_per_pixel + c]) -
-                    expected[c]) <= tolerance,
+                std::abs(int((*s.rgba)[(std::size_t(y) * s.width + x) * weft::constants::rgba8_bytes_per_pixel + c]) -
+                         expected[c]) <= tolerance,
                 "actual canvas pixel mismatch");
         }
     }
@@ -36,8 +34,8 @@ int main() {
     try {
         require(SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED)), "COM init");
         {
-            caseelephant::ScriptDomProbe vm;
-            vm.install_canvas_host(caseelephant::make_d2d_canvas_factory_probe());
+            weft::ScriptDom vm;
+            vm.install_canvas_host(weft::make_d2d_canvas_factory());
             vm.eval("globalThis.c=document.createElement('canvas');");
             vm.eval("c.id='canvas';document.body.appendChild(c)");
             vm.eval("globalThis.ctx=c.getContext('2d')");
@@ -81,7 +79,7 @@ int main() {
                     "invalid color/canonical getter");
             require(
                 vm.eval(
-                    "(()=>{try{ctx.fillStyle='color(display-p3 1 0 0)';return false}catch(e){return String(e).includes('CE_CANVAS_COLOR_PROFILE')}})()") ==
+                    "(()=>{try{ctx.fillStyle='color(display-p3 1 0 0)';return false}catch(e){return String(e).includes('WEFT_CANVAS_COLOR_PROFILE')}})()") ==
                     "true",
                 "unsupported color silently accepted");
             vm.eval("ctx.globalAlpha=1;ctx.beginPath();ctx.arc(4,4,2,0,Math.PI*2);ctx.fill()");
@@ -93,7 +91,7 @@ int main() {
                 "negative radius error");
             require(
                 vm.eval(
-                    "(()=>{ctx.beginPath();try{ctx.arc(1,1,1,0,-Math.PI*2);return false}catch(e){return String(e).includes('CE_CANVAS_PATH_PROFILE')}})()") ==
+                    "(()=>{ctx.beginPath();try{ctx.arc(1,1,1,0,-Math.PI*2);return false}catch(e){return String(e).includes('WEFT_CANVAS_PATH_PROFILE')}})()") ==
                     "true",
                 "unsupported arc direction silently changed");
             vm.eval("ctx.fillRect(NaN,0,5,5)");
@@ -144,7 +142,7 @@ int main() {
             }
             require(stale, "dead canvas snapshot accepted");
             vm.reset_document();
-            vm.install_canvas_host(caseelephant::make_d2d_canvas_factory_probe());
+            vm.install_canvas_host(weft::make_d2d_canvas_factory());
             vm.eval(
                 "globalThis.o=document.createElement('canvas');o.id='opaque';document.body.appendChild(o);o.width=4;o.height=4;globalThis.oc=o.getContext('2d',{alpha:false});oc.fillStyle='rgba(255,0,0,0.5)';oc.fillRect(0,0,4,4)");
             auto opaque = vm.canvas_snapshot(vm.node_identity("#opaque"));
@@ -165,7 +163,7 @@ int main() {
             require(vm.stats().canvas_contexts == 0 && vm.stats().canvas_backing_bytes == 0,
                     "epoch reset retained raster");
             pixel(opaque, 1, 1, {128, 0, 0, 255});
-            vm.install_canvas_host(caseelephant::make_d2d_canvas_factory_probe());
+            vm.install_canvas_host(weft::make_d2d_canvas_factory());
             vm.eval(
                 "globalThis.many=Array.from({length:8},()=>{const c=document.createElement('canvas');c.width=0;return c.getContext('2d')});");
             require(
@@ -179,7 +177,7 @@ int main() {
             vm.eval(
                 "globalThis.a=document.createElement('canvas');a.width=2048;a.height=2048;globalThis.ac=a.getContext('2d');globalThis.b=document.createElement('canvas');b.width=2048;b.height=2048;globalThis.bc=b.getContext('2d');");
             require(vm.stats().canvas_backing_bytes ==
-                        static_cast<unsigned>(caseelephant::constants::canvas::max_backing_bytes),
+                        static_cast<unsigned>(weft::constants::canvas::max_backing_bytes),
                     "aggregate backing accounting");
             require(
                 vm.eval(
@@ -187,81 +185,77 @@ int main() {
                     "true",
                 "resize overlap exceeded bounded backing quota");
             require(vm.stats().peak_canvas_backing_bytes <=
-                        static_cast<unsigned>(caseelephant::constants::canvas::max_backing_bytes),
+                        static_cast<unsigned>(weft::constants::canvas::max_backing_bytes),
                     "resize overlap peak exceeded limit");
             vm.eval("a=b=ac=bc=null");
             vm.collect_garbage();
             require(vm.stats().canvas_backing_bytes == 0, "large detached cycles leaked");
             vm.reset_document();
-            vm.install_canvas_host(caseelephant::make_d2d_canvas_factory_probe());
+            vm.install_canvas_host(weft::make_d2d_canvas_factory());
             vm.eval(
                 "globalThis.p=document.createElement('div');p.id='p';document.body.appendChild(p);globalThis.c=document.createElement('canvas');c.id='intrinsic';p.appendChild(c);globalThis.ctx=c.getContext('2d');");
-            caseelephant::TextProbeFont font(CE_SOURCE_DIR
-                                             "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
+            weft::Font font(WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
             const auto css = "#p{width:800px;height:600px}canvas{display:block}";
-            auto page = caseelephant::build_positioned_page_probe(vm.snapshot_subtree("#p"), css, 800, 600, font);
+            auto page = weft::build_positioned_page(vm.snapshot_subtree("#p"), css, 800, 600, font);
             require(page.elements[1].rect[2] == 300 && page.elements[1].rect[3] == 150,
                     "default intrinsic Canvas geometry");
             vm.eval("c.width=800;c.height=600");
             // This VM has no CSSOM bootstrap; use the real content attribute.
             vm.eval("c.setAttribute('style','width:400px')");
-            page = caseelephant::build_positioned_page_probe(vm.snapshot_subtree("#p"), css, 800, 600, font);
+            page = weft::build_positioned_page(vm.snapshot_subtree("#p"), css, 800, 600, font);
             require(page.elements[1].rect[2] == 400 && page.elements[1].rect[3] == 300 &&
                         vm.eval("c.width===800 && c.height===600") == "true",
                     "CSS size changed backing or intrinsic ratio");
             vm.eval("c.setAttribute('style','position:absolute;left:10px;top:20px')");
-            page = caseelephant::build_positioned_page_probe(vm.snapshot_subtree("#p"), css, 800, 600, font);
+            page = weft::build_positioned_page(vm.snapshot_subtree("#p"), css, 800, 600, font);
             require(page.elements[1].rect == std::array<double, 4>{10, 20, 800, 600},
                     "absolute auto replaced Canvas size");
             vm.eval("c.setAttribute('style','display:none')");
-            page = caseelephant::build_positioned_page_probe(vm.snapshot_subtree("#p"), css, 800, 600, font);
+            page = weft::build_positioned_page(vm.snapshot_subtree("#p"), css, 800, 600, font);
             require(page.elements[1].client_rects.empty() && page.elements[1].rect[2] == 0, "hidden Canvas geometry");
             // Command batching must not change persistent pixels. Each side uses a
             // real raster; one snapshots each mutation, the other every 16 changes.
-            auto budget = std::make_shared<caseelephant::ProbeCanvasBudget>();
-            auto factory = caseelephant::make_d2d_canvas_factory_probe();
-            caseelephant::ProbeCanvasState incremental(
-                factory, budget, caseelephant::test_constants::style_text::canvas_batching_size,
-                caseelephant::test_constants::style_text::canvas_batching_size, true);
-            caseelephant::ProbeCanvasState batched(
-                factory, budget, caseelephant::test_constants::style_text::canvas_batching_size,
-                caseelephant::test_constants::style_text::canvas_batching_size, true);
-            std::uint32_t seed = caseelephant::test_constants::style_text::canvas_batching_seed;
-            for (unsigned i = 0; i < caseelephant::test_constants::style_text::canvas_batching_iterations; ++i) {
-                seed = seed * caseelephant::constants::lcg_multiplier + caseelephant::constants::lcg_increment;
-                const unsigned x = seed % caseelephant::test_constants::style_text::canvas_batching_origin_range;
-                const unsigned y = (seed >> 8) % caseelephant::test_constants::style_text::canvas_batching_origin_range;
+            auto budget = std::make_shared<weft::CanvasBudget>();
+            auto factory = weft::make_d2d_canvas_factory();
+            weft::CanvasState incremental(factory, budget, weft::test_constants::style_text::canvas_batching_size,
+                                          weft::test_constants::style_text::canvas_batching_size, true);
+            weft::CanvasState batched(factory, budget, weft::test_constants::style_text::canvas_batching_size,
+                                      weft::test_constants::style_text::canvas_batching_size, true);
+            std::uint32_t seed = weft::test_constants::style_text::canvas_batching_seed;
+            for (unsigned i = 0; i < weft::test_constants::style_text::canvas_batching_iterations; ++i) {
+                seed = seed * weft::constants::lcg_multiplier + weft::constants::lcg_increment;
+                const unsigned x = seed % weft::test_constants::style_text::canvas_batching_origin_range;
+                const unsigned y = (seed >> 8) % weft::test_constants::style_text::canvas_batching_origin_range;
                 for (auto* state : {&incremental, &batched}) {
                     state->color = {float(seed & 255) / 255, float((seed >> 8) & 255) / 255,
                                     float((seed >> 16) & 255) / 255, .5f};
-                    if (i % caseelephant::test_constants::style_text::canvas_batching_resize_period == 0) {
-                        state->resize(caseelephant::test_constants::style_text::canvas_batching_size,
-                                      caseelephant::test_constants::style_text::canvas_batching_size);
-                    } else if (i % caseelephant::test_constants::style_text::canvas_batching_clear_period == 0) {
-                        state->fill_rect(x, y, caseelephant::test_constants::style_text::canvas_batching_rect_size,
-                                         caseelephant::test_constants::style_text::canvas_batching_rect_size, true);
+                    if (i % weft::test_constants::style_text::canvas_batching_resize_period == 0) {
+                        state->resize(weft::test_constants::style_text::canvas_batching_size,
+                                      weft::test_constants::style_text::canvas_batching_size);
+                    } else if (i % weft::test_constants::style_text::canvas_batching_clear_period == 0) {
+                        state->fill_rect(x, y, weft::test_constants::style_text::canvas_batching_rect_size,
+                                         weft::test_constants::style_text::canvas_batching_rect_size, true);
                     } else {
-                        state->fill_rect(x, y, caseelephant::test_constants::style_text::canvas_batching_rect_size,
-                                         caseelephant::test_constants::style_text::canvas_batching_rect_size);
+                        state->fill_rect(x, y, weft::test_constants::style_text::canvas_batching_rect_size,
+                                         weft::test_constants::style_text::canvas_batching_rect_size);
                     }
                 }
                 auto snapshot = incremental.pixels();
-                if (i % caseelephant::test_constants::style_text::canvas_batching_compare_period ==
-                        caseelephant::test_constants::style_text::canvas_batching_compare_period - 1 ||
-                    i % caseelephant::test_constants::style_text::canvas_batching_resize_period == 0) {
+                if (i % weft::test_constants::style_text::canvas_batching_compare_period ==
+                        weft::test_constants::style_text::canvas_batching_compare_period - 1 ||
+                    i % weft::test_constants::style_text::canvas_batching_resize_period == 0) {
                     require(*snapshot == *batched.pixels(), "snapshot batching changed full persistent bitmap");
                 }
             }
-            for (unsigned cycle = 0; cycle < caseelephant::test_constants::style_text::canvas_lifecycle_cycles;
-                 ++cycle) {
+            for (unsigned cycle = 0; cycle < weft::test_constants::style_text::canvas_lifecycle_cycles; ++cycle) {
                 vm.eval(
                     "(()=>{for(let n=0;n<4;n++){const c=document.createElement('canvas');c.width=8;c.height=8;const ctx=c.getContext('2d');ctx.canvas.onclick=()=>ctx.fillRect(0,0,1,1);ctx.fillRect(0,0,8,8)}})()");
                 vm.collect_garbage();
                 require(vm.stats().canvas_contexts == 1, "Canvas callback/context/detached lifecycle stress leaked");
             }
-            incremental.resize(caseelephant::test_constants::style_text::canvas_batching_size,
-                               caseelephant::test_constants::style_text::canvas_batching_size);
-            for (unsigned n = 0; n < caseelephant::constants::max_canvas_pending_commands; ++n) {
+            incremental.resize(weft::test_constants::style_text::canvas_batching_size,
+                               weft::test_constants::style_text::canvas_batching_size);
+            for (unsigned n = 0; n < weft::constants::max_canvas_pending_commands; ++n) {
                 incremental.fill_rect(0, 0, 1, 1);
             }
             bool quota = false;
@@ -285,8 +279,8 @@ int main() {
             batched.version = before_version;
         }
         {
-            caseelephant::ScriptDomProbe vm;
-            auto real = caseelephant::make_d2d_canvas_factory_probe();
+            weft::ScriptDom vm;
+            auto real = weft::make_d2d_canvas_factory();
             unsigned calls{};
             vm.install_canvas_host([&](std::uint32_t w, std::uint32_t h, bool alpha) {
                 if (++calls == 2) {
@@ -303,7 +297,7 @@ int main() {
             } catch (...) {
                 failed = true;
             }
-            require(failed && vm.stats().canvas_backing_bytes == 8 * 8 * caseelephant::constants::rgba8_bytes_per_pixel,
+            require(failed && vm.stats().canvas_backing_bytes == 8 * 8 * weft::constants::rgba8_bytes_per_pixel,
                     "backend failure did not preserve old raster");
             failed = false;
             try {

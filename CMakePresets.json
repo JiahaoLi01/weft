@@ -8,7 +8,7 @@
       "generator": "Visual Studio 17 2022",
       "architecture": "x64",
       "binaryDir": "${sourceDir}/build/windows-msvc",
-      "cacheVariables": { "CE_BUILD_TESTS": "ON", "CE_BUILD_PROBES": "ON" },
+      "cacheVariables": { "WEFT_BUILD_TESTS": "ON", "WEFT_BUILD_PROBES": "ON" },
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
     },
     {
@@ -16,7 +16,7 @@
       "displayName": "Ninja with an initialized host toolchain",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/portable-ninja",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "CE_BUILD_TESTS": "ON", "CE_BUILD_PROBES": "ON" }
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "WEFT_BUILD_TESTS": "ON", "WEFT_BUILD_PROBES": "ON" }
     }
   ],
   "buildPresets": [

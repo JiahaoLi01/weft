@@ -2,7 +2,7 @@
 
 // Test-only values of the style cascade, text/font and Canvas2D tests. Each constant has the
 // type of the literal it replaced.
-namespace caseelephant::test_constants::style_text {
+namespace weft::test_constants::style_text {
     // Tolerance for float colors, advances and box sizes.
     inline constexpr float float_tolerance = 0.001f;
 
@@ -49,4 +49,4 @@ namespace caseelephant::test_constants::style_text {
     inline constexpr int canvas_batching_compare_period = 16;
     // Create/fill/collect cycles of the Canvas callback lifecycle stress.
     inline constexpr int canvas_lifecycle_cycles = 50;
-} // namespace caseelephant::test_constants::style_text
+} // namespace weft::test_constants::style_text

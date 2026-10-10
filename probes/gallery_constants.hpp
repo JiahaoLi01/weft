@@ -14,7 +14,7 @@
 //
 // Each constant has the type of the literals it replaced (a plain integer literal is int), so
 // arithmetic, comparisons and generated code at every use site stay exactly as before.
-namespace caseelephant::probe_constants::gallery {
+namespace weft::probe_constants::gallery {
     // --- Gallery inventory (examples/crpg-gallery/native/case-list.js) ---
 
     // Entries and sections of the fixed gallery catalogue.
@@ -43,14 +43,14 @@ namespace caseelephant::probe_constants::gallery {
 
     // --- Script hosts ---
 
-    // ScriptDomProbe native stack reservations. Cluster scenes load larger original bundles.
-    inline constexpr int vm_stack_bytes = caseelephant::constants::bytes_per_mib;
-    inline constexpr int cluster_vm_stack_bytes = caseelephant::constants::script::max_vm_stack_bytes;
+    // ScriptDom native stack reservations. Cluster scenes load larger original bundles.
+    inline constexpr int vm_stack_bytes = weft::constants::bytes_per_mib;
+    inline constexpr int cluster_vm_stack_bytes = weft::constants::script::max_vm_stack_bytes;
     // Wall-time budget per eval for the shell, registry and Canvas hosts, and for original scenes.
     inline constexpr int host_vm_execution_budget_ms = 5000;
-    inline constexpr int scene_vm_execution_budget_ms = caseelephant::constants::script::max_execution_budget_ms;
+    inline constexpr int scene_vm_execution_budget_ms = weft::constants::script::max_execution_budget_ms;
     // Ready-task turns pumped per tick before the host reports a runaway task loop.
-    inline constexpr int task_pump_turn_limit = caseelephant::constants::script::max_task_pump_turns;
+    inline constexpr int task_pump_turn_limit = weft::constants::script::max_task_pump_turns;
     // Live native nodes left once an original case has unmounted and its document was reset.
     inline constexpr int unmounted_live_nodes = 3;
     // Client coordinate outside every card; moving there ends hover on the previous card.
@@ -77,7 +77,7 @@ namespace caseelephant::probe_constants::gallery {
     // Isolated catalogue observation: animation opportunities per case and their irregular step.
     inline constexpr int observation_frames = 12;
     inline constexpr double observation_step_ms = 16.123456789;
-    // ce_gallery_probe (probes/gallery_probe.cpp) observes the same opportunities on a regular 16 ms step;
+    // weft_gallery_probe (probes/gallery_probe.cpp) observes the same opportunities on a regular 16 ms step;
     // the exactly representable fraction keeps timestamps off rounded timer values.
     inline constexpr int native_observation_frame_ms = 16;
     inline constexpr double native_observation_time_fraction_ms = 0.25;
@@ -85,15 +85,14 @@ namespace caseelephant::probe_constants::gallery {
     inline constexpr int sample_window = 600;
     // HUD and live profiler plots are redrawn at most five times per second.
     inline constexpr double hud_refresh_interval_s = .2;
-    inline constexpr int microseconds_per_millisecond =
-        caseelephant::test_constants::support::microseconds_per_millisecond;
+    inline constexpr int microseconds_per_millisecond = weft::test_constants::support::microseconds_per_millisecond;
 
     // --- Owner thread and traces ---
 
     // The inspection view uses one owner epoch; a reset creates a fresh executor instead.
     inline constexpr int owner_epoch = 1;
     // Chrome trace thread ids of the UI owner and the render thread.
-    inline constexpr int owner_trace_tid = caseelephant::test_constants::support::owner_trace_tid;
+    inline constexpr int owner_trace_tid = weft::test_constants::support::owner_trace_tid;
     inline constexpr int render_trace_tid = 2;
     // Hidden-scene pumps shorter than this are not traced.
     inline constexpr double hidden_pump_trace_threshold_ms = .25;
@@ -118,13 +117,13 @@ namespace caseelephant::probe_constants::gallery {
     inline constexpr int canvas_backing_height = 600;
     // Sleep while the window is minimized and while the preview is not visible.
     inline constexpr int minimized_poll_ms = 10;
-    inline constexpr int hidden_frame_sleep_ms = caseelephant::probe_constants::idle_wait_ms;
+    inline constexpr int hidden_frame_sleep_ms = weft::probe_constants::idle_wait_ms;
     // WM_KEYDOWN lParam bit 30: the key was already down (auto-repeat).
     inline constexpr long long key_repeat_flag = 1LL << 30;
     // Wheel lines per notch configured for the scroll regression.
-    inline constexpr int scroll_test_wheel_lines = caseelephant::probe_constants::default_wheel_scroll_lines;
+    inline constexpr int scroll_test_wheel_lines = weft::probe_constants::default_wheel_scroll_lines;
     // Asset cache budget of the 4K preview renderer.
-    inline constexpr int asset_cache_budget_bytes = 512 * caseelephant::constants::bytes_per_mib;
+    inline constexpr int asset_cache_budget_bytes = 512 * weft::constants::bytes_per_mib;
 
     // --- Live profiler HUD ---
 
@@ -143,7 +142,7 @@ namespace caseelephant::probe_constants::gallery {
     // --- Pixel oracles ---
 
     // Largest channel difference accepted between GPU output and the CPU packet oracle.
-    inline constexpr int max_cpu_oracle_difference = caseelephant::probe_constants::cpu_oracle_tolerance;
+    inline constexpr int max_cpu_oracle_difference = weft::probe_constants::cpu_oracle_tolerance;
     // 4K preview oracle grid: starts at 17 px with prime strides and stops left of the HUD.
     inline constexpr int oracle_grid_origin = 17;
     inline constexpr int oracle_grid_stride_x = 211;
@@ -176,8 +175,8 @@ namespace caseelephant::probe_constants::gallery {
     // Bounded versions per card: three allow two UI submissions in flight.
     inline constexpr int surface_versions_per_card = 3;
     // External texture imports accepted by the renderer backend: count and byte budget.
-    inline constexpr int external_texture_limit = caseelephant::probe_constants::max_imported_textures;
-    inline constexpr unsigned external_import_budget_bytes = 512u * caseelephant::constants::bytes_per_mib;
+    inline constexpr int external_texture_limit = weft::probe_constants::max_imported_textures;
+    inline constexpr unsigned external_import_budget_bytes = 512u * weft::constants::bytes_per_mib;
     // External texture ids are this base plus the scene index.
     inline constexpr int external_texture_id_base = 1000;
     // Largest card raster scale and surface area (4096 x 4096 pixels).
@@ -186,15 +185,14 @@ namespace caseelephant::probe_constants::gallery {
     // Default device scale of scene card rasters ("CSS / SVG GPU at 2x").
     inline constexpr int scene_raster_scale = 2;
     // Deadline and polling period for retiring a producer-only submission.
-    inline constexpr int producer_completion_timeout_s = caseelephant::probe_constants::completion_timeout_seconds;
-    inline constexpr int completion_poll_ms = caseelephant::probe_constants::completion_poll_ms;
+    inline constexpr int producer_completion_timeout_s = weft::probe_constants::completion_timeout_seconds;
+    inline constexpr int completion_poll_ms = weft::probe_constants::completion_poll_ms;
     // MaterialEncodedBgra in shaders/m0_probe.hlsl: decode the encoded BGRA card target.
-    inline constexpr int encoded_bgra_material =
-        static_cast<int>(caseelephant::probe_constants::shader_material::encoded_bgra);
+    inline constexpr int encoded_bgra_material = static_cast<int>(weft::probe_constants::shader_material::encoded_bgra);
     // Two triangles per instanced quad.
-    inline constexpr int quad_vertex_count = caseelephant::probe_constants::quad_vertex_count;
+    inline constexpr int quad_vertex_count = weft::probe_constants::quad_vertex_count;
     // Adds half the divisor before dividing by color_channel_max, rounding to nearest.
-    inline constexpr int color_channel_rounding = caseelephant::constants::color_channel_max / 2;
+    inline constexpr int color_channel_rounding = weft::constants::color_channel_max / 2;
 
     // --- Native scene shader (shaders/scene_native_probe.hlsl) ---
 
@@ -203,7 +201,7 @@ namespace caseelephant::probe_constants::gallery {
     inline constexpr float flag_enabled = 1.f;
     inline constexpr float flag_disabled = 0.f;
     // MaxGradientStops and StopsPerOffsetVector.
-    inline constexpr int max_gradient_stops = caseelephant::constants::scene::max_gradient_stops;
+    inline constexpr int max_gradient_stops = weft::constants::scene::max_gradient_stops;
     inline constexpr int stops_per_offset_vector = 4;
     inline constexpr int gradient_offset_vectors = max_gradient_stops / stops_per_offset_vector;
     // Size of the shader Paint record (24 float4 registers).
@@ -226,9 +224,9 @@ namespace caseelephant::probe_constants::gallery {
     inline constexpr double layer_bounds_tolerance = .01;
     // Text/layer image cache: entry cap and byte budget. A single source must fit in the budget.
     inline constexpr int native_image_cache_max_entries = 128;
-    inline constexpr int native_image_cache_budget_bytes = 16 * caseelephant::constants::bytes_per_mib;
+    inline constexpr int native_image_cache_budget_bytes = 16 * weft::constants::bytes_per_mib;
     // Transparent-group scratch targets across all cards.
-    inline constexpr int native_scratch_budget_bytes = 128 * caseelephant::constants::bytes_per_mib;
+    inline constexpr int native_scratch_budget_bytes = 128 * weft::constants::bytes_per_mib;
 
     // --- GPU scene tests ---
 
@@ -272,4 +270,4 @@ namespace caseelephant::probe_constants::gallery {
     inline constexpr int owner_async_cell_height = 540;
     // CSS card width at 2x.
     inline constexpr int owner_async_card_width = 774;
-} // namespace caseelephant::probe_constants::gallery
+} // namespace weft::probe_constants::gallery

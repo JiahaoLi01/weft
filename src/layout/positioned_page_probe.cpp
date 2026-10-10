@@ -10,7 +10,7 @@
 #include <sstream>
 #include <stdexcept>
 
-namespace caseelephant {
+namespace weft {
     namespace {
         using Style = std::map<std::string, std::string>;
 
@@ -67,11 +67,11 @@ namespace caseelephant {
         }
 
         std::array<float, 4> color(const std::string& v) {
-            return parse_probe_css_color(v);
+            return parse_css_color(v);
         }
 
         struct Node {
-            const ProbeDomSnapshot* dom{};
+            const DomSnapshot* dom{};
             Style style;
             Box box;
             Box clip;
@@ -86,13 +86,13 @@ namespace caseelephant {
         };
 
         struct Builder {
-            TextProbeFont& font;
-            TextProbeFontSet* fonts{};
+            Font& font;
+            FontSet* fonts{};
             std::vector<Node> nodes;
-            std::vector<const ProbeDomSnapshot*> path;
+            std::vector<const DomSnapshot*> path;
 
-            std::size_t layout(const ProbeDomSnapshot& dom, const ProbeComputedStyle& computed, Box containing,
-                               Box flow, Box clip, std::size_t parent, bool hidden = false, bool disabled = false) {
+            std::size_t layout(const DomSnapshot& dom, const ComputedStyle& computed, Box containing, Box flow,
+                               Box clip, std::size_t parent, bool hidden = false, bool disabled = false) {
                 if (path.size() >= constants::max_document_depth || nodes.size() >= constants::max_document_nodes) {
                     fail("DOM node/depth bound");
                 }
@@ -322,7 +322,7 @@ namespace caseelephant {
                 return index;
             }
 
-            void paint(std::size_t index, ProbePositionedPage& output) {
+            void paint(std::size_t index, PositionedPage& output) {
                 const auto& n = nodes[index];
                 if (n.hidden) {
                     return;
@@ -330,13 +330,13 @@ namespace caseelephant {
                 output.geometry.hits.push_back(
                     {n.dom->identity, n.parent, n.box.x, n.box.y, n.box.w, n.box.h, n.hit, n.disabled});
                 auto quad = [&](std::array<float, 4> c, const std::string& image,
-                                const ProbeNodeIdentity* canvas = nullptr) {
+                                const NodeIdentity* canvas = nullptr) {
                     const auto b = intersect(n.box, n.clip);
                     if (b.w <= 0 || b.h <= 0) {
                         return;
                     }
-                    ProbePositionedPaint p;
-                    p.paint = {ProbePaintKind::Rectangle, n.id, {}, b.x, b.y, b.w, b.h, 0, c, {}};
+                    PositionedPaint p;
+                    p.paint = {PaintKind::Rectangle, n.id, {}, b.x, b.y, b.w, b.h, 0, c, {}};
                     p.image_source = image;
                     if (canvas) {
                         p.canvas_identity = *canvas;
@@ -381,7 +381,7 @@ namespace caseelephant {
                     // A general inline line-box builder must account for all runs later.
                     const auto m = font.metrics(size);
                     const float baseline = (line - m.ascent - m.descent) / 2 + m.ascent;
-                    ProbeShapedText shaped;
+                    ShapedText shaped;
                     if (fonts && family == constants::default_font_family) {
                         auto fallback = fonts->shape(n.text, size);
                         shaped = std::move(fallback.shaped);
@@ -391,8 +391,8 @@ namespace caseelephant {
                     if (shaped.missing_glyph) {
                         fail("missing font glyph");
                     }
-                    ProbePositionedPaint p;
-                    p.paint = {ProbePaintKind::Text,
+                    PositionedPaint p;
+                    p.paint = {PaintKind::Text,
                                n.id,
                                n.text,
                                n.box.x,
@@ -417,8 +417,8 @@ namespace caseelephant {
     } // namespace
 
     namespace {
-        ProbePositionedPage build(const ProbeDomSnapshot& root, const ProbeComputedStyle& computed, float w, float h,
-                                  TextProbeFont& font, TextProbeFontSet* fonts) {
+        PositionedPage build(const DomSnapshot& root, const ComputedStyle& computed, float w, float h, Font& font,
+                             FontSet* fonts) {
             if (!std::isfinite(w) || !std::isfinite(h) || w <= 0 || h <= 0 ||
                 w > constants::layout::max_viewport_size_px || h > constants::layout::max_viewport_size_px) {
                 fail("viewport bound");
@@ -427,10 +427,10 @@ namespace caseelephant {
             Builder builder{font, fonts, {}, {}};
             const Box viewport{0, 0, w, h};
             builder.layout(root, computed, viewport, viewport, viewport, std::numeric_limits<std::size_t>::max());
-            ProbePositionedPage output;
+            PositionedPage output;
             for (const auto& node : builder.nodes) {
                 output.geometry.boxes.push_back({node.id, node.box.x, node.box.y, node.box.w, node.box.h});
-                ProbeElementGeometry g;
+                ElementGeometry g;
                 g.identity = node.dom->identity;
                 g.rect = {node.box.x, node.box.y, node.box.w, node.box.h};
                 if (!node.hidden) {
@@ -448,10 +448,9 @@ namespace caseelephant {
         }
     } // namespace
 
-    ProbePositionedPage build_positioned_page_probe(const ProbeDomSnapshot& root, std::string_view css, float w,
-                                                    float h, TextProbeFont& font) {
+    PositionedPage build_positioned_page(const DomSnapshot& root, std::string_view css, float w, float h, Font& font) {
         try {
-            return build(root, compute_style_probe(root, css, positioned_style_profile()), w, h, font, nullptr);
+            return build(root, compute_style(root, css, positioned_style_profile()), w, h, font, nullptr);
         } catch (const DiagnosticError& e) {
             if (e.code() == Diag::StyleProfile) {
                 fail(e.what());
@@ -460,11 +459,10 @@ namespace caseelephant {
         }
     }
 
-    ProbePositionedPage build_positioned_page_probe(const ProbeDomSnapshot& root, std::string_view css, float w,
-                                                    float h, TextProbeFontSet& fonts) {
+    PositionedPage build_positioned_page(const DomSnapshot& root, std::string_view css, float w, float h,
+                                         FontSet& fonts) {
         try {
-            return build(root, compute_style_probe(root, css, positioned_style_profile()), w, h, fonts.primary(),
-                         &fonts);
+            return build(root, compute_style(root, css, positioned_style_profile()), w, h, fonts.primary(), &fonts);
         } catch (const DiagnosticError& e) {
             if (e.code() == Diag::StyleProfile) {
                 fail(e.what());
@@ -473,14 +471,14 @@ namespace caseelephant {
         }
     }
 
-    ProbePositionedPage build_positioned_page_probe(const ProbeDomSnapshot& root, const ProbeComputedStyle& style,
-                                                    float w, float h, TextProbeFont& font) {
+    PositionedPage build_positioned_page(const DomSnapshot& root, const ComputedStyle& style, float w, float h,
+                                         Font& font) {
         return build(root, style, w, h, font, nullptr);
     }
 
-    ProbePositionedPage build_positioned_page_probe(const ProbeDomSnapshot& root, const ProbeComputedStyle& style,
-                                                    float w, float h, TextProbeFontSet& fonts) {
+    PositionedPage build_positioned_page(const DomSnapshot& root, const ComputedStyle& style, float w, float h,
+                                         FontSet& fonts) {
         return build(root, style, w, h, fonts.primary(), &fonts);
     }
 
-} // namespace caseelephant
+} // namespace weft

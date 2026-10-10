@@ -3,7 +3,7 @@
 #include <iostream>
 
 inline void gallery_cluster_prepare(GallerySceneSession& s, const std::string& id) {
-    s.vm.eval("globalThis.__ceClusterSpec=" + scene_read(CE_SOURCE_DIR "/examples/crpg-gallery/cluster-cases.json") +
+    s.vm.eval("globalThis.__ceClusterSpec=" + scene_read(WEFT_SOURCE_DIR "/examples/crpg-gallery/cluster-cases.json") +
               ";globalThis.__ceClusterInputs=__ceClusterSpec.inputs['" + id + "']||[]");
 }
 
@@ -20,10 +20,10 @@ inline unsigned gallery_cluster_inputs(GallerySceneSession& s, unsigned frame, s
         std::istringstream(coords) >> x >> y;
         const auto buttons = unsigned(std::stoul(s.vm.eval("__ceInput.buttons||0")));
         const auto wheel = std::stod(s.vm.eval("__ceInput.delta||0"));
-        s.input_value(action == "down"    ? caseelephant::ProbeMouseType::Down
-                      : action == "up"    ? caseelephant::ProbeMouseType::Up
-                      : action == "click" ? caseelephant::ProbeMouseType::Click
-                                          : caseelephant::ProbeMouseType::Move,
+        s.input_value(action == "down"    ? weft::MouseType::Down
+                      : action == "up"    ? weft::MouseType::Up
+                      : action == "click" ? weft::MouseType::Click
+                                          : weft::MouseType::Move,
                       x, y, buttons, wheel);
         s.step(s.time);
         s.step(s.time);

@@ -7,7 +7,7 @@
 在 `F:\Projects\CaseElephant` 中：
 
 ```powershell
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-canvas-window-hardware artifacts/local/gallery-canvas/interactive
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-canvas-window-hardware artifacts/local/gallery-canvas/interactive
 ```
 
 默认最大化，4K 合成目标、最多两帧在途，右上角与标题显示实际 Present FPS。移动鼠标产生金色粒子，Tab 切换烟花，点击产生烟花，Esc 退出。原案例选择的 **800×600 backing 保持不变**；4K 是合成目标，放大不会增加原 Canvas 的细节。Tab/Esc 属于样例宿主快捷键，不代表 DOM keyboard/focus/IME 支持。最小化停止发出绘制机会，恢复不补发历史帧。没有提供此 Canvas 软件路径的性能基准或 FPS 保证。

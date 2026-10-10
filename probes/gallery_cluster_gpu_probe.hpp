@@ -5,8 +5,8 @@
 
 int run_gallery_cluster_gpu(bool warp, const std::filesystem::path& folder) {
     std::filesystem::create_directories(folder);
-    Experiment gpu(warp, caseelephant::probe_constants::gallery::scene_test_surface_size,
-                   caseelephant::probe_constants::gallery::scene_test_surface_size);
+    Experiment gpu(warp, weft::probe_constants::gallery::scene_test_surface_size,
+                   weft::probe_constants::gallery::scene_test_surface_size);
     gpu.cache_assets = true;
     TwoFramePipeline pipeline(gpu);
     SceneGpuSurfaces surfaces(gpu, pipeline);
@@ -17,29 +17,25 @@ int run_gallery_cluster_gpu(bool warp, const std::filesystem::path& folder) {
     double worst{};
     std::ostringstream report;
     report << "{\"format\":\"gallery-cluster-gpu-v1\",\"captures\":[";
-    for (unsigned index = caseelephant::probe_constants::gallery::core_scene_count; index < gallery_scene_count;
-         ++index) {
+    for (unsigned index = weft::probe_constants::gallery::core_scene_count; index < gallery_scene_count; ++index) {
         const auto d = gallery_scene_descriptors[index];
         GallerySceneSession session(d.group, d.index, d.width, d.height, "cluster-utilities.css");
-        session.vm.eval(scene_read(CE_SOURCE_DIR "/examples/crpg-gallery/native/case-list.js"));
+        session.vm.eval(scene_read(WEFT_SOURCE_DIR "/examples/crpg-gallery/native/case-list.js"));
         const auto id = session.vm.eval("__ceGalleryCases[" + std::to_string(d.catalog_index) + "].id");
         gallery_cluster_prepare(session, id);
         std::array<bool, gallery_scene_count> visible{};
         visible[index] = true;
         std::cout << id << " GPU..." << std::flush;
-        for (unsigned frame = 0; frame <= caseelephant::probe_constants::gallery::cluster_reference_last_frame;
-             ++frame) {
-            session.step(frame * caseelephant::probe_constants::gallery::fixed_clock_step_ms);
+        for (unsigned frame = 0; frame <= weft::probe_constants::gallery::cluster_reference_last_frame; ++frame) {
+            session.step(frame * weft::probe_constants::gallery::fixed_clock_step_ms);
             inputs += gallery_cluster_inputs(session, frame);
             if (std::find(gallery_cluster_capture_frames.begin(), gallery_cluster_capture_frames.end(), frame) ==
                 gallery_cluster_capture_frames.end()) {
                 continue;
             }
-            auto owned = std::make_shared<const caseelephant::ProbeSceneFrame>(session.current);
-            for (unsigned version = 0; version < caseelephant::probe_constants::gallery::surface_versions_per_card;
-                 ++version) {
-                auto& surface =
-                    surfaces.paint_owned(index, owned, caseelephant::probe_constants::gallery::scene_raster_scale);
+            auto owned = std::make_shared<const weft::SceneFrame>(session.current);
+            for (unsigned version = 0; version < weft::probe_constants::gallery::surface_versions_per_card; ++version) {
+                auto& surface = surfaces.paint_owned(index, owned, weft::probe_constants::gallery::scene_raster_scale);
                 surfaces.publish();
                 FramePacket packet;
                 packet.draws.push_back({{0, 0, float(surface.width), float(surface.height)}, {1, 1, 1, 1}, 0});
@@ -51,7 +47,7 @@ int run_gallery_cluster_gpu(bool warp, const std::filesystem::path& folder) {
             }
             const auto actual = surfaces.read(index);
             const auto expected =
-                scene_reference(std::filesystem::path(CE_SOURCE_DIR) / "tests/fixtures/gallery-cluster-reference" /
+                scene_reference(std::filesystem::path(WEFT_SOURCE_DIR) / "tests/fixtures/gallery-cluster-reference" /
                                 (id + "-" + std::to_string(frame) + ".png"));
             auto difference = scene_difference(actual, expected);
             const auto mean = *std::max_element(difference.mean.begin(), difference.mean.end());
@@ -71,7 +67,7 @@ int run_gallery_cluster_gpu(bool warp, const std::filesystem::path& folder) {
         }
         surfaces.retire_card(index);
         session.unmount();
-        require(session.vm.stats().live_nodes == caseelephant::probe_constants::gallery::unmounted_live_nodes,
+        require(session.vm.stats().live_nodes == weft::probe_constants::gallery::unmounted_live_nodes,
                 "cluster GPU owner leak");
         ++cases;
         std::cout << " OK\n";

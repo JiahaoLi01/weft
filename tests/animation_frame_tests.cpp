@@ -12,22 +12,22 @@
 #include <thread>
 
 namespace {
-    using caseelephant::testing::format_host_time;
-    using caseelephant::testing::require;
+    using weft::testing::format_host_time;
+    using weft::testing::require;
 
-    void install(caseelephant::ScriptDomProbe& vm) {
-        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::WebHost);
-        caseelephant::install_script_platform(vm, caseelephant::ScriptPlatformModule::AnimationFrame);
+    void install(weft::ScriptDom& vm) {
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::AnimationFrame);
     }
 } // namespace
 
 int main() {
     try {
-        caseelephant::ScriptProbeConfig config{caseelephant::constants::script::probe_vm_stack_bytes};
-#ifdef CE_REACT_GC_STRESS
-        config.execution_budget_ms = caseelephant::constants::script::max_execution_budget_ms;
+        weft::ScriptConfig config{weft::constants::script::probe_vm_stack_bytes};
+#ifdef WEFT_REACT_GC_STRESS
+        config.execution_budget_ms = weft::constants::script::max_execution_budget_ms;
 #endif
-        caseelephant::ScriptDomProbe vm(config);
+        weft::ScriptDom vm(config);
         const auto baseline_nodes = vm.stats().live_nodes;
         const auto baseline_roots = vm.stats().native_roots;
         install(vm);
@@ -40,14 +40,14 @@ int main() {
       log.length;
     )JS") == "0",
                 "rAF ran synchronously");
-        auto result = caseelephant::run_animation_frame_probe(vm, 16.25);
+        auto result = weft::run_animation_frame(vm, 16.25);
         require(result.callbacks == 3 && result.pending == 1 && result.exceptions == 1,
                 "batch cancellation/error counts");
         require(result.exception_messages_json == "[\"Error: sample error\"]", "callback error diagnostics");
         require(vm.eval("JSON.stringify(log)") ==
                     "[[\"A\",16.25,true,16.25],[\"micro\"],[\"throws\",16.25],[\"last\",16.25]]",
                 "microtask checkpoint / common timestamp / error continuation");
-        result = caseelephant::run_animation_frame_probe(vm, 32.5);
+        result = weft::run_animation_frame(vm, 32.5);
         require(result.callbacks == 1 && result.exceptions == 0 && result.pending == 0,
                 "nested callback ran in same batch");
         require(vm.eval("log[log.length-1][0]") == "nested", "nested callback missing");
@@ -55,7 +55,7 @@ int main() {
         require(vm.eval("log[log.length-1][0]") == "timer", "timer crossed frame checkpoint");
         bool rejected = false;
         try {
-            caseelephant::run_animation_frame_probe(vm, 32.4);
+            weft::run_animation_frame(vm, 32.4);
         } catch (const std::runtime_error&) {
             rejected = true;
         }
@@ -64,7 +64,7 @@ int main() {
              {-1., std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()}) {
             rejected = false;
             try {
-                caseelephant::run_animation_frame_probe(vm, invalid);
+                weft::run_animation_frame(vm, invalid);
             } catch (const std::invalid_argument&) {
                 rejected = true;
             }
@@ -82,23 +82,23 @@ int main() {
             "cancel used Number coercion instead of WebIDL ToNumber");
         vm.eval(
             "globalThis.directCalls=0;const direct=()=>++directCalls;direct.call=()=>{throw Error('own call should not run')};requestAnimationFrame(direct)");
-        require(caseelephant::run_animation_frame_probe(vm, 32.75).callbacks == 1 && vm.eval("directCalls") == "1",
+        require(weft::run_animation_frame(vm, 32.75).callbacks == 1 && vm.eval("directCalls") == "1",
                 "callback invocation used overridden function.call");
         vm.eval(
             "globalThis.loops=0;globalThis.loop=t=>{++loops;requestAnimationFrame(loop)};requestAnimationFrame(loop)");
         for (unsigned i = 0; i < 32; ++i) {
-            result = caseelephant::run_animation_frame_probe(vm, 33 + i * .25);
+            result = weft::run_animation_frame(vm, 33 + i * .25);
             require(result.callbacks == 1 && result.pending == 1, "self scheduling escaped snapshot");
         }
         require(vm.eval("loops") == "32", "fractional opportunities / shared timestamp");
-        result = caseelephant::run_animation_frame_probe(vm, 4000, false);
+        result = weft::run_animation_frame(vm, 4000, false);
         require(result.callbacks == 0 && result.pending == 1, "hidden frame dispatched or lost callback");
-        result = caseelephant::run_animation_frame_probe(vm, 9000);
+        result = weft::run_animation_frame(vm, 9000);
         require(result.callbacks == 1 && result.pending == 1, "restore replayed historical frames");
         bool wrong_thread = false;
         std::thread worker([&] {
             try {
-                caseelephant::run_animation_frame_probe(vm, 9001);
+                weft::run_animation_frame(vm, 9001);
             } catch (const std::logic_error&) {
                 wrong_thread = true;
             }
@@ -107,9 +107,9 @@ int main() {
         require(wrong_thread, "cross-thread frame host accepted");
         vm.reset_document();
         install(vm);
-        require(caseelephant::run_animation_frame_probe(vm, 0).callbacks == 0, "rAF crossed reset epoch");
+        require(weft::run_animation_frame(vm, 0).callbacks == 0, "rAF crossed reset epoch");
         // Counterexample from the visible Canvas host: legacy formatting rounds UP.
-        const double fractional = caseelephant::test_constants::script::legacy_rounding_time_ms;
+        const double fractional = weft::test_constants::script::legacy_rounding_time_ms;
         vm.eval("__ceHost.pump(" + std::to_string(fractional) + ")");
         rejected = false;
         try {
@@ -123,7 +123,7 @@ int main() {
         vm.eval(
             "globalThis.clockFrames=0;globalThis.clockLoop=t=>{if(t!==performance.now())throw Error('clock disagreement');++clockFrames;requestAnimationFrame(clockLoop)};requestAnimationFrame(clockLoop)");
         for (unsigned i = 0; i < 1024; ++i) {
-            const double time = i * caseelephant::test_constants::script::clock_frame_interval_ms + fractional;
+            const double time = i * weft::test_constants::script::clock_frame_interval_ms + fractional;
             const auto stamp = format_host_time(time);
             require(std::stod(stamp) == time, "host timestamp did not round-trip");
             vm.eval("__ceHost.pump(" + stamp + ")");
@@ -137,15 +137,14 @@ int main() {
         vm.eval("globalThis.ids=[];for(let i=0;i<1001;++i)ids.push(requestAnimationFrame(()=>{}));");
         rejected = false;
         try {
-            caseelephant::run_animation_frame_probe(vm, 1);
+            weft::run_animation_frame(vm, 1);
         } catch (const std::runtime_error&) {
             rejected = true;
         }
         require(rejected && vm.eval("__ceAnimationHost.pending()===1001 && performance.now()===0") == "true",
                 "ready batch limit must preserve pending/clock");
         vm.eval("cancelAnimationFrame(ids.pop())");
-        require(caseelephant::run_animation_frame_probe(vm, 1).callbacks == 1000,
-                "failed ready batch could not recover");
+        require(weft::run_animation_frame(vm, 1).callbacks == 1000, "failed ready batch could not recover");
         vm.eval("ids=[];for(let i=0;i<4096;++i)ids.push(requestAnimationFrame(()=>{}));");
         require(
             vm.eval(
@@ -153,14 +152,14 @@ int main() {
                 "true",
             "pending callback quota");
         vm.eval("ids.forEach(cancelAnimationFrame)");
-        require(caseelephant::run_animation_frame_probe(vm, 2).pending == 0, "cancelled capacity not recovered");
+        require(weft::run_animation_frame(vm, 2).pending == 0, "cancelled capacity not recovered");
         vm.eval(
             "requestAnimationFrame(()=>{throw {toString(){throw 1}}});requestAnimationFrame(()=>{globalThis.afterBadError=true})");
-        result = caseelephant::run_animation_frame_probe(vm, 3);
+        result = weft::run_animation_frame(vm, 3);
         require(result.callbacks == 2 && result.exceptions == 1 && vm.eval("afterBadError") == "true",
                 "throwing error formatter stopped other callbacks");
         vm.eval("for(let i=0;i<70;++i)requestAnimationFrame(()=>{throw new Error('x'.repeat(600))});");
-        result = caseelephant::run_animation_frame_probe(vm, 4);
+        result = weft::run_animation_frame(vm, 4);
         require(
             result.exceptions == 70 &&
                 vm.eval(
@@ -169,14 +168,14 @@ int main() {
             "unbounded exception diagnostics");
         vm.eval(
             "requestAnimationFrame(()=>{try{__ceAnimationHost.begin(5)}catch(e){globalThis.reentryRejected=true}})");
-        caseelephant::run_animation_frame_probe(vm, 5);
+        weft::run_animation_frame(vm, 5);
         require(vm.eval("reentryRejected") == "true", "nested frame consumed pending batch");
         vm.eval(
             "globalThis.stamps=[];requestAnimationFrame(t=>{stamps.push(t);performance.now=()=>99999});requestAnimationFrame(t=>stamps.push(t))");
-        caseelephant::run_animation_frame_probe(vm, 5.5);
+        weft::run_animation_frame(vm, 5.5);
         require(vm.eval("JSON.stringify(stamps)") == "[5.5,5.5]",
                 "callback changed batch timestamp through public clock");
-        for (unsigned cycle = 0; cycle < caseelephant::test_constants::script::reset_cycles; ++cycle) {
+        for (unsigned cycle = 0; cycle < weft::test_constants::script::reset_cycles; ++cycle) {
             vm.reset_document();
             install(vm);
             vm.collect_garbage();
@@ -184,8 +183,7 @@ int main() {
             vm.eval(
                 "(()=>{const n=document.createElement('div');n.id='detached';document.body.appendChild(n);document.body.removeChild(n);requestAnimationFrame(()=>{n.textContent='alive';globalThis.detachedResult=n.textContent})})()");
             vm.collect_garbage();
-            require(caseelephant::run_animation_frame_probe(vm, 0).callbacks == 1 &&
-                        vm.eval("detachedResult") == "alive",
+            require(weft::run_animation_frame(vm, 0).callbacks == 1 && vm.eval("detachedResult") == "alive",
                     "pending closure lost detached node");
             vm.collect_garbage();
             require(vm.stats().live_nodes == installed_nodes, "invoked frame retained detached closure until reset");
@@ -202,20 +200,20 @@ int main() {
             require(vm.stats().native_roots == baseline_roots && vm.stats().live_nodes == baseline_nodes,
                     "frame closure leaked after reset");
         }
-#ifdef CE_REACT_GC_STRESS
+#ifdef WEFT_REACT_GC_STRESS
         const unsigned batch_budget = 1000;
         const unsigned spin_ms = 35;
 #else
         const unsigned batch_budget = 20;
         const unsigned spin_ms = 3;
 #endif
-        caseelephant::ScriptDomProbe limited({caseelephant::constants::script::probe_vm_stack_bytes, batch_budget});
+        weft::ScriptDom limited({weft::constants::script::probe_vm_stack_bytes, batch_budget});
         install(limited);
         limited.eval("for(let i=0;i<40;++i)requestAnimationFrame(()=>{const until=Date.now()+" +
                      std::to_string(spin_ms) + ";while(Date.now()<until){}})");
         rejected = false;
         try {
-            caseelephant::run_animation_frame_probe(limited, 0);
+            weft::run_animation_frame(limited, 0);
         } catch (const std::runtime_error&) {
             rejected = true;
         }
@@ -229,20 +227,19 @@ int main() {
         require(rejected, "budget failure must fault the view");
         limited.reset_document();
         install(limited);
-        require(caseelephant::run_animation_frame_probe(limited, 0).callbacks == 0,
-                "faulted residual callbacks survived reset");
+        require(weft::run_animation_frame(limited, 0).callbacks == 0, "faulted residual callbacks survived reset");
         limited.eval(
             "requestAnimationFrame(()=>{Promise.resolve().then(function loop(){Promise.resolve().then(loop)})})");
         rejected = false;
         try {
-            caseelephant::run_animation_frame_probe(limited, 1);
+            weft::run_animation_frame(limited, 1);
         } catch (const std::runtime_error&) {
             rejected = true;
         }
         require(rejected, "infinite rAF microtasks not bounded");
         limited.reset_document();
         install(limited);
-        require(caseelephant::run_animation_frame_probe(limited, 0).callbacks == 0, "microtasks survived fault/reset");
+        require(weft::run_animation_frame(limited, 0).callbacks == 0, "microtasks survived fault/reset");
         std::cout
             << "PASS owner animation frames: snapshots, microtasks, cancellation, clocks, visibility, errors, limits, epoch/GC\n";
         return 0;

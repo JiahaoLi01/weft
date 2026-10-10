@@ -2,7 +2,7 @@
 
 // Values used by the script, owner-executor, animation-frame and trace tests.
 // Each constant has the type of the literal it replaced (see docs/coding-style.md).
-namespace caseelephant::test_constants::script {
+namespace weft::test_constants::script {
     // Live nodes of a fresh document: #document, <html> and <body>.
     inline constexpr int bootstrap_document_nodes = 3;
 
@@ -34,4 +34,4 @@ namespace caseelephant::test_constants::script {
 
     // Owner trace event limit (65536) plus four events that must evict the oldest ones.
     inline constexpr int trace_ring_overflow_events = 65540;
-} // namespace caseelephant::test_constants::script
+} // namespace weft::test_constants::script

@@ -3,7 +3,7 @@
 #include <string>
 #include <string_view>
 
-namespace caseelephant::testing {
+namespace weft::testing {
     // JSON string literal for report and trace output: quotes, backslashes and control characters
     // are escaped; other bytes (UTF-8) pass through.
     inline std::string json_string(std::string_view value) {
@@ -23,4 +23,4 @@ namespace caseelephant::testing {
         }
         return out + '"';
     }
-} // namespace caseelephant::testing
+} // namespace weft::testing

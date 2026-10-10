@@ -13,7 +13,7 @@
 #include <memory>
 #include <string>
 
-namespace caseelephant::testing {
+namespace weft::testing {
     // Shared switch of one profiling run; run_id keeps files of earlier runs apart.
     struct TraceControl {
         std::atomic<bool> enabled{false};
@@ -42,8 +42,7 @@ namespace caseelephant::testing {
         unsigned tid_;
 
     public:
-        explicit OwnerTrace(std::filesystem::path path,
-                            unsigned tid = caseelephant::test_constants::support::owner_trace_tid,
+        explicit OwnerTrace(std::filesystem::path path, unsigned tid = weft::test_constants::support::owner_trace_tid,
                             std::shared_ptr<TraceControl> control = {})
             : path_(std::move(path)), control_(std::move(control)), tid_(tid) {
         }
@@ -57,7 +56,7 @@ namespace caseelephant::testing {
             if (!enabled()) {
                 return;
             }
-            if (events_.size() == caseelephant::test_constants::support::owner_trace_event_limit) {
+            if (events_.size() == weft::test_constants::support::owner_trace_event_limit) {
                 events_.pop_front();
                 ++dropped_;
             }
@@ -65,7 +64,7 @@ namespace caseelephant::testing {
             inputs_ += name.starts_with("input scene=");
             publications_ += name == "owner publication";
             events_.push_back({name, args, std::chrono::duration<double, std::micro>(start.time_since_epoch()).count(),
-                               duration * caseelephant::test_constants::support::microseconds_per_millisecond});
+                               duration * weft::test_constants::support::microseconds_per_millisecond});
         }
 
         // Emits one complete event covering its own lifetime.
@@ -103,8 +102,7 @@ namespace caseelephant::testing {
                 return;
             }
             stream.imbue(std::locale::classic());
-            stream << std::setprecision(caseelephant::test_constants::support::trace_timestamp_digits)
-                   << "{\"traceEvents\":[";
+            stream << std::setprecision(weft::test_constants::support::trace_timestamp_digits) << "{\"traceEvents\":[";
             bool comma{};
             for (const auto& e : events_) {
                 if (comma) {
@@ -121,4 +119,4 @@ namespace caseelephant::testing {
                    << ",\"dropped_events\":" << dropped_ << '}';
         }
     };
-} // namespace caseelephant::testing
+} // namespace weft::testing

@@ -9,17 +9,17 @@
 #include <thread>
 
 namespace {
-    using caseelephant::testing::require;
+    using weft::testing::require;
 
     float distance(std::uint8_t v, unsigned spread) {
-        return (int(v) - caseelephant::constants::text::sdf_zero_distance_byte) * static_cast<float>(spread) /
-               static_cast<float>(caseelephant::constants::text::sdf_zero_distance_byte);
+        return (int(v) - weft::constants::text::sdf_zero_distance_byte) * static_cast<float>(spread) /
+               static_cast<float>(weft::constants::text::sdf_zero_distance_byte);
     }
 } // namespace
 
 int main() {
     try {
-        caseelephant::TextProbeFont font(CE_SOURCE_DIR "/third_party/ahem/Ahem.ttf");
+        weft::Font font(WEFT_SOURCE_DIR "/third_party/ahem/Ahem.ttf");
         const auto shaped = font.shape("X X", 40);
         const auto id = shaped.glyphs[0].glyph_id;
         const auto normal = font.rasterize(id, 40);
@@ -27,24 +27,24 @@ int main() {
         require(normal.width == 40 && normal.height == 40, "known square geometry");
         require(sdf.width == 56 && sdf.height == 56 && sdf.left == normal.left - 8 && sdf.top == normal.top + 8,
                 "SDF padding and bearing");
-        require(sdf.base_ppem == 40 && sdf.spread == 8 && sdf.source == caseelephant::ProbeSdfSource::Bitmap,
+        require(sdf.base_ppem == 40 && sdf.spread == 8 && sdf.source == weft::SdfSource::Bitmap,
                 "SDF generator metadata");
         require(sdf.distances.size() == 3136 && sdf.distances[28 * 56 + 28] == 255, "interior positive and saturated");
-        require(sdf.distances.front() < caseelephant::constants::text::sdf_zero_distance_byte, "exterior sign");
+        require(sdf.distances.front() < weft::constants::text::sdf_zero_distance_byte, "exterior sign");
         float max_error{};
         for (unsigned x = 0; x < 56; ++x) {
             const float geometric = std::clamp(std::min(x + 0.5f - 8, 48 - (x + 0.5f)), -8.0f, 127 / 128.0f * 8);
             max_error = std::max(max_error, std::abs(distance(sdf.distances[28 * 56 + x], 8) - geometric));
         }
-        require(max_error < caseelephant::test_constants::style_text::sdf_max_distance_error,
+        require(max_error < weft::test_constants::style_text::sdf_max_distance_error,
                 "SDF distance ramp differs from independent square edge");
         const auto spread4 = font.rasterize_sdf(id, 40, 4);
         require(spread4.width == 48 && spread4.left == normal.left - 4, "spread change did not reset padding");
         const auto repeat = font.rasterize_sdf(id, 40, 8);
         require(repeat.distances == sdf.distances, "spread reset changed result");
-        const auto outline = font.rasterize_sdf(id, 40, 8, caseelephant::ProbeSdfSource::Outline);
+        const auto outline = font.rasterize_sdf(id, 40, 8, weft::SdfSource::Outline);
         require(outline.width == sdf.width &&
-                    outline.distances[28 * 56 + 28] > caseelephant::constants::text::sdf_zero_distance_byte,
+                    outline.distances[28 * 56 + 28] > weft::constants::text::sdf_zero_distance_byte,
                 "explicit outline generator");
         const auto space = font.rasterize_sdf(shaped.glyphs[1].glyph_id, 40, 8);
         require(space.distances.empty() && space.width == 0 && font.shape(" ", 40).advance == 40,
@@ -75,7 +75,7 @@ int main() {
         bool wrong_glyph{};
         bool wrong_owner{};
         try {
-            (void)font.rasterize_sdf(id, 40, 8, static_cast<caseelephant::ProbeSdfSource>(99));
+            (void)font.rasterize_sdf(id, 40, 8, static_cast<weft::SdfSource>(99));
         } catch (const std::invalid_argument&) {
             wrong_source = true;
         }
@@ -93,7 +93,7 @@ int main() {
         });
         outsider.join();
         require(wrong_source && wrong_glyph && wrong_owner, "invalid SDF input or cross-thread font access accepted");
-        caseelephant::TextProbeFont roboto(CE_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
+        weft::Font roboto(WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf");
         const auto latin = roboto.shape("SDF Ag", 40);
         require(!latin.missing_glyph && latin.glyphs.size() == 6, "Roboto actual Latin shaping");
         for (const auto& g : latin.glyphs) {
@@ -102,9 +102,9 @@ int main() {
                 continue;
             }
             require(*std::min_element(field.distances.begin(), field.distances.end()) <
-                            caseelephant::constants::text::sdf_zero_distance_byte &&
+                            weft::constants::text::sdf_zero_distance_byte &&
                         *std::max_element(field.distances.begin(), field.distances.end()) >
-                            caseelephant::constants::text::sdf_zero_distance_byte,
+                            weft::constants::text::sdf_zero_distance_byte,
                     "Latin distance field lacks contour");
         }
         std::cout

@@ -10,15 +10,15 @@
 
 ```powershell
 cmake --build --preset windows-release --parallel 8
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/gallery-performance/interactive
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/gallery-performance/interactive
 
 # 固定 240 帧、16 帧预热，避免截图回读参与性能采样。
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-benchmark-hardware artifacts/local/gallery-performance/manual/css-top css-top
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-benchmark-hardware artifacts/local/gallery-performance/manual/css-middle css-middle
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-benchmark-hardware artifacts/local/gallery-performance/manual/d3 d3
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-benchmark-hardware artifacts/local/gallery-performance/manual/css-top css-top
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-benchmark-hardware artifacts/local/gallery-performance/manual/css-middle css-middle
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-benchmark-hardware artifacts/local/gallery-performance/manual/d3 d3
 
 # 原例 GPU 图片与新增透明滤波 / 裁剪露出反例。
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --scene-gpu-test-hardware artifacts/local/gallery-performance/manual/scene-gpu
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --scene-gpu-test-hardware artifacts/local/gallery-performance/manual/scene-gpu
 ```
 
 窗口默认 CSS，侧栏跳转 D3；滚轮/侧栏、悬停、点击、Canvas 鼠标、最小化恢复保留。关闭后输出 `preview-session.json`；固定基准还输出 `benchmark.json`。已有的旧阶段 seal 不重写。
@@ -73,7 +73,7 @@ Release 全量 74/74，32.39 秒；Debug 全量 74/74，73.08 秒。RTX5090 原�
 强制 GC 重建同三个 target，实际运行：
 
 ```powershell
-cmake --build build/windows-gc-stress --config Debug --parallel 8 --target ce_scene_contract_tests ce_scene_gallery_tests ce_d3d11_probe
+cmake --build build/windows-gc-stress --config Debug --parallel 8 --target weft_scene_contract_tests weft_scene_gallery_tests weft_d3d11_probe
 ctest --test-dir build/windows-gc-stress -C Debug --parallel 2 -R '^scene_contract$|^scene_gallery_original$|^scene_browser_geometry$|^d3d11_warp_gallery_preview$|^d3d11_warp_scene_gpu$|^d3d11_warp_external_texture$|^d3d11_warp_two_frame$|^d3d11_warp_render_cache$' --output-on-failure --output-log artifacts/local/gallery-performance/final-gc-ctest.log
 ctest --test-dir build/windows-gc-stress -C Debug -R '^d3d11_warp_gallery_preview$' --output-on-failure --output-log artifacts/local/gallery-performance/final-gc-gallery-preview-ctest.log
 ```

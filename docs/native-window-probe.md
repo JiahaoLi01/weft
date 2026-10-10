@@ -9,10 +9,10 @@
 从项目根目录运行：
 
 ```powershell
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --react-window-hardware artifacts/local/window-interactive
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --react-window-hardware artifacts/local/window-interactive
 ```
 
-程序打开 CaseElephant 原生窗口，可点两个按钮并拖动窗口边缘调整尺寸，关闭退出。显式 WARP 使用 --react-window-warp。启动保存 window-0.png，关闭后写 report.json。普通 CMake 构建不需要 Node/npm。
+程序打开 Weft 原生窗口，可点两个按钮并拖动窗口边缘调整尺寸，关闭退出。显式 WARP 使用 --react-window-warp。启动保存 window-0.png，关闭后写 report.json。普通 CMake 构建不需要 Node/npm。
 
 ## 实际链路
 
@@ -47,7 +47,7 @@ d3d11_warp_window 创建测试专属隐藏 HWND，PostMessage 到自己的窗口
 ```powershell
 ctest --preset windows-debug
 ctest --preset windows-release
-.\build\windows-msvc\bin\Debug\ce_d3d11_probe.exe --react-window-test-hardware artifacts/local/window-debug/hardware
+.\build\windows-msvc\bin\Debug\weft_d3d11_probe.exe --react-window-test-hardware artifacts/local/window-debug/hardware
 ```
 
 Debug/Release hardware/WARP 均完成 **7 帧、7 次 Present、3 次 resize、14 条 mouse message**，最终 Count: 2、顺序 moss/tide/ember；每会话退休 **605 个 glyph texture**，completed serial 为 **14**。单独的 post-submit failure 也实际 drain，调试层 warning/error 为零。全量与强制 GC 结果见 [status](status.md)。

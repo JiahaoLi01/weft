@@ -17,7 +17,7 @@
 
 ```powershell
 cmake --build --preset windows-release --parallel 8
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/gallery-cluster/interactive
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/gallery-cluster/interactive
 ```
 
 4K/FPS/OWNER Hz、侧栏、滚轮和 F5 保持。Scatter 卡片内滚轮缩放，其他区域滚动目录；拖拽可在松开前离开卡片，取消时清理 owner 输入状态。新增 scene 的隐藏 rAF 暂停，timer 继续 pump；恢复不重放每个隐藏帧。这是 inspection host 的明确策略，不等于浏览器隐藏页面节流或通用游戏调度器。
@@ -36,7 +36,7 @@ SVG 增加 viewBox/preserveAspectRatio、g/text/shapes、平滑 S/T、fill/strok
 
 ## 连续滚动到 Sunburst 的资源修复
 
-此前侧栏跳转检查没有覆盖一路连续滚动的纹理驻留。离屏卡片的 caller lease 和三个 backing 一直保留；原 34 小卡片三版本约 391,440,384 bytes，再加 Sunburst 首份 76,608,000 bytes 为 468,048,384。下一份就超过原 512MiB import 上限，返回 `CE_RENDER_BUSY=8`。这不是 SVG JS 异常或显卡 device removal。
+此前侧栏跳转检查没有覆盖一路连续滚动的纹理驻留。离屏卡片的 caller lease 和三个 backing 一直保留；原 34 小卡片三版本约 391,440,384 bytes，再加 Sunburst 首份 76,608,000 bytes 为 468,048,384。下一份就超过原 512MiB import 上限，返回 `WEFT_RENDER_BUSY=8`。这不是 SVG JS 异常或显卡 device removal。
 
 检查宿主现在每帧先计算完整可见集，非阻塞回收离屏且 `last_serial <= completed_serial` 的 backing；尚在途的继续保活。回到旧卡片时重新创建完整源图，clip/内容/纹理身份随新版本发布，帧包保持自包含。预算仍为 128 个 lease/512MiB，没有扩大上限。每个释放槽的 painter 工作计数累加保存，避免回收造成统计丢失。native 透明组 scratch 预算也随已完成槽销毁归还；140 次 1MiB 透明组重建反例检查未完成时保活、完成后归零和始终走 native，避免累计预算导致后续卡片无故回退。
 
@@ -45,8 +45,8 @@ SVG 增加 viewBox/preserveAspectRatio、g/text/shapes、平滑 S/T、fill/strok
 另有完整 HWND/owner 场景：固定三行 wheel profile，50 次 queued WM_MOUSEWHEEL 到 scrollTop=3600 的 Sunburst，再 50 次回到 CSS，120 帧/120 次真实 completion。Sunburst 的当前 clip 与返回 CSS 对独立 Chrome 像素验收，保存两张 4K 截图。Release hardware 已通过，峰值 32 个驻留槽/228,713,472 imported bytes；这些字节只统计导入 linear payload，不是总 VRAM。
 
 ```powershell
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --scene-surface-retirement-hardware artifacts/local/gallery-cluster/surface-retirement-hardware
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-scroll-test-hardware artifacts/local/gallery-cluster/scroll-hardware
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --scene-surface-retirement-hardware artifacts/local/gallery-cluster/surface-retirement-hardware
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-scroll-test-hardware artifacts/local/gallery-cluster/scroll-hardware
 ```
 
 ## 独立验收及边界
@@ -65,8 +65,8 @@ GPU 新例验收每张图使用三份实际 backing，共 630 次 submission/com
 ctest --preset windows-release --output-on-failure
 ctest --preset windows-debug --output-on-failure
 python tools/verify_gallery_cluster.py
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-cluster-gpu-hardware artifacts/local/gallery-cluster/gpu-hardware
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-window-test-hardware artifacts/local/gallery-cluster/window
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-cluster-gpu-hardware artifacts/local/gallery-cluster/gpu-hardware
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-window-test-hardware artifacts/local/gallery-cluster/window
 ```
 
 2026-10-10最终运行计数、交互性能和seal见 [status](status.md)、[交互阶段](gallery-interaction-profile.md) 与 `artifacts/local/interaction-profile/`；之前 `artifacts/local/gallery-cluster/` 仅保留探索产物。早期全量失败及 debugger/修复日志保留，不将探索失败当作通过证据。所有移动阶段（配置到真机）、实际引擎 C ABI、实体输入到显示时延、长时间运行与相同负载 Ultralight 对照均未验证。

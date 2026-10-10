@@ -5,7 +5,7 @@
 // Limits and encodings of the FreeType/HarfBuzz text probe (src/text/text_probe.cpp): font
 // resources, shaping input, the fallback shape cache and SDF glyph generation. Each constant
 // has the type of the literal it replaced.
-namespace caseelephant::constants::text {
+namespace weft::constants::text {
     // Accepted font sizes are (0, max_font_pixels].
     inline constexpr int max_font_pixels = 4096;
     inline constexpr int max_font_file_bytes = 32 * constants::bytes_per_mib;
@@ -51,4 +51,4 @@ namespace caseelephant::constants::text {
     inline constexpr int sdf_max_bitmap_dimension = 2048;
     // FreeType SDF byte for distance zero: distance = (byte - 128) * spread / 128.
     inline constexpr int sdf_zero_distance_byte = 128;
-} // namespace caseelephant::constants::text
+} // namespace weft::constants::text

@@ -1,4 +1,4 @@
-# CaseElephant HTML CSS DOM 兼容范围
+# Weft HTML CSS DOM 兼容范围
 
 本表规定目标范围，不代表已经实现。当前状态见 [证据记录](status.md)。P0 对应计划的 M0 架构探针，M1 是桌面原型；v0.1 只有 M0 到 M5 的必需项全部退出后才是可用版本，包括 M3 移动真机验收。后续能力只有完成实现、反例测试和平台验证后才能改为支持。
 
@@ -25,15 +25,15 @@ GPU 后端已有可注册的实验 C ABI 与实际 D3D11 reference/window 接入
 
 新增可选 external texture lease 扩展，通用生命周期与 D3D11 的 linear-premultiplied RGBA8/16F/32F、top/bottom origin、UV/opacity 和真实两帧退休已验证。首版同 device/queue、单 mip/采样、无 shared/CPU write；encoded sRGB/HDR/多队列/ANGLE/移动均显式未支持。这是 renderer 能力，尚没有 JS WebGL API 或新增 gallery 案例通过，见 [实际范围](external-texture-lease.md)。
 
-2026-10-09 固定 gallery 的 **26 CSS + 8 D3** 新增 native 像素验收，连同已有两个 Canvas 共 36/72，详见 [scene 实际支持与诊断](scene-gallery.md)。SceneProbe 单独支持固定 utility sheet 的有界 block/Flex/absolute、圆角/边框、三类 gradient、2D transform、group opacity、关键帧/transition 与单个 perspective/rotateY 平面子树；8 个 D3 原例所需 SVG rect/circle/line/polygon/path/g/text 已在真实 JS→native DOM→绘制链路通过。`setInterval` 增加 function-only、有界容量/暂停合并的宿主调度，full HTML timer nesting/clamp 仍未实现。
+2026-10-09 固定 gallery 的 **26 CSS + 8 D3** 新增 native 像素验收，连同已有两个 Canvas 共 36/72，详见 [scene 实际支持与诊断](scene-gallery.md)。SceneSolver 单独支持固定 utility sheet 的有界 block/Flex/absolute、圆角/边框、三类 gradient、2D transform、group opacity、关键帧/transition 与单个 perspective/rotateY 平面子树；8 个 D3 原例所需 SVG rect/circle/line/polygon/path/g/text 已在真实 JS→native DOM→绘制链路通过。`setInterval` 增加 function-only、有界容量/暂停合并的宿主调度，full HTML timer nesting/clamp 仍未实现。
 
-这不提升完整 Tailwind/Grid、通用 SVG viewport/viewBox/clipPath、SVG geometry/hit、CSSOM/computed style、D3 drag/zoom/brush 或 gallery 的另外四例 D3 Interactive。SceneProbe 遇到未支持 CSS 属性/选择器/布局值、SVG 元素/path command、viewBox/clip-path/filter/mask、SVG descendant opacity 或 SVG text stroke 会诊断；HTML mixed inline 和 general 3D 也在范围外。原始 34 函数、React/D3 包、bundle 不变，固定 theme/rem/calc/logical utilities 的离线编译适配器是显式范围，运行不读取浏览器截图/几何。字体由 Windows OS DirectWrite 负责，移动/字体稳定打包与生产性能预算待验收。Windows 固定 scene 的 D2D GPU 绘制、颜色字体缓存与现有 external texture 接口已接通，沿用 102 个 Chrome reference 的阈值；没有扩大 HTML/CSS/SVG 语义范围，见 [性能证据](gallery-performance.md)。
+这不提升完整 Tailwind/Grid、通用 SVG viewport/viewBox/clipPath、SVG geometry/hit、CSSOM/computed style、D3 drag/zoom/brush 或 gallery 的另外四例 D3 Interactive。SceneSolver 遇到未支持 CSS 属性/选择器/布局值、SVG 元素/path command、viewBox/clip-path/filter/mask、SVG descendant opacity 或 SVG text stroke 会诊断；HTML mixed inline 和 general 3D 也在范围外。原始 34 函数、React/D3 包、bundle 不变，固定 theme/rem/calc/logical utilities 的离线编译适配器是显式范围，运行不读取浏览器截图/几何。字体由 Windows OS DirectWrite 负责，移动/字体稳定打包与生产性能预算待验收。Windows 固定 scene 的 D2D GPU 绘制、颜色字体缓存与现有 external texture 接口已接通，沿用 102 个 Chrome reference 的阈值；没有扩大 HTML/CSS/SVG 语义范围，见 [性能证据](gallery-performance.md)。
 
 2026-10-09 固定 gallery scene 接入 owner 直接 task/rAF 调用、弱身份 mutation journal/subtree revision、API 无关数值 paint 参数与有界静态绘制参数缓存。owner/renderer 线程边界、完整 packet、group opacity/clip 和真实 completion 退休不变；同步 geometry read 仍全量 fresh layout，未实现一般增量 DOM patch、后台 UI 线程或生产 retained display list。实际接口、参考路径与限制见 [本轮合同](owner-hotpath-performance.md)。
 
 ## 内容与 HTML
 
-CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后代/子代选择器、层叠、明确尺寸的绝对定位、px/%/受限 calc、矩形图片裁剪及孤立层叠。它是独立 positioned profile，尚未与 Flex/inline 或一般文档/CSSOM 合并；JS 原生 DOM 现支持 tag/id/class compound 和最多 16 段的后代链（D3 axis `.tick line` / `.tick text` 已验证）；子代、列表和 attribute query 仍显式 CE_UNSUPPORTED_SELECTOR，不能从 C++ stylesheet matcher 推断其他 DOM selector 支持。完整原游戏、滚动和通用 positioned hit-test 未验收，见 [实际样本合同](casecheetah-workload.md)。
+CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后代/子代选择器、层叠、明确尺寸的绝对定位、px/%/受限 calc、矩形图片裁剪及孤立层叠。它是独立 positioned profile，尚未与 Flex/inline 或一般文档/CSSOM 合并；JS 原生 DOM 现支持 tag/id/class compound 和最多 16 段的后代链（D3 axis `.tick line` / `.tick text` 已验证）；子代、列表和 attribute query 仍显式 WEFT_UNSUPPORTED_SELECTOR，不能从 C++ stylesheet matcher 推断其他 DOM selector 支持。完整原游戏、滚动和通用 positioned hit-test 未验收，见 [实际样本合同](casecheetah-workload.md)。
 
 已验证固定 Roboto/Noto CJK 的有界 LTR 中英回退和灰度页面，原样 AlertBar/Zustand/store/双向 UE 桥在作者预览 CSS 下运行。span/b/ul/li 仅限显式 block/positioned、normal/400、零边距和 list-style:none；已独立接原始主题块与展开规则；尚不支持整个 operations.css、一般 inline、段落换行/bidi 或 IME。浏览器状态/几何/四项字体度量与 GPU 证据见 [中文 workload](cjk-alert-probe.md)。
 

@@ -5,7 +5,7 @@
 #include <limits>
 #include <vector>
 
-namespace caseelephant {
+namespace weft {
     // Slot table behind generational handles: slot indices are reused, generations are not.
     //
     // generation(i) is the generation of the latest occupant of slot i (0: never occupied). A
@@ -96,4 +96,4 @@ namespace caseelephant {
 
         std::vector<Slot> slots_;
     };
-} // namespace caseelephant
+} // namespace weft

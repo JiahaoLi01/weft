@@ -15,6 +15,11 @@
         "sha256": "36a383367f8e09cc353187d9aaf4fb0df9b54c2b0e52780b3708fb8cc4ced3a0",
         "date": "2026-10-10",
         "reason": "Refactor step 3: web_host_bootstrap.js is installed from the copy embedded in the script library (same source text) instead of being read from the source tree; hit scenario and oracle points unchanged."
+      },
+      {
+        "sha256": "6bf561322a890e6caf04bf83c28cbfb6a0dc06961cfaf1aa26bf89e2312ac2d1",
+        "date": "2026-10-10",
+        "reason": "Refactor step 4: CaseElephant/ce/Probe names renamed to Weft (namespace, C ABI, WEFT_* macros, Probe-free types); hit scenario and oracle points unchanged."
       }
     ]
   }

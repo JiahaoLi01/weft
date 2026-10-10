@@ -3,28 +3,28 @@
 
 int run_render_stages(bool warp, const std::filesystem::path& folder) {
     std::filesystem::create_directories(folder);
-    Experiment gpu(warp, caseelephant::probe_constants::gallery::render_stages_surface_width,
-                   caseelephant::probe_constants::gallery::render_stages_surface_height);
+    Experiment gpu(warp, weft::probe_constants::gallery::render_stages_surface_width,
+                   weft::probe_constants::gallery::render_stages_surface_height);
     gpu.cache_assets = true;
     TwoFramePipeline pipeline(gpu);
     SceneGpuSurfaces surfaces(gpu, pipeline);
     surfaces.retain_paint = true;
-    caseelephant::SceneRasterProbe reference;
+    weft::SceneRaster reference;
     unsigned comparisons{};
     double worst_mean{};
     double minimum_iou = 1;
-    for (unsigned f = 0; f < caseelephant::probe_constants::gallery::render_stages_frames; ++f) {
-        surfaces.native_paint = f >= caseelephant::probe_constants::gallery::render_stages_native_frame;
-        caseelephant::ProbeSceneFrame scene;
+    for (unsigned f = 0; f < weft::probe_constants::gallery::render_stages_frames; ++f) {
+        surfaces.native_paint = f >= weft::probe_constants::gallery::render_stages_native_frame;
+        weft::SceneFrame scene;
         auto& root = scene.root;
         root.identity = {1, 1, 1};
         root.tag = "div";
-        root.space = caseelephant::constants::xhtml_namespace_uri;
-        root.box = {0, 0, caseelephant::probe_constants::gallery::render_stages_scene_width,
-                    caseelephant::probe_constants::gallery::render_stages_scene_height};
+        root.space = weft::constants::xhtml_namespace_uri;
+        root.box = {0, 0, weft::probe_constants::gallery::render_stages_scene_width,
+                    weft::probe_constants::gallery::render_stages_scene_height};
         root.style = {{"background-color", "#203044"}, {"overflow", "hidden"}};
-        std::vector<caseelephant::ProbeNodeIdentity> ids;
-        for (unsigned i = 0; i < caseelephant::probe_constants::gallery::render_stages_node_count; ++i) {
+        std::vector<weft::NodeIdentity> ids;
+        for (unsigned i = 0; i < weft::probe_constants::gallery::render_stages_node_count; ++i) {
             auto n = root;
             n.children.clear();
             n.identity = {i + 2, 1 + f / 40, 1};
@@ -36,13 +36,13 @@ int run_render_stages(bool warp, const std::filesystem::path& folder) {
                        {"opacity", f % 4 ? ".7" : "1"},
                        {"border-top-left-radius", "7px"},
                        {"border-bottom-right-radius", "12px"}};
-            if (f >= caseelephant::probe_constants::gallery::render_stages_native_frame && i == 0) {
+            if (f >= weft::probe_constants::gallery::render_stages_native_frame && i == 0) {
                 n.identity.generation = f + 1;
             }
             if (i == 0) {
                 n.box[2] = 80;
                 n.box[3] = 48;
-                if (f < caseelephant::probe_constants::gallery::render_stages_native_frame) {
+                if (f < weft::probe_constants::gallery::render_stages_native_frame) {
                     n.style["overflow"] = "hidden";
                 }
                 auto c = n;
@@ -55,12 +55,12 @@ int run_render_stages(bool warp, const std::filesystem::path& folder) {
                 c.style["background-color"] = "rgba(0,200,255,.5)";
                 n.children.push_back(c);
             }
-            if (f >= caseelephant::probe_constants::gallery::render_stages_native_frame && i == 5) {
+            if (f >= weft::probe_constants::gallery::render_stages_native_frame && i == 5) {
                 n.style["background-image"] = (f % 3 == 0   ? "linear-gradient(45deg, rgba(255,0,0,.5), #2a4a8a)"
                                                : f % 3 == 1 ? "radial-gradient(circle, #d4a843, transparent)"
                                                             : "conic-gradient(from 30deg, #d4a843, #8b1a1a, #d4a843)");
             }
-            if (f >= caseelephant::probe_constants::gallery::render_stages_native_frame && i == 6) {
+            if (f >= weft::probe_constants::gallery::render_stages_native_frame && i == 6) {
                 for (const auto* edge : {"top", "right", "bottom", "left"}) {
                     n.style[std::string("border-") + edge + "-width"] = "3px";
                     n.style[std::string("border-") + edge + "-color"] =
@@ -70,9 +70,9 @@ int run_render_stages(bool warp, const std::filesystem::path& folder) {
             if (f >= 80 && i == 2) {
                 n.style["background-color"] = (f % 3 ? "#ffffff" : "#8b1a1a");
             }
-            if (f >= caseelephant::probe_constants::gallery::render_stages_native_frame && i == 7) {
+            if (f >= weft::probe_constants::gallery::render_stages_native_frame && i == 7) {
                 n.style["opacity"] = "50%";
-                n.paint = caseelephant::compile_scene_paint_values(n.style);
+                n.paint = weft::compile_scene_paint_values(n.style);
             }
             if (f % 17 == 0 && i == 3) {
                 n.box[2] = 34;
@@ -95,22 +95,21 @@ int run_render_stages(bool warp, const std::filesystem::path& folder) {
             root.children.pop_back();
         }
         scene.elements = reference.geometry(scene);
-        auto value = std::make_shared<const caseelephant::ProbeSceneFrame>(scene);
+        auto value = std::make_shared<const weft::SceneFrame>(scene);
         const auto crop = ((f >= 100 && f < 110) || (f >= 260 && f < 270))
                               ? std::optional<std::array<float, 4>>{{0, 12, 320, 164}}
                               : std::nullopt;
-        auto& image =
-            surfaces.paint_owned(0, value, caseelephant::probe_constants::gallery::scene_raster_scale, crop,
-                                 f >= caseelephant::probe_constants::gallery::render_stages_native_frame
-                                     ? std::vector<caseelephant::ProbeNodeIdentity>{root.children.front().identity}
-                                     : ids);
+        auto& image = surfaces.paint_owned(0, value, weft::probe_constants::gallery::scene_raster_scale, crop,
+                                           f >= weft::probe_constants::gallery::render_stages_native_frame
+                                               ? std::vector<weft::NodeIdentity>{root.children.front().identity}
+                                               : ids);
         surfaces.publish();
         FramePacket p;
-        p.draws.push_back({{0, 0, caseelephant::probe_constants::gallery::render_stages_surface_width,
-                            caseelephant::probe_constants::gallery::render_stages_surface_height},
+        p.draws.push_back({{0, 0, weft::probe_constants::gallery::render_stages_surface_width,
+                            weft::probe_constants::gallery::render_stages_surface_height},
                            {1, 1, 1, 1},
                            0});
-        std::array<bool, caseelephant::probe_constants::gallery::core_scene_count> visible{};
+        std::array<bool, weft::probe_constants::gallery::core_scene_count> visible{};
         visible[0] = true;
         auto serial = pipeline.submit(std::move(p),
                                       [] {
@@ -119,7 +118,7 @@ int run_render_stages(bool warp, const std::filesystem::path& folder) {
         surfaces.submitted(serial, visible);
         if (f % 2 == 1) {
             auto actual = surfaces.read(0);
-            auto expected = reference.raster(scene, caseelephant::probe_constants::gallery::scene_raster_scale);
+            auto expected = reference.raster(scene, weft::probe_constants::gallery::scene_raster_scale);
             if (crop) {
                 for (unsigned y = 0; y < expected.height; ++y) {
                     if (y < 24 || y >= 328) {
@@ -188,16 +187,16 @@ int run_render_stages(bool warp, const std::filesystem::path& folder) {
 int run_owner_async(bool warp, const std::filesystem::path& folder) {
     std::filesystem::create_directories(folder);
     auto owner = gallery_owner();
-    Experiment gpu(warp, caseelephant::constants::uhd_width, caseelephant::constants::uhd_height);
+    Experiment gpu(warp, weft::constants::uhd_width, weft::constants::uhd_height);
     gpu.cache_assets = true;
     TwoFramePipeline pipeline(gpu);
     SceneGpuSurfaces surfaces(gpu, pipeline);
     surfaces.retain_paint = surfaces.native_paint = true;
     std::shared_ptr<const GalleryOwnerFrame> frame;
-    std::array<std::uint64_t, caseelephant::probe_constants::gallery::core_scene_count> revisions{};
+    std::array<std::uint64_t, weft::probe_constants::gallery::core_scene_count> revisions{};
     std::array<bool, gallery_scene_count> visible{};
-    for (unsigned i = caseelephant::probe_constants::gallery::owner_async_first_scene;
-         i < caseelephant::probe_constants::gallery::owner_async_scene_end; ++i) {
+    for (unsigned i = weft::probe_constants::gallery::owner_async_first_scene;
+         i < weft::probe_constants::gallery::owner_async_scene_end; ++i) {
         visible[i] = true;
     }
     std::deque<double> game_calls;
@@ -214,8 +213,8 @@ int run_owner_async(bool warp, const std::filesystem::path& folder) {
     GalleryOwnerRequest init;
     init.scenes = visible;
     frame = owner
-                ->wait(caseelephant::probe_constants::gallery::owner_epoch,
-                       owner->request(caseelephant::probe_constants::gallery::owner_epoch, init))
+                ->wait(weft::probe_constants::gallery::owner_epoch,
+                       owner->request(weft::probe_constants::gallery::owner_epoch, init))
                 .value;
     const auto loop_started = std::chrono::steady_clock::now();
     std::exception_ptr game_error;
@@ -223,47 +222,44 @@ int run_owner_async(bool warp, const std::filesystem::path& folder) {
     std::jthread game([&] {
         try {
             require(std::this_thread::get_id() != render_thread, "game/render thread isolation");
-            for (unsigned f = 0; f < caseelephant::probe_constants::gallery::owner_async_frames; ++f) {
+            for (unsigned f = 0; f < weft::probe_constants::gallery::owner_async_frames; ++f) {
                 const auto time = now();
                 const auto game_start = now();
                 if (f % 19 == 0) {
-                    require(owner->input(caseelephant::probe_constants::gallery::owner_epoch,
-                                         {caseelephant::probe_constants::gallery::css_toggle_scene, -1,
-                                          caseelephant::ProbeMouseAction::Down, 100, 40, time}) ==
-                                    GalleryOwnerExecutor::Accepted &&
-                                owner->input(caseelephant::probe_constants::gallery::owner_epoch,
-                                             {caseelephant::probe_constants::gallery::css_toggle_scene, -1,
-                                              caseelephant::ProbeMouseAction::Up, 100, 40, time}) ==
-                                    GalleryOwnerExecutor::Accepted,
+                    require(owner->input(weft::probe_constants::gallery::owner_epoch,
+                                         {weft::probe_constants::gallery::css_toggle_scene, -1, weft::MouseAction::Down,
+                                          100, 40, time}) == GalleryOwnerExecutor::Accepted &&
+                                owner->input(weft::probe_constants::gallery::owner_epoch,
+                                             {weft::probe_constants::gallery::css_toggle_scene, -1,
+                                              weft::MouseAction::Up, 100, 40, time}) == GalleryOwnerExecutor::Accepted,
                             "async reliable game input");
                 }
                 GalleryOwnerRequest request;
                 request.time = time;
                 request.scenes = visible;
                 if (f == 64) {
-                    require(owner->input(caseelephant::probe_constants::gallery::owner_epoch,
-                                         {-1, -1, caseelephant::ProbeMouseAction::Move, 0, 0, time,
-                                          caseelephant::probe_constants::gallery::max_test_delay_ms}) ==
+                    require(owner->input(weft::probe_constants::gallery::owner_epoch,
+                                         {-1, -1, weft::MouseAction::Move, 0, 0, time,
+                                          weft::probe_constants::gallery::max_test_delay_ms}) ==
                                 GalleryOwnerExecutor::Accepted,
                             "owner reliable stall injection");
                     for (unsigned i = 0; i < 16; ++i) {
-                        owner->request(caseelephant::probe_constants::gallery::owner_epoch, request);
+                        owner->request(weft::probe_constants::gallery::owner_epoch, request);
                     }
                 }
-                owner->request(caseelephant::probe_constants::gallery::owner_epoch, request);
+                owner->request(weft::probe_constants::gallery::owner_epoch, request);
                 GalleryPreviewSamples::add(game_calls, now() - game_start);
                 std::this_thread::sleep_until(
                     loop_started +
-                    std::chrono::microseconds((f + 1) * caseelephant::probe_constants::gallery::owner_async_period_us));
+                    std::chrono::microseconds((f + 1) * weft::probe_constants::gallery::owner_async_period_us));
             }
         } catch (...) {
             game_error = std::current_exception();
         }
     });
-    for (unsigned f = 0; f < caseelephant::probe_constants::gallery::owner_async_frames; ++f) {
+    for (unsigned f = 0; f < weft::probe_constants::gallery::owner_async_frames; ++f) {
         const auto deadline =
-            loop_started +
-            std::chrono::microseconds((f + 1) * caseelephant::probe_constants::gallery::owner_async_period_us);
+            loop_started + std::chrono::microseconds((f + 1) * weft::probe_constants::gallery::owner_async_period_us);
         const auto time = now();
         const auto render_start = now();
         if (auto value = owner->latest()) {
@@ -276,32 +272,32 @@ int run_owner_async(bool warp, const std::filesystem::path& folder) {
         GalleryPreviewSamples::add(age_ms, std::max(0., time - frame->time));
         pipeline.poll();
         pipeline.begin_frame_timing();
-        std::vector<ce_render_handle> external;
+        std::vector<weft_render_handle> external;
         FramePacket packet;
-        for (unsigned i = caseelephant::probe_constants::gallery::owner_async_first_scene;
-             i < caseelephant::probe_constants::gallery::owner_async_scene_end; ++i) {
+        for (unsigned i = weft::probe_constants::gallery::owner_async_first_scene;
+             i < weft::probe_constants::gallery::owner_async_scene_end; ++i) {
             const auto& scene = *frame->scenes[i];
             if (frame->revisions[i] != revisions[i]) {
-                surfaces.paint_owned(i, frame->scenes[i], caseelephant::probe_constants::gallery::scene_raster_scale,
+                surfaces.paint_owned(i, frame->scenes[i], weft::probe_constants::gallery::scene_raster_scale,
                                      std::nullopt, gallery_layer_manifest(i, scene, true));
                 revisions[i] = frame->revisions[i];
             }
         }
         surfaces.publish();
-        for (unsigned i = caseelephant::probe_constants::gallery::owner_async_first_scene;
-             i < caseelephant::probe_constants::gallery::owner_async_scene_end; ++i) {
+        for (unsigned i = weft::probe_constants::gallery::owner_async_first_scene;
+             i < weft::probe_constants::gallery::owner_async_scene_end; ++i) {
             auto* image = surfaces.image(i);
             require(image && image->handle.renderer_id, "async complete surface missing");
             auto index = int(external.size());
             external.push_back(image->handle);
-            packet.draws.push_back({{float((i - caseelephant::probe_constants::gallery::owner_async_first_scene) %
-                                           caseelephant::probe_constants::gallery::owner_async_grid_columns *
-                                           caseelephant::probe_constants::gallery::owner_async_cell_width),
-                                     float((i - caseelephant::probe_constants::gallery::owner_async_first_scene) /
-                                           caseelephant::probe_constants::gallery::owner_async_grid_columns *
-                                           caseelephant::probe_constants::gallery::owner_async_cell_height),
-                                     caseelephant::probe_constants::gallery::owner_async_card_width,
-                                     caseelephant::probe_constants::gallery::owner_async_cell_height},
+            packet.draws.push_back({{float((i - weft::probe_constants::gallery::owner_async_first_scene) %
+                                           weft::probe_constants::gallery::owner_async_grid_columns *
+                                           weft::probe_constants::gallery::owner_async_cell_width),
+                                     float((i - weft::probe_constants::gallery::owner_async_first_scene) /
+                                           weft::probe_constants::gallery::owner_async_grid_columns *
+                                           weft::probe_constants::gallery::owner_async_cell_height),
+                                     weft::probe_constants::gallery::owner_async_card_width,
+                                     weft::probe_constants::gallery::owner_async_cell_height},
                                     {1, 1, 1, 1},
                                     index});
         }
@@ -325,7 +321,7 @@ int run_owner_async(bool warp, const std::filesystem::path& folder) {
     gpu.evict_assets(0, true);
     gpu.check_debug_messages();
     const unsigned minimum_updates =
-#ifdef CE_REACT_GC_STRESS
+#ifdef WEFT_REACT_GC_STRESS
         1; // Allocation-by-allocation GC is a lifetime check, not a 120 Hz budget.
 #else
         20;

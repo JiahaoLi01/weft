@@ -1,4 +1,4 @@
-# CaseElephant 构建与 M0 探针
+# Weft 构建与 M0 探针
 
 当前交付十六个实验模块：`caseelephant_core`、`caseelephant_script`、`caseelephant_render_lifetime`、`caseelephant_render_backend`、`caseelephant_text_probe`、`caseelephant_flex_probe`、`caseelephant_page_probe`、`caseelephant_input_probe`、`caseelephant_positioned_page_probe`、`caseelephant_style_probe`、`caseelephant_auto_page_probe`、`caseelephant_inline_probe`、`caseelephant_rounded_probe`、`caseelephant_flow_page_probe`、图形 API 无关的 `caseelephant_canvas_probe` 和 Windows `caseelephant_canvas_d2d_probe`。受限 React 页面与原样 CaseCheetah 九宫格已串联 native DOM、CSS profile、布局、字体/图片、GPU 和 Windows 窗口；一般 HTML → CSS 页面加载尚未实现。公开头文件是实验接口，当前不交付稳定 SDK 或第三方符号隔离承诺。
 
@@ -36,14 +36,14 @@ python tools/verify_dependencies.py
 
 新增 `flow_layout_contract`、browser diff/fixture integrity、原始 Unicode 数据测试，以及 `--flow-warp/hardware`、`--cheetah-flow-warp/hardware` 的真实滚动/圆角像素探针。输入、离线参考、强制 GC 和本机浏览器步骤见 [flow 复现](flow-layout-probe.md)。正常 CTest 无需联网或重建 React bundle。
 
-另新增 `flow_input_contract`、`flow_input_browser_diff`、`flow_input_fixture_integrity` 和 `d3d11_warp_cheetah_flow_window`。原样 React 长列表接 HWND 细分/取消 wheel、paint-order/inline/rounded hit 和 scroll-only repaint，独立值接口保持 renderer C ABI v1。可见窗口为 `ce_d3d11_probe.exe --cheetah-flow-window-hardware artifacts/local/cheetah-flow-window-interactive`，隐藏自测追加 `-test-`；fixture 和强制 GC 命令见 [flow 输入窗口](flow-input-window-probe.md)。
+另新增 `flow_input_contract`、`flow_input_browser_diff`、`flow_input_fixture_integrity` 和 `d3d11_warp_cheetah_flow_window`。原样 React 长列表接 HWND 细分/取消 wheel、paint-order/inline/rounded hit 和 scroll-only repaint，独立值接口保持 renderer C ABI v1。可见窗口为 `weft_d3d11_probe.exe --cheetah-flow-window-hardware artifacts/local/cheetah-flow-window-interactive`，隐藏自测追加 `-test-`；fixture 和强制 GC 命令见 [flow 输入窗口](flow-input-window-probe.md)。
 
 ## Flex 与真实字体
 
 `font_fallback_contract` 验证固定 Roboto/Noto CJK 的缺字回退与 cluster/连字；`--cheetah-alert-hardware` / `--cheetah-alert-warp` 验证原样 AlertBar/Zustand/UE 协议、中文灰度与真实 GPU，详见 [复现与范围](cjk-alert-probe.md)。普通构建使用固定 IIFE；仅重建样例需要 `node tools/build_cheetah_alert.mjs`。
 
 ```powershell
-.\build\windows-msvc\bin\Debug\ce_flex_layout_probe.exe third_party/ahem/Ahem.ttf artifacts/local/flex-native-debug
+.\build\windows-msvc\bin\Debug\weft_flex_layout_probe.exe third_party/ahem/Ahem.ttf artifacts/local/flex-native-debug
 python tools/compare_flex_reports.py tests/fixtures/flex_browser_reference.json artifacts/local/flex-native-debug/css-adapter.json --output artifacts/local/flex-native-debug/adapter-comparison.json
 ```
 
@@ -51,10 +51,10 @@ python tools/compare_flex_reports.py tests/fixtures/flex_browser_reference.json 
 
 ## 真实 D3D11 提交与颜色
 
-Windows 的 `ce_d3d11_probe` 链接系统 D3D11、DXGI、D3DCompiler 与诊断 PNG 用的 WIC，不增加 vendored 依赖。它仍是独立程序，未成为正式 renderer 模块。默认 CTest 用 WARP 执行实际 command list/query，离线验证 browser 参考；硬件另用显式参数验证，不自动降级。
+Windows 的 `weft_d3d11_probe` 链接系统 D3D11、DXGI、D3DCompiler 与诊断 PNG 用的 WIC，不增加 vendored 依赖。它仍是独立程序，未成为正式 renderer 模块。默认 CTest 用 WARP 执行实际 command list/query，离线验证 browser 参考；硬件另用显式参数验证，不自动降级。
 
 ```powershell
-.\build\windows-msvc\bin\Debug\ce_d3d11_probe.exe --hardware artifacts/local/gpu-debug/hardware
+.\build\windows-msvc\bin\Debug\weft_d3d11_probe.exe --hardware artifacts/local/gpu-debug/hardware
 python tools/compare_gpu_reports.py tests/fixtures/gpu_color_browser_reference.json artifacts/local/gpu-debug/hardware/report.json --output artifacts/local/gpu-debug/hardware/browser-comparison.json
 ```
 
@@ -62,14 +62,14 @@ python tools/compare_gpu_reports.py tests/fixtures/gpu_color_browser_reference.j
 
 ## 可扩展 GPU 后端 API
 
-`caseelephant_render_backend` 不链接图形 API、窗口、字体或脚本库。它实现 v1 C ABI facade，由 host 注册 adapter function table、传具体 native pass、实际提交与完成。D3D11 reference 和 React window 已接入；Vulkan/原生 Metal adapter 尚未实现。运行 `ce_d3d11_probe.exe --backend-hardware artifacts/local/backend-debug/api-hardware` 可验证宿主 context/target、保留已有内容、颜色/SDF 对照、float alpha、取消/失败与真实 query 退休；软件入口为 --backend-warp。接口与限制见 [后端 API](render-backend-api.md)。
+`caseelephant_render_backend` 不链接图形 API、窗口、字体或脚本库。它实现 v1 C ABI facade，由 host 注册 adapter function table、传具体 native pass、实际提交与完成。D3D11 reference 和 React window 已接入；Vulkan/原生 Metal adapter 尚未实现。运行 `weft_d3d11_probe.exe --backend-hardware artifacts/local/backend-debug/api-hardware` 可验证宿主 context/target、保留已有内容、颜色/SDF 对照、float alpha、取消/失败与真实 query 退休；软件入口为 --backend-warp。接口与限制见 [后端 API](render-backend-api.md)。
 
 ## SDF 字体
 
 字体适配器增加独立的 rasterize_sdf，默认使用固定 FreeType 的 bsdf，保留原有灰度接口。CTest 的 sdf_font_contract 验证距离编码、padding、塑形度量与错误输入，d3d11_warp_sdf 执行真实 GPU 缩放/描边/readback 和资源退休。硬件显式执行：
 
 ```powershell
-.\build\windows-msvc\bin\Debug\ce_d3d11_probe.exe --sdf-hardware artifacts/local/sdf-debug/hardware
+.\build\windows-msvc\bin\Debug\weft_d3d11_probe.exe --sdf-hardware artifacts/local/sdf-debug/hardware
 ```
 
 输出 report.json、direct.png、rtt.png、distance-atlas.png。自动 WARP 产物位于 build/windows-msvc/artifacts/sdf-Debug/warp 与 sdf-Release/warp。固定 atlas 不是生产缓存，中文、页面、移动与 MSDF 尚未验证；质量/布局边界和完整复现见 [SDF 字体](sdf-font-probe.md)。
@@ -79,7 +79,7 @@ python tools/compare_gpu_reports.py tests/fixtures/gpu_color_browser_reference.j
 普通 CMake 构建直接使用已保存的 Vite IIFE，不需要 Node 或网络。实际 React 操作自己的 native DOM，再经受限 inline CSS/Flex/字体输出三帧 GPU 像素：
 
 ```powershell
-.\build\windows-msvc\bin\Debug\ce_d3d11_probe.exe --react-hardware artifacts/local/react-debug/hardware
+.\build\windows-msvc\bin\Debug\weft_d3d11_probe.exe --react-hardware artifacts/local/react-debug/hardware
 python tools/compare_react_reports.py tests/fixtures/react_browser_reference.json artifacts/local/react-debug/hardware/report.json --output artifacts/local/react-debug/hardware/browser-comparison.json
 ```
 
@@ -87,14 +87,14 @@ WARP 使用 --react-warp。25 个元素 × 三帧的 300 几何字段与独立 C
 
 ## 原生 React 窗口
 
-运行 `ce_d3d11_probe.exe --react-window-hardware artifacts/local/window-interactive` 可打开主鼠标窗口；WARP 使用 --react-window-warp。自动测试使用 --react-window-test-hardware/warp 创建自己的隐藏 HWND，实际运行消息/命中/React/swapchain。完整步骤与边界见 [窗口说明](native-window-probe.md)。
+运行 `weft_d3d11_probe.exe --react-window-hardware artifacts/local/window-interactive` 可打开主鼠标窗口；WARP 使用 --react-window-warp。自动测试使用 --react-window-test-hardware/warp 创建自己的隐藏 HWND，实际运行消息/命中/React/swapchain。完整步骤与边界见 [窗口说明](native-window-probe.md)。
 
 ## 原版 D3 与原生 DOM
 
 同一份 `tests/fixtures/d3_probe.js` 用于浏览器与原生探针。它覆盖 HTML/SVG namespace、NS attributes、keyed join、wrapper identity、排序与退出、axis、line、事件替换与传播。不会注入 JS DOM 实现，也不会修改 D3。
 
 ```powershell
-.\build\windows-msvc\bin\Debug\ce_script_dom_probe.exe third_party/d3/d3.js tests/fixtures/d3_probe.js artifacts/local/d3-native-debug
+.\build\windows-msvc\bin\Debug\weft_script_dom_probe.exe third_party/d3/d3.js tests/fixtures/d3_probe.js artifacts/local/d3-native-debug
 ```
 
 前两个参数为 D3 和 fixture 路径，均必需。第三个参数指定生成目录；产物为 `d3-native-report.json` 与 `d3-native-dom.json`。路径相对于当前工作目录，也可使用绝对路径。
@@ -121,7 +121,7 @@ ctest --test-dir build/windows-gc-stress -C Debug --output-on-failure
 
 默认 VM 栈上限为 512 KiB，本机默认 1 MiB 宿主线程栈通过 D3 和深递归恢复。React 使用 1 MiB VM 上限，page/input/GPU 三个实验 exe 通过 /STACK 保留 8 MiB 宿主线程栈。接入宿主时必须为 native bridge 留余量；尚未提供可移植的线程栈容量检测。
 
-ScriptProbeConfig 可配置受限执行预算，默认仍为 2 秒。只有 QJS_ENABLE_GC_STRESS=ON 的 React page/input/GPU workload 使用 30 秒执行预算、180 秒 CTest timeout，以完成每次分配前完整 GC 的压力场景；现有预算超限反例继续用默认值。该配置不用于性能验收。
+ScriptConfig 可配置受限执行预算，默认仍为 2 秒。只有 QJS_ENABLE_GC_STRESS=ON 的 React page/input/GPU workload 使用 30 秒执行预算、180 秒 CTest timeout，以完成每次分配前完整 GC 的压力场景；现有预算超限反例继续用默认值。该配置不用于性能验收。
 
 ## 公共样式与原始主题
 
@@ -161,9 +161,9 @@ ScriptProbeConfig 可配置受限执行预算，默认仍为 2 秒。只有 QJS_
 | d3d11_warp_sdf | 实际 R8 distance atlas、三种倍率、导数 AA、蓝色描边、独立直边 coverage oracle、direct/RTT 与退休 |
 | d3d11_browser_color_contract | 固定 browser PNG/DOM/hash 与 native 颜色合同比较；记录有意的 blend-space 差异，需要 Python |
 
-resource_lifetime 测试模拟生命周期；独立 d3d11_warp_color_lifetime 实际执行 GPU API、shader、query 与 readback。`ce_view_record_tick` 仍仅记录 host 时间，没有运行脚本或渲染。全部测试通过也不能宣称完整页面、SVG、移动平台或性能预算通过。完整退出条件见 [实现计划](implementation-plan.md)。
+resource_lifetime 测试模拟生命周期；独立 d3d11_warp_color_lifetime 实际执行 GPU API、shader、query 与 readback。`weft_view_record_tick` 仍仅记录 host 时间，没有运行脚本或渲染。全部测试通过也不能宣称完整页面、SVG、移动平台或性能预算通过。完整退出条件见 [实现计划](implementation-plan.md)。
 
-自动布局追加 `caseelephant_auto_page_probe`、`ce_auto_page_tests`、fixture integrity 与两类 browser diff。`--cheetah-auto-hardware` / `--cheetah-auto-warp` 复用固定原版 bundle，内部使用自动尺寸。浏览器准备、离线测试和 sealed evidence 见 [自动布局合同](automatic-layout-probe.md)。
+自动布局追加 `caseelephant_auto_page_probe`、`weft_auto_page_tests`、fixture integrity 与两类 browser diff。`--cheetah-auto-hardware` / `--cheetah-auto-warp` 复用固定原版 bundle，内部使用自动尺寸。浏览器准备、离线测试和 sealed evidence 见 [自动布局合同](automatic-layout-probe.md)。
 
 可见 flow 窗口的 `--cheetah-flow-window-hardware/warp` 默认使用 4K 离屏目标、最大化窗口和 FPS HUD；新 hidden 4K 场景为 `--cheetah-flow-window-test-4k-hardware/warp`。旧 hidden 640×420 入口不变；实际 client、logical/raster 区别与 FPS 定义见 [flow 窗口](flow-input-window-probe.md#4k-与-fps2026-10-08)。
 
@@ -171,37 +171,37 @@ resource_lifetime 测试模拟生命周期；独立 d3d11_warp_color_lifetime �
 
 ~~~powershell
 cmake --build --preset windows-release --parallel 10
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --cheetah-flow-window-perf-hardware artifacts/local/flow-scroll-perf/optimized
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --cache-hardware artifacts/local/flow-scroll-perf/render-cache-hardware
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --cheetah-flow-window-perf-hardware artifacts/local/flow-scroll-perf/optimized
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --cache-hardware artifacts/local/flow-scroll-perf/render-cache-hardware
 ctest --test-dir build/windows-msvc -C Release -R 'd3d11_warp_(render_cache|cheetah_flow_window_4k)' --output-on-failure
 ~~~
 
 4K 窗口现默认最多两帧在途，两个独立 event query/constant buffer、immutable HUD lease 与真实完成退休；同步参考保留。`--pipeline-hardware/warp` 是独立生命周期/像素探针。`--cheetah-flow-window-perf-sync-hardware` 与既有 `--cheetah-flow-window-perf-hardware` 用同一 exe 对比同步/两帧；v2 profile 分别标明 owner tick 截止到 completion/submission，并另记录含最后 GPU drain 的 `measurement_wall_ms` 和全完成吞吐，不能拿两种 tick 指标直接当显示延迟。完整条件见 [两帧窗口](flow-input-window-probe.md#两帧流水线2026-10-09)。
 
 ~~~powershell
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --pipeline-hardware artifacts/local/two-frame/hardware
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --cheetah-flow-window-perf-sync-hardware artifacts/local/two-frame/sequential
-.\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --cheetah-flow-window-perf-hardware artifacts/local/two-frame/pipelined
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --pipeline-hardware artifacts/local/two-frame/hardware
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --cheetah-flow-window-perf-sync-hardware artifacts/local/two-frame/sequential
+.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --cheetah-flow-window-perf-hardware artifacts/local/two-frame/pipelined
 ctest --test-dir build/windows-gc-stress -C Debug -R 'flow_input|flow_window|mouse_input|script_dom_lifecycle|page_react|render_cache|font_fallback|two_frame' --output-on-failure
 ~~~
 
 
 可见 4K flow 入口默认带每帧/30 Hz 连续运动展示，pause 和 speed 均经原生 DOM 按钮。新 `--cheetah-flow-window-test-4k-motion-hardware/warp` 与 CTest `d3d11_warp_cheetah_flow_window_motion` 验证几何/像素/时钟/输入/生命周期，静态 perf 与 golden 入口不变。它使用局部宿主 JS 时钟，没有添加全局 rAF 或 CSS 动画。运行和合成时钟采样定义见 [连续运动](flow-input-window-probe.md#连续运动展示2026-10-09)。
 
-gallery/rAF 阶段新增 `ce_animation_frame_tests`、`ce_gallery_probe` 与 `gallery_*` 完整性/诊断审计。正常构建只用固定 bundle；`node tools/build_gallery.mjs` 可选离线重建十个分组和完整页面，不读原游戏或 install。gallery native observation 不加载完整 CSS/输入/GPU，结果不能当作渲染通过；大 bundle 的 72 例诊断不注册到 GC instrumentation。命令、依赖来源/工具链平台限制与浏览器参照见 [gallery/rAF](gallery-foundation.md)。
+gallery/rAF 阶段新增 `weft_animation_frame_tests`、`weft_gallery_probe` 与 `gallery_*` 完整性/诊断审计。正常构建只用固定 bundle；`node tools/build_gallery.mjs` 可选离线重建十个分组和完整页面，不读原游戏或 install。gallery native observation 不加载完整 CSS/输入/GPU，结果不能当作渲染通过；大 bundle 的 72 例诊断不注册到 GC instrumentation。命令、依赖来源/工具链平台限制与浏览器参照见 [gallery/rAF](gallery-foundation.md)。
 
 ## 原样 Gallery Canvas
 
-Windows 可运行 `build/windows-msvc/bin/Release/ce_d3d11_probe.exe --gallery-canvas-window-hardware artifacts/local/gallery-canvas/interactive`，Tab 切换、移动/点击交互、Esc 退出。离屏自动验证为 `--gallery-canvas-warp` / `--gallery-canvas-hardware`，隐藏 4K/HWND 为 `--gallery-canvas-window-test-warp` / `--gallery-canvas-window-test-hardware`。真实浏览器参照是 `node tools/browser_canvas_reference.mjs artifacts/local/gallery-canvas/reference`；正常 CTest 使用固定 PNG，不启动 Chrome、不联网。条件/误差与实际命令见 [Canvas 阶段](gallery-canvas.md)。
+Windows 可运行 `build/windows-msvc/bin/Release/weft_d3d11_probe.exe --gallery-canvas-window-hardware artifacts/local/gallery-canvas/interactive`，Tab 切换、移动/点击交互、Esc 退出。离屏自动验证为 `--gallery-canvas-warp` / `--gallery-canvas-hardware`，隐藏 4K/HWND 为 `--gallery-canvas-window-test-warp` / `--gallery-canvas-window-test-hardware`。真实浏览器参照是 `node tools/browser_canvas_reference.mjs artifacts/local/gallery-canvas/reference`；正常 CTest 使用固定 PNG，不启动 Chrome、不联网。条件/误差与实际命令见 [Canvas 阶段](gallery-canvas.md)。
 
 ## 外部纹理 lease 探针
 
-新增 `d3d11_warp_external_texture`，以及 `ce_d3d11_probe.exe --external-texture-hardware <output-directory>` / `--external-texture-warp`。原 renderer C ABI v1 结构不变，扩展单独安装。三个 linear-premultiplied RGBA 格式、两帧 native producer 合成、caller 提前释放/真实 query 退休和失败反例的复现与限制见 [外部纹理合同](external-texture-lease.md)。该模式输出离屏 PNG/report，不创建可见窗口。
+新增 `d3d11_warp_external_texture`，以及 `weft_d3d11_probe.exe --external-texture-hardware <output-directory>` / `--external-texture-warp`。原 renderer C ABI v1 结构不变，扩展单独安装。三个 linear-premultiplied RGBA 格式、两帧 native producer 合成、caller 提前释放/真实 query 退休和失败反例的复现与限制见 [外部纹理合同](external-texture-lease.md)。该模式输出离屏 PNG/report，不创建可见窗口。
 
 
 ## 4K Gallery 检查目录
 
-`ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/gallery-css-d3/interactive` 创建带 FPS/CPU 分位数、分组跳转和滚动的 72 例目录。26 CSS + 8 D3 + 两例原样 Canvas 实时绘制，其余 36 例显示执行/像素缺口；目录不是完整原始页面。`--gallery-window-test-hardware/warp` 运行隐藏 160 帧的时钟/目录/几何/输入/缓存差分/退休测试，WARP 已加入 CTest。条件、实际限制与产物见 [Gallery 检查窗口](gallery-preview.md)。
+`weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/gallery-css-d3/interactive` 创建带 FPS/CPU 分位数、分组跳转和滚动的 72 例目录。26 CSS + 8 D3 + 两例原样 Canvas 实时绘制，其余 36 例显示执行/像素缺口；目录不是完整原始页面。`--gallery-window-test-hardware/warp` 运行隐藏 160 帧的时钟/目录/几何/输入/缓存差分/退休测试，WARP 已加入 CTest。条件、实际限制与产物见 [Gallery 检查窗口](gallery-preview.md)。
 
 
 ## 固定 CSS/D3 gallery scene 验证
@@ -209,8 +209,8 @@ Windows 可运行 `build/windows-msvc/bin/Release/ce_d3d11_probe.exe --gallery-c
 ```powershell
 cmake --build --preset windows-release --parallel 8
 ctest --preset windows-release --output-on-failure
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/gallery-css-d3/interactive
-& .\build\windows-msvc\bin\Release\ce_scene_gallery_tests.exe artifacts/local/gallery-css-d3/release/native
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/gallery-css-d3/interactive
+& .\build\windows-msvc\bin\Release\weft_scene_gallery_tests.exe artifacts/local/gallery-css-d3/release/native
 python tools/compare_scene_geometry.py artifacts/local/gallery-css-d3/release/native tests/fixtures/scene-gallery-reference
 python tools/verify_scene_fixture.py
 ```

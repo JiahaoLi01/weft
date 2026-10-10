@@ -11,7 +11,7 @@
 #include <thread>
 #include <vector>
 
-namespace caseelephant::render {
+namespace weft::render {
 
     using DeviceEpoch = std::uint64_t;
     using QueueId = std::uint64_t;
@@ -205,4 +205,4 @@ namespace caseelephant::render {
         GenerationalSlots<TokenSlot> tokens_;
     };
 
-} // namespace caseelephant::render
+} // namespace weft::render

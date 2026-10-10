@@ -7,9 +7,9 @@
 
 // Diagnostics shared by every module (docs/decisions.md, "错误作为值返回").
 //
-// Control flow branches on Diag codes, never on message text. The message keeps the historical
-// "CE_*" name as its prefix, so reports, logs and existing tests read the same as before.
-namespace caseelephant {
+// Control flow branches on Diag codes, never on message text. The message starts with the code's
+// stable "WEFT_*" name, which reports, logs and tests read.
+namespace weft {
     enum class Diag : std::uint16_t {
         // Shared value grammar (base/css_scalar.hpp).
         InvalidNumber,
@@ -42,7 +42,7 @@ namespace caseelephant {
         SceneRasterOwner,
     };
 
-    // Stable name of a code, e.g. "CE_STYLE_PROFILE" or "IndexSizeError".
+    // Stable name of a code, e.g. "WEFT_STYLE_PROFILE" or "IndexSizeError".
     const char* diag_name(Diag code) noexcept;
 
     // "<name>: <detail>", or just the name when detail is empty.
@@ -70,4 +70,4 @@ namespace caseelephant {
     };
 
     [[noreturn]] void throw_diagnostic(Diag code, std::string_view detail = {});
-} // namespace caseelephant
+} // namespace weft

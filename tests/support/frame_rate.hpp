@@ -5,7 +5,7 @@
 #include <cmath>
 #include <stdexcept>
 
-namespace caseelephant::testing {
+namespace weft::testing {
     // Sample-host presentation rate. Timestamp is monotonic seconds, taken after
     // successful Present; idle composition counts, failed/occluded calls do not.
     class WindowFrameRate {
@@ -25,7 +25,7 @@ namespace caseelephant::testing {
 
         bool presented(double now) {
             validate(now);
-            frame_ms = (now - previous_) * caseelephant::constants::milliseconds_per_second;
+            frame_ms = (now - previous_) * weft::constants::milliseconds_per_second;
             previous_ = now;
             ++frames_;
             const auto interval = now - started_;
@@ -47,8 +47,8 @@ namespace caseelephant::testing {
 
         void validate(double now) const {
             if (!std::isfinite(now) || now < previous_) {
-                throw std::invalid_argument("CE_FPS_CLOCK: monotonic finite time");
+                throw std::invalid_argument("WEFT_FPS_CLOCK: monotonic finite time");
             }
         }
     };
-} // namespace caseelephant::testing
+} // namespace weft::testing

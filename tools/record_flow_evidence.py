@@ -58,7 +58,7 @@ for name, build, config, count, log in [
     folder.mkdir(parents=True, exist_ok=True)
     binary_dir = ROOT / 'build' / build / 'bin' / config
     binaries = {filename: binary_dir / filename for filename in
-                ('ce_d3d11_probe.exe', 'ce_flow_page_tests.exe', 'ce_unicode_upstream_tests.exe')}
+                ('weft_d3d11_probe.exe', 'weft_flow_page_tests.exe', 'weft_unicode_upstream_tests.exe')}
     source_log = ROOT / 'artifacts/local' / log
     text = source_log.read_text(encoding='utf-8')
     assert f'0 tests failed out of {count}' in text
@@ -72,7 +72,7 @@ for name, build, config, count, log in [
     for driver in (('warp',) if name == 'gc-stress' else ('warp', 'hardware')):
         stats = {}
         for label, path in [('flow', folder / driver / 'report.json'), ('react', gpu / driver / 'report.json')]:
-            assert path.stat().st_mtime >= binaries['ce_d3d11_probe.exe'].stat().st_mtime, 'GPU report predates binary'
+            assert path.stat().st_mtime >= binaries['weft_d3d11_probe.exe'].stat().st_mtime, 'GPU report predates binary'
             report = json.loads(path.read_text(encoding='utf-8'))
             assert all(report[k] for k in ('passed', 'post_vm_reset_render_verified', 'actual_completion_query'))
             assert report['debug_warning_error_count'] == 0 and not report['mobile_verified']

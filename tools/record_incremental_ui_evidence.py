@@ -48,12 +48,12 @@ for name, config in (("release", "Release"), ("debug", "Debug"), ("asan", "Relea
     dest = out / "verification" / name
     dest.mkdir(parents=True, exist_ok=True)
     shutil.copy2(build / "CMakeCache.txt", dest / "CMakeCache.txt")
-    for binary in ("ce_d3d11_probe.exe", "ce_style_probe_tests.exe", "ce_scene_contract_tests.exe"):
+    for binary in ("weft_d3d11_probe.exe", "weft_style_probe_tests.exe", "weft_scene_contract_tests.exe"):
         shutil.copy2(build / "bin" / config / binary, dest / binary)
     if name == "asan":
         shutil.copy2(build / "bin" / config / "clang_rt.asan_dynamic-x86_64.dll", dest / "clang_rt.asan_dynamic-x86_64.dll")
     else:
-        shutil.copy2(build / "bin" / config / "ce_gallery_trace_tests.exe", dest / "ce_gallery_trace_tests.exe")
+        shutil.copy2(build / "bin" / config / "weft_gallery_trace_tests.exe", dest / "weft_gallery_trace_tests.exe")
         trace_contract = build / "artifacts" / f"gallery-trace-{config}"
         ring, toggle = [read(trace_contract / f) for f in ("ring.json", "toggle.json")]
         assert len(ring["traceEvents"]) == 65536 and ring["dropped_events"] == 4
@@ -65,7 +65,7 @@ for name, config in (("release", "Release"), ("debug", "Debug"), ("asan", "Relea
 
 comparison = read(out / "comparison-accepted/summary.json")
 assert len(comparison["cpu"]["after"]) == 25 and len(comparison["window"]) == 5
-for variant, source in (("before", root / "build/incremental-ui-baseline/bin/Release/ce_d3d11_probe.exe"), ("after", root / "build/windows-msvc/bin/Release/ce_d3d11_probe.exe")):
+for variant, source in (("before", root / "build/incremental-ui-baseline/bin/Release/weft_d3d11_probe.exe"), ("after", root / "build/windows-msvc/bin/Release/weft_d3d11_probe.exe")):
     shutil.copy2(source, out / "comparison-accepted" / f"{variant}.exe")
 
 manifest = read(root / "tests/fixtures/crpg-gallery/manifest.json")

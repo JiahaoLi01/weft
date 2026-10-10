@@ -27,7 +27,7 @@
     if (!this[styleKey]) {
       const node = this;
       const write = (name, value, priority = '') => {
-        if (priority) throw new Error('CE_CSSOM_PROFILE: important unsupported in inline probe');
+        if (priority) throw new Error('WEFT_CSSOM_PROFILE: important unsupported in inline probe');
         value=String(value).trim();let depth=0,quote='';for(const c of value){if(quote){if(c===quote)quote='';}else if(c==='"'||c==="'")quote=c;else if(c==='(')++depth;else if(c===')'&&--depth<0)return;}if(depth||quote)return;
         const items = declarations(node);
         if (String(value).trim()) items.set(name, String(value).trim()); else items.delete(name);
@@ -59,13 +59,13 @@
   const tasks = new Map();
   const taskErrors = [];
   const advanceClock = time => {
-    if (!Number.isFinite(time) || time < now) throw new Error('CE_HOST_TIME: monotonic finite time required');
+    if (!Number.isFinite(time) || time < now) throw new Error('WEFT_HOST_TIME: monotonic finite time required');
     now = time;
   };
   globalThis.performance = { now: () => now };
   const schedule = (repeat, callback, delay = 0, ...args) => {
-    if (typeof callback !== 'function') throw new TypeError('CE_TASK_PROFILE: callback required');
-    if (tasks.size >= 4096) throw new Error('CE_TASK_LIMIT: pending timer capacity');
+    if (typeof callback !== 'function') throw new TypeError('WEFT_TASK_PROFILE: callback required');
+    if (tasks.size >= 4096) throw new Error('WEFT_TASK_LIMIT: pending timer capacity');
     // WebIDL long coercion rejects BigInt/Symbol and wraps signed 32-bit.
     delay = +delay;
     if (!Number.isFinite(delay)) delay = 0;
@@ -79,10 +79,10 @@
     if (task && task.due === nextDue) { nextDue = Infinity; for (const task of tasks.values()) nextDue = Math.min(nextDue, task.due); }
   };
   globalThis.queueMicrotask = callback => {
-    if (typeof callback !== 'function') throw new TypeError('CE_TASK_PROFILE: microtask callback required');
+    if (typeof callback !== 'function') throw new TypeError('WEFT_TASK_PROFILE: microtask callback required');
     Promise.resolve().then(callback).catch(error => taskErrors.push(error));
   };
-  globalThis.console = { error: (...args) => taskErrors.push(new Error('CE_CONSOLE_ERROR: ' + args.join(' '))), log() {}, warn() {} };
+  globalThis.console = { error: (...args) => taskErrors.push(new Error('WEFT_CONSOLE_ERROR: ' + args.join(' '))), log() {}, warn() {} };
   Object.defineProperty(globalThis, '__ceHost', { value: Object.freeze({
     pump(time) {
       lastCallbacks = 0;
@@ -90,7 +90,7 @@
       advanceClock(time);
       if (nextDue > now) return 0;
       const ready = Array.from(tasks).filter(([, task]) => task.due <= now);
-      if (ready.length > 1000) throw new Error('CE_TASK_LIMIT: ready batch');
+      if (ready.length > 1000) throw new Error('WEFT_TASK_LIMIT: ready batch');
       for (const [id] of ready) {
         const task = tasks.get(id);
         if (task && task.due <= now) {

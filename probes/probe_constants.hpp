@@ -12,7 +12,7 @@
 // std::min, std::max, std::clamp and the std::chrono::duration constructor take const references.
 // Pass a constant to them as a static_cast<T>(constant) prvalue, like the literal it replaced:
 // binding the reference to the inline variable itself changes MSVC code generation.
-namespace caseelephant::probe_constants {
+namespace weft::probe_constants {
     // Material ids of shaders/m0_probe.hlsl. They mirror the Material* constants at the top of the
     // shader, which declares the ids its pixel shader branches on.
     namespace shader_material {
@@ -63,8 +63,8 @@ namespace caseelephant::probe_constants {
     // CPU frame input budget of the probe backend. Three 1024x1536 RGBA images of a real game
     // workload fit in it.
     inline constexpr unsigned backend_max_frame_asset_bytes = 32u * constants::bytes_per_mib;
-    // Probe backend capabilities: all four CE_RENDER_FEATURE_* bits, and the SRGB_RGBA8,
-    // LINEAR_RGBA8 and LINEAR_RGBA32F bits of ce_render_target_format.
+    // Probe backend capabilities: all four WEFT_RENDER_FEATURE_* bits, and the SRGB_RGBA8,
+    // LINEAR_RGBA8 and LINEAR_RGBA32F bits of weft_render_target_format.
     inline constexpr int backend_features = 15;
     inline constexpr int backend_target_formats = 7;
     // External texture extension of the probe backend.
@@ -199,4 +199,4 @@ namespace caseelephant::probe_constants {
     inline constexpr unsigned external_seed = 0xce112026;
     // External texture batches, each with frames_in_flight submissions.
     inline constexpr int external_batches = 24;
-} // namespace caseelephant::probe_constants
+} // namespace weft::probe_constants

@@ -37,16 +37,16 @@ ComPtr<ID3D11Texture2D> external_readback(Experiment& gpu, DXGI_FORMAT format) {
     return result;
 }
 
-std::array<Color, 4> external_colors(unsigned variation, uint32_t format = CE_RENDER_TARGET_LINEAR_RGBA32F) {
+std::array<Color, 4> external_colors(unsigned variation, uint32_t format = WEFT_RENDER_TARGET_LINEAR_RGBA32F) {
     auto colors = variation % 2 ? std::array<Color, 4>{Color{0, .5f, .5f, .5f}, Color{.25f, 0, .25f, .25f},
                                                        Color{1, 1, 0, 1}, Color{0, 0, 0, 0}}
                                 : std::array<Color, 4>{Color{.5f, 0, 0, .5f}, Color{0, .25f, 0, .25f},
                                                        Color{0, 0, 1, 1}, Color{0, 0, 0, 0}};
-    if (format == CE_RENDER_TARGET_LINEAR_RGBA8) {
+    if (format == WEFT_RENDER_TARGET_LINEAR_RGBA8) {
         for (auto& c : colors) {
             for (auto& component : c) {
-                component = std::round(component * caseelephant::constants::color_channel_max) /
-                            caseelephant::constants::color_channel_max;
+                component =
+                    std::round(component * weft::constants::color_channel_max) / weft::constants::color_channel_max;
             }
         }
     }
@@ -94,7 +94,7 @@ void external_produce(Experiment& gpu, const Surface& target, unsigned variation
         gpu.draw(
             {{float(q % 2) * gpu.width / 2, float(q / 2) * gpu.height / 2, float(gpu.width) / 2, float(gpu.height) / 2},
              straight},
-            nullptr, caseelephant::probe_constants::shader_material::solid);
+            nullptr, weft::probe_constants::shader_material::solid);
     }
     ctx->ClearState();
     ComPtr<ID3D11CommandList> commands;
@@ -103,16 +103,16 @@ void external_produce(Experiment& gpu, const Surface& target, unsigned variation
     // Same immediate queue orders producer first; no Flush/GetData/CPU wait.
 }
 
-ce_render_external_texture external_gpu_description(ProbeBackend& api, const Surface& source,
-                                                    ce_render_d3d11_texture& payload, ExternalRetirement& retired,
-                                                    uint64_t version, bool bottom = false,
-                                                    uint32_t format = CE_RENDER_TARGET_LINEAR_RGBA32F) {
-    ce_render_info info{};
+weft_render_external_texture external_gpu_description(ProbeBackend& api, const Surface& source,
+                                                      weft_render_d3d11_texture& payload, ExternalRetirement& retired,
+                                                      uint64_t version, bool bottom = false,
+                                                      uint32_t format = WEFT_RENDER_TARGET_LINEAR_RGBA32F) {
+    weft_render_info info{};
     info.struct_size = sizeof(info);
-    render_result(ce_renderer_get_info(api.renderer, &info), "external identity");
-    payload = {sizeof(payload), CE_RENDER_EXTERNAL_ABI_VERSION, source.srv.Get(), 0};
-    return {sizeof(ce_render_external_texture),
-            CE_RENDER_EXTERNAL_ABI_VERSION,
+    render_result(weft_renderer_get_info(api.renderer, &info), "external identity");
+    payload = {sizeof(payload), WEFT_RENDER_EXTERNAL_ABI_VERSION, source.srv.Get(), 0};
+    return {sizeof(weft_render_external_texture),
+            WEFT_RENDER_EXTERNAL_ABI_VERSION,
             info.identity,
             501,
             version,
@@ -156,7 +156,7 @@ Color external_sample(unsigned variation, bool bottom, uint32_t format, float u,
     return result;
 }
 
-Color external_pixel(const ce_render_frame& frame, unsigned variation, bool bottom, uint32_t format, int x, int y,
+Color external_pixel(const weft_render_frame& frame, unsigned variation, bool bottom, uint32_t format, int x, int y,
                      UINT w, UINT h) {
     Color dst{};
     for (uint32_t i = 0; i < frame.draw_count; ++i) {
@@ -167,11 +167,10 @@ Color external_pixel(const ce_render_frame& frame, unsigned variation, bool bott
             continue;
         }
         Color source{};
-        if (d.asset_index == CE_RENDER_SOLID_ASSET || d.asset_index < frame.asset_count) {
+        if (d.asset_index == WEFT_RENDER_SOLID_ASSET || d.asset_index < frame.asset_count) {
             source[3] = d.srgb[3];
-            if (d.asset_index != CE_RENDER_SOLID_ASSET) {
-                source[3] *=
-                    frame.assets[d.asset_index].bytes[0] / caseelephant::probe_constants::color_channel_max_float;
+            if (d.asset_index != WEFT_RENDER_SOLID_ASSET) {
+                source[3] *= frame.assets[d.asset_index].bytes[0] / weft::probe_constants::color_channel_max_float;
             }
             for (unsigned c = 0; c < 3; ++c) {
                 source[c] = decode(d.srgb[c]) * source[3];
@@ -193,8 +192,7 @@ Color external_pixel(const ce_render_frame& frame, unsigned variation, bool bott
 int run_external_texture(bool warp, const std::filesystem::path& folder) {
     std::filesystem::create_directories(folder);
     // Callback storage outlives gpu's exception drain and normal completion.
-    std::array<ExternalRetirement,
-               caseelephant::probe_constants::external_batches * caseelephant::probe_constants::frames_in_flight>
+    std::array<ExternalRetirement, weft::probe_constants::external_batches * weft::probe_constants::frames_in_flight>
         retired;
     ExternalRetirement invalid_retirement;
     Experiment gpu(warp);
@@ -207,43 +205,43 @@ int run_external_texture(bool warp, const std::filesystem::path& folder) {
     unsigned submissions{};
     unsigned peak{};
     float float_error{};
-    uint32_t random = caseelephant::probe_constants::external_seed;
+    uint32_t random = weft::probe_constants::external_seed;
     auto producer_buffer = external_constants(gpu);
-    std::array<ComPtr<ID3D11Buffer>, caseelephant::probe_constants::frames_in_flight> buffers{external_constants(gpu),
-                                                                                              external_constants(gpu)};
-    std::array<ComPtr<ID3D11Query>, caseelephant::probe_constants::frames_in_flight> queries;
+    std::array<ComPtr<ID3D11Buffer>, weft::probe_constants::frames_in_flight> buffers{external_constants(gpu),
+                                                                                      external_constants(gpu)};
+    std::array<ComPtr<ID3D11Query>, weft::probe_constants::frames_in_flight> queries;
     const D3D11_QUERY_DESC query{D3D11_QUERY_EVENT, 0};
     for (auto& q : queries) {
         check_hresult(gpu.device->CreateQuery(&query, &q), "external actual query");
     }
     auto float_target = gpu.surface(DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT);
-    std::array<ComPtr<ID3D11Texture2D>, caseelephant::probe_constants::frames_in_flight> reads{
+    std::array<ComPtr<ID3D11Texture2D>, weft::probe_constants::frames_in_flight> reads{
         external_readback(gpu, DXGI_FORMAT_R8G8B8A8_TYPELESS), external_readback(gpu, DXGI_FORMAT_R32G32B32A32_FLOAT)};
-    ce_render_d3d11_texture payload{};
-    ce_render_handle ignored{};
+    weft_render_d3d11_texture payload{};
+    weft_render_handle ignored{};
     {
         Experiment foreign(warp);
         auto d = external_gpu_description(api, foreign.group, payload, invalid_retirement, 900);
-        gpu.test(ce_renderer_import_texture(api.renderer, &d, &ignored) == CE_RENDER_WRONG_BACKEND,
+        gpu.test(weft_renderer_import_texture(api.renderer, &d, &ignored) == WEFT_RENDER_WRONG_BACKEND,
                  "external foreign native device rejected");
         d = external_gpu_description(api, gpu.output, payload, invalid_retirement, 901);
-        gpu.test(ce_renderer_import_texture(api.renderer, &d, &ignored) == CE_RENDER_UNSUPPORTED_FEATURE,
+        gpu.test(weft_renderer_import_texture(api.renderer, &d, &ignored) == WEFT_RENDER_UNSUPPORTED_FEATURE,
                  "external encoded sRGB view rejected");
         gpu.test(invalid_retirement.count == 0, "failed native import transfers no lease");
     }
-    for (unsigned batch = 0; batch < caseelephant::probe_constants::external_batches; ++batch) {
-        std::array<Surface, caseelephant::probe_constants::frames_in_flight> producers;
-        std::array<std::vector<ce_render_draw>, caseelephant::probe_constants::frames_in_flight> expected_draws;
-        std::array<ce_render_frame, caseelephant::probe_constants::frames_in_flight> expected_frames;
-        std::array<uint32_t, caseelephant::probe_constants::frames_in_flight> formats;
-        std::array<ce_render_handle, caseelephant::probe_constants::frames_in_flight> leases{};
+    for (unsigned batch = 0; batch < weft::probe_constants::external_batches; ++batch) {
+        std::array<Surface, weft::probe_constants::frames_in_flight> producers;
+        std::array<std::vector<weft_render_draw>, weft::probe_constants::frames_in_flight> expected_draws;
+        std::array<weft_render_frame, weft::probe_constants::frames_in_flight> expected_frames;
+        std::array<uint32_t, weft::probe_constants::frames_in_flight> formats;
+        std::array<weft_render_handle, weft::probe_constants::frames_in_flight> leases{};
         const uint8_t coverage = 128;
-        const ce_render_asset cpu_asset{1001, batch + 1, 1, 1, CE_RENDER_COVERAGE, 0, &coverage, 1, 0, 0};
-        for (unsigned slot = 0; slot < caseelephant::probe_constants::frames_in_flight; ++slot) {
-            const auto index = batch * caseelephant::probe_constants::frames_in_flight + slot;
+        const weft_render_asset cpu_asset{1001, batch + 1, 1, 1, WEFT_RENDER_COVERAGE, 0, &coverage, 1, 0, 0};
+        for (unsigned slot = 0; slot < weft::probe_constants::frames_in_flight; ++slot) {
+            const auto index = batch * weft::probe_constants::frames_in_flight + slot;
             const auto serial = uint64_t(index) + 1;
-            constexpr uint32_t types[]{CE_RENDER_TARGET_LINEAR_RGBA32F, CE_RENDER_TARGET_LINEAR_RGBA16F,
-                                       CE_RENDER_TARGET_LINEAR_RGBA8};
+            constexpr uint32_t types[]{WEFT_RENDER_TARGET_LINEAR_RGBA32F, WEFT_RENDER_TARGET_LINEAR_RGBA16F,
+                                       WEFT_RENDER_TARGET_LINEAR_RGBA8};
             formats[slot] = types[index % 3];
             const auto native_format = index % 3 == 0   ? DXGI_FORMAT_R32G32B32A32_FLOAT
                                        : index % 3 == 1 ? DXGI_FORMAT_R16G16B16A16_FLOAT
@@ -252,13 +250,13 @@ int run_external_texture(bool warp, const std::filesystem::path& folder) {
             external_produce(gpu, producers[slot], index, producer_buffer);
             auto d = external_gpu_description(api, producers[slot], payload, retired[index], serial, slot == 1,
                                               formats[slot]);
-            render_result(ce_renderer_import_texture(api.renderer, &d, &leases[slot]), "import GPU producer");
+            render_result(weft_renderer_import_texture(api.renderer, &d, &leases[slot]), "import GPU producer");
             if (index == 0) {
                 ++d.content_version;
-                gpu.test(ce_renderer_import_texture(api.renderer, &d, &ignored) == CE_RENDER_INVALID_STATE,
+                gpu.test(weft_renderer_import_texture(api.renderer, &d, &ignored) == WEFT_RENDER_INVALID_STATE,
                          "duplicate native texture version rejected");
             }
-            random = random * caseelephant::constants::lcg_multiplier + caseelephant::constants::lcg_increment;
+            random = random * weft::constants::lcg_multiplier + weft::constants::lcg_increment;
             const auto inset = unsigned(random % 20);
             auto& draws = expected_draws[slot];
             draws.push_back({0,
@@ -266,7 +264,7 @@ int run_external_texture(bool warp, const std::filesystem::path& folder) {
                              float(gpu.width),
                              float(gpu.height),
                              {.08f, .12f, .2f, .5f},
-                             CE_RENDER_SOLID_ASSET,
+                             WEFT_RENDER_SOLID_ASSET,
                              1,
                              {0, 0, 1, 1},
                              0,
@@ -283,32 +281,36 @@ int run_external_texture(bool warp, const std::filesystem::path& folder) {
                              {}});
             draws.push_back({98, 40, 64, 44, {1, 1, 1, 1}, 1, .4f, {.25f, .2f, .5f, .6f}, 0, {}});
             draws.push_back({30, 20, 35, 60, {1, 1, 0, .5f}, 0, .8f, {0, 0, 1, 1}, 0, {}});
-            expected_frames[slot] = {
-                sizeof(ce_render_frame), CE_RENDER_ABI_VERSION, draws.data(), uint32_t(draws.size()), 1, &cpu_asset};
-            ce_render_external_frame input{sizeof(input), CE_RENDER_EXTERNAL_ABI_VERSION, expected_frames[slot], 1, 0,
-                                           &leases[slot]};
-            ce_render_handle prepared{};
-            ce_render_handle use{};
-            render_result(ce_renderer_prepare_external(api.renderer, &input, &prepared),
+            expected_frames[slot] = {sizeof(weft_render_frame),
+                                     WEFT_RENDER_ABI_VERSION,
+                                     draws.data(),
+                                     uint32_t(draws.size()),
+                                     1,
+                                     &cpu_asset};
+            weft_render_external_frame input{
+                sizeof(input), WEFT_RENDER_EXTERNAL_ABI_VERSION, expected_frames[slot], 1, 0, &leases[slot]};
+            weft_render_handle prepared{};
+            weft_render_handle use{};
+            render_result(weft_renderer_prepare_external(api.renderer, &input, &prepared),
                           "prepare complete external packet");
             if (index == 0) {
                 void* commands{};
-                ce_render_d3d11_pass native{};
+                weft_render_d3d11_pass native{};
                 auto bad = api.pass(gpu.deferred.Get(), producers[slot].rtv.Get(), &commands, native);
-                bad.target_format = CE_RENDER_TARGET_LINEAR_RGBA32F;
-                gpu.test(ce_renderer_encode(api.renderer, prepared, &bad, &use) == CE_RENDER_INVALID_STATE &&
+                bad.target_format = WEFT_RENDER_TARGET_LINEAR_RGBA32F;
+                gpu.test(weft_renderer_encode(api.renderer, prepared, &bad, &use) == WEFT_RENDER_INVALID_STATE &&
                              !commands && !use.renderer_id,
                          "input target alias rejected before commands");
                 bad = api.pass(gpu.deferred.Get(), gpu.output.rtv.Get(), &commands, native);
-                render_result(ce_renderer_encode(api.renderer, prepared, &bad, &use), "external cancelled encode");
+                render_result(weft_renderer_encode(api.renderer, prepared, &bad, &use), "external cancelled encode");
                 ComPtr<ID3D11CommandList> cancelled;
                 cancelled.Attach(static_cast<ID3D11CommandList*>(commands));
                 cancelled.Reset();
                 commands = nullptr;
-                render_result(ce_renderer_discard_encoded(api.renderer, use),
+                render_result(weft_renderer_discard_encoded(api.renderer, use),
                               "external cancel after command destruction");
                 api.inject_recording_failure = true;
-                gpu.test(ce_renderer_encode(api.renderer, prepared, &bad, &use) == CE_RENDER_BACKEND_ERROR &&
+                gpu.test(weft_renderer_encode(api.renderer, prepared, &bad, &use) == WEFT_RENDER_BACKEND_ERROR &&
                              !commands && !use.renderer_id,
                          "external atomic failure rollback");
                 api.inject_recording_failure = false;
@@ -316,17 +318,17 @@ int run_external_texture(bool warp, const std::filesystem::path& folder) {
             const auto old = gpu.constants;
             gpu.constants = buffers[slot];
             void* commands{};
-            ce_render_d3d11_pass native{};
+            weft_render_d3d11_pass native{};
             auto pass =
                 api.pass(gpu.deferred.Get(), slot ? float_target.rtv.Get() : gpu.output.rtv.Get(), &commands, native);
             if (slot) {
-                pass.target_format = CE_RENDER_TARGET_LINEAR_RGBA32F;
+                pass.target_format = WEFT_RENDER_TARGET_LINEAR_RGBA32F;
             }
-            const auto result = ce_renderer_encode(api.renderer, prepared, &pass, &use);
+            const auto result = weft_renderer_encode(api.renderer, prepared, &pass, &use);
             gpu.constants = old;
             render_result(result, "external encode");
-            render_result(ce_renderer_release_prepared(api.renderer, prepared), "release external prepared");
-            render_result(ce_renderer_release_texture(api.renderer, leases[slot]),
+            render_result(weft_renderer_release_prepared(api.renderer, prepared), "release external prepared");
+            render_result(weft_renderer_release_texture(api.renderer, leases[slot]),
                           "release caller before actual submission");
             producers[slot] = {};
             payload = {};
@@ -336,7 +338,7 @@ int run_external_texture(bool warp, const std::filesystem::path& folder) {
             list.Attach(static_cast<ID3D11CommandList*>(commands));
             gpu.immediate->ExecuteCommandList(list.Get(), TRUE);
             render_result(
-                ce_renderer_notify_submitted(api.renderer, use, caseelephant::probe_constants::immediate_queue, serial),
+                weft_renderer_notify_submitted(api.renderer, use, weft::probe_constants::immediate_queue, serial),
                 "actual external submission");
             list.Reset();
             gpu.immediate->CopyResource(reads[slot].Get(),
@@ -350,20 +352,20 @@ int run_external_texture(bool warp, const std::filesystem::path& folder) {
                 gpu.acknowledged = false;
             }
             ++submissions;
-            ce_render_info state{};
+            weft_render_info state{};
             state.struct_size = sizeof(state);
-            render_result(ce_renderer_get_info(api.renderer, &state), "external in-flight count");
+            render_result(weft_renderer_get_info(api.renderer, &state), "external in-flight count");
             peak = std::max(peak, state.submitted_uses);
         }
-        gpu.test(retired[batch * caseelephant::probe_constants::frames_in_flight].count == 0 &&
-                     retired[batch * caseelephant::probe_constants::frames_in_flight + 1].count == 0,
+        gpu.test(retired[batch * weft::probe_constants::frames_in_flight].count == 0 &&
+                     retired[batch * weft::probe_constants::frames_in_flight + 1].count == 0,
                  "two immutable leases survive before acknowledgment");
         gpu.immediate->Flush();
-        for (unsigned slot = 0; slot < caseelephant::probe_constants::frames_in_flight; ++slot) {
-            const auto index = batch * caseelephant::probe_constants::frames_in_flight + slot;
+        for (unsigned slot = 0; slot < weft::probe_constants::frames_in_flight; ++slot) {
+            const auto index = batch * weft::probe_constants::frames_in_flight + slot;
             const auto deadline =
                 std::chrono::steady_clock::now() +
-                std::chrono::seconds(static_cast<int>(caseelephant::probe_constants::completion_timeout_seconds));
+                std::chrono::seconds(static_cast<int>(weft::probe_constants::completion_timeout_seconds));
             BOOL done = FALSE;
             for (;;) {
                 const auto hr =
@@ -374,13 +376,12 @@ int run_external_texture(bool warp, const std::filesystem::path& folder) {
                 }
                 require(std::chrono::steady_clock::now() < deadline, "external query deadline");
                 std::this_thread::sleep_for(
-                    std::chrono::milliseconds(static_cast<int>(caseelephant::probe_constants::completion_poll_ms)));
+                    std::chrono::milliseconds(static_cast<int>(weft::probe_constants::completion_poll_ms)));
             }
-            render_result(ce_renderer_notify_completed(api.renderer, caseelephant::probe_constants::device_epoch,
-                                                       caseelephant::probe_constants::immediate_queue,
-                                                       uint64_t(index) + 1),
+            render_result(weft_renderer_notify_completed(api.renderer, weft::probe_constants::device_epoch,
+                                                         weft::probe_constants::immediate_queue, uint64_t(index) + 1),
                           "retire after real external completion");
-            gpu.test(retired[index].count == 1 && retired[index].reason == CE_RENDER_EXTERNAL_RETIRED,
+            gpu.test(retired[index].count == 1 && retired[index].reason == WEFT_RENDER_EXTERNAL_RETIRED,
                      "external retirement exactly once");
             if (slot == 0) {
                 gpu.test(retired[index + 1].count == 0, "earlier serial cannot retire later texture");
@@ -402,40 +403,37 @@ int run_external_texture(bool warp, const std::filesystem::path& folder) {
                                     sizeof(actual));
                         for (unsigned c = 0; c < 4; ++c) {
                             float_error = std::max(float_error, std::abs(actual[c] - expected[c]));
-                            const float e =
-                                c == 3 ? actual[c]
-                                : actual[c] <= caseelephant::probe_constants::srgb_encode_threshold
-                                    ? actual[c] * caseelephant::probe_constants::srgb_linear_slope
-                                    : caseelephant::probe_constants::srgb_scale *
-                                              std::pow(actual[c], 1 / caseelephant::probe_constants::srgb_gamma) -
-                                          caseelephant::probe_constants::srgb_offset;
-                            pixel[c] = uint8_t(
-                                std::lround(std::clamp(e, 0.f, 1.f) * caseelephant::constants::color_channel_max));
+                            const float e = c == 3 ? actual[c]
+                                            : actual[c] <= weft::probe_constants::srgb_encode_threshold
+                                                ? actual[c] * weft::probe_constants::srgb_linear_slope
+                                                : weft::probe_constants::srgb_scale *
+                                                          std::pow(actual[c], 1 / weft::probe_constants::srgb_gamma) -
+                                                      weft::probe_constants::srgb_offset;
+                            pixel[c] =
+                                uint8_t(std::lround(std::clamp(e, 0.f, 1.f) * weft::constants::color_channel_max));
                         }
                     } else {
                         std::memcpy(pixel.data(),
                                     static_cast<const uint8_t*>(mapped.pData) + size_t(y) * mapped.RowPitch +
-                                        size_t(x) * caseelephant::constants::rgba8_bytes_per_pixel,
-                                    caseelephant::constants::rgba8_bytes_per_pixel);
+                                        size_t(x) * weft::constants::rgba8_bytes_per_pixel,
+                                    weft::constants::rgba8_bytes_per_pixel);
                         for (unsigned c = 0; c < 4; ++c) {
-                            const float e =
-                                c == 3 ? expected[c]
-                                : expected[c] <= caseelephant::probe_constants::srgb_encode_threshold
-                                    ? expected[c] * caseelephant::probe_constants::srgb_linear_slope
-                                    : caseelephant::probe_constants::srgb_scale *
-                                              std::pow(expected[c], 1 / caseelephant::probe_constants::srgb_gamma) -
-                                          caseelephant::probe_constants::srgb_offset;
+                            const float e = c == 3 ? expected[c]
+                                            : expected[c] <= weft::probe_constants::srgb_encode_threshold
+                                                ? expected[c] * weft::probe_constants::srgb_linear_slope
+                                                : weft::probe_constants::srgb_scale *
+                                                          std::pow(expected[c], 1 / weft::probe_constants::srgb_gamma) -
+                                                      weft::probe_constants::srgb_offset;
                             maximum = std::max(
-                                maximum,
-                                unsigned(std::abs(int(pixel[c]) -
-                                                  int(std::lround(e * caseelephant::constants::color_channel_max)))));
+                                maximum, unsigned(std::abs(int(pixel[c]) -
+                                                           int(std::lround(e * weft::constants::color_channel_max)))));
                         }
                     }
                     ++samples;
                 }
             }
             gpu.immediate->Unmap(reads[slot].Get(), 0);
-            if (batch == 0 || batch == caseelephant::probe_constants::external_batches - 1) {
+            if (batch == 0 || batch == weft::probe_constants::external_batches - 1) {
                 save_png(folder / ("batch-" + std::to_string(batch) + (slot ? "-bottom-linear.png" : "-top-srgb.png")),
                          png, gpu.width, gpu.height);
             }
@@ -447,32 +445,30 @@ int run_external_texture(bool warp, const std::filesystem::path& folder) {
     // The mixed CPU coverage input follows the same cached two-frame ownership
     // path as the window host, and is evicted only after the actual drain.
     gpu.evict_assets(0, true);
-    gpu.test(gpu.native_releases == caseelephant::probe_constants::external_batches,
+    gpu.test(gpu.native_releases == weft::probe_constants::external_batches,
              "mixed CPU coverage retires after actual two-frame drain");
     std::cout << "external oracle observed: sRGB max " << maximum << ", float max " << float_error << '\n';
     // D3D11 texture filtering uses finite subtexel precision. The independent
     // float oracle bounds linear error as well as the nonlinear sRGB readback.
-    gpu.test(maximum <= caseelephant::probe_constants::cpu_oracle_tolerance &&
-                 float_error <= caseelephant::probe_constants::external_float_tolerance,
+    gpu.test(maximum <= weft::probe_constants::cpu_oracle_tolerance &&
+                 float_error <= weft::probe_constants::external_float_tolerance,
              "external independent bilinear alpha/color oracle");
-    gpu.test(peak == caseelephant::probe_constants::frames_in_flight &&
-                 api.imported_count == caseelephant::probe_constants::external_batches *
-                                           caseelephant::probe_constants::frames_in_flight &&
-                 api.released_imports ==
-                     caseelephant::probe_constants::external_batches * caseelephant::probe_constants::frames_in_flight,
-             "external two-frame registry fully drained");
-    ce_render_external_info state{};
+    gpu.test(
+        peak == weft::probe_constants::frames_in_flight &&
+            api.imported_count == weft::probe_constants::external_batches * weft::probe_constants::frames_in_flight &&
+            api.released_imports == weft::probe_constants::external_batches * weft::probe_constants::frames_in_flight,
+        "external two-frame registry fully drained");
+    weft_render_external_info state{};
     state.struct_size = sizeof(state);
-    render_result(ce_renderer_get_external_info(api.renderer, &state), "external final registry");
+    render_result(weft_renderer_get_external_info(api.renderer, &state), "external final registry");
     gpu.test(!state.live_textures && !state.caller_leases && !state.texture_bytes, "no residual external lease");
     gpu.check_debug_messages();
     std::ostringstream report;
     report
         << "{\"fixture\":\"external-texture-lease-v1\",\"driver\":" << json_string(warp ? "warp" : "hardware")
         << ",\"adapter\":" << json_string(gpu.adapter)
-        << ",\"target\":[256,128],\"seed\":" << caseelephant::probe_constants::external_seed
-        << ",\"frames\":" << submissions << ",\"peak_in_flight\":" << peak
-        << ",\"external_textures_retired\":" << api.released_imports
+        << ",\"target\":[256,128],\"seed\":" << weft::probe_constants::external_seed << ",\"frames\":" << submissions
+        << ",\"peak_in_flight\":" << peak << ",\"external_textures_retired\":" << api.released_imports
         << ",\"cpu_coverage_textures_retired\":" << gpu.native_releases << ",\"cpu_pixel_samples\":" << samples
         << ",\"srgb_max_difference\":" << maximum << ",\"linear_float_max_error\":" << float_error
         << ",\"producer_gpu_only\":true,\"source_formats\":[\"RGBA8\",\"RGBA16F\",\"RGBA32F\"],\"actual_completion_queries\":true,\"top_bottom_origin_verified\":true,\"alias_cancel_failure_verified\":true"

@@ -14,7 +14,7 @@ inline int run_scene_surface_retirement(bool warp, const std::filesystem::path& 
     std::uint64_t negative_bytes{};
     std::uint64_t peak_bytes{};
     auto frame = [](unsigned index) {
-        auto f = std::make_shared<caseelephant::ProbeSceneFrame>();
+        auto f = std::make_shared<weft::SceneFrame>();
         const auto d = gallery_scene_descriptors[index];
         f->root.identity = {1, index + 1, 1};
         f->root.tag = "div";
@@ -23,25 +23,25 @@ inline int run_scene_surface_retirement(bool warp, const std::filesystem::path& 
         return f;
     };
     {
-        Experiment gpu(warp, caseelephant::probe_constants::gallery::retirement_surface_size,
-                       caseelephant::probe_constants::gallery::retirement_surface_size);
+        Experiment gpu(warp, weft::probe_constants::gallery::retirement_surface_size,
+                       weft::probe_constants::gallery::retirement_surface_size);
         gpu.cache_assets = true;
         TwoFramePipeline pipeline(gpu);
         SceneGpuSurfaces surfaces(gpu, pipeline);
         surfaces.native_paint = true;
         bool busy{};
         try {
-            for (unsigned index = 0; index <= caseelephant::probe_constants::gallery::sunburst_scene; ++index) {
+            for (unsigned index = 0; index <= weft::probe_constants::gallery::sunburst_scene; ++index) {
                 pipeline.drain();
-                for (unsigned version = 0; version < caseelephant::probe_constants::gallery::surface_versions_per_card;
+                for (unsigned version = 0; version < weft::probe_constants::gallery::surface_versions_per_card;
                      ++version) {
                     std::array<bool, gallery_scene_count> visible{};
                     visible[index] = true;
                     auto& source = surfaces.paint_owned(index, frame(index));
                     surfaces.publish();
                     FramePacket packet;
-                    packet.draws.push_back({{0, 0, caseelephant::probe_constants::gallery::retirement_surface_size,
-                                             caseelephant::probe_constants::gallery::retirement_surface_size},
+                    packet.draws.push_back({{0, 0, weft::probe_constants::gallery::retirement_surface_size,
+                                             weft::probe_constants::gallery::retirement_surface_size},
                                             {1, 1, 1, 1},
                                             0});
                     const auto serial = pipeline.submit(std::move(packet),
@@ -56,23 +56,23 @@ inline int run_scene_surface_retirement(bool warp, const std::filesystem::path& 
             busy = rejected.find("result=8 card=34") != std::string::npos;
         }
         require(busy, "old retained scroll policy did not reproduce Sunburst budget exhaustion");
-        ce_render_external_info info{sizeof(info)};
-        render_result(ce_renderer_get_external_info(gpu.ensure_backend().renderer, &info),
+        weft_render_external_info info{sizeof(info)};
+        render_result(weft_renderer_get_external_info(gpu.ensure_backend().renderer, &info),
                       "negative scroll accounting");
         negative_bytes = info.texture_bytes;
-        require(info.live_textures < caseelephant::probe_constants::gallery::external_texture_limit &&
-                    negative_bytes <= caseelephant::probe_constants::gallery::external_import_budget_bytes,
+        require(info.live_textures < weft::probe_constants::gallery::external_texture_limit &&
+                    negative_bytes <= weft::probe_constants::gallery::external_import_budget_bytes,
                 "negative scroll failed for an unexpected resource limit");
         surfaces.release();
         require(pipeline.submissions == pipeline.completions, "negative scroll lost actual completion");
         negative_completions = pipeline.completions;
-        render_result(ce_renderer_get_external_info(gpu.ensure_backend().renderer, &info), "negative scroll cleanup");
+        render_result(weft_renderer_get_external_info(gpu.ensure_backend().renderer, &info), "negative scroll cleanup");
         require(!info.live_textures && !info.texture_bytes, "failed producer import leaked leases");
         gpu.check_debug_messages();
     }
     {
-        Experiment gpu(warp, caseelephant::probe_constants::gallery::retirement_surface_size,
-                       caseelephant::probe_constants::gallery::retirement_surface_size);
+        Experiment gpu(warp, weft::probe_constants::gallery::retirement_surface_size,
+                       weft::probe_constants::gallery::retirement_surface_size);
         gpu.cache_assets = true;
         TwoFramePipeline pipeline(gpu);
         SceneGpuSurfaces surfaces(gpu, pipeline);
@@ -80,21 +80,19 @@ inline int run_scene_surface_retirement(bool warp, const std::filesystem::path& 
         // Advance through every scene and return to the largest card. Three
         // versions per visit stress both actual in-flight uses and re-entry.
         for (unsigned visit = 0; visit < gallery_scene_count + 2; ++visit) {
-            const unsigned index = visit < gallery_scene_count ? visit
-                                   : visit == gallery_scene_count
-                                       ? caseelephant::probe_constants::gallery::sunburst_scene
-                                       : 0;
+            const unsigned index = visit < gallery_scene_count    ? visit
+                                   : visit == gallery_scene_count ? weft::probe_constants::gallery::sunburst_scene
+                                                                  : 0;
             std::array<bool, gallery_scene_count> visible{};
             visible[index] = true;
-            for (unsigned version = 0; version < caseelephant::probe_constants::gallery::surface_versions_per_card;
-                 ++version) {
+            for (unsigned version = 0; version < weft::probe_constants::gallery::surface_versions_per_card; ++version) {
                 pipeline.begin_frame_timing();
                 surfaces.retire_hidden(visible);
                 auto& source = surfaces.paint_owned(index, frame(index));
                 surfaces.publish();
                 FramePacket packet;
-                packet.draws.push_back({{0, 0, caseelephant::probe_constants::gallery::retirement_surface_size,
-                                         caseelephant::probe_constants::gallery::retirement_surface_size},
+                packet.draws.push_back({{0, 0, weft::probe_constants::gallery::retirement_surface_size,
+                                         weft::probe_constants::gallery::retirement_surface_size},
                                         {1, 1, 1, 1},
                                         0});
                 const auto serial = pipeline.submit(std::move(packet),
@@ -121,24 +119,24 @@ inline int run_scene_surface_retirement(bool warp, const std::filesystem::path& 
         // A scroll boundary can expose portions of two full-size source cards.
         // Keep both visible through enough updates to populate their versions.
         std::array<bool, gallery_scene_count> pair{};
-        pair[caseelephant::probe_constants::gallery::sunburst_scene] =
-            pair[caseelephant::probe_constants::gallery::sunburst_scene + 1] = true;
+        pair[weft::probe_constants::gallery::sunburst_scene] =
+            pair[weft::probe_constants::gallery::sunburst_scene + 1] = true;
         for (unsigned update = 0; update < 8; ++update) {
             pipeline.begin_frame_timing();
             surfaces.retire_hidden(pair);
             FramePacket packet;
-            for (unsigned index : {static_cast<unsigned>(caseelephant::probe_constants::gallery::sunburst_scene),
-                                   static_cast<unsigned>(caseelephant::probe_constants::gallery::sunburst_scene + 1)}) {
+            for (unsigned index : {static_cast<unsigned>(weft::probe_constants::gallery::sunburst_scene),
+                                   static_cast<unsigned>(weft::probe_constants::gallery::sunburst_scene + 1)}) {
                 surfaces.paint_owned(index, frame(index));
-                packet.draws.push_back({{float((index - caseelephant::probe_constants::gallery::sunburst_scene) * 40),
-                                         0, 40, caseelephant::probe_constants::gallery::retirement_surface_size},
+                packet.draws.push_back({{float((index - weft::probe_constants::gallery::sunburst_scene) * 40), 0, 40,
+                                         weft::probe_constants::gallery::retirement_surface_size},
                                         {1, 1, 1, 1},
-                                        int(index - caseelephant::probe_constants::gallery::sunburst_scene)});
+                                        int(index - weft::probe_constants::gallery::sunburst_scene)});
             }
             surfaces.publish();
-            const std::vector<ce_render_handle> sources{
-                surfaces.image(caseelephant::probe_constants::gallery::sunburst_scene)->handle,
-                surfaces.image(caseelephant::probe_constants::gallery::sunburst_scene + 1)->handle};
+            const std::vector<weft_render_handle> sources{
+                surfaces.image(weft::probe_constants::gallery::sunburst_scene)->handle,
+                surfaces.image(weft::probe_constants::gallery::sunburst_scene + 1)->handle};
             const auto serial = pipeline.submit(
                 std::move(packet),
                 [] {
@@ -148,14 +146,14 @@ inline int run_scene_surface_retirement(bool warp, const std::filesystem::path& 
         }
         std::array<bool, gallery_scene_count> hidden{};
         surfaces.retire_hidden(hidden);
-        require(surfaces.image(caseelephant::probe_constants::gallery::sunburst_scene) &&
-                    surfaces.image(caseelephant::probe_constants::gallery::sunburst_scene + 1),
+        require(surfaces.image(weft::probe_constants::gallery::sunburst_scene) &&
+                    surfaces.image(weft::probe_constants::gallery::sunburst_scene + 1),
                 "visible pair retired before actual completion");
         pipeline.drain();
         surfaces.retire_hidden(hidden);
         require(!surfaces.live_slots(), "hidden completed backing survived collection");
-        ce_render_external_info info{sizeof(info)};
-        render_result(ce_renderer_get_external_info(gpu.ensure_backend().renderer, &info), "positive scroll cleanup");
+        weft_render_external_info info{sizeof(info)};
+        render_result(weft_renderer_get_external_info(gpu.ensure_backend().renderer, &info), "positive scroll cleanup");
         require(!info.live_textures && !info.texture_bytes, "positive scroll leaked imports");
         submissions = pipeline.submissions;
         completions = pipeline.completions;
@@ -163,8 +161,7 @@ inline int run_scene_surface_retirement(bool warp, const std::filesystem::path& 
         peak_slots = surfaces.peak_live_slots;
         peak_bytes = surfaces.peak_imported_bytes;
         require(submissions == 206 && completions == 206 && peak_slots <= 6 &&
-                    peak_bytes <= caseelephant::probe_constants::gallery::external_import_budget_bytes &&
-                    evictions > 100,
+                    peak_bytes <= weft::probe_constants::gallery::external_import_budget_bytes && evictions > 100,
                 "scroll resource bound/completion coverage");
         surfaces.release();
         gpu.check_debug_messages();
@@ -173,8 +170,8 @@ inline int run_scene_surface_retirement(bool warp, const std::filesystem::path& 
     // scratch reservation, not accumulate until otherwise valid cards fall
     // back after the 128 MiB budget. 140 x 1 MiB catches that accounting leak.
     {
-        Experiment gpu(warp, caseelephant::probe_constants::gallery::retirement_surface_size,
-                       caseelephant::probe_constants::gallery::retirement_surface_size);
+        Experiment gpu(warp, weft::probe_constants::gallery::retirement_surface_size,
+                       weft::probe_constants::gallery::retirement_surface_size);
         gpu.cache_assets = true;
         TwoFramePipeline pipeline(gpu);
         SceneGpuSurfaces surfaces(gpu, pipeline);
@@ -189,15 +186,14 @@ inline int run_scene_surface_retirement(bool warp, const std::filesystem::path& 
         std::array<bool, gallery_scene_count> visible{};
         std::array<bool, gallery_scene_count> hidden{};
         visible[0] = true;
-        for (unsigned visit = 0; visit < caseelephant::probe_constants::gallery::scratch_reentry_visits; ++visit) {
+        for (unsigned visit = 0; visit < weft::probe_constants::gallery::scratch_reentry_visits; ++visit) {
             auto& source = surfaces.paint_owned(0, grouped);
-            require(source.last_native &&
-                        surfaces.native_work().scratch_bytes() == caseelephant::constants::bytes_per_mib,
+            require(source.last_native && surfaces.native_work().scratch_bytes() == weft::constants::bytes_per_mib,
                     "transparent group backing missing/budget leaked");
             surfaces.publish();
             FramePacket packet;
-            packet.draws.push_back({{0, 0, caseelephant::probe_constants::gallery::retirement_surface_size,
-                                     caseelephant::probe_constants::gallery::retirement_surface_size},
+            packet.draws.push_back({{0, 0, weft::probe_constants::gallery::retirement_surface_size,
+                                     weft::probe_constants::gallery::retirement_surface_size},
                                     {1, 1, 1, 1},
                                     0});
             const auto serial = pipeline.submit(std::move(packet),
@@ -206,16 +202,16 @@ inline int run_scene_surface_retirement(bool warp, const std::filesystem::path& 
                                                 {}, {source.handle});
             surfaces.submitted(serial, visible);
             surfaces.retire_hidden(hidden);
-            require(surfaces.native_work().scratch_bytes() == caseelephant::constants::bytes_per_mib,
+            require(surfaces.native_work().scratch_bytes() == weft::constants::bytes_per_mib,
                     "uncompleted transparent group scratch retired");
             pipeline.drain();
             surfaces.retire_hidden(hidden);
             require(!surfaces.live_slots() && !surfaces.native_work().scratch_bytes(),
                     "completed transparent group scratch retained");
         }
-        require(pipeline.submissions == caseelephant::probe_constants::gallery::scratch_reentry_visits &&
-                    pipeline.completions == caseelephant::probe_constants::gallery::scratch_reentry_visits &&
-                    surfaces.native_work().passes == caseelephant::probe_constants::gallery::scratch_reentry_visits &&
+        require(pipeline.submissions == weft::probe_constants::gallery::scratch_reentry_visits &&
+                    pipeline.completions == weft::probe_constants::gallery::scratch_reentry_visits &&
+                    surfaces.native_work().passes == weft::probe_constants::gallery::scratch_reentry_visits &&
                     !surfaces.native_work().fallbacks,
                 "transparent group retirement native coverage");
         surfaces.release();

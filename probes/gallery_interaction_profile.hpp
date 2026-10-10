@@ -21,7 +21,7 @@ inline int run_gallery_interaction_profile(const std::filesystem::path& folder, 
         comma = true;
         trace << "{\"ph\":\"X\",\"pid\":1,\"tid\":1,\"name\":" << json_string(name)
               << ",\"ts\":" << std::chrono::duration<double, std::micro>(start - epoch).count()
-              << ",\"dur\":" << duration * caseelephant::probe_constants::gallery::microseconds_per_millisecond << '}';
+              << ",\"dur\":" << duration * weft::probe_constants::gallery::microseconds_per_millisecond << '}';
     };
     auto stats = [](std::vector<double> v) {
         std::sort(v.begin(), v.end());
@@ -36,11 +36,10 @@ inline int run_gallery_interaction_profile(const std::filesystem::path& folder, 
     report
         << "{\"format\":\"gallery-owner-interaction-profile-v1\",\"clock_hz\":60,\"frames_per_case\":240,\"warmup\":16,\"gpu_included\":false,\"cases\":[";
     unsigned count{};
-    for (unsigned index = caseelephant::probe_constants::gallery::core_scene_count; index < gallery_scene_count;
-         ++index) {
+    for (unsigned index = weft::probe_constants::gallery::core_scene_count; index < gallery_scene_count; ++index) {
         const auto d = gallery_scene_descriptors[index];
-        const bool scatter = index == caseelephant::probe_constants::gallery::scatter_scene;
-        const bool kline = index == caseelephant::probe_constants::gallery::kline_scene;
+        const bool scatter = index == weft::probe_constants::gallery::scatter_scene;
+        const bool kline = index == weft::probe_constants::gallery::kline_scene;
         const bool spring = d.group == std::string("SPRING_TESTS");
         std::string category = scatter                                  ? "scatter"
                                : kline                                  ? "kline"
@@ -62,27 +61,27 @@ inline int run_gallery_interaction_profile(const std::filesystem::path& folder, 
         std::vector<double> steps;
         unsigned input_count{};
         unsigned stalls{};
-        for (unsigned frame = 0; frame < caseelephant::probe_constants::gallery::fixed_clock_run_frames; ++frame) {
+        for (unsigned frame = 0; frame < weft::probe_constants::gallery::fixed_clock_run_frames; ++frame) {
             auto start = std::chrono::steady_clock::now();
-            s.time = frame * caseelephant::probe_constants::gallery::fixed_clock_step_ms;
+            s.time = frame * weft::probe_constants::gallery::fixed_clock_step_ms;
             auto before = s.profile;
             auto scene_before = s.scene.work();
             auto js_before = s.vm.stats();
             auto input_start = std::chrono::steady_clock::now();
             unsigned applied{};
             if (scatter && frame >= 24 && frame <= 143) {
-                s.input_value(frame == 24    ? caseelephant::ProbeMouseType::Down
-                              : frame == 143 ? caseelephant::ProbeMouseType::Up
-                                             : caseelephant::ProbeMouseType::Move,
+                s.input_value(frame == 24    ? weft::MouseType::Down
+                              : frame == 143 ? weft::MouseType::Up
+                                             : weft::MouseType::Move,
                               320 + float(frame - 24) * .8f, 360 + float(frame % 17) * .3f, frame == 143 ? 0 : 1);
                 applied = 1;
             }
             if (scatter && (frame == 160 || frame == 200)) {
-                s.input_value(caseelephant::ProbeMouseType::Move, 600, 400, 0, -100);
+                s.input_value(weft::MouseType::Move, 600, 400, 0, -100);
                 applied = 1;
             }
             if (kline && frame >= 24 && frame < 144) {
-                s.input_value(caseelephant::ProbeMouseType::Move, 180 + float(frame - 24) * 8, 250 + float(frame % 11));
+                s.input_value(weft::MouseType::Move, 180 + float(frame - 24) * 8, 250 + float(frame % 11));
                 applied = 1;
             }
             if (!scatter && !kline && !spring) {
@@ -99,10 +98,10 @@ inline int run_gallery_interaction_profile(const std::filesystem::path& folder, 
             auto step_ms = elapsed(step_start);
             auto total = elapsed(start);
             event(id + " update", step_start, step_ms);
-            if (frame >= caseelephant::probe_constants::gallery::warmup_frames) {
+            if (frame >= weft::probe_constants::gallery::warmup_frames) {
                 ticks.push_back(total);
                 steps.push_back(step_ms);
-                stalls += total > caseelephant::probe_constants::gallery::stall_threshold_ms;
+                stalls += total > weft::probe_constants::gallery::stall_threshold_ms;
             }
             auto after = s.vm.stats();
             auto scene_after = s.scene.work();
@@ -125,7 +124,7 @@ inline int run_gallery_interaction_profile(const std::filesystem::path& folder, 
         require(!s.vm.stats().listener_exceptions, "profile listener errors");
         auto state = s.vm.eval("JSON.stringify(__ceGallery.state())");
         s.unmount();
-        require(s.vm.stats().live_nodes == caseelephant::probe_constants::gallery::unmounted_live_nodes,
+        require(s.vm.stats().live_nodes == weft::probe_constants::gallery::unmounted_live_nodes,
                 "profile unmount leak");
         if (count++) {
             report << ',';

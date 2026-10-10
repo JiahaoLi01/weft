@@ -14,9 +14,9 @@
 #include <thread>
 #include <type_traits>
 
-namespace caseelephant {
+namespace weft {
     namespace {
-        using Style = ProbeSceneStyle;
+        using Style = SceneStyle;
 
         using css::trim;
 
@@ -114,7 +114,7 @@ namespace caseelephant {
         }
 
         std::array<double, 4> color(std::string_view s) {
-            auto c = parse_probe_css_color(css::expand_color_shorthand(trim(s)));
+            auto c = parse_css_color(css::expand_color_shorthand(trim(s)));
             return {c[0], c[1], c[2], c[3]};
         }
 
@@ -253,8 +253,8 @@ namespace caseelephant {
         // Endpoint decoding is bounded and follows the reference interpolation grammar.
         // Incompatible lists/units remain discrete; typed paint cannot broaden the profile.
         struct PaintPair {
-            std::optional<ProbePaintValue> a;
-            std::optional<ProbePaintValue> b;
+            std::optional<PaintValue> a;
+            std::optional<PaintValue> b;
             bool linear{};
         };
 
@@ -262,7 +262,7 @@ namespace caseelephant {
             std::map<std::pair<std::string, std::string>, PaintPair> pairs;
             std::size_t bytes{};
 
-            std::optional<ProbePaintValue> sample(std::string a, std::string b, double t) {
+            std::optional<PaintValue> sample(std::string a, std::string b, double t) {
                 if (a == "none" && b.starts_with("scale(")) {
                     a = "scale(1)";
                 }
@@ -311,8 +311,8 @@ namespace caseelephant {
                         }
                     }
                     const auto size = a.size() + b.size() + sizeof(PaintPair) +
-                                      (pair.a ? pair.a->operations.size() * sizeof(ProbePaintOperation) : 0) +
-                                      (pair.b ? pair.b->operations.size() * sizeof(ProbePaintOperation) : 0);
+                                      (pair.a ? pair.a->operations.size() * sizeof(PaintOperation) : 0) +
+                                      (pair.b ? pair.b->operations.size() * sizeof(PaintOperation) : 0);
                     if (size > constants::scene::paint_pair_cache_max_bytes) {
                         return {};
                     }
@@ -569,7 +569,7 @@ namespace caseelephant {
             Style target;
             Style current;
             bool expand_dirty = true;
-            ProbeScenePaintValues paint;
+            ScenePaintValues paint;
             std::vector<AnimationPlan> plans;
             bool plans_valid{};
             double animation_start{};
@@ -588,13 +588,13 @@ namespace caseelephant {
 
         using SceneId = std::array<std::uint64_t, 3>;
 
-        SceneId identity(ProbeNodeIdentity n) {
+        SceneId identity(NodeIdentity n) {
             return {n.view_epoch, n.slot, n.generation};
         }
     } // namespace
 
-    ProbeStyleProfile scene_style_profile() {
-        ProbeStyleProfile p;
+    StyleProfile scene_style_profile() {
+        StyleProfile p;
         p.scene_syntax = true;
         p.single_value_inset = true;
         p.four_value_edges = true;
@@ -663,15 +663,15 @@ namespace caseelephant {
                               "touch-action",
                               "user-select",
                               "will-change"}) {
-            p.properties[k] = {"", false, ProbeCssGrammar::Tokens, {}};
+            p.properties[k] = {"", false, CssGrammar::Tokens, {}};
         }
         for (const auto* k :
              {"font-size", "font-weight", "font-family", "line-height", "letter-spacing", "color", "fill",
               "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-opacity", "stroke-linecap",
               "stroke-linejoin", "stroke-dasharray", "stroke-dashoffset", "text-anchor", "dominant-baseline"}) {
-            p.properties[k] = {"", true, ProbeCssGrammar::Tokens, {}};
+            p.properties[k] = {"", true, CssGrammar::Tokens, {}};
         }
-        p.properties["pointer-events"] = {"auto", true, ProbeCssGrammar::Tokens, {}};
+        p.properties["pointer-events"] = {"auto", true, CssGrammar::Tokens, {}};
         p.properties["font-size"].initial = constants::default_font_size;
         p.properties["color"].initial = constants::default_color;
         p.properties["fill"].initial = constants::default_color;
@@ -680,20 +680,20 @@ namespace caseelephant {
             for (const auto* name : {"margin-", "padding-", "border-"}) {
                 const auto key = std::string(name) + s;
                 p.properties[key + (std::string(name) == "border-" ? "-width" : "")] = {
-                    "0", false, ProbeCssGrammar::Tokens, {}};
+                    "0", false, CssGrammar::Tokens, {}};
                 if (std::string(name) == "border-") {
-                    p.properties[key + "-color"] = {"currentcolor", false, ProbeCssGrammar::Tokens, {}};
-                    p.properties[key + "-style"] = {"solid", false, ProbeCssGrammar::Tokens, {}};
+                    p.properties[key + "-color"] = {"currentcolor", false, CssGrammar::Tokens, {}};
+                    p.properties[key + "-style"] = {"solid", false, CssGrammar::Tokens, {}};
                 }
             }
         }
         for (const auto* corner : {"top-left", "top-right", "bottom-right", "bottom-left"}) {
-            p.properties[std::string("border-") + corner + "-radius"] = {"0", false, ProbeCssGrammar::Tokens, {}};
+            p.properties[std::string("border-") + corner + "-radius"] = {"0", false, CssGrammar::Tokens, {}};
         }
         return p;
     }
 
-    struct SceneProbe::Impl {
+    struct SceneSolver::Impl {
         const OwnerThread owner;
         YGConfigRef config = YGConfigNew();
 
@@ -706,23 +706,23 @@ namespace caseelephant {
         }
 
         std::string sheet;
-        std::unique_ptr<CompiledStyleProbe> compiled;
-        StyleMemoProbe style_memo;
+        std::unique_ptr<CompiledStyle> compiled;
+        StyleMemo style_memo;
         bool incremental = true;
         bool profiling = true;
-        SceneProbe::Work work;
-        std::optional<ProbeDomSnapshot> style_input;
-        std::optional<ProbeComputedStyle> cascade;
-        std::optional<ProbeComputedStyle> computed;
-        std::optional<ProbeSceneFrame> previous;
-        std::optional<ProbeDomSnapshot> previous_dom;
-        std::optional<ProbeComputedStyle> previous_computed;
+        SceneSolver::Work work;
+        std::optional<DomSnapshot> style_input;
+        std::optional<ComputedStyle> cascade;
+        std::optional<ComputedStyle> computed;
+        std::optional<SceneFrame> previous;
+        std::optional<DomSnapshot> previous_dom;
+        std::optional<ComputedStyle> previous_computed;
         float previous_width{};
         float previous_height{};
         Keyframes keyframes;
         InterpolationCache interpolation;
         PaintCache paint_cache;
-        ProbeSceneMeasure measure;
+        SceneMeasure measure;
         std::map<SceneId, State> states;
         std::set<SceneId> live;
         double now = -1;
@@ -730,7 +730,7 @@ namespace caseelephant {
 
         // Cascade output remains canonical. Shorthand expansion is a separate
         // owner derivation, so it cannot turn memo hits into full property copies.
-        void expand_into(const ProbeComputedStyle& raw, ProbeComputedStyle& out) {
+        void expand_into(const ComputedStyle& raw, ComputedStyle& out) {
             auto& state = states[identity(raw.identity)];
             if (out.identity != raw.identity || state.expand_dirty) {
                 out.values = expand(raw.values);
@@ -761,12 +761,12 @@ namespace caseelephant {
                         ++index;
                     }
                 }
-                out.children.push_back(index < prior.size() ? std::move(prior[index]) : ProbeComputedStyle{});
+                out.children.push_back(index < prior.size() ? std::move(prior[index]) : ComputedStyle{});
                 expand_into(child, out.children.back());
             }
         }
 
-        bool same_computed(const ProbeComputedStyle& a, const ProbeComputedStyle& b) const {
+        bool same_computed(const ComputedStyle& a, const ComputedStyle& b) const {
             if (a.identity != b.identity || a.local_name != b.local_name || a.values != b.values ||
                 a.specified_properties != b.specified_properties || a.children.size() != b.children.size()) {
                 return false;
@@ -779,7 +779,7 @@ namespace caseelephant {
             return true;
         }
 
-        bool static_subtree(const ProbeSceneNode& n) const {
+        bool static_subtree(const SceneNode& n) const {
             if (n.tag != "#text") {
                 auto it = states.find(identity(n.identity));
                 if (it == states.end() || !it->second.plans_valid || !it->second.transitions.empty() ||
@@ -810,7 +810,7 @@ namespace caseelephant {
             return true;
         }
 
-        void keep_live(const ProbeSceneNode& n) {
+        void keep_live(const SceneNode& n) {
             if (n.tag != "#text") {
                 live.insert(identity(n.identity));
             }
@@ -819,16 +819,15 @@ namespace caseelephant {
             }
         }
 
-        void build_into(ProbeSceneNode& output, const ProbeDomSnapshot& d, const ProbeComputedStyle& c,
-                        const Style* parent = nullptr, const ProbeDomSnapshot* old_dom = nullptr,
-                        const ProbeComputedStyle* old_computed = nullptr, const ProbeSceneNode* old_node = nullptr,
-                        const Style* old_parent = nullptr) {
+        void build_into(SceneNode& output, const DomSnapshot& d, const ComputedStyle& c, const Style* parent = nullptr,
+                        const DomSnapshot* old_dom = nullptr, const ComputedStyle* old_computed = nullptr,
+                        const SceneNode* old_node = nullptr, const Style* old_parent = nullptr) {
             if (incremental && old_dom && old_computed && old_node && d == *old_dom &&
                 same_inheritance(parent, old_parent) && same_computed(c, *old_computed) && static_subtree(*old_node)) {
                 keep_live(*old_node);
                 ++work.static_subtree_reuses;
-                if (!scene_paint_source_equal_probe(output, *old_node)) {
-                    work.geometry_changed |= !scene_geometry_equal_probe(output, *old_node);
+                if (!scene_paint_source_equal(output, *old_node)) {
+                    work.geometry_changed |= !scene_geometry_equal(output, *old_node);
                     work.paint_changed = true;
                     output = *old_node;
                 }
@@ -857,7 +856,7 @@ namespace caseelephant {
                     }
                 }
             }
-            ProbeSceneNode out;
+            SceneNode out;
             out.box = output.box;
             out.identity = d.identity;
             out.tag = d.local_name;
@@ -1040,7 +1039,7 @@ namespace caseelephant {
             if (st.current != out.style) {
                 st.current = out.style;
             }
-            work.geometry_changed |= !scene_geometry_own_equal_probe(output, out, reuse_style);
+            work.geometry_changed |= !scene_geometry_own_equal(output, out, reuse_style);
             work.paint_changed |= output.identity != out.identity || output.tag != out.tag ||
                                   output.space != out.space || output.text != out.text ||
                                   output.attributes != out.attributes || (!reuse_style && output.style != out.style) ||
@@ -1056,7 +1055,7 @@ namespace caseelephant {
             if (mixed) {
                 out.text.clear();
             }
-            auto prior_child = [](const auto& children, ProbeNodeIdentity id,
+            auto prior_child = [](const auto& children, NodeIdentity id,
                                   std::size_t hint) -> const typename std::decay_t<decltype(children)>::value_type* {
                 if (hint < children.size() && children[hint].identity == id) {
                     return &children[hint];
@@ -1072,11 +1071,11 @@ namespace caseelephant {
             for (const auto& child : d.children) {
                 const auto dom_index = di++;
                 if (child.type == constants::element_node_type) {
-                    const ProbeDomSnapshot* od =
+                    const DomSnapshot* od =
                         old_dom ? prior_child(old_dom->children, child.identity, dom_index) : nullptr;
-                    const ProbeComputedStyle* oc =
+                    const ComputedStyle* oc =
                         old_computed ? prior_child(old_computed->children, child.identity, ci) : nullptr;
-                    const ProbeSceneNode* on =
+                    const SceneNode* on =
                         old_node ? prior_child(old_node->children, child.identity, out.children.size()) : nullptr;
                     auto current_index = out.children.size();
                     if (current_index >= retained.size() || retained[current_index].identity != child.identity) {
@@ -1086,11 +1085,11 @@ namespace caseelephant {
                         }
                     }
                     out.children.push_back(current_index < retained.size() ? std::move(retained[current_index])
-                                                                           : ProbeSceneNode{});
+                                                                           : SceneNode{});
                     build_into(out.children.back(), child, c.children.at(ci++), &out.style, od, oc, on,
                                old_node ? &old_node->style : nullptr);
                 } else if (mixed && child.type == constants::text_node_type && !trim(child.data).empty()) {
-                    ProbeSceneNode text;
+                    SceneNode text;
                     text.identity = child.identity;
                     text.tag = "#text";
                     text.text = std::regex_replace(child.data, std::regex("[\\t\\r\\n ]+"), " ");
@@ -1130,7 +1129,7 @@ namespace caseelephant {
         }
 
         struct Layout {
-            ProbeSceneNode* scene{};
+            SceneNode* scene{};
             YGNodeRef yoga{};
             Impl* owner{};
             std::vector<std::unique_ptr<Layout>> children;
@@ -1231,7 +1230,7 @@ namespace caseelephant {
             return {std::isfinite(width) ? std::min(width, m.width) : m.width, m.height};
         }
 
-        std::unique_ptr<Layout> layout(ProbeSceneNode& n, bool parent_height_definite = true, bool root = true) {
+        std::unique_ptr<Layout> layout(SceneNode& n, bool parent_height_definite = true, bool root = true) {
             auto l = std::make_unique<Layout>();
             l->scene = &n;
             l->owner = this;
@@ -1499,7 +1498,7 @@ namespace caseelephant {
             return l;
         }
 
-        void boxes(Layout& l, float x, float y, ProbeSceneFrame& f,
+        void boxes(Layout& l, float x, float y, SceneFrame& f,
                    std::optional<std::array<float, 2>> position = std::nullopt) {
             auto& n = *l.scene;
             auto node = l.yoga;
@@ -1508,7 +1507,7 @@ namespace caseelephant {
                      YGNodeLayoutGetHeight(node)};
             x += n.box[0];
             y += n.box[1];
-            ProbeElementGeometry e;
+            ElementGeometry e;
             e.identity = n.identity;
             e.rect = {x, y, n.box[2], n.box[3]};
             e.client_rects = {e.rect};
@@ -1600,7 +1599,7 @@ namespace caseelephant {
             }
         }
 
-        bool same_layout(const ProbeSceneNode& a, const ProbeSceneNode& b) {
+        bool same_layout(const SceneNode& a, const SceneNode& b) {
             if (a.identity != b.identity || a.tag != b.tag || a.space != b.space || a.text != b.text ||
                 !same_layout_style(a.style, b.style)) {
                 return false;
@@ -1624,7 +1623,7 @@ namespace caseelephant {
             return true;
         }
 
-        void copy_boxes(ProbeSceneNode& a, const ProbeSceneNode& b) {
+        void copy_boxes(SceneNode& a, const SceneNode& b) {
             a.box = b.box;
             if (a.space != constants::svg_namespace_uri) {
                 for (std::size_t i = 0; i < a.children.size(); ++i) {
@@ -1634,28 +1633,28 @@ namespace caseelephant {
         }
     } // namespace
 
-    SceneProbe::Work SceneProbe::work() const {
+    SceneSolver::Work SceneSolver::work() const {
         impl_->owner.require(Diag::SceneOwner);
         return impl_->work;
     }
 
-    SceneProbe::SceneProbe(std::string s, std::string k, ProbeSceneMeasure measure, bool incremental)
+    SceneSolver::SceneSolver(std::string s, std::string k, SceneMeasure measure, bool incremental)
         : impl_(std::make_unique<Impl>()) {
         impl_->sheet = std::move(s);
         impl_->incremental = incremental;
-        impl_->compiled = std::make_unique<CompiledStyleProbe>(impl_->sheet, scene_style_profile());
+        impl_->compiled = std::make_unique<CompiledStyle>(impl_->sheet, scene_style_profile());
         impl_->keyframes = parse_keyframes(std::move(k));
         impl_->measure = std::move(measure);
     }
 
-    SceneProbe::~SceneProbe() = default;
+    SceneSolver::~SceneSolver() = default;
 
-    void SceneProbe::set_profiling(bool enabled) {
+    void SceneSolver::set_profiling(bool enabled) {
         impl_->owner.require(Diag::SceneOwner);
         impl_->profiling = enabled;
     }
 
-    void SceneProbe::reset() {
+    void SceneSolver::reset() {
         impl_->owner.require(Diag::SceneOwner);
         impl_->style_memo.clear();
         impl_->states.clear();
@@ -1671,13 +1670,13 @@ namespace caseelephant {
         impl_->now = -1;
     }
 
-    ProbeSceneFrame SceneProbe::frame(const ProbeDomSnapshot& d, float w, float h, double time) {
-        ProbeSceneFrame out;
+    SceneFrame SceneSolver::frame(const DomSnapshot& d, float w, float h, double time) {
+        SceneFrame out;
         update(d, out, w, h, time);
         return out;
     }
 
-    void SceneProbe::update(const ProbeDomSnapshot& d, ProbeSceneFrame& f, float w, float h, double time) {
+    void SceneSolver::update(const DomSnapshot& d, SceneFrame& f, float w, float h, double time) {
         auto& i = *impl_;
         i.owner.require(Diag::SceneOwner);
         if (!std::isfinite(time) || time < i.now || !std::isfinite(w) || !std::isfinite(h) || w <= 0 || h <= 0 ||
@@ -1705,7 +1704,7 @@ namespace caseelephant {
                     i.computed.emplace();
                 }
                 try {
-                    std::vector<ProbeNodeIdentity> changed;
+                    std::vector<NodeIdentity> changed;
                     i.compiled->update(d, *i.cascade, i.style_memo, &changed);
                     for (auto id : changed) {
                         i.states[identity(id)].expand_dirty = true;
@@ -1718,7 +1717,7 @@ namespace caseelephant {
                     throw;
                 }
             } else {
-                i.computed = compute_style_probe(d, i.sheet, scene_style_profile());
+                i.computed = compute_style(d, i.sheet, scene_style_profile());
             }
             i.style_input = std::move(style_key);
             ++i.work.style_evaluations;
@@ -1768,4 +1767,4 @@ namespace caseelephant {
         i.previous_height = h;
         i.work.layout_ms += ms(layout_start, clock());
     }
-} // namespace caseelephant
+} // namespace weft

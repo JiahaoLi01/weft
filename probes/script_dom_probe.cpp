@@ -9,11 +9,11 @@
 #include <string>
 
 namespace {
-    using caseelephant::testing::read_file;
+    using weft::testing::read_file;
 
     // Evidence text files end with a newline.
     void write_file(const std::filesystem::path& path, const std::string& content) {
-        caseelephant::testing::write_file(path, content + '\n');
+        weft::testing::write_file(path, content + '\n');
     }
 } // namespace
 
@@ -22,7 +22,7 @@ int main(int argc, char** argv) {
         if (argc < 3 || argc > 4) {
             throw std::runtime_error("Usage: script_dom_probe <d3.js> <d3_probe.js> [output-directory]");
         }
-        caseelephant::ScriptDomProbe probe;
+        weft::ScriptDom probe;
         probe.eval(read_file(argv[1]), argv[1]);
         const auto report = probe.eval(read_file(argv[2]), argv[2]);
         probe.collect_garbage();

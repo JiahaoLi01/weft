@@ -2,8 +2,8 @@
 
 // The inspection host explicitly opts these authored paths into source reuse.
 // No class/style heuristic changes the renderer's layer policy or the bundle.
-std::vector<caseelephant::ProbeNodeIdentity>
-gallery_layer_manifest(unsigned index, const caseelephant::ProbeSceneFrame& frame, bool native = false) {
+std::vector<weft::NodeIdentity> gallery_layer_manifest(unsigned index, const weft::SceneFrame& frame,
+                                                       bool native = false) {
     // Authored host policy for the native pass: a single ring/bar/emoji is
     // already a cheap batched primitive or glyph image. Cache the compound
     // background/border/text groups; keep reference-backend hints separately.
@@ -34,7 +34,7 @@ gallery_layer_manifest(unsigned index, const caseelephant::ProbeSceneFrame& fram
             paths.push_back({0, i});
         }
     }
-    std::vector<caseelephant::ProbeNodeIdentity> ids;
+    std::vector<weft::NodeIdentity> ids;
     for (const auto& path : paths) {
         auto n = &frame.root;
         for (auto p : path) {

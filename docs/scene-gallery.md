@@ -8,7 +8,7 @@
 
 ```powershell
 cmake --build --preset windows-release --parallel 8
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/complex-css/interactive
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/complex-css/interactive
 ```
 
 默认 CSS；侧栏 D3 可直接跳转，滚轮/PageDown 查看全部 26+8。CSS 4–6 悬停触发 transition，CSS 7 点击改变进度宽度；其他原例继续按原时钟播放。完整窗口说明见 [gallery preview](gallery-preview.md)。静态和动画图片、原始错误/geometry、配置/二进制 hash 存在 `artifacts/local/gallery-css-d3/`。实际全量测试/GC 结果见 [status](status.md)，最终 seal 为该目录 `run-metadata.json`。
@@ -16,7 +16,7 @@ cmake --build --preset windows-release --parallel 8
 ```powershell
 ctest --preset windows-release --output-on-failure
 ctest --preset windows-debug --output-on-failure
-& .\build\windows-msvc\bin\Release\ce_scene_gallery_tests.exe artifacts/local/gallery-css-d3/release/native
+& .\build\windows-msvc\bin\Release\weft_scene_gallery_tests.exe artifacts/local/gallery-css-d3/release/native
 python tools/compare_scene_geometry.py artifacts/local/gallery-css-d3/release/native tests/fixtures/scene-gallery-reference
 python tools/verify_scene_fixture.py
 ```
@@ -29,7 +29,7 @@ python tools/verify_scene_fixture.py
 
 ## Owner 与布局/动画
 
-SceneProbe 在 owner 上复用公共 cascade 的单独 `scene_syntax` profile：escaped ASCII class、SVG namespace/presentation attributes 和声明来源；旧 auto/positioned/flow profile 不扩张。Yoga 进行有界 border-box block/flex row/column、absolute/inset、px/%、边距/padding/border/gap 和文本固有度量。transform 正确建立 absolute containing block。混合 inline 内容、其他 formatting 值明确诊断；scene 不替代已经独立验证的 flow 换行/滚动路径。
+SceneSolver 在 owner 上复用公共 cascade 的单独 `scene_syntax` profile：escaped ASCII class、SVG namespace/presentation attributes 和声明来源；旧 auto/positioned/flow profile 不扩张。Yoga 进行有界 border-box block/flex row/column、absolute/inset、px/%、边距/padding/border/gap 和文本固有度量。transform 正确建立 absolute containing block。混合 inline 内容、其他 formatting 值明确诊断；scene 不替代已经独立验证的 flow 换行/滚动路径。
 
 关键帧逐属性补 underlying 端点，支持延迟、整数/infinite 次数、normal/reverse/alternate/alternate-reverse、fill、linear/ease/cubic-bezier/end steps。transition retarget 从当前呈现值开始；继承属性随动画传播，显式 child declaration 不被覆盖。支持当前例需要的 numeric/transform token 插值、px/% 圆角混合和 premultiplied sRGB 色值插值；复杂 transform decomposition/完整可动画属性清单未实现。节点状态按 view_epoch/slot/generation 保存，移除后清理，重新插入重启。
 
@@ -39,13 +39,13 @@ SceneProbe 在 owner 上复用公共 cascade 的单独 `scene_syntax` profile：
 
 ## Windows 软件矢量参考适配器
 
-`SceneRasterProbe` 用 DirectWrite 测量/塑形与 OS fallback，支持这批 normal/bold/mono/emoji。system-ui 读取 Windows UI 字体，本机为 Microsoft YaHei UI；SVG sans-serif 为 Arial，mono 为 Consolas。浏览器 CDP 的 platform-font 审计和对应 OS font hash 保存在 reference manifest；没有下载/复制 OS 字体。不同机器字体设置可使 fixture 对照失败，跨平台固定字体打包未完成。
+`SceneRaster` 用 DirectWrite 测量/塑形与 OS fallback，支持这批 normal/bold/mono/emoji。system-ui 读取 Windows UI 字体，本机为 Microsoft YaHei UI；SVG sans-serif 为 Arial，mono 为 Consolas。浏览器 CDP 的 platform-font 审计和对应 OS font hash 保存在 reference manifest；没有下载/复制 OS 字体。不同机器字体设置可使 fixture 对照失败，跨平台固定字体打包未完成。
 
 Direct2D SOFTWARE/WIC 绘制圆角、分边 solid border、线性/径向/锥形 gradient、2D transform、HTML 子树 group opacity 和 clipping。3D 仅支持本例的 `perspective(px) rotateY(angle)` planar subtree：先 raster 子树，再 inverse project/bilinear premultiplied sampling；不是通用 CSS 3D。SVG 为 g/rect（rx）/circle/line/polygon/path/text，支持 transform inheritance、fill/stroke/width、anchor/central baseline/dy，path M/L/H/V/C/Q/A/Z 的相对/重复参数（262144 byte / 65536 segment bound）。其他元素/命令、viewBox/preserveAspectRatio、clip-path/mask/filter、SVG descendant opacity、text stroke 明确诊断。
 
 每张 backing 最多 16,777,216 pixels，scale <=4；owner viewport <=4096。adapter 输出独立 straight encoded-sRGB RGBA8，原 D3D11 图像上传转换为 linear premultiplied，按真实 GPU completion 退休。本批 case 本体在 encoded sRGB 软件合成，与浏览器语义匹配；不扩大全局 renderer 的 linear 合同。
 
-SceneProbe/SceneRasterProbe 是 M0 内部 C++ 探针，不是新增公开 STL/C ABI。平台 API 隔离在独立 target，Windows raster 不能推断 Android/iOS 可用。Windows scene GPU adapter 已完成本固定范围验证；跨平台字体/GPU adapter、生产 paint IR 与稳定 scene API 仍待实现。
+SceneSolver/SceneRaster 是 M0 内部 C++ 探针，不是新增公开 STL/C ABI。平台 API 隔离在独立 target，Windows raster 不能推断 Android/iOS 可用。Windows scene GPU adapter 已完成本固定范围验证；跨平台字体/GPU adapter、生产 paint IR 与稳定 scene API 仍待实现。
 
 ## 独立对照与反例
 

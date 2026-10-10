@@ -8,12 +8,12 @@
 
 ```powershell
 cmake --build --preset windows-release --parallel 8
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/css-middle-performance/interactive
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/css-middle-performance/interactive
 
 # 同一固定场景，无截图回读；默认调度，结果不能与下面的 affinity 测量直接混比。
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-benchmark-hardware artifacts/local/css-middle-performance/manual/css-middle css-middle
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-benchmark-hardware artifacts/local/css-middle-performance/manual/css-end css-end
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --complex-css-test-hardware artifacts/local/css-middle-performance/manual/reference
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-benchmark-hardware artifacts/local/css-middle-performance/manual/css-middle css-middle
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-benchmark-hardware artifacts/local/css-middle-performance/manual/css-end css-end
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --complex-css-test-hardware artifacts/local/css-middle-performance/manual/reference
 ```
 
 默认 CSS，滚动查看 Spinner、Ripple Effect、Pulse Ring 与末段组合动画。窗口本身没有设置进程 affinity 或优先级；下面的控制条件仅用于子进程基准。
@@ -71,10 +71,10 @@ GPU query 是相同 producer+UI elapsed 范围，包含 CPU 提交调度空隙�
 强制 GC 实际运行：
 
 ```powershell
-cmake --build build/windows-gc-stress --config Debug --parallel 8 --target ce_scene_contract_tests ce_d3d11_probe
+cmake --build build/windows-gc-stress --config Debug --parallel 8 --target weft_scene_contract_tests weft_d3d11_probe
 ctest --test-dir build/windows-gc-stress -C Debug --parallel 1 -R '^scene_contract$|^d3d11_warp_complex_css$|^d3d11_warp_external_texture$|^d3d11_warp_two_frame$|^d3d11_warp_render_cache$' --output-on-failure
 ```
 
-**5/5，15.02 秒**；本轮没有重跑 GC 的大型原 gallery/geometry/window，旧阶段对应证据继续保留。Release 首次新增测试编译因 ProbeElementGeometry 没有 operator== 失败，改为显式字段比较后全套通过；日志保留，不改产品行为或阈值。所有版本源快照、9 个 executable、图片、两种调度条件的全 24 个主要 run、sanity、日志和原游戏 drift SHA 封存到本轮 metadata，旧 seal 逐项校验且不改写。
+**5/5，15.02 秒**；本轮没有重跑 GC 的大型原 gallery/geometry/window，旧阶段对应证据继续保留。Release 首次新增测试编译因 ElementGeometry 没有 operator== 失败，改为显式字段比较后全套通过；日志保留，不改产品行为或阈值。所有版本源快照、9 个 executable、图片、两种调度条件的全 24 个主要 run、sanity、日志和原游戏 drift SHA 封存到本轮 metadata，旧 seal 逐项校验且不改写。
 
 目前仅 Windows 固定 scene 范围；Android/iOS、Metal/Vulkan、device-loss、一般 CSS 3D、完整 72 实绘与长时真实游戏 UI 未验证。后续需定位默认调度的整页波动，继续减少 JS/scene/producer 提交成本，不能仅凭 affinity 结果提高默认窗口 FPS 承诺。

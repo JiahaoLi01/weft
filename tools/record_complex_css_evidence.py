@@ -86,7 +86,7 @@ for name, config in (('release', 'Release'), ('debug', 'Debug'), ('gc', 'Debug')
         runs[name]['gpu_hardware'] = gpu_scene(target / 'scene-gpu-test-hardware')
         runs[name]['complex_hardware'] = complex_css(target / 'complex-css-test-hardware')
         runs[name]['window_hardware'] = window(target / 'gallery-window-test-hardware')
-    for filename in ('ce_d3d11_probe.exe', 'ce_scene_contract_tests.exe', 'ce_scene_gallery_tests.exe'):
+    for filename in ('weft_d3d11_probe.exe', 'weft_scene_contract_tests.exe', 'weft_scene_gallery_tests.exe'):
         destination = target / 'bin' / filename
         destination.parent.mkdir(exist_ok=True)
         shutil.copy2(build / 'bin' / config / filename, destination)

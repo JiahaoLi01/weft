@@ -23,21 +23,21 @@ for config, build, count in (('debug', 'windows-msvc', 67), ('release', 'windows
                      'scope': 'full suite' if count == 67 else 'Canvas/DOM/rAF/eight-cycle React; original large gallery bundle excluded'}
     mode = 'Release' if config == 'release' else 'Debug'
     directory_bin = root / 'build' / build / 'bin' / mode
-    names = ['ce_canvas_probe_tests.exe', 'ce_script_dom_tests.exe', 'ce_animation_frame_tests.exe', 'ce_page_probe_tests.exe']
+    names = ['weft_canvas_probe_tests.exe', 'weft_script_dom_tests.exe', 'weft_animation_frame_tests.exe', 'weft_page_probe_tests.exe']
     if config != 'gc-stress':
-        names += ['ce_d3d11_probe.exe', 'ce_style_probe_tests.exe', 'ce_gallery_probe.exe']
+        names += ['weft_d3d11_probe.exe', 'weft_style_probe_tests.exe', 'weft_gallery_probe.exe']
         warp = root / 'build' / build / 'artifacts' / ('gallery-canvas-' + mode)
         shutil.copytree(warp, directory / 'ctest-results', dirs_exist_ok=True)
         if config == 'debug':
             final = (directory / 'ctest-final-scope.log').read_text(encoding='utf-8-sig')
             assert '0 tests failed out of 5' in final
-            assert (directory / 'ctest-final-scope.log').stat().st_mtime >= (directory_bin / 'ce_d3d11_probe.exe').stat().st_mtime
+            assert (directory / 'ctest-final-scope.log').stat().st_mtime >= (directory_bin / 'weft_d3d11_probe.exe').stat().st_mtime
             tests[config]['final_scope'] = {'passed': 5, 'seconds': float(re.search(r'Total Test time \(real\) =\s+([\d.]+)', final).group(1))}
         else:
-            assert (directory / 'ctest.log').stat().st_mtime >= (directory_bin / 'ce_d3d11_probe.exe').stat().st_mtime
+            assert (directory / 'ctest.log').stat().st_mtime >= (directory_bin / 'weft_d3d11_probe.exe').stat().st_mtime
         for driver, path in (('warp', directory / 'ctest-results/warp'), ('hardware', directory / 'hardware')):
             report_path = path / 'report.json'
-            assert report_path.stat().st_mtime >= (directory_bin / 'ce_d3d11_probe.exe').stat().st_mtime
+            assert report_path.stat().st_mtime >= (directory_bin / 'weft_d3d11_probe.exe').stat().st_mtime
             report = json.loads(report_path.read_text(encoding='utf-8'))
             assert report['case_count'] == 2 and report['frames_per_case'] == 64 and report['seed'] == 0xce202610
             for case in report['cases']:
@@ -49,7 +49,7 @@ for config, build, count in (('debug', 'windows-msvc', 67), ('release', 'windows
         for driver, path in (('warp', directory / 'ctest-results/window-warp'), ('hardware', directory / 'window-hardware')):
             window = json.loads((path / 'window-report.json').read_text(encoding='utf-8'))
             assert window['frames'] == window['actual_completed_submissions'] == 8 and window['surface'] == [3840, 2160]
-            assert (path / 'window-report.json').stat().st_mtime >= (directory_bin / 'ce_d3d11_probe.exe').stat().st_mtime
+            assert (path / 'window-report.json').stat().st_mtime >= (directory_bin / 'weft_d3d11_probe.exe').stat().st_mtime
             assert (path / 'window-4k-hud.png').exists()
         observation = root / 'build' / build / 'artifacts' / ('gallery-' + mode) / 'native-execution.json'
         shutil.copyfile(observation, directory / 'native-execution.json')

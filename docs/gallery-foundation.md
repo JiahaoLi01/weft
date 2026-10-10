@@ -1,6 +1,6 @@
 # CRPG gallery：固定验收与 rAF 第一阶段
 
-2026-10-09。目标是让用户指定的 gallery 全部案例在 CaseElephant 的绘制后端和输入路径工作。本阶段交付可重复的原样案例诊断，以及实验 owner rAF；**没有交付 Canvas/WebGL、完整 gallery 绘制或性能结论**。
+2026-10-09。目标是让用户指定的 gallery 全部案例在 Weft 的绘制后端和输入路径工作。本阶段交付可重复的原样案例诊断，以及实验 owner rAF；**没有交付 Canvas/WebGL、完整 gallery 绘制或性能结论**。
 
 ## 固定 workload 与四层验收
 
@@ -34,11 +34,11 @@ Native 每例新建 VM，用原 React 组件和依赖运行 12 个 owner 绘制�
 
 原版 React Spring 的三例实际各执行 12 个 rAF：数字从 **72 → 842**，进度宽度从 **0.83335% → 9.63335%**，trail 的 opacity/transform 在原生 DOM 中变化。该检查证明 VM → rAF → 原包 → native DOM 链路；没有验证 CSS transform/opacity 绘制或与浏览器动画轨迹一致。
 
-真实 Chrome **155.0.8059.39** 的 800×600 / DPR 1 离线参照逐例观察 250 ms，72 例没有观察到脚本错误。两个 Canvas2D 和两个 Three.js WebGL2 context 实际创建，Three 报告 ANGLE / RTX 5090 / D3D11。四个 Lottie 原 URL 被显式阻止、未加载 JSON，不能算动画成功。参照 CSS 由固定 Tailwind compiler 与静态候选生成，原字体资产未捕获；截图只作浏览器参照，未做像素正确性/交互验收。浏览器里的 ANGLE 不代表 CaseElephant 接入了 ANGLE。
+真实 Chrome **155.0.8059.39** 的 800×600 / DPR 1 离线参照逐例观察 250 ms，72 例没有观察到脚本错误。两个 Canvas2D 和两个 Three.js WebGL2 context 实际创建，Three 报告 ANGLE / RTX 5090 / D3D11。四个 Lottie 原 URL 被显式阻止、未加载 JSON，不能算动画成功。参照 CSS 由固定 Tailwind compiler 与静态候选生成，原字体资产未捕获；截图只作浏览器参照，未做像素正确性/交互验收。浏览器里的 ANGLE 不代表 Weft 接入了 ANGLE。
 
 ## rAF 实际合同
 
-`src/script/js/animation_frame_bootstrap.js`（构建时内嵌，`install_script_platform(vm, ScriptPlatformModule::AnimationFrame)` 安装）是可选 M0 平台模块；`ScriptDomProbe::animation_frame(double time_ms, bool drawable)` 在 UI owner 驱动。旧 flow motion 展示继续用局部时钟，公共 Runtime/View C ABI 不变。
+`src/script/js/animation_frame_bootstrap.js`（构建时内嵌，`install_script_platform(vm, ScriptPlatformModule::AnimationFrame)` 安装）是可选 M0 平台模块；`ScriptDom::animation_frame(double time_ms, bool drawable)` 在 UI owner 驱动。旧 flow motion 展示继续用局部时钟，公共 Runtime/View C ABI 不变。
 
 - 注册异步回调，单批快照与公共浮点时间戳；回调中新注册的任务留到下一次绘制机会。取消可从前一个回调的微任务检查点阻止后续回调。
 - 每个回调后清空有界微任务；整批共享一次 execution deadline 和 10,000 job 上限。普通 callback exception 记录后继续；VM 资源/时间失败进入 Faulted，必须 reset，残余任务不能自动续跑。
@@ -63,7 +63,7 @@ WebGL2 的标准 JS 入口、对象身份、参数/错误校验和 DOM/canvas �
 ~~~powershell
 cmake --build --preset windows-release --parallel 10
 ctest --preset windows-release
-.\build\windows-msvc\bin\Release\ce_gallery_probe.exe artifacts/local/gallery-foundation/manual
+.\build\windows-msvc\bin\Release\weft_gallery_probe.exe artifacts/local/gallery-foundation/manual
 python tools/verify_gallery_execution.py artifacts/local/gallery-foundation/manual/native-execution.json
 # 可选：只用固定源码重建 JS/CSS
 node tools/build_gallery.mjs

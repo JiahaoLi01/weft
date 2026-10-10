@@ -17,8 +17,8 @@
 #include <stdexcept>
 #include <thread>
 
-namespace caseelephant {
-    struct TextProbeFont::Impl {
+namespace weft {
+    struct Font::Impl {
         OwnerThread owner;
         std::vector<char> bytes;
         FT_Library library{};
@@ -30,7 +30,7 @@ namespace caseelephant {
         void check(float px) const {
             owner.require(Diag::WrongThread, "font owner");
             if (!std::isfinite(px) || px <= 0 || px > constants::text::max_font_pixels) {
-                throw std::invalid_argument("CE_FONT_SIZE: expected (0,4096] px");
+                throw std::invalid_argument("WEFT_FONT_SIZE: expected (0,4096] px");
             }
         }
 
@@ -38,30 +38,30 @@ namespace caseelephant {
             try {
                 std::ifstream file(path, std::ios::binary | std::ios::ate);
                 if (!file) {
-                    throw std::runtime_error("CE_FONT_FILE: cannot open font");
+                    throw std::runtime_error("WEFT_FONT_FILE: cannot open font");
                 }
                 const auto size = file.tellg();
                 if (size <= 0 || size > constants::text::max_font_file_bytes) {
-                    throw std::runtime_error("CE_FONT_FILE: invalid font byte size");
+                    throw std::runtime_error("WEFT_FONT_FILE: invalid font byte size");
                 }
                 bytes.resize(static_cast<std::size_t>(size));
                 file.seekg(0);
                 if (!file.read(bytes.data(), static_cast<std::streamsize>(bytes.size()))) {
-                    throw std::runtime_error("CE_FONT_FILE: truncated font");
+                    throw std::runtime_error("WEFT_FONT_FILE: truncated font");
                 }
                 if (FT_Init_FreeType(&library) ||
                     FT_New_Memory_Face(library, reinterpret_cast<const FT_Byte*>(bytes.data()),
                                        static_cast<FT_Long>(bytes.size()), 0, &face)) {
-                    throw std::runtime_error("CE_FONT_FILE: FreeType rejected font");
+                    throw std::runtime_error("WEFT_FONT_FILE: FreeType rejected font");
                 }
                 if (!face->units_per_EM) {
-                    throw std::runtime_error("CE_FONT_FILE: non-scalable font");
+                    throw std::runtime_error("WEFT_FONT_FILE: non-scalable font");
                 }
                 blob = hb_blob_create(bytes.data(), static_cast<unsigned>(bytes.size()), HB_MEMORY_MODE_READONLY,
                                       nullptr, nullptr);
                 hb_face = hb_face_create(blob, 0);
                 if (!hb_blob_get_length(blob) || !hb_face_get_glyph_count(hb_face)) {
-                    throw std::runtime_error("CE_FONT_FILE: HarfBuzz rejected font");
+                    throw std::runtime_error("WEFT_FONT_FILE: HarfBuzz rejected font");
                 }
                 shape_font = hb_font_create(hb_face);
                 if (shape_font == hb_font_get_empty()) {
@@ -98,19 +98,19 @@ namespace caseelephant {
         }
     };
 
-    TextProbeFont::TextProbeFont(const std::filesystem::path& font) : impl_(std::make_unique<Impl>(font)) {
+    Font::Font(const std::filesystem::path& font) : impl_(std::make_unique<Impl>(font)) {
     }
 
-    TextProbeFont::~TextProbeFont() = default;
+    Font::~Font() = default;
 
-    ProbeFontMetrics TextProbeFont::metrics(float pixels) const {
+    FontMetrics Font::metrics(float pixels) const {
         impl_->check(pixels);
         const auto scale = pixels / impl_->face->units_per_EM;
         return {impl_->face->ascender * scale, -impl_->face->descender * scale,
                 (impl_->face->height - impl_->face->ascender + impl_->face->descender) * scale};
     }
 
-    ProbeFontMetrics TextProbeFont::inline_metrics(float pixels) const {
+    FontMetrics Font::inline_metrics(float pixels) const {
         impl_->check(pixels);
         auto m = metrics(pixels);
         const auto scale = pixels / impl_->face->units_per_EM;
@@ -128,10 +128,10 @@ namespace caseelephant {
         return m;
     }
 
-    ProbeShapedText TextProbeFont::shape(std::string_view utf8, float pixels) const {
+    ShapedText Font::shape(std::string_view utf8, float pixels) const {
         impl_->check(pixels);
         if (utf8.size() > constants::text::max_shape_input_bytes) {
-            throw std::invalid_argument("CE_TEXT_LIMIT: probe input exceeds 1 MiB");
+            throw std::invalid_argument("WEFT_TEXT_LIMIT: probe input exceeds 1 MiB");
         }
         const auto free_buffer = [](hb_buffer_t* p) {
             hb_buffer_destroy(p);
@@ -154,7 +154,7 @@ namespace caseelephant {
         unsigned count{};
         const auto* infos = hb_buffer_get_glyph_infos(buffer.get(), &count);
         const auto* positions = hb_buffer_get_glyph_positions(buffer.get(), nullptr);
-        ProbeShapedText result;
+        ShapedText result;
         result.glyphs.reserve(count);
         for (unsigned i = 0; i < count; ++i) {
             const auto& p = positions[i];
@@ -169,23 +169,23 @@ namespace caseelephant {
         return result;
     }
 
-    ProbeGlyphBitmap TextProbeFont::rasterize(std::uint32_t glyph_id, float pixels) {
+    GlyphBitmap Font::rasterize(std::uint32_t glyph_id, float pixels) {
         impl_->check(pixels);
         if (glyph_id >= static_cast<std::uint32_t>(impl_->face->num_glyphs)) {
-            throw std::invalid_argument("CE_GLYPH_ID: out of range");
+            throw std::invalid_argument("WEFT_GLYPH_ID: out of range");
         }
         if (FT_Set_Char_Size(impl_->face, 0,
                              static_cast<FT_F26Dot6>(std::round(pixels * constants::text::fixed_26_6_units_per_pixel)),
                              constants::text::freetype_pixel_dpi, constants::text::freetype_pixel_dpi) ||
             FT_Load_Glyph(impl_->face, glyph_id, FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP) ||
             FT_Render_Glyph(impl_->face->glyph, FT_RENDER_MODE_NORMAL)) {
-            throw std::runtime_error("CE_GLYPH_RASTER: FreeType failure");
+            throw std::runtime_error("WEFT_GLYPH_RASTER: FreeType failure");
         }
         const auto& bitmap = impl_->face->glyph->bitmap;
         if (bitmap.pixel_mode != FT_PIXEL_MODE_GRAY || bitmap.num_grays != constants::text::coverage_num_grays) {
-            throw std::runtime_error("CE_UNSUPPORTED_FONT: grayscale coverage required");
+            throw std::runtime_error("WEFT_UNSUPPORTED_FONT: grayscale coverage required");
         }
-        ProbeGlyphBitmap result{
+        GlyphBitmap result{
             bitmap.width, bitmap.rows, impl_->face->glyph->bitmap_left, impl_->face->glyph->bitmap_top, {}};
         result.coverage.resize(static_cast<std::size_t>(bitmap.width) * bitmap.rows);
         for (unsigned row = 0; row < bitmap.rows; ++row) {
@@ -196,18 +196,18 @@ namespace caseelephant {
         return result;
     }
 
-    ProbeGlyphBitmap TextProbeFont::rasterize(const ProbeGlyph& glyph, float pixels) {
+    GlyphBitmap Font::rasterize(const Glyph& glyph, float pixels) {
         impl_->check(pixels);
         if (glyph.font_id != 0) {
-            throw std::invalid_argument("CE_FONT_ID: glyph does not belong to single-font resource");
+            throw std::invalid_argument("WEFT_FONT_ID: glyph does not belong to single-font resource");
         }
         return rasterize(glyph.glyph_id, pixels);
     }
 
-    struct TextProbeFontSet::Impl {
+    struct FontSet::Impl {
         OwnerThread owner;
-        std::vector<std::unique_ptr<TextProbeFont>> fonts;
-        std::map<std::pair<float, std::string>, ProbeFallbackText> shape_cache;
+        std::vector<std::unique_ptr<Font>> fonts;
+        std::map<std::pair<float, std::string>, FallbackText> shape_cache;
         std::size_t shape_bytes{};
         std::size_t shape_hits{};
         std::size_t shape_misses{};
@@ -217,64 +217,63 @@ namespace caseelephant {
         }
     };
 
-    TextProbeFontSet::TextProbeFontSet(const std::vector<std::filesystem::path>& ordered)
-        : impl_(std::make_unique<Impl>()) {
+    FontSet::FontSet(const std::vector<std::filesystem::path>& ordered) : impl_(std::make_unique<Impl>()) {
         if (ordered.empty() || ordered.size() > constants::text::max_fallback_fonts) {
-            throw std::invalid_argument("CE_FONT_SET: expected 1..8 ordered fonts");
+            throw std::invalid_argument("WEFT_FONT_SET: expected 1..8 ordered fonts");
         }
         std::uintmax_t bytes{};
         for (const auto& path : ordered) {
             bytes += std::filesystem::file_size(path);
             if (bytes > constants::text::max_font_set_bytes) {
-                throw std::invalid_argument("CE_FONT_SET: 64 MiB input byte bound");
+                throw std::invalid_argument("WEFT_FONT_SET: 64 MiB input byte bound");
             }
-            impl_->fonts.push_back(std::make_unique<TextProbeFont>(path));
+            impl_->fonts.push_back(std::make_unique<Font>(path));
         }
     }
 
-    TextProbeFontSet::~TextProbeFontSet() {
+    FontSet::~FontSet() {
         impl_->owner.require_or_terminate();
     }
 
-    TextProbeFont& TextProbeFontSet::primary() {
+    Font& FontSet::primary() {
         impl_->check();
         return *impl_->fonts.front();
     }
 
-    ProbeFontMetrics TextProbeFontSet::metrics(std::uint32_t id, float pixels) const {
+    FontMetrics FontSet::metrics(std::uint32_t id, float pixels) const {
         impl_->check();
         if (id >= impl_->fonts.size()) {
-            throw std::invalid_argument("CE_FONT_ID: font set index");
+            throw std::invalid_argument("WEFT_FONT_ID: font set index");
         }
         return impl_->fonts[id]->metrics(pixels);
     }
 
-    ProbeGlyphBitmap TextProbeFontSet::rasterize(const ProbeGlyph& glyph, float pixels) {
+    GlyphBitmap FontSet::rasterize(const Glyph& glyph, float pixels) {
         impl_->check();
         if (glyph.font_id >= impl_->fonts.size()) {
-            throw std::invalid_argument("CE_FONT_ID: glyph font set index");
+            throw std::invalid_argument("WEFT_FONT_ID: glyph font set index");
         }
         return impl_->fonts[glyph.font_id]->rasterize(glyph.glyph_id, pixels);
     }
 
-    ProbeFontMetrics TextProbeFontSet::inline_metrics(std::uint32_t id, float pixels) const {
+    FontMetrics FontSet::inline_metrics(std::uint32_t id, float pixels) const {
         impl_->check();
         if (id >= impl_->fonts.size()) {
-            throw std::invalid_argument("CE_FONT_ID: inline metrics index");
+            throw std::invalid_argument("WEFT_FONT_ID: inline metrics index");
         }
         return impl_->fonts[id]->inline_metrics(pixels);
     }
 
-    ProbeShapeCacheStats TextProbeFontSet::shape_cache_stats() const {
+    ShapeCacheStats FontSet::shape_cache_stats() const {
         impl_->check();
         return {impl_->shape_cache.size(), impl_->shape_bytes, impl_->shape_hits, impl_->shape_misses};
     }
 
-    ProbeFallbackText TextProbeFontSet::shape(std::string_view text, float pixels) const {
+    FallbackText FontSet::shape(std::string_view text, float pixels) const {
         impl_->check();
         (void)impl_->fonts.front()->metrics(pixels);
         if (text.size() > constants::max_text_bytes) {
-            throw std::invalid_argument("CE_FONT_SET: 64 KiB text bound");
+            throw std::invalid_argument("WEFT_FONT_SET: 64 KiB text bound");
         }
         const auto key = std::pair{pixels, std::string(text)};
         if (const auto i = impl_->shape_cache.find(key); i != impl_->shape_cache.end()) {
@@ -301,7 +300,7 @@ namespace caseelephant {
         for (unsigned i = 0; i < count; ++i) {
             const auto cp = points[i].codepoint;
             if (cp > constants::max_unicode_codepoint) {
-                throw std::invalid_argument("CE_TEXT_UTF8: malformed input");
+                throw std::invalid_argument("WEFT_TEXT_UTF8: malformed input");
             }
             const auto script = hb_unicode_script(hb_unicode_funcs_get_default(), cp);
             if ((cp >= constants::text::bidi_embedding_first && cp <= constants::text::bidi_embedding_last) ||
@@ -311,18 +310,18 @@ namespace caseelephant {
                 (script != HB_SCRIPT_LATIN && script != HB_SCRIPT_HAN && script != HB_SCRIPT_COMMON &&
                  script != HB_SCRIPT_INHERITED)) {
                 throw std::invalid_argument(
-                    "CE_TEXT_SCRIPT: LTR Latin/Han profile; paragraph bidi/script itemization required");
+                    "WEFT_TEXT_SCRIPT: LTR Latin/Han profile; paragraph bidi/script itemization required");
             }
         }
         auto primary = impl_->fonts.front()->shape(text, pixels);
-        ProbeFallbackText result;
+        FallbackText result;
         if (primary.glyphs.empty()) {
             return result;
         }
         std::map<std::uint32_t, bool> clusters;
         for (const auto& g : primary.glyphs) {
             if (g.utf8_cluster >= text.size()) {
-                throw std::logic_error("CE_TEXT_CLUSTER: invalid HarfBuzz output");
+                throw std::logic_error("WEFT_TEXT_CLUSTER: invalid HarfBuzz output");
             }
             clusters[g.utf8_cluster] = clusters[g.utf8_cluster] || g.glyph_id == 0;
         }
@@ -365,7 +364,7 @@ namespace caseelephant {
                 {span.font, span.start, span.end - span.start, impl_->fonts[span.font]->metrics(pixels)});
         }
         const auto bytes =
-            text.size() + result.shaped.glyphs.size() * sizeof(ProbeGlyph) + result.runs.size() * sizeof(ProbeFontRun);
+            text.size() + result.shaped.glyphs.size() * sizeof(Glyph) + result.runs.size() * sizeof(FontRun);
         if (bytes <= constants::text::shape_cache_max_bytes) {
             if (impl_->shape_cache.size() >= constants::text::shape_cache_max_entries ||
                 bytes > constants::text::shape_cache_max_bytes - impl_->shape_bytes) {
@@ -378,18 +377,18 @@ namespace caseelephant {
         return result;
     }
 
-    ProbeSdfBitmap TextProbeFont::rasterize_sdf(std::uint32_t glyph_id, std::uint32_t base_ppem, std::uint32_t spread,
-                                                ProbeSdfSource source) {
+    SdfBitmap Font::rasterize_sdf(std::uint32_t glyph_id, std::uint32_t base_ppem, std::uint32_t spread,
+                                  SdfSource source) {
         impl_->check(static_cast<float>(base_ppem));
         if (base_ppem < constants::text::sdf_min_base_ppem || base_ppem > constants::text::sdf_max_base_ppem ||
             spread < constants::text::sdf_min_spread || spread > constants::text::sdf_max_spread) {
-            throw std::invalid_argument("CE_SDF_RANGE: base [16,128] ppem, spread [2,32]");
+            throw std::invalid_argument("WEFT_SDF_RANGE: base [16,128] ppem, spread [2,32]");
         }
-        if (source != ProbeSdfSource::Bitmap && source != ProbeSdfSource::Outline) {
-            throw std::invalid_argument("CE_SDF_SOURCE: unsupported generator");
+        if (source != SdfSource::Bitmap && source != SdfSource::Outline) {
+            throw std::invalid_argument("WEFT_SDF_SOURCE: unsupported generator");
         }
         if (glyph_id >= static_cast<std::uint32_t>(impl_->face->num_glyphs)) {
-            throw std::invalid_argument("CE_GLYPH_ID: out of range");
+            throw std::invalid_argument("WEFT_GLYPH_ID: out of range");
         }
         // These properties belong to this font's owner-only FT_Library. Explicitly
         // reset orientation/range; ambient FREETYPE_PROPERTIES cannot flip sign.
@@ -400,39 +399,39 @@ namespace caseelephant {
             if (FT_Property_Set(impl_->library, module, "spread", &range) ||
                 FT_Property_Set(impl_->library, module, "flip_sign", &no) ||
                 FT_Property_Set(impl_->library, module, "flip_y", &no)) {
-                throw std::runtime_error("CE_SDF_GENERATOR: required FreeType properties unavailable");
+                throw std::runtime_error("WEFT_SDF_GENERATOR: required FreeType properties unavailable");
             }
         }
         FT_Bool overlaps = 0;
         if (FT_Property_Set(impl_->library, "sdf", "overlaps", &overlaps)) {
-            throw std::runtime_error("CE_SDF_GENERATOR: outline overlap policy unavailable");
+            throw std::runtime_error("WEFT_SDF_GENERATOR: outline overlap policy unavailable");
         }
         if (FT_Set_Pixel_Sizes(impl_->face, 0, base_ppem) ||
             FT_Load_Glyph(impl_->face, glyph_id, FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP)) {
-            throw std::runtime_error("CE_SDF_GENERATOR: glyph load failed");
+            throw std::runtime_error("WEFT_SDF_GENERATOR: glyph load failed");
         }
         if (impl_->face->glyph->format != FT_GLYPH_FORMAT_OUTLINE) {
-            throw std::runtime_error("CE_UNSUPPORTED_FONT: SDF requires scalable outline");
+            throw std::runtime_error("WEFT_UNSUPPORTED_FONT: SDF requires scalable outline");
         }
-        ProbeSdfBitmap result{0, 0, 0, 0, base_ppem, spread, source, {}};
+        SdfBitmap result{0, 0, 0, 0, base_ppem, spread, source, {}};
         if (!impl_->face->glyph->outline.n_points) {
             return result; // Space stays empty.
         }
         // BSDF avoids outline renderer limitations on intersecting contours. It is
         // deliberately recorded in metadata; no silent generator fallback.
-        if ((source == ProbeSdfSource::Bitmap && FT_Render_Glyph(impl_->face->glyph, FT_RENDER_MODE_NORMAL)) ||
+        if ((source == SdfSource::Bitmap && FT_Render_Glyph(impl_->face->glyph, FT_RENDER_MODE_NORMAL)) ||
             FT_Render_Glyph(impl_->face->glyph, FT_RENDER_MODE_SDF)) {
-            throw std::runtime_error("CE_SDF_GENERATOR: FreeType SDF failed");
+            throw std::runtime_error("WEFT_SDF_GENERATOR: FreeType SDF failed");
         }
         const auto& bitmap = impl_->face->glyph->bitmap;
         // The pinned FreeType SDF renderer sets num_grays=255 (the coverage
         // renderer sets 256), while its signed encoding still spans bytes 0..255.
         if (bitmap.pixel_mode != FT_PIXEL_MODE_GRAY || bitmap.num_grays != constants::text::sdf_num_grays) {
-            throw std::runtime_error("CE_SDF_GENERATOR: expected R8 distance data");
+            throw std::runtime_error("WEFT_SDF_GENERATOR: expected R8 distance data");
         }
         if (bitmap.width > constants::text::sdf_max_bitmap_dimension ||
             bitmap.rows > constants::text::sdf_max_bitmap_dimension) {
-            throw std::runtime_error("CE_SDF_LIMIT: generated bitmap bounds");
+            throw std::runtime_error("WEFT_SDF_LIMIT: generated bitmap bounds");
         }
         result.width = bitmap.width;
         result.height = bitmap.rows;
@@ -445,4 +444,4 @@ namespace caseelephant {
         }
         return result;
     }
-} // namespace caseelephant
+} // namespace weft

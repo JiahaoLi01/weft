@@ -7,7 +7,7 @@ sources=['CMakeLists.txt','third_party/manifest.json','tests/fixtures/casecheeta
 sources+=sorted(p.relative_to(root).as_posix() for d in ('src','include','probes','shaders','tests/fixtures/auto-layout') for p in (root/d).rglob('*') if p.is_file())
 for name,build,config,count,log in [('debug','windows-msvc','Debug',42,'auto-ctest-debug.log'),('release','windows-msvc','Release',42,'auto-ctest-release.log'),('gc-stress','windows-gc-stress','Debug',6,'auto-ctest-gc.log')]:
  folder=root/'artifacts/local'/('auto-'+name);folder.mkdir(parents=True,exist_ok=True)
- binary=root/'build'/build/'bin'/config/'ce_d3d11_probe.exe';test=binary.with_name('ce_auto_page_tests.exe')
+ binary=root/'build'/build/'bin'/config/'weft_d3d11_probe.exe';test=binary.with_name('weft_auto_page_tests.exe')
  source_log=root/'artifacts/local'/log;text=source_log.read_text(encoding='utf-8');assert f'0 tests failed out of {count}' in text
  assert source_log.stat().st_mtime>=max(binary.stat().st_mtime,test.stat().st_mtime),'tests predate binaries'
  shutil.copyfile(source_log,folder/'ctest.log')

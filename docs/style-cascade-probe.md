@@ -6,7 +6,7 @@
 
 入口见 [style_probe.hpp](../include/caseelephant/style_probe.hpp)，实现见 [style_probe.cpp](../src/style/style_probe.cpp)。输入是自有值 DOM snapshot、作者 stylesheet 和属性 profile，输出是自有值样式树。模块不链接 Yoga、字体、QuickJS 或图形 API，不调用 JS、不测量文字、不保存 Node 指针。DOM 类型头文件只用于值身份和快照。
 
-两种页面 adapter 使用同一层叠、选择器与变量实现。`build_page_probe(root, stylesheet, font)` 新增作者规则入口；原有 inline 入口保留。positioned adapter 新增配对样式树入口：在 `html` 快照上求值，裁取同一份快照中的 `#gallery` 和对应样式，再只格式化 gallery。`:root` 不把任意 scoped div 当作文档根。
+两种页面 adapter 使用同一层叠、选择器与变量实现。`build_page(root, stylesheet, font)` 新增作者规则入口；原有 inline 入口保留。positioned adapter 新增配对样式树入口：在 `html` 快照上求值，裁取同一份快照中的 `#gallery` 和对应样式，再只格式化 gallery。`:root` 不把任意 scoped div 当作文档根。
 
 样式与 DOM 的配对检查验证 identity、generation、epoch、local name、元素子树数量和顺序。调用方必须传递同一版不可变值快照；身份检查不代替样式 revision/失效系统。此处的稀疏输出是 formatting profile 的输入，不是完整 CSS computed-style 表，也没有提供 JS `getComputedStyle`。
 
@@ -56,8 +56,8 @@ cmake --build --preset windows-debug --parallel 10
 ctest --preset windows-debug
 cmake --build --preset windows-release --parallel 10
 ctest --preset windows-release
-build/windows-msvc/bin/Debug/ce_d3d11_probe.exe --cheetah-style-hardware artifacts/local/cheetah-style-debug/hardware
-build/windows-msvc/bin/Release/ce_d3d11_probe.exe --cheetah-style-hardware artifacts/local/cheetah-style-release/hardware
+build/windows-msvc/bin/Debug/weft_d3d11_probe.exe --cheetah-style-hardware artifacts/local/cheetah-style-debug/hardware
+build/windows-msvc/bin/Release/weft_d3d11_probe.exe --cheetah-style-hardware artifacts/local/cheetah-style-release/hardware
 ```
 
 有 GC build 时：`cmake --build build/windows-gc-stress --config Debug --parallel 10`，再运行 `ctest --test-dir build/windows-gc-stress -C Debug -R 'style|positioned_css|page_react' --output-on-failure`。强制 GC 包含八次 React mount/update/unmount/reset，执行预算仍使用既有压力配置。

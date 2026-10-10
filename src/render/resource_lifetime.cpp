@@ -4,7 +4,7 @@
 #include <new>
 #include <utility>
 
-namespace caseelephant::render {
+namespace weft::render {
 
     struct ResourceLifetime::ResourceSlot {
         DeviceEpoch epoch = 0;
@@ -588,4 +588,4 @@ namespace caseelephant::render {
         return stats_;
     }
 
-} // namespace caseelephant::render
+} // namespace weft::render

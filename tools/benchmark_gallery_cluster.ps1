@@ -2,7 +2,7 @@ param([string]$OutputDirectory = 'artifacts/local/gallery-cluster/performance')
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
 $taskOutput = [System.IO.Path]::GetFullPath((Join-Path $taskRoot $OutputDirectory))
-$taskExecutable = Join-Path $taskRoot 'build/windows-msvc/bin/Release/ce_d3d11_probe.exe'
+$taskExecutable = Join-Path $taskRoot 'build/windows-msvc/bin/Release/weft_d3d11_probe.exe'
 foreach ($scenario in @('d3-interactive', 'kline', 'framer', 'spring', 'icons', 'anime', 'css-middle')) {
     $destination = Join-Path $taskOutput $scenario
     if (Test-Path -LiteralPath $destination) { throw "Output already exists: $destination" }

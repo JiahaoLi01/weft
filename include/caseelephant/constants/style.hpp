@@ -3,9 +3,9 @@
 #include "caseelephant/constants/common.hpp"
 
 // Bounds of the M0 author-style evaluator (src/style/style_probe.cpp): parser and cascade
-// work quotas plus the StyleMemoProbe cache budget. Each constant has the type of the literal
+// work quotas plus the StyleMemo cache budget. Each constant has the type of the literal
 // it replaced.
-namespace caseelephant::constants::style {
+namespace weft::constants::style {
     // One past the last ASCII code point. Raw non-ASCII bytes outside the scene profile and
     // selector escapes at or above it are rejected.
     inline constexpr int ascii_end = 128;
@@ -33,7 +33,7 @@ namespace caseelephant::constants::style {
     inline constexpr int max_custom_properties = 128;
     inline constexpr int max_registered_properties = 128;
 
-    // Per-cache bounds of StyleMemoProbe (rule winners and computed values each).
+    // Per-cache bounds of StyleMemo (rule winners and computed values each).
     inline constexpr int memo_max_entries = 2048;
     inline constexpr int memo_max_bytes = 2 * constants::bytes_per_mib;
-} // namespace caseelephant::constants::style
+} // namespace weft::constants::style

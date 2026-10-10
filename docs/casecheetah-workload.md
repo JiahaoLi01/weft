@@ -8,13 +8,13 @@
 
 游戏工程只读，不执行其中的安装、构建或脚本，不改它的源码、dist、node_modules 或 Ultralight 插件。第一次读取 `AGENTS.md` 后，保存了 57 个文件、6,043,160 字节的固定样本，包括全部 UI/src、package/lock/config/index 和三张共享面板 PNG。每个文件在发布样本前重读核对；来源绝对路径、UTC 时间和 SHA-256 在 [manifest](../tests/fixtures/casecheetah/manifest.json)。该目录不是 Git checkout，没有虚构 commit。用户后来修改的内容不会自动进入样本。
 
-`tools/capture_cheetah_fixture.py` 默认拒绝覆盖已有样本。以后捕获新目录，比较两份清单，再显式更新 workload。普通构建、CTest 和校验只访问 CaseElephant 的固定文件，不要求游戏工程仍在原位置。样本属于用户游戏源码/素材，未将其列为开源第三方依赖或赋予再分发许可。
+`tools/capture_cheetah_fixture.py` 默认拒绝覆盖已有样本。以后捕获新目录，比较两份清单，再显式更新 workload。普通构建、CTest 和校验只访问 Weft 的固定文件，不要求游戏工程仍在原位置。样本属于用户游戏源码/素材，未将其列为开源第三方依赖或赋予再分发许可。
 
 原工程当前使用 React/react-dom 19.2.8、Zustand 5.0.15、D3 7.9.0、Vite 6.4.3，有 125 张 PNG。全界面大量使用中文、宋体/微软雅黑系统字体、CSS variables、Grid/Flex、伪元素、动画、渐变、阴影、滚动和 UE 数据桥；这些特征的库存不等于支持。
 
 ## 本轮实际链路
 
-未改动的 [NineSlice.tsx](../tests/fixtures/casecheetah/UI/src/components/NineSlice.tsx) → CaseElephant 已固定的 React 19.3.0/Vite 8.3.3 → QuickJS/原生 DOM → C++20 positioned formatting context → 不可变图片/灰度 Glyph 快照 → v1 backend API → D3D11 → 实际 HWND/swapchain Present/readback。
+未改动的 [NineSlice.tsx](../tests/fixtures/casecheetah/UI/src/components/NineSlice.tsx) → Weft 已固定的 React 19.3.0/Vite 8.3.3 → QuickJS/原生 DOM → C++20 positioned formatting context → 不可变图片/灰度 Glyph 快照 → v1 backend API → D3D11 → 实际 HWND/swapchain Present/readback。
 
 采用游戏 `shell.css` 第 5–9 行的五条规则，逐字提取并校验。源组件用被裁剪的整张图片实现九宫格，没有改写成原生“面板”指令或预先烘焙的页面截图。三个原始 PNG 为 `ink-panel-v2`、`ink-dock-left-v1`、`ink-dock-right-v1`，各 1024×1536。浮动卡片绘制九块；贴边面板有零切片，左右各两块，总共 13 个真实 image draw。
 
@@ -30,7 +30,7 @@
 
 输入与 GPU 分离不变：快照不持有 Node/JSValue，先释放 prepared/CPU 包，再由宿主 ExecuteCommandList/实际 query 通知退休。验收在卸载/reset VM 后使用保留下来的快照。此新格式上下文尚无通用 hit-test，交互窗口的已知位置单按钮映射只是 fixture host；报告 `mouse_geometry_hit_verified=false`。输入中更一般的 hit-test/capture 仍使用此前 Flex 合同。
 
-CSS 文件由 host 显式传入，不是 HTML/link/style 文档加载；没有一般 CSS grammar、Tailwind 规则、伪类/伪元素、CSS variables、Grid、滚动、动画、滤镜或 opacity group。JS 侧同步 computed style/geometry 尚未接入。未知语法/属性或已使用的超出范围值有 `CE_POSITIONED_PROFILE` 诊断，不将它们默默替换成 Flex。
+CSS 文件由 host 显式传入，不是 HTML/link/style 文档加载；没有一般 CSS grammar、Tailwind 规则、伪类/伪元素、CSS variables、Grid、滚动、动画、滤镜或 opacity group。JS 侧同步 computed style/geometry 尚未接入。未知语法/属性或已使用的超出范围值有 `WEFT_POSITIONED_PROFILE` 诊断，不将它们默默替换成 Flex。
 
 ## 复现
 
@@ -40,13 +40,13 @@ CSS 文件由 host 显式传入，不是 HTML/link/style 文档加载；没有�
 cmake --preset windows-msvc
 cmake --build --preset windows-debug --parallel 4
 ctest --preset windows-debug
-build/windows-msvc/bin/Debug/ce_d3d11_probe.exe --cheetah-hardware artifacts/local/cheetah-debug/hardware
-build/windows-msvc/bin/Debug/ce_d3d11_probe.exe --cheetah-window-hardware artifacts/local/cheetah-interactive
+build/windows-msvc/bin/Debug/weft_d3d11_probe.exe --cheetah-hardware artifacts/local/cheetah-debug/hardware
+build/windows-msvc/bin/Debug/weft_d3d11_probe.exe --cheetah-window-hardware artifacts/local/cheetah-interactive
 ~~~
 
 `--cheetah-warp` 使用软件 D3D11。窗口使用自身缩放按钮；一般键盘、IME、中文和移动平台仍未验收。窗口 letterbox/resize 复用既有 presenter。
 
-重建 fixture 时，在既有 `examples/react-vite` 运行 pinned `npm ci`，然后运行 `node tools/build_cheetah_fixture.mjs`。工具只写新样本的 public/dist/native/profile.css，引用 CaseElephant 的 pinned runtime 与 vendored Roboto。`python tools/verify_cheetah_fixture.py` 离线验证全部捕获文件、原样规则、构建输入/输出哈希及 runtime notices。浏览器目录为 `examples/cheetah-nine-slice/dist/browser`，可用 `python -m http.server 4174 --bind 127.0.0.1 --directory examples/cheetah-nine-slice/dist/browser`。
+重建 fixture 时，在既有 `examples/react-vite` 运行 pinned `npm ci`，然后运行 `node tools/build_cheetah_fixture.mjs`。工具只写新样本的 public/dist/native/profile.css，引用 Weft 的 pinned runtime 与 vendored Roboto。`python tools/verify_cheetah_fixture.py` 离线验证全部捕获文件、原样规则、构建输入/输出哈希及 runtime notices。浏览器目录为 `examples/cheetah-nine-slice/dist/browser`，可用 `python -m http.server 4174 --bind 127.0.0.1 --directory examples/cheetah-nine-slice/dist/browser`。
 
 ## 证据与边界
 

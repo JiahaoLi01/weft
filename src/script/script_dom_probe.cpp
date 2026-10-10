@@ -26,7 +26,7 @@
 #include <utility>
 #include <vector>
 
-namespace caseelephant {
+namespace weft {
     namespace {
         struct PendingJsException {};
 
@@ -101,7 +101,7 @@ namespace caseelephant {
         }
     } // namespace
 
-    struct ScriptDomProbe::Impl {
+    struct ScriptDom::Impl {
         struct Attribute {
             std::string name;
             std::string local;
@@ -121,7 +121,7 @@ namespace caseelephant {
 
         struct Node {
             Impl* owner{};
-            ProbeNodeIdentity identity;
+            NodeIdentity identity;
             int type{};
             std::string local;
             std::string space;
@@ -134,7 +134,7 @@ namespace caseelephant {
             JSValue document{JS_NULL};
             JSValue expando{JS_UNDEFINED};
             JSValue canvas_context{JS_UNDEFINED};
-            std::unique_ptr<ProbeCanvasState> canvas;
+            std::unique_ptr<CanvasState> canvas;
             std::vector<JSValue> children;
             std::vector<Listener> listeners;
             // Borrowed wrapper identity: this is NOT an extra, hidden GC root.
@@ -156,39 +156,39 @@ namespace caseelephant {
         JSClassID node_class{};
         JSClassID canvas_class{};
         JSValue canvas_prototype{JS_UNDEFINED};
-        ProbeCanvasFactory canvas_factory;
-        std::shared_ptr<ProbeCanvasBudget> canvas_budget = std::make_shared<ProbeCanvasBudget>();
+        CanvasFactory canvas_factory;
+        std::shared_ptr<CanvasBudget> canvas_budget = std::make_shared<CanvasBudget>();
         JSValue document_root{JS_UNDEFINED};
         JSValue mouse_prototype{JS_UNDEFINED};
         JSValue wheel_prototype{JS_UNDEFINED};
         JSValue event_prototype{JS_UNDEFINED};
-        ProbeLayoutHost layout_host;
-        ProbeComputedStyleHost computed_style_host;
-        ProbeLayoutEpochHost layout_epoch_host;
+        LayoutHost layout_host;
+        ComputedStyleHost computed_style_host;
+        LayoutEpochHost layout_epoch_host;
         std::uint64_t read_revision{};
         std::uint64_t read_epoch{};
-        std::optional<ProbeDomSnapshot> read_snapshot;
-        std::vector<ProbeElementGeometry> read_geometry;
+        std::optional<DomSnapshot> read_snapshot;
+        std::vector<ElementGeometry> read_geometry;
         bool read_geometry_valid{};
         std::map<std::array<std::uint64_t, 3>, std::map<std::string, std::string>> read_styles;
         std::size_t read_style_bytes{};
-        ProbeIntegerFormatHost integer_format_host;
+        IntegerFormatHost integer_format_host;
         bool layout_running{};
         // Node identities: slot index + generation; a finalized node's identity never resolves again.
         GenerationalSlots<Node*> slots;
-        std::vector<ProbeNodeIdentity> hovered_nodes;
-        std::vector<ProbeNodeIdentity> active_nodes;
+        std::vector<NodeIdentity> hovered_nodes;
+        std::vector<NodeIdentity> active_nodes;
         std::map<std::uint64_t, JSValue> native_roots;
         std::deque<Completion> completions;
         std::uint64_t view_epoch{1};
         std::uint64_t next_root{1};
         std::uint64_t next_listener{1};
-        ScriptProbeStats counters;
+        ScriptStats counters;
         std::uint64_t mutation_revision{1};
 
         struct Change {
             std::uint64_t revision{};
-            ProbeNodeIdentity identity;
+            NodeIdentity identity;
         };
 
         std::array<Change, constants::script::dom_change_journal_capacity> changes{};
@@ -221,7 +221,7 @@ namespace caseelephant {
                     throw PendingJsException{};
                 }
                 if (JS_IsUndefined(object.value)) {
-                    throw std::runtime_error("CE_HOST_BINDING: optional platform module missing");
+                    throw std::runtime_error("WEFT_HOST_BINDING: optional platform module missing");
                 }
                 const char* names[]{"pumpNative", "begin", "next", "pending", "errorCount", "errors"};
                 Value function(context, JS_GetPropertyStr(context, object.value, names[method]));
@@ -229,7 +229,7 @@ namespace caseelephant {
                     throw PendingJsException{};
                 }
                 if (!JS_IsFunction(context, function.value)) {
-                    throw std::runtime_error("CE_HOST_BINDING: optional platform module missing");
+                    throw std::runtime_error("WEFT_HOST_BINDING: optional platform module missing");
                 }
                 binding.object = JS_DupValue(context, object.value);
                 binding.function = JS_DupValue(context, function.value);
@@ -262,21 +262,21 @@ namespace caseelephant {
         };
 
         std::size_t vm_bytes{};
-        ScriptProbeConfig config;
+        ScriptConfig config;
 
-        explicit Impl(ScriptProbeConfig input) : config(input) {
+        explicit Impl(ScriptConfig input) : config(input) {
             if (config.max_stack_bytes < constants::script::min_vm_stack_bytes ||
                 config.max_stack_bytes > constants::script::max_vm_stack_bytes) {
-                throw std::invalid_argument("CE_VM_STACK: expected [128KiB,2MiB] host-backed limit");
+                throw std::invalid_argument("WEFT_VM_STACK: expected [128KiB,2MiB] host-backed limit");
             }
             if (config.execution_budget_ms < constants::script::min_execution_budget_ms ||
                 config.execution_budget_ms > constants::script::max_execution_budget_ms) {
-                throw std::invalid_argument("CE_VM_BUDGET: expected [10,30000] ms");
+                throw std::invalid_argument("WEFT_VM_BUDGET: expected [10,30000] ms");
             }
             try {
                 initialize();
             } catch (const PendingJsException&) {
-                throw std::runtime_error("CE_INITIALIZATION_FAILED: VM allocation or bootstrap exception");
+                throw std::runtime_error("WEFT_INITIALIZATION_FAILED: VM allocation or bootstrap exception");
             }
         }
 
@@ -289,14 +289,14 @@ namespace caseelephant {
         void check_owner() const {
             owner_thread.require(Diag::WrongThread, "script/DOM operation outside UI owner");
             if (layout_running) {
-                throw std::logic_error("CE_LAYOUT_REENTRY: layout/measure must not enter JS or DOM");
+                throw std::logic_error("WEFT_LAYOUT_REENTRY: layout/measure must not enter JS or DOM");
             }
         }
 
         void require_runtime() const {
             check_owner();
             if (faulted || !context) {
-                throw std::runtime_error("CE_VIEW_FAULTED: reset_document required after resource limit");
+                throw std::runtime_error("WEFT_VIEW_FAULTED: reset_document required after resource limit");
             }
         }
 
@@ -396,14 +396,14 @@ namespace caseelephant {
 
         static Node& node(JSContext* c, JSValueConst value) {
             if (state(c).faulted) {
-                throw std::runtime_error("CE_VIEW_FAULTED: native DOM operation after resource failure");
+                throw std::runtime_error("WEFT_VIEW_FAULTED: native DOM operation after resource failure");
             }
             Node* n = node_unchecked(c, value);
             if (!n) {
-                throw std::runtime_error("CE_DOM_TYPE: expected native Node");
+                throw std::runtime_error("WEFT_DOM_TYPE: expected native Node");
             }
             if (n->identity.view_epoch != state(c).view_epoch) {
-                throw std::runtime_error("CE_STALE_NODE: revoked View epoch");
+                throw std::runtime_error("WEFT_STALE_NODE: revoked View epoch");
             }
             return *n;
         }
@@ -500,7 +500,7 @@ namespace caseelephant {
             auto* n = node_unchecked(c, self);
             if (!n || n->type != constants::element_node_type || n->local != "canvas" ||
                 n->space != constants::xhtml_namespace_uri) {
-                JS_ThrowTypeError(c, "CE_CANVAS_TYPE: native HTML canvas required");
+                JS_ThrowTypeError(c, "WEFT_CANVAS_TYPE: native HTML canvas required");
                 throw PendingJsException{};
             }
             return node(c, self);
@@ -509,12 +509,12 @@ namespace caseelephant {
         static Node& context_node(JSContext* c, JSValueConst self) {
             auto* p = static_cast<CanvasHandle*>(JS_GetOpaque(self, state(c).canvas_class));
             if (!p) {
-                JS_ThrowTypeError(c, "CE_CANVAS_CONTEXT_TYPE: native 2d context required");
+                JS_ThrowTypeError(c, "WEFT_CANVAS_CONTEXT_TYPE: native 2d context required");
                 throw PendingJsException{};
             }
             auto& n = canvas_node(c, p->canvas);
             if (!n.canvas) {
-                throw std::runtime_error("CE_CANVAS_CONTEXT_STATE");
+                throw std::runtime_error("WEFT_CANVAS_CONTEXT_STATE");
             }
             return n;
         }
@@ -537,7 +537,7 @@ namespace caseelephant {
             while (i < value.size() && value[i] >= '0' && value[i] <= '9') {
                 result = result * 10 + unsigned(value[i++] - '0');
                 if (result > constants::max_canvas_dimension) {
-                    throw std::invalid_argument("CE_CANVAS_SIZE_LIMIT: backing dimensions <=2048");
+                    throw std::invalid_argument("WEFT_CANVAS_SIZE_LIMIT: backing dimensions <=2048");
                 }
             }
             return std::uint32_t(result);
@@ -550,11 +550,11 @@ namespace caseelephant {
             }
             const auto w = canvas_dimension(n, "width", name == "width" ? &value : nullptr);
             const auto h = canvas_dimension(n, "height", name == "height" ? &value : nullptr);
-            ProbeCanvasState::validate_size(w, h);
+            CanvasState::validate_size(w, h);
             if (n.canvas) {
                 try {
                     n.canvas->resize(w, h);
-                } catch (const ProbeCanvasBackendError&) {
+                } catch (const CanvasBackendError&) {
                     faulted = true;
                     throw;
                 }
@@ -656,7 +656,7 @@ namespace caseelephant {
                 auto& n = context_node(c, self);
                 if (magic == 1) {
                     auto text = string_value(c, value);
-                    if (auto color = parse_canvas_color_probe(text)) {
+                    if (auto color = parse_canvas_color(text)) {
                         std::ostringstream s;
                         s.imbue(std::locale::classic());
                         if ((*color)[3] == 1) {
@@ -770,12 +770,12 @@ namespace caseelephant {
                     }
                     Value space(c, JS_GetPropertyStr(c, argv[1], "colorSpace"));
                     if (!JS_IsUndefined(space.value) && string_value(c, space.value) != "srgb") {
-                        throw std::invalid_argument("CE_CANVAS_COLOR_SPACE: only srgb");
+                        throw std::invalid_argument("WEFT_CANVAS_COLOR_SPACE: only srgb");
                     }
                 }
-                auto data = std::make_unique<ProbeCanvasState>(owner.canvas_factory, owner.canvas_budget,
-                                                               owner.canvas_dimension(n, "width"),
-                                                               owner.canvas_dimension(n, "height"), alpha);
+                auto data = std::make_unique<CanvasState>(owner.canvas_factory, owner.canvas_budget,
+                                                          owner.canvas_dimension(n, "width"),
+                                                          owner.canvas_dimension(n, "height"), alpha);
                 Value object(c, JS_NewObjectClass(c, owner.canvas_class));
                 auto handle = std::make_unique<CanvasHandle>();
                 handle->canvas = JS_DupValue(c, self);
@@ -783,7 +783,7 @@ namespace caseelephant {
                 n.canvas = std::move(data);
                 n.canvas_context = JS_DupValue(c, object.value);
                 return JS_DupValue(c, object.value);
-            } catch (const ProbeCanvasBackendError& e) {
+            } catch (const CanvasBackendError& e) {
                 state(c).faulted = true;
                 return JS_ThrowInternalError(c, "%s", e.what());
             } catch (const PendingJsException&) {
@@ -796,14 +796,14 @@ namespace caseelephant {
             }
         }
 
-        void install_canvas(ProbeCanvasFactory factory) {
+        void install_canvas(CanvasFactory factory) {
             require_runtime();
             if (execution_active || !factory || !JS_IsUndefined(canvas_prototype)) {
-                throw std::logic_error("CE_CANVAS_INSTALL: owner factory installed once before app");
+                throw std::logic_error("WEFT_CANVAS_INSTALL: owner factory installed once before app");
             }
             for (std::size_t i = 0; i < slots.size(); ++i) {
                 if (slots.occupied(i) && slots[i]->local == "canvas") {
-                    throw std::logic_error("CE_CANVAS_INSTALL: existing canvas node");
+                    throw std::logic_error("WEFT_CANVAS_INSTALL: existing canvas node");
                 }
             }
             JS_NewClassID(runtime, &canvas_class);
@@ -812,7 +812,7 @@ namespace caseelephant {
             definition.finalizer = canvas_finalize;
             definition.gc_mark = canvas_mark;
             if (JS_NewClass(runtime, canvas_class, &definition) < 0) {
-                throw std::runtime_error("CE_CANVAS_CLASS");
+                throw std::runtime_error("WEFT_CANVAS_CLASS");
             }
             Value context_proto(context, JS_NewObject(context));
             static const JSCFunctionListEntry context_functions[] = {
@@ -842,7 +842,7 @@ namespace caseelephant {
         JSValue make_node(int type, std::string local, std::string space, JSValueConst document) {
             if (counters.live_nodes >= constants::script::max_live_nodes) {
                 faulted = true;
-                throw std::runtime_error("CE_NODE_LIMIT: native DOM node limit exceeded");
+                throw std::runtime_error("WEFT_NODE_LIMIT: native DOM node limit exceeded");
             }
             Value object(context, JS_NewObjectClass(context, node_class));
             if (type == constants::element_node_type && local == "canvas" && space == constants::xhtml_namespace_uri &&
@@ -906,22 +906,22 @@ namespace caseelephant {
 
         void insert(Node& parent_node, Node& child, Node* before) {
             if (parent_node.type != constants::element_node_type && parent_node.type != constants::document_node_type) {
-                throw std::runtime_error("CE_HIERARCHY: parent cannot contain children");
+                throw std::runtime_error("WEFT_HIERARCHY: parent cannot contain children");
             }
             if (child.type == constants::document_node_type) {
-                throw std::runtime_error("CE_HIERARCHY: cannot insert Document");
+                throw std::runtime_error("WEFT_HIERARCHY: cannot insert Document");
             }
             if (!equal_value(parent_node.document, child.document) &&
                 parent_node.type != constants::document_node_type) {
-                throw std::runtime_error("CE_UNSUPPORTED_DOM: cross-document adoption");
+                throw std::runtime_error("WEFT_UNSUPPORTED_DOM: cross-document adoption");
             }
             std::size_t ancestors{};
             for (Node* p = &parent_node; p; p = JS_IsNull(p->parent) ? nullptr : &node(context, p->parent)) {
                 if (p == &child) {
-                    throw std::runtime_error("CE_HIERARCHY: insertion creates a cycle");
+                    throw std::runtime_error("WEFT_HIERARCHY: insertion creates a cycle");
                 }
                 if (++ancestors > constants::script::max_native_dom_depth) {
-                    throw std::runtime_error("CE_DOM_DEPTH_LIMIT: M0 native DOM depth limit exceeded");
+                    throw std::runtime_error("WEFT_DOM_DEPTH_LIMIT: M0 native DOM depth limit exceeded");
                 }
             }
             // Moving a tall detached subtree must not bypass the native recursion bound.
@@ -930,14 +930,14 @@ namespace caseelephant {
                 const auto [current, depth] = pending.back();
                 pending.pop_back();
                 if (depth > constants::script::max_native_dom_depth) {
-                    throw std::runtime_error("CE_DOM_DEPTH_LIMIT: M0 native DOM depth limit exceeded");
+                    throw std::runtime_error("WEFT_DOM_DEPTH_LIMIT: M0 native DOM depth limit exceeded");
                 }
                 for (JSValue value : current->children) {
                     pending.emplace_back(&node(context, value), depth + 1);
                 }
             }
             if (before && !equal_value(before->parent, parent_node.self)) {
-                throw std::runtime_error("CE_NOT_FOUND: reference child is not in parent");
+                throw std::runtime_error("WEFT_NOT_FOUND: reference child is not in parent");
             }
             if (before == &child) {
                 return;
@@ -1006,7 +1006,7 @@ namespace caseelephant {
                 return false;
             }
             if (selector.empty()) {
-                throw std::runtime_error("CE_SELECTOR_SYNTAX: empty selector");
+                throw std::runtime_error("WEFT_SELECTOR_SYNTAX: empty selector");
             }
             std::size_t pos{};
             auto identifier = [&](std::size_t& p) {
@@ -1019,7 +1019,7 @@ namespace caseelephant {
                     ++p;
                 }
                 if (p == start) {
-                    throw std::runtime_error("CE_UNSUPPORTED_SELECTOR: identifier expected");
+                    throw std::runtime_error("WEFT_UNSUPPORTED_SELECTOR: identifier expected");
                 }
                 return std::string(selector.substr(start, p - start));
             };
@@ -1033,7 +1033,7 @@ namespace caseelephant {
             while (pos < selector.size()) {
                 const char prefix = selector[pos++];
                 if (prefix != '#' && prefix != '.') {
-                    throw std::runtime_error("CE_UNSUPPORTED_SELECTOR: only tag, id, class compounds in M0");
+                    throw std::runtime_error("WEFT_UNSUPPORTED_SELECTOR: only tag, id, class compounds in M0");
                 }
                 const std::string token = identifier(pos);
                 if (prefix == '#') {
@@ -1059,7 +1059,7 @@ namespace caseelephant {
                 do {
                     const auto end = selector.find(',', p);
                     if (++count > constants::script::max_selector_list_items) {
-                        throw std::runtime_error("CE_SELECTOR_SYNTAX: list bound");
+                        throw std::runtime_error("WEFT_SELECTOR_SYNTAX: list bound");
                     }
                     result = matches(n, selector.substr(p, end == selector.npos ? end : end - p)) || result;
                     if (end == selector.npos) {
@@ -1086,7 +1086,7 @@ namespace caseelephant {
                 }
             }
             if (parts.empty() || parts.size() > constants::max_selector_compounds) {
-                throw std::runtime_error("CE_SELECTOR_SYNTAX: descendant chain bound");
+                throw std::runtime_error("WEFT_SELECTOR_SYNTAX: descendant chain bound");
             }
             Node dummy;
             dummy.type = constants::element_node_type;
@@ -1312,7 +1312,7 @@ namespace caseelephant {
                 return JS_ThrowInternalError(c, "%s", e.what());
             } catch (...) {
                 state(c).faulted = true;
-                return JS_ThrowInternalError(c, "CE_NATIVE_EXCEPTION: unknown native getter exception");
+                return JS_ThrowInternalError(c, "WEFT_NATIVE_EXCEPTION: unknown native getter exception");
             }
         }
 
@@ -1344,7 +1344,7 @@ namespace caseelephant {
                 }
                 if (magic == ElementId) {
                     if (n.type != constants::element_node_type) {
-                        throw std::runtime_error("CE_DOM_TYPE: id reflection requires Element");
+                        throw std::runtime_error("WEFT_DOM_TYPE: id reflection requires Element");
                     }
                     std::string id = string_value(c, value); // Convert before acquiring an attribute iterator.
                     auto it = std::find_if(n.attributes.begin(), n.attributes.end(), [](const Attribute& a) {
@@ -1375,7 +1375,7 @@ namespace caseelephant {
                 return JS_ThrowInternalError(c, "%s", e.what());
             } catch (...) {
                 state(c).faulted = true;
-                return JS_ThrowInternalError(c, "CE_NATIVE_EXCEPTION: unknown native setter exception");
+                return JS_ThrowInternalError(c, "WEFT_NATIVE_EXCEPTION: unknown native setter exception");
             }
         }
 
@@ -1405,7 +1405,7 @@ namespace caseelephant {
             BoundingRect,
             ClientRects,
             SceneGeometry,
-            ComputedStyle,
+            GetComputedStyle,
             FormatInteger
         };
 
@@ -1463,7 +1463,7 @@ namespace caseelephant {
                 event_property(event, "_passiveListener", JS_DupValue(context, previous_passive.value));
                 if (JS_IsException(raw_result)) {
                     if (faulted) {
-                        throw std::runtime_error("CE_SCRIPT_BUDGET: listener execution exceeded script deadline");
+                        throw std::runtime_error("WEFT_SCRIPT_BUDGET: listener execution exceeded script deadline");
                     }
                     ++counters.listener_exceptions;
                     counters.last_listener_error =
@@ -1485,7 +1485,7 @@ namespace caseelephant {
             const std::string type = string_value(context, type_value.value);
             Value active(context, JS_GetPropertyStr(context, event, "_dispatching"));
             if (JS_ToBool(context, active.value)) {
-                throw std::runtime_error("CE_EVENT_ACTIVE: Event already dispatching");
+                throw std::runtime_error("WEFT_EVENT_ACTIVE: Event already dispatching");
             }
             std::vector<JSValue> path;
             path.reserve(constants::script::max_native_dom_depth);
@@ -1584,7 +1584,7 @@ namespace caseelephant {
                         }
                         return JS_DupValue(c, result.value);
                     }
-                    case ComputedStyle: {
+                    case GetComputedStyle: {
                         auto values = owner.computed_style(n);
                         Value result(c, JS_NewObject(c));
                         for (const auto& [key, value] : values) {
@@ -1603,7 +1603,7 @@ namespace caseelephant {
                         if (!owner.integer_format_host || !std::isfinite(value) || std::floor(value) != value ||
                             std::abs(value) > constants::script::max_safe_integer) {
                             throw std::runtime_error(
-                                "CE_NUMBER_FORMAT_PROFILE: safe integer and host formatter required");
+                                "WEFT_NUMBER_FORMAT_PROFILE: safe integer and host formatter required");
                         }
                         owner.layout_running = true;
 
@@ -1617,7 +1617,7 @@ namespace caseelephant {
 
                         auto result = owner.integer_format_host(std::int64_t(value));
                         if (result.size() > constants::script::max_formatted_integer_bytes) {
-                            throw std::runtime_error("CE_NUMBER_FORMAT_LIMIT");
+                            throw std::runtime_error("WEFT_NUMBER_FORMAT_LIMIT");
                         }
                         return JS_NewStringLen(c, result.data(), result.size());
                     }
@@ -1666,7 +1666,7 @@ namespace caseelephant {
                     case Remove: {
                         Node& child = node(c, arg(argc, argv, 0));
                         if (!equal_value(child.parent, self)) {
-                            throw std::runtime_error("CE_NOT_FOUND: child is not in parent");
+                            throw std::runtime_error("WEFT_NOT_FOUND: child is not in parent");
                         }
                         Value hold(c, JS_DupValue(c, child.self));
                         owner.detach(child);
@@ -1676,7 +1676,7 @@ namespace caseelephant {
                     case CreateElementNS:
                     case CreateTextNode: {
                         if (n.type != constants::document_node_type) {
-                            throw std::runtime_error("CE_DOM_TYPE: creation requires Document");
+                            throw std::runtime_error("WEFT_DOM_TYPE: creation requires Document");
                         }
                         if (magic == CreateTextNode) {
                             Value object(c, owner.make_node(constants::text_node_type, "#text", "", self));
@@ -1689,11 +1689,11 @@ namespace caseelephant {
                                 : (JS_IsNull(arg(argc, argv, 0)) ? "" : string_value(c, arg(argc, argv, 0)));
                         std::string local = string_value(c, arg(argc, argv, magic == CreateElement ? 0 : 1));
                         if (local.empty() || local.find_first_of(" <>\t\r\n") != std::string::npos) {
-                            throw std::runtime_error("CE_DOM_NAME: invalid element name");
+                            throw std::runtime_error("WEFT_DOM_NAME: invalid element name");
                         }
                         if (magic == CreateElementNS && local.find(':') != std::string::npos) {
                             throw std::runtime_error(
-                                "CE_UNSUPPORTED_DOM: prefixed element qualified names are outside the M0 profile");
+                                "WEFT_UNSUPPORTED_DOM: prefixed element qualified names are outside the M0 profile");
                         }
                         if (space == constants::xhtml_namespace_uri) {
                             local = lower_ascii(local);
@@ -1718,7 +1718,7 @@ namespace caseelephant {
                     }
                     case GetElementById: {
                         if (n.type != constants::document_node_type) {
-                            throw std::runtime_error("CE_DOM_TYPE: getElementById requires Document");
+                            throw std::runtime_error("WEFT_DOM_TYPE: getElementById requires Document");
                         }
                         const auto id = string_value(c, arg(argc, argv, 0));
                         if (id.empty()) {
@@ -1745,7 +1745,7 @@ namespace caseelephant {
                     case RemoveAttributeNS:
                     case HasAttribute: {
                         if (n.type != constants::element_node_type) {
-                            throw std::runtime_error("CE_DOM_TYPE: attributes require Element");
+                            throw std::runtime_error("WEFT_DOM_TYPE: attributes require Element");
                         }
                         const bool ns =
                             magic == SetAttributeNS || magic == GetAttributeNS || magic == RemoveAttributeNS;
@@ -1854,7 +1854,7 @@ namespace caseelephant {
                                 return JS_NewInt32(c, constants::script::document_position_preceding);
                             }
                         }
-                        throw std::runtime_error("CE_TREE_CORRUPTION: disconnected order");
+                        throw std::runtime_error("WEFT_TREE_CORRUPTION: disconnected order");
                     }
                     case AddListener:
                     case RemoveListener: {
@@ -1885,11 +1885,11 @@ namespace caseelephant {
                         });
                         if (magic == AddListener && it == n.listeners.end()) {
                             if (owner.next_listener == std::numeric_limits<std::uint64_t>::max()) {
-                                throw std::runtime_error("CE_LISTENER_EXHAUSTED: listener token cannot wrap");
+                                throw std::runtime_error("WEFT_LISTENER_EXHAUSTED: listener token cannot wrap");
                             }
                             n.listeners.reserve(n.listeners.size() + 1);
                             if (n.listeners.size() >= constants::script::max_listeners_per_node) {
-                                throw std::runtime_error("CE_LISTENER_LIMIT");
+                                throw std::runtime_error("WEFT_LISTENER_LIMIT");
                             }
                             n.listeners.push_back({owner.next_listener++, std::move(type), JS_DupValue(c, callback),
                                                    capture, once, false, passive});
@@ -1913,7 +1913,7 @@ namespace caseelephant {
                 return JS_ThrowInternalError(c, "%s", e.what());
             } catch (...) {
                 state(c).faulted = true;
-                return JS_ThrowInternalError(c, "CE_NATIVE_EXCEPTION: unknown native method exception");
+                return JS_ThrowInternalError(c, "WEFT_NATIVE_EXCEPTION: unknown native method exception");
             }
         }
 
@@ -2033,7 +2033,7 @@ namespace caseelephant {
                 property(prototype.value, "offsetHeight", OffsetHeight);
                 property(prototype.value, "offsetParent", OffsetParent);
                 method(prototype.value, "__ceGeometry", SceneGeometry, 0);
-                method(prototype.value, "__ceComputedStyle", ComputedStyle, 0);
+                method(prototype.value, "__ceComputedStyle", GetComputedStyle, 0);
                 method(prototype.value, "__ceFormatInteger", FormatInteger, 1);
                 JS_SetClassProto(context, node_class, JS_DupValue(context, prototype.value));
 
@@ -2166,23 +2166,23 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
 
         void checkpoint(std::size_t& jobs) {
             if (faulted) {
-                throw std::runtime_error("CE_VIEW_FAULTED: script caught resource failure; reset_document required");
+                throw std::runtime_error("WEFT_VIEW_FAULTED: script caught resource failure; reset_document required");
             }
             JSContext* job_context{};
             int job_result{};
             while ((job_result = JS_ExecutePendingJob(runtime, &job_context)) > 0) {
                 if (faulted) {
                     throw std::runtime_error(
-                        "CE_VIEW_FAULTED: microtask caught resource failure; reset_document required");
+                        "WEFT_VIEW_FAULTED: microtask caught resource failure; reset_document required");
                 }
                 if (++jobs > constants::script::max_microtask_jobs) {
                     faulted = true;
-                    throw std::runtime_error("CE_MICROTASK_LIMIT: probe job limit exceeded; reset_document required");
+                    throw std::runtime_error("WEFT_MICROTASK_LIMIT: probe job limit exceeded; reset_document required");
                 }
             }
             if (job_result < 0) {
                 const auto error = exception_message();
-                throw std::runtime_error((faulted ? "CE_VIEW_FAULTED: " : "") + error);
+                throw std::runtime_error((faulted ? "WEFT_VIEW_FAULTED: " : "") + error);
             }
         }
 
@@ -2205,20 +2205,21 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
                 std::size_t jobs{};
                 checkpoint(jobs);
                 if (faulted) {
-                    throw std::runtime_error("CE_VIEW_FAULTED: caught VM allocation failure; reset_document required");
+                    throw std::runtime_error(
+                        "WEFT_VIEW_FAULTED: caught VM allocation failure; reset_document required");
                 }
                 auto converted = convert(result.value);
                 if (faulted) {
                     throw std::runtime_error(
-                        "CE_VIEW_FAULTED: result conversion exceeded resource limit; reset_document required");
+                        "WEFT_VIEW_FAULTED: result conversion exceeded resource limit; reset_document required");
                 }
                 return converted;
             } catch (const PendingJsException&) {
                 const auto error = exception_message();
-                throw std::runtime_error((faulted ? "CE_VIEW_FAULTED: " : "") + error);
+                throw std::runtime_error((faulted ? "WEFT_VIEW_FAULTED: " : "") + error);
             } catch (const std::bad_alloc&) {
                 faulted = true;
-                throw std::runtime_error("CE_VIEW_FAULTED: native allocation failed during script evaluation");
+                throw std::runtime_error("WEFT_VIEW_FAULTED: native allocation failed during script evaluation");
             }
         }
 
@@ -2238,12 +2239,12 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             });
         }
 
-        ProbeAnimationFrameResult animation_frame(double time, bool drawable) {
+        AnimationFrameResult animation_frame(double time, bool drawable) {
             require_runtime();
             if (!std::isfinite(time) || time < 0) {
-                throw std::invalid_argument("CE_RAF_TIME: finite nonnegative timestamp required");
+                throw std::invalid_argument("WEFT_RAF_TIME: finite nonnegative timestamp required");
             }
-            ProbeAnimationFrameResult report;
+            AnimationFrameResult report;
             execute([&] {
                 JSValue args[]{JS_NewFloat64(context, time), JS_NewBool(context, drawable)};
                 Value started(context, call_host(Begin, 2, args));
@@ -2254,7 +2255,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
                     throw PendingJsException{};
                 }
                 if (ready < 0 || ready > constants::script::max_host_batch_callbacks) {
-                    throw std::runtime_error("CE_RAF_HOST: invalid batch count");
+                    throw std::runtime_error("WEFT_RAF_HOST: invalid batch count");
                 }
                 for (;;) {
                     Value next(context, call_host(Next));
@@ -2268,7 +2269,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
                     }
                     if (++report.callbacks > constants::script::max_host_batch_callbacks) {
                         faulted = true;
-                        throw std::runtime_error("CE_RAF_LIMIT: batch limit exceeded");
+                        throw std::runtime_error("WEFT_RAF_LIMIT: batch limit exceeded");
                     }
                 }
                 auto count = [&](HostMethod method) {
@@ -2278,7 +2279,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
                         throw PendingJsException{};
                     }
                     if (n < 0 || n > constants::script::max_host_pending_callbacks) {
-                        throw std::runtime_error("CE_RAF_HOST: invalid count");
+                        throw std::runtime_error("WEFT_RAF_HOST: invalid count");
                     }
                     return std::size_t(n);
                 };
@@ -2295,10 +2296,10 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             return report;
         }
 
-        ProbeTaskResult pump_tasks(double time) {
+        TaskResult pump_tasks(double time) {
             require_runtime();
             if (!std::isfinite(time) || time < 0) {
-                throw std::invalid_argument("CE_HOST_TIME: finite nonnegative timestamp required");
+                throw std::invalid_argument("WEFT_HOST_TIME: finite nonnegative timestamp required");
             }
             const auto result = execute_result(
                 [&] {
@@ -2313,7 +2314,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
                     return packed;
                 });
             if (result / constants::script::host_task_pack_radix > constants::script::max_host_batch_callbacks) {
-                throw std::runtime_error("CE_TASK_HOST: invalid batch count");
+                throw std::runtime_error("WEFT_TASK_HOST: invalid batch count");
             }
             return {result / constants::script::host_task_pack_radix, result % constants::script::host_task_pack_radix};
         }
@@ -2349,7 +2350,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
                         } catch (const std::exception& e) {
                             return JS_ThrowInternalError(c, "%s", e.what());
                         } catch (...) {
-                            return JS_ThrowInternalError(c, "CE_SCROLL_JOB: native exception");
+                            return JS_ThrowInternalError(c, "WEFT_SCROLL_JOB: native exception");
                         }
                     },
                     1, &argument) < 0) {
@@ -2394,7 +2395,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             return true;
         }
 
-        const ProbeDomSnapshot& host_snapshot() {
+        const DomSnapshot& host_snapshot() {
             if (!read_snapshot) {
                 read_snapshot = snapshot(node(context, document_root));
             }
@@ -2403,7 +2404,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
 
         std::map<std::string, std::string> computed_style(Node& n) {
             if (!computed_style_host) {
-                throw std::runtime_error("CE_STYLE_HOST: no computed style host");
+                throw std::runtime_error("WEFT_STYLE_HOST: no computed style host");
             }
             const bool cache = prepare_host_reads();
             const std::array<std::uint64_t, 3> key{n.identity.view_epoch, n.identity.slot, n.identity.generation};
@@ -2427,13 +2428,13 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
                 values = computed_style_host(host_snapshot(), n.identity);
             }
             if (values.size() > constants::script::max_computed_style_properties) {
-                throw std::runtime_error("CE_STYLE_HOST_LIMIT");
+                throw std::runtime_error("WEFT_STYLE_HOST_LIMIT");
             }
             std::size_t bytes{};
             for (const auto& [k, v] : values) {
                 if (k.size() > constants::script::max_computed_style_name_bytes ||
                     v.size() > constants::script::max_computed_style_value_bytes) {
-                    throw std::runtime_error("CE_STYLE_HOST_LIMIT");
+                    throw std::runtime_error("WEFT_STYLE_HOST_LIMIT");
                 }
                 bytes += k.size() + v.size();
             }
@@ -2449,16 +2450,16 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             return values;
         }
 
-        const std::vector<ProbeElementGeometry>& refresh_geometry() {
+        const std::vector<ElementGeometry>& refresh_geometry() {
             require_runtime();
             if (!layout_host) {
-                throw std::runtime_error("CE_GEOMETRY_HOST: no layout host installed");
+                throw std::runtime_error("WEFT_GEOMETRY_HOST: no layout host installed");
             }
             const bool cache = prepare_host_reads();
             if (cache && read_geometry_valid) {
                 return read_geometry;
             }
-            std::vector<ProbeElementGeometry> values;
+            std::vector<ElementGeometry> values;
             {
                 layout_running = true;
 
@@ -2473,56 +2474,56 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
                 values = layout_host(host_snapshot());
             }
             if (values.size() > constants::max_document_nodes) {
-                throw std::runtime_error("CE_GEOMETRY_LIMIT: element bound");
+                throw std::runtime_error("WEFT_GEOMETRY_LIMIT: element bound");
             }
             std::set<std::uint32_t> seen;
             for (const auto& g : values) {
                 auto* n = resolve(g.identity);
                 if (!n || !connected(*n) || n->type != constants::element_node_type ||
                     !seen.insert(g.identity.slot).second) {
-                    throw std::runtime_error("CE_GEOMETRY_IDENTITY: stale/duplicate geometry");
+                    throw std::runtime_error("WEFT_GEOMETRY_IDENTITY: stale/duplicate geometry");
                 }
                 if (g.client_rects.size() > constants::script::max_client_rects) {
-                    throw std::runtime_error("CE_GEOMETRY_LIMIT: fragments");
+                    throw std::runtime_error("WEFT_GEOMETRY_LIMIT: fragments");
                 }
                 for (double v : g.rect) {
                     if (!std::isfinite(v) || std::abs(v) > constants::script::max_logical_pixel_magnitude) {
-                        throw std::runtime_error("CE_GEOMETRY_LIMIT: rectangle");
+                        throw std::runtime_error("WEFT_GEOMETRY_LIMIT: rectangle");
                     }
                 }
                 for (double v :
                      {g.client_width, g.client_height, g.scroll_width, g.scroll_height, g.scroll_left, g.scroll_top}) {
                     if (!std::isfinite(v) || v < 0 || v > constants::script::max_logical_pixel_magnitude) {
-                        throw std::runtime_error("CE_GEOMETRY_LIMIT: scroll metrics");
+                        throw std::runtime_error("WEFT_GEOMETRY_LIMIT: scroll metrics");
                     }
                 }
                 for (auto v : g.offset) {
                     if (!std::isfinite(v) || std::abs(v) > constants::script::max_logical_pixel_magnitude) {
-                        throw std::runtime_error("CE_GEOMETRY_LIMIT: offset");
+                        throw std::runtime_error("WEFT_GEOMETRY_LIMIT: offset");
                     }
                 }
                 for (auto v : g.matrix) {
                     if (!std::isfinite(v) || std::abs(v) > constants::script::max_geometry_matrix_component) {
-                        throw std::runtime_error("CE_GEOMETRY_LIMIT: matrix");
+                        throw std::runtime_error("WEFT_GEOMETRY_LIMIT: matrix");
                     }
                 }
                 if (g.offset[2] < 0 || g.offset[3] < 0 || (g.offset_parent.generation && !resolve(g.offset_parent))) {
-                    throw std::runtime_error("CE_GEOMETRY_LIMIT: offset parent/size");
+                    throw std::runtime_error("WEFT_GEOMETRY_LIMIT: offset parent/size");
                 }
                 if (g.rect[2] < 0 || g.rect[3] < 0 || g.scroll_width < g.client_width ||
                     g.scroll_height < g.client_height || g.scroll_left > g.scroll_width - g.client_width ||
                     g.scroll_top > g.scroll_height - g.client_height || (!g.scroll_x && g.scroll_left != 0) ||
                     (!g.scroll_y && g.scroll_top != 0)) {
-                    throw std::runtime_error("CE_GEOMETRY_LIMIT: inconsistent metrics");
+                    throw std::runtime_error("WEFT_GEOMETRY_LIMIT: inconsistent metrics");
                 }
                 for (const auto& r : g.client_rects) {
                     for (double v : r) {
                         if (!std::isfinite(v) || std::abs(v) > constants::script::max_logical_pixel_magnitude) {
-                            throw std::runtime_error("CE_GEOMETRY_LIMIT: fragment");
+                            throw std::runtime_error("WEFT_GEOMETRY_LIMIT: fragment");
                         }
                     }
                     if (r[2] < 0 || r[3] < 0) {
-                        throw std::runtime_error("CE_GEOMETRY_LIMIT: fragment size");
+                        throw std::runtime_error("WEFT_GEOMETRY_LIMIT: fragment size");
                     }
                 }
             }
@@ -2540,7 +2541,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             return read_geometry;
         }
 
-        ProbeElementGeometry geometry(Node& n) {
+        ElementGeometry geometry(Node& n) {
             if (n.type != constants::element_node_type || !connected(n)) {
                 return {};
             }
@@ -2561,7 +2562,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             return p && equal_value(p->self, document_root);
         }
 
-        Node* resolve(ProbeNodeIdentity id) const {
+        Node* resolve(NodeIdentity id) const {
             if (id.view_epoch != view_epoch) {
                 return nullptr;
             }
@@ -2593,16 +2594,16 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             return output + "]}";
         }
 
-        ProbeDomSnapshot snapshot(const Node& n) {
+        DomSnapshot snapshot(const Node& n) {
             ++counters.snapshot_nodes;
-            ProbeDomSnapshot result{n.identity, n.type, n.local, n.space, n.data, {}, {}};
+            DomSnapshot result{n.identity, n.type, n.local, n.space, n.data, {}, {}};
             result.scroll_left = n.scroll_left;
             result.scroll_top = n.scroll_top;
             result.hovered = n.hovered;
             result.active = n.active;
             for (const auto& a : n.attributes) {
                 if (!a.space.empty()) {
-                    throw std::runtime_error("CE_PAGE_PROFILE: namespaced attributes require SVG adapter");
+                    throw std::runtime_error("WEFT_PAGE_PROFILE: namespaced attributes require SVG adapter");
                 }
                 result.attributes.emplace(a.name, a.value);
             }
@@ -2614,54 +2615,54 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         }
     };
 
-    ScriptDomProbe::ScriptDomProbe(ScriptProbeConfig config) : impl_(std::make_unique<Impl>(config)) {
+    ScriptDom::ScriptDom(ScriptConfig config) : impl_(std::make_unique<Impl>(config)) {
     }
 
-    ScriptDomProbe::~ScriptDomProbe() = default;
+    ScriptDom::~ScriptDom() = default;
 
-    void ScriptDomProbe::install_layout_host(ProbeLayoutHost host) {
+    void ScriptDom::install_layout_host(LayoutHost host) {
         impl_->require_runtime();
         impl_->layout_host = std::move(host);
         impl_->clear_host_reads();
     }
 
-    void ScriptDomProbe::install_computed_style_host(ProbeComputedStyleHost host) {
+    void ScriptDom::install_computed_style_host(ComputedStyleHost host) {
         impl_->require_runtime();
         impl_->computed_style_host = std::move(host);
         impl_->clear_host_reads();
     }
 
-    void ScriptDomProbe::install_layout_cache_host(ProbeLayoutEpochHost host) {
+    void ScriptDom::install_layout_cache_host(LayoutEpochHost host) {
         impl_->require_runtime();
         impl_->layout_epoch_host = std::move(host);
         impl_->clear_host_reads();
     }
 
-    void ScriptDomProbe::install_integer_format_host(ProbeIntegerFormatHost host) {
+    void ScriptDom::install_integer_format_host(IntegerFormatHost host) {
         impl_->require_runtime();
         impl_->integer_format_host = std::move(host);
     }
 
-    ProbeDispatchResult ScriptDomProbe::dispatch_wheel(ProbeNodeIdentity identity, double dx, double dy) {
-        return dispatch_wheel(identity, ProbeWheelEvent{dx, dy});
+    DispatchResult ScriptDom::dispatch_wheel(NodeIdentity identity, double dx, double dy) {
+        return dispatch_wheel(identity, WheelEvent{dx, dy});
     }
 
-    ProbeDispatchResult ScriptDomProbe::dispatch_wheel(ProbeNodeIdentity identity, const ProbeWheelEvent& input) {
+    DispatchResult ScriptDom::dispatch_wheel(NodeIdentity identity, const WheelEvent& input) {
         impl_->require_runtime();
         const auto dx = input.delta_x;
         const auto dy = input.delta_y;
         for (double v : {dx, dy, input.client_x, input.client_y, input.screen_x, input.screen_y, input.time_ms}) {
             if (!std::isfinite(v)) {
-                throw std::invalid_argument("CE_WHEEL_PROFILE: finite input values");
+                throw std::invalid_argument("WEFT_WHEEL_PROFILE: finite input values");
             }
         }
         if (std::abs(dx) > constants::script::max_logical_pixel_magnitude ||
             std::abs(dy) > constants::script::max_logical_pixel_magnitude || input.time_ms < 0) {
-            throw std::invalid_argument("CE_WHEEL_PROFILE: bounded pixel deltas/time");
+            throw std::invalid_argument("WEFT_WHEEL_PROFILE: bounded pixel deltas/time");
         }
         auto* target = impl_->resolve(identity);
         if (!target || !impl_->connected(*target)) {
-            return ProbeDispatchResult::StaleTarget;
+            return DispatchResult::StaleTarget;
         }
         const auto result = impl_->execute([&] {
             auto* c = impl_->context;
@@ -2698,7 +2699,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             return impl_->dispatch(*target, e.value);
         });
         if (result != "true") {
-            return ProbeDispatchResult::DefaultPrevented;
+            return DispatchResult::DefaultPrevented;
         }
         // Default action revalidates after listener/microtask mutations. At a limit
         // the remaining axis chains to an ancestor; hidden scrollers ignore wheel.
@@ -2740,24 +2741,24 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             }
             return JS_UNDEFINED;
         });
-        return ProbeDispatchResult::DefaultAllowed;
+        return DispatchResult::DefaultAllowed;
     }
 
-    ProbeDispatchResult ScriptDomProbe::dispatch_mouse(ProbeNodeIdentity identity, const ProbeMouseEvent& input) {
+    DispatchResult ScriptDom::dispatch_mouse(NodeIdentity identity, const MouseEvent& input) {
         impl_->require_runtime();
         if (!std::isfinite(input.client_x) || !std::isfinite(input.client_y) || !std::isfinite(input.screen_x) ||
             !std::isfinite(input.screen_y) || !std::isfinite(input.time_ms) || input.time_ms < 0 ||
             input.buttons > constants::script::primary_mouse_buttons_mask) {
-            throw std::invalid_argument("CE_MOUSE_PROFILE: finite coordinates/time and primary button required");
+            throw std::invalid_argument("WEFT_MOUSE_PROFILE: finite coordinates/time and primary button required");
         }
         auto* target = impl_->resolve(identity);
         if (!target || !impl_->connected(*target)) {
-            return ProbeDispatchResult::StaleTarget;
+            return DispatchResult::StaleTarget;
         }
-        const bool over = input.type == ProbeMouseType::Over;
-        const bool out = input.type == ProbeMouseType::Out;
-        const bool down = input.type == ProbeMouseType::Down;
-        const bool up = input.type == ProbeMouseType::Up;
+        const bool over = input.type == MouseType::Over;
+        const bool out = input.type == MouseType::Out;
+        const bool down = input.type == MouseType::Down;
+        const bool up = input.type == MouseType::Up;
         if (over || out || down || up) {
             auto& tracked = (over || out) ? impl_->hovered_nodes : impl_->active_nodes;
             auto ancestor = [&](Impl::Node* p, const Impl::Node* n) {
@@ -2798,56 +2799,56 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         }
         const char* type{};
         switch (input.type) {
-            case ProbeMouseType::Down:
+            case MouseType::Down:
                 type = "mousedown";
                 break;
-            case ProbeMouseType::Up:
+            case MouseType::Up:
                 type = "mouseup";
                 break;
-            case ProbeMouseType::Move:
+            case MouseType::Move:
                 type = "mousemove";
                 break;
-            case ProbeMouseType::Click:
+            case MouseType::Click:
                 type = "click";
                 break;
-            case ProbeMouseType::Over:
+            case MouseType::Over:
                 type = "mouseover";
                 break;
-            case ProbeMouseType::Out:
+            case MouseType::Out:
                 type = "mouseout";
                 break;
-            case ProbeMouseType::Enter:
+            case MouseType::Enter:
                 type = "mouseenter";
                 break;
-            case ProbeMouseType::Leave:
+            case MouseType::Leave:
                 type = "mouseleave";
                 break;
-            case ProbeMouseType::PointerDown:
+            case MouseType::PointerDown:
                 type = "pointerdown";
                 break;
-            case ProbeMouseType::PointerUp:
+            case MouseType::PointerUp:
                 type = "pointerup";
                 break;
-            case ProbeMouseType::PointerMove:
+            case MouseType::PointerMove:
                 type = "pointermove";
                 break;
-            case ProbeMouseType::PointerOver:
+            case MouseType::PointerOver:
                 type = "pointerover";
                 break;
-            case ProbeMouseType::PointerOut:
+            case MouseType::PointerOut:
                 type = "pointerout";
                 break;
-            case ProbeMouseType::PointerEnter:
+            case MouseType::PointerEnter:
                 type = "pointerenter";
                 break;
-            case ProbeMouseType::PointerLeave:
+            case MouseType::PointerLeave:
                 type = "pointerleave";
                 break;
-            case ProbeMouseType::PointerCancel:
+            case MouseType::PointerCancel:
                 type = "pointercancel";
                 break;
             default:
-                throw std::invalid_argument("CE_MOUSE_PROFILE: unsupported event type");
+                throw std::invalid_argument("WEFT_MOUSE_PROFILE: unsupported event type");
         }
         const auto result = impl_->execute([&] {
             auto* c = impl_->context;
@@ -2870,9 +2871,8 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             };
             property("type", JS_NewString(c, type));
             property("bubbles",
-                     JS_NewBool(c, input.type != ProbeMouseType::Enter && input.type != ProbeMouseType::Leave &&
-                                       input.type != ProbeMouseType::PointerEnter &&
-                                       input.type != ProbeMouseType::PointerLeave));
+                     JS_NewBool(c, input.type != MouseType::Enter && input.type != MouseType::Leave &&
+                                       input.type != MouseType::PointerEnter && input.type != MouseType::PointerLeave));
             property("cancelable", JS_TRUE);
             if (std::string_view(type).starts_with("pointer")) {
                 property("pointerId", JS_NewInt32(c, constants::script::mouse_pointer_id));
@@ -2885,7 +2885,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             property("view", JS_GetGlobalObject(c));
             const auto* related = impl_->resolve(input.related_target);
             property("relatedTarget", related ? JS_DupValue(c, related->self) : JS_NULL);
-            property("detail", JS_NewInt32(c, input.type == ProbeMouseType::Move ? 0 : 1));
+            property("detail", JS_NewInt32(c, input.type == MouseType::Move ? 0 : 1));
             property("button", JS_NewInt32(c, 0));
             property("buttons", JS_NewUint32(c, input.buttons));
             property("clientX", JS_NewFloat64(c, input.client_x));
@@ -2905,30 +2905,30 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             }
             return impl_->dispatch(*target, event.value);
         });
-        return result == "true" ? ProbeDispatchResult::DefaultAllowed : ProbeDispatchResult::DefaultPrevented;
+        return result == "true" ? DispatchResult::DefaultAllowed : DispatchResult::DefaultPrevented;
     }
 
-    std::string ScriptDomProbe::eval(std::string_view source, std::string_view filename) {
+    std::string ScriptDom::eval(std::string_view source, std::string_view filename) {
         return impl_->eval(source, filename);
     }
 
-    ProbeAnimationFrameResult ScriptDomProbe::animation_frame(double time_ms, bool drawable) {
+    AnimationFrameResult ScriptDom::animation_frame(double time_ms, bool drawable) {
         return impl_->animation_frame(time_ms, drawable);
     }
 
-    ProbeTaskResult ScriptDomProbe::pump_tasks(double time_ms) {
+    TaskResult ScriptDom::pump_tasks(double time_ms) {
         return impl_->pump_tasks(time_ms);
     }
 
-    void ScriptDomProbe::install_canvas_host(ProbeCanvasFactory factory) {
+    void ScriptDom::install_canvas_host(CanvasFactory factory) {
         impl_->install_canvas(std::move(factory));
     }
 
-    ProbeCanvasSnapshot ScriptDomProbe::canvas_snapshot(ProbeNodeIdentity identity) {
+    CanvasSnapshot ScriptDom::canvas_snapshot(NodeIdentity identity) {
         impl_->require_runtime();
         auto* n = impl_->resolve(identity);
         if (!n || !n->canvas) {
-            throw std::runtime_error("CE_CANVAS_SNAPSHOT: stale node or missing 2d context");
+            throw std::runtime_error("WEFT_CANVAS_SNAPSHOT: stale node or missing 2d context");
         }
         try {
             auto& s = *n->canvas;
@@ -2939,7 +2939,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         }
     }
 
-    void ScriptDomProbe::collect_garbage() {
+    void ScriptDom::collect_garbage() {
         impl_->check_owner();
         if (impl_->runtime) {
             JS_RunGC(impl_->runtime);
@@ -2947,7 +2947,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         ++impl_->counters.gc_runs;
     }
 
-    ScriptProbeStats ScriptDomProbe::stats() const {
+    ScriptStats ScriptDom::stats() const {
         impl_->check_owner();
         auto result = impl_->counters;
         result.native_roots = impl_->native_roots.size() + (impl_->context ? 1 : 0);
@@ -2958,15 +2958,15 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         return result;
     }
 
-    std::uint64_t ScriptDomProbe::epoch() const {
+    std::uint64_t ScriptDom::epoch() const {
         impl_->check_owner();
         return impl_->view_epoch;
     }
 
-    void ScriptDomProbe::reset_document() {
+    void ScriptDom::reset_document() {
         impl_->check_owner();
         if (impl_->view_epoch == std::numeric_limits<std::uint64_t>::max()) {
-            throw std::runtime_error("CE_EPOCH_EXHAUSTED: View epoch cannot wrap");
+            throw std::runtime_error("WEFT_EPOCH_EXHAUSTED: View epoch cannot wrap");
         }
         impl_->shutdown();
         ++impl_->view_epoch;
@@ -2975,36 +2975,36 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             impl_->initialize();
         } catch (const PendingJsException&) {
             impl_->faulted = true;
-            throw std::runtime_error("CE_INITIALIZATION_FAILED: VM allocation or bootstrap exception");
+            throw std::runtime_error("WEFT_INITIALIZATION_FAILED: VM allocation or bootstrap exception");
         } catch (...) {
             impl_->faulted = true;
             throw;
         }
     }
 
-    ProbeNodeIdentity ScriptDomProbe::node_identity(std::string_view selector) const {
+    NodeIdentity ScriptDom::node_identity(std::string_view selector) const {
         impl_->require_runtime();
         std::vector<Impl::Node*> found;
         impl_->query(Impl::node(impl_->context, impl_->document_root), selector, found, true);
         if (found.empty()) {
-            throw std::runtime_error("CE_NOT_FOUND: no node for selector " + std::string(selector));
+            throw std::runtime_error("WEFT_NOT_FOUND: no node for selector " + std::string(selector));
         }
         return found.front()->identity;
     }
 
-    bool ScriptDomProbe::is_live(ProbeNodeIdentity identity) const {
+    bool ScriptDom::is_live(NodeIdentity identity) const {
         impl_->check_owner();
         return impl_->resolve(identity) != nullptr;
     }
 
-    std::uint64_t ScriptDomProbe::retain_node(ProbeNodeIdentity identity) {
+    std::uint64_t ScriptDom::retain_node(NodeIdentity identity) {
         impl_->require_runtime();
         auto* node = impl_->resolve(identity);
         if (!node) {
-            throw std::runtime_error("CE_STALE_NODE: native root identity is invalid");
+            throw std::runtime_error("WEFT_STALE_NODE: native root identity is invalid");
         }
         if (impl_->next_root == std::numeric_limits<std::uint64_t>::max()) {
-            throw std::runtime_error("CE_ROOT_EXHAUSTED: native root token cannot wrap");
+            throw std::runtime_error("WEFT_ROOT_EXHAUSTED: native root token cannot wrap");
         }
         const auto token = impl_->next_root++;
         auto [it, inserted] = impl_->native_roots.emplace(token, JS_UNDEFINED);
@@ -3013,22 +3013,22 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         return token;
     }
 
-    void ScriptDomProbe::release_node(std::uint64_t root_token) {
+    void ScriptDom::release_node(std::uint64_t root_token) {
         impl_->check_owner();
         auto it = impl_->native_roots.find(root_token);
         if (it == impl_->native_roots.end()) {
-            throw std::runtime_error("CE_STALE_ROOT: native root token is invalid");
+            throw std::runtime_error("WEFT_STALE_ROOT: native root token is invalid");
         }
         JS_FreeValue(impl_->context, it->second);
         impl_->native_roots.erase(it);
     }
 
-    void ScriptDomProbe::queue_callback(std::uint64_t callback_epoch, std::string source) {
+    void ScriptDom::queue_callback(std::uint64_t callback_epoch, std::string source) {
         impl_->check_owner();
         impl_->completions.push_back({callback_epoch, std::move(source)});
     }
 
-    std::size_t ScriptDomProbe::drain_callbacks() {
+    std::size_t ScriptDom::drain_callbacks() {
         impl_->check_owner();
         std::size_t executed{};
         // Snapshot the batch: callbacks cannot create an unbounded same-drain chain.
@@ -3046,44 +3046,44 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         return executed;
     }
 
-    std::string ScriptDomProbe::dump_document() const {
+    std::string ScriptDom::dump_document() const {
         impl_->require_runtime();
         return impl_->dump(Impl::node(impl_->context, impl_->document_root));
     }
 
-    ProbeDomSnapshot ScriptDomProbe::snapshot_subtree(std::string_view selector) const {
+    DomSnapshot ScriptDom::snapshot_subtree(std::string_view selector) const {
         impl_->require_runtime();
         std::vector<Impl::Node*> found;
         impl_->query(Impl::node(impl_->context, impl_->document_root), selector, found, true);
         if (found.empty()) {
-            throw std::runtime_error("CE_NOT_FOUND: no snapshot root");
+            throw std::runtime_error("WEFT_NOT_FOUND: no snapshot root");
         }
         return impl_->snapshot(*found.front());
     }
 
-    ProbeDomSnapshot ScriptDomProbe::snapshot_subtree(ProbeNodeIdentity id) const {
+    DomSnapshot ScriptDom::snapshot_subtree(NodeIdentity id) const {
         impl_->require_runtime();
         auto* node = impl_->resolve(id);
         if (!node) {
-            throw std::runtime_error("CE_STALE_NODE: snapshot root");
+            throw std::runtime_error("WEFT_STALE_NODE: snapshot root");
         }
         return impl_->snapshot(*node);
     }
 
-    std::uint64_t ScriptDomProbe::subtree_revision(ProbeNodeIdentity id) const {
+    std::uint64_t ScriptDom::subtree_revision(NodeIdentity id) const {
         impl_->require_runtime();
         auto* node = impl_->resolve(id);
         if (!node) {
-            throw std::runtime_error("CE_STALE_NODE: revision root");
+            throw std::runtime_error("WEFT_STALE_NODE: revision root");
         }
         return node->subtree_revision;
     }
 
-    ProbeDomChanges ScriptDomProbe::changes_since(std::uint64_t revision) const {
+    DomChanges ScriptDom::changes_since(std::uint64_t revision) const {
         impl_->require_runtime();
-        ProbeDomChanges result{impl_->view_epoch, impl_->mutation_revision};
+        DomChanges result{impl_->view_epoch, impl_->mutation_revision};
         if (revision > result.revision) {
-            throw std::invalid_argument("CE_DOM_REVISION: future revision");
+            throw std::invalid_argument("WEFT_DOM_REVISION: future revision");
         }
         const auto start = (impl_->change_head + impl_->changes.size() - impl_->change_count) % impl_->changes.size();
         result.full_required = revision == 0 || (impl_->change_count && revision < impl_->changes[start].revision - 1);
@@ -3099,4 +3099,4 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         return result;
     }
 
-} // namespace caseelephant
+} // namespace weft

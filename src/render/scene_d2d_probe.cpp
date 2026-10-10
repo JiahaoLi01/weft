@@ -18,10 +18,10 @@
 #include <tuple>
 #include <unordered_map>
 
-namespace caseelephant {
+namespace weft {
     namespace {
         using Microsoft::WRL::ComPtr;
-        using Style = ProbeSceneStyle;
+        using Style = SceneStyle;
         constexpr float pi = std::numbers::pi_v<float>;
 
         using css::trim;
@@ -32,7 +32,7 @@ namespace caseelephant {
 
         void check(HRESULT h) {
             if (FAILED(h)) {
-                throw std::runtime_error("CE_SCENE_D2D: HRESULT=" + std::to_string(static_cast<unsigned long>(h)));
+                throw std::runtime_error("WEFT_SCENE_D2D: HRESULT=" + std::to_string(static_cast<unsigned long>(h)));
             }
         }
 
@@ -78,7 +78,7 @@ namespace caseelephant {
             if (s == "currentColor" || s == "currentcolor") {
                 s = get(style, "color", constants::default_color);
             }
-            auto c = parse_probe_css_color(css::expand_color_shorthand(s));
+            auto c = parse_css_color(css::expand_color_shorthand(s));
             return {c[0], c[1], c[2], c[3]};
         }
 
@@ -187,7 +187,7 @@ namespace caseelephant {
             return matrix;
         }
 
-        D2D1::Matrix3x2F transform(const ProbePaintValue& value, float w, float h) {
+        D2D1::Matrix3x2F transform(const PaintValue& value, float w, float h) {
             auto matrix = D2D1::Matrix3x2F::Identity();
             for (const auto& a : value.operations) {
                 auto n = [&](unsigned i, float ref = 1) {
@@ -195,28 +195,28 @@ namespace caseelephant {
                 };
                 auto op = D2D1::Matrix3x2F::Identity();
                 switch (a.kind) {
-                    case ProbePaintOp::Translate:
+                    case PaintOp::Translate:
                         op = D2D1::Matrix3x2F::Translation(n(0, w), n(1, h));
                         break;
-                    case ProbePaintOp::TranslateX:
+                    case PaintOp::TranslateX:
                         op = D2D1::Matrix3x2F::Translation(n(0, w), 0);
                         break;
-                    case ProbePaintOp::TranslateY:
+                    case PaintOp::TranslateY:
                         op = D2D1::Matrix3x2F::Translation(0, n(0, h));
                         break;
-                    case ProbePaintOp::Scale:
+                    case PaintOp::Scale:
                         op = D2D1::Matrix3x2F::Scale(n(0), a.count > 1 ? n(1) : n(0));
                         break;
-                    case ProbePaintOp::ScaleX:
+                    case PaintOp::ScaleX:
                         op = D2D1::Matrix3x2F::Scale(n(0), 1);
                         break;
-                    case ProbePaintOp::ScaleY:
+                    case PaintOp::ScaleY:
                         op = D2D1::Matrix3x2F::Scale(1, n(0));
                         break;
-                    case ProbePaintOp::Rotate:
+                    case PaintOp::Rotate:
                         op = D2D1::Matrix3x2F::Rotation(n(0));
                         break;
-                    case ProbePaintOp::Matrix:
+                    case PaintOp::Matrix:
                         op = {n(0), n(1), n(2), n(3), n(4), n(5)};
                         break;
                     default:
@@ -280,7 +280,7 @@ namespace caseelephant {
             }
         };
 
-        Plane plane(const ProbeSceneNode& n) {
+        Plane plane(const SceneNode& n) {
             auto o = origin(n.style, n.box[2], n.box[3]);
             auto t = get(n.style, "transform", "none");
             Plane local;
@@ -308,7 +308,7 @@ namespace caseelephant {
             return {{m._11, m._21, m._31, m._12, m._22, m._32, 0, 0, 1}};
         }
 
-        D2D1::Matrix3x2F svg_viewport(const ProbeSceneNode& n) {
+        D2D1::Matrix3x2F svg_viewport(const SceneNode& n) {
             auto i = n.attributes.find("viewBox");
             if (i == n.attributes.end()) {
                 return D2D1::Matrix3x2F::Identity();
@@ -359,7 +359,7 @@ namespace caseelephant {
         }
     } // namespace
 
-    struct SceneRasterProbe::Impl {
+    struct SceneRaster::Impl {
         const OwnerThread owner;
 
         void require_owner() const {
@@ -470,7 +470,7 @@ namespace caseelephant {
             return layout;
         }
 
-        ProbeSceneTextMetrics measure(std::string_view text, const Style& s) {
+        SceneTextMetrics measure(std::string_view text, const Style& s) {
             auto layout = text_layout(text, s);
             DWRITE_TEXT_METRICS m{};
             check(layout->GetMetrics(&m));
@@ -677,7 +677,7 @@ namespace caseelephant {
         // rebuilding isolation layers on every animated frame.
         std::map<std::array<float, 12>, ComPtr<ID2D1PathGeometry>> border_fills;
 
-        ComPtr<ID2D1PathGeometry> border_fill(const ProbeSceneNode& n, const std::array<float, 4>& radii,
+        ComPtr<ID2D1PathGeometry> border_fill(const SceneNode& n, const std::array<float, 4>& radii,
                                               ID2D1Geometry* shape, float width, unsigned side) {
             std::array<float, 12> key{n.box[2], n.box[3], radii[0], radii[1], radii[2], radii[3], width, float(side)};
             unsigned k = 8;
@@ -722,7 +722,7 @@ namespace caseelephant {
             return result;
         }
 
-        ComPtr<ID2D1PathGeometry> border_wedge(const ProbeSceneNode& n, unsigned index) {
+        ComPtr<ID2D1PathGeometry> border_wedge(const SceneNode& n, unsigned index) {
             float w = n.box[2];
             float h = n.box[3];
             std::array<float, 7> key{w,
@@ -777,16 +777,16 @@ namespace caseelephant {
         }
 
         struct ProjectiveContent {
-            ProbeSceneNode node;
+            SceneNode node;
             float scale{};
-            ProbeSceneBitmap image;
+            SceneBitmap image;
             ComPtr<ID2D1Bitmap> bitmap;
         };
 
         std::map<std::array<std::uint64_t, 3>, ProjectiveContent> projected;
         std::size_t projected_bytes{};
         bool gpu_target{};
-        SceneRasterProbe::Work work;
+        SceneRaster::Work work;
 
         // Match the RGBA8 premultiplied brush precision of the software oracle.
         void solid(D2D1_COLOR_F c) {
@@ -802,7 +802,7 @@ namespace caseelephant {
             brush->SetColor(c);
         }
 
-        ComPtr<ID2D1Geometry> svg_shape(const ProbeSceneNode& n) {
+        ComPtr<ID2D1Geometry> svg_shape(const SceneNode& n) {
             const auto& a = n.attributes;
             if (n.tag == "text" || n.tag == "g" || n.tag == "svg" || n.tag == "defs" || n.tag == "clipPath") {
                 return {};
@@ -884,7 +884,7 @@ namespace caseelephant {
             return g;
         }
 
-        ComPtr<ID2D1StrokeStyle> svg_stroke(const ProbeSceneNode& n) {
+        ComPtr<ID2D1StrokeStyle> svg_stroke(const SceneNode& n) {
             std::string key;
             for (const auto* k :
                  {"stroke-linecap", "stroke-linejoin", "stroke-width", "stroke-dasharray", "stroke-dashoffset"}) {
@@ -907,7 +907,7 @@ namespace caseelephant {
             return result;
         }
 
-        ComPtr<ID2D1StrokeStyle> svg_stroke_uncached(const ProbeSceneNode& n) {
+        ComPtr<ID2D1StrokeStyle> svg_stroke_uncached(const SceneNode& n) {
             D2D1_STROKE_STYLE_PROPERTIES p = D2D1::StrokeStyleProperties();
             auto cap = get(n.style, "stroke-linecap", "butt");
             auto join = get(n.style, "stroke-linejoin", "miter");
@@ -957,7 +957,7 @@ namespace caseelephant {
             return style;
         }
 
-        ComPtr<ID2D1Geometry> svg_clip(const ProbeSceneNode& n, const ProbeSceneNode& root) {
+        ComPtr<ID2D1Geometry> svg_clip(const SceneNode& n, const SceneNode& root) {
             auto v = n.attributes.contains("clip-path") ? n.attributes.at("clip-path") : "";
             if (v.empty() || v == "none") {
                 return {};
@@ -966,7 +966,7 @@ namespace caseelephant {
                 fail("local clip-path required");
             }
             const auto id = v.substr(5, v.size() - 6);
-            auto find = [&](auto&& self, const auto& c) -> const ProbeSceneNode* {
+            auto find = [&](auto&& self, const auto& c) -> const SceneNode* {
                 if (c.attributes.contains("id") && c.attributes.at("id") == id) {
                     return &c;
                 }
@@ -987,7 +987,7 @@ namespace caseelephant {
             return g;
         }
 
-        void svg(const ProbeSceneNode& n, const ProbeSceneNode& root) {
+        void svg(const SceneNode& n, const SceneNode& root) {
             if (get(n.style, "display") == "none" || n.tag == "defs" || n.tag == "clipPath") {
                 return;
             }
@@ -1050,7 +1050,7 @@ namespace caseelephant {
         }
 
         struct ColorText {
-            ProbeSceneNode key;
+            SceneNode key;
             float scale{};
             ComPtr<ID2D1Bitmap> bitmap;
             std::size_t bytes{};
@@ -1059,7 +1059,7 @@ namespace caseelephant {
         std::map<std::array<std::uint64_t, 3>, ColorText> color_text;
         std::size_t color_text_bytes{};
 
-        bool color_text_bitmap(const ProbeSceneNode& n) {
+        bool color_text_bitmap(const SceneNode& n) {
             // System color glyphs otherwise regenerate their SVG/bitmap at every
             // animated scale. Keep bounded device-ppem text images, like a glyph
             // cache; geometry/opacity/transform remain live and are applied outside.
@@ -1086,9 +1086,9 @@ namespace caseelephant {
                     constants::scene::color_text_max_pixels) {
                     return false;
                 }
-                ProbeSceneFrame frame;
+                SceneFrame frame;
                 frame.root = content;
-                SceneRasterProbe software;
+                SceneRaster software;
                 auto image = software.raster(frame, scale);
                 if (color_text.size() >= constants::scene::color_text_cache_max_entries ||
                     color_text_bytes + image.rgba.size() > constants::scene::color_text_cache_max_bytes) {
@@ -1122,7 +1122,7 @@ namespace caseelephant {
             return true;
         }
 
-        void draw_text(const ProbeSceneNode& n, bool svg_text = false) {
+        void draw_text(const SceneNode& n, bool svg_text = false) {
             if (n.text.empty()) {
                 return;
             }
@@ -1256,7 +1256,7 @@ namespace caseelephant {
                     alpha};
         }
 
-        void shadow(const ProbeSceneNode& n, const std::array<float, 4>& corners) {
+        void shadow(const SceneNode& n, const std::array<float, 4>& corners) {
             auto value = get(n.style, "box-shadow", "none");
             if (value.empty() || value == "none") {
                 return;
@@ -1422,7 +1422,7 @@ namespace caseelephant {
             }
         }
 
-        void gradient(const ProbeSceneNode& n, ID2D1Geometry* shape) {
+        void gradient(const SceneNode& n, ID2D1Geometry* shape) {
             auto image = get(n.style, "background-image", "none");
             if (image == "none") {
                 return;
@@ -1580,7 +1580,7 @@ namespace caseelephant {
             }
         }
 
-        void projective(const ProbeSceneNode& node, const D2D1::Matrix3x2F& parent) {
+        void projective(const SceneNode& node, const D2D1::Matrix3x2F& parent) {
             // Plane projection for preserve-3d descendants of perspective/rotateY.
             // Rasterize the whole subtree first, then inverse-map with bilinear
             // premultiplied samples. This also preserves group opacity and order.
@@ -1592,16 +1592,16 @@ namespace caseelephant {
             }
             float distance = num(m[1]);
             float angle = num(m[2]) * (m[3].matched ? pi / constants::degrees_per_half_turn : 1);
-            auto f = ProbeSceneFrame{};
+            auto f = SceneFrame{};
             f.root = node;
             f.root.box[0] = f.root.box[1] = 0;
             f.root.style.erase("transform");
             const std::array<std::uint64_t, 3> key{node.identity.view_epoch, node.identity.slot,
                                                    node.identity.generation};
-            std::optional<ProbeSceneBitmap> uncached;
+            std::optional<SceneBitmap> uncached;
             auto it = projected.find(key);
             if (it == projected.end() || it->second.node != f.root || it->second.scale != scale) {
-                SceneRasterProbe nested;
+                SceneRaster nested;
                 auto pixels = nested.raster(f, scale);
                 if (pixels.rgba.size() > constants::scene::projective_cache_max_bytes) {
                     uncached = std::move(pixels);
@@ -1741,7 +1741,7 @@ namespace caseelephant {
             std::string text;
             std::array<float, 2> size{};
             std::array<float, 2> pivot{};
-            std::vector<std::pair<ProbeNodeIdentity, std::string>> children;
+            std::vector<std::pair<NodeIdentity, std::string>> children;
             std::vector<std::size_t> order;
             std::array<float, 4> radii{};
             std::array<float, 4> widths{};
@@ -1760,7 +1760,7 @@ namespace caseelephant {
             return k == "border-color" || std::find(keys.begin(), keys.end(), k) != keys.end();
         }
 
-        static bool matches(const PaintProgram& p, const ProbeSceneNode& n) {
+        static bool matches(const PaintProgram& p, const SceneNode& n) {
             if (p.size != std::array{n.box[2], n.box[3]} || p.tag != n.tag || p.space != n.space || p.text != n.text ||
                 p.children.size() != n.children.size()) {
                 return false;
@@ -1786,7 +1786,7 @@ namespace caseelephant {
             return true;
         }
 
-        std::shared_ptr<const PaintProgram> program(const ProbeSceneNode& n) {
+        std::shared_ptr<const PaintProgram> program(const SceneNode& n) {
             const std::array<std::uint64_t, 3> id{n.identity.view_epoch, n.identity.slot, n.identity.generation};
             auto it = paint_programs.find(id);
             if (it != paint_programs.end() && matches(*it->second, n)) {
@@ -1826,7 +1826,7 @@ namespace caseelephant {
                 p->children.emplace_back(c.identity, v);
                 z.push_back(v == "auto" ? 0 : num(v));
                 p->order.push_back(p->order.size());
-                p->bytes += sizeof(ProbeNodeIdentity) + v.size() + sizeof(std::size_t);
+                p->bytes += sizeof(NodeIdentity) + v.size() + sizeof(std::size_t);
             }
             std::stable_sort(p->order.begin(), p->order.end(), [&](auto a, auto b) {
                 return z[a] < z[b];
@@ -1851,25 +1851,25 @@ namespace caseelephant {
             return p;
         }
 
-        const ProbePaintValue* numeric(const ProbeSceneNode& n, unsigned i, ProbePaintValue::Kind kind) const {
+        const PaintValue* numeric(const SceneNode& n, unsigned i, PaintValue::Kind kind) const {
             if (!gpu_target || !n.paint || !n.paint->values[i] || n.paint->values[i]->kind != kind) {
                 return nullptr;
             }
             return &*n.paint->values[i];
         }
 
-        D2D1_COLOR_F paint_color(const ProbeSceneNode& n, unsigned i, const std::string& fallback) {
-            if (auto c = numeric(n, i, ProbePaintValue::Color)) {
+        D2D1_COLOR_F paint_color(const SceneNode& n, unsigned i, const std::string& fallback) {
+            if (auto c = numeric(n, i, PaintValue::Color)) {
                 ++work.typed_draws;
                 return {float(c->color[0]), float(c->color[1]), float(c->color[2]), float(c->color[3])};
             }
             return color(fallback, n.style);
         }
 
-        std::vector<ProbeNodeIdentity> explicit_layers;
+        std::vector<NodeIdentity> explicit_layers;
 
         struct CachedLayer {
-            ProbeSceneNode key;
+            SceneNode key;
             float scale{};
             ComPtr<ID2D1Bitmap> bitmap;
             std::size_t bytes{};
@@ -1879,7 +1879,7 @@ namespace caseelephant {
         std::size_t retained_layer_bytes{};
         std::vector<std::shared_ptr<const CachedLayer>> frame_layer_leases;
 
-        bool retained(const ProbeSceneNode& n, float opacity) {
+        bool retained(const SceneNode& n, float opacity) {
             if (!gpu_target ||
                 std::find(explicit_layers.begin(), explicit_layers.end(), n.identity) == explicit_layers.end()) {
                 return false;
@@ -1896,7 +1896,7 @@ namespace caseelephant {
             const std::array<std::uint64_t, 3> id{n.identity.view_epoch, n.identity.slot, n.identity.generation};
             auto it = retained_layers.find(id);
             std::shared_ptr<const CachedLayer> value;
-            if (it != retained_layers.end() && scene_paint_source_equal_probe(it->second->key, source) &&
+            if (it != retained_layers.end() && scene_paint_source_equal(it->second->key, source) &&
                 it->second->scale == scale) {
                 value = it->second;
                 ++work.layer_reuses;
@@ -1905,9 +1905,9 @@ namespace caseelephant {
                 // unclipped roots additionally validate descendant geometry and
                 // text metrics. Unsupported projective/SVG content stays full.
                 bool supported = true;
-                ProbeSceneFrame frame;
+                SceneFrame frame;
                 frame.root = source;
-                auto inspect = [&](auto&& self, const ProbeSceneNode& c) -> void {
+                auto inspect = [&](auto&& self, const SceneNode& c) -> void {
                     if ((!c.space.empty() && c.space != constants::xhtml_namespace_uri) ||
                         get(c.style, "transform").find("perspective(") != std::string::npos) {
                         supported = false;
@@ -1928,7 +1928,7 @@ namespace caseelephant {
                 };
                 inspect(inspect, source);
                 if (get(source.style, "overflow") != "hidden") {
-                    SceneRasterProbe bounds;
+                    SceneRaster bounds;
                     for (const auto& e : bounds.geometry(frame)) {
                         if (e.rect[0] < -constants::scene::layer_bounds_tolerance_px ||
                             e.rect[1] < -constants::scene::layer_bounds_tolerance_px ||
@@ -1952,7 +1952,7 @@ namespace caseelephant {
                                                            D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS_NONE, &local));
                 local->SetDpi(constants::scene::d2d_default_dpi, constants::scene::d2d_default_dpi);
                 frame.root.box[0] = frame.root.box[1] = constants::scene::layer_padding_px;
-                SceneRasterProbe painter;
+                SceneRaster painter;
                 painter.paint_d2d(frame, local.Get(), scale);
                 auto created = std::make_shared<CachedLayer>();
                 created->key = std::move(source);
@@ -1985,7 +1985,7 @@ namespace caseelephant {
             return true;
         }
 
-        void paint(const ProbeSceneNode& n) {
+        void paint(const SceneNode& n) {
             if (get(n.style, "display") == "none" || n.box[2] <= 0 || n.box[3] <= 0) {
                 return;
             }
@@ -1997,7 +1997,7 @@ namespace caseelephant {
             }
             auto commands = gpu_target ? program(n) : nullptr;
             auto o = commands ? commands->pivot : origin(n.style, n.box[2], n.box[3]);
-            auto decoded = numeric(n, constants::scene::paint_slot_transform, ProbePaintValue::Transform);
+            auto decoded = numeric(n, constants::scene::paint_slot_transform, PaintValue::Transform);
             if (decoded) {
                 ++work.typed_draws;
             }
@@ -2005,7 +2005,7 @@ namespace caseelephant {
                          (decoded ? transform(*decoded, n.box[2], n.box[3]) : transform(t, n.box[2], n.box[3], false)) *
                          D2D1::Matrix3x2F::Translation(o[0] + n.box[0], o[1] + n.box[1]);
             target->SetTransform(local * old);
-            auto alpha = numeric(n, constants::scene::paint_slot_opacity, ProbePaintValue::Scalar);
+            auto alpha = numeric(n, constants::scene::paint_slot_opacity, PaintValue::Scalar);
             if (alpha) {
                 ++work.typed_draws;
             }
@@ -2130,7 +2130,7 @@ namespace caseelephant {
                         paint(n.children[index]);
                     }
                 } else {
-                    std::vector<const ProbeSceneNode*> ordered;
+                    std::vector<const SceneNode*> ordered;
                     for (const auto& c : n.children) {
                         ordered.push_back(&c);
                     }
@@ -2155,7 +2155,7 @@ namespace caseelephant {
             target->SetTransform(old);
         }
 
-        ProbeSceneBitmap raster(const ProbeSceneFrame& f, float dpi) {
+        SceneBitmap raster(const SceneFrame& f, float dpi) {
             if (dpi <= 0 || dpi > constants::scene::max_raster_scale) {
                 fail("raster scale");
             }
@@ -2201,7 +2201,7 @@ namespace caseelephant {
                 throw;
             }
             check(target->EndDraw());
-            ProbeSceneBitmap out{w, h, std::vector<std::uint8_t>(std::size_t(w) * h * 4)};
+            SceneBitmap out{w, h, std::vector<std::uint8_t>(std::size_t(w) * h * 4)};
             WICRect rect{0, 0, int(w), int(h)};
             ComPtr<IWICBitmapLock> lock;
             check(backing->Lock(&rect, WICBitmapLockRead, &lock));
@@ -2237,8 +2237,8 @@ namespace caseelephant {
         }
     };
 
-    void SceneRasterProbe::paint_d2d_damage(const ProbeSceneFrame& f, ID2D1RenderTarget* target, float scale,
-                                            std::array<float, 4> damage, std::optional<std::array<float, 4>> clip) {
+    void SceneRaster::paint_d2d_damage(const SceneFrame& f, ID2D1RenderTarget* target, float scale,
+                                       std::array<float, 4> damage, std::optional<std::array<float, 4>> clip) {
         auto& i = *impl_;
         i.require_owner();
         if (!target || !std::isfinite(scale) || scale <= 0 || scale > constants::scene::max_raster_scale) {
@@ -2310,8 +2310,8 @@ namespace caseelephant {
         ++i.work.partial_paints;
     }
 
-    void SceneRasterProbe::paint_d2d(const ProbeSceneFrame& f, ID2D1RenderTarget* target, float scale,
-                                     std::optional<std::array<float, 4>> clip) {
+    void SceneRaster::paint_d2d(const SceneFrame& f, ID2D1RenderTarget* target, float scale,
+                                std::optional<std::array<float, 4>> clip) {
         if (!target) {
             fail("GPU target");
         }
@@ -2320,7 +2320,7 @@ namespace caseelephant {
         --impl_->work.partial_paints;
     }
 
-    void SceneRasterProbe::set_layers(std::vector<ProbeNodeIdentity> values) {
+    void SceneRaster::set_layers(std::vector<NodeIdentity> values) {
         impl_->require_owner();
         if (values.size() > constants::scene::max_explicit_layers) {
             fail("explicit layer count");
@@ -2333,36 +2333,36 @@ namespace caseelephant {
         impl_->explicit_layers = std::move(values);
     }
 
-    SceneRasterProbe::Work SceneRasterProbe::work() const {
+    SceneRaster::Work SceneRaster::work() const {
         impl_->require_owner();
         return impl_->work;
     }
 
-    SceneRasterProbe::SceneRasterProbe() : impl_(std::make_unique<Impl>()) {
+    SceneRaster::SceneRaster() : impl_(std::make_unique<Impl>()) {
     }
 
-    SceneRasterProbe::~SceneRasterProbe() = default;
+    SceneRaster::~SceneRaster() = default;
 
-    std::array<double, 6> SceneRasterProbe::transform_matrix(const ProbeSceneNode& n) const {
+    std::array<double, 6> SceneRaster::transform_matrix(const SceneNode& n) const {
         impl_->require_owner();
         auto m = transform(get(n.style, "transform", "none"), n.box[2], n.box[3], false);
         return {m._11, m._12, m._21, m._22, m._31, m._32};
     }
 
-    ProbeSceneTextMetrics SceneRasterProbe::measure(std::string_view text, const Style& s) {
+    SceneTextMetrics SceneRaster::measure(std::string_view text, const Style& s) {
         impl_->require_owner();
         return impl_->measure(text, s);
     }
 
-    ProbeSceneBitmap SceneRasterProbe::raster(const ProbeSceneFrame& f, float scale) {
+    SceneBitmap SceneRaster::raster(const SceneFrame& f, float scale) {
         impl_->require_owner();
         return impl_->raster(f, scale);
     }
 
-    ProbeNodeIdentity SceneRasterProbe::hit_test(const ProbeSceneFrame& f, float x, float y) const {
+    NodeIdentity SceneRaster::hit_test(const SceneFrame& f, float x, float y) const {
         impl_->require_owner();
-        ProbeNodeIdentity result{};
-        auto svg_visit = [&](auto&& self, const ProbeSceneNode& n, Plane parent, const ProbeSceneNode& root) -> void {
+        NodeIdentity result{};
+        auto svg_visit = [&](auto&& self, const SceneNode& n, Plane parent, const SceneNode& root) -> void {
             if (get(n.style, "display") == "none" || n.tag == "defs" || n.tag == "clipPath") {
                 return;
             }
@@ -2423,7 +2423,7 @@ namespace caseelephant {
                 self(self, c, m, root);
             }
         };
-        auto visit = [&](auto&& self, const ProbeSceneNode& n, Plane parent) -> void {
+        auto visit = [&](auto&& self, const SceneNode& n, Plane parent) -> void {
             if (get(n.style, "display") == "none") {
                 return;
             }
@@ -2448,7 +2448,7 @@ namespace caseelephant {
                 }
                 return;
             }
-            std::vector<const ProbeSceneNode*> order;
+            std::vector<const SceneNode*> order;
             for (const auto& c : n.children) {
                 order.push_back(&c);
             }
@@ -2463,13 +2463,13 @@ namespace caseelephant {
         return result;
     }
 
-    std::vector<ProbeElementGeometry> SceneRasterProbe::geometry(const ProbeSceneFrame& f, bool svg_descendants) const {
+    std::vector<ElementGeometry> SceneRaster::geometry(const SceneFrame& f, bool svg_descendants) const {
         impl_->require_owner();
-        std::vector<ProbeElementGeometry> out;
+        std::vector<ElementGeometry> out;
         // A group may be queried by several ancestors and then by the flat walk.
         // Memoize local bounds only inside this solve; no scene pointer survives.
-        std::unordered_map<const ProbeSceneNode*, D2D1_RECT_F> local_bounds;
-        auto bounds = [&](auto&& self, const ProbeSceneNode& n) -> D2D1_RECT_F {
+        std::unordered_map<const SceneNode*, D2D1_RECT_F> local_bounds;
+        auto bounds = [&](auto&& self, const SceneNode& n) -> D2D1_RECT_F {
             if (auto it = local_bounds.find(&n); it != local_bounds.end()) {
                 return it->second;
             }
@@ -2524,8 +2524,7 @@ namespace caseelephant {
             local_bounds.emplace(&n, r);
             return r;
         };
-        auto append = [&](const ProbeSceneNode& n, Plane m, std::array<double, 4> local,
-                          ProbeNodeIdentity offset_parent) {
+        auto append = [&](const SceneNode& n, Plane m, std::array<double, 4> local, NodeIdentity offset_parent) {
             double left = constants::scene::geometry_bounds_seed;
             double top = constants::scene::geometry_bounds_seed;
             double right = -constants::scene::geometry_bounds_seed;
@@ -2540,7 +2539,7 @@ namespace caseelephant {
                 right = std::max(right, q[0]);
                 bottom = std::max(bottom, q[1]);
             }
-            ProbeElementGeometry e;
+            ElementGeometry e;
             e.identity = n.identity;
             e.rect = {left, top, right - left, bottom - top};
             e.client_rects = {e.rect};
@@ -2555,7 +2554,7 @@ namespace caseelephant {
             e.matrix = {m.m[0], m.m[3], m.m[1], m.m[4], m.m[2], m.m[5]};
             out.push_back(e);
         };
-        auto svg_visit = [&](auto&& self, const ProbeSceneNode& n, Plane parent) -> void {
+        auto svg_visit = [&](auto&& self, const SceneNode& n, Plane parent) -> void {
             if (n.tag == "defs" || n.tag == "clipPath") {
                 return;
             }
@@ -2571,7 +2570,7 @@ namespace caseelephant {
                 self(self, c, m);
             }
         };
-        auto visit = [&](auto&& self, const ProbeSceneNode& n, Plane parent, ProbeNodeIdentity offset_parent, double ox,
+        auto visit = [&](auto&& self, const SceneNode& n, Plane parent, NodeIdentity offset_parent, double ox,
                          double oy) -> void {
             const auto m = parent * plane(n);
             if (n.tag != "#text") {
@@ -2600,4 +2599,4 @@ namespace caseelephant {
         visit(visit, f.root, Plane{}, {}, 0, 0);
         return out;
     }
-} // namespace caseelephant
+} // namespace weft

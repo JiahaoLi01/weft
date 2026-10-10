@@ -9,11 +9,11 @@
 #include <string>
 #include <thread>
 
-using namespace caseelephant::render;
+using namespace weft::render;
 
 namespace {
 
-#define CHECK(expression) CE_REQUIRE(expression)
+#define CHECK(expression) WEFT_REQUIRE(expression)
 #define EXPECT(expression, expected) CHECK((expression) == LifetimeResult::expected)
 
     ResourceId Resource(ResourceLifetime& lifetime, std::uint64_t asset = 1) {
@@ -372,10 +372,10 @@ namespace {
     }
 
     void LifetimeStress() {
-        std::mt19937 random(caseelephant::test_constants::render::lifetime_stress_seed);
+        std::mt19937 random(weft::test_constants::render::lifetime_stress_seed);
         ResourceLifetime lifetime;
         SubmissionSerial serial = 0;
-        for (std::uint64_t cycle = 0; cycle < caseelephant::test_constants::render::lifetime_stress_cycles; ++cycle) {
+        for (std::uint64_t cycle = 0; cycle < weft::test_constants::render::lifetime_stress_cycles; ++cycle) {
             const auto resource = Resource(lifetime, cycle + 1);
             const auto immutable_description = Info(lifetime, resource).description;
             const std::array dependencies{resource, resource, resource};
@@ -413,7 +413,7 @@ namespace {
         EXPECT(lifetime.ReleasePreparedFrame(empty), Ok);
         EXPECT(lifetime.NotifyCompletedSerial(1, 1, serial), Ok);
         EXPECT(lifetime.Shutdown(), Ok);
-        std::cout << "lifetime stress: 2000 cycles, seed " << caseelephant::test_constants::render::lifetime_stress_seed
+        std::cout << "lifetime stress: 2000 cycles, seed " << weft::test_constants::render::lifetime_stress_seed
                   << '\n';
     }
 

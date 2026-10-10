@@ -38,7 +38,7 @@ for name, config in (('debug', 'Debug'), ('release', 'Release')):
         tests[name][driver] = report
     snapshot = directory / 'bin'
     snapshot.mkdir(exist_ok=True)
-    for filename in ('ce_d3d11_probe.exe', 'ce_animation_frame_tests.exe'):
+    for filename in ('weft_d3d11_probe.exe', 'weft_animation_frame_tests.exe'):
         src = root / 'build/windows-msvc/bin' / config / filename
         target = snapshot / filename
         shutil.copy2(src, target)
@@ -51,7 +51,7 @@ tests['gc'] = {'passed': 3, 'seconds': float(re.search(r'Total Test time \(real\
 shutil.copytree(root / 'build/windows-gc-stress/artifacts/gallery-preview-Debug/warp', out / 'gc/warp', dirs_exist_ok=True)
 gc_cases = json.loads((out / 'gc/warp/preview-cases.json').read_text(encoding='utf-8'))['cases']
 assert len(gc_cases) == 72 and all(c['execution'] == 'not_run_gc_instrumentation' for c in gc_cases)
-for filename in ('ce_d3d11_probe.exe', 'ce_animation_frame_tests.exe'):
+for filename in ('weft_d3d11_probe.exe', 'weft_animation_frame_tests.exe'):
     target = out / 'gc/bin' / filename
     target.parent.mkdir(exist_ok=True)
     shutil.copy2(root / 'build/windows-gc-stress/bin/Debug' / filename, target)

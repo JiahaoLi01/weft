@@ -8,14 +8,14 @@
 
 ```powershell
 cmake --build --preset windows-release --parallel 8
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/owner-hotpath/interactive
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/owner-hotpath/interactive
 ```
 
 默认 CSS，可滚动到 Spinner、Flip、Ripple、Pulse 和组合动画；右上角继续显示 FPS、CPU 分位数与当前 LIVE 数量。窗口没有设置 affinity 或进程优先级。关闭后除原 `preview-session.json`，增加 `owner-work.json`，记录快照复用、JS eval/直接宿主调用、mutation、数值采样和绘制参数缓存计数。
 
 ## 调度与 DOM 失效
 
-`ScriptDomProbe::pump_tasks` 与 `animation_frame` 在同一 UI owner 上直接 `JS_Call` 已安装平台模块的函数，传入原始 double 时间，省去逐次生成、解析 JS 调度表达式和计数字符串。函数与对象的 JSValue 仅存在该 VM 内，reset/shutdown 前释放，不进入 scene 或 renderer；原 execution deadline、VM quota、rAF 每回调微任务检查点、timer 批次检查点、错误与隐藏恢复语义保留。timer 模块缓存最早到期时间，尚无到期任务时不创建 ready 数组或扫描整个 task map。新建的到期任务属于下一批；一批仍最多 1,000 回调，pending 容量 4,096，超过下一批容量仍按原语义拒绝。
+`ScriptDom::pump_tasks` 与 `animation_frame` 在同一 UI owner 上直接 `JS_Call` 已安装平台模块的函数，传入原始 double 时间，省去逐次生成、解析 JS 调度表达式和计数字符串。函数与对象的 JSValue 仅存在该 VM 内，reset/shutdown 前释放，不进入 scene 或 renderer；原 execution deadline、VM quota、rAF 每回调微任务检查点、timer 批次检查点、错误与隐藏恢复语义保留。timer 模块缓存最早到期时间，尚无到期任务时不创建 ready 数组或扫描整个 task map。新建的到期任务属于下一批；一批仍最多 1,000 回调，pending 容量 4,096，超过下一批容量仍按原语义拒绝。
 
 native DOM 给实际 snapshot mutation 分配单调 revision，沿当前父链更新 subtree revision。树移动同时使旧、新父链失效；属性、id、character data、textContent、scroll setters、几何 clamp 和 wheel 默认滚动覆盖。属性同值写入/删除不存在属性可以复用；保守的 id/textContent 写入可能多报失效。固定 1,024 项 journal 只保存带 epoch/slot/generation 的弱身份，不能保活 detached 节点；返回时排除已失效身份，历史溢出要求全量快照。cursor 必须与 epoch 一起保存，reset 后丢弃；它不是跨 View 的 revision。
 
@@ -33,7 +33,7 @@ group opacity、overflow 和透明绘制顺序仍完整执行，未分摊透明�
 
 ## 验证与测量
 
-Windows 11 26200 / Ryzen 9 9950X3D / RTX 5090 driver 32.0.16.1062 / MSVC 19.42 C++20 Release + D3D11 debug layer；3840×2160 surface、1920×1080 shell、CSS body 387×288 / 2x、34 VM / 560 mount 节点，固定原字体/图片，scene body 使用本机 DirectWrite system-ui/Arial/Consolas/Emoji。旧版从上一阶段 642 个封存源文件重新构建到独立 source/build，`CE_SOURCE_DIR` 指向自己的旧 bootstrap，避免旧 executable 误读当前新平台脚本；固定依赖未改。原封存 executable 同时保留，实际测量的是 isolated rebuild。
+Windows 11 26200 / Ryzen 9 9950X3D / RTX 5090 driver 32.0.16.1062 / MSVC 19.42 C++20 Release + D3D11 debug layer；3840×2160 surface、1920×1080 shell、CSS body 387×288 / 2x、34 VM / 560 mount 节点，固定原字体/图片，scene body 使用本机 DirectWrite system-ui/Arial/Consolas/Emoji。旧版从上一阶段 642 个封存源文件重新构建到独立 source/build，`WEFT_SOURCE_DIR` 指向自己的旧 bootstrap，避免旧 executable 误读当前新平台脚本；固定依赖未改。原封存 executable 同时保留，实际测量的是 isolated rebuild。
 
 240 帧 / 16 预热 / 224 CPU、GPU、Present interval 样本，固定 60Hz owner 时间，无截图回读，最后 drain 真实 query。每场景三组，round 1/3 before→after，round 2 after→before；构建/测试停止后串行测量。默认 paired 与 controlled 分开记录，controlled 两版子进程都在启动阶段设置 affinity 0xFFFF（逻辑 CPU 0–15）/ High priority，读回保存；窗口没有设置。表为 run 吞吐与各 run 分位数的中位数，不是混合帧分位数；每行最慢帧是三个 run 的 warm max。
 
@@ -83,7 +83,7 @@ ctest --test-dir build/windows-msvc -C Debug --parallel 6 --output-on-failure
 强制 GC 构建五个相关 target，并执行 DOM / owner / rAF / scene / complex / external texture / two-frame / cache **8/8，46.86 秒**；最后边界修正后同范围再次 **8/8，44.22 秒**。没有重跑 GC 大型原 gallery/geometry/window，旧阶段证据继续保留。命令可复现：
 
 ```powershell
-cmake --build build/windows-gc-stress --config Debug --parallel 8 --target ce_owner_hotpath_tests ce_script_dom_tests ce_animation_frame_tests ce_scene_contract_tests ce_d3d11_probe
+cmake --build build/windows-gc-stress --config Debug --parallel 8 --target weft_owner_hotpath_tests weft_script_dom_tests weft_animation_frame_tests weft_scene_contract_tests weft_d3d11_probe
 ctest --test-dir build/windows-gc-stress -C Debug --parallel 1 -R '^owner_hotpath_contract$|^script_dom_lifecycle$|^animation_frame_contract$|^scene_contract$|^d3d11_warp_complex_css$|^d3d11_warp_external_texture$|^d3d11_warp_two_frame$|^d3d11_warp_render_cache$' --output-on-failure
 ```
 

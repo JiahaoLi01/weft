@@ -11,7 +11,7 @@
 #include <utility>
 #include <limits>
 
-namespace caseelephant {
+namespace weft {
     namespace {
         [[noreturn]] void fail(Diag code, std::string_view detail = {}) {
             throw_diagnostic(code, detail);
@@ -37,7 +37,7 @@ namespace caseelephant {
         }
     } // namespace
 
-    std::optional<std::array<float, 4>> parse_canvas_color_probe(std::string_view input) {
+    std::optional<std::array<float, 4>> parse_canvas_color(std::string_view input) {
         if (input.size() > constants::canvas::max_color_length) {
             fail(Diag::CanvasColorLimit, "512 characters");
         }
@@ -157,18 +157,18 @@ namespace caseelephant {
         return result;
     }
 
-    std::size_t ProbeCanvasState::validate_size(std::uint32_t w, std::uint32_t h) {
+    std::size_t CanvasState::validate_size(std::uint32_t w, std::uint32_t h) {
         if (w > constants::max_canvas_dimension || h > constants::max_canvas_dimension) {
             fail(Diag::CanvasSizeLimit, "backing dimensions <=2048");
         }
         return std::size_t(w) * h * constants::rgba8_bytes_per_pixel;
     }
 
-    ProbeCanvasState::ProbeCanvasState(ProbeCanvasFactory f, std::shared_ptr<ProbeCanvasBudget> budget, std::uint32_t w,
-                                       std::uint32_t h, bool a)
+    CanvasState::CanvasState(CanvasFactory f, std::shared_ptr<CanvasBudget> budget, std::uint32_t w, std::uint32_t h,
+                             bool a)
         : factory_(std::move(f)), budget_(std::move(budget)), alpha(a) {
         if (!factory_ || !budget_) {
-            throw std::invalid_argument("CE_CANVAS_CONFIG: factory and owner budget required");
+            throw std::invalid_argument("WEFT_CANVAS_CONFIG: factory and owner budget required");
         }
         if (budget_->contexts >= constants::canvas::max_live_contexts) {
             fail(Diag::CanvasContextLimit, "8 live contexts");
@@ -177,12 +177,12 @@ namespace caseelephant {
         ++budget_->contexts;
     }
 
-    ProbeCanvasState::~ProbeCanvasState() {
+    CanvasState::~CanvasState() {
         budget_->bytes -= bytes_;
         --budget_->contexts;
     }
 
-    void ProbeCanvasState::resize(std::uint32_t w, std::uint32_t h) {
+    void CanvasState::resize(std::uint32_t w, std::uint32_t h) {
         if (version == std::numeric_limits<std::uint64_t>::max()) {
             fail(Diag::CanvasVersionLimit);
         }
@@ -190,18 +190,18 @@ namespace caseelephant {
         if (bytes > constants::canvas::max_backing_bytes - budget_->bytes) {
             fail(Diag::CanvasBytesLimit, "32MiB including resize overlap");
         }
-        std::unique_ptr<ProbeCanvasRaster> next;
+        std::unique_ptr<CanvasRaster> next;
         try {
             next = factory_(w, h, alpha);
         } catch (const std::bad_alloc&) {
             throw;
         } catch (const std::exception& e) {
-            throw ProbeCanvasBackendError(std::string("CE_CANVAS_BACKEND: ") + e.what());
+            throw CanvasBackendError(std::string("WEFT_CANVAS_BACKEND: ") + e.what());
         } catch (...) {
-            throw ProbeCanvasBackendError("CE_CANVAS_BACKEND: unknown raster failure");
+            throw CanvasBackendError("WEFT_CANVAS_BACKEND: unknown raster failure");
         }
         if (!next) {
-            throw ProbeCanvasBackendError("CE_CANVAS_BACKEND: null raster");
+            throw CanvasBackendError("WEFT_CANVAS_BACKEND: null raster");
         }
         budget_->peak_bytes = std::max(budget_->peak_bytes, budget_->bytes + bytes);
         budget_->bytes = budget_->bytes - bytes_ + bytes;
@@ -218,7 +218,7 @@ namespace caseelephant {
         ++version;
     }
 
-    void ProbeCanvasState::enqueue(ProbeCanvasCommand c) {
+    void CanvasState::enqueue(CanvasCommand c) {
         if (version == std::numeric_limits<std::uint64_t>::max() ||
             commands == std::numeric_limits<std::uint64_t>::max() ||
             fills == std::numeric_limits<std::uint64_t>::max()) {
@@ -233,7 +233,7 @@ namespace caseelephant {
         cached_.reset();
     }
 
-    void ProbeCanvasState::arc(double x, double y, double r, double start, double end, bool ccw) {
+    void CanvasState::arc(double x, double y, double r, double start, double end, bool ccw) {
         for (double v : {x, y, r, start, end}) {
             if (!std::isfinite(v)) {
                 return;
@@ -252,19 +252,19 @@ namespace caseelephant {
         circle_ = std::array<double, 4>{x, y, r, 0};
     }
 
-    void ProbeCanvasState::fill(std::string_view rule) {
+    void CanvasState::fill(std::string_view rule) {
         if (rule != "nonzero" && rule != "evenodd") {
             fail(Diag::CanvasFillRule, "nonzero/evenodd required");
         }
         if (circle_ && (*circle_)[2] > 0) {
             auto c = color;
             c[3] *= float(global_alpha);
-            enqueue({ProbeCanvasCommand::Kind::FillCircle, *circle_, c});
+            enqueue({CanvasCommand::Kind::FillCircle, *circle_, c});
             ++fills;
         }
     }
 
-    void ProbeCanvasState::fill_rect(double x, double y, double w, double h, bool clear) {
+    void CanvasState::fill_rect(double x, double y, double w, double h, bool clear) {
         for (double v : {x, y, w, h}) {
             if (!std::isfinite(v)) {
                 return;
@@ -291,20 +291,20 @@ namespace caseelephant {
         }
         auto c = color;
         c[3] *= float(global_alpha);
-        enqueue({clear ? ProbeCanvasCommand::Kind::ClearRect : ProbeCanvasCommand::Kind::FillRect, {x, y, w, h}, c});
+        enqueue({clear ? CanvasCommand::Kind::ClearRect : CanvasCommand::Kind::FillRect, {x, y, w, h}, c});
         ++fills;
     }
 
-    std::shared_ptr<const std::vector<std::uint8_t>> ProbeCanvasState::pixels() {
+    std::shared_ptr<const std::vector<std::uint8_t>> CanvasState::pixels() {
         if (!cached_) {
             raster_->draw(pending_);
             auto bytes = raster_->rgba_straight();
             if (bytes.size() != bytes_) {
-                throw std::runtime_error("CE_CANVAS_BACKEND: incomplete RGBA snapshot");
+                throw std::runtime_error("WEFT_CANVAS_BACKEND: incomplete RGBA snapshot");
             }
             cached_ = std::make_shared<const std::vector<std::uint8_t>>(std::move(bytes));
             pending_.clear();
         }
         return cached_;
     }
-} // namespace caseelephant
+} // namespace weft

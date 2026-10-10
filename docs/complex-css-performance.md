@@ -8,14 +8,14 @@
 
 ```powershell
 cmake --build --preset windows-release --parallel 8
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/complex-css/interactive
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/complex-css/interactive
 
 # 原 CSS 中段 / 末段：240 帧、16 帧预热、224 个固定时钟样本，无截图回读。
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-benchmark-hardware artifacts/local/complex-css/manual/css-middle css-middle
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --gallery-benchmark-hardware artifacts/local/complex-css/manual/css-end css-end
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-benchmark-hardware artifacts/local/complex-css/manual/css-middle css-middle
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --gallery-benchmark-hardware artifacts/local/complex-css/manual/css-end css-end
 
 # 新的独立复杂动画 GPU / 完整软件参考反例。
-& .\build\windows-msvc\bin\Release\ce_d3d11_probe.exe --complex-css-test-hardware artifacts/local/complex-css/manual/reference
+& .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --complex-css-test-hardware artifacts/local/complex-css/manual/reference
 ```
 
 窗口默认 CSS，滚动到 Flip Card / Ripple Effect / Pulse Ring / Spin + Pulse Combo；保留 4K、FPS、当前可见卡片数和 CPU 分位数。最终正确性和基准证据在 `artifacts/local/complex-css/`，此前 `gallery-performance/` 和 `gallery-css-d3/` seal 保留。
@@ -70,11 +70,11 @@ Windows 11 26200 / Ryzen 9 9950X3D / RTX 5090 driver 32.0.16.1062 / MSVC 19.42 C
 实际构建和普通检查使用两组 `cmake --build --preset windows-{release,debug} --parallel 8` / `ctest --preset windows-{release,debug} --parallel 6 --output-on-failure`（各配置分别执行，日志 `final-*-build.log` / `final-*-ctest.log`）；新 angle-only cache proof 后再次运行这两个完整 CTest。强制 GC 实际命令：
 
 ```powershell
-cmake --build build/windows-gc-stress --config Debug --parallel 8 --target ce_scene_contract_tests ce_scene_gallery_tests ce_d3d11_probe
+cmake --build build/windows-gc-stress --config Debug --parallel 8 --target weft_scene_contract_tests weft_scene_gallery_tests weft_d3d11_probe
 ctest --test-dir build/windows-gc-stress -C Debug --parallel 1 -R '^scene_contract$|^scene_gallery_original$|^scene_browser_geometry$|^d3d11_warp_scene_gpu$|^d3d11_warp_complex_css$|^d3d11_warp_external_texture$|^d3d11_warp_two_frame$|^d3d11_warp_render_cache$' --output-on-failure
 ```
 
-强制 GC **8/8，446.67 秒**，包括全部原 CPU/GPU scene。追加 angle-only 24 次证明后仅重建 ce_d3d11_probe，再跑 `-R '^d3d11_warp_complex_css$'`，1/1、2.90 秒；无 JS budget 或阈值调整。本轮未重复 GC gallery window。最后消除测试局部变量 shadow warning，三配置仅重建 ce_scene_contract_tests / 复跑 `-R '^scene_contract$'`，Release/Debug/GC 各 1/1，0.38/3.21/3.48 秒；渲染器和测量 executable 不变。最终源/三配置二进制/原图与实际图/日志/全部重复样本 SHA、原游戏只读 drift 封存在 `run-metadata.json`，先前 seal 不改写。
+强制 GC **8/8，446.67 秒**，包括全部原 CPU/GPU scene。追加 angle-only 24 次证明后仅重建 weft_d3d11_probe，再跑 `-R '^d3d11_warp_complex_css$'`，1/1、2.90 秒；无 JS budget 或阈值调整。本轮未重复 GC gallery window。最后消除测试局部变量 shadow warning，三配置仅重建 weft_scene_contract_tests / 复跑 `-R '^scene_contract$'`，Release/Debug/GC 各 1/1，0.38/3.21/3.48 秒；渲染器和测量 executable 不变。最终源/三配置二进制/原图与实际图/日志/全部重复样本 SHA、原游戏只读 drift 封存在 `run-metadata.json`，先前 seal 不改写。
 
 新增 owner 160 帧对照覆盖动画叠加/顺序、steps、duration/delay/时序函数、继承色与隐式 border 端点、字体/文本/宽度、移除/重插和动态 transform 字串；每帧完整 scene 值与软件图片与关闭增量的 reference 相同。另检验失败计划连续重试拒绝、有效值恢复与 reset 清理。
 

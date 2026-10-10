@@ -17,7 +17,7 @@ for name, config in (('debug', 'Debug'), ('release', 'Release')):
     assert '100% tests passed, 0 tests failed out of 68' in log
     seconds = float(re.search(r'Total Test time \(real\) =\s+([\d.]+)', log).group(1))
     binary_directory = root / 'build/windows-msvc/bin' / config
-    exe = binary_directory / 'ce_d3d11_probe.exe'
+    exe = binary_directory / 'weft_d3d11_probe.exe'
     assert log_path.stat().st_mtime >= exe.stat().st_mtime
     shutil.copytree(root / 'build/windows-msvc/artifacts' / ('external-texture-' + config), directory / 'ctest-results', dirs_exist_ok=True)
     tests[name] = {'passed': 68, 'seconds': seconds, 'scope': 'full suite'}
@@ -36,7 +36,7 @@ for name, config in (('debug', 'Debug'), ('release', 'Release')):
         tests[name][driver] = report
     snapshot = directory / 'bin'
     snapshot.mkdir(exist_ok=True)
-    for binary_name in ('ce_d3d11_probe.exe', 'ce_render_backend_tests.exe', 'ce_render_backend_c_smoke.exe'):
+    for binary_name in ('weft_d3d11_probe.exe', 'weft_render_backend_tests.exe', 'weft_render_backend_c_smoke.exe'):
         source = binary_directory / binary_name
         destination = snapshot / binary_name
         shutil.copy2(source, destination)

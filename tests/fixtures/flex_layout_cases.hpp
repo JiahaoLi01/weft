@@ -2,10 +2,10 @@
 #pragma once
 #include "caseelephant/flex_probe.hpp"
 
-namespace caseelephant::fixtures {
+namespace weft::fixtures {
     struct Case {
         std::string id;
-        FlexProbeNode root;
+        FlexNode root;
     };
 
     inline std::vector<Case> flex_cases() {
@@ -47,4 +47,4 @@ namespace caseelephant::fixtures {
     }
 
     inline constexpr const char* input_sha256 = "0aae0404653b000f5fe0e42415e33266d82ab37ef4292b28a9d168357305a681";
-} // namespace caseelephant::fixtures
+} // namespace weft::fixtures

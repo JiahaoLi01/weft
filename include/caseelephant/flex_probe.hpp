@@ -5,16 +5,16 @@
 #include <string>
 #include <vector>
 
-namespace caseelephant {
-    struct FlexProbeNode {
+namespace weft {
+    struct FlexNode {
         std::string id;
         std::map<std::string, std::string> style;
         std::string text;
-        std::vector<FlexProbeNode> children;
-        std::shared_ptr<const ProbeInlineInput> inline_content;
+        std::vector<FlexNode> children;
+        std::shared_ptr<const InlineInput> inline_content;
     };
 
-    struct FlexProbeBox {
+    struct FlexBox {
         std::string id;
         float x{};
         float y{};
@@ -26,25 +26,24 @@ namespace caseelephant {
         std::size_t text_lines{};
         std::size_t measure_calls{};
     };
-    enum class FlexProbeMode {
+    enum class FlexMode {
         RawYoga,
         CssAdapter,
         RestrictedBlockAdapter
     };
     // Pure M0 input/output: no DOM, VM values, or Yoga nodes escape this boundary.
     // Unsupported formatting contexts/properties/units fail explicitly.
-    std::vector<FlexProbeBox> run_flex_probe(const FlexProbeNode& root, TextProbeFont& font,
-                                             FlexProbeMode mode = FlexProbeMode::CssAdapter);
-    std::vector<FlexProbeBox> run_flex_probe(const FlexProbeNode& root, TextProbeFontSet& fonts,
-                                             FlexProbeMode mode = FlexProbeMode::RestrictedBlockAdapter);
+    std::vector<FlexBox> run_flex(const FlexNode& root, Font& font, FlexMode mode = FlexMode::CssAdapter);
+    std::vector<FlexBox> run_flex(const FlexNode& root, FontSet& fonts,
+                                  FlexMode mode = FlexMode::RestrictedBlockAdapter);
 
-    struct ProbeTextLine {
+    struct TextLine {
         std::string text;
-        ProbeShapedText shaped;
+        ShapedText shaped;
     };
 
     // Shared intrinsic/final measurement and paint. Non-ASCII is nowrap only;
     // ASCII normal wraps at spaces. No Unicode line breaking is implemented here.
-    std::vector<ProbeTextLine> layout_probe_text(std::string_view text, float size, float available, bool nowrap,
-                                                 TextProbeFont& font, TextProbeFontSet* fonts = nullptr);
-} // namespace caseelephant
+    std::vector<TextLine> layout_text(std::string_view text, float size, float available, bool nowrap, Font& font,
+                                      FontSet* fonts = nullptr);
+} // namespace weft

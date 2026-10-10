@@ -19,7 +19,7 @@ sources=['CMakeLists.txt','include/caseelephant/text_probe.hpp','src/text/text_p
 for name,build,config,log,count in [('debug','windows-msvc','Debug','ctest-final.log',32),
  ('release','windows-msvc','Release','ctest-final.log',32),('gc-stress','windows-gc-stress','Debug','ctest-focused.log',5)]:
     folder=root/'artifacts/local'/('cheetah-alert-'+name)
-    binary=root/'build'/build/'bin'/config/'ce_d3d11_probe.exe'
+    binary=root/'build'/build/'bin'/config/'weft_d3d11_probe.exe'
     shutil.copytree(root/'build'/build/'artifacts'/('cheetah-alert-'+config)/'warp',folder/'warp',dirs_exist_ok=True)
     text=(folder/log).read_text(encoding='utf-8');assert f'0 tests failed out of {count}' in text
     duration=float(re.search(r'Total Test time \(real\) =\s+([\d.]+)',text).group(1))

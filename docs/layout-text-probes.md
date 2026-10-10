@@ -36,7 +36,7 @@ Ahem 是 WPT 的确定性测试字体，字体原始许可与 CC0 fallback 随�
 
 Ahem 不是产品字体，也不覆盖中文。HarfBuzz 的 UTF-8 cluster 不是 UTF-16 caret 或 grapheme 边界。布局探针没有 ICU、bidi 段落处理、Unicode 换行、字体回退、跨 span 空白或组合字符编辑，只处理 printable ASCII 按空格换行，其他文本显式诊断；不能由此宣布中英文文本系统完成。后续独立 GPU 探针已实现灰度上传与固定 SDF atlas，多倍率/描边的合同与质量边界见 [SDF 字体](sdf-font-probe.md)；尚未接入此布局管线或生产 atlas 管理。
 
-后续已增加独立 TextProbeFontSet 和 positioned 单行中文页面，固定 Roboto/Noto CJK 的回退、组合 cluster、英文连字、font ID 缓存与原样 AlertBar 通过。它尚未接入这里的 ASCII Flex 换行适配器，二者边界不可合并推断，见 [中文阶段](cjk-alert-probe.md)。
+后续已增加独立 FontSet 和 positioned 单行中文页面，固定 Roboto/Noto CJK 的回退、组合 cluster、英文连字、font ID 缓存与原样 AlertBar 通过。它尚未接入这里的 ASCII Flex 换行适配器，二者边界不可合并推断，见 [中文阶段](cjk-alert-probe.md)。
 
 ## 探针边界
 
@@ -56,7 +56,7 @@ cmake --build --preset windows-debug --parallel 4
 ctest --preset windows-debug
 cmake --build --preset windows-release --parallel 4
 ctest --preset windows-release
-.\build\windows-msvc\bin\Debug\ce_flex_layout_probe.exe third_party/ahem/Ahem.ttf artifacts/local/flex-native-debug
+.\build\windows-msvc\bin\Debug\weft_flex_layout_probe.exe third_party/ahem/Ahem.ttf artifacts/local/flex-native-debug
 python tools/compare_flex_reports.py tests/fixtures/flex_browser_reference.json artifacts/local/flex-native-debug/css-adapter.json --output artifacts/local/flex-native-debug/adapter-comparison.json
 ```
 

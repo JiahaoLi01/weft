@@ -9,7 +9,7 @@
 #include <sstream>
 #include <stdexcept>
 
-namespace caseelephant {
+namespace weft {
     namespace {
         using Style = std::map<std::string, std::string>;
 
@@ -22,17 +22,17 @@ namespace caseelephant {
                 return 0;
             }
             if (!v.ends_with("px")) {
-                throw std::invalid_argument("CE_PAGE_UNIT: " + key);
+                throw std::invalid_argument("WEFT_PAGE_UNIT: " + key);
             }
             const auto n = css::parse_number<float>(v.substr(0, v.size() - 2));
             if (!n || *n < 0 || *n > constants::layout::max_length_px) {
-                throw std::invalid_argument("CE_PAGE_VALUE: " + key);
+                throw std::invalid_argument("WEFT_PAGE_VALUE: " + key);
             }
             return *n;
         }
 
         std::array<float, 4> color(const std::string& v) {
-            return parse_probe_css_color(v);
+            return parse_css_color(v);
         }
 
         struct Styled {
@@ -40,7 +40,7 @@ namespace caseelephant {
             std::string text;
             Style style;
             bool hidden{};
-            ProbeNodeIdentity identity;
+            NodeIdentity identity;
             std::size_t parent{};
             bool disabled{};
         };
@@ -48,16 +48,15 @@ namespace caseelephant {
         struct Builder {
             std::vector<Styled> nodes;
 
-            FlexProbeNode convert(const ProbeDomSnapshot& node, const ProbeComputedStyle& computed,
-                                  bool parent_hidden = false, unsigned depth = 0,
-                                  std::size_t parent_index = std::numeric_limits<std::size_t>::max(),
-                                  bool parent_disabled = false) {
+            FlexNode convert(const DomSnapshot& node, const ComputedStyle& computed, bool parent_hidden = false,
+                             unsigned depth = 0, std::size_t parent_index = std::numeric_limits<std::size_t>::max(),
+                             bool parent_disabled = false) {
                 if (depth > constants::max_document_depth || nodes.size() >= constants::max_document_nodes) {
-                    throw std::invalid_argument("CE_PAGE_LIMIT: node/depth bound");
+                    throw std::invalid_argument("WEFT_PAGE_LIMIT: node/depth bound");
                 }
                 if (node.type != constants::element_node_type || node.namespace_uri != constants::xhtml_namespace_uri ||
                     (node.local_name != "div" && node.local_name != "button")) {
-                    throw std::invalid_argument("CE_PAGE_PROFILE: only explicit flex div/button elements");
+                    throw std::invalid_argument("WEFT_PAGE_PROFILE: only explicit flex div/button elements");
                 }
                 Style style = computed.values;
                 if (!style.contains("font-size")) {
@@ -82,17 +81,17 @@ namespace caseelephant {
                     style["pointer-events"] = "auto";
                 }
                 if (style["pointer-events"] != "auto" && style["pointer-events"] != "none") {
-                    throw std::invalid_argument("CE_PAGE_INPUT: pointer-events auto/none profile");
+                    throw std::invalid_argument("WEFT_PAGE_INPUT: pointer-events auto/none profile");
                 }
                 if (style.contains("position") && style["position"] != "static") {
-                    throw std::invalid_argument("CE_PAGE_PAINT_ORDER: positioned stacking requires future adapter");
+                    throw std::invalid_argument("WEFT_PAGE_PAINT_ORDER: positioned stacking requires future adapter");
                 }
                 if (!style.contains("display") || (style["display"] != "flex" && style["display"] != "none")) {
-                    throw std::invalid_argument("CE_PAGE_FORMAT: explicit display:flex required");
+                    throw std::invalid_argument("WEFT_PAGE_FORMAT: explicit display:flex required");
                 }
                 if (style["font-family"] != constants::latin_font_family ||
                     style["font-weight"] != constants::default_font_weight || style["text-align"] != "left") {
-                    throw std::invalid_argument("CE_PAGE_FONT: fixed Roboto regular/left profile");
+                    throw std::invalid_argument("WEFT_PAGE_FONT: fixed Roboto regular/left profile");
                 }
                 const auto id = node.attributes.contains("id") ? node.attributes.at("id")
                                                                : "node-" + std::to_string(node.identity.slot) + "-" +
@@ -105,7 +104,7 @@ namespace caseelephant {
                     } else if (child.type == constants::element_node_type) {
                         elements = true;
                     } else {
-                        throw std::invalid_argument("CE_PAGE_PROFILE: unsupported child node type");
+                        throw std::invalid_argument("WEFT_PAGE_PROFILE: unsupported child node type");
                     }
                 }
                 // CSS normal-space collapse for this single-line profile.
@@ -119,10 +118,10 @@ namespace caseelephant {
                     collapsed += word;
                 }
                 if (elements && !collapsed.empty()) {
-                    throw std::invalid_argument("CE_PAGE_INLINE: mixed text/element children unsupported");
+                    throw std::invalid_argument("WEFT_PAGE_INLINE: mixed text/element children unsupported");
                 }
                 if (!collapsed.empty() && (!style.contains("white-space") || style["white-space"] != "nowrap")) {
-                    throw std::invalid_argument("CE_PAGE_TEXT: single-line nowrap required");
+                    throw std::invalid_argument("WEFT_PAGE_TEXT: single-line nowrap required");
                 }
                 const bool hidden = parent_hidden || style["display"] == "none";
                 (void)color(style["color"]);
@@ -132,11 +131,11 @@ namespace caseelephant {
                 for (const auto* key : {"border-width", "border-top-width", "border-right-width", "border-bottom-width",
                                         "border-left-width"}) {
                     if (px(style, key) != 0) {
-                        throw std::invalid_argument("CE_PAGE_PAINT: nonzero borders unsupported");
+                        throw std::invalid_argument("WEFT_PAGE_PAINT: nonzero borders unsupported");
                     }
                 }
                 if (style.contains("overflow") && style["overflow"] != "visible") {
-                    throw std::invalid_argument("CE_PAGE_PAINT: overflow clipping unsupported");
+                    throw std::invalid_argument("WEFT_PAGE_PAINT: overflow clipping unsupported");
                 }
                 const auto index = nodes.size();
                 const bool disabled =
@@ -147,7 +146,7 @@ namespace caseelephant {
                      {"color", "background-color", "font-family", "font-weight", "text-align", "pointer-events"}) {
                     style.erase(paint);
                 }
-                FlexProbeNode layout{id, std::move(style), collapsed, {}};
+                FlexNode layout{id, std::move(style), collapsed, {}};
                 std::size_t styled_child{};
                 for (const auto& child : node.children) {
                     if (child.type == constants::element_node_type) {
@@ -160,20 +159,20 @@ namespace caseelephant {
         };
     } // namespace
 
-    ProbePage build_page_probe(const ProbeDomSnapshot& root, std::string_view stylesheet, TextProbeFont& font) {
-        const auto computed = compute_style_probe(root, stylesheet, flex_page_style_profile());
+    Page build_page(const DomSnapshot& root, std::string_view stylesheet, Font& font) {
+        const auto computed = compute_style(root, stylesheet, flex_page_style_profile());
         Builder builder;
         const auto input = builder.convert(root, computed);
-        ProbePage page;
-        page.boxes = run_flex_probe(input, font, FlexProbeMode::CssAdapter);
+        Page page;
+        page.boxes = run_flex(input, font, FlexMode::CssAdapter);
         if (page.boxes.size() != builder.nodes.size()) {
-            throw std::logic_error("CE_PAGE_INTERNAL: node/box mapping");
+            throw std::logic_error("WEFT_PAGE_INTERNAL: node/box mapping");
         }
         for (std::size_t i = 0; i < builder.nodes.size(); ++i) {
             const auto& n = builder.nodes[i];
             const auto& box = page.boxes[i];
             if (n.id != box.id) {
-                throw std::logic_error("CE_PAGE_INTERNAL: order mapping");
+                throw std::logic_error("WEFT_PAGE_INTERNAL: order mapping");
             }
             page.hits.push_back({n.identity, n.parent, box.x, box.y, box.width, box.height,
                                  !n.hidden && n.style.at("pointer-events") == "auto", n.disabled});
@@ -181,7 +180,7 @@ namespace caseelephant {
                 continue;
             }
             if (n.style.contains("background-color")) {
-                page.paints.push_back({ProbePaintKind::Rectangle,
+                page.paints.push_back({PaintKind::Rectangle,
                                        n.id,
                                        {},
                                        box.x,
@@ -201,20 +200,20 @@ namespace caseelephant {
             const float top = px(n.style, "padding-top", px(n.style, "padding"));
             if (box.text_lines != 1 ||
                 box.text_width > box.width - left - right + constants::layout::text_overflow_tolerance_px) {
-                throw std::invalid_argument("CE_PAGE_TEXT: text overflow requires future clipping/inline adapter");
+                throw std::invalid_argument("WEFT_PAGE_TEXT: text overflow requires future clipping/inline adapter");
             }
             auto shaped = font.shape(n.text, size);
             if (shaped.missing_glyph) {
-                throw std::invalid_argument("CE_PAGE_FONT: missing glyph");
+                throw std::invalid_argument("WEFT_PAGE_FONT: missing glyph");
             }
-            page.paints.push_back({ProbePaintKind::Text, n.id, n.text, box.x + left, box.y + top + box.baseline, 0, 0,
-                                   size, color(n.style.at("color")), std::move(shaped)});
+            page.paints.push_back({PaintKind::Text, n.id, n.text, box.x + left, box.y + top + box.baseline, 0, 0, size,
+                                   color(n.style.at("color")), std::move(shaped)});
         }
         return page;
     }
 
-    ProbePage build_page_probe(const ProbeDomSnapshot& root, TextProbeFont& font) {
-        return build_page_probe(root, "", font);
+    Page build_page(const DomSnapshot& root, Font& font) {
+        return build_page(root, "", font);
     }
 
-} // namespace caseelephant
+} // namespace weft

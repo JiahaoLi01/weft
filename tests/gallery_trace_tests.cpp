@@ -12,9 +12,9 @@
 #include "test_constants/script.hpp"
 
 // Recording lifetime, toggling and eviction of the shared owner trace recorder.
-using caseelephant::testing::OwnerTrace;
-using caseelephant::testing::require;
-using caseelephant::testing::TraceControl;
+using weft::testing::OwnerTrace;
+using weft::testing::require;
+using weft::testing::TraceControl;
 
 int main(int argc, char** argv) {
     try {
@@ -36,13 +36,13 @@ int main(int argc, char** argv) {
         control->enabled = true;
         {
             OwnerTrace trace(ring, 1, control);
-            for (unsigned i = 0; i < caseelephant::test_constants::script::trace_ring_overflow_events; ++i) {
+            for (unsigned i = 0; i < weft::test_constants::script::trace_ring_overflow_events; ++i) {
                 trace.emit("event" + std::to_string(i), stamp, double(i % 10));
             }
             control->enabled = false;
             trace.emit("disabled tail", stamp, 1);
         }
-        const auto data = caseelephant::testing::read_file(ring);
+        const auto data = weft::testing::read_file(ring);
         require(data.starts_with("{\"traceEvents\":[{\"ph\":\"X\",\"pid\":1,\"tid\":1,\"name\":\"event4\""),
                 "ring did not retain its latest events");
         require(data.find("\"name\":\"event65539\"") != data.npos && data.find("disabled tail") == data.npos &&
@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
             control->enabled = false;
             trace.emit("not sampled", stamp, 1);
         }
-        const auto sampled = caseelephant::testing::read_file(toggle);
+        const auto sampled = weft::testing::read_file(toggle);
         require(sampled.find("disabled scope") == sampled.npos &&
                     sampled.find("operation began disabled") == sampled.npos &&
                     sampled.find("not sampled") == sampled.npos &&

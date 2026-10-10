@@ -14,14 +14,14 @@ public:
         Surface linear;
         ComPtr<ID2D1DeviceContext> target;
         ComPtr<ID2D1Bitmap1> bitmap;
-        caseelephant::SceneRasterProbe painter;
-        ce_render_handle handle{};
+        weft::SceneRaster painter;
+        weft_render_handle handle{};
         std::uint64_t last_serial{};
         std::uint64_t version{};
         unsigned width{};
         unsigned height{};
         std::optional<std::array<float, 4>> clip;
-        std::shared_ptr<const caseelephant::ProbeSceneFrame> retained_frame;
+        std::shared_ptr<const weft::SceneFrame> retained_frame;
         SceneNativeGpu::Slot native;
         bool last_native{};
     };
@@ -33,17 +33,16 @@ private:
     SceneNativeGpu native_;
     ComPtr<ID2D1Device> d2d_;
     ComPtr<ID3D11Buffer> constants_;
-    std::array<std::array<std::unique_ptr<Slot>, caseelephant::probe_constants::gallery::surface_versions_per_card>,
+    std::array<std::array<std::unique_ptr<Slot>, weft::probe_constants::gallery::surface_versions_per_card>,
                gallery_scene_count>
         slots_;
     std::array<Slot*, gallery_scene_count> current_{};
-    caseelephant::SceneRasterProbe::Work retired_raster_{};
+    weft::SceneRaster::Work retired_raster_{};
     std::uint64_t version_{};
     bool producer_pending{};
     std::vector<std::pair<unsigned, Slot*>> pending_;
 
-    static void add_work(caseelephant::SceneRasterProbe::Work& total,
-                         const caseelephant::SceneRasterProbe::Work& value) {
+    static void add_work(weft::SceneRaster::Work& total, const weft::SceneRaster::Work& value) {
         total.gpu_projective_draws += value.gpu_projective_draws;
         total.gpu_plane_uploads += value.gpu_plane_uploads;
         total.uniform_border_draws += value.uniform_border_draws;
@@ -107,7 +106,7 @@ private:
         ctx->PSSetShader(gpu_.ps.Get(), nullptr, 0);
         Constants data{{0, 0, float(s.width), float(s.height)},
                        {float(s.width), float(s.height)},
-                       caseelephant::probe_constants::gallery::encoded_bgra_material,
+                       weft::probe_constants::gallery::encoded_bgra_material,
                        1,
                        {1, 1, 1, 1},
                        {0, 0, 1, 1},
@@ -121,7 +120,7 @@ private:
         ctx->PSSetSamplers(0, 1, &sampler);
         auto* view = s.encoded_srv.Get();
         ctx->PSSetShaderResources(0, 1, &view);
-        ctx->Draw(caseelephant::probe_constants::gallery::quad_vertex_count, 0);
+        ctx->Draw(weft::probe_constants::gallery::quad_vertex_count, 0);
         ctx->ClearState();
     }
 
@@ -146,8 +145,8 @@ public:
 
     SceneGpuSurfaces(Experiment& gpu, TwoFramePipeline& pipeline)
         : gpu_(gpu), pipeline_(pipeline), api_(gpu.ensure_backend()), native_(gpu) {
-        api_.enable_external(caseelephant::probe_constants::gallery::external_texture_limit,
-                             caseelephant::probe_constants::gallery::external_import_budget_bytes);
+        api_.enable_external(weft::probe_constants::gallery::external_texture_limit,
+                             weft::probe_constants::gallery::external_import_budget_bytes);
         ComPtr<IDXGIDevice> device;
         check_hresult(gpu.device.As(&device), "GPU scene D2D device identity");
         check_hresult(D2D1CreateDevice(device.Get(), nullptr, &d2d_), "GPU scene shared D2D device");
@@ -183,7 +182,7 @@ public:
                 for (auto& slot : slots_[i]) {
                     if (slot && slot->last_serial <= pipeline_.completed_serial) {
                         if (slot->handle.renderer_id) {
-                            render_result(ce_renderer_release_texture(api_.renderer, slot->handle),
+                            render_result(weft_renderer_release_texture(api_.renderer, slot->handle),
                                           "GPU hidden completed caller retirement");
                             slot->handle = {};
                             ++retired;
@@ -201,7 +200,7 @@ public:
         }
     }
 
-    caseelephant::SceneRasterProbe::Work raster_work() const {
+    weft::SceneRaster::Work raster_work() const {
         auto total = retired_raster_;
         for (const auto& group : slots_) {
             for (const auto& slot : group) {
@@ -217,19 +216,19 @@ public:
         return !current_.at(index) || current_[index]->clip != clip;
     }
 
-    Slot& paint(unsigned index, const caseelephant::ProbeSceneFrame& frame,
-                float scale = caseelephant::probe_constants::gallery::scene_raster_scale,
+    Slot& paint(unsigned index, const weft::SceneFrame& frame,
+                float scale = weft::probe_constants::gallery::scene_raster_scale,
                 std::optional<std::array<float, 4>> clip = std::nullopt) {
-        return paint_owned(index, std::make_shared<const caseelephant::ProbeSceneFrame>(frame), scale, clip);
+        return paint_owned(index, std::make_shared<const weft::SceneFrame>(frame), scale, clip);
     }
 
-    Slot& paint_owned(unsigned index, std::shared_ptr<const caseelephant::ProbeSceneFrame> value,
-                      float scale = caseelephant::probe_constants::gallery::scene_raster_scale,
+    Slot& paint_owned(unsigned index, std::shared_ptr<const weft::SceneFrame> value,
+                      float scale = weft::probe_constants::gallery::scene_raster_scale,
                       std::optional<std::array<float, 4>> clip = std::nullopt,
-                      std::vector<caseelephant::ProbeNodeIdentity> layers = {}) {
+                      std::vector<weft::NodeIdentity> layers = {}) {
         require(bool(value), "owned scene snapshot missing");
         const auto& frame = *value;
-        require(std::isfinite(scale) && scale > 0 && scale <= caseelephant::probe_constants::gallery::max_surface_scale,
+        require(std::isfinite(scale) && scale > 0 && scale <= weft::probe_constants::gallery::max_surface_scale,
                 "scene surface scale");
         for (auto v : frame.root.box) {
             require(std::isfinite(v), "scene surface finite bounds");
@@ -271,7 +270,7 @@ public:
                 "GPU scene cannot rewrite an incomplete version");
         auto& s = *selected;
         if (s.handle.renderer_id) {
-            render_result(ce_renderer_release_texture(api_.renderer, s.handle),
+            render_result(weft_renderer_release_texture(api_.renderer, s.handle),
                           "GPU scene completed caller retirement");
             s.handle = {};
             ++retired;
@@ -279,7 +278,7 @@ public:
         }
         const auto w = unsigned(std::ceil(frame.root.box[2] * scale));
         const auto h = unsigned(std::ceil(frame.root.box[3] * scale));
-        require(w && h && std::uint64_t(w) * h <= caseelephant::probe_constants::gallery::max_surface_pixels,
+        require(w && h && std::uint64_t(w) * h <= weft::probe_constants::gallery::max_surface_pixels,
                 "GPU scene surface bound");
         if (!s.encoded || s.width != w || s.height != h) {
             create(s, w, h);
@@ -288,9 +287,9 @@ public:
         peak_live_slots = std::max(peak_live_slots, live_slots());
         producer_pending = true;
         s.painter.set_layers(layers);
-        auto damage = caseelephant::ProbeSceneDamage{true, true, {0, 0, frame.root.box[2], frame.root.box[3]}};
+        auto damage = weft::SceneDamage{true, true, {0, 0, frame.root.box[2], frame.root.box[3]}};
         if (retain_paint && s.retained_frame && s.clip == clip) {
-            damage = caseelephant::scene_damage_probe(*s.retained_frame, frame, scale);
+            damage = weft::scene_damage(*s.retained_frame, frame, scale);
         }
         full_pixels += double(w) * h;
         const bool native =
@@ -326,35 +325,34 @@ public:
             convert(s);
             auto w = s.width;
             auto h = s.height;
-            ce_render_info info{};
+            weft_render_info info{};
             info.struct_size = sizeof(info);
-            render_result(ce_renderer_get_info(api_.renderer, &info), "GPU scene renderer epoch");
-            ce_render_d3d11_texture payload{sizeof(payload), 1, s.linear.srv.Get(), 0};
+            render_result(weft_renderer_get_info(api_.renderer, &info), "GPU scene renderer epoch");
+            weft_render_d3d11_texture payload{sizeof(payload), 1, s.linear.srv.Get(), 0};
             require(version_ != UINT64_MAX, "GPU scene version generation bound");
             s.version = ++version_;
-            ce_render_external_texture description{sizeof(description),
-                                                   1,
-                                                   info.identity,
-                                                   caseelephant::probe_constants::gallery::external_texture_id_base +
-                                                       index,
-                                                   s.version,
-                                                   w,
-                                                   h,
-                                                   CE_RENDER_TARGET_LINEAR_RGBA16F,
-                                                   0,
-                                                   0,
-                                                   0,
-                                                   0,
-                                                   0,
-                                                   &payload,
-                                                   sizeof(payload),
-                                                   nullptr,
-                                                   nullptr};
-            const auto result = ce_renderer_import_texture(api_.renderer, &description, &s.handle);
-            ce_render_external_info external{sizeof(external)};
-            render_result(ce_renderer_get_external_info(api_.renderer, &external), "GPU scene import accounting");
+            weft_render_external_texture description{sizeof(description),
+                                                     1,
+                                                     info.identity,
+                                                     weft::probe_constants::gallery::external_texture_id_base + index,
+                                                     s.version,
+                                                     w,
+                                                     h,
+                                                     WEFT_RENDER_TARGET_LINEAR_RGBA16F,
+                                                     0,
+                                                     0,
+                                                     0,
+                                                     0,
+                                                     0,
+                                                     &payload,
+                                                     sizeof(payload),
+                                                     nullptr,
+                                                     nullptr};
+            const auto result = weft_renderer_import_texture(api_.renderer, &description, &s.handle);
+            weft_render_external_info external{sizeof(external)};
+            render_result(weft_renderer_get_external_info(api_.renderer, &external), "GPU scene import accounting");
             peak_imported_bytes = std::max(peak_imported_bytes, external.texture_bytes);
-            if (result != CE_RENDER_OK) {
+            if (result != WEFT_RENDER_OK) {
                 throw std::runtime_error("GPU scene frozen linear version result=" + std::to_string(result) +
                                          " card=" + std::to_string(index) +
                                          " imported_bytes=" + std::to_string(external.texture_bytes) +
@@ -367,10 +365,10 @@ public:
     // Translate the complete CPU shell packet to complete GPU dependencies.
     // Unused placeholders are removed; original text/image assets keep order.
     template <std::size_t N>
-    std::vector<ce_render_handle> dependencies(FramePacket& packet, const std::array<int, N>& indices,
-                                               const std::array<bool, N>& visible) {
+    std::vector<weft_render_handle> dependencies(FramePacket& packet, const std::array<int, N>& indices,
+                                                 const std::array<bool, N>& visible) {
         std::vector<int> mapping(packet.assets.size(), -1);
-        std::vector<ce_render_handle> external;
+        std::vector<weft_render_handle> external;
         for (unsigned i = 0; i < N; ++i) {
             if (visible[i]) {
                 require(current_[i] && indices[i] >= 0, "GPU scene visible dependency");
@@ -412,7 +410,7 @@ public:
             if (slot) {
                 require(slot->last_serial <= pipeline_.completed_serial, "card retirement before completion");
                 if (slot->handle.renderer_id) {
-                    render_result(ce_renderer_release_texture(api_.renderer, slot->handle),
+                    render_result(weft_renderer_release_texture(api_.renderer, slot->handle),
                                   "GPU card final caller retirement");
                     slot->handle = {};
                     ++retired;
@@ -425,7 +423,7 @@ public:
         current_.at(index) = nullptr;
     }
 
-    caseelephant::ProbeSceneBitmap read(unsigned index) {
+    weft::SceneBitmap read(unsigned index) {
         pipeline_.drain();
         auto& s = *current_.at(index);
         require(s.last_serial <= pipeline_.completed_serial, "GPU scene read requires real completion");
@@ -440,8 +438,7 @@ public:
         D3D11_MAPPED_SUBRESOURCE mapped{};
         check_hresult(gpu_.immediate->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped),
                       "GPU scene test completed readback");
-        caseelephant::ProbeSceneBitmap out{s.width, s.height,
-                                           std::vector<std::uint8_t>(std::size_t(s.width) * s.height * 4)};
+        weft::SceneBitmap out{s.width, s.height, std::vector<std::uint8_t>(std::size_t(s.width) * s.height * 4)};
         for (unsigned y = 0; y < s.height; ++y) {
             for (unsigned x = 0; x < s.width; ++x) {
                 auto p = static_cast<const std::uint8_t*>(mapped.pData) + std::size_t(y) * mapped.RowPitch + x * 4;
@@ -450,9 +447,8 @@ public:
                 q[3] = std::uint8_t(alpha);
                 for (unsigned c = 0; c < 3; ++c) {
                     q[c] = alpha ? std::uint8_t(std::min(
-                                       static_cast<unsigned>(caseelephant::constants::color_channel_max),
-                                       (unsigned(p[2 - c]) * caseelephant::constants::color_channel_max + alpha / 2) /
-                                           alpha))
+                                       static_cast<unsigned>(weft::constants::color_channel_max),
+                                       (unsigned(p[2 - c]) * weft::constants::color_channel_max + alpha / 2) / alpha))
                                  : 0;
                 }
             }
@@ -470,13 +466,12 @@ public:
             gpu_.immediate->End(done.Get());
             gpu_.immediate->Flush();
             BOOL complete{};
-            const auto deadline =
-                std::chrono::steady_clock::now() +
-                std::chrono::seconds(caseelephant::probe_constants::gallery::producer_completion_timeout_s);
+            const auto deadline = std::chrono::steady_clock::now() +
+                                  std::chrono::seconds(weft::probe_constants::gallery::producer_completion_timeout_s);
             while (gpu_.immediate->GetData(done.Get(), &complete, sizeof(complete), 0) != S_OK || !complete) {
                 require(std::chrono::steady_clock::now() < deadline, "GPU producer-only completion deadline");
                 std::this_thread::sleep_for(
-                    std::chrono::milliseconds(caseelephant::probe_constants::gallery::completion_poll_ms));
+                    std::chrono::milliseconds(weft::probe_constants::gallery::completion_poll_ms));
             }
             producer_pending = false;
         }
@@ -484,7 +479,7 @@ public:
         for (auto& group : slots_) {
             for (auto& slot : group) {
                 if (slot && slot->handle.renderer_id) {
-                    render_result(ce_renderer_release_texture(api_.renderer, slot->handle),
+                    render_result(weft_renderer_release_texture(api_.renderer, slot->handle),
                                   "GPU scene final caller retirement");
                     slot->handle = {};
                     ++retired;
@@ -507,8 +502,8 @@ public:
 
 int run_scene_gpu_test(bool warp, const std::filesystem::path& folder, bool optimized = false) {
     std::filesystem::create_directories(folder);
-    Experiment gpu(warp, caseelephant::probe_constants::gallery::scene_test_surface_size,
-                   caseelephant::probe_constants::gallery::scene_test_surface_size);
+    Experiment gpu(warp, weft::probe_constants::gallery::scene_test_surface_size,
+                   weft::probe_constants::gallery::scene_test_surface_size);
     gpu.cache_assets = true;
     TwoFramePipeline pipeline(gpu);
     SceneGpuSurfaces surfaces(gpu, pipeline);
@@ -521,33 +516,30 @@ int run_scene_gpu_test(bool warp, const std::filesystem::path& folder, bool opti
     double minimum_iou = 1;
     for (unsigned group = 0; group < 2; ++group) {
         for (unsigned index = 0;
-             index < (group ? static_cast<unsigned>(caseelephant::probe_constants::gallery::d3_scene_count)
-                            : static_cast<unsigned>(caseelephant::probe_constants::gallery::css_scene_count));
+             index < (group ? static_cast<unsigned>(weft::probe_constants::gallery::d3_scene_count)
+                            : static_cast<unsigned>(weft::probe_constants::gallery::css_scene_count));
              ++index) {
-            const unsigned slot = group ? caseelephant::probe_constants::gallery::css_scene_count + index : index;
+            const unsigned slot = group ? weft::probe_constants::gallery::css_scene_count + index : index;
             const auto id = std::string(group ? "d3-" : "css-") + (index < 10 ? "0" : "") + std::to_string(index);
             std::cout << id << " GPU..." << std::flush;
             GallerySceneSession scene(group != 0, index,
-                                      group
-                                          ? static_cast<float>(caseelephant::probe_constants::gallery::d3_card_size)
-                                          : static_cast<float>(caseelephant::probe_constants::gallery::css_card_width));
-            std::array<bool, caseelephant::probe_constants::gallery::core_scene_count> visible{};
+                                      group ? static_cast<float>(weft::probe_constants::gallery::d3_card_size)
+                                            : static_cast<float>(weft::probe_constants::gallery::css_card_width));
+            std::array<bool, weft::probe_constants::gallery::core_scene_count> visible{};
             visible[slot] = true;
-            for (unsigned frame = 0; frame <= caseelephant::probe_constants::gallery::scene_reference_last_frame;
-                 ++frame) {
-                const double time = frame * caseelephant::probe_constants::gallery::fixed_clock_step_ms;
+            for (unsigned frame = 0; frame <= weft::probe_constants::gallery::scene_reference_last_frame; ++frame) {
+                const double time = frame * weft::probe_constants::gallery::fixed_clock_step_ms;
                 scene.step(time);
                 if (!group && index >= 4 && index <= 7 && (frame == 18 || frame == 72)) {
-                    scene.input(index == 7 ? caseelephant::ProbeMouseType::Click : caseelephant::ProbeMouseType::Move,
+                    scene.input(index == 7 ? weft::MouseType::Click : weft::MouseType::Move,
                                 frame == 72 && index != 7 ? -10.f : scene.width / 2,
                                 frame == 72 && index != 7 ? -10.f : 60.f);
                     scene.step(time);
                 }
-                auto& image =
-                    surfaces.paint_owned(slot, std::make_shared<const caseelephant::ProbeSceneFrame>(scene.current),
-                                         caseelephant::probe_constants::gallery::scene_raster_scale, std::nullopt,
-                                         optimized ? gallery_layer_manifest(slot, scene.current, true)
-                                                   : std::vector<caseelephant::ProbeNodeIdentity>{});
+                auto& image = surfaces.paint_owned(slot, std::make_shared<const weft::SceneFrame>(scene.current),
+                                                   weft::probe_constants::gallery::scene_raster_scale, std::nullopt,
+                                                   optimized ? gallery_layer_manifest(slot, scene.current, true)
+                                                             : std::vector<weft::NodeIdentity>{});
                 surfaces.publish();
                 FramePacket packet;
                 packet.draws.push_back({{0, 0, float(image.width), float(image.height)}, {1, 1, 1, 1}, 0});
@@ -558,7 +550,7 @@ int run_scene_gpu_test(bool warp, const std::filesystem::path& folder, bool opti
                 surfaces.submitted(serial, visible);
                 if (frame == 24 || frame == 63 || frame == 120) {
                     const auto actual = surfaces.read(slot);
-                    const auto expected = scene_reference(std::filesystem::path(CE_SOURCE_DIR) /
+                    const auto expected = scene_reference(std::filesystem::path(WEFT_SOURCE_DIR) /
                                                           "tests/fixtures/scene-gallery-reference" /
                                                           (id + "-" + std::to_string(frame) + ".png"));
                     const auto diff = scene_difference(actual, expected);
@@ -576,7 +568,7 @@ int run_scene_gpu_test(bool warp, const std::filesystem::path& folder, bool opti
                 }
             }
             scene.unmount();
-            require(scene.vm.stats().live_nodes == caseelephant::probe_constants::gallery::unmounted_live_nodes,
+            require(scene.vm.stats().live_nodes == weft::probe_constants::gallery::unmounted_live_nodes,
                     "GPU original scene unmount");
             if (count++) {
                 report << ',';
@@ -587,7 +579,7 @@ int run_scene_gpu_test(bool warp, const std::filesystem::path& folder, bool opti
     }
     // Translucent encoded texels must be decoded before bilinear filtering.
     // This is a separate CPU alpha/color oracle for the new conversion pass.
-    caseelephant::ProbeSceneFrame alpha;
+    weft::SceneFrame alpha;
     alpha.root.box = {0, 0, 80, 80};
     alpha.root.tag = "div";
     alpha.root.identity = {1, 1, 900};
@@ -599,8 +591,8 @@ int run_scene_gpu_test(bool warp, const std::filesystem::path& folder, bool opti
         child.style = {{"background-color", i ? "rgba(0,80,255,.6)" : "rgba(255,40,0,.25)"}, {"border-radius", "4px"}};
         alpha.root.children.push_back(child);
     }
-    caseelephant::SceneRasterProbe software;
-    auto bitmap = software.raster(alpha, caseelephant::probe_constants::gallery::scene_raster_scale);
+    weft::SceneRaster software;
+    auto bitmap = software.raster(alpha, weft::probe_constants::gallery::scene_raster_scale);
     auto& source = surfaces.paint(0, alpha);
     surfaces.publish();
     FramePacket expected;
@@ -610,7 +602,7 @@ int run_scene_gpu_test(bool warp, const std::filesystem::path& folder, bool opti
     expected.draws.push_back({{8.25f, 9.75f, 64, 64}, {1, 1, 1, 1}, 0, false, false, .7f});
     auto input = expected;
     input.assets.clear();
-    std::array<bool, caseelephant::probe_constants::gallery::core_scene_count> visible{};
+    std::array<bool, weft::probe_constants::gallery::core_scene_count> visible{};
     visible[0] = true;
     auto serial = pipeline.submit(std::move(input),
                                   [] {
@@ -627,7 +619,7 @@ int run_scene_gpu_test(bool warp, const std::filesystem::path& folder, bool opti
             for (unsigned c = 0; c < 4; ++c) {
                 if (auto error = unsigned(std::abs(int(reference[c]) - actual[c])); error > conversion_error) {
                     conversion_error = error;
-                    if (error > caseelephant::probe_constants::gallery::max_cpu_oracle_difference) {
+                    if (error > weft::probe_constants::gallery::max_cpu_oracle_difference) {
                         std::cerr << "conversion (" << x << "," << y << "," << c << ") CPU=" << unsigned(reference[c])
                                   << " GPU=" << unsigned(actual[c]) << " difference=" << error << '\n';
                     }
@@ -635,10 +627,10 @@ int run_scene_gpu_test(bool warp, const std::filesystem::path& folder, bool opti
             }
         }
     }
-    require(conversion_error <= caseelephant::probe_constants::gallery::max_cpu_oracle_difference,
+    require(conversion_error <= weft::probe_constants::gallery::max_cpu_oracle_difference,
             "GPU encoded-alpha conversion/filter oracle");
     auto full = surfaces.read(0);
-    auto& cropped = surfaces.paint(0, alpha, caseelephant::probe_constants::gallery::scene_raster_scale,
+    auto& cropped = surfaces.paint(0, alpha, weft::probe_constants::gallery::scene_raster_scale,
                                    std::array<float, 4>{5, 4, 64, 70});
     surfaces.publish();
     input = expected;
@@ -672,7 +664,7 @@ int run_scene_gpu_test(bool warp, const std::filesystem::path& folder, bool opti
     surfaces.release();
     gpu.evict_assets(0, true);
     gpu.check_debug_messages();
-    require(count == caseelephant::probe_constants::gallery::core_scene_count && captures == 102 &&
+    require(count == weft::probe_constants::gallery::core_scene_count && captures == 102 &&
                 pipeline.submissions == pipeline.completions,
             "GPU original capture/completion coverage");
     if (optimized) {

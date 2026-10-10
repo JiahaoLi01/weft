@@ -6,7 +6,7 @@
 
 ## 实际链路
 
-[AlertBar.tsx](../tests/fixtures/casecheetah/UI/src/shell/AlertBar.tsx)、[ui-store.ts](../tests/fixtures/casecheetah/UI/src/stores/ui-store.ts)、focus.ts、ue-bridge.ts、NineSlice.tsx 均保持捕获时的字节。Zustand 5.0.15 是原锁文件同版本的完整原包，使用其真实 ESM React/vanilla store，而非测试替身。React 19.3.0/Vite 8.3.3 仍采用 CaseElephant 的既有固定运行时，区别于游戏的 19.2.8/6.4.3。
+[AlertBar.tsx](../tests/fixtures/casecheetah/UI/src/shell/AlertBar.tsx)、[ui-store.ts](../tests/fixtures/casecheetah/UI/src/stores/ui-store.ts)、focus.ts、ue-bridge.ts、NineSlice.tsx 均保持捕获时的字节。Zustand 5.0.15 是原锁文件同版本的完整原包，使用其真实 ESM React/vanilla store，而非测试替身。React 19.3.0/Vite 8.3.3 仍采用 Weft 的既有固定运行时，区别于游戏的 19.2.8/6.4.3。
 
 [测试外壳](../examples/cheetah-alert/src/main.tsx) 提供固定仓库/公司数据、13 项分支和捕获型 `window.ue.sendEvent`；它只保存 JSON，不调用真实 Unreal。选项触发原始 openModal → focusOn → sendToUE，实际 Zustand dossier/dock 状态更新。另一按钮使用原始 `window.__ue_dispatch('setQuote', data)`，回执经真实 handler 进入 store 并使 React 重绘。这个接收端尚未绑定 C++ 游戏服务。
 
@@ -14,7 +14,7 @@
 
 ## 字体与所有权
 
-[TextProbeFontSet](../include/caseelephant/text_probe.hpp) 按顺序持有固定 Roboto 和 Noto Sans CJK SC Regular。Noto Sans2.004 来自官方 commit `523d033d6cb47f4a80c58a35753646f5c3608a78`，OTF 为 16,437,364 字节，SHA-256 与 SIL OFL 1.1 原文随源码保存。它是可打包的 UI sans 候选，不等同于游戏的宋体/系统字体。正常构建不查询系统字体、不联网。
+[FontSet](../include/caseelephant/text_probe.hpp) 按顺序持有固定 Roboto 和 Noto Sans CJK SC Regular。Noto Sans2.004 来自官方 commit `523d033d6cb47f4a80c58a35753646f5c3608a78`，OTF 为 16,437,364 字节，SHA-256 与 SIL OFL 1.1 原文随源码保存。它是可打包的 UI sans 候选，不等同于游戏的宋体/系统字体。正常构建不查询系统字体、不联网。
 
 当前范围是 LTR Latin/Han/Common/Inherited。UTF-8 解码和 cluster 来自固定 HarfBuzz；主字体缺字时为整个 cluster 选择后续字体，再合并相邻同字体段重塑形，保留英文连字、源 UTF-8 cluster 与每 glyph 的 font_id。组合字符、缺字、非法 UTF-8、其他 script/bidi 控制、字号/face/owner 反例有测试。HarfBuzz cluster 不是通用编辑 grapheme；未实现 Unicode 段落分析、换行、RTL、任意脚本、语言配置、caret 或 IME。
 
@@ -39,7 +39,7 @@ Debug/Release 的硬件 RTX 5090 和 WARP 都通过。每次 568 个 fallback gl
 ~~~powershell
 cmake --build --preset windows-debug --parallel 4
 ctest --preset windows-debug
-build/windows-msvc/bin/Debug/ce_d3d11_probe.exe --cheetah-alert-hardware artifacts/local/cheetah-alert-debug/hardware
+build/windows-msvc/bin/Debug/weft_d3d11_probe.exe --cheetah-alert-hardware artifacts/local/cheetah-alert-debug/hardware
 python tools/compare_cheetah_alert.py tests/fixtures/cheetah_alert_browser_reference.json artifacts/local/cheetah-alert-debug/hardware/report.json --output artifacts/local/cheetah-alert-debug/hardware/browser-comparison.json
 ~~~
 

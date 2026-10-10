@@ -7,47 +7,46 @@
 #ifdef _WIN32
 struct ID2D1RenderTarget;
 #endif
-namespace caseelephant {
+namespace weft {
     // Owner-only scene formatting/animation probe. Render adapters consume these
     // owned values; neither DOM pointers nor VM handles cross the boundary.
-    using ProbeSceneStyle = std::map<std::string, std::string>;
+    using SceneStyle = std::map<std::string, std::string>;
 
-    struct ProbeSceneTextMetrics {
+    struct SceneTextMetrics {
         float width{};
         float height{};
         float baseline{};
     };
 
-    using ProbeSceneMeasure = std::function<ProbeSceneTextMetrics(std::string_view, const ProbeSceneStyle&)>;
+    using SceneMeasure = std::function<SceneTextMetrics(std::string_view, const SceneStyle&)>;
 
-    struct ProbeSceneNode {
-        ProbeNodeIdentity identity;
+    struct SceneNode {
+        NodeIdentity identity;
         std::string tag;
         std::string space;
         std::string text;
         std::map<std::string, std::string> attributes;
-        ProbeSceneStyle style;
+        SceneStyle style;
         std::array<float, 4> box{}; // Parent-local border box, before transform.
-        std::vector<ProbeSceneNode> children;
-        std::optional<ProbeScenePaintValues> paint; // Derived numeric cache, not DOM/style identity.
+        std::vector<SceneNode> children;
+        std::optional<ScenePaintValues> paint; // Derived numeric cache, not DOM/style identity.
 
-        friend bool operator==(const ProbeSceneNode& a, const ProbeSceneNode& b) {
+        friend bool operator==(const SceneNode& a, const SceneNode& b) {
             return a.identity == b.identity && a.tag == b.tag && a.space == b.space && a.text == b.text &&
                    a.attributes == b.attributes && a.style == b.style && a.box == b.box && a.children == b.children;
         }
     };
 
-    struct ProbeSceneFrame {
-        ProbeSceneNode root;
-        std::vector<ProbeElementGeometry> elements;
+    struct SceneFrame {
+        SceneNode root;
+        std::vector<ElementGeometry> elements;
         bool animated{};
         double time_ms{};
     };
 
     // Exact dependency projection for the current geometry adapter. Paint color,
     // opacity and pseudo state do not change geometry; transforms still do.
-    inline bool scene_geometry_own_equal_probe(const ProbeSceneNode& a, const ProbeSceneNode& b,
-                                               bool identical_style = false) {
+    inline bool scene_geometry_own_equal(const SceneNode& a, const SceneNode& b, bool identical_style = false) {
         if (a.identity != b.identity || a.tag != b.tag || a.space != b.space || a.text != b.text || a.box != b.box) {
             return false;
         }
@@ -73,12 +72,12 @@ namespace caseelephant {
                equal_keys(a.attributes, b.attributes, attrs);
     }
 
-    inline bool scene_geometry_equal_probe(const ProbeSceneNode& a, const ProbeSceneNode& b) {
-        if (!scene_geometry_own_equal_probe(a, b) || a.children.size() != b.children.size()) {
+    inline bool scene_geometry_equal(const SceneNode& a, const SceneNode& b) {
+        if (!scene_geometry_own_equal(a, b) || a.children.size() != b.children.size()) {
             return false;
         }
         for (std::size_t i = 0; i < a.children.size(); ++i) {
-            if (!scene_geometry_equal_probe(a.children[i], b.children[i])) {
+            if (!scene_geometry_equal(a.children[i], b.children[i])) {
                 return false;
             }
         }
@@ -88,7 +87,7 @@ namespace caseelephant {
     // Source reuse must compare the numeric samples too: diagnostic style strings
     // may round two different samples to the same spelling. Logical DOM equality
     // above intentionally excludes this derived cache.
-    inline bool scene_paint_source_equal_probe(const ProbeSceneNode& a, const ProbeSceneNode& b) {
+    inline bool scene_paint_source_equal(const SceneNode& a, const SceneNode& b) {
         if (a.identity != b.identity || a.tag != b.tag || a.space != b.space || a.text != b.text ||
             a.attributes != b.attributes || a.style != b.style || a.box != b.box ||
             a.children.size() != b.children.size() || bool(a.paint) != bool(b.paint) ||
@@ -96,7 +95,7 @@ namespace caseelephant {
             return false;
         }
         for (std::size_t i = 0; i < a.children.size(); ++i) {
-            if (!scene_paint_source_equal_probe(a.children[i], b.children[i])) {
+            if (!scene_paint_source_equal(a.children[i], b.children[i])) {
                 return false;
             }
         }
@@ -105,25 +104,25 @@ namespace caseelephant {
 
     // Damage is relative to an actual retained surface, never a previous candidate
     // packet. Unknown paint bounds conservatively invalidate the entire surface.
-    struct ProbeSceneDamage {
+    struct SceneDamage {
         bool changed{};
         bool full{};
         std::array<float, 4> rect{};
     }; // left/top/right/bottom
 
-    ProbeSceneDamage scene_damage_probe(const ProbeSceneFrame&, const ProbeSceneFrame&, float scale);
+    SceneDamage scene_damage(const SceneFrame&, const SceneFrame&, float scale);
 
-    class SceneProbe {
+    class SceneSolver {
     public:
-        SceneProbe(std::string stylesheet, std::string keyframes, ProbeSceneMeasure measure, bool incremental = true);
-        ~SceneProbe();
-        SceneProbe(const SceneProbe&) = delete;
-        SceneProbe& operator=(const SceneProbe&) = delete;
-        ProbeSceneFrame frame(const ProbeDomSnapshot&, float width, float height, double time_ms);
+        SceneSolver(std::string stylesheet, std::string keyframes, SceneMeasure measure, bool incremental = true);
+        ~SceneSolver();
+        SceneSolver(const SceneSolver&) = delete;
+        SceneSolver& operator=(const SceneSolver&) = delete;
+        SceneFrame frame(const DomSnapshot&, float width, float height, double time_ms);
         // Owner-local retained scene; unchanged branches keep their owned values.
         // Publish a separate immutable snapshot before crossing threads. On error
         // discard the output and reset this solver before using it again.
-        void update(const ProbeDomSnapshot&, ProbeSceneFrame&, float width, float height, double time_ms);
+        void update(const DomSnapshot&, SceneFrame&, float width, float height, double time_ms);
         void reset();
         void set_profiling(bool);
 
@@ -151,25 +150,25 @@ namespace caseelephant {
         std::unique_ptr<Impl> impl_;
     };
 
-    ProbeStyleProfile scene_style_profile();
+    StyleProfile scene_style_profile();
 
     // Windows software raster adapter, separate from the owner formatting core.
     // RGBA is straight encoded sRGB, ready for the existing image upload contract.
-    struct ProbeSceneBitmap {
+    struct SceneBitmap {
         unsigned width{};
         unsigned height{};
         std::vector<std::uint8_t> rgba;
     };
 
-    class SceneRasterProbe {
+    class SceneRaster {
     public:
-        SceneRasterProbe();
-        ~SceneRasterProbe();
-        SceneRasterProbe(const SceneRasterProbe&) = delete;
-        SceneRasterProbe& operator=(const SceneRasterProbe&) = delete;
-        ProbeSceneTextMetrics measure(std::string_view, const ProbeSceneStyle&);
-        std::array<double, 6> transform_matrix(const ProbeSceneNode&) const;
-        ProbeSceneBitmap raster(const ProbeSceneFrame&, float scale = 1);
+        SceneRaster();
+        ~SceneRaster();
+        SceneRaster(const SceneRaster&) = delete;
+        SceneRaster& operator=(const SceneRaster&) = delete;
+        SceneTextMetrics measure(std::string_view, const SceneStyle&);
+        std::array<double, 6> transform_matrix(const SceneNode&) const;
+        SceneBitmap raster(const SceneFrame&, float scale = 1);
 
         struct Work {
             std::size_t gpu_projective_draws{};
@@ -190,22 +189,22 @@ namespace caseelephant {
         };
 
         Work work() const;
-        std::vector<ProbeElementGeometry> geometry(const ProbeSceneFrame&, bool svg_descendants = false) const;
+        std::vector<ElementGeometry> geometry(const SceneFrame&, bool svg_descendants = false) const;
 #ifdef _WIN32
         // Private Windows adapter: borrowed target for this call, owned scene only.
-        void paint_d2d(const ProbeSceneFrame&, ID2D1RenderTarget*, float scale = 1,
+        void paint_d2d(const SceneFrame&, ID2D1RenderTarget*, float scale = 1,
                        std::optional<std::array<float, 4>> clip = std::nullopt);
         // Explicit host opt-in; identities are weak, copied values. No promotion
         // heuristic or change to CSS stacking semantics. Unsupported sources fall
         // back to normal painting. Caches are local to the target resource domain.
-        void set_layers(std::vector<ProbeNodeIdentity>);
-        void paint_d2d_damage(const ProbeSceneFrame&, ID2D1RenderTarget*, float scale, std::array<float, 4> damage,
+        void set_layers(std::vector<NodeIdentity>);
+        void paint_d2d_damage(const SceneFrame&, ID2D1RenderTarget*, float scale, std::array<float, 4> damage,
                               std::optional<std::array<float, 4>> clip = std::nullopt);
 #endif
-        ProbeNodeIdentity hit_test(const ProbeSceneFrame&, float x, float y) const;
+        NodeIdentity hit_test(const SceneFrame&, float x, float y) const;
 
     private:
         struct Impl;
         std::unique_ptr<Impl> impl_;
     };
-} // namespace caseelephant
+} // namespace weft

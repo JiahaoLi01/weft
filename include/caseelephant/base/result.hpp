@@ -8,7 +8,7 @@
 
 // expected-style result: a value, or the Diagnostic that explains why there is none.
 // C++20 has no std::expected; this keeps only what the runtime needs.
-namespace caseelephant {
+namespace weft {
     template <class T>
     class [[nodiscard]] Result {
         static_assert(!std::is_same_v<std::remove_cv_t<T>, Diagnostic>, "Result<Diagnostic> is ambiguous");
@@ -113,4 +113,4 @@ namespace caseelephant {
     };
 
     using Status = Result<void>;
-} // namespace caseelephant
+} // namespace weft

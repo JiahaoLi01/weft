@@ -53,8 +53,8 @@ for name, build, config, count, suffix in [
     folder = ROOT / 'artifacts/local' / ('flow-input-' + name)
     folder.mkdir(parents=True, exist_ok=True)
     binary_dir = ROOT / 'build' / build / 'bin' / config
-    binaries = {n: binary_dir / n for n in ('ce_d3d11_probe.exe', 'ce_flow_input_tests.exe',
-                                          'ce_input_probe_tests.exe', 'ce_script_dom_tests.exe')}
+    binaries = {n: binary_dir / n for n in ('weft_d3d11_probe.exe', 'weft_flow_input_tests.exe',
+                                          'weft_input_probe_tests.exe', 'weft_script_dom_tests.exe')}
     log = ROOT / 'artifacts/local' / ('flow-input-ctest-' + suffix + '.log')
     text = log.read_text(encoding='utf-8')
     assert f'0 tests failed out of {count}' in text
@@ -70,7 +70,7 @@ for name, build, config, count, suffix in [
     reports = {}
     for driver in (('warp',) if name == 'gc-stress' else ('warp', 'hardware')):
         path = gpu_folder / driver / 'report.json'
-        assert path.stat().st_mtime >= binaries['ce_d3d11_probe.exe'].stat().st_mtime
+        assert path.stat().st_mtime >= binaries['weft_d3d11_probe.exe'].stat().st_mtime
         r = json.loads(path.read_text(encoding='utf-8'))
         assert r['fixture'] == 'casecheetah-flow-window-v1'
         assert all(r[k] for k in ('passed', 'hidden_message_fixture', 'actual_completion_query',

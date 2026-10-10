@@ -5,7 +5,7 @@
 
 // Bounds and tolerances of the M0 layout profiles (flex adapter, inline formatter and the
 // page/positioned/auto/flow builders). Each constant has the type of the literal it replaced.
-namespace caseelephant::constants::layout {
+namespace weft::constants::layout {
 
     // Code points that drive whitespace collapsing and control-character rejection.
     inline constexpr int codepoint_tab = 9;
@@ -55,4 +55,4 @@ namespace caseelephant::constants::layout {
     inline constexpr float fragment_merge_epsilon = .0001f;
     // Shaped single-line text may exceed the content box by this much before it counts as overflow.
     inline constexpr float text_overflow_tolerance_px = 0.025f;
-} // namespace caseelephant::constants::layout
+} // namespace weft::constants::layout

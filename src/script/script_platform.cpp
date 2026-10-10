@@ -3,7 +3,7 @@
 
 #include <cstddef>
 
-namespace caseelephant {
+namespace weft {
     namespace {
         // Generated from src/script/js/*.js by cmake/embed_bytes.cmake.
         constexpr unsigned char web_host[] = {
@@ -47,7 +47,7 @@ namespace caseelephant {
         return {};
     }
 
-    std::string install_script_platform(ScriptDomProbe& vm, ScriptPlatformModule module) {
+    std::string install_script_platform(ScriptDom& vm, ScriptPlatformModule module) {
         return vm.eval(script_platform_source(module), script_platform_file(module));
     }
-} // namespace caseelephant
+} // namespace weft

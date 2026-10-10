@@ -6,7 +6,7 @@
 //
 // Each constant has the type of the literals it replaced (a plain integer literal is int), so
 // arithmetic, comparisons and generated code at every use site stay exactly as before.
-namespace caseelephant::test_constants::scene {
+namespace weft::test_constants::scene {
     // Gallery backdrop #050403. Blank oracle negatives are filled with it.
     inline constexpr int backdrop_red = 5;
     inline constexpr int backdrop_green = 4;
@@ -54,4 +54,4 @@ namespace caseelephant::test_constants::scene {
     inline constexpr int collect_garbage_interval = 16;
     // Random mutations compared against the full path in the cluster contract test.
     inline constexpr int cluster_mutation_iterations = 64;
-} // namespace caseelephant::test_constants::scene
+} // namespace weft::test_constants::scene

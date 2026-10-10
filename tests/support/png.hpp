@@ -17,7 +17,7 @@
 #include <utility>
 #include <vector>
 
-namespace caseelephant::testing {
+namespace weft::testing {
     struct RgbaImage {
         std::uint32_t width{};
         std::uint32_t height{};
@@ -93,4 +93,4 @@ namespace caseelephant::testing {
         check_hresult(frame->Commit(), "PNG frame commit");
         check_hresult(encoder->Commit(), "PNG commit");
     }
-} // namespace caseelephant::testing
+} // namespace weft::testing
