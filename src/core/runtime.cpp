@@ -1,4 +1,6 @@
 #include <caseelephant/ce.h>
+#include <caseelephant/base/generational_slots.hpp>
+#include <caseelephant/base/owner_thread.hpp>
 #include <caseelephant/constants/core.hpp>
 
 #include <atomic>
@@ -11,20 +13,14 @@
 
 namespace {
     std::atomic<uint64_t> next_runtime_id{1};
-
-    struct ViewSlot {
-        uint32_t generation{1};
-        bool live{false};
-        bool retired{false};
-        ce_view_info info{};
-    };
 } // namespace
 
 struct ce_runtime {
-    std::thread::id owner{std::this_thread::get_id()};
+    caseelephant::OwnerThread owner;
     uint64_t id{};
     uint32_t live_views{};
-    std::vector<ViewSlot> slots;
+    // View handles carry slot + 1, so a zeroed handle is never valid.
+    caseelephant::GenerationalSlots<ce_view_info> views;
 };
 
 namespace {
@@ -32,22 +28,18 @@ namespace {
         if (!runtime) {
             return CE_INVALID_ARGUMENT;
         }
-        return runtime->owner == std::this_thread::get_id() ? CE_OK : CE_WRONG_THREAD;
+        return runtime->owner.is_current() ? CE_OK : CE_WRONG_THREAD;
     }
 
-    ce_result find_view(ce_runtime* runtime, ce_view_handle handle, ViewSlot*& out) noexcept {
+    ce_result find_view(ce_runtime* runtime, ce_view_handle handle, ce_view_info*& out) noexcept {
         if (const auto error = validate_owner(runtime); error != CE_OK) {
             return error;
         }
-        if (handle.runtime_id != runtime->id || handle.slot == 0 || handle.slot > runtime->slots.size()) {
+        if (handle.runtime_id != runtime->id || handle.slot == 0) {
             return CE_STALE_HANDLE;
         }
-        auto& slot = runtime->slots[handle.slot - 1];
-        if (!slot.live || slot.generation != handle.generation) {
-            return CE_STALE_HANDLE;
-        }
-        out = &slot;
-        return CE_OK;
+        out = runtime->views.find(handle.slot - 1, handle.generation);
+        return out ? CE_OK : CE_STALE_HANDLE;
     }
 
     bool valid_view_desc(const ce_view_desc& desc) noexcept {
@@ -88,7 +80,7 @@ extern "C" ce_result ce_runtime_create(const ce_runtime_desc* desc, ce_runtime**
             }
         }
         runtime->id = id;
-        runtime->slots.resize(max_views);
+        runtime->views = caseelephant::GenerationalSlots<ce_view_info>(max_views);
         *out_runtime = runtime.release();
         return CE_OK;
     } catch (const std::bad_alloc&) {
@@ -117,7 +109,7 @@ extern "C" ce_result ce_runtime_get_info(ce_runtime* runtime, ce_runtime_info* o
         return CE_INVALID_ARGUMENT;
     }
     *out_info = {sizeof(ce_runtime_info), CE_ABI_VERSION, runtime->id, runtime->live_views,
-                 static_cast<uint32_t>(runtime->slots.size())};
+                 static_cast<uint32_t>(runtime->views.size())};
     return CE_OK;
 }
 
@@ -141,63 +133,56 @@ extern "C" ce_result ce_view_create(ce_runtime* runtime, const ce_view_desc* des
     if (desc->struct_size < sizeof(ce_view_desc) || !valid_view_desc(*desc)) {
         return CE_INVALID_ARGUMENT;
     }
-    for (uint32_t i = 0; i < runtime->slots.size(); ++i) {
-        auto& slot = runtime->slots[i];
-        if (slot.live || slot.retired) {
-            continue;
-        }
-        slot.info = {sizeof(ce_view_info), 0, desc->logical_width, desc->logical_height, desc->device_scale, 0, 0, 0};
-        slot.live = true;
-        ++runtime->live_views;
-        *out_view = {runtime->id, i + 1, slot.generation};
-        return CE_OK;
+    const auto index = runtime->views.first_free();
+    if (index == runtime->views.size()) {
+        return CE_CAPACITY_EXCEEDED;
     }
-    return CE_CAPACITY_EXCEEDED;
+    runtime->views[index] = {
+        sizeof(ce_view_info), 0, desc->logical_width, desc->logical_height, desc->device_scale, 0, 0, 0};
+    const auto generation = runtime->views.occupy(index);
+    ++runtime->live_views;
+    *out_view = {runtime->id, static_cast<uint32_t>(index + 1), generation};
+    return CE_OK;
 }
 
 extern "C" ce_result ce_view_destroy(ce_runtime* runtime, ce_view_handle view) {
-    ViewSlot* slot{};
-    if (const auto error = find_view(runtime, view, slot); error != CE_OK) {
+    ce_view_info* info{};
+    if (const auto error = find_view(runtime, view, info); error != CE_OK) {
         return error;
     }
-    slot->live = false;
+    runtime->views.vacate(view.slot - 1);
     --runtime->live_views;
-    if (slot->generation == std::numeric_limits<uint32_t>::max()) {
-        slot->retired = true;
-    } else {
-        ++slot->generation;
-    }
     return CE_OK;
 }
 
 extern "C" ce_result ce_view_get_info(ce_runtime* runtime, ce_view_handle view, ce_view_info* out_info) {
-    ViewSlot* slot{};
-    if (const auto error = find_view(runtime, view, slot); error != CE_OK) {
+    ce_view_info* info{};
+    if (const auto error = find_view(runtime, view, info); error != CE_OK) {
         return error;
     }
     if (!out_info || out_info->struct_size < sizeof(ce_view_info)) {
         return CE_INVALID_ARGUMENT;
     }
-    *out_info = slot->info;
+    *out_info = *info;
     return CE_OK;
 }
 
 extern "C" ce_result ce_view_record_tick(ce_runtime* runtime, ce_view_handle view, double time_seconds) {
-    ViewSlot* slot{};
-    if (const auto error = find_view(runtime, view, slot); error != CE_OK) {
+    ce_view_info* info{};
+    if (const auto error = find_view(runtime, view, info); error != CE_OK) {
         return error;
     }
     if (!std::isfinite(time_seconds) || time_seconds < 0) {
         return CE_INVALID_ARGUMENT;
     }
-    if (slot->info.tick_count != 0 && time_seconds < slot->info.last_time_seconds) {
+    if (info->tick_count != 0 && time_seconds < info->last_time_seconds) {
         return CE_TIME_REGRESSION;
     }
-    if (slot->info.tick_count == std::numeric_limits<uint64_t>::max()) {
+    if (info->tick_count == std::numeric_limits<uint64_t>::max()) {
         return CE_CAPACITY_EXCEEDED;
     }
-    ++slot->info.tick_count;
-    slot->info.last_time_seconds = time_seconds;
+    ++info->tick_count;
+    info->last_time_seconds = time_seconds;
     return CE_OK;
 }
 

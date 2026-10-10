@@ -1383,7 +1383,7 @@ namespace caseelephant {
     }
 
     struct StyleMemoProbe::Impl {
-        std::thread::id owner = std::this_thread::get_id();
+        OwnerThread owner;
         Engine::MemoState values;
         std::shared_ptr<const int> binding;
     };
@@ -1394,9 +1394,7 @@ namespace caseelephant {
     StyleMemoProbe::~StyleMemoProbe() = default;
 
     void StyleMemoProbe::clear() {
-        if (impl_->owner != std::this_thread::get_id()) {
-            throw std::logic_error("CE_STYLE_MEMO_OWNER");
-        }
+        impl_->owner.require(Diag::StyleMemoOwner);
         impl_->values = {};
         impl_->binding.reset();
     }
@@ -1451,9 +1449,7 @@ namespace caseelephant {
 
     ProbeComputedStyle CompiledStyleProbe::compute(const ProbeDomSnapshot& dom, StyleMemoProbe& memo) const {
         auto& cache = *memo.impl_;
-        if (cache.owner != std::this_thread::get_id()) {
-            throw std::logic_error("CE_STYLE_MEMO_OWNER");
-        }
+        cache.owner.require(Diag::StyleMemoOwner);
         if (cache.binding != impl_->identity) {
             cache.values = {};
             cache.binding = impl_->identity;
@@ -1465,9 +1461,7 @@ namespace caseelephant {
     void CompiledStyleProbe::update(const ProbeDomSnapshot& dom, ProbeComputedStyle& output, StyleMemoProbe& memo,
                                     std::vector<ProbeNodeIdentity>* changed) const {
         auto& cache = *memo.impl_;
-        if (cache.owner != std::this_thread::get_id()) {
-            throw std::logic_error("CE_STYLE_MEMO_OWNER");
-        }
+        cache.owner.require(Diag::StyleMemoOwner);
         if (cache.binding != impl_->identity) {
             cache.values = {};
             cache.binding = impl_->identity;

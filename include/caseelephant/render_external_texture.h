@@ -23,7 +23,9 @@ typedef struct ce_render_external_texture {
     uint32_t struct_size;
     uint32_t abi_version;
     ce_render_identity identity;
-    uint64_t content_id, content_version; /* immutable nonzero identity */
+    /* immutable nonzero identity */
+    uint64_t content_id;
+    uint64_t content_version;
     uint32_t width;
     uint32_t height;
     uint32_t format;
@@ -56,7 +58,9 @@ typedef struct ce_render_external_frame {
 typedef struct ce_render_external_backend {
     uint32_t struct_size;
     uint32_t abi_version;
-    uint32_t formats, reserved; /* bits of ce_render_target_format; linear only */
+    /* bits of ce_render_target_format; linear only */
+    uint32_t formats;
+    uint32_t reserved;
     uint32_t max_textures;
     uint32_t reserved2;
     uint64_t max_texture_bytes; /* bounded logical payload, excludes driver overhead */

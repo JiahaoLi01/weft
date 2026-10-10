@@ -694,7 +694,7 @@ namespace caseelephant {
     }
 
     struct SceneProbe::Impl {
-        const std::thread::id owner = std::this_thread::get_id();
+        const OwnerThread owner;
         YGConfigRef config = YGConfigNew();
 
         Impl() {
@@ -1635,9 +1635,7 @@ namespace caseelephant {
     } // namespace
 
     SceneProbe::Work SceneProbe::work() const {
-        if (std::this_thread::get_id() != impl_->owner) {
-            throw std::logic_error("CE_SCENE_OWNER");
-        }
+        impl_->owner.require(Diag::SceneOwner);
         return impl_->work;
     }
 
@@ -1653,16 +1651,12 @@ namespace caseelephant {
     SceneProbe::~SceneProbe() = default;
 
     void SceneProbe::set_profiling(bool enabled) {
-        if (std::this_thread::get_id() != impl_->owner) {
-            throw std::logic_error("CE_SCENE_OWNER");
-        }
+        impl_->owner.require(Diag::SceneOwner);
         impl_->profiling = enabled;
     }
 
     void SceneProbe::reset() {
-        if (std::this_thread::get_id() != impl_->owner) {
-            throw std::logic_error("CE_SCENE_OWNER");
-        }
+        impl_->owner.require(Diag::SceneOwner);
         impl_->style_memo.clear();
         impl_->states.clear();
         impl_->interpolation = {};
@@ -1685,9 +1679,7 @@ namespace caseelephant {
 
     void SceneProbe::update(const ProbeDomSnapshot& d, ProbeSceneFrame& f, float w, float h, double time) {
         auto& i = *impl_;
-        if (std::this_thread::get_id() != i.owner) {
-            throw std::logic_error("CE_SCENE_OWNER");
-        }
+        i.owner.require(Diag::SceneOwner);
         if (!std::isfinite(time) || time < i.now || !std::isfinite(w) || !std::isfinite(h) || w <= 0 || h <= 0 ||
             w > constants::scene::max_viewport_dimension || h > constants::scene::max_viewport_dimension) {
             fail("monotonic clock/viewport");

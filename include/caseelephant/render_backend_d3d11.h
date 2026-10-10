@@ -14,8 +14,10 @@ typedef struct ce_render_d3d11_pass {
     uint32_t abi_version;
     void* deferred_context;
     void* render_target_view;
-    void** out_command_list;         /* set to null on entry; transferred on success */
-    uint32_t clear_target, reserved; /* 0 preserves host contents; 1 clears */
+    void** out_command_list; /* set to null on entry; transferred on success */
+    /* 0 preserves host contents; 1 clears */
+    uint32_t clear_target;
+    uint32_t reserved;
     float clear_linear_premultiplied[4];
 } ce_render_d3d11_pass;
 

@@ -360,12 +360,10 @@ namespace caseelephant {
     } // namespace
 
     struct SceneRasterProbe::Impl {
-        const std::thread::id owner = std::this_thread::get_id();
+        const OwnerThread owner;
 
         void require_owner() const {
-            if (std::this_thread::get_id() != owner) {
-                throw std::logic_error("CE_SCENE_RASTER_OWNER");
-            }
+            owner.require(Diag::SceneRasterOwner);
         }
 
         ComPtr<ID2D1Factory> factory;

@@ -1,4 +1,6 @@
 #include "caseelephant/render_external_texture.h"
+#include "caseelephant/base/generational_slots.hpp"
+#include "caseelephant/base/owner_thread.hpp"
 #include "caseelephant/constants/render.hpp"
 #include <algorithm>
 #include <atomic>
@@ -14,22 +16,26 @@ namespace {
     constexpr uint32_t use_kind = 2;
     constexpr uint32_t texture_kind = 3;
 
+    // Prepared frame or encoded use. Occupancy and generation live in the slot table; the
+    // texture list keeps its reserved capacity across occupancies.
     struct Slot {
         uint64_t native{};
         uint64_t serial{};
-        uint32_t generation{};
         bool submitted{};
         std::vector<uint32_t> textures;
     };
 
+    // Imported external texture; occupied while the backend still holds the native texture.
     struct TextureSlot {
         ce_render_external_texture description{};
         uint64_t native{};
         uint64_t bytes{};
-        uint32_t generation{};
         uint32_t pins{};
         bool caller{};
     };
+
+    using Slots = caseelephant::GenerationalSlots<Slot>;
+    using TextureSlots = caseelephant::GenerationalSlots<TextureSlot>;
 
     bool unit(float x) {
         return std::isfinite(x) && x >= 0 && x <= 1;
@@ -41,13 +47,15 @@ namespace {
 } // namespace
 
 struct ce_renderer {
-    std::thread::id owner = std::this_thread::get_id();
+    caseelephant::OwnerThread owner;
     ce_render_backend backend{};
     ce_renderer_desc limits{};
     ce_render_identity identity{};
-    std::vector<Slot> prepared, uses; /* fixed capacity allocated at creation */
+    // Fixed capacity allocated at creation.
+    Slots prepared;
+    Slots uses;
     ce_render_external_backend external{};
-    std::vector<TextureSlot> textures;
+    TextureSlots textures;
     std::vector<ce_render_external_asset> external_scratch;
     uint32_t caller_leases{};
     uint32_t live_textures{};
@@ -67,7 +75,7 @@ namespace {
         if (!r) {
             return CE_RENDER_INVALID_ARGUMENT;
         }
-        if (r->owner != std::this_thread::get_id()) {
+        if (!r->owner.is_current()) {
             return CE_RENDER_WRONG_THREAD;
         }
         if (r->in_callback) {
@@ -94,8 +102,9 @@ namespace {
         }
     };
 
-    void collect_texture(ce_renderer& r, TextureSlot& t) {
-        if (!t.native || t.caller || t.pins) {
+    void collect_texture(ce_renderer& r, std::size_t index) {
+        auto& t = r.textures[index];
+        if (!r.textures.occupied(index) || t.caller || t.pins) {
             return;
         }
         {
@@ -111,13 +120,13 @@ namespace {
         t.native = 0;
         t.description = {};
         t.bytes = 0;
+        r.textures.vacate(index);
     }
 
     void release_textures(ce_renderer& r, Slot& s) {
         for (auto i : s.textures) {
-            auto& t = r.textures[i];
-            --t.pins;
-            collect_texture(r, t);
+            --r.textures[i].pins;
+            collect_texture(r, i);
         }
         s.textures.clear();
     }
@@ -129,14 +138,14 @@ namespace {
         if (h.device_epoch != r.identity.device_epoch) {
             return CE_RENDER_WRONG_EPOCH;
         }
-        if (h.kind != texture_kind || h.reserved || h.slot >= r.textures.size()) {
+        if (h.kind != texture_kind || h.reserved) {
             return CE_RENDER_STALE_HANDLE;
         }
-        auto& t = r.textures[h.slot];
-        if (!t.native || !t.caller || t.generation != h.generation) {
+        auto* t = r.textures.find(h.slot, h.generation);
+        if (!t || !t->caller) {
             return CE_RENDER_STALE_HANDLE;
         }
-        out = &t;
+        out = t;
         return CE_RENDER_OK;
     }
 
@@ -148,33 +157,26 @@ namespace {
             return CE_RENDER_WRONG_EPOCH;
         }
         auto& slots = kind == prepared_kind ? r.prepared : r.uses;
-        if (h.kind != kind || h.reserved || h.slot >= slots.size()) {
+        if (h.kind != kind || h.reserved) {
             return CE_RENDER_STALE_HANDLE;
         }
-        auto& s = slots[h.slot];
-        if (!s.native || s.generation != h.generation) {
-            return CE_RENDER_STALE_HANDLE;
-        }
-        out = &s;
-        return CE_RENDER_OK;
+        out = slots.find(h.slot, h.generation);
+        return out ? CE_RENDER_OK : CE_RENDER_STALE_HANDLE;
     }
 
-    size_t available(const std::vector<Slot>& slots) {
-        for (size_t i = 0; i < slots.size(); ++i) {
-            if (!slots[i].native && slots[i].generation < UINT32_MAX) {
-                return i;
-            }
-        }
-        return slots.size();
-    }
-
-    ce_render_handle publish(ce_renderer& r, std::vector<Slot>& slots, size_t i, uint64_t native, uint32_t kind) {
+    ce_render_handle publish(ce_renderer& r, Slots& slots, size_t i, uint64_t native, uint32_t kind) {
+        const auto generation = slots.occupy(i);
         auto& s = slots[i];
-        ++s.generation;
         s.native = native;
         s.serial = 0;
         s.submitted = false;
-        return {r.identity.renderer_id, r.identity.device_epoch, uint32_t(i), s.generation, kind, 0};
+        return {r.identity.renderer_id, r.identity.device_epoch, uint32_t(i), generation, kind, 0};
+    }
+
+    // Ends an occupancy whose native object the backend has already released or retired.
+    void retire(Slots& slots, size_t i) {
+        slots[i].native = 0;
+        slots.vacate(i);
     }
 
     ce_render_result validate_frame(const ce_renderer& r, const ce_render_frame* f, uint32_t external_count = 0) {
@@ -350,8 +352,8 @@ ce_render_result ce_renderer_create(const ce_render_backend* b, const ce_rendere
         try {
             r->backend = *b;
             r->limits = limits;
-            r->prepared.resize(limits.max_prepared_frames);
-            r->uses.resize(limits.max_in_flight_uses);
+            r->prepared = Slots(limits.max_prepared_frames);
+            r->uses = Slots(limits.max_in_flight_uses);
             uint64_t id = next_id.load(std::memory_order_relaxed);
             for (;;) {
                 if (id == UINT64_MAX) {
@@ -420,7 +422,7 @@ ce_render_result ce_renderer_prepare(ce_renderer* r, const ce_render_frame* fram
     if (const auto v = validate_frame(*r, frame); v != CE_RENDER_OK) {
         return v;
     }
-    const auto i = available(r->prepared);
+    const auto i = r->prepared.first_free();
     if (i == r->prepared.size()) {
         return CE_RENDER_BUSY;
     }
@@ -453,7 +455,7 @@ ce_render_result ce_renderer_release_prepared(ce_renderer* r, ce_render_handle h
         Callback guard(*r);
         r->backend.release_prepared(r->backend.user_data, s->native);
     }
-    s->native = 0;
+    retire(r->prepared, h.slot);
     --r->prepared_count;
     release_textures(*r, *s);
     return CE_RENDER_OK;
@@ -478,7 +480,7 @@ ce_render_result ce_renderer_encode(ce_renderer* r, ce_render_handle h, const ce
     if (r->encoded_count == r->limits.max_encoded_uses) {
         return CE_RENDER_BUSY;
     }
-    const auto i = available(r->uses);
+    const auto i = r->uses.first_free();
     if (i == r->uses.size()) {
         return CE_RENDER_BUSY;
     }
@@ -520,7 +522,7 @@ ce_render_result ce_renderer_discard_encoded(ce_renderer* r, ce_render_handle h)
         Callback guard(*r);
         r->backend.discard_encoded(r->backend.user_data, s->native);
     }
-    s->native = 0;
+    retire(r->uses, h.slot);
     --r->encoded_count;
     release_textures(*r, *s);
     return CE_RENDER_OK;
@@ -581,9 +583,10 @@ ce_render_result ce_renderer_notify_completed(ce_renderer* r, uint64_t epoch, ui
         r->backend.completed(r->backend.user_data, serial);
     }
     r->completed = serial;
-    for (auto& s : r->uses) {
-        if (s.native && s.submitted && s.serial <= serial) {
-            s.native = 0;
+    for (size_t i = 0; i < r->uses.size(); ++i) {
+        auto& s = r->uses[i];
+        if (r->uses.occupied(i) && s.submitted && s.serial <= serial) {
+            retire(r->uses, i);
             --r->submitted_count;
             release_textures(*r, s);
         }
@@ -612,9 +615,9 @@ ce_render_result ce_renderer_abandon_device(ce_renderer* r, uint64_t epoch, uint
         r->backend.abandon(r->backend.user_data);
     }
     r->device_available = false;
-    for (auto& s : r->uses) {
-        s.native = 0;
-        release_textures(*r, s);
+    for (size_t i = 0; i < r->uses.size(); ++i) {
+        retire(r->uses, i);
+        release_textures(*r, r->uses[i]);
     }
     r->submitted_count = 0;
     return CE_RENDER_OK;
@@ -641,14 +644,14 @@ ce_render_result ce_renderer_install_external_backend(ce_renderer* r, const ce_r
         return CE_RENDER_INVALID_STATE;
     }
     try {
-        std::vector<TextureSlot> textures(b->max_textures);
+        TextureSlots textures(b->max_textures);
         std::vector<ce_render_external_asset> scratch;
         scratch.reserve(std::min(b->max_textures, r->limits.max_assets));
-        for (auto& s : r->prepared) {
-            s.textures.reserve(scratch.capacity());
+        for (size_t i = 0; i < r->prepared.size(); ++i) {
+            r->prepared[i].textures.reserve(scratch.capacity());
         }
-        for (auto& s : r->uses) {
-            s.textures.reserve(scratch.capacity());
+        for (size_t i = 0; i < r->uses.size(); ++i) {
+            r->uses[i].textures.reserve(scratch.capacity());
         }
         r->textures = std::move(textures);
         r->external_scratch = std::move(scratch);
@@ -710,11 +713,11 @@ ce_render_result ce_renderer_import_texture(ce_renderer* r, const ce_render_exte
     size_t index = r->textures.size();
     for (size_t i = 0; i < r->textures.size(); ++i) {
         const auto& t = r->textures[i];
-        if (t.native && t.description.content_id == d->content_id &&
+        if (r->textures.occupied(i) && t.description.content_id == d->content_id &&
             t.description.content_version == d->content_version) {
             return CE_RENDER_INVALID_STATE;
         }
-        if (!t.native && t.generation < UINT32_MAX && index == r->textures.size()) {
+        if (r->textures.reusable(i) && index == r->textures.size()) {
             index = i;
         }
     }
@@ -740,11 +743,11 @@ ce_render_result ce_renderer_import_texture(ce_renderer* r, const ce_render_exte
     t.native = native;
     t.bytes = bytes;
     t.caller = true;
-    ++t.generation;
+    const auto generation = r->textures.occupy(index);
     ++r->caller_leases;
     ++r->live_textures;
     r->texture_bytes += bytes;
-    *out = {r->identity.renderer_id, r->identity.device_epoch, uint32_t(index), t.generation, texture_kind, 0};
+    *out = {r->identity.renderer_id, r->identity.device_epoch, uint32_t(index), generation, texture_kind, 0};
     return CE_RENDER_OK;
 }
 
@@ -758,7 +761,7 @@ ce_render_result ce_renderer_release_texture(ce_renderer* r, ce_render_handle h)
     }
     t->caller = false;
     --r->caller_leases;
-    collect_texture(*r, *t);
+    collect_texture(*r, h.slot);
     return CE_RENDER_OK;
 }
 
@@ -786,7 +789,7 @@ ce_render_result ce_renderer_prepare_external(ce_renderer* r, const ce_render_ex
     if (f->external_count > r->textures.size()) {
         return CE_RENDER_BUSY;
     }
-    const auto index = available(r->prepared);
+    const auto index = r->prepared.first_free();
     if (index == r->prepared.size()) {
         return CE_RENDER_BUSY;
     }

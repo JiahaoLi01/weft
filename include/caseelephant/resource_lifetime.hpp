@@ -1,5 +1,7 @@
 #pragma once
 
+#include "caseelephant/base/generational_slots.hpp"
+#include "caseelephant/base/owner_thread.hpp"
 #include "caseelephant/constants/render.hpp"
 
 #include <cstddef>
@@ -195,12 +197,12 @@ namespace caseelephant::render {
         ResourcePhase Phase(const ResourceSlot& resource) const noexcept;
 
         LifetimeConfig config_;
-        std::thread::id owner_;
+        OwnerThread owner_;
         bool valid_config_ = false;
         LifetimeStats stats_;
-        std::vector<ResourceSlot> resources_;
-        std::vector<PreparedSlot> prepared_;
-        std::vector<TokenSlot> tokens_;
+        GenerationalSlots<ResourceSlot> resources_;
+        GenerationalSlots<PreparedSlot> prepared_;
+        GenerationalSlots<TokenSlot> tokens_;
     };
 
 } // namespace caseelephant::render

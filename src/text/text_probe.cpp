@@ -1,4 +1,5 @@
 #include "caseelephant/text_probe.hpp"
+#include "caseelephant/base/owner_thread.hpp"
 #include "caseelephant/constants/common.hpp"
 #include "caseelephant/constants/text.hpp"
 #include <ft2build.h>
@@ -18,7 +19,7 @@
 
 namespace caseelephant {
     struct TextProbeFont::Impl {
-        std::thread::id owner{std::this_thread::get_id()};
+        OwnerThread owner;
         std::vector<char> bytes;
         FT_Library library{};
         FT_Face face{};
@@ -27,9 +28,7 @@ namespace caseelephant {
         hb_font_t* shape_font{};
 
         void check(float px) const {
-            if (owner != std::this_thread::get_id()) {
-                throw std::logic_error("CE_WRONG_THREAD: font owner");
-            }
+            owner.require(Diag::WrongThread, "font owner");
             if (!std::isfinite(px) || px <= 0 || px > constants::text::max_font_pixels) {
                 throw std::invalid_argument("CE_FONT_SIZE: expected (0,4096] px");
             }
@@ -94,9 +93,7 @@ namespace caseelephant {
         }
 
         ~Impl() {
-            if (owner != std::this_thread::get_id()) {
-                std::terminate();
-            }
+            owner.require_or_terminate();
             cleanup();
         }
     };
@@ -208,7 +205,7 @@ namespace caseelephant {
     }
 
     struct TextProbeFontSet::Impl {
-        std::thread::id owner{std::this_thread::get_id()};
+        OwnerThread owner;
         std::vector<std::unique_ptr<TextProbeFont>> fonts;
         std::map<std::pair<float, std::string>, ProbeFallbackText> shape_cache;
         std::size_t shape_bytes{};
@@ -216,9 +213,7 @@ namespace caseelephant {
         std::size_t shape_misses{};
 
         void check() const {
-            if (owner != std::this_thread::get_id()) {
-                throw std::logic_error("CE_WRONG_THREAD: font set owner");
-            }
+            owner.require(Diag::WrongThread, "font set owner");
         }
     };
 
@@ -238,9 +233,7 @@ namespace caseelephant {
     }
 
     TextProbeFontSet::~TextProbeFontSet() {
-        if (impl_->owner != std::this_thread::get_id()) {
-            std::terminate();
-        }
+        impl_->owner.require_or_terminate();
     }
 
     TextProbeFont& TextProbeFontSet::primary() {

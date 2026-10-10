@@ -60,7 +60,7 @@ probes/ tests/ tools/      证据与验证，只依赖 src，不被 src 依赖
 | 步骤 | 内容 | 主要文件 | 验证方式 |
 | --- | --- | --- | --- |
 | 0 ✅ | 格式规范、一行一声明、命名常量 | 全部 C++/HLSL | Release 反汇编逐函数等价、着色器字节码等价、全量测试 |
-| 1 | `src/base`：统一 CSS 标量解析、`enum class Diag` + expected、代际 slot 表、OwnerThread mixin | `src/layout/*`、`scene_*`、`style_probe`、`canvas_probe`、`runtime`、`render_backend`、`resource_lifetime` | 各 profile 现有上限先作参数保留，浏览器差分与全量测试不变 |
+| 1 ✅ | `src/base`：统一 CSS 标量解析、`enum class Diag` + `Result<T>`、代际 slot 表、`OwnerThread` | `src/layout/*`、`scene_*`、`style_probe`、`canvas_probe`、`runtime`、`render_backend`、`resource_lifetime` | 旧实现逐字副本随机差分、各 profile 上限保留、全量测试不变；见下方第 1 步记录 |
 | 2 | `tests/support`：check 宏、文件/PNG 工具；`host_time`、`window_frame_rate`、`gallery_owner_trace` 移出探针 | `tests/*`、`probes/*` | 全量测试 |
 | 3 | bootstrap JS 由 CMake 生成 `.inc` 内嵌，去掉运行时 `CE_SOURCE_DIR` | `script_dom_probe.cpp`、各窗口/探针 | 脚本与 GC 测试；移动/主机打包前置条件 |
 | 4 | CMake 拆成模块目录与 `ce::` 目标，`ce_add_test()`；公开/私有头分离；去 `Probe` 前缀 | `CMakeLists.txt`、`include/` | 全量构建与测试，C ABI smoke |
@@ -70,6 +70,34 @@ probes/ tests/ tools/      证据与验证，只依赖 src，不被 src 依赖
 | 8 | 统一格式化路径：一个调度器、一个 Yoga 适配器、一个 paint IR、一条命中路径；golden 迁移后删除 page/positioned/auto | `src/layout/*`、`input_probe` | 旧 profile 的浏览器差分全部改跑新路径 |
 | 9 | DOM 与脚本分离：NodeId 原生树、与 style 共用选择器；QuickJS 对象成为包装；Canvas 状态移到旁表 | `script_dom_probe.cpp`、`style_probe.cpp` | DOM 生命周期、GC 压力、D3 / React 原包 |
 | 10 | 第二个图形后端（Vulkan 或 Metal）与 Android/iOS 平台层，按 concept 接入；主机构建选项 | `src/render/backends`、`src/platform` | 平台验证按“配置/编译/链接/模拟器/真机功能/真机性能”分级记录 |
+
+## 第 1 步记录（2026-10-10）
+
+`caseelephant_base`（`include/caseelephant/base/`、`src/base/`）提供以下内容：
+
+- **`diagnostic.hpp`**：`Diag` 枚举、`Diagnostic`，以及过渡用的 `DiagnosticError`。`DiagnosticError` 继承 `std::invalid_argument`，消息仍以原 `CE_*` 名称开头。
+- **`result.hpp`**：`Result<T>`/`Status`。C++20 没有 `std::expected`，这里只实现运行时需要的部分。
+- **`css_scalar.hpp`**：`trim`、`style_value`、可配置嵌套的 `split`、`split_unit`、沿用 `std::stof`/`std::stod` 文法的 `parse_number`、颜色简写展开。
+- **`rect.hpp`**：布局矩形与求交。
+- **`generational_slots.hpp`**：代际槽表。
+- **`owner_thread.hpp`**：owner 线程检查。
+
+迁移结果：
+
+- **标量解析**：flex、page、positioned、auto、flow、scene、scene native/paint、D2D raster、style、canvas 不再各自持有 trim/split/number/length/color/intersect 副本。各 profile 保留自己的数值上限（1e5/1e6/1e7/无上限）和诊断文本。原先直接漏出的 `std::stof`/`std::stod` 异常，现在一律报告为该 profile 的诊断。
+- **按错误码分派**：`positioned_page_probe` 不再匹配 `CE_STYLE_` 前缀，canvas 绑定也不再匹配 `CE_CANVAS_FILL_RULE`/`IndexSizeError` 前缀，两处都改为按 `Diag` 分派。
+- **代际槽表**：runtime 视图、renderer prepared/use/外部纹理、resource lifetime 的三张表、脚本 DOM 节点身份，共用 `GenerationalSlots`。句柄序列不变：首次占用第 1 代，代际耗尽的槽位退役。
+- **owner 检查**：8 个文件的 owner 线程检查改为组合 `OwnerThread` 值成员。计划中写的是 CRTP mixin，组合更简单，效果相同。
+
+验证：
+
+- **差分测试**：`tests/base_tests.cpp` 用被替换实现的逐字副本做随机差分，覆盖 2 万条拆分输入（3 种分隔符 × 3 种变体）和 4 万条数值输入（float/double），另有 Result、诊断、槽表退役与跨线程检查。
+- **全量测试与性能**：结果见 [status](status.md)。
+
+尚未迁移：
+
+- owner executor、视图故障、节点上限等其余 `CE_*` 字符串错误码，随各自模块改造时迁入 `Diag`。
+- 异常到 `Result` 的全面替换按模块逐步进行。
 
 ## 已确认的取舍（2026-10-10）
 

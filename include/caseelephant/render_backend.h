@@ -64,7 +64,9 @@ typedef enum ce_render_target_format {
 } ce_render_target_format;
 
 typedef struct ce_render_asset {
-    uint64_t asset_id, asset_version; /* immutable content identity, nonzero */
+    /* immutable content identity, nonzero */
+    uint64_t asset_id;
+    uint64_t asset_version;
     uint32_t width;
     uint32_t height;
     uint32_t encoding;

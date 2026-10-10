@@ -7,8 +7,6 @@
 namespace caseelephant::render {
 
     struct ResourceLifetime::ResourceSlot {
-        bool live = false;
-        std::uint32_t generation = 0;
         DeviceEpoch epoch = 0;
         ResourceDescription description;
         std::size_t cpu_leases = 0;
@@ -23,8 +21,6 @@ namespace caseelephant::render {
     };
 
     struct ResourceLifetime::PreparedSlot {
-        bool live = false;
-        std::uint32_t generation = 0;
         DeviceEpoch epoch = 0;
         std::vector<ResourceId> resources;
     };
@@ -35,8 +31,6 @@ namespace caseelephant::render {
             bool upload = false;
         };
 
-        bool live = false;
-        std::uint32_t generation = 0;
         DeviceEpoch epoch = 0;
         UseState state = UseState::Encoded;
         SubmissionSerial serial = 0;
@@ -44,16 +38,6 @@ namespace caseelephant::render {
     };
 
     namespace {
-
-        template <class Slot>
-        std::size_t AvailableSlot(const std::vector<Slot>& slots) noexcept {
-            for (std::size_t i = 0; i < slots.size(); ++i) {
-                if (!slots[i].live && slots[i].generation != std::numeric_limits<std::uint32_t>::max()) {
-                    return i;
-                }
-            }
-            return slots.size();
-        }
 
         bool ResourceLess(const ResourceId& a, const ResourceId& b) noexcept {
             if (a.slot != b.slot) {
@@ -67,8 +51,7 @@ namespace caseelephant::render {
 
     } // namespace
 
-    ResourceLifetime::ResourceLifetime(LifetimeConfig config) noexcept
-        : config_(config), owner_(std::this_thread::get_id()) {
+    ResourceLifetime::ResourceLifetime(LifetimeConfig config) noexcept : config_(config) {
         constexpr auto max_slots = std::numeric_limits<std::uint32_t>::max();
         valid_config_ = config.initial_device_epoch != 0 && config.queue != 0 && config.max_resources != 0 &&
                         config.max_resources <= max_slots && config.max_prepared_frames != 0 &&
@@ -82,7 +65,7 @@ namespace caseelephant::render {
     ResourceLifetime::~ResourceLifetime() = default;
 
     LifetimeResult ResourceLifetime::CheckCall(bool producing) const noexcept {
-        if (std::this_thread::get_id() != owner_) {
+        if (!owner_.is_current()) {
             return LifetimeResult::WrongThread;
         }
         if (!valid_config_) {
@@ -95,14 +78,11 @@ namespace caseelephant::render {
     }
 
     LifetimeResult ResourceLifetime::CheckResource(ResourceId id, std::size_t& slot) const noexcept {
-        if (id.slot >= resources_.size()) {
+        const auto* item = resources_.find(id.slot, id.generation);
+        if (!item) {
             return LifetimeResult::StaleHandle;
         }
-        const auto& item = resources_[id.slot];
-        if (!item.live || id.generation != item.generation) {
-            return LifetimeResult::StaleHandle;
-        }
-        if (id.device_epoch != item.epoch) {
+        if (id.device_epoch != item->epoch) {
             return LifetimeResult::StaleDeviceEpoch;
         }
         slot = id.slot;
@@ -110,14 +90,11 @@ namespace caseelephant::render {
     }
 
     LifetimeResult ResourceLifetime::CheckPrepared(PreparedFrameId id, std::size_t& slot) const noexcept {
-        if (id.slot >= prepared_.size()) {
+        const auto* item = prepared_.find(id.slot, id.generation);
+        if (!item) {
             return LifetimeResult::StaleHandle;
         }
-        const auto& item = prepared_[id.slot];
-        if (!item.live || id.generation != item.generation) {
-            return LifetimeResult::StaleHandle;
-        }
-        if (id.device_epoch != item.epoch) {
+        if (id.device_epoch != item->epoch) {
             return LifetimeResult::StaleDeviceEpoch;
         }
         slot = id.slot;
@@ -125,14 +102,11 @@ namespace caseelephant::render {
     }
 
     LifetimeResult ResourceLifetime::CheckToken(UseTokenId id, std::size_t& slot) const noexcept {
-        if (id.slot >= tokens_.size()) {
+        const auto* item = tokens_.find(id.slot, id.generation);
+        if (!item) {
             return LifetimeResult::StaleHandle;
         }
-        const auto& item = tokens_[id.slot];
-        if (!item.live || id.generation != item.generation) {
-            return LifetimeResult::StaleHandle;
-        }
-        if (id.device_epoch != item.epoch) {
+        if (id.device_epoch != item->epoch) {
             return LifetimeResult::StaleDeviceEpoch;
         }
         slot = id.slot;
@@ -141,9 +115,9 @@ namespace caseelephant::render {
 
     void ResourceLifetime::CollectResource(std::size_t slot) noexcept {
         auto& item = resources_[slot];
-        if (item.live && item.cpu_leases == 0 && item.prepared_pins == 0 && item.encoded_pins == 0 &&
+        if (resources_.occupied(slot) && item.cpu_leases == 0 && item.prepared_pins == 0 && item.encoded_pins == 0 &&
             item.submitted_pins == 0) {
-            item.live = false;
+            resources_.vacate(slot);
             --stats_.resources;
         }
     }
@@ -191,18 +165,16 @@ namespace caseelephant::render {
             return LifetimeResult::Busy;
         }
         try {
-            const auto slot = AvailableSlot(resources_);
+            const auto slot = resources_.first_free();
             if (slot == std::numeric_limits<std::uint32_t>::max()) {
                 return LifetimeResult::Busy;
             }
             if (slot == resources_.size()) {
-                resources_.emplace_back();
+                resources_.append();
             }
             auto& item = resources_[slot];
-            const auto generation = item.generation + 1;
             item = ResourceSlot{};
-            item.live = true;
-            item.generation = generation;
+            const auto generation = resources_.occupy(slot);
             item.epoch = stats_.device_epoch;
             item.description = description;
             item.cpu_leases = 1;
@@ -297,23 +269,22 @@ namespace caseelephant::render {
             std::vector<ResourceId> dependencies(resources.begin(), resources.end());
             std::sort(dependencies.begin(), dependencies.end(), ResourceLess);
             dependencies.erase(std::unique(dependencies.begin(), dependencies.end()), dependencies.end());
-            const auto slot = AvailableSlot(prepared_);
+            const auto slot = prepared_.first_free();
             if (slot == std::numeric_limits<std::uint32_t>::max()) {
                 return LifetimeResult::Busy;
             }
             if (slot == prepared_.size()) {
-                prepared_.emplace_back();
+                prepared_.append();
             }
             auto& frame = prepared_[slot];
-            ++frame.generation;
+            const auto generation = prepared_.occupy(slot);
             frame.epoch = stats_.device_epoch;
             frame.resources = std::move(dependencies);
-            frame.live = true;
             for (const auto id : frame.resources) {
                 ++resources_[id.slot].prepared_pins;
             }
             ++stats_.prepared_frames;
-            out = {static_cast<std::uint32_t>(slot), frame.generation, frame.epoch};
+            out = {static_cast<std::uint32_t>(slot), generation, frame.epoch};
             return LifetimeResult::Ok;
         } catch (const std::bad_alloc&) {
             return LifetimeResult::OutOfMemory;
@@ -336,7 +307,7 @@ namespace caseelephant::render {
             CollectResource(id.slot);
         }
         item.resources.clear();
-        item.live = false;
+        prepared_.vacate(slot);
         --stats_.prepared_frames;
         return LifetimeResult::Ok;
     }
@@ -379,20 +350,19 @@ namespace caseelephant::render {
                 // Once submitted, same-queue ordering makes that upload reusable.
                 dependencies.push_back({id, !item.ready && item.submitted_uploads == 0});
             }
-            const auto slot = AvailableSlot(tokens_);
+            const auto slot = tokens_.first_free();
             if (slot == std::numeric_limits<std::uint32_t>::max()) {
                 return LifetimeResult::Busy;
             }
             if (slot == tokens_.size()) {
-                tokens_.emplace_back();
+                tokens_.append();
             }
             auto& token = tokens_[slot];
-            ++token.generation;
+            const auto generation = tokens_.occupy(slot);
             token.epoch = stats_.device_epoch;
             token.state = UseState::Encoded;
             token.serial = 0;
             token.resources = std::move(dependencies);
-            token.live = true;
             for (const auto& use : token.resources) {
                 auto& item = resources_[use.id.slot];
                 ++item.encoded_pins;
@@ -401,7 +371,7 @@ namespace caseelephant::render {
                 }
             }
             ++stats_.encoded_tokens;
-            out = {static_cast<std::uint32_t>(slot), token.generation, token.epoch};
+            out = {static_cast<std::uint32_t>(slot), generation, token.epoch};
             return LifetimeResult::Ok;
         } catch (const std::bad_alloc&) {
             return LifetimeResult::OutOfMemory;
@@ -436,7 +406,7 @@ namespace caseelephant::render {
             --stats_.submitted_tokens;
         }
         token.resources.clear();
-        token.live = false;
+        tokens_.vacate(slot);
     }
 
     LifetimeResult ResourceLifetime::DiscardEncoded(UseTokenId token) noexcept {
@@ -516,7 +486,7 @@ namespace caseelephant::render {
             return LifetimeResult::InvalidSerial;
         }
         for (std::size_t i = 0; i < tokens_.size(); ++i) {
-            if (tokens_[i].live && tokens_[i].state == UseState::Submitted && tokens_[i].serial <= serial) {
+            if (tokens_.occupied(i) && tokens_[i].state == UseState::Submitted && tokens_[i].serial <= serial) {
                 ReleaseToken(i, true);
             }
         }
@@ -538,13 +508,13 @@ namespace caseelephant::render {
         if (confirmation != DeviceAbandonConfirmation::HostConfirmedNoFurtherAccess) {
             return LifetimeResult::HostConfirmationRequired;
         }
-        for (auto& resource : resources_) {
-            if (resource.live && resource.epoch == epoch) {
-                resource.abandoned = true;
+        for (std::size_t i = 0; i < resources_.size(); ++i) {
+            if (resources_.occupied(i) && resources_[i].epoch == epoch) {
+                resources_[i].abandoned = true;
             }
         }
         for (std::size_t i = 0; i < tokens_.size(); ++i) {
-            if (tokens_[i].live && tokens_[i].epoch == epoch) {
+            if (tokens_.occupied(i) && tokens_[i].epoch == epoch) {
                 ReleaseToken(i, false);
             }
         }

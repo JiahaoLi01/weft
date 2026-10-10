@@ -145,18 +145,12 @@ namespace caseelephant {
             std::uint64_t subtree_revision{1};
         };
 
-        struct Slot {
-            Node* node{};
-            std::uint32_t generation{1};
-            bool retired{};
-        };
-
         struct Completion {
             std::uint64_t epoch;
             std::string source;
         };
 
-        std::thread::id owner_thread{std::this_thread::get_id()};
+        OwnerThread owner_thread;
         JSRuntime* runtime{};
         JSContext* context{};
         JSClassID node_class{};
@@ -180,7 +174,8 @@ namespace caseelephant {
         std::size_t read_style_bytes{};
         ProbeIntegerFormatHost integer_format_host;
         bool layout_running{};
-        std::vector<Slot> slots;
+        // Node identities: slot index + generation; a finalized node's identity never resolves again.
+        GenerationalSlots<Node*> slots;
         std::vector<ProbeNodeIdentity> hovered_nodes;
         std::vector<ProbeNodeIdentity> active_nodes;
         std::map<std::uint64_t, JSValue> native_roots;
@@ -287,16 +282,12 @@ namespace caseelephant {
 
         ~Impl() {
             // QuickJS is not thread safe. The M0 evidence API intentionally cannot move.
-            if (std::this_thread::get_id() != owner_thread) {
-                std::terminate();
-            }
+            owner_thread.require_or_terminate();
             shutdown();
         }
 
         void check_owner() const {
-            if (std::this_thread::get_id() != owner_thread) {
-                throw std::logic_error("CE_WRONG_THREAD: script/DOM operation outside UI owner");
-            }
+            owner_thread.require(Diag::WrongThread, "script/DOM operation outside UI owner");
             if (layout_running) {
                 throw std::logic_error("CE_LAYOUT_REENTRY: layout/measure must not enter JS or DOM");
             }
@@ -442,13 +433,8 @@ namespace caseelephant {
                 return;
             }
             JS_SetOpaque(value, nullptr);
-            Slot& slot = owner->slots[n->identity.slot];
-            slot.node = nullptr;
-            if (slot.generation == std::numeric_limits<std::uint32_t>::max()) {
-                slot.retired = true;
-            } else {
-                ++slot.generation;
-            }
+            owner->slots[n->identity.slot] = nullptr;
+            owner->slots.vacate(n->identity.slot);
             ++owner->counters.finalized_nodes;
             --owner->counters.live_nodes;
             // No script, layout, or other Node dereference is allowed in finalizers.
@@ -815,8 +801,8 @@ namespace caseelephant {
             if (execution_active || !factory || !JS_IsUndefined(canvas_prototype)) {
                 throw std::logic_error("CE_CANVAS_INSTALL: owner factory installed once before app");
             }
-            for (const auto& s : slots) {
-                if (s.node && s.node->local == "canvas") {
+            for (std::size_t i = 0; i < slots.size(); ++i) {
+                if (slots.occupied(i) && slots[i]->local == "canvas") {
                     throw std::logic_error("CE_CANVAS_INSTALL: existing canvas node");
                 }
             }
@@ -879,24 +865,20 @@ namespace caseelephant {
                 faulted = true;
                 throw std::runtime_error("expando allocation failed");
             }
-            std::uint32_t index{};
-            for (; index < slots.size(); ++index) {
-                if (!slots[index].node && !slots[index].retired) {
-                    break;
-                }
-            }
+            const auto index = slots.first_free();
             try {
                 if (index == slots.size()) {
-                    slots.push_back({});
+                    slots.append();
                 }
             } catch (...) {
                 JS_FreeValue(context, n->expando);
                 throw;
             }
-            n->identity = {index, slots[index].generation, view_epoch};
+            const auto generation = slots.occupy(index);
+            n->identity = {static_cast<std::uint32_t>(index), generation, view_epoch};
             n->self = object.value;
             n->document = JS_DupValue(context, document);
-            slots[index].node = n.get();
+            slots[index] = n.get();
             JS_SetOpaque(object.value, n.release());
             ++counters.created_nodes;
             ++counters.live_nodes;
@@ -2580,11 +2562,11 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         }
 
         Node* resolve(ProbeNodeIdentity id) const {
-            if (id.view_epoch != view_epoch || id.slot >= slots.size()) {
+            if (id.view_epoch != view_epoch) {
                 return nullptr;
             }
-            const Slot& s = slots[id.slot];
-            return s.generation == id.generation ? s.node : nullptr;
+            const auto* node = slots.find(id.slot, id.generation);
+            return node ? *node : nullptr;
         }
 
         std::string dump(const Node& n) const {
