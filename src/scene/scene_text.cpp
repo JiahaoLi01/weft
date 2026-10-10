@@ -116,7 +116,9 @@ namespace weft {
         font.letter_spacing = spacing == "normal" ? 0 : length(spacing, font.size);
         const auto line = css::style_value(style, "line-height", "normal");
         if (line != "normal") {
-            const auto [digits, unit] = css::split_unit(css::trim(line), {.px = true, .percent = true, .em = true});
+            // split_unit returns views: keep the trimmed string alive.
+            const auto trimmed = css::trim(line);
+            const auto [digits, unit] = css::split_unit(trimmed, {.px = true, .percent = true, .em = true});
             font.line_height = unit == css::Unit::None ? number(digits) * font.size : length(line, font.size);
         }
         if (!std::isfinite(font.size) || font.size <= 0 || font.size > constants::text::max_font_pixels) {
