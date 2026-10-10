@@ -1,5 +1,6 @@
 #pragma once
 #include "script/script_dom.hpp"
+#include "style/values.hpp"
 #include <array>
 #include <optional>
 #include <memory>
@@ -37,7 +38,7 @@ namespace weft {
         std::string local_name;
         // Sparse values: absent properties use the formatting profile's defaults.
         // Explicit CSS-wide keywords and invalid computed declarations are resolved.
-        std::map<std::string, std::string> values;
+        StyleValues values;
         // nullopt is guaranteed-invalid; an empty string is a valid empty value.
         std::map<std::string, std::optional<std::string>> custom_properties;
         std::vector<std::string> invalid_at_computed_value;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "style/values.hpp"
 #include "text/font.hpp"
 #include "text/font_catalog.hpp"
 
@@ -16,7 +17,7 @@
 // Blink's single-line box metrics. Owner-thread only, like the fonts it holds. Renderers draw the shaped glyph
 // runs; coverage and SDF glyph images come from the same faces.
 namespace weft {
-    using SceneStyle = std::map<std::string, std::string>;
+    using SceneStyle = StyleValues;
 
     struct SceneTextMetrics {
         float width{};

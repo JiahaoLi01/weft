@@ -28,8 +28,10 @@ namespace weft::css {
         return std::string(text.substr(first, text.find_last_not_of(whitespace) - first + 1));
     }
 
-    // Declared value of a property in a style map, or fallback when the property is absent.
+    // Declared value of a property in a string-keyed style map, or fallback when the property is absent.
+    // StyleValues (style/values.hpp) has its own overload.
     template <class StyleMap, class Key>
+        requires requires { typename StyleMap::mapped_type; }
     std::string style_value(const StyleMap& style, const Key& property, const char* fallback = "") {
         const auto it = style.find(property);
         return it == style.end() ? std::string(fallback) : it->second;

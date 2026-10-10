@@ -72,7 +72,7 @@ namespace weft {
                     !tags.contains(dom.local_name)) {
                     fail("HTML element profile");
                 }
-                Style s = computed.values;
+                Style s = string_map(computed.values);
                 auto display = get(s, "display", "inline");
                 const auto position = get(s, "position", "static");
                 if (display == "inline" && (position == "absolute" ||

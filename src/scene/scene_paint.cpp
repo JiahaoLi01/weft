@@ -162,20 +162,19 @@ namespace weft {
         return out;
     }
 
-    ScenePaintValues compile_scene_paint_values(const std::map<std::string, std::string>& style) {
+    ScenePaintValues compile_scene_paint_values(const StyleValues& style) {
         ScenePaintValues out;
         const auto& keys = scene_paint_properties();
         for (unsigned i = 0; i < keys.size(); ++i) {
-            auto it = style.find(keys[i]);
+            const auto* value = style.find(keys[i]);
             const auto fallback = i == constants::scene::paint_slot_opacity            ? "1"
                                   : i == constants::scene::paint_slot_transform        ? "none"
                                   : i == constants::scene::paint_slot_background_color ? "transparent"
                                   : i == constants::scene::paint_slot_color            ? constants::default_color
                                                                                        : "currentcolor";
-            auto s = it == style.end() ? std::string(fallback) : it->second;
+            auto s = value ? value->text() : std::string(fallback);
             if (s == "currentcolor" || s == "currentColor") {
-                auto color = style.find("color");
-                s = color == style.end() ? constants::default_color : color->second;
+                s = std::string(style.text(PropertyId::Color, constants::default_color));
             }
             out.values[i] = parse_scene_paint_value(s);
         }

@@ -1,5 +1,6 @@
 #pragma once
 #include "constants/scene.hpp"
+#include "style/values.hpp"
 #include <array>
 #include <map>
 #include <optional>
@@ -56,5 +57,5 @@ namespace weft {
     const std::array<const char*, constants::scene::paint_property_count>& scene_paint_properties();
     std::optional<PaintValue> parse_scene_paint_value(const std::string&);
     PaintValue interpolate_scene_paint_value(const PaintValue&, const PaintValue&, double);
-    ScenePaintValues compile_scene_paint_values(const std::map<std::string, std::string>&);
+    ScenePaintValues compile_scene_paint_values(const StyleValues&);
 } // namespace weft

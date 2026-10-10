@@ -295,6 +295,8 @@ namespace weft {
             int corner{-1};
             int axis{-1};
             bool solid_background{};
+            // The registered property of a non-custom key.
+            PropertyId id{};
         };
 
         // Split only at top-level delimiters; quoted/functional commas and semicolons
@@ -421,6 +423,15 @@ namespace weft {
                     result.push_back({"overflow-y", tokens, important, false, -1, -1, 1});
                 } else {
                     result.push_back({std::move(key), std::move(tokens), important});
+                }
+            }
+            for (auto& d : result) {
+                if (!custom(d.key)) {
+                    const auto id = find_property(d.key);
+                    if (!id) {
+                        fail("unregistered property " + d.key);
+                    }
+                    d.id = *id;
                 }
             }
             return result;
@@ -782,8 +793,30 @@ namespace weft {
 
         using Variables = std::map<std::string, std::optional<Tokens>>;
 
+        // A profile by property id: whether it inherits, and its parsed initial value.
+        struct ProfileIndex {
+            std::array<bool, property_count> registered{};
+            std::array<bool, property_count> inherited{};
+            std::array<CssValue, property_count> initial;
+
+            ProfileIndex() = default;
+
+            explicit ProfileIndex(const StyleProfile& profile) {
+                for (const auto& [name, property] : profile.properties) {
+                    const auto id = find_property(name);
+                    if (!id) {
+                        fail("unregistered property " + name);
+                    }
+                    registered[std::size_t(*id)] = true;
+                    inherited[std::size_t(*id)] = property.inherited;
+                    initial[std::size_t(*id)] = CssValue(property.initial);
+                }
+            }
+        };
+
         struct Engine {
             const StyleProfile& profile;
+            const ProfileIndex& profile_index;
             const std::vector<Rule>& ua;
             const std::vector<Rule>& author;
             std::vector<const DomSnapshot*> path;
@@ -830,9 +863,9 @@ namespace weft {
             MemoState* memo_state = &local_memo;
             std::vector<NodeIdentity>* changed_nodes{};
 
-            Engine(const StyleProfile& p, const std::vector<Rule>& u, const std::vector<Rule>& a, bool reuse = false,
-                   MemoState* state = nullptr, std::vector<NodeIdentity>* changed = nullptr)
-                : profile(p), ua(u), author(a), memoize(reuse) {
+            Engine(const StyleProfile& p, const ProfileIndex& i, const std::vector<Rule>& u, const std::vector<Rule>& a,
+                   bool reuse = false, MemoState* state = nullptr, std::vector<NodeIdentity>* changed = nullptr)
+                : profile(p), profile_index(i), ua(u), author(a), memoize(reuse) {
                 if (state) {
                     memo_state = state;
                 }
@@ -921,10 +954,11 @@ namespace weft {
                                  inline_lower.find("var(") != inline_lower.npos;
                 key += '|';
                 if (parent) {
-                    for (const auto& [k, v] : parent->values) {
-                        if (all || (profile.properties.contains(k) && profile.properties.at(k).inherited)) {
-                            add(k);
-                            add(v);
+                    for (const auto& [id, v] : parent->values) {
+                        if (all ||
+                            (profile_index.registered[std::size_t(id)] && profile_index.inherited[std::size_t(id)])) {
+                            add(property_name(id));
+                            add(v.text());
                         }
                     }
                 }
@@ -1242,9 +1276,11 @@ namespace weft {
                 for (const auto& [k, t] : variables) {
                     out.custom_properties[k] = t ? std::optional(serialize(*t)) : std::nullopt;
                 }
-                for (const auto& [k, prop] : profile.properties) {
-                    if (prop.inherited && parent && parent->values.contains(k)) {
-                        out.values[k] = parent->values.at(k);
+                if (parent) {
+                    for (const auto& [id, value] : parent->values) {
+                        if (profile_index.registered[std::size_t(id)] && profile_index.inherited[std::size_t(id)]) {
+                            out.values.set(id, value);
+                        }
                     }
                 }
                 for (const auto& [k, d] : winning) {
@@ -1323,16 +1359,18 @@ namespace weft {
                             word = "unset";
                         }
                         if (word == "inherit" || (word == "unset" && prop.inherited)) {
-                            out.values[k] = parent && parent->values.contains(k) ? parent->values.at(k) : prop.initial;
+                            const auto* inherited_value = parent ? parent->values.find(d.id) : nullptr;
+                            out.values.set(d.id, inherited_value ? *inherited_value
+                                                                 : profile_index.initial[std::size_t(d.id)]);
                         } else if (word == "initial" || word == "unset") {
-                            out.values[k] = prop.initial;
+                            out.values.set(d.id, profile_index.initial[std::size_t(d.id)]);
                         } else {
-                            out.values[k] = serialize(*tokens);
+                            out.values.set(d.id, CssValue(serialize(*tokens)));
                         }
                     }
                 }
-                for (const auto& [k, v] : out.values) {
-                    bytes += k.size() + v.size();
+                for (const auto& [id, v] : out.values) {
+                    bytes += property_name(id).size() + v.text().size();
                 }
                 for (const auto& [k, v] : out.custom_properties) {
                     bytes += k.size() + (v ? v->size() : 0);
@@ -1375,7 +1413,8 @@ namespace weft {
         }
         auto ua = rules(profile.ua_stylesheet, profile);
         auto author = rules(std::string(sheet), profile);
-        Engine engine{profile, ua, author};
+        const ProfileIndex index(profile);
+        Engine engine{profile, index, ua, author};
         return engine.compute(root, nullptr, {});
     }
 
@@ -1399,6 +1438,7 @@ namespace weft {
     struct CompiledStyle::Impl {
         std::shared_ptr<const int> identity = std::make_shared<const int>(0);
         StyleProfile profile;
+        ProfileIndex index;
         std::vector<Rule> ua;
         std::vector<Rule> author;
         std::set<std::string> attributes{"id", "class", "style"};
@@ -1408,6 +1448,7 @@ namespace weft {
             if (profile.properties.size() > constants::style::max_registered_properties) {
                 fail("property registry count bound");
             }
+            index = ProfileIndex(profile);
             ua = rules(profile.ua_stylesheet, profile);
             author = rules(std::move(sheet), profile);
             for (const auto* list : {&ua, &author}) {
@@ -1440,7 +1481,7 @@ namespace weft {
     CompiledStyle::~CompiledStyle() = default;
 
     ComputedStyle CompiledStyle::compute(const DomSnapshot& dom) const {
-        Engine engine{impl_->profile, impl_->ua, impl_->author, true};
+        Engine engine{impl_->profile, impl_->index, impl_->ua, impl_->author, true};
         return engine.compute(dom, nullptr, {});
     }
 
@@ -1451,7 +1492,7 @@ namespace weft {
             cache.values = {};
             cache.binding = impl_->identity;
         }
-        Engine engine{impl_->profile, impl_->ua, impl_->author, true, &cache.values};
+        Engine engine{impl_->profile, impl_->index, impl_->ua, impl_->author, true, &cache.values};
         return engine.compute(dom, nullptr, {});
     }
 
@@ -1466,7 +1507,7 @@ namespace weft {
         if (changed) {
             changed->clear();
         }
-        Engine engine{impl_->profile, impl_->ua, impl_->author, true, &cache.values, changed};
+        Engine engine{impl_->profile, impl_->index, impl_->ua, impl_->author, true, &cache.values, changed};
         engine.compute_into(dom, output, nullptr, {});
     }
 

@@ -40,11 +40,11 @@ namespace weft {
         auto add = [&](auto&& self, const SceneNode& n, const auto& boxes) -> void {
             // Text may overhang its layout box; SVG/projective paint can have
             // nonlocal extents. The independent full path owns those cases.
-            auto t = n.style.find("transform");
-            if ((n.style.contains("box-shadow") && !n.style.at("box-shadow").empty() &&
-                 n.style.at("box-shadow") != "none") ||
-                !n.text.empty() || (!n.space.empty() && n.space != constants::xhtml_namespace_uri) ||
-                (t != n.style.end() && t->second.find("perspective(") != t->second.npos)) {
+            const auto* t = n.style.find(PropertyId::Transform);
+            const auto* shadow = n.style.find(PropertyId::BoxShadow);
+            if ((shadow && !shadow->text().empty() && shadow->text() != "none") || !n.text.empty() ||
+                (!n.space.empty() && n.space != constants::xhtml_namespace_uri) ||
+                (t && t->text().find("perspective(") != std::string::npos)) {
                 full();
                 return;
             }

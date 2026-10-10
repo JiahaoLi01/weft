@@ -121,7 +121,7 @@ namespace weft {
                     !tags.contains(dom.local_name)) {
                     fail("HTML tag/namespace");
                 }
-                auto s = computed.values;
+                auto s = string_map(computed.values);
                 auto display = get(s, "display", "inline");
                 auto position = get(s, "position", "static");
                 if (display == "inline" &&

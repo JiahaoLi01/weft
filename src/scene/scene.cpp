@@ -28,6 +28,11 @@ namespace weft {
             return css::style_value(s, k, fallback);
         }
 
+        // Element attributes stay a string map.
+        std::string get(const std::map<std::string, std::string>& s, const std::string& k, const char* fallback = "") {
+            return css::style_value(s, k, fallback);
+        }
+
         double number(std::string_view s) {
             const std::string text(s);
             const auto n = css::parse_number<double>(text, constants::scene::max_numeric_magnitude);
@@ -66,7 +71,12 @@ namespace weft {
                 if (p == part.npos) {
                     fail("declaration colon");
                 }
-                out[trim(part.substr(0, p))] = trim(part.substr(p + 1));
+                const auto name = trim(part.substr(0, p));
+                const auto id = find_property(name);
+                if (!id) {
+                    fail("unsupported keyframe property " + name);
+                }
+                out.set(*id, trim(part.substr(p + 1)));
             }
             return out;
         }
@@ -488,7 +498,13 @@ namespace weft {
                         if (fraction < 0 || fraction > 1) {
                             fail("keyframe offset");
                         }
-                        out[name][fraction].insert(style.begin(), style.end());
+                        // Like std::map::insert over a range: an earlier block keeps its value.
+                        auto& frame = out[name][fraction];
+                        for (const auto& [id, value] : style) {
+                            if (!frame.contains(id)) {
+                                frame.set(id, value);
+                            }
+                        }
                     }
                     q = end + 1;
                 }
@@ -541,7 +557,7 @@ namespace weft {
                 std::map<std::string, std::map<double, std::string>> tracks;
                 for (const auto& [offset, s] : frames) {
                     for (const auto& [k, v] : s) {
-                        tracks[k][offset] = v;
+                        tracks[std::string(property_name(k))][offset] = v.text();
                     }
                 }
                 for (auto& [k, values] : tracks) {
@@ -918,17 +934,21 @@ namespace weft {
                 const auto timing = get(target, "transition-timing-function", "ease");
                 const auto dur = get(target, "transition-duration", "0s");
                 if (prop != "none" && duration(dur) > 0) {
-                    for (const auto& [k, v] : target) {
-                        if (!st.target.contains(k) || st.target.at(k) == v || k.starts_with("transition-") ||
-                            k.starts_with("animation") || k.starts_with("--")) {
+                    for (const auto& [property, v] : target) {
+                        const auto k = property_name(property);
+                        const auto* before = st.target.find(property);
+                        if (!before || *before == v || k.starts_with("transition-") || k.starts_with("animation") ||
+                            k.starts_with("--")) {
                             continue;
                         }
                         const auto props = split(prop, ',');
                         if (prop != "all" && std::find(props.begin(), props.end(), k) == props.end()) {
                             continue;
                         }
-                        st.transitions[k] = {st.current.contains(k) ? st.current.at(k) : st.target.at(k), v, timing,
-                                             now + duration(get(target, "transition-delay", "0s")), duration(dur)};
+                        const auto* current = st.current.find(property);
+                        st.transitions[std::string(k)] = {current ? current->text() : before->text(), v.text(), timing,
+                                                          now + duration(get(target, "transition-delay", "0s")),
+                                                          duration(dur)};
                     }
                 }
             }
@@ -1541,51 +1561,57 @@ namespace weft {
         // Conservative layout signature: only known paint-only properties are omitted.
         // A transform may change the containing block when it crosses `none`.
         bool same_layout_style(const Style& a, const Style& b) {
-            static const std::set<std::string, std::less<>> ignored = {"opacity",
-                                                                       "transform-origin",
-                                                                       "transform-style",
-                                                                       "background-color",
-                                                                       "background-image",
-                                                                       "background-size",
-                                                                       "background-position",
-                                                                       "color",
-                                                                       "fill",
-                                                                       "stroke",
-                                                                       "stroke-width",
-                                                                       "text-anchor",
-                                                                       "dominant-baseline",
-                                                                       "border-top-color",
-                                                                       "border-right-color",
-                                                                       "border-bottom-color",
-                                                                       "border-left-color",
-                                                                       "border-color",
-                                                                       "border-radius",
-                                                                       "border-top-left-radius",
-                                                                       "border-top-right-radius",
-                                                                       "border-bottom-right-radius",
-                                                                       "border-bottom-left-radius",
-                                                                       "animation",
-                                                                       "animation-delay",
-                                                                       "animation-duration",
-                                                                       "animation-timing-function",
-                                                                       "transition-property",
-                                                                       "transition-duration",
-                                                                       "transition-delay",
-                                                                       "transition-timing-function",
-                                                                       "pointer-events",
-                                                                       "cursor",
-                                                                       "z-index",
-                                                                       "transform"};
+            static const auto ignored = [] {
+                std::array<bool, property_count> out{};
+                for (const auto id : {PropertyId::Opacity,
+                                      PropertyId::TransformOrigin,
+                                      PropertyId::TransformStyle,
+                                      PropertyId::BackgroundColor,
+                                      PropertyId::BackgroundImage,
+                                      PropertyId::BackgroundSize,
+                                      PropertyId::BackgroundPosition,
+                                      PropertyId::Color,
+                                      PropertyId::Fill,
+                                      PropertyId::Stroke,
+                                      PropertyId::StrokeWidth,
+                                      PropertyId::TextAnchor,
+                                      PropertyId::DominantBaseline,
+                                      PropertyId::BorderTopColor,
+                                      PropertyId::BorderRightColor,
+                                      PropertyId::BorderBottomColor,
+                                      PropertyId::BorderLeftColor,
+                                      PropertyId::BorderColor,
+                                      PropertyId::BorderRadius,
+                                      PropertyId::BorderTopLeftRadius,
+                                      PropertyId::BorderTopRightRadius,
+                                      PropertyId::BorderBottomRightRadius,
+                                      PropertyId::BorderBottomLeftRadius,
+                                      PropertyId::Animation,
+                                      PropertyId::AnimationDelay,
+                                      PropertyId::AnimationDuration,
+                                      PropertyId::AnimationTimingFunction,
+                                      PropertyId::TransitionProperty,
+                                      PropertyId::TransitionDuration,
+                                      PropertyId::TransitionDelay,
+                                      PropertyId::TransitionTimingFunction,
+                                      PropertyId::PointerEvents,
+                                      PropertyId::Cursor,
+                                      PropertyId::ZIndex,
+                                      PropertyId::Transform}) {
+                    out[std::size_t(id)] = true;
+                }
+                return out;
+            }();
             if ((get(a, "transform", "none") == "none") != (get(b, "transform", "none") == "none")) {
                 return false;
             }
             auto x = a.begin();
             auto y = b.begin();
             for (;;) {
-                while (x != a.end() && ignored.contains(x->first)) {
+                while (x != a.end() && ignored[std::size_t(x->first)]) {
                     ++x;
                 }
-                while (y != b.end() && ignored.contains(y->first)) {
+                while (y != b.end() && ignored[std::size_t(y->first)]) {
                     ++y;
                 }
                 if (x == a.end() || y == b.end()) {

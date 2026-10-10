@@ -103,7 +103,7 @@ namespace weft {
                     fail("HTML element profile");
                 }
                 path.push_back(&dom);
-                Style s = computed.values;
+                Style s = string_map(computed.values);
                 for (const auto* k : {"margin", "padding", "border"}) {
                     if (s.contains(k) && s[k] != "0" && s[k] != "0px") {
                         fail("nonzero box edge " + std::string(k));

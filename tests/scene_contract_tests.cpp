@@ -1,3 +1,4 @@
+#include "base/diagnostic.hpp"
 #include "scene/scene.hpp"
 #include "scene/scene_geometry.hpp"
 #include "support/scene_fonts.hpp"
@@ -186,6 +187,20 @@ int main() {
                                    .style.at("opacity")) -
                      .25f) < weft::test_constants::scene::paint_sample_tolerance,
             "alternate-reverse second iteration");
+        // Keyframe declarations name registered properties; anything else is a scene profile diagnostic.
+        bool unknown_keyframe{};
+        try {
+            weft::SceneSolver bad("", "@keyframes fade{from{shimmer:1}to{opacity:1}}", [&](auto t, const auto& st) {
+                return weft::testing::thread_scene_text().measure(t, st);
+            });
+            bad.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
+                      weft::test_constants::scene::contract_view_size, 0);
+        } catch (const weft::DiagnosticError& error) {
+            unknown_keyframe =
+                error.code() == weft::Diag::SceneProfile &&
+                std::string(error.what()).find("unsupported keyframe property shimmer") != std::string::npos;
+        }
+        require(unknown_keyframe, "unregistered keyframe property not diagnosed");
         vm.eval(
             "const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 10 10');document.getElementById('root').appendChild(svg)");
         invalid = false;

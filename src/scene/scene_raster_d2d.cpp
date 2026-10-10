@@ -1605,9 +1605,19 @@ namespace weft {
         std::map<std::array<std::uint64_t, 3>, std::shared_ptr<const PaintProgram>> paint_programs;
         std::size_t paint_program_bytes{};
 
-        static bool parameter(const std::string& k) {
-            const auto& keys = scene_paint_properties();
-            return k == "border-color" || std::find(keys.begin(), keys.end(), k) != keys.end();
+        // Paint parameters are sampled per frame; the program keeps every other property.
+        static bool parameter(PropertyId k) {
+            static const auto table = [] {
+                std::array<bool, property_count> out{};
+                out[std::size_t(PropertyId::BorderColor)] = true;
+                for (const auto* key : scene_paint_properties()) {
+                    if (const auto id = find_property(key)) {
+                        out[std::size_t(*id)] = true;
+                    }
+                }
+                return out;
+            }();
+            return table[std::size_t(k)];
         }
 
         static bool matches(const PaintProgram& p, const SceneNode& n) {
@@ -1652,8 +1662,8 @@ namespace weft {
             p->clipped = (get(n.style, "overflow") == "hidden" || get(n.style, "overflow") == "auto") || n.tag == "svg";
             for (const auto& [k, v] : n.style) {
                 if (!parameter(k)) {
-                    p->style.emplace(k, v);
-                    p->bytes += k.size() + v.size() + sizeof(Style::value_type);
+                    p->style.set(k, v);
+                    p->bytes += sizeof(StyleValues::Entry) + v.text().size();
                 }
             }
             unsigned i{};

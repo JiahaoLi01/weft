@@ -58,7 +58,7 @@ namespace weft {
                     (node.local_name != "div" && node.local_name != "button")) {
                     throw std::invalid_argument("WEFT_PAGE_PROFILE: only explicit flex div/button elements");
                 }
-                Style style = computed.values;
+                Style style = string_map(computed.values);
                 if (!style.contains("font-size")) {
                     style["font-size"] = constants::default_font_size;
                 }

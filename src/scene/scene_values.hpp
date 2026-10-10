@@ -4,6 +4,7 @@
 #include "base/diagnostic.hpp"
 #include "constants/common.hpp"
 #include "constants/scene.hpp"
+#include "style/values.hpp"
 
 #include <map>
 #include <string>
@@ -12,13 +13,19 @@
 // Computed style values of the scene renderers (scene_geometry, scene_text_image and the D2D reference raster): one
 // parser, so every renderer resolves a length to the same float.
 namespace weft::scene_values {
-    using Style = std::map<std::string, std::string>;
+    using Style = StyleValues;
 
     [[noreturn]] inline void fail(const std::string& s) {
         throw_diagnostic(Diag::SceneRaster, s);
     }
 
     inline std::string get(const Style& s, const std::string& k, const char* fallback = "") {
+        return css::style_value(s, k, fallback);
+    }
+
+    // Element attributes stay a string map.
+    inline std::string get(const std::map<std::string, std::string>& s, const std::string& k,
+                           const char* fallback = "") {
         return css::style_value(s, k, fallback);
     }
 

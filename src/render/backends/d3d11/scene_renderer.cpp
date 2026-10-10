@@ -143,8 +143,8 @@ namespace weft::render::d3d11 {
                 if (!node.space.empty() && node.space != constants::xhtml_namespace_uri) {
                     supported = false;
                 }
-                auto t = node.style.find("transform");
-                if (t != node.style.end() && t->second.find("perspective(") != t->second.npos) {
+                const auto* t = node.style.find(PropertyId::Transform);
+                if (t && t->text().find("perspective(") != std::string::npos) {
                     supported = false;
                 }
                 if (!node.text.empty()) {
@@ -159,8 +159,8 @@ namespace weft::render::d3d11 {
                 }
             };
             inspect(inspect, n);
-            auto overflow = n.style.find("overflow");
-            if (overflow == n.style.end() || overflow->second != "hidden") {
+            const auto* overflow = n.style.find(PropertyId::Overflow);
+            if (!overflow || overflow->text() != "hidden") {
                 SceneFrame bounds;
                 bounds.root = n;
                 for (const auto& e : geometry_.geometry(bounds)) {
@@ -176,8 +176,8 @@ namespace weft::render::d3d11 {
             }
         }
         auto metrics = text_.measure(n.text, n.style);
-        auto overflow = n.style.find("overflow");
-        if (p.kind == Paint::Text && (overflow == n.style.end() || overflow->second != "hidden") &&
+        const auto* overflow = n.style.find(PropertyId::Overflow);
+        if (p.kind == Paint::Text && (!overflow || overflow->text() != "hidden") &&
             (metrics.width > n.box[2] + limits::text_fit_tolerance ||
              metrics.height > n.box[3] + limits::text_fit_tolerance)) {
             throw std::invalid_argument("text overflow reference");

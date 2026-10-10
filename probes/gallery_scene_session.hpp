@@ -190,9 +190,9 @@ struct GallerySceneSession {
         vm.install_computed_style_host([this, root](const auto& document, auto identity) {
             ProfileScope timer(profile.style_reads, profile.style_ms, profiling);
             sync_scene(*root(document));
-            auto find = [&](auto&& self, const auto& n) -> weft::SceneStyle {
+            auto find = [&](auto&& self, const auto& n) -> std::map<std::string, std::string> {
                 if (n.identity == identity) {
-                    auto s = n.style;
+                    auto s = weft::string_map(n.style);
                     s["width"] = weft::testing::format_host_time(n.box[2]) + "px";
                     s["height"] = weft::testing::format_host_time(n.box[3]) + "px";
                     if (!s.contains("transform") || s["transform"].empty() || s["transform"] == "none") {

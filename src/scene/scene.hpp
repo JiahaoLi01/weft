@@ -53,15 +53,27 @@ namespace weft {
             }
             return true;
         };
-        static constexpr const char* styles[]{
-            "transform",        "transform-origin",    "position",         "border-left-width", "border-right-width",
-            "border-top-width", "border-bottom-width", "font-size",        "font-weight",       "font-family",
-            "letter-spacing",   "text-anchor",         "dominant-baseline"};
+        auto equal_styles = [](const SceneStyle& x, const SceneStyle& y, const auto& ids) {
+            for (const auto id : ids) {
+                const auto* p = x.find(id);
+                const auto* q = y.find(id);
+                if (!p != !q || (p && !(*p == *q))) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        static constexpr PropertyId styles[]{
+            PropertyId::Transform,         PropertyId::TransformOrigin,  PropertyId::Position,
+            PropertyId::BorderLeftWidth,   PropertyId::BorderRightWidth, PropertyId::BorderTopWidth,
+            PropertyId::BorderBottomWidth, PropertyId::FontSize,         PropertyId::FontWeight,
+            PropertyId::FontFamily,        PropertyId::LetterSpacing,    PropertyId::TextAnchor,
+            PropertyId::DominantBaseline};
         static constexpr const char* attrs[]{"transform", "width", "height", "viewBox", "preserveAspectRatio",
                                              "x",         "y",     "dy",     "x1",      "y1",
                                              "x2",        "y2",    "rx",     "ry",      "r",
                                              "cx",        "cy",    "d",      "points"};
-        return (identical_style || equal_keys(a.style, b.style, styles)) &&
+        return (identical_style || equal_styles(a.style, b.style, styles)) &&
                equal_keys(a.attributes, b.attributes, attrs);
     }
 

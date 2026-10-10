@@ -95,8 +95,8 @@ inline void compare_scene_geometry(weft::SceneRaster& reference, weft::SceneGeom
                             }
                         }
                         for (const auto* k : {"transform", "display", "pointer-events", "fill", "overflow"}) {
-                            if (auto s = n.style.find(k); s != n.style.end()) {
-                                text += std::string(" style:") + k + "=\"" + s->second.substr(0, 60) + "\"";
+                            if (const auto* s = n.style.find(k)) {
+                                text += std::string(" style:") + k + "=\"" + s->text().substr(0, 60) + "\"";
                             }
                         }
                         text += " box=" + std::to_string(n.box[0]) + "," + std::to_string(n.box[1]) + "," +
