@@ -1,0 +1,67 @@
+# CaseElephant C/C++ style. Rules (docs/coding-style.md):
+# - braces always, opening brace attached, body on the next line, closing brace on its own line;
+# - one statement per line, spaces around binary operators and after control keywords;
+# - namespace bodies are indented.
+---
+Language: Cpp
+BasedOnStyle: LLVM
+Standard: c++20
+ColumnLimit: 120
+IndentWidth: 4
+ContinuationIndentWidth: 4
+TabWidth: 4
+UseTab: Never
+# Matches .gitattributes (eol=lf for C/C++ sources).
+LineEnding: LF
+AccessModifierOffset: -4
+IndentCaseLabels: true
+IndentPPDirectives: None
+NamespaceIndentation: All
+CompactNamespaces: false
+FixNamespaceComments: true
+ShortNamespaceLines: 0
+BreakBeforeBraces: Attach
+InsertBraces: true
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseExpressionOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortCompoundRequirementOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLambdasOnASingleLine: None
+AllowShortLoopsOnASingleLine: false
+AllowShortNamespacesOnASingleLine: false
+SpaceBeforeParens: ControlStatements
+SpaceBeforeCpp11BracedList: false
+Cpp11BracedListStyle: true
+PointerAlignment: Left
+ReferenceAlignment: Pointer
+DerivePointerAlignment: false
+SortIncludes: Never
+IncludeBlocks: Preserve
+InsertNewlineAtEOF: true
+MaxEmptyLinesToKeep: 1
+KeepEmptyLines:
+  AtEndOfFile: false
+  AtStartOfBlock: false
+  AtStartOfFile: false
+SeparateDefinitionBlocks: Always
+EmptyLineBeforeAccessModifier: LogicalBlock
+BreakTemplateDeclarations: Yes
+BreakStringLiterals: false
+ReflowComments: Never
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: true
+BreakConstructorInitializers: BeforeColon
+PackConstructorInitializers: NextLine
+BinPackArguments: true
+BinPackParameters: BinPack
+AllowAllArgumentsOnNextLine: true
+AllowAllParametersOfDeclarationOnNextLine: true
+LambdaBodyIndentation: Signature
+RequiresClausePosition: OwnLine
+QualifierAlignment: Leave
+RemoveSemicolon: false
+SpacesBeforeTrailingComments: 1
+...

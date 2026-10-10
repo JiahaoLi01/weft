@@ -1,0 +1,11 @@
+{
+  "tests/flow_input_tests.cpp": {
+    "c681bb0863a7b512e778b5d706c1e9d204f661d0569ae707589c84195315be00": [
+      {
+        "sha256": "eaca7c45aa7210463006af6850a7dcb2d49194f6e278ff5294fd093eebc3d72d",
+        "date": "2026-10-10",
+        "reason": "Format, one-declaration-per-line and named-constant refactor (docs/coding-style.md); Release disassembly of ce_flow_input_tests is equivalent to the captured revision, so the Chromium hit oracle still applies."
+      }
+    ]
+  }
+}

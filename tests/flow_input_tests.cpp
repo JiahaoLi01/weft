@@ -1,5 +1,6 @@
 #include "caseelephant/flow_page_probe.hpp"
 #include "caseelephant/input_probe.hpp"
+#include "test_constants/layout.hpp"
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -8,70 +9,216 @@
 #include <stdexcept>
 #include <thread>
 using namespace caseelephant;
+
 namespace {
-void check(bool b,const char* s){if(!b)throw std::runtime_error(s);}
-std::string read(const char* p){std::ifstream f(std::string(CE_SOURCE_DIR)+p);check(bool(f),"fixture file");std::ostringstream out;out<<f.rdbuf();return out.str();}
-const ProbeDomSnapshot& find(const ProbeDomSnapshot& n,const std::string& id){if(n.attributes.contains("id") && n.attributes.at("id")==id)return n;for(const auto& c:n.children){try{return find(c,id);}catch(const std::out_of_range&){}}throw std::out_of_range(id);}
-std::string hit_id(const ProbePage& p,double x,double y){auto hit=hit_page_probe(p,x,y);return hit?p.boxes[*hit].id:"";}
-}
-int main(int argc,char** argv){try{
-    check(argc==2,"output path");
-    TextProbeFontSet fonts({CE_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf",CE_SOURCE_DIR "/third_party/noto-cjk/source/NotoSansCJKsc-Regular.otf"});
-    const auto css=read("/tests/fixtures/flow-input/profile.css");ScriptDomProbe vm;
-    vm.eval(read("/probes/web_host_bootstrap.js"));vm.eval(read("/tests/fixtures/flow-input/fixture.js"));
-    vm.install_layout_host([&](const auto& d){return build_flow_page_probe(find(d,"inputpage"),css,640,420,fonts).elements;});
-    auto layout=[&]{return build_flow_page_probe(vm.snapshot_subtree("#inputpage"),css,640,420,fonts).page.geometry;};
-    ProbeMouseRouter router(vm,layout);const auto initial=layout();
-    check(hit_id(initial,340,40)=="high","paint stacking differs from reverse DOM order");
-    check(hit_id(initial,320,315)=="inputpage" && hit_id(initial,370,350)=="round","elliptical border hit");
-    check(hit_id(initial,20,20)=="inputpage" && hit_id(initial,30,150)=="row-4","rounded overflow/pointer inheritance");
-    check(hit_id(initial,639,410)=="edge" && hit_id(initial,641,410).empty(),"surface clip permits visible overflow only inside viewport");
-    check(hit_id(initial,1,1).empty(),"root rounded hit clipping");
-    std::ostringstream report;report<<"{\"fixture\":\"flow-input-v1\",\"frames\":[";
-    std::size_t points{};
-    for(int frame=0;frame<3;++frame){if(frame)vm.eval("inputScenario.advance()");const auto page=layout();if(frame)report<<',';report<<'[';bool first=true;
-        auto sample=[&](double x,double y){if(!first)report<<',';first=false;report<<"{\"x\":"<<x<<",\"y\":"<<y<<",\"target\":\""<<hit_id(page,x,y)<<"\"}";++points;};
-        for(int y=8;y<420;y+=16)for(int x=8;x<640;x+=16)sample(x,y);
-        for(const auto& r:page.hit_regions)if(page.boxes[r.hit].id=="outer" || page.boxes[r.hit].id=="inner")sample(r.rect[0]+r.rect[2]*.5,r.rect[1]+r.rect[3]*.5);
-        for(auto p:std::vector<std::array<double,2>>{{1,1},{20,20},{320,315},{370,350},{641,410},{-1,40},{260,199}})sample(p[0],p[1]);report<<']';
-    }report<<"],\"passed\":true}";
-    // Restore an independent DOM so the report's input sequence stays immutable.
-    vm.reset_document();vm.eval(read("/probes/web_host_bootstrap.js"));vm.eval(read("/tests/fixtures/flow-input/fixture.js"));
-    vm.install_layout_host([&](const auto& d){return build_flow_page_probe(find(d,"inputpage"),css,640,420,fonts).elements;});
-    // Independent arithmetic oracle for random fresh-scroll and z-order mutations.
-    // Fixed heights/padding make expected row identity independent of the layout code.
-    unsigned seed=0xCE802026u;
-    for(unsigned i=0;i<64;++i){
-        seed=seed*1664525u+1013904223u;const double offset=(seed%140)+.25;
-        const int high_z=int((seed>>12)%7),low_z=int((seed>>20)%7);
-        vm.eval("document.getElementById('scroller').scrollTop="+std::to_string(offset)+";document.getElementById('high').style.zIndex='"+std::to_string(high_z)+"';document.getElementById('low').style.zIndex='"+std::to_string(low_z)+"'");
-        const auto current=layout();
-        check(hit_id(current,50,43)=="row-"+std::to_string(int((13+offset)/26)),"random fresh scroll identity");
-        check(hit_id(current,340,40)==(high_z>low_z?"high":"low"),"random paint-order identity, including ties");
+    void check(bool b, const char* s) {
+        if (!b) {
+            throw std::runtime_error(s);
+        }
     }
-    vm.eval("document.getElementById('scroller').scrollTop=0");
-    ProbeMouseEvent mouse;mouse.client_x=50;mouse.client_y=43;
-    router.route(ProbeMouseAction::Down,mouse);vm.collect_garbage();router.route(ProbeMouseAction::Up,mouse);
-    check(vm.eval("inputScenario.clicks.join(',')")=="row-0","fresh flow mouse routed to row");
-    ProbeWheelEvent wheel{10.25,12.75,50,43,-20,900,123,true,true,true,true};
-    check(router.wheel(wheel)==ProbeDispatchResult::DefaultAllowed,"flow wheel delivery");
-    check(vm.eval("JSON.stringify(inputScenario.wheels[0])")=="[\"row-0\",10.25,12.75,0,50,43,-20,900,true,true,true,true,123,true,true]","WheelEvent payload/prototype/modifiers/time");
-    check(vm.eval("document.getElementById('scroller').scrollTop")=="12.75","fractional scroll consumed");
-    vm.eval("inputScenario.blockWheel=true");check(router.wheel(wheel)==ProbeDispatchResult::DefaultPrevented,"wheel canceled before default");
-    check(vm.eval("document.getElementById('scroller').scrollTop")=="12.75","canceled wheel scrolls");vm.eval("inputScenario.blockWheel=false");
-    wheel.client_x=20;wheel.client_y=20;router.wheel(wheel);check(vm.eval("document.getElementById('scroller').scrollTop")=="12.75","clipped corner wheel reaches scroller");
-    mouse.client_x=350;mouse.client_y=260;router.route(ProbeMouseAction::Down,mouse);router.route(ProbeMouseAction::Up,mouse);
-    check(vm.eval("inputScenario.clicks.length")=="1","disabled nested button activated");
-    // A mutation before the next input must move targets without a render.
-    vm.eval("document.getElementById('scroller').scrollTop=52;document.getElementById('scroller').scrollLeft=0");
-    mouse.client_x=50;mouse.client_y=43;router.route(ProbeMouseAction::Down,mouse);router.route(ProbeMouseAction::Up,mouse);
-    check(vm.eval("inputScenario.clicks[1]")=="row-2","next hit ignores latest scroll");
-    router.route(ProbeMouseAction::Down,mouse);router.cancel();router.route(ProbeMouseAction::Up,mouse);check(vm.eval("inputScenario.clicks.length")=="2","cancel fabricated click");
-    const auto old=vm.node_identity("#row-2");vm.eval("document.getElementById('row-2').addEventListener('wheel',()=>{const e=document.getElementById('scroller');globalThis.held=e;e.parentNode.removeChild(e);}, {once:true})");
-    wheel.client_x=50;wheel.client_y=43;router.wheel(wheel);check(vm.is_live(old) && vm.eval("held.scrollTop")=="0","wheel mutation invalidated default identity or detached node");
-    check(vm.dispatch_wheel(old,wheel)==ProbeDispatchResult::StaleTarget,"detached wheel dispatched");
-    bool wrong{},wrong_mouse{};std::thread t([&]{try{router.wheel(wheel);}catch(const std::logic_error&){wrong=true;}try{router.route(ProbeMouseAction::Move,mouse);}catch(const std::logic_error&){wrong_mouse=true;}});t.join();check(wrong && wrong_mouse,"wrong-owner input routing");
-    vm.reset_document();vm.collect_garbage();check(!vm.is_live(old) && vm.stats().live_nodes==3 && vm.stats().native_roots==1,"input roots leaked after reset");
-    std::filesystem::path p(argv[1]);std::filesystem::create_directories(p.parent_path());std::ofstream(p)<<report.str();
-    std::cout<<"PASS flow input: "<<points<<" hit queries, 128 random mutation checks, fresh clipped/rounded/stacked fragments, mouse and fractional/canceled wheel, detached/epoch/owner\n";return 0;
-}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}}
+
+    std::string read(const char* p) {
+        std::ifstream f(std::string(CE_SOURCE_DIR) + p);
+        check(bool(f), "fixture file");
+        std::ostringstream out;
+        out << f.rdbuf();
+        return out.str();
+    }
+
+    const ProbeDomSnapshot& find(const ProbeDomSnapshot& n, const std::string& id) {
+        if (n.attributes.contains("id") && n.attributes.at("id") == id) {
+            return n;
+        }
+        for (const auto& c : n.children) {
+            try {
+                return find(c, id);
+            } catch (const std::out_of_range&) {
+            }
+        }
+        throw std::out_of_range(id);
+    }
+
+    std::string hit_id(const ProbePage& p, double x, double y) {
+        auto hit = hit_page_probe(p, x, y);
+        return hit ? p.boxes[*hit].id : "";
+    }
+} // namespace
+
+int main(int argc, char** argv) {
+    try {
+        check(argc == 2, "output path");
+        TextProbeFontSet fonts({CE_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf",
+                                CE_SOURCE_DIR "/third_party/noto-cjk/source/NotoSansCJKsc-Regular.otf"});
+        const auto css = read("/tests/fixtures/flow-input/profile.css");
+        ScriptDomProbe vm;
+        vm.eval(read("/probes/web_host_bootstrap.js"));
+        vm.eval(read("/tests/fixtures/flow-input/fixture.js"));
+        vm.install_layout_host([&](const auto& d) {
+            return build_flow_page_probe(find(d, "inputpage"), css, caseelephant::constants::default_view_width,
+                                         caseelephant::constants::default_view_height, fonts)
+                .elements;
+        });
+        auto layout = [&] {
+            return build_flow_page_probe(vm.snapshot_subtree("#inputpage"), css,
+                                         caseelephant::constants::default_view_width,
+                                         caseelephant::constants::default_view_height, fonts)
+                .page.geometry;
+        };
+        ProbeMouseRouter router(vm, layout);
+        const auto initial = layout();
+        check(hit_id(initial, 340, 40) == "high", "paint stacking differs from reverse DOM order");
+        check(hit_id(initial, 320, 315) == "inputpage" && hit_id(initial, 370, 350) == "round",
+              "elliptical border hit");
+        check(hit_id(initial, 20, 20) == "inputpage" && hit_id(initial, 30, 150) == "row-4",
+              "rounded overflow/pointer inheritance");
+        check(hit_id(initial, 639, 410) == "edge" && hit_id(initial, 641, 410).empty(),
+              "surface clip permits visible overflow only inside viewport");
+        check(hit_id(initial, 1, 1).empty(), "root rounded hit clipping");
+        std::ostringstream report;
+        report << "{\"fixture\":\"flow-input-v1\",\"frames\":[";
+        std::size_t points{};
+        for (int frame = 0; frame < caseelephant::test_constants::layout::fixture_frames; ++frame) {
+            if (frame) {
+                vm.eval("inputScenario.advance()");
+            }
+            const auto page = layout();
+            if (frame) {
+                report << ',';
+            }
+            report << '[';
+            bool first = true;
+            auto sample = [&](double x, double y) {
+                if (!first) {
+                    report << ',';
+                }
+                first = false;
+                report << "{\"x\":" << x << ",\"y\":" << y << ",\"target\":\"" << hit_id(page, x, y) << "\"}";
+                ++points;
+            };
+            for (int y = caseelephant::test_constants::layout::hit_grid_first;
+                 y < caseelephant::constants::default_view_height;
+                 y += caseelephant::test_constants::layout::hit_grid_step) {
+                for (int x = caseelephant::test_constants::layout::hit_grid_first;
+                     x < caseelephant::constants::default_view_width;
+                     x += caseelephant::test_constants::layout::hit_grid_step) {
+                    sample(x, y);
+                }
+            }
+            for (const auto& r : page.hit_regions) {
+                if (page.boxes[r.hit].id == "outer" || page.boxes[r.hit].id == "inner") {
+                    sample(r.rect[0] + r.rect[2] * .5, r.rect[1] + r.rect[3] * .5);
+                }
+            }
+            for (auto p : std::vector<std::array<double, 2>>{
+                     {1, 1}, {20, 20}, {320, 315}, {370, 350}, {641, 410}, {-1, 40}, {260, 199}}) {
+                sample(p[0], p[1]);
+            }
+            report << ']';
+        }
+        report << "],\"passed\":true}";
+        // Restore an independent DOM so the report's input sequence stays immutable.
+        vm.reset_document();
+        vm.eval(read("/probes/web_host_bootstrap.js"));
+        vm.eval(read("/tests/fixtures/flow-input/fixture.js"));
+        vm.install_layout_host([&](const auto& d) {
+            return build_flow_page_probe(find(d, "inputpage"), css, caseelephant::constants::default_view_width,
+                                         caseelephant::constants::default_view_height, fonts)
+                .elements;
+        });
+        // Independent arithmetic oracle for random fresh-scroll and z-order mutations.
+        // Fixed heights/padding make expected row identity independent of the layout code.
+        unsigned seed = caseelephant::test_constants::layout::flow_input_seed;
+        for (unsigned i = 0; i < caseelephant::test_constants::layout::flow_input_mutations; ++i) {
+            seed = seed * caseelephant::constants::lcg_multiplier + caseelephant::constants::lcg_increment;
+            const double offset = (seed % 140) + .25;
+            const int high_z = int((seed >> 12) % 7);
+            const int low_z = int((seed >> 20) % 7);
+            vm.eval("document.getElementById('scroller').scrollTop=" + std::to_string(offset) +
+                    ";document.getElementById('high').style.zIndex='" + std::to_string(high_z) +
+                    "';document.getElementById('low').style.zIndex='" + std::to_string(low_z) + "'");
+            const auto current = layout();
+            check(hit_id(current, 50, 43) == "row-" + std::to_string(int((13 + offset) / 26)),
+                  "random fresh scroll identity");
+            check(hit_id(current, 340, 40) == (high_z > low_z ? "high" : "low"),
+                  "random paint-order identity, including ties");
+        }
+        vm.eval("document.getElementById('scroller').scrollTop=0");
+        ProbeMouseEvent mouse;
+        mouse.client_x = 50;
+        mouse.client_y = 43;
+        router.route(ProbeMouseAction::Down, mouse);
+        vm.collect_garbage();
+        router.route(ProbeMouseAction::Up, mouse);
+        check(vm.eval("inputScenario.clicks.join(',')") == "row-0", "fresh flow mouse routed to row");
+        ProbeWheelEvent wheel{10.25, 12.75, 50, 43, -20, 900, 123, true, true, true, true};
+        check(router.wheel(wheel) == ProbeDispatchResult::DefaultAllowed, "flow wheel delivery");
+        check(vm.eval("JSON.stringify(inputScenario.wheels[0])") ==
+                  "[\"row-0\",10.25,12.75,0,50,43,-20,900,true,true,true,true,123,true,true]",
+              "WheelEvent payload/prototype/modifiers/time");
+        check(vm.eval("document.getElementById('scroller').scrollTop") == "12.75", "fractional scroll consumed");
+        vm.eval("inputScenario.blockWheel=true");
+        check(router.wheel(wheel) == ProbeDispatchResult::DefaultPrevented, "wheel canceled before default");
+        check(vm.eval("document.getElementById('scroller').scrollTop") == "12.75", "canceled wheel scrolls");
+        vm.eval("inputScenario.blockWheel=false");
+        wheel.client_x = 20;
+        wheel.client_y = 20;
+        router.wheel(wheel);
+        check(vm.eval("document.getElementById('scroller').scrollTop") == "12.75",
+              "clipped corner wheel reaches scroller");
+        mouse.client_x = 350;
+        mouse.client_y = 260;
+        router.route(ProbeMouseAction::Down, mouse);
+        router.route(ProbeMouseAction::Up, mouse);
+        check(vm.eval("inputScenario.clicks.length") == "1", "disabled nested button activated");
+        // A mutation before the next input must move targets without a render.
+        vm.eval("document.getElementById('scroller').scrollTop=52;document.getElementById('scroller').scrollLeft=0");
+        mouse.client_x = 50;
+        mouse.client_y = 43;
+        router.route(ProbeMouseAction::Down, mouse);
+        router.route(ProbeMouseAction::Up, mouse);
+        check(vm.eval("inputScenario.clicks[1]") == "row-2", "next hit ignores latest scroll");
+        router.route(ProbeMouseAction::Down, mouse);
+        router.cancel();
+        router.route(ProbeMouseAction::Up, mouse);
+        check(vm.eval("inputScenario.clicks.length") == "2", "cancel fabricated click");
+        const auto old = vm.node_identity("#row-2");
+        vm.eval(
+            "document.getElementById('row-2').addEventListener('wheel',()=>{const e=document.getElementById('scroller');globalThis.held=e;e.parentNode.removeChild(e);}, {once:true})");
+        wheel.client_x = 50;
+        wheel.client_y = 43;
+        router.wheel(wheel);
+        check(vm.is_live(old) && vm.eval("held.scrollTop") == "0",
+              "wheel mutation invalidated default identity or detached node");
+        check(vm.dispatch_wheel(old, wheel) == ProbeDispatchResult::StaleTarget, "detached wheel dispatched");
+        bool wrong{};
+        bool wrong_mouse{};
+        std::thread t([&] {
+            try {
+                router.wheel(wheel);
+            } catch (const std::logic_error&) {
+                wrong = true;
+            }
+            try {
+                router.route(ProbeMouseAction::Move, mouse);
+            } catch (const std::logic_error&) {
+                wrong_mouse = true;
+            }
+        });
+        t.join();
+        check(wrong && wrong_mouse, "wrong-owner input routing");
+        vm.reset_document();
+        vm.collect_garbage();
+        check(!vm.is_live(old) && vm.stats().live_nodes == 3 && vm.stats().native_roots == 1,
+              "input roots leaked after reset");
+        std::filesystem::path p(argv[1]);
+        std::filesystem::create_directories(p.parent_path());
+        std::ofstream(p) << report.str();
+        std::cout
+            << "PASS flow input: " << points
+            << " hit queries, 128 random mutation checks, fresh clipped/rounded/stacked fragments, mouse and fractional/canceled wheel, detached/epoch/owner\n";
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "FAIL " << e.what() << '\n';
+        return 1;
+    }
+}

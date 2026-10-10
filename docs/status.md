@@ -4,6 +4,49 @@
 
 ## 本次已实现
 
+代码规范化与命名常量（2026-10-10）：
+- **格式化**：`src/`、`include/`、`tests/`、`probes/` 共 108 个 C/C++ 文件按新 [代码规范](coding-style.md) 重排，`.clang-format` 由 clang-format 22.1.3 强制执行。
+  - 控制语句一律加花括号，namespace 缩进，一行一语句，运算符两侧留空格。
+  - 用 clang-tidy `readability-isolate-declaration` 拆分 370 处局部多变量声明，脚本拆分 247 处成员与条件编译分支中的多变量声明。
+  - 源文件统一为 `.gitattributes` 规定的 LF。
+  - 代码从 14,212 行变为 38,130 行（含新增常量头），原最长一行 3,082 字符。超过 120 列的只剩嵌入的 JS/CSS 字符串字面量，按设计不改其内容。
+- **命名常量**：新增 17 个常量头，共 632 个命名常量。
+  - `include/caseelephant/constants/` 下是 `common` 加 9 个模块头，由 `constants.hpp` 汇总。
+  - 测试常量在 `tests/test_constants/`，探针常量在 `probes/{probe,gallery}_constants.hpp`。
+  - 跨模块的同义值（DOM nodeType、码点范围、坐标/视口上限、canvas 默认尺寸、命名空间 URI、CSS 初始值等）只定义一次。
+  - M0 与 scene native 两个着色器的材质编号、梯度类型、sRGB/SDF 常量与 C++ 侧互相对照命名。
+- **生成器与 provenance**：`tools/generate_flex_cases.py` 改为直接输出规范布局。`flow_input_tests.cpp` 的浏览器 oracle 保留原捕获 hash，在 `tests/fixtures/flow_input_source_revisions.json` 中登记等价后继 hash，校验脚本同时接受两者。
+- **重构计划**：架构重构计划另见 [refactoring-plan.md](refactoring-plan.md)，本阶段不改架构。
+
+语义等价证据：
+- **方法**：改动前后各构建 Release（无调试信息），对全部 51 个项目目标文件做 `dumpbin /disasm`，用新增的 `tools/disassembly_equivalence.py` 逐函数比较。
+- **结果**：
+  - 46 个逐函数指令相同（其中 32 个连原始反汇编文本都相同，其余只差 MSVC 作用域编号/COMDAT 顺序）。
+  - `render_backend_tests` 只差 `#expression` 字符串化后的空格，`resource_lifetime_tests` 只差 `__LINE__`。
+  - 剩下 3 个函数（`page_probe` 的 `Builder::convert`、`auto_page_probe` 的 `Builder::make`、`ScriptDomProbe::Impl::matches_compound`）是与字符串常量比较时，内联 memcmp 改为调用 `operator==`，已逐一人工确认比较内容相同。
+- **着色器**：两个 HLSL 以运行时参数 `fxc /Ges /WX /O3` 前后编译，指令相同；m0 像素着色器的 Debug `/Od` 结构不同，数学等价。
+
+实际运行：
+
+```powershell
+cmake --build --preset windows-release --parallel 12
+python tools/disassembly_equivalence.py dump build/windows-msvc artifacts/local/code-style/disasm-after
+python tools/disassembly_equivalence.py compare artifacts/local/code-style/disasm-before artifacts/local/code-style/disasm-after
+ctest --preset windows-release --parallel 6 --output-on-failure --output-log artifacts/local/code-style/release-ctest.log
+cmake --build --preset windows-debug --parallel 12
+ctest --preset windows-debug --parallel 6 --output-on-failure --output-log artifacts/local/code-style/debug-ctest.log
+```
+
+测试结果（最终源码）：Release **87/87（41.4 s）**，Debug **87/87（215.7 s）**。产物在 `artifacts/local/code-style/`：前后反汇编、比较结果、着色器汇编与改动前源码副本。
+
+未验证：
+- 本阶段没有重跑 GC 压力、ASan 配置和硬件窗口/性能测量。机器码等价覆盖了除上述 3 个函数外的全部路径。这 3 个函数只是字符串相等比较的编译方式不同，其中 `matches_compound` 反而少一条 `sete`/`test`；性能影响预期可忽略，但未重新测量。
+- 移动与主机平台状态不变。
+
+下一步：按重构计划第 1 步，抽出 `src/base` 的共享 CSS 标量解析、诊断码与代际 slot 表。
+
+以下通用增量与 profiler 及更早内容为历史阶段证据：
+
 通用增量与可切换 profiler（2026-10-10）：修正正常 ReleaseCapture 的误 Cancel，hover/active 改为 weak generational 旧/新路径；共享 style memo 使用精确受支持依赖、两类2048项/2MiB payload LRU。Scene 分离 canonical raw cascade/展开派生值，owner 专属 mutable update 复用不变样式与 geometry，跨线程仍发布完整独立 immutable 快照。Windows SVG shape/stroke/bounds 有界复用。检查 footer 改 native overlay，避免普通点击触发约440节点目录全量布局；原例自身组件/DOM/事件和固定库不改，没有按案例跳过工作。所有隐藏卡片统一暂停rAF、继续timer，属于检查host显式策略，66/72范围保持。
 
 侧栏 `Profiler: OFF (F8)` / F8 可打开详细曲线与 Latest/P50/P95/P99/Max、sync reads和最重案例；默认关闭阶段 timer/GPU timestamp/trace，基本FPS与必要调度/completion保留。每条600样本、HUD≤5Hz、不额外限帧；trace每线程65,536条latest窗口，退出一次写盘，run_id防止旧文件混入。操作与全部口径见[本次合同和证据](incremental-ui-profiler.md)。

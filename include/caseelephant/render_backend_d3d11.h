@@ -10,13 +10,15 @@
  * Preserve existing target contents by default. It does not submit, present
  * or wait. Other backend payloads can use different recording models. */
 typedef struct ce_render_d3d11_pass {
-    uint32_t struct_size, abi_version;
+    uint32_t struct_size;
+    uint32_t abi_version;
     void* deferred_context;
     void* render_target_view;
-    void** out_command_list; /* set to null on entry; transferred on success */
+    void** out_command_list;         /* set to null on entry; transferred on success */
     uint32_t clear_target, reserved; /* 0 preserves host contents; 1 clears */
     float clear_linear_premultiplied[4];
 } ce_render_d3d11_pass;
+
 /* Borrow a valid ID3D11ShaderResourceView during import. Adapter AddRefs it.
  * One full Texture2D mip, single sample, no arrays/shared synchronization/CPU
  * writes, on its own device. SRV is UNORM/FLOAT linear premultiplied RGBA;
@@ -24,7 +26,8 @@ typedef struct ce_render_d3d11_pass {
  * Producer queues its writes on the host immediate context before consumption;
  * contents stay frozen until the lease retirement callback. */
 typedef struct ce_render_d3d11_texture {
-    uint32_t struct_size, abi_version;
+    uint32_t struct_size;
+    uint32_t abi_version;
     void* shader_resource_view;
     uint64_t reserved;
 } ce_render_d3d11_texture;

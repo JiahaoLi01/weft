@@ -8,6 +8,8 @@ CaseElephant 的目标是在 Windows、Android 和 iOS 上，用同一套 HTML�
 
 新增 [通用交互优化与可切换 profiler](docs/incremental-ui-profiler.md)：Gallery 侧栏/F8 开启曲线、分项 timer 与 P50/P95/P99/Max，默认关闭、全速运行。修正正常松开鼠标的误 Cancel，精确 style memo 与 owner 增量值/几何复用，诊断 footer 移至 native overlay；原始组件/库不改。当前预览：`ce_d3d11_probe.exe --gallery-window-hardware artifacts/local/incremental-ui/interactive`。Esc 后 `python tools/analyze_gallery_trace.py <输出目录>` 合并有界双线程 trace。Release/Debug 各87/87，K-Line/多案例 Anime 仍需按游戏 UI 毫秒预算继续优化。
 
+代码规范化（2026-10-10）：全部 C/C++ 与 HLSL 按 [代码规范](docs/coding-style.md) 重排并命名常量，Release 反汇编逐函数对照证明行为不变；后续架构重构按 [重构计划](docs/refactoring-plan.md) 分步进行。
+
 此前阶段 [交互/动画优化](docs/gallery-interaction-profile.md)：K-Line单例owner P50约49→14ms；Spring Trail静态emoji图像不再逐帧重建，paint约11.59→0.094ms。这些为此前单轮/中途测量，当前对照见上方新阶段，Present FPS不能代替Owner/age/输入延迟。
 
 单通道 SDF 已接入 FreeType 字体适配器和 D3D11 独立探针：同一 atlas 字形的多倍率缩放、描边、导数抗锯齿和资源退休通过。小字号保留灰度路径；SDF 页面集成、CJK SDF、移动 GPU 与 MSDF 待验证，见 [SDF 证据与合同](docs/sdf-font-probe.md)。
@@ -83,6 +85,8 @@ flow 命中与 HWND 滚轮已接入：命中复用真实绘制顺序、inline �
 - [渲染后端 API](docs/render-backend-api.md)：function table、native pass、能力、宿主提交、失败与设备世代。
 - [React / Vite 页面](docs/react-vite-probe.md)：同一 JSX 的浏览器/原生构建、真实 GPU 像素与兼容边界。
 - [构建与探针](docs/building.md)：C++20 构建、依赖校验和机器可读报告。
+- [代码规范](docs/coding-style.md)：`.clang-format` 格式、一行一声明、命名常量头与反汇编等价验证。
+- [架构重构计划](docs/refactoring-plan.md)：现状诊断、目标模块与静多态边界、分步迁移和待确认取舍。
 - [当前证据和下一步](docs/status.md)：实际完成情况和平台验证状态。
 
 ## 必须先证明的事情

@@ -5,10 +5,12 @@
 #include <thread>
 
 namespace {
-void check(bool condition, const char* message) {
-    if (!condition) throw std::runtime_error(message);
-}
-}
+    void check(bool condition, const char* message) {
+        if (!condition) {
+            throw std::runtime_error(message);
+        }
+    }
+} // namespace
 
 int main() {
     try {
@@ -20,18 +22,23 @@ int main() {
         ce_view_handle first{};
         check(ce_view_create(runtime, nullptr, &first) == CE_OK, "view creation");
         ce_view_handle excess{999, 999, 999};
-        check(ce_view_create(runtime, nullptr, &excess) == CE_CAPACITY_EXCEEDED && excess.runtime_id == 0, "bounded view slots");
+        check(ce_view_create(runtime, nullptr, &excess) == CE_CAPACITY_EXCEEDED && excess.runtime_id == 0,
+              "bounded view slots");
         check(ce_runtime_destroy(runtime) == CE_BUSY, "busy destroy preserves runtime");
         ce_result wrong_thread = CE_OK;
-        std::thread outsider([&] { wrong_thread = ce_view_record_tick(runtime, first, 1); });
+        std::thread outsider([&] {
+            wrong_thread = ce_view_record_tick(runtime, first, 1);
+        });
         outsider.join();
         check(wrong_thread == CE_WRONG_THREAD, "owner thread enforced");
         check(ce_view_record_tick(runtime, first, 3) == CE_OK, "clock accepted");
         check(ce_view_record_tick(runtime, first, 2) == CE_TIME_REGRESSION, "clock regression rejected");
-        check(ce_view_record_tick(runtime, first, std::numeric_limits<double>::quiet_NaN()) == CE_INVALID_ARGUMENT, "NaN rejected");
+        check(ce_view_record_tick(runtime, first, std::numeric_limits<double>::quiet_NaN()) == CE_INVALID_ARGUMENT,
+              "NaN rejected");
         ce_view_info info{};
         info.struct_size = sizeof(info);
-        check(ce_view_get_info(runtime, first, &info) == CE_OK && info.tick_count == 1 && info.last_time_seconds == 3, "failed ticks leave state unchanged");
+        check(ce_view_get_info(runtime, first, &info) == CE_OK && info.tick_count == 1 && info.last_time_seconds == 3,
+              "failed ticks leave state unchanged");
         ce_runtime* other{};
         check(ce_runtime_create(nullptr, &other) == CE_OK, "second runtime");
         check(ce_view_get_info(other, first, &info) == CE_STALE_HANDLE, "cross-runtime handle rejected");
