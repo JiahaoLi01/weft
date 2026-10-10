@@ -7,6 +7,7 @@
 #include <wrl/client.h>
 #include <stdexcept>
 #include <algorithm>
+#include <vector>
 
 namespace weft {
     namespace {
@@ -86,20 +87,30 @@ namespace weft {
                 if (count < std::size_t(h_ - 1) * stride + w_ * constants::rgba8_bytes_per_pixel) {
                     throw std::runtime_error("WEFT_CANVAS_WIC: short lock");
                 }
-                for (std::uint32_t y = 0; y < h_; ++y) {
-                    for (std::uint32_t x = 0; x < w_; ++x) {
-                        const auto p = data + std::size_t(y) * stride + x * constants::rgba8_bytes_per_pixel;
-                        auto q = result.data() + (std::size_t(y) * w_ + x) * constants::rgba8_bytes_per_pixel;
-                        const unsigned a = p[3];
-                        q[3] = std::uint8_t(a);
-                        // D2D/WIC stores encoded sRGB premultiplied BGRA. Unpremultiply
-                        // BEFORE the existing UI renderer's sRGB transfer decode.
-                        for (unsigned c = 0; c < 3; ++c) {
-                            q[c] = a ? std::uint8_t(
-                                           std::min(static_cast<unsigned>(constants::color_channel_max),
-                                                    (unsigned(p[2 - c]) * constants::color_channel_max + a / 2) / a))
-                                     : 0;
+                // D2D/WIC stores encoded sRGB premultiplied BGRA. Unpremultiply BEFORE the UI renderer's sRGB
+                // transfer decode: min(255, (c * 255 + a / 2) / a), and 0 where a = 0, from a table per alpha.
+                static const auto unpremultiply = [] {
+                    constexpr unsigned levels = constants::color_channel_max + 1;
+                    std::vector<std::uint8_t> table(std::size_t(levels) * levels);
+                    for (unsigned a = 1; a < levels; ++a) {
+                        for (unsigned c = 0; c < levels; ++c) {
+                            table[std::size_t(a) * levels + c] =
+                                std::uint8_t(std::min(static_cast<unsigned>(constants::color_channel_max),
+                                                      (c * constants::color_channel_max + a / 2) / a));
                         }
+                    }
+                    return table;
+                }();
+                for (std::uint32_t y = 0; y < h_; ++y) {
+                    const auto* p = data + std::size_t(y) * stride;
+                    auto* q = result.data() + std::size_t(y) * w_ * constants::rgba8_bytes_per_pixel;
+                    for (std::uint32_t x = 0; x < w_;
+                         ++x, p += constants::rgba8_bytes_per_pixel, q += constants::rgba8_bytes_per_pixel) {
+                        const auto* row = unpremultiply.data() + std::size_t(p[3]) * (constants::color_channel_max + 1);
+                        q[0] = row[p[2]];
+                        q[1] = row[p[1]];
+                        q[2] = row[p[0]];
+                        q[3] = p[3];
                     }
                 }
                 return result;
