@@ -14,6 +14,7 @@ option(WEFT_BUILD_PROBES "Build architecture probes" ON)
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 include(WeftTargets)
 include(WeftThirdParty)
+include(WeftShaders)
 
 if(WEFT_BUILD_TESTS)
     enable_testing()

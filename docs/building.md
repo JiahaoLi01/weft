@@ -58,7 +58,7 @@ Windows 的 `weft_d3d11_probe` 链接系统 D3D11、DXGI、D3DCompiler 与诊断
 python tools/compare_gpu_reports.py tests/fixtures/gpu_color_browser_reference.json artifacts/local/gpu-debug/hardware/report.json --output artifacts/local/gpu-debug/hardware/browser-comparison.json
 ```
 
-输出 report.json、direct.png、rtt.png，编译模式来自对应目录。探针运行时从 shaders/m0_probe.hlsl 编译固定 SM5 shader；未来分发需处理离线 shader/SDK 封装。本机硬件与 WARP 都实际启用调试层，没有 warning/error。十个颜色检查与独立 browser PNG 的数值边界、透明 alpha、资源退休和等待职责见 [GPU 探针](gpu-probe.md)。
+输出 report.json、direct.png、rtt.png，编译模式来自对应目录。固定 SM5 shader（`src/render/backends/d3d11/quad.hlsl`）在构建时由 Windows SDK 的 fxc 编译并内嵌（`cmake/WeftShaders.cmake`），运行时不读源码，也不需要 D3DCompiler。本机硬件与 WARP 都实际启用调试层，没有 warning/error。十个颜色检查与独立 browser PNG 的数值边界、透明 alpha、资源退休和等待职责见 [GPU 探针](gpu-probe.md)。
 
 ## 可扩展 GPU 后端 API
 

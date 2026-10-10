@@ -147,7 +147,7 @@ for name in source_hashes:
 artifacts = {p.relative_to(root).as_posix(): sha(p) for directory in ('final', 'before', 'before-repeat', 'after', 'paired', 'source-snapshot')
              for p in (out / directory).rglob('*') if p.is_file()}
 artifacts.update({p.relative_to(root).as_posix(): sha(p) for p in out.glob('*.log')})
-assert sha(out / 'before/source-snapshot/shaders/m0_probe.hlsl') == sha(root / 'shaders/m0_probe.hlsl')
+assert sha(out / 'before/source-snapshot/shaders/m0_probe.hlsl') == sha(root / 'src/render/backends/d3d11/quad.hlsl')
 record = {'format': 'complex-css-performance-seal-v1', 'recorded_utc': datetime.now(timezone.utc).isoformat(),
           'tests': runs, 'initial_benchmarks': benchmarks, 'paired_benchmarks': paired, 'sources': source_hashes, 'binaries': binaries, 'artifacts': artifacts,
           'environment': {'os': 'Windows 11 26200', 'cpu': 'AMD Ryzen 9 9950X3D', 'gpu': 'NVIDIA GeForce RTX 5090',

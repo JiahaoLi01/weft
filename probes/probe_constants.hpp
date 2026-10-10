@@ -13,7 +13,7 @@
 // Pass a constant to them as a static_cast<T>(constant) prvalue, like the literal it replaced:
 // binding the reference to the inline variable itself changes MSVC code generation.
 namespace weft::probe_constants {
-    // Material ids of shaders/m0_probe.hlsl. They mirror the Material* constants at the top of the
+    // Material ids of src/render/backends/d3d11/quad.hlsl. They mirror the Material* constants at the top of the
     // shader, which declares the ids its pixel shader branches on.
     namespace shader_material {
         // Solid linear premultiplied color.
@@ -125,7 +125,7 @@ namespace weft::probe_constants {
     inline constexpr double wheel_page_height_px = constants::default_view_height;
     inline constexpr double wheel_page_width_px = constants::default_view_width;
 
-    // sRGB transfer function of IEC 61966-2-1, as in shaders/m0_probe.hlsl.
+    // sRGB transfer function of IEC 61966-2-1, as in src/render/backends/d3d11/quad.hlsl.
     inline constexpr float srgb_decode_threshold = 0.04045f;
     inline constexpr float srgb_encode_threshold = 0.0031308f;
     inline constexpr float srgb_linear_slope = 12.92f;

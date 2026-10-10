@@ -263,24 +263,15 @@ public:
     }
 
     explicit SceneNativeGpu(Experiment& gpu) : gpu_(gpu) {
-        ComPtr<ID3DBlob> vs;
-        ComPtr<ID3DBlob> ps;
-        ComPtr<ID3DBlob> errors;
-        auto path = std::filesystem::path(WEFT_SOURCE_DIR) / "shaders/scene_native_probe.hlsl";
-        UINT flags = D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_WARNINGS_ARE_ERRORS | D3DCOMPILE_OPTIMIZATION_LEVEL3;
-        auto compile = [&](const char* entry, const char* target, ComPtr<ID3DBlob>& result) {
-            auto hr = D3DCompileFromFile(path.c_str(), nullptr, nullptr, entry, target, flags, 0, &result, &errors);
-            if (FAILED(hr) && errors) {
-                std::cerr << static_cast<const char*>(errors->GetBufferPointer());
-            }
-            check_hresult(hr, "native scene shader");
+        // Compiled at build time from shaders/scene_native_probe.hlsl, always /O3 (cmake/WeftShaders.cmake).
+        static constexpr unsigned char vs[] = {
+#include "shaders/scene_native.vs.inc"
         };
-        compile("vs_main", "vs_5_0", vs);
-        compile("ps_main", "ps_5_0", ps);
-        check_hresult(gpu.device->CreateVertexShader(vs->GetBufferPointer(), vs->GetBufferSize(), nullptr, &vs_),
-                      "native scene vertex shader");
-        check_hresult(gpu.device->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), nullptr, &ps_),
-                      "native scene pixel shader");
+        static constexpr unsigned char ps[] = {
+#include "shaders/scene_native.ps.inc"
+        };
+        check_hresult(gpu.device->CreateVertexShader(vs, sizeof(vs), nullptr, &vs_), "native scene vertex shader");
+        check_hresult(gpu.device->CreatePixelShader(ps, sizeof(ps), nullptr, &ps_), "native scene pixel shader");
         D3D11_RASTERIZER_DESC raster{};
         raster.FillMode = D3D11_FILL_SOLID;
         raster.CullMode = D3D11_CULL_NONE;

@@ -29,7 +29,6 @@
 #include <d3d11.h>
 #include <d2d1_1.h>
 #include <d3d11sdklayers.h>
-#include <d3dcompiler.h>
 #include <dxgi1_2.h>
 #include <wincodec.h>
 #include <wrl/client.h>
@@ -297,6 +296,24 @@ namespace {
     };
 
     static_assert(sizeof(Constants) == 96);
+
+    // Compiled at build time from src/render/backends/d3d11/quad.hlsl (cmake/WeftShaders.cmake) with the flags
+    // the renderer used for runtime compilation: /O3 with NDEBUG, /Zi /Od without.
+    constexpr unsigned char quad_vs[] = {
+#ifdef NDEBUG
+#include "shaders/quad.vs.inc"
+#else
+#include "shaders/quad.vs.debug.inc"
+#endif
+    };
+    constexpr unsigned char quad_ps[] = {
+#ifdef NDEBUG
+#include "shaders/quad.ps.inc"
+#else
+#include "shaders/quad.ps.debug.inc"
+#endif
+    };
+
     class ProbeBackend;
 
     class Experiment {
@@ -418,33 +435,8 @@ namespace {
                 check_hresult(device.As(&info), "ID3D11InfoQueue");
             }
             check_hresult(device->CreateDeferredContext(0, &deferred), "CreateDeferredContext");
-            ComPtr<ID3DBlob> vertex_code;
-            ComPtr<ID3DBlob> pixel_code;
-            ComPtr<ID3DBlob> errors;
-            const auto shader = std::filesystem::path(WEFT_SOURCE_DIR) / "shaders/m0_probe.hlsl";
-            UINT flags = D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_WARNINGS_ARE_ERRORS;
-#ifndef NDEBUG
-            flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
-#else
-            flags |= D3DCOMPILE_OPTIMIZATION_LEVEL3;
-#endif
-            const auto compile = [&](const char* entry, const char* profile, ComPtr<ID3DBlob>& result) {
-                const auto status =
-                    D3DCompileFromFile(shader.c_str(), nullptr, nullptr, entry, profile, flags, 0, &result, &errors);
-                if (FAILED(status) && errors) {
-                    std::cerr.write(static_cast<const char*>(errors->GetBufferPointer()),
-                                    static_cast<std::streamsize>(errors->GetBufferSize()));
-                }
-                check_hresult(status, "D3DCompileFromFile");
-            };
-            compile("vs_main", "vs_5_0", vertex_code);
-            compile("ps_main", "ps_5_0", pixel_code);
-            check_hresult(
-                device->CreateVertexShader(vertex_code->GetBufferPointer(), vertex_code->GetBufferSize(), nullptr, &vs),
-                "CreateVertexShader");
-            check_hresult(
-                device->CreatePixelShader(pixel_code->GetBufferPointer(), pixel_code->GetBufferSize(), nullptr, &ps),
-                "CreatePixelShader");
+            check_hresult(device->CreateVertexShader(quad_vs, sizeof(quad_vs), nullptr, &vs), "CreateVertexShader");
+            check_hresult(device->CreatePixelShader(quad_ps, sizeof(quad_ps), nullptr, &ps), "CreatePixelShader");
             D3D11_BUFFER_DESC cb{};
             cb.ByteWidth = sizeof(Constants);
             cb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
