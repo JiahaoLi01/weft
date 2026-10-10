@@ -1,5 +1,5 @@
-#ifndef CASEELEPHANT_RENDER_BACKEND_H
-#define CASEELEPHANT_RENDER_BACKEND_H
+#ifndef WEFT_RENDER_BACKEND_H
+#define WEFT_RENDER_BACKEND_H
 #include <stdint.h>
 
 #ifdef __cplusplus

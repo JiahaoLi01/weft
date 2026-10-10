@@ -46,6 +46,14 @@ weft_add_test(NAME resource_lifetime COMMAND weft_resource_lifetime_tests)
 weft_add_executable(weft_render_backend_tests SOURCES render_backend_tests.cpp LINK weft::render)
 weft_add_test(NAME render_backend_contract COMMAND weft_render_backend_tests)
 
+weft_add_executable(weft_render_backend_concept_tests SOURCES render_backend_concept_tests.cpp LINK weft::render)
+weft_add_test(NAME render_backend_concept COMMAND weft_render_backend_concept_tests)
+
+if(WIN32)
+    weft_add_executable(weft_render_d3d11_tests SOURCES render_d3d11_tests.cpp LINK weft::render_d3d11)
+    weft_add_test(NAME render_d3d11_contract COMMAND weft_render_d3d11_tests TIMEOUT 60)
+endif()
+
 add_executable(weft_render_backend_c_smoke render_backend_c_smoke.c)
 target_include_directories(weft_render_backend_c_smoke PRIVATE "${PROJECT_SOURCE_DIR}/include")
 set_target_properties(weft_render_backend_c_smoke PROPERTIES LINKER_LANGUAGE CXX)

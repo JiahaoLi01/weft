@@ -20,23 +20,12 @@ namespace weft::render::d3d11 {
     }
 
     Backend::Backend(Renderer& device) : gpu(device) {
-        const weft_render_backend table{sizeof(weft_render_backend),
-                                        WEFT_RENDER_ABI_VERSION,
-                                        WEFT_RENDER_API_D3D11,
-                                        0,
-                                        limits::device_epoch,
-                                        limits::immediate_queue,
-                                        {sizeof(weft_render_capabilities), limits::features, limits::target_formats,
-                                         limits::max_surface_dimension, limits::max_surface_dimension, 0},
-                                        this,
-                                        prepare,
-                                        release,
-                                        encode,
-                                        discard,
-                                        submitted,
-                                        completed,
-                                        abandon,
-                                        shutdown};
+        const auto table =
+            make_c_backend(*this, {WEFT_RENDER_API_D3D11,
+                                   limits::device_epoch,
+                                   limits::immediate_queue,
+                                   {sizeof(weft_render_capabilities), limits::features, limits::target_formats,
+                                    limits::max_surface_dimension, limits::max_surface_dimension, 0}});
         // A real game workload contains three 1024x1536 RGBA images. The
         // reference adapter reserves a bounded 32 MiB CPU frame input budget.
         const weft_renderer_desc desc{sizeof(weft_renderer_desc),
@@ -58,26 +47,16 @@ namespace weft::render::d3d11 {
     }
 
     void Backend::enable_external(unsigned capacity, std::uint64_t bytes) {
-        const weft_render_external_backend table{sizeof(table),
-                                                 WEFT_RENDER_EXTERNAL_ABI_VERSION,
-                                                 (1u << WEFT_RENDER_TARGET_LINEAR_RGBA8) |
-                                                     (1u << WEFT_RENDER_TARGET_LINEAR_RGBA16F) |
-                                                     (1u << WEFT_RENDER_TARGET_LINEAR_RGBA32F),
-                                                 0,
-                                                 capacity,
-                                                 0,
-                                                 bytes,
-                                                 this,
-                                                 import_texture,
-                                                 release_texture,
-                                                 prepare_external};
+        const auto table = make_c_external_backend(*this, {(1u << WEFT_RENDER_TARGET_LINEAR_RGBA8) |
+                                                               (1u << WEFT_RENDER_TARGET_LINEAR_RGBA16F) |
+                                                               (1u << WEFT_RENDER_TARGET_LINEAR_RGBA32F),
+                                                           capacity, bytes});
         render_result(weft_renderer_install_external_backend(renderer, &table), "install external texture extension");
     }
 
-    weft_render_result Backend::import_texture(void* ptr, const weft_render_external_texture* d,
-                                               uint64_t* out) noexcept {
-        auto& self = *static_cast<Backend*>(ptr);
-        *out = 0;
+    weft_render_result Backend::import_texture(const weft_render_external_texture& description, std::uint64_t& out) {
+        const auto* d = &description;
+        out = 0;
         if (d->native_texture_size < sizeof(weft_render_d3d11_texture)) {
             return WEFT_RENDER_INVALID_ARGUMENT;
         }
@@ -89,7 +68,7 @@ namespace weft::render::d3d11 {
         auto* srv = static_cast<ID3D11ShaderResourceView*>(p.shader_resource_view);
         ComPtr<ID3D11Device> device;
         srv->GetDevice(&device);
-        if (device.Get() != self.gpu.device.Get()) {
+        if (device.Get() != gpu.device.Get()) {
             return WEFT_RENDER_WRONG_BACKEND;
         }
         D3D11_SHADER_RESOURCE_VIEW_DESC view{};
@@ -116,50 +95,47 @@ namespace weft::render::d3d11 {
             actual.CPUAccessFlags || (actual.Usage != D3D11_USAGE_DEFAULT && actual.Usage != D3D11_USAGE_IMMUTABLE)) {
             return WEFT_RENDER_UNSUPPORTED_FEATURE;
         }
-        for (const auto& t : self.imports) {
+        for (const auto& t : imports) {
             if (t.resource.Get() == resource.Get()) {
                 return WEFT_RENDER_INVALID_STATE;
             }
         }
-        for (size_t i = 0; i < self.imports.size(); ++i) {
-            if (!self.imports[i].srv) {
-                self.imports[i] = {srv, resource};
-                *out = i + 1;
-                ++self.imported_count;
+        for (size_t i = 0; i < imports.size(); ++i) {
+            if (!imports[i].srv) {
+                imports[i] = {srv, resource};
+                out = i + 1;
+                ++imported_count;
                 return WEFT_RENDER_OK;
             }
         }
         return WEFT_RENDER_BUSY;
     }
 
-    void Backend::release_texture(void* ptr, uint64_t native) noexcept {
-        auto& self = *static_cast<Backend*>(ptr);
-        if (!native || native > self.imports.size() || !self.imports[native - 1].srv) {
+    void Backend::release_texture(std::uint64_t native) {
+        if (!native || native > imports.size() || !imports[native - 1].srv) {
             std::terminate();
         }
-        self.imports[native - 1] = {};
-        ++self.released_imports;
+        imports[native - 1] = {};
+        ++released_imports;
     }
 
-    weft_render_result Backend::prepare_external(void* ptr, const weft_render_frame* f,
-                                                 const weft_render_external_asset* textures, uint32_t count,
-                                                 uint64_t* out) noexcept {
-        auto& self = *static_cast<Backend*>(ptr);
-        *out = 0;
+    weft_render_result Backend::prepare_external(const weft_render_frame& f, const weft_render_external_asset* textures,
+                                                 std::uint32_t count, std::uint64_t& out) {
+        out = 0;
         try {
             std::vector<ExternalGpuAsset> external;
             external.reserve(count);
             for (uint32_t i = 0; i < count; ++i) {
                 const auto id = textures[i].native_texture;
-                if (!id || id > self.imports.size() || !self.imports[id - 1].srv) {
+                if (!id || id > imports.size() || !imports[id - 1].srv) {
                     return WEFT_RENDER_STALE_HANDLE;
                 }
                 external.push_back(
-                    {self.imports[id - 1].srv, textures[i].description.origin == WEFT_RENDER_EXTERNAL_BOTTOM_LEFT});
+                    {imports[id - 1].srv, textures[i].description.origin == WEFT_RENDER_EXTERNAL_BOTTOM_LEFT});
             }
-            const auto result = prepare(ptr, f, out);
+            const auto result = prepare(f, out);
             if (result == WEFT_RENDER_OK) {
-                self.prepared->external = std::move(external);
+                prepared->external = std::move(external);
             }
             return result;
         } catch (...) {
@@ -167,14 +143,14 @@ namespace weft::render::d3d11 {
         }
     }
 
-    weft_render_result Backend::prepare(void* ptr, const weft_render_frame* input, uint64_t* out) noexcept {
-        auto& self = *static_cast<Backend*>(ptr);
-        *out = 0;
-        const auto state = self.gpu.tracker.Stats();
-        if (self.prepared || state.encoded_tokens || (state.submitted_tokens && !self.gpu.pipeline_enabled)) {
+    weft_render_result Backend::prepare(const weft_render_frame& frame, std::uint64_t& out) {
+        const auto* input = &frame;
+        out = 0;
+        const auto state = gpu.tracker.Stats();
+        if (prepared || state.encoded_tokens || (state.submitted_tokens && !gpu.pipeline_enabled)) {
             return WEFT_RENDER_BUSY;
         }
-        self.gpu.assets.clear();
+        gpu.assets.clear();
         try {
             FramePacket packet;
             packet.assets.reserve(input->asset_count);
@@ -187,7 +163,7 @@ namespace weft::render::d3d11 {
                     Asset{a.width, a.height, static_cast<Encoding>(a.encoding), {}, a.sdf_spread});
                 const auto key = std::pair{a.asset_id, a.asset_version};
                 keys.push_back(key);
-                if (!self.gpu.cache_assets || !self.gpu.asset_cache.contains(key)) {
+                if (!gpu.cache_assets || !gpu.asset_cache.contains(key)) {
                     asset->bytes.assign(a.bytes, a.bytes + static_cast<size_t>(a.byte_count));
                 }
                 packet.assets.push_back(std::move(asset));
@@ -204,8 +180,8 @@ namespace weft::render::d3d11 {
                 std::copy_n(a.outline_srgb, 4, d.outline.begin());
                 packet.draws.push_back(d);
             }
-            self.prepared = self.gpu.prepare(std::move(packet), keys);
-            *out = limits::prepared_frame_handle;
+            prepared = gpu.prepare(std::move(packet), keys);
+            out = limits::prepared_frame_handle;
             return WEFT_RENDER_OK;
         } catch (...) {
             try {
@@ -218,37 +194,35 @@ namespace weft::render::d3d11 {
             } catch (...) {
             }
             // Preparation did not record work. Undo all created CPU leases.
-            for (const auto& a : self.gpu.assets) {
-                if (self.gpu.tracker.ReleaseResource(a.id) != LifetimeResult::Ok) {
+            for (const auto& a : gpu.assets) {
+                if (gpu.tracker.ReleaseResource(a.id) != LifetimeResult::Ok) {
                     std::terminate();
                 }
             }
-            self.gpu.collect();
-            self.gpu.assets.clear();
+            gpu.collect();
+            gpu.assets.clear();
             return WEFT_RENDER_BACKEND_ERROR;
         }
     }
 
-    void Backend::release(void* ptr, uint64_t native) noexcept {
-        auto& self = *static_cast<Backend*>(ptr);
-        if (native != limits::prepared_frame_handle || !self.prepared ||
-            self.gpu.tracker.ReleasePreparedFrame(self.prepared->id) != LifetimeResult::Ok) {
+    void Backend::release_prepared(std::uint64_t native) {
+        if (native != limits::prepared_frame_handle || !prepared ||
+            gpu.tracker.ReleasePreparedFrame(prepared->id) != LifetimeResult::Ok) {
             std::terminate();
         }
-        self.prepared.reset();
-        for (const auto& a : self.gpu.assets) {
-            if (self.gpu.tracker.ReleaseResource(a.id) != LifetimeResult::Ok) {
+        prepared.reset();
+        for (const auto& a : gpu.assets) {
+            if (gpu.tracker.ReleaseResource(a.id) != LifetimeResult::Ok) {
                 std::terminate();
             }
         }
-        self.gpu.collect();
+        gpu.collect();
     }
 
-    weft_render_result Backend::encode(void* ptr, uint64_t native, const weft_render_pass* pass,
-                                       uint64_t* out) noexcept {
-        auto& self = *static_cast<Backend*>(ptr);
-        *out = 0;
-        if (native != limits::prepared_frame_handle || !self.prepared ||
+    weft_render_result Backend::encode(std::uint64_t native, const weft_render_pass& render_pass, std::uint64_t& out) {
+        const auto* pass = &render_pass;
+        out = 0;
+        if (native != limits::prepared_frame_handle || !prepared ||
             pass->native_pass_size < sizeof(weft_render_d3d11_pass)) {
             return WEFT_RENDER_INVALID_ARGUMENT;
         }
@@ -272,8 +246,7 @@ namespace weft::render::d3d11 {
                 }
             }
         }
-        if (!p.deferred_context || !p.render_target_view || pass->width != self.gpu.width ||
-            pass->height != self.gpu.height) {
+        if (!p.deferred_context || !p.render_target_view || pass->width != gpu.width || pass->height != gpu.height) {
             return WEFT_RENDER_UNSUPPORTED_FEATURE;
         }
         try {
@@ -286,7 +259,7 @@ namespace weft::render::d3d11 {
             ComPtr<ID3D11Device> target_device;
             context->GetDevice(&context_device);
             target->GetDevice(&target_device);
-            if (context_device.Get() != self.gpu.device.Get() || target_device.Get() != self.gpu.device.Get()) {
+            if (context_device.Get() != gpu.device.Get() || target_device.Get() != gpu.device.Get()) {
                 return WEFT_RENDER_WRONG_BACKEND;
             }
             D3D11_RENDER_TARGET_VIEW_DESC view{};
@@ -309,19 +282,19 @@ namespace weft::render::d3d11 {
                 description.SampleDesc.Count != 1) {
                 return WEFT_RENDER_INVALID_ARGUMENT;
             }
-            for (const auto& external : self.prepared->external) {
+            for (const auto& external : prepared->external) {
                 ComPtr<ID3D11Resource> source;
                 external.srv->GetResource(&source);
                 if (source.Get() == resource.Get()) {
                     return WEFT_RENDER_INVALID_STATE;
                 }
             }
-            for (size_t i = 0; i < self.uses.size(); ++i) {
-                if (!self.uses[i]) {
-                    auto encoded = self.gpu.encode(*self.prepared, false, self.inject_recording_failure, context,
-                                                   target, p.clear_target != 0, p.clear_linear_premultiplied);
-                    self.uses[i] = encoded.token;
-                    *out = i + 1;
+            for (size_t i = 0; i < uses.size(); ++i) {
+                if (!uses[i]) {
+                    auto encoded = gpu.encode(*prepared, false, inject_recording_failure, context, target,
+                                              p.clear_target != 0, p.clear_linear_premultiplied);
+                    uses[i] = encoded.token;
+                    out = i + 1;
                     *p.out_command_list = encoded.commands.Detach();
                     return WEFT_RENDER_OK;
                 }
@@ -334,65 +307,61 @@ namespace weft::render::d3d11 {
         }
     }
 
-    void Backend::discard(void* ptr, uint64_t native) noexcept {
-        auto& self = *static_cast<Backend*>(ptr);
-        auto& use = self.uses[native - 1];
-        if (!use || self.gpu.tracker.DiscardEncoded(*use) != LifetimeResult::Ok) {
+    void Backend::discard_encoded(std::uint64_t native) {
+        auto& use = uses[native - 1];
+        if (!use || gpu.tracker.DiscardEncoded(*use) != LifetimeResult::Ok) {
             std::terminate();
         }
         use.reset();
-        self.gpu.collect();
+        gpu.collect();
     }
 
-    void Backend::submitted(void* ptr, uint64_t native, uint64_t serial) noexcept {
-        auto& self = *static_cast<Backend*>(ptr);
-        auto& use = self.uses[native - 1];
-        if (!use || self.gpu.tracker.NotifySubmitted(*use, limits::immediate_queue, serial) != LifetimeResult::Ok) {
+    void Backend::submitted(std::uint64_t native, std::uint64_t serial) {
+        auto& use = uses[native - 1];
+        if (!use || gpu.tracker.NotifySubmitted(*use, limits::immediate_queue, serial) != LifetimeResult::Ok) {
             std::terminate();
         }
     }
 
-    void Backend::completed(void* ptr, uint64_t serial) noexcept {
-        auto& self = *static_cast<Backend*>(ptr);
-        if (self.gpu.tracker.NotifyCompletedSerial(limits::device_epoch, limits::immediate_queue, serial) !=
+    void Backend::completed(std::uint64_t serial) {
+        if (gpu.tracker.NotifyCompletedSerial(limits::device_epoch, limits::immediate_queue, serial) !=
             LifetimeResult::Ok) {
             std::terminate();
         }
-        for (auto& use : self.uses) {
+        for (auto& use : uses) {
             if (use) {
                 UseTokenInfo info;
-                if (self.gpu.tracker.InspectUseToken(*use, info) == LifetimeResult::StaleHandle) {
+                if (gpu.tracker.InspectUseToken(*use, info) == LifetimeResult::StaleHandle) {
                     use.reset();
                 }
             }
         }
-        self.gpu.collect();
+        gpu.collect();
     }
 
-    weft_render_result Backend::shutdown(void* ptr) noexcept {
+    weft_render_result Backend::shutdown() {
         try {
-            static_cast<Backend*>(ptr)->gpu.evict_assets(0, true);
+            gpu.evict_assets(0, true);
         } catch (...) {
             return WEFT_RENDER_BACKEND_ERROR;
         }
-        const auto result = static_cast<Backend*>(ptr)->gpu.tracker.Shutdown();
+        const auto result = gpu.tracker.Shutdown();
         return result == LifetimeResult::Ok     ? WEFT_RENDER_OK
                : result == LifetimeResult::Busy ? WEFT_RENDER_BUSY
                                                 : WEFT_RENDER_BACKEND_ERROR;
     }
 
-    void Backend::abandon(void* ptr) noexcept {
-        auto& self = *static_cast<Backend*>(ptr);
-        if (self.gpu.tracker.AbandonDeviceEpoch(
+    void Backend::abandon() {
+        if (gpu.tracker.AbandonDeviceEpoch(
                 limits::device_epoch, DeviceAbandonConfirmation::HostConfirmedNoFurtherAccess) != LifetimeResult::Ok) {
             std::terminate();
         }
         // Host proof replaces an unattainable completion query on this device.
-        self.gpu.acknowledged = true;
-        for (auto& use : self.uses) {
+        gpu.acknowledged = true;
+        for (auto& use : uses) {
             use.reset();
         }
-        self.gpu.collect();
+        gpu.collect();
     }
 
     weft_render_pass Backend::pass(ID3D11DeviceContext* context, ID3D11RenderTargetView* target, void** commands,

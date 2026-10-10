@@ -1,5 +1,5 @@
-#ifndef CASEELEPHANT_RENDER_BACKEND_D3D11_H
-#define CASEELEPHANT_RENDER_BACKEND_D3D11_H
+#ifndef WEFT_RENDER_BACKEND_D3D11_H
+#define WEFT_RENDER_BACKEND_D3D11_H
 #include "weft/render_backend.h"
 #include "weft/render_external_texture.h"
 

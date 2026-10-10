@@ -1,6 +1,7 @@
 #pragma once
 
 #include "constants/render.hpp"
+#include "render/backend.hpp"
 #include "render/backends/d3d11/renderer.hpp"
 #include "weft/render_backend.h"
 #include "weft/render_backend_d3d11.h"
@@ -48,22 +49,24 @@ namespace weft::render::d3d11 {
         weft_render_pass pass(ID3D11DeviceContext* context, ID3D11RenderTargetView* target, void** commands,
                               weft_render_d3d11_pass& payload);
 
-        static weft_render_result import_texture(void* ptr, const weft_render_external_texture* d,
-                                                 uint64_t* out) noexcept;
-        static void release_texture(void* ptr, uint64_t native) noexcept;
-        static weft_render_result prepare_external(void* ptr, const weft_render_frame* f,
-                                                   const weft_render_external_asset* textures, uint32_t count,
-                                                   uint64_t* out) noexcept;
-        static weft_render_result prepare(void* ptr, const weft_render_frame* input, uint64_t* out) noexcept;
-        static void release(void* ptr, uint64_t native) noexcept;
-        static weft_render_result encode(void* ptr, uint64_t native, const weft_render_pass* pass,
-                                         uint64_t* out) noexcept;
-        static void discard(void* ptr, uint64_t native) noexcept;
-        static void submitted(void* ptr, uint64_t native, uint64_t serial) noexcept;
-        static void completed(void* ptr, uint64_t serial) noexcept;
-        static weft_render_result shutdown(void* ptr) noexcept;
-        static void abandon(void* ptr) noexcept;
+        // RenderBackend: called by the renderer core through the make_c_backend table.
+        weft_render_result prepare(const weft_render_frame& frame, std::uint64_t& out);
+        void release_prepared(std::uint64_t native);
+        weft_render_result encode(std::uint64_t native, const weft_render_pass& render_pass, std::uint64_t& out);
+        void discard_encoded(std::uint64_t native);
+        void submitted(std::uint64_t native, std::uint64_t serial);
+        void completed(std::uint64_t serial);
+        void abandon();
+        weft_render_result shutdown();
+
+        // ExternalTextureBackend.
+        weft_render_result import_texture(const weft_render_external_texture& description, std::uint64_t& out);
+        void release_texture(std::uint64_t native);
+        weft_render_result prepare_external(const weft_render_frame& frame, const weft_render_external_asset* textures,
+                                            std::uint32_t count, std::uint64_t& out);
     };
+
+    static_assert(ExternalTextureBackend<Backend>);
 
     // C ABI view of a FramePacket; the packet must outlive it. With a renderer the asset ids are its stable
     // asset identities (version 1); otherwise asset i has id i + 1 and the given version.

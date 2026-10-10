@@ -1,5 +1,5 @@
-#ifndef CASEELEPHANT_CE_H
-#define CASEELEPHANT_CE_H
+#ifndef WEFT_H
+#define WEFT_H
 
 #include <stdint.h>
 
