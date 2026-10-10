@@ -73,6 +73,12 @@ namespace weft::probe_constants {
     inline constexpr int max_messages_per_pump = 4096;
     inline constexpr int swap_chain_buffer_count = 2;
     inline constexpr int present_sync_interval = 1;
+    // Low latency swapchains: three flip buffers, at most two queued frames, and a bounded wait for the next one.
+    // One queued frame halves the rate (120 of 240 Hz) whenever a frame's CPU work exceeds one refresh; two absorb
+    // such frames at one refresh of added latency (measured in docs/gallery-interaction-profile.md).
+    inline constexpr int low_latency_buffer_count = 3;
+    inline constexpr int low_latency_queued_frames = 2;
+    inline constexpr int frame_latency_wait_ms = 100;
     // IDC_ARROW, spelled for LoadCursorW without UNICODE.
     inline constexpr int arrow_cursor_resource = 32512;
     // MsgWaitForMultipleObjectsEx timeout of an idle host loop, and the visible NineSlice poll.

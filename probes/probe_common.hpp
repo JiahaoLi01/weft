@@ -37,7 +37,7 @@
 #include <d3d11.h>
 #include <d2d1_1.h>
 #include <d3d11sdklayers.h>
-#include <dxgi1_2.h>
+#include <dxgi1_3.h>
 #include <wincodec.h>
 #include <wrl/client.h>
 #include <psapi.h>

@@ -320,8 +320,13 @@ namespace probes {
         std::vector<ComPtr<ID3D11ShaderResourceView>> overlay_assets;
         std::shared_ptr<const std::vector<ComPtr<ID3D11ShaderResourceView>>> overlay_lease_;
         unsigned overlay_updates{};
+        // Low latency: a frame-latency waitable swapchain with one queued frame. wait_for_frame() returns when DXGI
+        // accepts the next frame, so each frame starts right after the previous one is taken and samples fresh input.
+        HANDLE frame_latency{};
+        UINT buffer_count = weft::probe_constants::swap_chain_buffer_count;
+        UINT flags{};
 
-        WindowPresenter(Experiment& r, HWND hwnd) : renderer(r) {
+        WindowPresenter(Experiment& r, HWND hwnd, bool low_latency = false) : renderer(r) {
             ComPtr<IDXGIDevice> dxgi;
             check_hresult(r.device.As(&dxgi), "present DXGI device");
             ComPtr<IDXGIAdapter> adapter;
@@ -334,15 +339,31 @@ namespace probes {
             desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
             desc.SampleDesc.Count = 1;
             desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-            desc.BufferCount = weft::probe_constants::swap_chain_buffer_count;
+            if (low_latency) {
+                buffer_count = weft::probe_constants::low_latency_buffer_count;
+                flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+            }
+            desc.BufferCount = buffer_count;
             desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
             desc.Scaling = DXGI_SCALING_STRETCH;
+            desc.Flags = flags;
             check_hresult(factory->CreateSwapChainForHwnd(r.device.Get(), hwnd, &desc, nullptr, nullptr, &swap),
                           "CreateSwapChainForHwnd");
+            if (low_latency) {
+                ComPtr<IDXGISwapChain2> latency;
+                check_hresult(swap.As(&latency), "IDXGISwapChain2");
+                check_hresult(latency->SetMaximumFrameLatency(weft::probe_constants::low_latency_queued_frames),
+                              "SetMaximumFrameLatency");
+                frame_latency = latency->GetFrameLatencyWaitableObject();
+                require(frame_latency != nullptr, "frame latency waitable object");
+            }
             check_hresult(factory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER), "window association");
         }
 
         ~WindowPresenter() {
+            if (frame_latency) {
+                CloseHandle(frame_latency);
+            }
             if (renderer.async_in_flight) {
                 std::terminate(); // Pipeline must drain first.
             }
@@ -366,8 +387,7 @@ namespace probes {
             rtv.Reset();
             back.Reset();
             readback.Reset();
-            check_hresult(swap->ResizeBuffers(weft::probe_constants::swap_chain_buffer_count, w, h,
-                                              DXGI_FORMAT_R8G8B8A8_UNORM, 0),
+            check_hresult(swap->ResizeBuffers(buffer_count, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, flags),
                           "ResizeBuffers after unbinding/releasing views");
             check_hresult(swap->GetBuffer(0, IID_PPV_ARGS(&back)), "swapchain backbuffer");
             D3D11_RENDER_TARGET_VIEW_DESC view{};
@@ -385,6 +405,14 @@ namespace probes {
             width = w;
             height = h;
             ++resizes;
+        }
+
+        // Blocks until the swapchain accepts another frame (low latency only); bounded so a hidden or
+        // occluded window cannot stall the loop.
+        void wait_for_frame() {
+            if (frame_latency) {
+                WaitForSingleObjectEx(frame_latency, weft::probe_constants::frame_latency_wait_ms, TRUE);
+            }
         }
 
         void overlay(const FramePacket& packet) {

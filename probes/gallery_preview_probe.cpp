@@ -12,11 +12,149 @@
 #include "../tests/cluster_visual_compare.hpp"
 #include "probe_modes.hpp"
 
+#include <numbers>
+
 namespace probes {
+    namespace {
+        // Center of the first element whose class list contains name, in scene coordinates.
+        std::optional<std::array<double, 2>> gallery_class_center(const weft::SceneFrame& scene,
+                                                                  std::string_view name) {
+            auto find = [&](auto&& self, const weft::SceneNode& n) -> weft::NodeIdentity {
+                if (const auto c = n.attributes.find("class");
+                    c != n.attributes.end() && c->second.find(name) != c->second.npos) {
+                    return n.identity;
+                }
+                for (const auto& child : n.children) {
+                    if (const auto id = self(self, child); id.generation) {
+                        return id;
+                    }
+                }
+                return {};
+            };
+            const auto item = find(find, scene.root);
+            for (const auto& e : scene.elements) {
+                if (item.generation && e.identity == item) {
+                    return std::array<double, 2>{e.rect[0] + e.rect[2] / 2, e.rect[1] + e.rect[3] / 2};
+                }
+            }
+            return {};
+        }
+
+        // Live benchmark window, in seconds since the window opened: warm start t0, a drag from t0 + 1 to t0 + 6
+        // measured over the same span, close at t0 + 7. Samples are unbounded (a few thousand).
+        struct GalleryLiveWindow {
+            static constexpr double drag_begin = 1;
+            static constexpr double drag_end = 6;
+            static constexpr double close_after = 7;
+
+            double t0 = -1;
+            bool pressed{};
+            bool released{};
+            std::array<double, 2> anchor{};
+            int tracked_scene = -1;
+            double last_present = -1;
+            double last_publication = -1;
+            double last_update = -1;
+            std::uint64_t tracked_revision{};
+            unsigned tracked_raf{};
+            std::chrono::steady_clock::time_point last_received{};
+            // Inputs received before the measured span (a real cursor over a visible window) are not samples.
+            std::chrono::steady_clock::time_point measured_from{};
+            std::deque<double> present_interval;
+            std::deque<double> render_cpu;
+            std::deque<double> publication_interval;
+            std::deque<double> owner_active;
+            std::deque<double> update_interval;
+            std::deque<double> input_to_publication;
+            std::deque<double> input_to_pickup;
+
+            void start(double now, const std::string& scenario) {
+                t0 = now;
+                measured_from =
+                    std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                                                           std::chrono::duration<double>(drag_begin));
+                tracked_scene = scenario == "anime-drag" || scenario == "anime"
+                                    ? weft::probe_constants::gallery::anime_drag_scene
+                                : scenario == "scatter-drag" ? weft::probe_constants::gallery::scatter_scene
+                                                             : -1;
+            }
+
+            bool measuring(double now) const {
+                return t0 >= 0 && now >= t0 + drag_begin && now < t0 + drag_end;
+            }
+
+            bool finished(double now) const {
+                return t0 >= 0 && now >= t0 + close_after;
+            }
+
+            void present(double now, double cpu_ms) {
+                if (last_present >= 0) {
+                    present_interval.push_back((now - last_present) * weft::constants::milliseconds_per_second);
+                }
+                last_present = now;
+                render_cpu.push_back(cpu_ms);
+            }
+
+            void publication(double now, const GalleryOwnerExecutor::Publication& p) {
+                const auto& f = *p.value;
+                if (last_publication >= 0) {
+                    publication_interval.push_back((now - last_publication) * weft::constants::milliseconds_per_second);
+                }
+                last_publication = now;
+                owner_active.push_back(p.active_ms);
+                if (f.input_received > last_received && f.input_received >= measured_from) {
+                    last_received = f.input_received;
+                    input_to_publication.push_back(
+                        std::chrono::duration<double, std::milli>(p.published - f.input_received).count());
+                    input_to_pickup.push_back(
+                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - f.input_received)
+                            .count());
+                }
+                // Content updates of the dragged card, or of the Canvas cases when nothing is dragged.
+                bool updated{};
+                if (tracked_scene >= 0) {
+                    updated = f.revisions[unsigned(tracked_scene)] != tracked_revision;
+                    tracked_revision = f.revisions[unsigned(tracked_scene)];
+                } else {
+                    unsigned raf{};
+                    for (auto calls : f.raf_calls) {
+                        raf += calls;
+                    }
+                    updated = raf != tracked_raf;
+                    tracked_raf = raf;
+                }
+                if (updated) {
+                    if (last_update >= 0) {
+                        update_interval.push_back((now - last_update) * weft::constants::milliseconds_per_second);
+                    }
+                    last_update = now;
+                }
+            }
+
+            std::string json(const std::string& scenario) const {
+                const double span = drag_end - drag_begin;
+                return "{\"scenario\":" + json_string(scenario) + ",\"measured_seconds\":" + format_host_time(span) +
+                       ",\"present_fps\":" + format_host_time((present_interval.size() + 1) / span) +
+                       ",\"owner_publications_per_s\":" + format_host_time((publication_interval.size() + 1) / span) +
+                       ",\"tracked_updates_per_s\":" + format_host_time((update_interval.size() + 1) / span) +
+                       ",\"present_interval_ms\":" + GalleryPreviewSamples::json(present_interval) +
+                       ",\"render_cpu_ms\":" + GalleryPreviewSamples::json(render_cpu) +
+                       ",\"owner_publication_interval_ms\":" + GalleryPreviewSamples::json(publication_interval) +
+                       ",\"owner_active_ms\":" + GalleryPreviewSamples::json(owner_active) +
+                       ",\"tracked_update_interval_ms\":" + GalleryPreviewSamples::json(update_interval) +
+                       ",\"input_to_publication_ms\":" + GalleryPreviewSamples::json(input_to_publication) +
+                       ",\"input_to_render_pickup_ms\":" + GalleryPreviewSamples::json(input_to_pickup) + "}";
+            }
+        };
+    } // namespace
+
     int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool self_test, std::string benchmark,
                             bool threaded, bool scroll_test, bool profile) {
         const bool input_benchmark = benchmark.starts_with("input-");
-        const auto scenario = input_benchmark ? benchmark.substr(6) : benchmark;
+        // Live benchmarks run like the interactive window (wall clock, latest owner frame without waiting) and
+        // drive a drag with one queued move per render frame, as a real mouse's coalesced WM_MOUSEMOVE.
+        const bool live = benchmark.starts_with("live-");
+        const auto scenario = input_benchmark ? benchmark.substr(6) : live ? benchmark.substr(5) : benchmark;
         std::filesystem::create_directories(folder);
         const auto startup = std::chrono::steady_clock::now();
         std::cout << "Observing 72 fixed original cases (isolated, 12 opportunities; no full CSS/pixel pass)...\n";
@@ -37,20 +175,24 @@ namespace probes {
             folder / "preview-cases.json",
             "{\"format\":\"gallery-preview-cases-v1\",\"case_count\":72,\"native_pixel_cases\":66,\"original_full_gallery_rendered\":false,\"conditions\":{\"isolated_opportunities\":12,\"canvas_host\":true,\"css\":\"Fixed Tailwind utilities, 64 original CSS/SVG/animation scenes and two original Canvas cases\",\"input_dispatched\":false},\"cases\":" +
                 records + "}");
-        NativeReactWindow window(!self_test && benchmark.empty(), true);
+        // Live benchmarks show the window, so presents go through the same DWM composition as the interactive window.
+        NativeReactWindow window(!self_test && (benchmark.empty() || live), true);
         window.state.logical_width = weft::probe_constants::gallery::shell_width;
         window.state.logical_height = weft::probe_constants::gallery::shell_height;
         Experiment gpu(warp, weft::constants::uhd_width, weft::constants::uhd_height);
         gpu.cache_assets = true;
         gpu.cache_byte_limit = weft::probe_constants::gallery::asset_cache_budget_bytes;
         gpu.enable_timing();
-        WindowPresenter presenter(gpu, window.state.hwnd);
+        // The interactive window and live benchmarks start each frame when the swapchain takes one; deterministic tests
+        // keep the two-frame pipeline pacing.
+        WindowPresenter presenter(gpu, window.state.hwnd, (benchmark.empty() && !self_test) || live);
         TwoFramePipeline pipeline(gpu);
         SceneGpuSurfaces scene_gpu(gpu, pipeline);
         scene_gpu.retain_paint = true;
         scene_gpu.native_paint = true;
         pipeline.set_timing(profile || self_test || !benchmark.empty());
-        if (self_test || !benchmark.empty()) {
+        // Deterministic runs render a hidden 4K client; the visible live window keeps the size the desktop gives it.
+        if (self_test || (!benchmark.empty() && !live)) {
             window.client_size(weft::constants::uhd_width, weft::constants::uhd_height);
         }
         if (self_test) {
@@ -90,7 +232,7 @@ namespace probes {
             }
         };
         check_text(shell.snapshot_subtree("#shell"));
-        auto layout = [&](const weft::DomSnapshot& dom) {
+        auto layout = [&](const weft::DomSnapshot& dom) -> const weft::FlowPage& {
             auto key = dom;
             shell_styles.normalize_selector_state(key);
             if (layout_input && *layout_input == key) {
@@ -110,22 +252,35 @@ namespace probes {
             auto result = weft::build_flow_page(dom, *shell_computed, weft::probe_constants::gallery::shell_width,
                                                 weft::probe_constants::gallery::shell_height, fonts);
             layout_input = std::move(key);
-            layout_result = result;
+            layout_result = std::move(result);
             if (render_trace.enabled()) {
                 const auto ms =
                     std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
                 shell_layout_ms += ms;
                 render_trace.emit("shell layout", begin, ms);
             }
-            return result;
+            return *layout_result;
         };
         shell.install_layout_host([&](const auto& document) {
             return layout(flow_find(document, "shell")).elements;
         });
         // Geometry writes require the installed owner layout host.
         shell.eval("__cePreview.jump('CSS_TESTS')");
-        auto page = [&] {
-            return layout(shell.snapshot_subtree("#shell"));
+        // The shell's subtree revision changes with every DOM, hover/active and scroll change, so an unchanged
+        // revision reuses the page without a snapshot. Self tests check that against a full snapshot comparison.
+        const auto shell_root = shell.node_identity("#shell");
+        std::uint64_t page_revision{};
+        auto page = [&]() -> const weft::FlowPage& {
+            const auto revision = shell.subtree_revision(shell_root);
+            if (!layout_result || revision != page_revision) {
+                layout(shell.snapshot_subtree("#shell"));
+                page_revision = revision;
+            } else if (self_test) {
+                auto key = shell.snapshot_subtree("#shell");
+                shell_styles.normalize_selector_state(key);
+                require(layout_input && *layout_input == key, "shell revision missed a DOM change");
+            }
+            return *layout_result;
         };
         weft::MouseRouter mouse(shell, [&] {
             return page().page.geometry;
@@ -223,7 +378,14 @@ namespace probes {
         std::uint64_t profiler_revision{};
         FramePacket static_packet;
         std::optional<weft::DomSnapshot> packet_input;
+        std::uint64_t packet_revision{};
+        std::array<std::pair<std::shared_ptr<const std::vector<std::uint8_t>>, std::shared_ptr<const Asset>>,
+                   weft::probe_constants::gallery::canvas_case_count>
+            canvas_images;
+        std::string window_title;
         std::array<int, weft::probe_constants::gallery::canvas_case_count> canvas_assets{-1, -1};
+        std::array<double, 2> drag_anchor{};
+        GalleryLiveWindow live_window;
         std::size_t static_rebuilds{};
         std::map<std::uint64_t, unsigned> measured_serials;
         unsigned sample_epoch{};
@@ -243,7 +405,27 @@ namespace probes {
             last_present = 0;
             settling = 0;
         };
+        // Render trace spans: a start stamp, and an event ending now.
+        auto trace_start = [&] {
+            return render_trace.enabled() ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+        };
+        auto trace_end = [&](const char* name, std::chrono::steady_clock::time_point begin) {
+            if (render_trace.enabled()) {
+                render_trace.emit(
+                    name, begin,
+                    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count());
+            }
+        };
         auto hud = [&] {
+            const auto hud_trace = trace_start();
+            struct HudTrace {
+                decltype(trace_end)& end;
+                std::chrono::steady_clock::time_point start;
+
+                ~HudTrace() {
+                    end("hud", start);
+                }
+            } hud_scope{trace_end, hud_trace};
             std::ostringstream label;
             if (owner) {
                 label << "Owner " << std::fixed << std::setprecision(1) << owner_rate.fps << " Hz | P50 "
@@ -273,16 +455,16 @@ namespace probes {
             shell.eval("__cePreview.jump(" + json_string(groups[group]) + ")");
         };
         if (!benchmark.empty()) {
-            const std::map<std::string, unsigned> cluster_groups{{"d3-interactive", 2}, {"scatter", 2}, {"kline", 3},
-                                                                 {"framer", 5},         {"spring", 6},  {"icons", 7},
-                                                                 {"anime", 8}};
+            const std::map<std::string, unsigned> cluster_groups{
+                {"d3-interactive", 2}, {"scatter", 2}, {"kline", 3}, {"webgl", 4},      {"framer", 5},
+                {"spring", 6},         {"icons", 7},   {"anime", 8}, {"anime-drag", 8}, {"scatter-drag", 2}};
             require(scenario == "css-top" || scenario == "css-middle" || scenario == "css-end" || scenario == "d3" ||
                         cluster_groups.contains(scenario),
                     "benchmark scenario");
             if (cluster_groups.contains(scenario)) {
                 jump(cluster_groups.at(scenario));
             }
-            if (scenario == "scatter") {
+            if (scenario == "scatter" || scenario == "scatter-drag") {
                 shell.eval("__cePreview.scroll(4668)");
             }
             if (scenario == "d3") {
@@ -297,11 +479,14 @@ namespace probes {
         }
 
         while (!window.state.closed) {
+            presenter.wait_for_frame();
             const auto frame_trace_start =
                 render_trace.enabled() ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
             const double tick = seconds();
             shell_layout_ms = shell_input_ms = 0;
+            const auto poll_trace = trace_start();
             pipeline.poll();
+            trace_end("pipeline poll", poll_trace);
             MSG key{};
             while (PeekMessageW(&key, window.state.hwnd, WM_KEYDOWN, WM_KEYDOWN, PM_REMOVE)) {
                 if (key.wParam == VK_ESCAPE) {
@@ -327,7 +512,9 @@ namespace probes {
                     shell.eval("__cePreview.setProfiler(!__cePreview.profiler)");
                 }
             }
+            const auto messages_trace = trace_start();
             window.messages();
+            trace_end("window messages", messages_trace);
             if (window.state.closed) {
                 break;
             }
@@ -358,14 +545,17 @@ namespace probes {
                 reset();
             }
             // Shared exact wall-clock timestamp, never a rounded timer timestamp.
-            const double time = (benchmark.empty() ? seconds() * weft::constants::milliseconds_per_second
-                                                   : frames * weft::probe_constants::gallery::fixed_clock_step_ms) +
-                                weft::probe_constants::gallery::host_clock_offset_ms;
+            const double time =
+                (benchmark.empty() || live ? seconds() * weft::constants::milliseconds_per_second
+                                           : frames * weft::probe_constants::gallery::fixed_clock_step_ms) +
+                weft::probe_constants::gallery::host_clock_offset_ms;
             require(time >= last_time, "preview owner clock regressed");
             last_time = time;
-            auto current = page();
+            const auto page_trace = trace_start();
+            const weft::FlowPage* current = &page();
+            trace_end("shell page", page_trace);
             auto scene_rect = [&](unsigned index) {
-                for (const auto& e : current.elements) {
+                for (const auto& e : current->elements) {
                     if (e.identity == scene_slots[index]) {
                         return e.rect;
                     }
@@ -373,7 +563,7 @@ namespace probes {
                 throw std::runtime_error("scene slot geometry absent");
             };
             auto slot_rect = [&](unsigned index) {
-                for (const auto& e : current.elements) {
+                for (const auto& e : current->elements) {
                     if (e.identity == slot_ids[index]) {
                         return e.rect;
                     }
@@ -441,7 +631,7 @@ namespace probes {
                     } else {
                         mouse.wheel({value.delta_x, value.delta_y, point[0], point[1], double(value.screen_x),
                                      double(value.screen_y), time, value.ctrl, value.shift, value.alt, value.meta});
-                        current = page();
+                        current = &page();
                     }
                     continue;
                 }
@@ -561,7 +751,7 @@ namespace probes {
                         hud();
                     }
                 }
-                current = page();
+                current = &page();
                 if (render_trace.enabled()) {
                     const auto ms =
                         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
@@ -601,13 +791,14 @@ namespace probes {
                     request.canvas[i] = r[1] < weft::probe_constants::gallery::shell_viewport_bottom &&
                                         r[1] + r[3] > weft::probe_constants::gallery::shell_viewport_top;
                 }
+                const auto exchange_trace = trace_start();
                 const auto sequence = owner->request(weft::probe_constants::gallery::owner_epoch, request);
                 std::optional<GalleryOwnerExecutor::Publication> publication;
                 // The deterministic correctness path includes Debug builds and
                 // large original SVG geometry reads. Its host wait is separate
                 // from each VM evaluation budget and the interactive wait bound.
                 try {
-                    if (self_test || !benchmark.empty() || !owner_frame) {
+                    if (self_test || (!benchmark.empty() && !live) || !owner_frame) {
                         publication = owner->wait(
                             weft::probe_constants::gallery::owner_epoch, sequence,
                             self_test ? std::chrono::seconds(weft::probe_constants::gallery::owner_self_test_wait_s)
@@ -619,8 +810,12 @@ namespace probes {
                     throw std::runtime_error("gallery owner frame=" + std::to_string(frames) +
                                              " sequence=" + std::to_string(sequence) + ": " + error.what());
                 }
+                trace_end("owner exchange", exchange_trace);
                 if (publication) {
                     live_profiler.owner(seconds(), *publication);
+                    if (live && live_window.measuring(seconds())) {
+                        live_window.publication(seconds(), *publication);
+                    }
                     owner_frame = publication->value;
                     last_owner_active = publication->active_ms;
                     GalleryPreviewSamples::add(owner_ms, publication->active_ms);
@@ -634,7 +829,7 @@ namespace probes {
                 GalleryPreviewSamples::add(owner_age, std::max(0., time - owner_frame->time));
             }
             std::string next_scope;
-            for (const auto& e : current.elements) {
+            for (const auto& e : current->elements) {
                 if (e.identity == scroll_id) {
                     next_scope = format_host_time(e.scroll_top);
                 }
@@ -674,7 +869,9 @@ namespace probes {
                 scene_visible[i] = r[1] < weft::probe_constants::gallery::shell_viewport_bottom &&
                                    r[1] + r[3] > weft::probe_constants::gallery::shell_viewport_top;
             }
+            const auto retire_trace = trace_start();
             scene_gpu.retire_hidden(scene_visible);
+            trace_end("scene retire", retire_trace);
             for (unsigned i = 0; i < gallery_scene_count; ++i) {
                 const auto r = scene_rect(i);
                 live_count += scene_visible[i];
@@ -743,7 +940,9 @@ namespace probes {
             }
             {
                 const auto publish_start = phase_seconds();
+                const auto publish_trace = trace_start();
                 scene_gpu.publish();
+                trace_end("scene publish", publish_trace);
                 raster_ms += (phase_seconds() - publish_start) * weft::constants::milliseconds_per_second;
             }
             if (scope != next_scope) {
@@ -751,50 +950,62 @@ namespace probes {
                 reset();
                 hud();
             }
-            auto dom = shell.snapshot_subtree("#shell");
-            shell_styles.normalize_selector_state(dom);
-            if (!packet_input || *packet_input != dom) {
-                std::map<std::string, std::shared_ptr<const Asset>> images;
-                canvas_assets = {-1, -1};
-                scene_asset_indices.fill(-1);
-                for (unsigned i = 0; i < gallery_scene_count; ++i) {
-                    if (scene_visible[i]) {
-                        images.emplace("slot-" + cases[gallery_scene_descriptors[i].catalog_index].id, scene_images[i]);
-                    }
-                }
-                for (unsigned i = 0; i < weft::probe_constants::gallery::canvas_case_count; ++i) {
-                    if (visible[i]) {
-                        images.emplace(i ? "live-1" : "live-0", std::make_shared<const Asset>(Asset{
-                                                                    1, 1, Encoding::SrgbStraight, {10, 8, 6, 255}}));
-                    }
-                }
-                // The authored shell is 1920x1080; device ppem and every clip are 2x.
-                static_packet = gallery_preview_packet(current.page, fonts, images, &cache);
-                packet_input = dom;
-                ++static_rebuilds;
-                for (unsigned i = 0; i < weft::probe_constants::gallery::canvas_case_count; ++i) {
-                    if (visible[i]) {
-                        const auto asset = images.at(i ? "live-1" : "live-0");
-                        for (std::size_t a = 0; a < static_packet.assets.size(); ++a) {
-                            if (static_packet.assets[a] == asset) {
-                                canvas_assets[i] = int(a);
-                            }
+            const auto shell_packet_trace = trace_start();
+            // The static packet depends on the shell DOM only; the subtree revision skips the snapshot comparison.
+            if (const auto revision = shell.subtree_revision(shell_root);
+                !packet_input || revision != packet_revision) {
+                auto dom = shell.snapshot_subtree("#shell");
+                shell_styles.normalize_selector_state(dom);
+                if (!packet_input || *packet_input != dom) {
+                    std::map<std::string, std::shared_ptr<const Asset>> images;
+                    canvas_assets = {-1, -1};
+                    scene_asset_indices.fill(-1);
+                    for (unsigned i = 0; i < gallery_scene_count; ++i) {
+                        if (scene_visible[i]) {
+                            images.emplace("slot-" + cases[gallery_scene_descriptors[i].catalog_index].id,
+                                           scene_images[i]);
                         }
-                        require(canvas_assets[i] >= 0, "visible Canvas placeholder missing");
                     }
-                }
-            }
-            if (packet_input && *packet_input == dom) {
-                for (unsigned i = 0; i < gallery_scene_count; ++i) {
-                    if (scene_visible[i] && scene_asset_indices[i] < 0) {
-                        for (std::size_t a = 0; a < static_packet.assets.size(); ++a) {
-                            if (static_packet.assets[a] == scene_images[i]) {
-                                scene_asset_indices[i] = int(a);
+                    for (unsigned i = 0; i < weft::probe_constants::gallery::canvas_case_count; ++i) {
+                        if (visible[i]) {
+                            images.emplace(
+                                i ? "live-1" : "live-0",
+                                std::make_shared<const Asset>(Asset{1, 1, Encoding::SrgbStraight, {10, 8, 6, 255}}));
+                        }
+                    }
+                    // The authored shell is 1920x1080; device ppem and every clip are 2x.
+                    static_packet = gallery_preview_packet(current->page, fonts, images, &cache);
+                    packet_input = std::move(dom);
+                    ++static_rebuilds;
+                    for (unsigned i = 0; i < weft::probe_constants::gallery::canvas_case_count; ++i) {
+                        if (visible[i]) {
+                            const auto asset = images.at(i ? "live-1" : "live-0");
+                            for (std::size_t a = 0; a < static_packet.assets.size(); ++a) {
+                                if (static_packet.assets[a] == asset) {
+                                    canvas_assets[i] = int(a);
+                                }
                             }
+                            require(canvas_assets[i] >= 0, "visible Canvas placeholder missing");
                         }
                     }
                 }
+                packet_revision = revision;
+            } else if (self_test) {
+                auto dom = shell.snapshot_subtree("#shell");
+                shell_styles.normalize_selector_state(dom);
+                require(*packet_input == dom, "shell revision missed a packet change");
             }
+            for (unsigned i = 0; i < gallery_scene_count; ++i) {
+                if (scene_visible[i] && scene_asset_indices[i] < 0) {
+                    for (std::size_t a = 0; a < static_packet.assets.size(); ++a) {
+                        if (static_packet.assets[a] == scene_images[i]) {
+                            scene_asset_indices[i] = int(a);
+                        }
+                    }
+                }
+            }
+            trace_end("shell packet", shell_packet_trace);
+            const auto assets_trace = trace_start();
             auto packet = static_packet; // Complete owning packet, independent of older submissions.
             for (unsigned i = 0; i < gallery_scene_count; ++i) {
                 if (scene_visible[i]) {
@@ -807,8 +1018,13 @@ namespace probes {
                     const auto bitmap =
                         owner ? owner_frame->canvas[i] : sessions[i]->vm.canvas_snapshot(sessions[i]->identity());
                     require(canvas_assets[i] >= 0, "Canvas stale shell packet");
-                    packet.assets[unsigned(canvas_assets[i])] = std::make_shared<const Asset>(
-                        Asset{bitmap.width, bitmap.height, Encoding::SrgbStraight, *bitmap.rgba});
+                    // One asset per Canvas raster: unchanged pixels keep the asset, so the renderer reuses its texture.
+                    auto& cached = canvas_images[i];
+                    if (cached.first != bitmap.rgba) {
+                        cached = {bitmap.rgba, std::make_shared<const Asset>(Asset{
+                                                   bitmap.width, bitmap.height, Encoding::SrgbStraight, *bitmap.rgba})};
+                    }
+                    packet.assets[unsigned(canvas_assets[i])] = cached.second;
                 }
             }
             if (self_test && (frames < 16 || frames == 159)) {
@@ -823,11 +1039,14 @@ namespace probes {
                         images.emplace(i ? "live-1" : "live-0", packet.assets[unsigned(canvas_assets[i])]);
                     }
                 }
-                const auto full = gallery_preview_packet(current.page, fonts, images, nullptr);
+                const auto full = gallery_preview_packet(current->page, fonts, images, nullptr);
                 gallery_preview_packet_equal(packet, full);
                 ++cache_differences;
             }
+            trace_end("packet assets", assets_trace);
             const auto submit_start = phase_seconds();
+            const auto submit_trace =
+                render_trace.enabled() ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
             auto gpu_packet = packet;
             const auto external = scene_gpu.dependencies(gpu_packet, scene_asset_indices, scene_visible);
             const auto serial = pipeline.submit(
@@ -837,6 +1056,16 @@ namespace probes {
                 },
                 presenter.overlay_lease(), external);
             scene_gpu.submitted(serial, scene_visible);
+            if (render_trace.enabled()) {
+                render_trace.emit(
+                    "submit", submit_trace,
+                    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - submit_trace).count(),
+                    "{\"prepare_ms\":" + format_host_time(gpu.prepare_ms) + ",\"encode_ms\":" +
+                        format_host_time(gpu.encode_ms) + ",\"present_ms\":" + format_host_time(gpu.present_ms) +
+                        ",\"wait_ms\":" + format_host_time(gpu.wait_ms) +
+                        ",\"draws\":" + std::to_string(packet.draws.size()) +
+                        ",\"assets\":" + std::to_string(packet.assets.size()) + "}");
+            }
             ++frames;
             if (render_trace.enabled() && frame_trace_start != std::chrono::steady_clock::time_point{}) {
                 render_trace.emit("render frame", frame_trace_start,
@@ -897,6 +1126,9 @@ namespace probes {
                                                                          weft::constants::milliseconds_per_second);
                     }
                 }
+                if (live && live_window.measuring(seconds())) {
+                    live_window.present(seconds(), (seconds() - tick) * weft::constants::milliseconds_per_second);
+                }
                 last_present = seconds();
                 if (fps.presented(seconds())) {
                     hud();
@@ -908,7 +1140,14 @@ namespace probes {
                 std::this_thread::sleep_for(
                     std::chrono::milliseconds(weft::probe_constants::gallery::hidden_frame_sleep_ms));
             }
-            if (!benchmark.empty() && frames == weft::probe_constants::gallery::fixed_clock_run_frames) {
+            if (live && frames == weft::probe_constants::gallery::warmup_frames) {
+                live_window.start(seconds(), scenario);
+            }
+            if (live && live_window.finished(seconds())) {
+                pipeline.drain();
+                window.state.close_requested = true;
+            }
+            if (!benchmark.empty() && !live && frames == weft::probe_constants::gallery::fixed_clock_run_frames) {
                 pipeline.drain();
                 benchmark_end = seconds();
                 window.state.close_requested = true;
@@ -954,7 +1193,7 @@ namespace probes {
                     ++captures;
                     for (unsigned i = 0; i < weft::probe_constants::gallery::catalog_case_count; ++i) {
                         const auto identity = shell.node_identity("#case-" + cases[i].id);
-                        for (const auto& e : current.elements) {
+                        for (const auto& e : current->elements) {
                             if (e.identity == identity &&
                                 e.rect[1] < weft::probe_constants::gallery::shell_viewport_bottom &&
                                 e.rect[1] + e.rect[3] > weft::probe_constants::gallery::shell_viewport_top) {
@@ -979,7 +1218,7 @@ namespace probes {
                         const unsigned gaps[]{12, 16, 16, 16, 16, 16, 16, 16, 12, 12};
                         double offset{};
                         double scroll{};
-                        for (const auto& e : current.elements) {
+                        for (const auto& e : current->elements) {
                             if (e.identity == scroll_id) {
                                 scroll = e.scroll_top;
                             }
@@ -991,7 +1230,7 @@ namespace probes {
                                 if (c.group == groups[group]) {
                                     const auto identity = shell.node_identity("#case-" + c.id);
                                     bool found{};
-                                    for (const auto& e : current.elements) {
+                                    for (const auto& e : current->elements) {
                                         if (e.identity == identity) {
                                             const std::array<double, 4> expected{
                                                 292 + (c.index % columns[group]) * (w + gaps[group]),
@@ -1032,7 +1271,7 @@ namespace probes {
                     shell.eval("__cePreview.scroll(480)");
                 }
                 if (frames == 12) {
-                    current = page();
+                    current = &page();
                     const auto r = slot_rect(1);
                     const auto pt = MAKELPARAM(int((r[0] + 260) * weft::probe_constants::gallery::shell_device_scale),
                                                int((r[1] + 180) * weft::probe_constants::gallery::shell_device_scale));
@@ -1072,7 +1311,7 @@ namespace probes {
                     shell.eval("__cePreview.scroll(400)");
                 }
                 if (frames == 21) {
-                    current = page();
+                    current = &page();
                     for (unsigned i : {static_cast<unsigned>(weft::probe_constants::gallery::css_hover_scene),
                                        static_cast<unsigned>(weft::probe_constants::gallery::css_toggle_scene)}) {
                         const auto r = scene_rect(i);
@@ -1119,7 +1358,7 @@ namespace probes {
                     shell.eval("__cePreview.scroll(600)");
                 }
                 if (frames == 32) {
-                    current = page();
+                    current = &page();
                     const auto r = scene_rect(weft::probe_constants::gallery::anime_drag_scene);
                     const auto pt = MAKELPARAM(int((r[0] + 44) * weft::probe_constants::gallery::shell_device_scale),
                                                int((r[1] + 84) * weft::probe_constants::gallery::shell_device_scale));
@@ -1127,7 +1366,7 @@ namespace probes {
                             "new scene queued drag down");
                 }
                 if (frames == 33) {
-                    current = page();
+                    current = &page();
                     const auto r = scene_rect(weft::probe_constants::gallery::anime_drag_scene);
                     const auto pt = MAKELPARAM(int((r[0] + 124) * weft::probe_constants::gallery::shell_device_scale),
                                                int((r[1] + 84) * weft::probe_constants::gallery::shell_device_scale));
@@ -1173,7 +1412,7 @@ namespace probes {
             }
             if (self_test && !scroll_test) {
                 if (frames == 95) {
-                    for (const auto& e : current.elements) {
+                    for (const auto& e : current->elements) {
                         if (e.identity == profiler_id) {
                             const auto pt =
                                 MAKELPARAM(int((e.rect[0] + 30) * weft::probe_constants::gallery::shell_device_scale),
@@ -1320,12 +1559,68 @@ namespace probes {
                     send(55, 200, 190, WM_LBUTTONDOWN, MK_LBUTTON);
                     send(55, 200, 190, WM_LBUTTONUP, 0);
                 }
+                // Sustained drag of the original anime-08 .drag-item: four moves per frame for two seconds.
+                if (scenario == "anime-drag" && frames >= 24 && frames <= 144) {
+                    const unsigned index = weft::probe_constants::gallery::anime_drag_scene;
+                    if (frames == 24) {
+                        const auto center = gallery_class_center(
+                            owner ? *owner_frame->scenes[index] : scenes[index]->current, "drag-item");
+                        require(center.has_value(), "anime drag item geometry");
+                        drag_anchor = *center;
+                        send(index, drag_anchor[0], drag_anchor[1], WM_LBUTTONDOWN, MK_LBUTTON);
+                    }
+                    for (unsigned sample = 0; frames < 144 && sample < 4; ++sample) {
+                        const double t = frames - 24 + sample * .25;
+                        send(index, drag_anchor[0] + 60 * std::sin(t * 2 * std::numbers::pi / 60),
+                             drag_anchor[1] + 30 * std::sin(t * 2 * std::numbers::pi / 45), WM_MOUSEMOVE, MK_LBUTTON);
+                    }
+                    if (frames == 144) {
+                        send(index, drag_anchor[0], drag_anchor[1], WM_LBUTTONUP, 0);
+                    }
+                }
+            }
+            if (live && live_window.t0 >= 0 && live_window.tracked_scene >= 0 && scenario != "anime") {
+                const auto index = unsigned(live_window.tracked_scene);
+                auto post = [&](double x, double y, UINT message, WPARAM buttons) {
+                    // Logical shell coordinates to client pixels through the window's actual viewport.
+                    const auto r = scene_rect(index);
+                    const auto v = window.state.viewport();
+                    require(PostMessageW(window.state.hwnd, message, buttons,
+                                         MAKELPARAM(int(v.x + (r[0] + x) * v.scale), int(v.y + (r[1] + y) * v.scale))),
+                            "live queued native mouse");
+                };
+                const double t = seconds() - live_window.t0;
+                if (!live_window.pressed && !live_window.released && t >= GalleryLiveWindow::drag_begin) {
+                    if (scenario == "anime-drag") {
+                        const auto center = gallery_class_center(*owner_frame->scenes[index], "drag-item");
+                        require(center.has_value(), "live anime drag item geometry");
+                        live_window.anchor = *center;
+                    } else {
+                        live_window.anchor = {320, 360};
+                    }
+                    post(live_window.anchor[0], live_window.anchor[1], WM_LBUTTONDOWN, MK_LBUTTON);
+                    live_window.pressed = true;
+                } else if (live_window.pressed) {
+                    const double u = t - GalleryLiveWindow::drag_begin;
+                    if (t < GalleryLiveWindow::drag_end) {
+                        post(live_window.anchor[0] + 60 * std::sin(u * 2 * std::numbers::pi),
+                             live_window.anchor[1] + 30 * std::sin(u * 2 * std::numbers::pi * 4 / 3), WM_MOUSEMOVE,
+                             MK_LBUTTON);
+                    } else {
+                        post(live_window.anchor[0], live_window.anchor[1], WM_LBUTTONUP, 0);
+                        live_window.pressed = false;
+                        live_window.released = true;
+                    }
+                }
             }
             std::ostringstream title;
             title << "CaseElephant / 72 cases, 66 native / LIVE " << live_count << " / 3840x2160 / FPS " << std::fixed
                   << std::setprecision(1) << fps.fps;
-            const auto value = title.str();
-            SetWindowTextW(window.state.hwnd, std::wstring(value.begin(), value.end()).c_str());
+            // WM_SETTEXT redraws the caption: only when the text changes (about once a second).
+            if (auto value = title.str(); value != window_title) {
+                SetWindowTextW(window.state.hwnd, std::wstring(value.begin(), value.end()).c_str());
+                window_title = std::move(value);
+            }
             require(shell.stats().listener_exceptions == 0 && !window.state.overflow, "gallery shell input failure");
         }
         std::size_t snapshots{};
@@ -1393,7 +1688,10 @@ namespace probes {
                 ",\"paint_program_reuses\":" + std::to_string(commands.paint_program_reuses) +
                 ",\"paint_program_evictions\":" + std::to_string(commands.paint_program_evictions) +
                 ",\"typed_draws\":" + std::to_string(commands.typed_draws) + "}");
-        if (!benchmark.empty()) {
+        if (live) {
+            write_text(folder / "live.json", live_window.json(scenario));
+        }
+        if (!benchmark.empty() && !live) {
             std::string data = "{";
             for (const auto& [name, values] : stages) {
                 if (data.size() > 1) {

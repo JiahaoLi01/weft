@@ -4,6 +4,8 @@
 #include "gallery_cluster_input.hpp"
 #include "probe_modes.hpp"
 
+#include <numbers>
+
 namespace probes {
     int run_gallery_interaction_profile(const std::filesystem::path& folder, const std::string& filter) {
         std::filesystem::create_directories(folder);
@@ -48,11 +50,24 @@ namespace probes {
                                    : spring                                 ? "spring"
                                    : d.group == std::string("ANIME_TESTS")  ? "anime"
                                                                             : "other";
-            if (category == "other" || (filter != "all" && filter != category)) {
+            // Sustained drags: press on the draggable, move every frame for two seconds, release.
+            const char* drag_anchor = index == 36   ? ".overlay"
+                                      : index == 37 ? "svg"
+                                      : index == 58 ? ".drag-item"
+                                      : index == 59 ? ".snap-box"
+                                      : index == 60 ? ".h-drag"
+                                      : index == 61 ? ".throw-ball"
+                                                    : nullptr;
+            const bool drag = filter == "drag";
+            if (drag ? !drag_anchor : category == "other" || (filter != "all" && filter != category)) {
                 continue;
             }
-            const auto id = std::string(scatter ? "d3_interactive" : category) + "-" + (d.index < 10 ? "0" : "") +
-                            std::to_string(d.index);
+            const auto id = std::string(d.group == std::string("ANIME_TESTS") ? "anime"
+                                        : scatter || drag                     ? "d3_interactive"
+                                                                              : category) +
+                            "-" + (d.index < 10 ? "0" : "") + std::to_string(d.index);
+            float drag_x{};
+            float drag_y{};
             std::cout << id << " profile..." << std::flush;
             GallerySceneSession s(d.group, d.index, d.width, d.height, "cluster-utilities.css");
             gallery_cluster_prepare(s, id);
@@ -70,22 +85,37 @@ namespace probes {
                 auto js_before = s.vm.stats();
                 auto input_start = std::chrono::steady_clock::now();
                 unsigned applied{};
-                if (scatter && frame >= 24 && frame <= 143) {
+                if (drag && frame >= 24 && frame <= 144) {
+                    if (frame == 24) {
+                        std::istringstream(
+                            s.vm.eval(std::string("(()=>{const r=document.querySelector('") + drag_anchor +
+                                      "').getBoundingClientRect();return (r.x+r.width/2)+' '+(r.y+r.height/2)})()")) >>
+                            drag_x >> drag_y;
+                    }
+                    const double t = frame - 24;
+                    s.input_value(frame == 24    ? weft::MouseType::Down
+                                  : frame == 144 ? weft::MouseType::Up
+                                                 : weft::MouseType::Move,
+                                  drag_x + float(60 * std::sin(t * 2 * std::numbers::pi / 60)),
+                                  drag_y + float(30 * std::sin(t * 2 * std::numbers::pi / 45)), frame == 144 ? 0 : 1);
+                    applied = 1;
+                }
+                if (!drag && scatter && frame >= 24 && frame <= 143) {
                     s.input_value(frame == 24    ? weft::MouseType::Down
                                   : frame == 143 ? weft::MouseType::Up
                                                  : weft::MouseType::Move,
                                   320 + float(frame - 24) * .8f, 360 + float(frame % 17) * .3f, frame == 143 ? 0 : 1);
                     applied = 1;
                 }
-                if (scatter && (frame == 160 || frame == 200)) {
+                if (!drag && scatter && (frame == 160 || frame == 200)) {
                     s.input_value(weft::MouseType::Move, 600, 400, 0, -100);
                     applied = 1;
                 }
-                if (kline && frame >= 24 && frame < 144) {
+                if (!drag && kline && frame >= 24 && frame < 144) {
                     s.input_value(weft::MouseType::Move, 180 + float(frame - 24) * 8, 250 + float(frame % 11));
                     applied = 1;
                 }
-                if (!scatter && !kline && !spring) {
+                if (!drag && !scatter && !kline && !spring) {
                     applied = gallery_cluster_inputs(s, frame);
                 }
                 auto input_ms = elapsed(input_start);

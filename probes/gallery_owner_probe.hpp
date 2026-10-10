@@ -53,6 +53,8 @@ namespace probes {
         double snapshot_ms{};
         double scene_ms{};
         double time{};
+        // Receipt time of the newest input processed before this frame (input-to-frame latency).
+        std::chrono::steady_clock::time_point input_received{};
         std::string hover_transform;
         std::string toggle_width;
         std::string anime_drag_transform;
@@ -102,6 +104,7 @@ namespace probes {
         bool closed_{};
         unsigned count_;
         std::chrono::steady_clock::time_point current_received_;
+        std::chrono::steady_clock::time_point last_received_{};
 
     public:
         GalleryOwnerState(bool expanded = false, std::filesystem::path trace = {},
@@ -193,6 +196,7 @@ namespace probes {
                     profiling_ ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{}};
 
             current_received_ = value.received;
+            last_received_ = std::max(last_received_, value.received);
             auto operation = [&](GallerySceneSession& session, auto fn) {
                 auto before = session.profile;
                 auto work = session.scene.work();
@@ -289,18 +293,30 @@ namespace probes {
             time_ = std::max(time_, request.time);
             auto out = std::make_shared<GalleryOwnerFrame>();
             out->time = time_;
+            out->input_received = last_received_;
             out->detail = input_detail_;
             out->detail.enabled = profiling_;
             input_detail_ = {};
             for (unsigned i = 0; i < weft::probe_constants::gallery::canvas_case_count; ++i) {
                 auto& c = *canvas_[i];
+                const auto js_start =
+                    profiling_ ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
                 c.pump(time_);
                 auto result = c.vm.animation_frame(time_, request.canvas[i]);
                 c.pump(time_);
                 raf_[i] += unsigned(result.callbacks);
                 require(!result.exceptions && c.vm.stats().listener_exceptions == 0, "worker canvas scheduling");
+                const auto snapshot_start =
+                    profiling_ ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
                 out->canvas[i] = c.vm.canvas_snapshot(c.identity());
                 out->raf_calls[i] = raf_[i];
+                if (profiling_ && trace_.enabled() && request.canvas[i]) {
+                    const auto end = std::chrono::steady_clock::now();
+                    trace_.emit("canvas " + std::to_string(i) + " js", js_start,
+                                std::chrono::duration<double, std::milli>(snapshot_start - js_start).count());
+                    trace_.emit("canvas " + std::to_string(i) + " raster+snapshot", snapshot_start,
+                                std::chrono::duration<double, std::milli>(end - snapshot_start).count());
+                }
             }
             for (unsigned i = 0; i < count_; ++i) {
                 auto& s = *scenes_[i];
