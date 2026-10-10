@@ -12,6 +12,17 @@
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
     },
     {
+      "name": "windows-profile",
+      "displayName": "Windows x64 MSVC Release with PDBs, for sampling profilers",
+      "inherits": "windows-msvc",
+      "binaryDir": "${sourceDir}/build/windows-profile",
+      "cacheVariables": {
+        "CMAKE_C_FLAGS_RELEASE": "/O2 /Ob2 /DNDEBUG /Zi",
+        "CMAKE_CXX_FLAGS_RELEASE": "/O2 /Ob2 /DNDEBUG /Zi",
+        "CMAKE_EXE_LINKER_FLAGS_RELEASE": "/DEBUG /OPT:REF /OPT:ICF /INCREMENTAL:NO"
+      }
+    },
+    {
       "name": "portable-ninja",
       "displayName": "Ninja with an initialized host toolchain",
       "generator": "Ninja",
@@ -22,6 +33,7 @@
   "buildPresets": [
     { "name": "windows-debug", "configurePreset": "windows-msvc", "configuration": "Debug" },
     { "name": "windows-release", "configurePreset": "windows-msvc", "configuration": "Release" },
+    { "name": "windows-profile", "configurePreset": "windows-profile", "configuration": "Release" },
     { "name": "portable-debug", "configurePreset": "portable-ninja" }
   ],
   "testPresets": [

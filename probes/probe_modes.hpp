@@ -35,7 +35,9 @@ namespace probes {
     // gallery_cluster_gpu_probe.cpp
     int run_gallery_cluster_gpu(bool warp, const std::filesystem::path& folder);
     // gallery_interaction_profile.cpp
-    int run_gallery_interaction_profile(const std::filesystem::path& folder, const std::string& filter);
+    // sample: also sample the owner thread's stacks during warm ticks into samples.txt (needs PDBs for names).
+    int run_gallery_interaction_profile(const std::filesystem::path& folder, const std::string& filter,
+                                        bool sample = false);
     // gallery_preview_probe.cpp
     int run_gallery_preview(bool warp, const std::filesystem::path& folder, bool self_test, std::string benchmark = {},
                             bool threaded = true, bool scroll_test = false, bool profile = false);

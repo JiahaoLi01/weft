@@ -38,6 +38,51 @@ namespace weft {
             return std::size_t(it - names.begin());
         }
 
+        // Whether text is entirely a floating literal of the strtod grammar: optional sign, then decimal digits with
+        // an optional point and e exponent, or 0x hexadecimal digits with an optional point and p exponent. Exactly
+        // these texts are consumed whole by parse_number (inf and nan are rejected there as non-finite), so other
+        // texts are refused without the exception std::stod throws for them.
+        bool float_syntax(std::string_view s) {
+            std::size_t i{};
+            if (i < s.size() && (s[i] == '+' || s[i] == '-')) {
+                ++i;
+            }
+            const auto rest = s.substr(i);
+            const bool hex = rest.starts_with("0x") || rest.starts_with("0X");
+            if (hex) {
+                i += std::string_view("0x").size();
+            }
+            const auto mantissa = [&](char c) {
+                return hex ? std::isxdigit(static_cast<unsigned char>(c)) != 0 : c >= '0' && c <= '9';
+            };
+            std::size_t digits{};
+            for (; i < s.size() && mantissa(s[i]); ++i) {
+                ++digits;
+            }
+            if (i < s.size() && s[i] == '.') {
+                for (++i; i < s.size() && mantissa(s[i]); ++i) {
+                    ++digits;
+                }
+            }
+            if (!digits) {
+                return false;
+            }
+            if (i < s.size() && (hex ? s[i] == 'p' || s[i] == 'P' : s[i] == 'e' || s[i] == 'E')) {
+                ++i;
+                if (i < s.size() && (s[i] == '+' || s[i] == '-')) {
+                    ++i;
+                }
+                std::size_t exponent{};
+                for (; i < s.size() && s[i] >= '0' && s[i] <= '9'; ++i) {
+                    ++exponent;
+                }
+                if (!exponent) {
+                    return false;
+                }
+            }
+            return i == s.size();
+        }
+
         // A number with one of the supported unit suffixes, parsed as the scalar helpers parse it (the whole digit
         // text must be a finite number). Surrounding whitespace is not a dimension.
         std::optional<Dimension> dimension_of(std::string_view s) {
@@ -57,7 +102,7 @@ namespace weft {
                     break;
                 }
             }
-            if (digits.empty() || std::isspace(static_cast<unsigned char>(digits.back()))) {
+            if (digits.empty() || std::isspace(static_cast<unsigned char>(digits.back())) || !float_syntax(digits)) {
                 return {};
             }
             const auto n = css::parse_number<double>(std::string(digits));
@@ -90,6 +135,10 @@ namespace weft {
 
         // The spellings parse_css_color accepts directly or after expand_color_shorthand.
         std::optional<Rgba> color_of(std::string_view s) {
+            // Each accepted spelling starts with one of these; most raw values stop here without a copy.
+            if (std::string_view("#bwtTrR").find(s.front()) == std::string_view::npos) {
+                return {};
+            }
             auto lower = std::string(s);
             for (auto& c : lower) {
                 c = char(std::tolower(static_cast<unsigned char>(c)));

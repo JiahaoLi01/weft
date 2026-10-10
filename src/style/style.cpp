@@ -1533,6 +1533,8 @@ namespace weft {
                     out.attributes.emplace(key, value);
                 }
             }
+            // DomSnapshot's move may throw (std::map), so a reallocation would copy every child key so far.
+            out.children.reserve(n.children.size());
             for (const auto& child : n.children) {
                 if (child.type == constants::element_node_type) {
                     out.children.push_back(self(self, child, depth + 1));

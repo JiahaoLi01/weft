@@ -20,6 +20,8 @@ ctest --preset windows-release
 
 `portable-ninja` preset 供已初始化本机工具链的环境使用，目前没有单独验证；它不构成 Android/iOS 配置。
 
+`windows-profile` preset 构建到 `build/windows-profile`：代码生成与 Release 相同（`/O2 /Ob2`、`/OPT:REF,ICF`），另带 PDB，供采样剖析符号化（例如 `--gallery-owner-sample`，见 [交互性能](gallery-interaction-profile.md#owner-采样剖析)）。
+
 ## 固定依赖与离线构建
 
 固定 QuickJS-NG 0.17.0、Yoga 3.2.1、FreeType 2.13.3、HarfBuzz 11.2.1 与 Ahem 测试字体，源码位于各 `third_party` 目录。D3 7.9.0 原版 UMD 仅作为兼容性输入。来源、版本、commit、archive SHA256、逐文件 SHA256 与许可见 `third_party/manifest.json` 和依赖 metadata。只有 Yoga 的 CalculateLayout.cpp 有已保存的小补丁，其他上游源码未修改；构建不使用 FetchContent，也不追踪可变分支。

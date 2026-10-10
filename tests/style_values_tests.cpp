@@ -3,6 +3,7 @@
 #include "style/style.hpp"
 #include "style/values.hpp"
 #include "support/check.hpp"
+#include "test_constants/style_text.hpp"
 
 #include <cmath>
 #include <iostream>
@@ -16,6 +17,7 @@
 // StyleValues container. The payload must agree with the string parsers it replaces wherever they accept the text.
 namespace {
     using weft::testing::require;
+    namespace limits = weft::test_constants::style_text;
 
     void registries() {
         for (std::size_t i = 0; i < weft::property_count; ++i) {
@@ -116,11 +118,11 @@ namespace {
     // Wherever split_unit + parse_number (the scene and page scalar helpers) and parse_css_color accept a text, the
     // payload holds the same number or color.
     void differential() {
-        std::mt19937 random(0xce702610);
+        std::mt19937 random(limits::value_differential_seed);
         std::uniform_real_distribution<double> magnitude(-1e4, 1e4);
         const char* units[]{"", "px", "%", "em"};
         std::size_t compared{};
-        for (unsigned i = 0; i < 20000; ++i) {
+        for (int i = 0; i < limits::value_differential_numbers; ++i) {
             const double n = magnitude(random);
             char digits[64];
             std::snprintf(digits, sizeof(digits), i % 3 == 0 ? "%.0f" : i % 3 == 1 ? "%.4f" : "%.12g", n);
@@ -137,7 +139,7 @@ namespace {
                 ++compared;
             }
         }
-        for (unsigned i = 0; i < 2000; ++i) {
+        for (int i = 0; i < limits::value_differential_colors; ++i) {
             const unsigned r = random() % 256;
             const unsigned g = random() % 256;
             const unsigned b = random() % 256;
@@ -151,7 +153,47 @@ namespace {
             require(v.color() && v.color()->channels == weft::parse_css_color(text), std::string("color ") + text);
             ++compared;
         }
-        require(compared > 20000, "differential coverage");
+        require(compared > std::size_t(limits::value_differential_min_compared), "differential coverage");
+    }
+
+    // Texts built from the pieces of the strtod grammar (signs, decimal and hexadecimal digits, points, exponents,
+    // inf/nan) and an optional px suffix: the payload accepts exactly what parse_number accepts, with the same value,
+    // although it refuses most of them without calling it.
+    void number_grammar() {
+        std::mt19937 random(limits::number_grammar_seed);
+        const std::vector<std::string> pieces{"",  "+",  "-",  "0",   "1",   "9",   "42",  "007", ".",  ".5",  "e",
+                                              "E", "e+", "e-", "E9",  "0x",  "0X",  "x",   "p",   "P",  "p-",  "p3",
+                                              "a", "F",  "f0", "inf", "nan", "INF", "(1)", "px",  "1.", "e400"};
+        std::size_t accepted{};
+        std::size_t refused{};
+        for (int i = 0; i < limits::number_grammar_texts; ++i) {
+            std::string text;
+            const unsigned count = 1 + random() % limits::number_grammar_max_pieces;
+            for (unsigned j = 0; j < count; ++j) {
+                text += pieces[random() % pieces.size()];
+            }
+            if (text.empty() || weft::find_keyword(text)) {
+                continue;
+            }
+            const bool px = text.size() > 2 && text.ends_with("px");
+            const auto digits = px ? text.substr(0, text.size() - 2) : text;
+            const auto expected = weft::css::parse_number<double>(digits);
+            const weft::CssValue v(text);
+            require(v.kind() != weft::CssValue::Kind::Color && v.kind() != weft::CssValue::Kind::Calc,
+                    "grammar text classified as color or calc: " + text);
+            require(expected.has_value() == (v.dimension() != nullptr), "number grammar acceptance of " + text);
+            if (expected) {
+                require(v.dimension()->value == *expected &&
+                            v.dimension()->unit == (px ? weft::Unit::Px : weft::Unit::None),
+                        "number grammar value of " + text);
+                ++accepted;
+            } else {
+                ++refused;
+            }
+        }
+        require(accepted > std::size_t(limits::number_grammar_min_each) &&
+                    refused > std::size_t(limits::number_grammar_min_each),
+                "number grammar coverage");
     }
 
     void container() {
@@ -191,10 +233,11 @@ int main() {
         registries();
         parsing();
         differential();
+        number_grammar();
         container();
         std::cout << "PASS style values: " << weft::property_count
                   << " properties, keyword registry, typed payloads agree with the scalar and color parsers on 22000 "
-                     "texts, StyleValues order/equality\n";
+                     "texts and with parse_number on strtod-grammar texts, StyleValues order/equality\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "FAIL: " << error.what() << '\n';

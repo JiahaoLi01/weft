@@ -3,12 +3,18 @@
 #include "gallery_scene_session.hpp"
 #include "gallery_cluster_input.hpp"
 #include "probe_modes.hpp"
+#include "sampling_profiler.hpp"
 
 #include <numbers>
+#include <optional>
 
 namespace probes {
-    int run_gallery_interaction_profile(const std::filesystem::path& folder, const std::string& filter) {
+    int run_gallery_interaction_profile(const std::filesystem::path& folder, const std::string& filter, bool sample) {
         std::filesystem::create_directories(folder);
+        std::optional<SamplingProfiler> sampler;
+        if (sample) {
+            sampler.emplace(std::chrono::microseconds(weft::probe_constants::gallery::owner_sample_period_us));
+        }
         std::ofstream rows(folder / "frames.jsonl");
         std::ofstream trace(folder / "trace.json");
         trace << "{\"traceEvents\":[";
@@ -78,6 +84,9 @@ namespace probes {
             unsigned input_count{};
             unsigned stalls{};
             for (unsigned frame = 0; frame < weft::probe_constants::gallery::fixed_clock_run_frames; ++frame) {
+                if (sampler) {
+                    sampler->active(frame >= weft::probe_constants::gallery::warmup_frames);
+                }
                 auto start = std::chrono::steady_clock::now();
                 s.time = frame * weft::probe_constants::gallery::fixed_clock_step_ms;
                 auto before = s.profile;
@@ -127,6 +136,9 @@ namespace probes {
                 auto step_start = std::chrono::steady_clock::now();
                 s.step(s.time);
                 auto step_ms = elapsed(step_start);
+                if (sampler) {
+                    sampler->active(false);
+                }
                 auto total = elapsed(start);
                 event(id + " update", step_start, step_ms);
                 if (frame >= weft::probe_constants::gallery::warmup_frames) {
@@ -177,6 +189,9 @@ namespace probes {
         report << "],\"case_count\":" << count << '}';
         write_text(folder / "report.json", report.str());
         require(count > 0, "profile scenario empty");
+        if (sampler) {
+            std::cout << sampler->write(folder / "samples.txt") << " owner stack samples / samples.txt\n";
+        }
         std::cout << "PASS owner interaction profile / " << count << " original cases / trace.json\n";
         return 0;
     }

@@ -23,6 +23,10 @@ namespace weft::scene_values {
         return css::style_value(s, k, fallback);
     }
 
+    inline std::string get(const Style& s, PropertyId k, const char* fallback = "") {
+        return std::string(s.text(k, fallback));
+    }
+
     // Element attributes stay a string map.
     inline std::string get(const std::map<std::string, std::string>& s, const std::string& k,
                            const char* fallback = "") {

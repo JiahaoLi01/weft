@@ -17,6 +17,10 @@ namespace weft {
             return css::style_value(s, k, d);
         }
 
+        std::string get(const Style& s, PropertyId k, const char* d = "") {
+            return std::string(s.text(k, d));
+        }
+
         // The message is the fallback reason the native paint compiler reports.
         float number(std::string_view s) {
             const auto n =
@@ -43,7 +47,7 @@ namespace weft {
 
         std::array<float, 4> color(std::string s, const Style& style) {
             if (s == "currentcolor" || s == "currentColor") {
-                s = get(style, "color", constants::default_color);
+                s = get(style, PropertyId::Color, constants::default_color);
             }
             if (s == "transparent" || s == "none") {
                 return {};
@@ -63,7 +67,7 @@ namespace weft {
         Matrix matrix(const SceneNode& n) {
             auto t = n.paint && n.paint->values[constants::scene::paint_slot_transform]
                          ? n.paint->values[constants::scene::paint_slot_transform]
-                         : parse_scene_paint_value(get(n.style, "transform", "none"));
+                         : parse_scene_paint_value(get(n.style, PropertyId::Transform, "none"));
             if (!t || t->kind != PaintValue::Transform) {
                 throw std::invalid_argument("transform grammar");
             }
@@ -109,7 +113,7 @@ namespace weft {
                 }
                 m = multiply(m, a);
             }
-            auto s = get(n.style, "transform-origin", "50% 50%");
+            auto s = get(n.style, PropertyId::TransformOrigin, "50% 50%");
             auto o = split(s);
             float x = n.box[2] / 2;
             float y = n.box[3] / 2;
@@ -127,7 +131,7 @@ namespace weft {
         }
 
         void gradient(NativePaint& p, const Style& s) {
-            auto image = get(s, "background-image", "none");
+            auto image = get(s, PropertyId::BackgroundImage, "none");
             if (image == "none") {
                 return;
             }
@@ -213,7 +217,7 @@ namespace weft {
             }
             p.tile_width = p.width;
             p.tile_height = p.height;
-            auto size = split(get(s, "background-size", "100% 100%"));
+            auto size = split(get(s, PropertyId::BackgroundSize, "100% 100%"));
             if (size.size() == 2) {
                 p.tile_width = len(size[0], p.width);
                 p.tile_height = len(size[1], p.height);
@@ -221,7 +225,7 @@ namespace weft {
             if (p.tile_width <= 0 || p.tile_height <= 0) {
                 throw std::invalid_argument("gradient tile");
             }
-            auto pos = split(get(s, "background-position", "0% 0%"));
+            auto pos = split(get(s, PropertyId::BackgroundPosition, "0% 0%"));
             if (!pos.empty()) {
                 p.offset_x = len(pos[0], p.width - p.tile_width);
             }
@@ -236,7 +240,7 @@ namespace weft {
         try {
             unsigned groups{};
             auto visit = [&](auto&& self, const SceneNode& n, Matrix parent, std::array<float, 4> clip) -> void {
-                if (get(n.style, "display") == "none" || n.box[2] <= 0 || n.box[3] <= 0) {
+                if (get(n.style, PropertyId::Display) == "none" || n.box[2] <= 0 || n.box[3] <= 0) {
                     return;
                 }
                 if (out.paints.size() > constants::scene::max_native_paint_commands) {
@@ -245,7 +249,7 @@ namespace weft {
                 if ((!n.space.empty() && n.space != constants::xhtml_namespace_uri)) {
                     throw std::invalid_argument("SVG reference");
                 }
-                if (!get(n.style, "box-shadow").empty() && get(n.style, "box-shadow") != "none") {
+                if (!get(n.style, PropertyId::BoxShadow).empty() && get(n.style, PropertyId::BoxShadow) != "none") {
                     throw std::invalid_argument("shadow reference");
                 }
                 NativePaint p;
@@ -303,7 +307,7 @@ namespace weft {
                                              "currentcolor");
                     ++k;
                 }
-                float opacity = std::clamp(len(get(n.style, "opacity", "1")), 0.f, 1.f);
+                float opacity = std::clamp(len(get(n.style, PropertyId::Opacity, "1")), 0.f, 1.f);
                 if (n.paint && n.paint->values[constants::scene::paint_slot_opacity]) {
                     opacity = std::clamp(float(n.paint->values[constants::scene::paint_slot_opacity]->scalar.absolute +
                                                n.paint->values[constants::scene::paint_slot_opacity]->scalar.relative),
@@ -312,8 +316,8 @@ namespace weft {
                 if (std::find(layers.begin(), layers.end(), n.identity) != layers.end()) {
                     auto source = n;
                     source.box[0] = source.box[1] = 0;
-                    source.style.erase("transform");
-                    source.style.erase("opacity");
+                    source.style.erase(PropertyId::Transform);
+                    source.style.erase(PropertyId::Opacity);
                     source.attributes.erase("style");
                     source.paint.reset();
                     p.kind = NativePaint::Layer;
@@ -347,7 +351,7 @@ namespace weft {
                     })) {
                     out.paints.push_back(p);
                 }
-                if (get(n.style, "overflow") == "hidden" || get(n.style, "overflow") == "auto") {
+                if (get(n.style, PropertyId::Overflow) == "hidden" || get(n.style, PropertyId::Overflow) == "auto") {
                     if (std::any_of(p.radii.begin(), p.radii.end(),
                                     [](float r) {
                                         return r > 0;
@@ -368,14 +372,14 @@ namespace weft {
                     t.text = n;
                     t.text->children.clear();
                     t.text->box[0] = t.text->box[1] = 0;
-                    t.text->style.erase("transform");
-                    t.text->style.erase("opacity");
+                    t.text->style.erase(PropertyId::Transform);
+                    t.text->style.erase(PropertyId::Opacity);
                     // Computed source values below are authoritative. Authored style
                     // still contains composited transform/opacity; retaining it in the
                     // image key rerasterizes static Unicode/emoji on every motion tick.
                     t.text->attributes.erase("style");
-                    t.text->style["background-color"] = "transparent";
-                    t.text->style["background-image"] = "none";
+                    t.text->style[PropertyId::BackgroundColor] = "transparent";
+                    t.text->style[PropertyId::BackgroundImage] = "none";
                     for (const auto* edge : {"top", "right", "bottom", "left"}) {
                         t.text->style[std::string("border-") + edge + "-color"] = "transparent";
                     }
@@ -387,7 +391,7 @@ namespace weft {
                     if (t.text_mask) {
                         t.background =
                             paint_color(constants::scene::paint_slot_color, "color", constants::default_color);
-                        t.text->style["color"] = "#ffffff";
+                        t.text->style[PropertyId::Color] = "#ffffff";
                     } else if (n.paint) {
                         t.text->paint.emplace();
                         t.text->paint->values[constants::scene::paint_slot_color] =
@@ -401,7 +405,7 @@ namespace weft {
                 }
                 std::stable_sort(order.begin(), order.end(), [&](auto a, auto b) {
                     auto z = [&](auto i) {
-                        auto v = get(n.children[i].style, "z-index", "0");
+                        auto v = get(n.children[i].style, PropertyId::ZIndex, "0");
                         return v == "auto" ? 0 : number(v);
                     };
                     return z(a) < z(b);

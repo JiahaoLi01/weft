@@ -103,18 +103,18 @@ namespace weft {
 
     SceneFont scene_font(const SceneStyle& style) {
         SceneFont font;
-        font.families = css::style_value(style, "font-family", constants::scene::default_text_families);
-        font.size =
-            length(css::style_value(style, "font-size", constants::default_font_size), constants::default_font_size_px);
-        const auto weight = css::style_value(style, "font-weight", constants::default_font_weight);
+        font.families = std::string(style.text(PropertyId::FontFamily, constants::scene::default_text_families));
+        font.size = length(std::string(style.text(PropertyId::FontSize, constants::default_font_size)),
+                           constants::default_font_size_px);
+        const auto weight = std::string(style.text(PropertyId::FontWeight, constants::default_font_weight));
         font.weight = weight == "bold"     ? constants::scene::bold_font_weight_value
                       : weight == "normal" ? constants::scene::normal_font_weight_value
                                            : int(number(weight));
-        const auto italic = css::style_value(style, "font-style", "normal");
+        const auto italic = std::string(style.text(PropertyId::FontStyle, "normal"));
         font.italic = italic == "italic" || italic.starts_with("oblique");
-        const auto spacing = css::style_value(style, "letter-spacing", "0");
+        const auto spacing = std::string(style.text(PropertyId::LetterSpacing, "0"));
         font.letter_spacing = spacing == "normal" ? 0 : length(spacing, font.size);
-        const auto line = css::style_value(style, "line-height", "normal");
+        const auto line = std::string(style.text(PropertyId::LineHeight, "normal"));
         if (line != "normal") {
             // split_unit returns views: keep the trimmed string alive.
             const auto trimmed = css::trim(line);

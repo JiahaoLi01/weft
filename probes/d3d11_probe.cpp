@@ -397,7 +397,8 @@ int main(int argc, char** argv) {
                                                      std::string(argv[1]) == "--scene-native-test-warp");
         const bool scene_gpu_test = argc == 3 && (std::string(argv[1]) == "--scene-gpu-test-hardware" ||
                                                   std::string(argv[1]) == "--scene-gpu-test-warp");
-        const bool gallery_profile = argc == 4 && std::string(argv[1]) == "--gallery-owner-profile";
+        const bool gallery_profile = argc == 4 && (std::string(argv[1]) == "--gallery-owner-profile" ||
+                                                   std::string(argv[1]) == "--gallery-owner-sample");
         const bool gallery_input_benchmark = argc == 4 && std::string(argv[1]) == "--gallery-input-benchmark-hardware";
         const bool gallery_benchmark = argc == 4 && std::string(argv[1]) == "--gallery-benchmark-hardware";
         const bool gallery_live_benchmark = argc == 4 && std::string(argv[1]) == "--gallery-live-benchmark-hardware";
@@ -477,7 +478,8 @@ int main(int argc, char** argv) {
                 : gallery_live_benchmark ? run_gallery_preview(false, argv[2], false, std::string("live-") + argv[3])
                 : gallery_trace
                     ? run_gallery_preview(std::string(argv[1]).ends_with("warp"), argv[2], false, {}, true, false, true)
-                : gallery_profile    ? run_gallery_interaction_profile(argv[2], argv[3])
+                : gallery_profile    ? run_gallery_interaction_profile(argv[2], argv[3],
+                                                                       std::string(argv[1]) == "--gallery-owner-sample")
                 : surface_retirement ? run_scene_surface_retirement(std::string(argv[1]).ends_with("warp"), argv[2])
                 : gallery_scroll
                     ? run_gallery_preview(std::string(argv[1]).ends_with("warp"), argv[2], true, {}, true, true)

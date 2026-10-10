@@ -1,8 +1,41 @@
 # Weft 当前状态
 
-更新日期：2026 年 10 月 10 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG、键盘/IME 与移动尚未实现，仍未达到 M0 全部退出条件。
+更新日期：2026 年 10 月 11 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG、键盘/IME 与移动尚未实现，仍未达到 M0 全部退出条件。
 
 ## 本次已实现
+
+重构第 7 步：类型化样式（2026-10-11）。计算样式从 `map<string,string>` 改为按 `PropertyId` 排序的 `StyleValues`。每个值保留原文，并带一次解析出的 payload（关键字、带单位数字、calc、颜色）。`src/` 不再使用 `std::regex`。详见 [重构计划](refactoring-plan.md#第-7-步记录2026-10-11)。
+- **结果**：
+  - owner CPU（与第 7 步前的二进制交替 3 轮，固定 60 Hz，不含 GPU）：K 线 warm tick P50/P99 13.07/20.21 → 4.88/9.50 ms，散点图 3.11/5.28 → 1.93/3.52 ms；
+  - 可见窗口拖拽（RTX 5090、4K 240 Hz）：被拖卡片更新 anime 87 → 126、散点图 139 → 200 次/秒；散点图输入到渲染 P50/P99 10.1/16.8 → 5.9/10.5 ms。
+- **主要原因**，由新增的 owner 采样剖析定位：
+  - 含 `std::map` 的 scene/DOM 节点在 vector 扩容时整棵子树被复制；
+  - 值解析经 `std::stod` 对非数字文本抛异常；
+  - 按名字查属性。
+- **验证**：
+  - 29 组确定性套件 1,306 个产物文件与改动前逐字节相同；
+  - 新测试 `grammar_differential`：手写语法对照原 regex；
+  - `style_values_contract`：payload 对照原解析器，并做 strtod 语法差分；
+  - `scene_contract` 增加未注册关键帧属性的反例；
+  - `ctest --preset windows-release --parallel 6` 96/96（44.5 s），`windows-debug --parallel 6` 96/96（445.2 s）。
+- **命令**：
+
+~~~powershell
+cmake --preset windows-profile
+cmake --build --preset windows-profile --target weft_d3d11_probe
+& .\build\windows-profile\bin\Release\weft_d3d11_probe.exe --gallery-owner-sample artifacts/local/step7/sample kline
+python tools/compare_owner_profile.py <前.exe> <后.exe> artifacts/local/step7/pre7-vs-step7 --rounds 3 kline scatter anime framer spring
+~~~
+
+- **产物**：`artifacts/local/step7/`（对照、采样、可见窗口测量）。
+- **未解决**：
+  - 插值仍经 12 位有效数字文本往返；
+  - page/positioned/auto/flow 入口仍转回字符串 map；
+  - 剩余 owner 开销主要是 DOM 快照的复制与比较，以及 scene 上一帧的整份复制（第 8、9 步）；
+  - 第一批可见窗口测量中出现过两次渲染线程长帧（96/194 ms），之后第 7 步的 14 次测量未复现；
+  - Android/iOS 未验证（第 10 步暂缓）。
+
+下一步：第 8 步统一格式化路径。
 
 输入优先的早帧（2026-10-10）。`OwnerExecutor` 新增可选的渐进 tick：owner 可在 tick 中途发布完整的早帧，并运行 tick 期间到达的输入。画廊交互窗口里，收到输入的卡片先步进并立即发布；确定性测试不变。详见 [交互性能](gallery-interaction-profile.md#输入优先的早帧2026-10-10第三轮)。
 - **结果**（RTX 5090、可见 4K 240 Hz，三轮中位数）：

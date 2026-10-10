@@ -1,6 +1,6 @@
 # 架构重构计划
 
-更新日期：2026 年 10 月 10 日。本文是 M0 探针代码走向可维护产品结构的计划，不是已实现能力的证据。第 0 步（代码规范与命名常量，见 [代码规范](coding-style.md)）已完成；其余步骤按风险从低到高排列，每步单独验证、可单独回退。
+更新日期：2026 年 10 月 11 日。本文是 M0 探针代码走向可维护产品结构的计划，不是已实现能力的证据。第 0 步（代码规范与命名常量，见 [代码规范](coding-style.md)）已完成；其余步骤按风险从低到高排列，每步单独验证、可单独回退。
 
 ## 现状诊断
 
@@ -67,7 +67,7 @@ probes/ tests/ tools/      证据与验证，只依赖 src，不被 src 依赖
 | 4 ✅ | 改名 Weft；CMake 拆成模块目录与 `weft::` 目标，`weft_add_test()`；公开/私有头分离；去 `Probe` 前缀 | `CMakeLists.txt`、`include/`、全部源码 | 测试定义与编译选项逐项对照、全量构建与测试、C ABI smoke；见下方第 4 步记录 |
 | 5 ✅ | D3D11 渲染器、FramePacket、两帧流水线移入 `src/render`，经 `RenderBackend` concept 接 C ABI；探针头改为独立 TU；shader 构建期编译内嵌 | `probes/d3d11_probe.cpp`、`probe_render_backend.hpp`、`two_frame_pipeline.hpp` | WARP/硬件产物逐字节对照、两帧退休、debug layer 零告警；见下方第 5 步记录 |
 | 6 ✅ | scene 可移植化：拆出纯几何/命中 TU；DirectWrite 量字换成与 flow 相同的 HarfBuzz 测量；D2D 退为 Windows 参考 raster | `scene_probe.hpp`、`scene_d2d_probe.cpp`、`gallery_scene_session.hpp` | 新增 Chrome 文字度量基线；几何与 D2D 差分；见下方第 6 步记录 |
-| 7 | 类型化样式：PropertyId、长度/颜色/关键字值，去掉字符串往返与正则插值 | `style_probe`、`flow_page`、`auto_page`、`scene_probe` | 级联/动画差分、gallery 像素与几何 |
+| 7 ✅ | 类型化样式：PropertyId、长度/颜色/关键字值，去掉字符串往返与正则插值 | `style_probe`、`flow_page`、`auto_page`、`scene_probe` | 级联/动画差分、gallery 像素与几何；见下方第 7 步记录 |
 | 8 | 统一格式化路径：一个调度器、一个 Yoga 适配器、一个 paint IR、一条命中路径；golden 迁移后删除 page/positioned/auto | `src/layout/*`、`input_probe` | 旧 profile 的浏览器差分全部改跑新路径 |
 | 9 | DOM 与脚本分离：NodeId 原生树、与 style 共用选择器；QuickJS 对象成为包装；Canvas 状态移到旁表 | `script_dom_probe.cpp`、`style_probe.cpp` | DOM 生命周期、GC 压力、D3 / React 原包 |
 | 10（暂缓） | 第二个图形后端（Vulkan 或 Metal）与 Android/iOS 平台层，按 concept 接入；主机构建选项 | `src/render/backends`、`src/platform` | 平台验证按“配置/编译/链接/模拟器/真机功能/真机性能”分级记录 |
@@ -304,6 +304,79 @@ CMake 拆分：
 - 彩色字形（COLRv1 emoji）和显式 layer 图像仍由 D2D 参考 raster 绘制。
 - 合成粗体未实现；原生场景 pass 没有 SDF 材质与动态 atlas。
 - `SceneGpuSurfaces`（D2D GPU 目标、卡片表面池）与 Win32 窗口宿主仍在探针里，属于第 10 步的平台层。
+
+## 第 7 步记录（2026-10-11）
+
+分三部分，每部分完成后全部确定性产物逐字节不变。
+
+**7A 属性与值类型**（`src/style/values.*`、`properties.inc`、`keywords.inc`）：
+- `PropertyId`：111 个属性，X-macro 按名字排序，按 id 迭代即按名字迭代。测试检查每个 style profile 注册的属性都有 id。
+- `Keyword`：88 个关键字，大小写敏感（与原来的字符串比较一致），`currentColor` 是 `currentcolor` 的别名。
+- `CssValue`：保留原文，getComputedStyle、诊断和以字符串为键的缓存仍看原文。另存一次解析出的 payload：关键字、带单位数字（px/%/em/deg/rad/turn/s/ms/fr）、`calc(a ± b)`、颜色。payload 只由原文决定，相等比较原文。
+- `StyleValues`：按 id 排序的 vector。保留按名字读写的接口；写入未注册的名字报 `Diag::StyleProfile`。
+
+**7B 计算样式与 scene 改用 `StyleValues`**：
+- 级联在解析声明时确定 id，profile 按 id 建索引（是否继承、解析好的初始值），继承直接遍历父值。
+- page/positioned/auto/flow 在入口用 `string_map()` 转回字符串 map（它们原来就复制 map）。第 8 步统一格式化路径时去掉。
+- scene、D2D 参考 raster 和 D3D11 scene 渲染器按 id 比较和跳过属性：几何相关键、布局签名忽略表、paint 参数。
+- 关键帧声明只能用已注册属性，其他名字报 `SceneProfile`。原来这类名字会成为无人读取的条目。`scene_contract` 增加反例，去掉检查的变异会使它失败。
+
+**7C 热路径**：用新加的 owner 采样剖析（见下）找到三类开销：
+1. **扩容时整棵子树复制**（kline 中约占 owner 时间 19%）。MSVC 的 `std::map` 移动构造不是 noexcept，所以含 map 的 `SceneNode`、`DomSnapshot` 在 vector 扩容时被复制而不是移动。修复：建 scene 树和样式输入键前，按 DOM 子节点数 reserve。
+2. **payload 解析抛异常**（scatter 约 7%、anime 约 4%）。`std::stod` 对非数字文本抛异常。修复：先按 strtod 语法检查（十进制/十六进制、可选指数），完整匹配时才调用；颜色先看首字符排除。
+3. **按名字查属性**（2–4%）。修复：scene 各模块 233 处字面量名字改用 `PropertyId`；继承表、边/角 longhand、Yoga 边、min/max 和 paint 键改为 id 表。
+
+同时去掉 `src/` 中全部 7 处 `std::regex`：
+- 插值的数字切分改为 `css::number_spans`；
+- 关键帧注释；
+- 混排文字的空白折叠（原来每个文字节点都构造一次 regex）；
+- grid `repeat()`；
+- perspective 平面语法：几何与 D2D 的三份合为 `scene_grammar`；
+- Canvas 颜色分量改为 `css::decimal_syntax`。
+
+剖析工具：
+- `--gallery-owner-sample <目录> <类别>` 运行与 `--gallery-owner-profile` 相同的固定时钟场景，另在 warm tick 期间每 250 µs 采样 owner 线程调用栈。
+- 输出 `samples.txt`（项目帧、独占、包含三张表，带调用者）和 `samples.folded`（火焰图输入格式）。
+- 每次采样挂起线程，用 x64 unwind 表回溯后立即恢复；不需要管理员权限，也不用 ETW。
+- `windows-profile` preset 与 Release 相同（`/O2 /Ob2`、`/OPT:REF,ICF`），另带 PDB 用于符号化。
+
+验证：
+- **产物对照**：7A、7B、7C 完成后分别用 `tools/compare_artifacts.py` 对照第 7 步前的产物，29 组确定性套件 1,306 个文件逐字节相同。complex-css 报告里的 paint program 构建、复用和驱逐计数也不变。
+- **差分测试**：
+  - `style_values_contract`：注册表与 payload 表；22,000 个随机数字/颜色文本对照标量与颜色解析器；120,000 个由 strtod 语法片段拼出的文本（十六进制、指数、inf/nan、px 后缀）对照 `parse_number`。关掉十六进制分支的变异会被发现。
+  - `grammar_differential`（新）：每个手写语法对照它替换的原 regex。覆盖 37,643 个数字切分、空白与注释替换、Canvas 十进制、perspective 整串匹配与搜索（含捕获组）、grid repeat。
+- **owner CPU**：用 `tools/compare_owner_profile.py` 与第 7 步前的二进制交替运行 3 轮，每轮交换先后。
+  - 条件：Ryzen 9 9950X3D、Windows 11 26200、MSVC Release，测量期间无并发编译；固定 60 Hz 时钟，每例 240 帧、16 帧预热，不含 GPU。
+  - warm tick（前 → 后）：
+
+    | 场景 | P50 | P99 | 最大 |
+    | --- | --- | --- | --- |
+    | K 线 kline-00 | 13.07 → 4.88 ms | 20.21 → 9.50 ms | 23.89 → 10.27 ms |
+    | D3 散点图 d3_interactive-03 | 3.11 → 1.93 ms | 5.28 → 3.52 ms | 6.91 → 4.48 ms |
+    | anime 14 例（中位数） | 0.137 → 0.116 ms | 0.648 → 0.432 ms | — |
+    | anime-05（最重的 anime 例） | 1.60 → 1.22 ms | 3.35 → 3.12 ms | 7.53 → 5.71 ms |
+
+  - framer、spring 的变化在轮间波动内。spring-01 的 P99 在两次对照中一次 −0.13 ms、一次 +0.17 ms。
+  - 原始数据在 `artifacts/local/step7/pre7-vs-step7/`；只含 7B 的对照在 `pre7-vs-7b/`（kline P50 14.17 → 8.93 ms）。
+- **可见窗口拖拽**（RTX 5090、4K 240 Hz，`--gallery-live-benchmark-hardware`；前 3 次、后 6 次，取中位数）：
+
+  | 场景 | 被拖卡片更新/秒 | owner 活动 P50/P99 | 输入到渲染 P50/P99 |
+  | --- | --- | --- | --- |
+  | anime 拖拽 | 87 → 126 | 10.5/20.5 → 6.9/11.7 ms | 4.5/13.6 → 4.2/10.2 ms |
+  | 散点图拖拽 | 139 → 200 | 13.5/23.5 → 5.7/11.3 ms | 10.1/16.8 → 5.9/10.5 ms |
+
+  - present FPS 不变（约 235–239）。
+  - 长帧：第 7 步两个场景各 6 次中各有 1 次出现单个渲染线程长帧（anime 96 ms、散点图 194 ms），都在第一批；第 7 步前 3 次中最大 37 ms。第二批，以及另外两边交替各 8 次（与 Debug 构建并发，只用来查长帧），最大值都不超过 27 ms，未复现。渲染线程一侧只改了读样式的方式和 D2D paint program 的字节估算；该缓存先受 256 项上限约束，complex-css 的驱逐计数不变。
+  - 原始数据在 `artifacts/local/step7/live*`。
+
+未做，留到后续步骤：
+- 插值仍输出 12 位有效数字文本，消费方再解析。去掉这次往返会改变输出（不再舍入），留到第 8 步统一 paint IR 时一起量化。
+- page/positioned/auto/flow 给 Flex 适配器的仍是字符串 map（第 8 步）。
+- 剩余 owner 开销主要是结构性的复制与比较，不属于样式类型。按 kline 采样：
+  - `DomSnapshot` 每帧快照、复制与比较，其中 gallery 会话 `sync_scene` 的比较约 4.5%；
+  - scene 保留上一帧 `SceneFrame`、DOM 与计算样式的整份复制，约 15%；
+  - 选择器匹配约 7%，几何 shape 约 8%。
+  - 前两项对应第 9 步原生 DOM，后两项对应第 8、9 步的统一命中路径与共用选择器。
 
 ## 顺序调整（2026-10-10）
 

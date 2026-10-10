@@ -6,7 +6,6 @@
 #include <cctype>
 #include <cmath>
 #include <numbers>
-#include <regex>
 #include <stdexcept>
 #include <utility>
 #include <limits>
@@ -95,7 +94,6 @@ namespace weft {
             fail(Diag::CanvasColorProfile, "comma syntax required");
         }
         std::vector<std::pair<double, bool>> values;
-        static const std::regex number("[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:e[+-]?[0-9]+)?");
         for (std::size_t start = 0;;) {
             const auto end = body.find(',', start);
             auto part = trim(body.substr(start, end == body.npos ? end : end - start));
@@ -103,7 +101,7 @@ namespace weft {
             if (percent) {
                 part.pop_back();
             }
-            if (!std::regex_match(part, number)) {
+            if (!css::decimal_syntax(part)) {
                 return {};
             }
             double v{};

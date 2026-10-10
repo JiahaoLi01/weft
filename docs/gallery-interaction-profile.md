@@ -188,3 +188,36 @@ RTX 5090、可见 4K 240 Hz 窗口，三轮中位数，与上一轮结束时相�
 
 - anime 卡片的更新率不变：anime.js Draggable 在动画帧里写 transform，只刷新 DOM 时没有变化，被拖卡片仍是每个 tick 更新一次，只是排到 tick 最前。
 - 散点图的 owner tick 变长，因为每个 tick 多处理一批输入（d3-zoom 在事件里同步改 transform，刷新后立即可见），同页其他卡片的更新率相应降低。
+
+## 类型化样式之后（2026-10-11，第四轮）
+
+重构第 7 步（[记录](refactoring-plan.md#第-7-步记录2026-10-11)）降低了 owner 每帧开销，拖拽卡片的更新率随之提高。
+
+### owner 采样剖析
+
+`--gallery-owner-sample <目录> <类别>` 运行与 `--gallery-owner-profile` 相同的场景，另在 warm tick 期间每 250 µs 采样 owner 线程调用栈：
+- `samples.txt`：项目帧（库内部记到调用它的项目函数）、独占、包含三张表，带调用者；
+- `samples.folded`：火焰图输入格式，便于离线查询任意调用链。
+
+需要带 PDB 的 Release 二进制：
+
+~~~powershell
+cmake --preset windows-profile
+cmake --build --preset windows-profile --target weft_d3d11_probe
+& .\build\windows-profile\bin\Release\weft_d3d11_probe.exe --gallery-owner-sample artifacts/local/step7/sample kline
+~~~
+
+第 7 步前 K 线 owner 时间约 32% 在 malloc/free。最大来源是 vector 扩容时整棵 `SceneNode` 子树的复制（约 19%），原因是 `std::map` 成员让移动构造不是 noexcept。
+
+### 结果
+
+RTX 5090、可见 4K 240 Hz 窗口。第一批两边交替各 3 次，第二批只重跑第 7 步 3 次；表中是第 7 步前 3 次、第 7 步 6 次的中位数：
+
+| 场景 | 被拖卡片更新/秒 | owner 活动 P50 / P99 ms | 输入到渲染线程取到 P50 / P99 ms | Present FPS |
+| --- | --- | --- | --- | --- |
+| anime 拖拽 | 87 → 126 | 10.5 / 20.5 → 6.9 / 11.7 | 4.5 / 13.6 → 4.2 / 10.2 | 235 → 239 |
+| 散点图拖拽 | 139 → 200 | 13.5 / 23.5 → 5.7 / 11.3 | 10.1 / 16.8 → 5.9 / 10.5 | 234 → 238 |
+
+- 原始数据在 `artifacts/local/step7/live*`。
+- 另外两边交替各 8 次（与 Debug 构建并发，绝对值偏高），方向一致。
+- 剩余 owner 开销主要是 DOM 快照的复制与比较（含 gallery 会话 `sync_scene`）和 scene 上一帧的整份复制，留给第 8、9 步。

@@ -9,10 +9,10 @@ if(WIN32)
         cheetah_alert_probe.cpp cheetah_flow_window_probe.cpp cheetah_probe.cpp complex_css_probe.cpp
         external_texture_probe.cpp flow_probe.cpp gallery_canvas_probe.cpp gallery_cluster_gpu_probe.cpp
         gallery_interaction_profile.cpp gallery_preview_probe.cpp react_window_host.cpp render_backend_probe.cpp
-        render_cache_probe.cpp render_stages_probe.cpp scene_gpu_surface_probe.cpp
+        render_cache_probe.cpp render_stages_probe.cpp sampling_profiler.cpp scene_gpu_surface_probe.cpp
         scene_surface_retirement_probe.cpp two_frame_probe.cpp
         LINK weft::render_d3d11 weft::scene_d3d11 weft::text weft::script weft::layout weft::input weft::canvas_d2d weft::scene_d2d weft::platform_win32
-        d3d11 dxgi windowscodecs ole32 user32
+        d3d11 dxgi windowscodecs ole32 user32 dbghelp
         SOURCE_DIR LARGE_STACK GC_STRESS)
 endif()
 

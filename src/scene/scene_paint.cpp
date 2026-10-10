@@ -164,7 +164,13 @@ namespace weft {
 
     ScenePaintValues compile_scene_paint_values(const StyleValues& style) {
         ScenePaintValues out;
-        const auto& keys = scene_paint_properties();
+        static const auto keys = [] {
+            std::array<PropertyId, constants::scene::paint_property_count> ids{};
+            for (std::size_t i = 0; i < ids.size(); ++i) {
+                ids[i] = *find_property(scene_paint_properties()[i]);
+            }
+            return ids;
+        }();
         for (unsigned i = 0; i < keys.size(); ++i) {
             const auto* value = style.find(keys[i]);
             const auto fallback = i == constants::scene::paint_slot_opacity            ? "1"

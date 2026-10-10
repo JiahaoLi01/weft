@@ -15,22 +15,22 @@ namespace weft {
     std::array<float, 2> scene_text_origin(const SceneNode& n, const SceneTextMetrics& m) {
         float x{};
         float y{};
-        const auto align = get(n.style, "text-align", "left");
+        const auto align = get(n.style, PropertyId::TextAlign, "left");
         if (align == "center") {
             x = (n.box[2] - m.width) / 2;
         } else if (align == "right") {
             x = n.box[2] - m.width;
         }
-        if (get(n.style, "display") == "flex") {
-            if (get(n.style, "justify-content") == "center") {
+        if (get(n.style, PropertyId::Display) == "flex") {
+            if (get(n.style, PropertyId::JustifyContent) == "center") {
                 x = (n.box[2] - m.width) / 2;
             }
-            if (get(n.style, "align-items") == "center") {
+            if (get(n.style, PropertyId::AlignItems) == "center") {
                 y = (n.box[3] - m.height) / 2;
             }
         }
-        x += len(get(n.style, "padding-left", "0")) + len(get(n.style, "border-left-width", "0"));
-        y += len(get(n.style, "padding-top", "0")) + len(get(n.style, "border-top-width", "0"));
+        x += len(get(n.style, PropertyId::PaddingLeft, "0")) + len(get(n.style, PropertyId::BorderLeftWidth, "0"));
+        y += len(get(n.style, PropertyId::PaddingTop, "0")) + len(get(n.style, PropertyId::BorderTopWidth, "0"));
         return {x, y};
     }
 
@@ -49,7 +49,7 @@ namespace weft {
             return out;
         }
         // The computed color string, as the reference raster resolves it for text images.
-        auto value = css::trim(get(n.style, "color", "#000000"));
+        auto value = css::trim(get(n.style, PropertyId::Color, "#000000"));
         if (value == "currentColor" || value == "currentcolor") {
             value = constants::default_color;
         }

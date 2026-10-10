@@ -67,6 +67,8 @@ namespace weft::probe_constants::gallery {
     inline constexpr int fixed_clock_warm_frames = fixed_clock_run_frames - warmup_frames;
     // An owner tick longer than one 60 Hz frame counts as a stall.
     inline constexpr double stall_threshold_ms = 16.666667;
+    // Stack sampling period of --gallery-owner-sample.
+    inline constexpr int owner_sample_period_us = 250;
     // First timestamp given to a gallery owner or a Canvas session.
     inline constexpr double initial_clock_ms = .25;
     // Offset added to host timestamps so that they never coincide with a rounded timer value.

@@ -170,6 +170,134 @@ namespace weft::css {
         return value;
     }
 
+    // Offset and length of one number inside a value.
+    struct NumberSpan {
+        std::size_t offset{};
+        std::size_t length{};
+    };
+
+    // The numbers inside a value, left to right, as interpolation splits lengths, percentages and transform
+    // arguments: what the ECMAScript regex [-+]?(?:\d*\.\d+|\d+\.?\d*)(?:[eE][-+]?\d+)? finds.
+    inline std::vector<NumberSpan> number_spans(std::string_view text) {
+        const auto digit = [&](std::size_t i) {
+            return i < text.size() && text[i] >= '0' && text[i] <= '9';
+        };
+        // Length of the unsigned number at i: \d*\.\d+ when it matches, else \d+\.?\d*, then an exponent.
+        const auto number = [&](std::size_t i) -> std::size_t {
+            auto end = i;
+            while (digit(end)) {
+                ++end;
+            }
+            if (end < text.size() && text[end] == '.' && digit(end + 1)) {
+                for (++end; digit(end); ++end) {
+                }
+            } else if (end > i) {
+                if (end < text.size() && text[end] == '.') {
+                    ++end;
+                }
+            } else {
+                return 0;
+            }
+            if (end < text.size() && (text[end] == 'e' || text[end] == 'E')) {
+                auto exponent = end + 1;
+                if (exponent < text.size() && (text[exponent] == '+' || text[exponent] == '-')) {
+                    ++exponent;
+                }
+                if (digit(exponent)) {
+                    for (end = exponent; digit(end); ++end) {
+                    }
+                }
+            }
+            return end - i;
+        };
+        std::vector<NumberSpan> out;
+        for (std::size_t i = 0; i < text.size();) {
+            const std::size_t sign = text[i] == '+' || text[i] == '-' ? 1 : 0;
+            const auto length = number(i + sign);
+            if (!length) {
+                ++i;
+                continue;
+            }
+            out.push_back({i, sign + length});
+            i += sign + length;
+        }
+        return out;
+    }
+
+    // Each run of spaces, tabs, carriage returns and line feeds becomes one space.
+    inline std::string collapse_spaces(std::string_view text) {
+        std::string out;
+        out.reserve(text.size());
+        bool run{};
+        for (const char c : text) {
+            const bool space = c == ' ' || c == '\t' || c == '\r' || c == '\n';
+            if (!space || !run) {
+                out += space ? ' ' : c;
+            }
+            run = space;
+        }
+        return out;
+    }
+
+    // Removes every closed /* ... */ comment, each ending at the first */ after its opening; an unclosed /* and the
+    // text after it stay.
+    inline std::string strip_block_comments(std::string_view text) {
+        constexpr std::string_view opening = "/*";
+        constexpr std::string_view closing = "*/";
+        std::string out;
+        std::size_t p{};
+        for (;;) {
+            const auto open = text.find(opening, p);
+            const auto close = open == text.npos ? text.npos : text.find(closing, open + opening.size());
+            if (close == text.npos) {
+                break;
+            }
+            out.append(text.substr(p, open - p));
+            p = close + closing.size();
+        }
+        out.append(text.substr(p));
+        return out;
+    }
+
+    // Whether the whole text is a decimal number [+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:e[+-]?[0-9]+)?, the form
+    // canvas color components take (no hexadecimal, no uppercase exponent).
+    constexpr bool decimal_syntax(std::string_view text) noexcept {
+        std::size_t i{};
+        const auto digit = [&](std::size_t at) {
+            return at < text.size() && text[at] >= '0' && text[at] <= '9';
+        };
+        if (i < text.size() && (text[i] == '+' || text[i] == '-')) {
+            ++i;
+        }
+        if (digit(i)) {
+            while (digit(i)) {
+                ++i;
+            }
+            if (i < text.size() && text[i] == '.') {
+                for (++i; digit(i); ++i) {
+                }
+            }
+        } else if (i < text.size() && text[i] == '.' && digit(i + 1)) {
+            for (++i; digit(i); ++i) {
+            }
+        } else {
+            return false;
+        }
+        if (i < text.size() && text[i] == 'e') {
+            ++i;
+            if (i < text.size() && (text[i] == '+' || text[i] == '-')) {
+                ++i;
+            }
+            if (!digit(i)) {
+                return false;
+            }
+            while (digit(i)) {
+                ++i;
+            }
+        }
+        return i == text.size();
+    }
+
     // Rewrites the color forms parse_css_color does not accept: the black and white keywords
     // and, when expand_short_hex is set, #rgb short hex.
     inline std::string expand_color_shorthand(std::string text, bool expand_short_hex = true) {

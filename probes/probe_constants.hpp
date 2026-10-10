@@ -3,6 +3,8 @@
 #include "constants/common.hpp"
 #include "constants/render.hpp"
 
+#include <cstddef>
+
 // Constants of the D3D11 host probes (weft_d3d11_probe). Each constant has the type of the literal it
 // replaced (see docs/coding-style.md).
 //
@@ -168,4 +170,13 @@ namespace weft::probe_constants {
     inline constexpr unsigned external_seed = 0xce112026;
     // External texture batches, each with frames_in_flight submissions.
     inline constexpr int external_batches = 24;
+
+    // Owner stack sampler (sampling_profiler.cpp): deepest unwound stack, return addresses reserved up front (8M,
+    // 64 MiB: a suspended thread may hold the heap lock), samples reserved, rows per report table and callers shown
+    // per row.
+    inline constexpr unsigned sampler_max_depth = 128;
+    inline constexpr std::size_t sampler_frame_capacity = std::size_t(1) << 23;
+    inline constexpr std::size_t sampler_sample_capacity = sampler_frame_capacity / 16;
+    inline constexpr std::size_t sampler_report_rows = 60;
+    inline constexpr std::size_t sampler_callers_shown = 4;
 } // namespace weft::probe_constants

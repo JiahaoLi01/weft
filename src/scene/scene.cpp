@@ -2,6 +2,7 @@
 #include "base/css_scalar.hpp"
 #include "base/owner_thread.hpp"
 #include "constants/scene.hpp"
+#include "scene/scene_grammar.hpp"
 #include <chrono>
 #include <yoga/Yoga.h>
 #include <algorithm>
@@ -10,7 +11,6 @@
 #include <sstream>
 #include <charconv>
 #include <set>
-#include <regex>
 #include <thread>
 #include <type_traits>
 
@@ -26,6 +26,52 @@ namespace weft {
 
         std::string get(const Style& s, const std::string& k, const char* fallback = "") {
             return css::style_value(s, k, fallback);
+        }
+
+        std::string get(const Style& s, PropertyId k, const char* fallback = "") {
+            return std::string(s.text(k, fallback));
+        }
+
+        // Edge and corner longhands in top, right, bottom, left (corners: top-left first, clockwise) order.
+        using Edges = std::array<PropertyId, 4>;
+        constexpr Edges margin_edges{PropertyId::MarginTop, PropertyId::MarginRight, PropertyId::MarginBottom,
+                                     PropertyId::MarginLeft};
+        constexpr Edges padding_edges{PropertyId::PaddingTop, PropertyId::PaddingRight, PropertyId::PaddingBottom,
+                                      PropertyId::PaddingLeft};
+        constexpr Edges border_width_edges{PropertyId::BorderTopWidth, PropertyId::BorderRightWidth,
+                                           PropertyId::BorderBottomWidth, PropertyId::BorderLeftWidth};
+        constexpr Edges border_color_edges{PropertyId::BorderTopColor, PropertyId::BorderRightColor,
+                                           PropertyId::BorderBottomColor, PropertyId::BorderLeftColor};
+        constexpr Edges border_style_edges{PropertyId::BorderTopStyle, PropertyId::BorderRightStyle,
+                                           PropertyId::BorderBottomStyle, PropertyId::BorderLeftStyle};
+        constexpr Edges inset_edges{PropertyId::Top, PropertyId::Right, PropertyId::Bottom, PropertyId::Left};
+        constexpr Edges radius_corners{PropertyId::BorderTopLeftRadius, PropertyId::BorderTopRightRadius,
+                                       PropertyId::BorderBottomRightRadius, PropertyId::BorderBottomLeftRadius};
+
+        // Properties a scene element takes from its parent's expanded style unless it specifies them.
+        constexpr PropertyId inherited_properties[]{PropertyId::FontSize,
+                                                    PropertyId::FontWeight,
+                                                    PropertyId::FontFamily,
+                                                    PropertyId::LineHeight,
+                                                    PropertyId::LetterSpacing,
+                                                    PropertyId::Color,
+                                                    PropertyId::Fill,
+                                                    PropertyId::FillOpacity,
+                                                    PropertyId::FillRule,
+                                                    PropertyId::Stroke,
+                                                    PropertyId::StrokeWidth,
+                                                    PropertyId::StrokeOpacity,
+                                                    PropertyId::StrokeLinecap,
+                                                    PropertyId::StrokeLinejoin,
+                                                    PropertyId::StrokeDasharray,
+                                                    PropertyId::StrokeDashoffset,
+                                                    PropertyId::TextAnchor,
+                                                    PropertyId::DominantBaseline,
+                                                    PropertyId::PointerEvents};
+
+        bool specified(const ComputedStyle& c, PropertyId k) {
+            return std::find(c.specified_properties.begin(), c.specified_properties.end(), property_name(k)) !=
+                   c.specified_properties.end();
         }
 
         // Element attributes stay a string map.
@@ -82,39 +128,38 @@ namespace weft {
         }
 
         Style expand(Style s) {
-            if (s.contains("rotate")) {
-                s["transform"] = "rotate(" + s.at("rotate") + ") " +
-                                 (get(s, "transform") == "none" ? std::string{} : get(s, "transform"));
-                s.erase("rotate");
+            if (s.contains(PropertyId::Rotate)) {
+                s[PropertyId::Transform] =
+                    "rotate(" + s.at(PropertyId::Rotate) + ") " +
+                    (get(s, PropertyId::Transform) == "none" ? std::string{} : get(s, PropertyId::Transform));
+                s.erase(PropertyId::Rotate);
             }
-            if (s.contains("background")) {
-                const auto v = s.at("background");
-                s["background-image"] = v.find("gradient(") != v.npos ? v : "none";
-                s["background-color"] = s["background-image"] == "none" ? v : "transparent";
-                s.erase("background");
+            if (s.contains(PropertyId::Background)) {
+                const auto v = s.at(PropertyId::Background);
+                s[PropertyId::BackgroundImage] = v.find("gradient(") != v.npos ? v : "none";
+                s[PropertyId::BackgroundColor] = s[PropertyId::BackgroundImage] == "none" ? v : "transparent";
+                s.erase(PropertyId::Background);
             }
-            if (s.contains("border-color")) {
-                auto v = split(s.at("border-color"));
+            if (s.contains(PropertyId::BorderColor)) {
+                auto v = split(s.at(PropertyId::BorderColor));
                 if (v.empty() || v.size() > 4) {
                     fail("border color shorthand");
                 }
                 const unsigned indices[4][4] = {{0, 0, 0, 0}, {0, 1, 0, 1}, {0, 1, 2, 1}, {0, 1, 2, 3}};
                 unsigned i{};
-                for (const auto* side : {"top", "right", "bottom", "left"}) {
-                    auto k = std::string("border-") + side + "-color";
+                for (const auto k : border_color_edges) {
                     if (!s.contains(k)) {
                         s[k] = v[indices[v.size() - 1][i]];
                     }
                     ++i;
                 }
             }
-            if (s.contains("border-radius")) {
-                auto v = split(s.at("border-radius"));
+            if (s.contains(PropertyId::BorderRadius)) {
+                auto v = split(s.at(PropertyId::BorderRadius));
                 if (v.size() != 1) {
                     fail("scene radius requires one circular value");
                 }
-                for (const auto* corner : {"top-left", "top-right", "bottom-right", "bottom-left"}) {
-                    auto k = std::string("border-") + corner + "-radius";
+                for (const auto k : radius_corners) {
                     if (!s.contains(k)) {
                         s[k] = v[0];
                     }
@@ -134,13 +179,12 @@ namespace weft {
         };
 
         ValueTokens value_tokens(const std::string& s) {
-            static const std::regex pattern(R"([-+]?(?:\d*\.\d+|\d+\.?\d*)(?:[eE][-+]?\d+)?)");
             ValueTokens out;
             std::size_t p{};
-            for (std::sregex_iterator i(s.begin(), s.end(), pattern), e; i != e; ++i) {
-                out.pieces.push_back(s.substr(p, std::size_t(i->position()) - p));
-                out.values.push_back(number(i->str()));
-                p = std::size_t(i->position() + i->length());
+            for (const auto& span : css::number_spans(s)) {
+                out.pieces.push_back(s.substr(p, span.offset - p));
+                out.values.push_back(number(std::string_view(s).substr(span.offset, span.length)));
+                p = span.offset + span.length;
             }
             out.pieces.push_back(s.substr(p));
             return out;
@@ -462,7 +506,7 @@ namespace weft {
 
         Keyframes parse_keyframes(std::string text) {
             Keyframes out;
-            text = std::regex_replace(text, std::regex(R"(/\*[\s\S]*?\*/)"), "");
+            text = css::strip_block_comments(text);
             std::size_t p{};
             while ((p = text.find("@keyframes", p)) != text.npos) {
                 auto b = text.find('{', p);
@@ -525,7 +569,7 @@ namespace weft {
 
         std::vector<AnimationPlan> compile_animations(const Style& target, const Keyframes& keyframes) {
             std::vector<AnimationPlan> plans;
-            const auto value = get(target, "animation", "none");
+            const auto value = get(target, PropertyId::Animation, "none");
             if (value == "none") {
                 return plans;
             }
@@ -562,7 +606,7 @@ namespace weft {
                 }
                 for (auto& [k, values] : tracks) {
                     const auto fallback = k.starts_with("border-") && k.ends_with("-color")
-                                              ? get(target, "color", "#000000")
+                                              ? get(target, PropertyId::Color, "#000000")
                                           : k == "background-color" ? std::string("transparent")
                                           : k == "transform"        ? std::string("none")
                                           : k == "opacity"          ? std::string("1")
@@ -815,11 +859,8 @@ namespace weft {
             if (!a || !b) {
                 return a == b;
             }
-            for (const auto* k : {"font-size", "font-weight", "font-family", "line-height", "letter-spacing", "color",
-                                  "fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-opacity",
-                                  "stroke-linecap", "stroke-linejoin", "stroke-dasharray", "stroke-dashoffset",
-                                  "text-anchor", "dominant-baseline", "pointer-events"}) {
-                if (get(*a, k) != get(*b, k)) {
+            for (const auto k : inherited_properties) {
+                if (a->text(k) != b->text(k)) {
                     return false;
                 }
             }
@@ -859,14 +900,9 @@ namespace weft {
                                previous_state->second.target == output.style &&
                                previous_state->second.current == output.style;
             if (reuse_style && parent) {
-                for (const auto* k : {"font-size", "font-weight", "font-family", "line-height", "letter-spacing",
-                                      "color", "fill", "fill-opacity", "fill-rule", "stroke", "stroke-width",
-                                      "stroke-opacity", "stroke-linecap", "stroke-linejoin", "stroke-dasharray",
-                                      "stroke-dashoffset", "text-anchor", "dominant-baseline", "pointer-events"}) {
-                    if (parent->contains(k) &&
-                        std::find(c.specified_properties.begin(), c.specified_properties.end(), k) ==
-                            c.specified_properties.end() &&
-                        get(output.style, k) != parent->at(k)) {
+                for (const auto k : inherited_properties) {
+                    const auto* inherited = parent->find(k);
+                    if (inherited && !specified(c, k) && output.style.text(k) != inherited->text()) {
                         reuse_style = false;
                         break;
                     }
@@ -883,7 +919,7 @@ namespace weft {
             } else {
                 out.style = incremental ? c.values : expand(c.values);
             }
-            if ((d.scroll_left != 0 || d.scroll_top != 0) && get(out.style, "overflow") == "auto") {
+            if ((d.scroll_left != 0 || d.scroll_top != 0) && get(out.style, PropertyId::Overflow) == "auto") {
                 fail("scene scrolling outside supported non-overflowing auto profile");
             }
             if (d.namespace_uri == constants::svg_namespace_uri) {
@@ -892,7 +928,7 @@ namespace weft {
                         fail(std::string("unsupported SVG attribute ") + attribute);
                     }
                 }
-                if (d.local_name == "text" && get(out.style, "stroke", "none") != "none") {
+                if (d.local_name == "text" && get(out.style, PropertyId::Stroke, "none") != "none") {
                     fail("SVG text stroke outside scene profile");
                 }
             }
@@ -905,24 +941,21 @@ namespace weft {
                             [](const auto& n) {
                                 return n.type == constants::element_node_type;
                             }) &&
-                trim(out.text).empty() && get(out.style, "white-space", "normal") == "normal") {
+                trim(out.text).empty() && get(out.style, PropertyId::WhiteSpace, "normal") == "normal") {
                 out.text.clear();
             }
             if (parent) {
-                for (const auto* k : {"font-size", "font-weight", "font-family", "line-height", "letter-spacing",
-                                      "color", "fill", "fill-opacity", "fill-rule", "stroke", "stroke-width",
-                                      "stroke-opacity", "stroke-linecap", "stroke-linejoin", "stroke-dasharray",
-                                      "stroke-dashoffset", "text-anchor", "dominant-baseline", "pointer-events"}) {
-                    if (parent->contains(k) && std::find(c.specified_properties.begin(), c.specified_properties.end(),
-                                                         k) == c.specified_properties.end()) {
-                        out.style[k] = parent->at(k);
+                for (const auto k : inherited_properties) {
+                    const auto* inherited = parent->find(k);
+                    if (inherited && !specified(c, k)) {
+                        out.style.set(k, *inherited);
                     }
                 }
             }
             if ((out.tag == "b" || out.tag == "strong") &&
                 std::find(c.specified_properties.begin(), c.specified_properties.end(), "font-weight") ==
                     c.specified_properties.end()) {
-                out.style["font-weight"] = constants::scene::bold_font_weight;
+                out.style[PropertyId::FontWeight] = constants::scene::bold_font_weight;
             }
             const auto id = identity(d.identity);
             live.insert(id);
@@ -930,9 +963,9 @@ namespace weft {
             const bool target_changed = out.style != st.target;
             if (!st.target.empty()) {
                 const auto& target = out.style;
-                const auto prop = get(target, "transition-property", "none");
-                const auto timing = get(target, "transition-timing-function", "ease");
-                const auto dur = get(target, "transition-duration", "0s");
+                const auto prop = get(target, PropertyId::TransitionProperty, "none");
+                const auto timing = get(target, PropertyId::TransitionTimingFunction, "ease");
+                const auto dur = get(target, PropertyId::TransitionDuration, "0s");
                 if (prop != "none" && duration(dur) > 0) {
                     for (const auto& [property, v] : target) {
                         const auto k = property_name(property);
@@ -946,9 +979,9 @@ namespace weft {
                             continue;
                         }
                         const auto* current = st.current.find(property);
-                        st.transitions[std::string(k)] = {current ? current->text() : before->text(), v.text(), timing,
-                                                          now + duration(get(target, "transition-delay", "0s")),
-                                                          duration(dur)};
+                        st.transitions[std::string(k)] = {
+                            current ? current->text() : before->text(), v.text(), timing,
+                            now + duration(get(target, PropertyId::TransitionDelay, "0s")), duration(dur)};
                     }
                 }
             }
@@ -988,7 +1021,7 @@ namespace weft {
                 typed(i->first, tr.from, tr.to, amount);
                 ++i;
             }
-            const auto av = get(target, "animation", "none");
+            const auto av = get(target, PropertyId::Animation, "none");
             if (st.animation_value != av) {
                 st.animation_value = av;
                 st.animation_start = now;
@@ -1087,6 +1120,9 @@ namespace weft {
                 }
                 return nullptr;
             };
+            // At most one scene child per DOM child. SceneNode's move may throw (std::map), so a reallocation
+            // would copy every subtree built so far.
+            out.children.reserve(d.children.size());
             std::size_t di{};
             for (const auto& child : d.children) {
                 const auto dom_index = di++;
@@ -1112,27 +1148,27 @@ namespace weft {
                     SceneNode text;
                     text.identity = child.identity;
                     text.tag = "#text";
-                    text.text = std::regex_replace(child.data, std::regex("[\\t\\r\\n ]+"), " ");
+                    text.text = css::collapse_spaces(child.data);
                     text.style = out.style;
-                    text.style["display"] = "inline";
-                    text.style["position"] = "static";
-                    text.style.erase("width");
-                    text.style.erase("height");
-                    text.style["background-color"] = "transparent";
-                    text.style["border-width"] = "0";
-                    for (const auto* side : {"top", "right", "bottom", "left"}) {
-                        text.style[std::string("padding-") + side] = "0";
-                        text.style[std::string("border-") + side + "-width"] = "0";
-                        text.style[std::string("margin-") + side] = "0";
+                    text.style[PropertyId::Display] = "inline";
+                    text.style[PropertyId::Position] = "static";
+                    text.style.erase(PropertyId::Width);
+                    text.style.erase(PropertyId::Height);
+                    text.style[PropertyId::BackgroundColor] = "transparent";
+                    text.style[PropertyId::BorderWidth] = "0";
+                    for (std::size_t side = 0; side < padding_edges.size(); ++side) {
+                        text.style[padding_edges[side]] = "0";
+                        text.style[border_width_edges[side]] = "0";
+                        text.style[margin_edges[side]] = "0";
                     }
                     text.paint.reset();
                     out.children.push_back(std::move(text));
                 }
             }
-            if (out.style.contains("font-weight") && (out.tag == "b" || out.tag == "strong") &&
+            if (out.style.contains(PropertyId::FontWeight) && (out.tag == "b" || out.tag == "strong") &&
                 std::find(c.specified_properties.begin(), c.specified_properties.end(), "font-weight") ==
                     c.specified_properties.end()) {
-                out.style["font-weight"] = constants::scene::bold_font_weight;
+                out.style[PropertyId::FontWeight] = constants::scene::bold_font_weight;
             }
             if (out.children.size() != retained.size()) {
                 work.paint_changed = true;
@@ -1172,7 +1208,7 @@ namespace weft {
             const float right = edge("padding-right") + edge("border-right-width");
             const float top = edge("padding-top") + edge("border-top-width");
             const float bottom = edge("padding-bottom") + edge("border-bottom-width");
-            const float gap = float(length(get(s, "gap", "0")));
+            const float gap = float(length(get(s, PropertyId::Gap, "0")));
             if (!std::isfinite(width) || width < left + right) {
                 fail("grid definite width required");
             }
@@ -1182,7 +1218,7 @@ namespace weft {
             l.positions.resize(l.children.size());
             for (std::size_t i = 0; i < l.children.size(); ++i) {
                 auto& c = *l.children[i];
-                auto explicit_width = get(c.scene->style, "width");
+                auto explicit_width = get(c.scene->style, PropertyId::Width);
                 if (explicit_width.empty() || explicit_width == "auto") {
                     YGNodeStyleSetWidth(c.yoga, cell);
                 }
@@ -1197,12 +1233,12 @@ namespace weft {
                 content += gap * float(rows - 1);
             }
             float y = top;
-            if (height >= 0 && get(s, "align-content") == "center") {
+            if (height >= 0 && get(s, PropertyId::AlignContent) == "center") {
                 y += std::max(0.f, (height - top - bottom - content) / 2);
             }
             if (height >= 0 && rows &&
-                (get(s, "align-content").empty() || get(s, "align-content") == "normal" ||
-                 get(s, "align-content") == "stretch")) {
+                (get(s, PropertyId::AlignContent).empty() || get(s, PropertyId::AlignContent) == "normal" ||
+                 get(s, PropertyId::AlignContent) == "stretch")) {
                 const float extra = std::max(0.f, (height - top - bottom - content) / float(rows));
                 for (auto& h : heights) {
                     h += extra;
@@ -1218,10 +1254,10 @@ namespace weft {
                     auto& c = *l.children[index];
                     float x = left + col * (cell + gap);
                     float dy{};
-                    if (get(s, "place-items") == "center" || get(s, "justify-items") == "center") {
+                    if (get(s, PropertyId::PlaceItems) == "center" || get(s, PropertyId::JustifyItems) == "center") {
                         x += (cell - YGNodeLayoutGetWidth(c.yoga)) / 2;
                     }
-                    if (get(s, "place-items") == "center" || get(s, "align-items") == "center") {
+                    if (get(s, PropertyId::PlaceItems) == "center" || get(s, PropertyId::AlignItems) == "center") {
                         dy = (heights[row] - YGNodeLayoutGetHeight(c.yoga)) / 2;
                     }
                     l.positions[index] = {x, y + dy};
@@ -1234,13 +1270,13 @@ namespace weft {
         static YGSize grid_measured(YGNodeConstRef node, float width, YGMeasureMode, float, YGMeasureMode) {
             auto& l = *static_cast<Layout*>(YGNodeGetContext(node));
             const auto& s = l.scene->style;
-            auto edge = [&](const char* key) {
+            auto edge = [&](PropertyId key) {
                 return float(length(get(s, key, "0")));
             };
-            const auto horizontal =
-                edge("padding-left") + edge("padding-right") + edge("border-left-width") + edge("border-right-width");
-            const auto vertical =
-                edge("padding-top") + edge("padding-bottom") + edge("border-top-width") + edge("border-bottom-width");
+            const auto horizontal = edge(PropertyId::PaddingLeft) + edge(PropertyId::PaddingRight) +
+                                    edge(PropertyId::BorderLeftWidth) + edge(PropertyId::BorderRightWidth);
+            const auto vertical = edge(PropertyId::PaddingTop) + edge(PropertyId::PaddingBottom) +
+                                  edge(PropertyId::BorderTopWidth) + edge(PropertyId::BorderBottomWidth);
             return {width, l.owner->grid(l, width + horizontal) - vertical};
         }
 
@@ -1258,36 +1294,38 @@ namespace weft {
             auto y = l->yoga;
             YGNodeSetContext(y, l.get());
             YGNodeStyleSetBoxSizing(y, YGBoxSizingBorderBox);
-            static const std::map<std::string, std::vector<std::string>> allowed_values = {
-                {"display", {"block", "inline", "inline-block", "flex", "grid", "none"}},
-                {"position", {"static", "relative", "absolute"}},
-                {"flex-direction", {"row", "column", "row-reverse", "column-reverse"}},
-                {"align-items", {"stretch", "center", "flex-start", "flex-end"}},
-                {"justify-content", {"normal", "center", "flex-start", "flex-end"}},
-                {"overflow", {"visible", "hidden", "auto"}},
-                {"box-sizing", {"border-box"}}};
+            // In name order, as the diagnostics have always reported the first unsupported one.
+            static const std::vector<std::pair<PropertyId, std::vector<std::string>>> allowed_values = {
+                {PropertyId::AlignItems, {"stretch", "center", "flex-start", "flex-end"}},
+                {PropertyId::BoxSizing, {"border-box"}},
+                {PropertyId::Display, {"block", "inline", "inline-block", "flex", "grid", "none"}},
+                {PropertyId::FlexDirection, {"row", "column", "row-reverse", "column-reverse"}},
+                {PropertyId::JustifyContent, {"normal", "center", "flex-start", "flex-end"}},
+                {PropertyId::Overflow, {"visible", "hidden", "auto"}},
+                {PropertyId::Position, {"static", "relative", "absolute"}}};
             for (const auto& [key, allowed] : allowed_values) {
-                if (n.style.contains(key) &&
-                    std::find(allowed.begin(), allowed.end(), n.style.at(key)) == allowed.end()) {
-                    fail("unsupported scene value " + key + ":" + n.style.at(key));
+                if (const auto* value = n.style.find(key);
+                    value && std::find(allowed.begin(), allowed.end(), value->text()) == allowed.end()) {
+                    fail("unsupported scene value " + std::string(property_name(key)) + ":" + value->text());
                 }
             }
-            for (const auto* side : {"top", "right", "bottom", "left"}) {
-                if (get(n.style, std::string("border-") + side + "-style", "solid") != "solid") {
+            for (const auto k : border_style_edges) {
+                if (n.style.text(k, "solid") != "solid") {
                     fail("scene border requires solid style");
                 }
             }
             const auto& s = n.style;
-            const bool flex = get(s, "display") == "flex";
-            YGNodeStyleSetFlexDirection(y, flex && get(s, "flex-direction", "row") == "row" ? YGFlexDirectionRow
-                                                                                            : YGFlexDirectionColumn);
+            const bool flex = get(s, PropertyId::Display) == "flex";
+            YGNodeStyleSetFlexDirection(y, flex && get(s, PropertyId::FlexDirection, "row") == "row"
+                                               ? YGFlexDirectionRow
+                                               : YGFlexDirectionColumn);
             YGNodeStyleSetFlexShrink(y, flex ? 1.f : 0.f);
-            YGNodeStyleSetAlignItems(y, flex && get(s, "align-items") == "center"     ? YGAlignCenter
-                                        : flex && get(s, "align-items") == "flex-end" ? YGAlignFlexEnd
-                                                                                      : YGAlignStretch);
+            YGNodeStyleSetAlignItems(y, flex && get(s, PropertyId::AlignItems) == "center"     ? YGAlignCenter
+                                        : flex && get(s, PropertyId::AlignItems) == "flex-end" ? YGAlignFlexEnd
+                                                                                               : YGAlignStretch);
             const bool inline_flow =
                 !flex && !n.children.empty() && std::all_of(n.children.begin(), n.children.end(), [](const auto& c) {
-                    auto display = get(c.style, "display", "inline");
+                    auto display = get(c.style, PropertyId::Display, "inline");
                     return display == "inline" || display == "inline-block";
                 });
             if (inline_flow) {
@@ -1295,79 +1333,80 @@ namespace weft {
                 YGNodeStyleSetAlignItems(y, YGAlignFlexStart);
             }
             if (flex) {
-                const auto d = get(s, "flex-direction", "row");
+                const auto d = get(s, PropertyId::FlexDirection, "row");
                 YGNodeStyleSetFlexDirection(y, d == "row"              ? YGFlexDirectionRow
                                                : d == "row-reverse"    ? YGFlexDirectionRowReverse
                                                : d == "column-reverse" ? YGFlexDirectionColumnReverse
                                                                        : YGFlexDirectionColumn);
-                if (get(s, "flex-wrap") == "wrap") {
+                if (get(s, PropertyId::FlexWrap) == "wrap") {
                     YGNodeStyleSetFlexWrap(y, YGWrapWrap);
-                } else if (!get(s, "flex-wrap").empty() && get(s, "flex-wrap") != "nowrap") {
+                } else if (!get(s, PropertyId::FlexWrap).empty() && get(s, PropertyId::FlexWrap) != "nowrap") {
                     fail("flex-wrap profile");
                 }
-                if (get(s, "align-items") == "flex-start") {
+                if (get(s, PropertyId::AlignItems) == "flex-start") {
                     YGNodeStyleSetAlignItems(y, YGAlignFlexStart);
                 }
             }
-            if (s.contains("flex-grow")) {
-                YGNodeStyleSetFlexGrow(y, float(length(s.at("flex-grow"))));
+            if (s.contains(PropertyId::FlexGrow)) {
+                YGNodeStyleSetFlexGrow(y, float(length(s.at(PropertyId::FlexGrow))));
             }
-            if (s.contains("flex-shrink")) {
-                YGNodeStyleSetFlexShrink(y, float(length(s.at("flex-shrink"))));
+            if (s.contains(PropertyId::FlexShrink)) {
+                YGNodeStyleSetFlexShrink(y, float(length(s.at(PropertyId::FlexShrink))));
             }
-            if (s.contains("flex-basis") && s.at("flex-basis") != "auto") {
-                auto v = s.at("flex-basis");
+            if (s.contains(PropertyId::FlexBasis) && s.at(PropertyId::FlexBasis) != "auto") {
+                auto v = s.at(PropertyId::FlexBasis);
                 if (v.ends_with('%')) {
                     YGNodeStyleSetFlexBasisPercent(y, float(length(v, constants::percent_scale)));
                 } else {
                     YGNodeStyleSetFlexBasis(y, float(length(v)));
                 }
             }
-            if (get(s, "align-self") == "center") {
+            if (get(s, PropertyId::AlignSelf) == "center") {
                 YGNodeStyleSetAlignSelf(y, YGAlignCenter);
             }
-            if (get(s, "align-content") == "flex-start") {
+            if (get(s, PropertyId::AlignContent) == "flex-start") {
                 YGNodeStyleSetAlignContent(y, YGAlignFlexStart);
             }
-            if (get(s, "align-content") == "center") {
+            if (get(s, PropertyId::AlignContent) == "center") {
                 YGNodeStyleSetAlignContent(y, YGAlignCenter);
             }
-            if (flex && get(s, "flex-wrap") == "wrap" && get(s, "align-content").empty()) {
+            if (flex && get(s, PropertyId::FlexWrap) == "wrap" && get(s, PropertyId::AlignContent).empty()) {
                 YGNodeStyleSetAlignContent(y, YGAlignStretch);
             }
-            if (get(s, "justify-content") == "center") {
+            if (get(s, PropertyId::JustifyContent) == "center") {
                 YGNodeStyleSetJustifyContent(y, YGJustifyCenter);
             }
-            if (get(s, "justify-content") == "flex-end") {
+            if (get(s, PropertyId::JustifyContent) == "flex-end") {
                 YGNodeStyleSetJustifyContent(y, YGJustifyFlexEnd);
             }
-            for (const auto* key : {"min-width", "min-height", "max-width", "max-height"}) {
+            for (const auto key :
+                 {PropertyId::MinWidth, PropertyId::MinHeight, PropertyId::MaxWidth, PropertyId::MaxHeight}) {
                 if (s.contains(key)) {
                     const auto& raw = s.at(key);
                     const bool percent = raw.ends_with('%');
                     auto v = float(length(raw, percent ? constants::percent_scale : 1));
-                    if (std::string_view(key) == "min-width") {
+                    if (key == PropertyId::MinWidth) {
                         if (percent) {
                             YGNodeStyleSetMinWidthPercent(y, v);
                         } else {
                             YGNodeStyleSetMinWidth(y, v);
                         }
                     }
-                    if (std::string_view(key) == "min-height") {
+                    if (key == PropertyId::MinHeight) {
                         if (percent) {
                             YGNodeStyleSetMinHeightPercent(y, v);
                         } else {
                             YGNodeStyleSetMinHeight(y, v);
                         }
                     }
-                    if (std::string_view(key) == "max-width") {
+                    if (key == PropertyId::MaxWidth) {
                         if (percent) {
                             YGNodeStyleSetMaxWidthPercent(y, v);
                         } else {
                             YGNodeStyleSetMaxWidth(y, v);
                         }
                     }
-                    if (std::string_view(key) == "max-height") {
+                    if (key == PropertyId::MaxHeight) {
                         if (percent) {
                             YGNodeStyleSetMaxHeightPercent(y, v);
                         } else {
@@ -1376,19 +1415,19 @@ namespace weft {
                     }
                 }
             }
-            YGNodeSetAlwaysFormsContainingBlock(y, get(s, "transform", "none") != "none");
-            if (get(s, "position") == "absolute") {
+            YGNodeSetAlwaysFormsContainingBlock(y, get(s, PropertyId::Transform, "none") != "none");
+            if (get(s, PropertyId::Position) == "absolute") {
                 YGNodeStyleSetPositionType(y, YGPositionTypeAbsolute);
-            } else if (get(s, "position") == "relative") {
+            } else if (get(s, PropertyId::Position) == "relative") {
                 YGNodeStyleSetPositionType(y, YGPositionTypeRelative);
             } else {
                 YGNodeStyleSetPositionType(y, YGPositionTypeStatic);
             }
-            if (get(s, "display") == "none") {
+            if (get(s, PropertyId::Display) == "none") {
                 YGNodeStyleSetDisplay(y, YGDisplayNone);
             }
-            if (s.contains("gap")) {
-                YGNodeStyleSetGap(y, YGGutterAll, float(length(s.at("gap"))));
+            if (s.contains(PropertyId::Gap)) {
+                YGNodeStyleSetGap(y, YGGutterAll, float(length(s.at(PropertyId::Gap))));
             }
             for (const auto& [key, is_width] :
                  std::vector<std::pair<std::string, bool>>{{"width", true}, {"height", false}}) {
@@ -1418,7 +1457,7 @@ namespace weft {
                 }
             }
             if (n.tag == "svg" && n.attributes.contains("viewBox") && !parent_height_definite) {
-                const auto height = get(s, "height", get(n.attributes, "height").c_str());
+                const auto height = get(s, PropertyId::Height, get(n.attributes, "height").c_str());
                 if (height.empty() || height == "auto" || height.ends_with('%')) {
                     auto view = n.attributes.at("viewBox");
                     std::replace(view.begin(), view.end(), ',', ' ');
@@ -1434,35 +1473,41 @@ namespace weft {
                     YGNodeStyleSetAspectRatio(y, w / h);
                 }
             }
-            const auto own_height = get(s, "height");
+            const auto own_height = get(s, PropertyId::Height);
             const bool height_definite = root || (!own_height.empty() && own_height != "auto" &&
                                                   (!own_height.ends_with('%') || parent_height_definite));
-            unsigned i{};
-            for (const auto* side : {"top", "right", "bottom", "left"}) {
-                const YGEdge edges[]{YGEdgeTop, YGEdgeRight, YGEdgeBottom, YGEdgeLeft};
-                auto edge = edges[i++];
-                for (const auto* prefix : {"margin-", "padding-", "border-", ""}) {
-                    auto key = std::string(prefix) + side + (std::string(prefix) == "border-" ? "-width" : "");
+            enum class Box {
+                Margin,
+                Padding,
+                Border,
+                Inset
+            };
+            for (std::size_t side = 0; side < margin_edges.size(); ++side) {
+                static constexpr YGEdge edges[]{YGEdgeTop, YGEdgeRight, YGEdgeBottom, YGEdgeLeft};
+                const auto edge = edges[side];
+                for (const auto& [box, key] :
+                     {std::pair{Box::Margin, margin_edges[side]}, std::pair{Box::Padding, padding_edges[side]},
+                      std::pair{Box::Border, border_width_edges[side]}, std::pair{Box::Inset, inset_edges[side]}}) {
                     auto v = get(s, key);
                     if (v.empty()) {
                         continue;
                     }
                     if (v == "auto") {
-                        if (std::string(prefix) == "margin-") {
+                        if (box == Box::Margin) {
                             YGNodeStyleSetMarginAuto(y, edge);
                         }
                         continue;
                     }
                     auto num = float(length(v, v.ends_with('%') ? constants::percent_scale : 1));
-                    if (std::string(prefix) == "border-") {
+                    if (box == Box::Border) {
                         YGNodeStyleSetBorder(y, edge, num);
-                    } else if (std::string(prefix) == "padding-") {
+                    } else if (box == Box::Padding) {
                         if (v.ends_with('%')) {
                             YGNodeStyleSetPaddingPercent(y, edge, num);
                         } else {
                             YGNodeStyleSetPadding(y, edge, num);
                         }
-                    } else if (std::string(prefix) == "margin-") {
+                    } else if (box == Box::Margin) {
                         if (v.ends_with('%')) {
                             YGNodeStyleSetMarginPercent(y, edge, num);
                         } else {
@@ -1478,12 +1523,10 @@ namespace weft {
                 }
             }
             if (n.space != constants::svg_namespace_uri) {
-                if (get(s, "display") == "grid") {
-                    auto columns = get(s, "grid-template-columns");
-                    static const std::regex repeat(R"(repeat\(\s*([1-8])\s*,\s*minmax\(\s*0\s*,\s*1fr\s*\)\s*\))");
-                    std::smatch match;
-                    if (std::regex_match(columns, match, repeat)) {
-                        l->columns = unsigned(std::stoul(match[1]));
+                if (get(s, PropertyId::Display) == "grid") {
+                    auto columns = get(s, PropertyId::GridTemplateColumns);
+                    if (const auto repeat = scene_grammar::grid_repeat(columns)) {
+                        l->columns = *repeat;
                     } else {
                         auto tracks = split(columns);
                         if (tracks.empty() || tracks.size() > constants::scene::max_grid_columns ||
@@ -1495,7 +1538,7 @@ namespace weft {
                         l->columns = unsigned(tracks.size());
                     }
                     for (auto& c : n.children) {
-                        if (get(c.style, "position") == "absolute") {
+                        if (get(c.style, PropertyId::Position) == "absolute") {
                             fail("absolute grid child profile");
                         }
                         l->children.push_back(layout(c, height_definite, false));
@@ -1544,7 +1587,7 @@ namespace weft {
             for (std::size_t i = 0; i < l.children.size(); ++i) {
                 boxes(*l.children[i], x, y, f, l.columns ? std::optional(l.positions[i]) : std::nullopt);
             }
-            if (get(n.style, "overflow") == "auto") {
+            if (get(n.style, PropertyId::Overflow) == "auto") {
                 for (const auto& child : n.children) {
                     if (child.box[0] < -constants::scene::overflow_tolerance_px ||
                         child.box[1] < -constants::scene::overflow_tolerance_px ||
@@ -1602,7 +1645,8 @@ namespace weft {
                 }
                 return out;
             }();
-            if ((get(a, "transform", "none") == "none") != (get(b, "transform", "none") == "none")) {
+            if ((get(a, PropertyId::Transform, "none") == "none") !=
+                (get(b, PropertyId::Transform, "none") == "none")) {
                 return false;
             }
             auto x = a.begin();

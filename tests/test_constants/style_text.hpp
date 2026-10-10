@@ -49,4 +49,39 @@ namespace weft::test_constants::style_text {
     inline constexpr int canvas_batching_compare_period = 16;
     // Create/fill/collect cycles of the Canvas callback lifecycle stress.
     inline constexpr int canvas_lifecycle_cycles = 50;
+
+    // Typed value payloads against the scalar and color parsers: random numbers with units, random colors, and the
+    // least number of texts both sides must accept.
+    inline constexpr unsigned int value_differential_seed = 0xce702610;
+    inline constexpr int value_differential_numbers = 20000;
+    inline constexpr int value_differential_colors = 2000;
+    inline constexpr int value_differential_min_compared = 20000;
+    // Payload numbers against parse_number on texts joined from strtod grammar pieces: texts, the most pieces per text,
+    // and the least accepted and refused texts each.
+    inline constexpr int number_grammar_seed = 0x5eed7d;
+    inline constexpr int number_grammar_texts = 120000;
+    inline constexpr int number_grammar_max_pieces = 5;
+    inline constexpr int number_grammar_min_each = 5000;
+
+    // Hand-written grammars against the regexes they replaced: seed, texts, the most pieces per text and the least
+    // matches of each comparison.
+    inline constexpr int number_span_seed = 0x7e57a;
+    inline constexpr int number_span_texts = 40000;
+    inline constexpr int number_span_max_pieces = 8;
+    inline constexpr int number_span_min_spans = 30000;
+    inline constexpr int replacement_seed = 0xc0ffee;
+    inline constexpr int replacement_texts = 30000;
+    inline constexpr int replacement_max_pieces = 10;
+    inline constexpr int decimal_seed = 0xdec1;
+    inline constexpr int decimal_texts = 30000;
+    inline constexpr int decimal_max_pieces = 5;
+    inline constexpr int decimal_min_accepted = 1000;
+    inline constexpr int perspective_seed = 0x9e25;
+    inline constexpr int perspective_texts = 40000;
+    inline constexpr int perspective_max_pieces = 9;
+    inline constexpr int perspective_min_matched = 100;
+    inline constexpr int grid_repeat_seed = 0x921d;
+    inline constexpr int grid_repeat_texts = 40000;
+    inline constexpr int grid_repeat_max_pieces = 9;
+    inline constexpr int grid_repeat_min_matched = 100;
 } // namespace weft::test_constants::style_text

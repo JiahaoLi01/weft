@@ -2,6 +2,7 @@
 #include "scene/scene.hpp"
 #include "scene/scene_geometry.hpp"
 #include "scene/scene_text_image.hpp"
+#include "scene/scene_grammar.hpp"
 #include "scene/scene_values.hpp"
 #include "base/css_scalar.hpp"
 #include "base/owner_thread.hpp"
@@ -13,7 +14,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
-#include <regex>
 #include <sstream>
 #include <numbers>
 #include <thread>
@@ -49,7 +49,7 @@ namespace weft {
                 return {0, 0, 0, 0};
             }
             if (s == "currentColor" || s == "currentcolor") {
-                s = get(style, "color", constants::default_color);
+                s = get(style, PropertyId::Color, constants::default_color);
             }
             auto c = parse_css_color(css::expand_color_shorthand(s));
             return {c[0], c[1], c[2], c[3]};
@@ -217,17 +217,15 @@ namespace weft {
 
         Plane plane(const SceneNode& n) {
             auto o = origin(n.style, n.box[2], n.box[3]);
-            auto t = get(n.style, "transform", "none");
+            auto t = get(n.style, PropertyId::Transform, "none");
             Plane local;
             if (t.find("perspective(") != t.npos) {
-                static const std::regex grammar(
-                    R"(perspective\(\s*([\d.]+)px\s*\)\s+rotateY\(\s*([-\d.]+)(deg)?\s*\))");
-                std::smatch match;
-                if (!std::regex_match(t, match, grammar)) {
+                const auto match = scene_grammar::perspective(t);
+                if (!match) {
                     fail("projective plane grammar");
                 }
-                const double d = num(match[1]);
-                const double a = num(match[2]) * (match[3].matched ? pi / constants::degrees_per_half_turn : 1);
+                const double d = num(match->distance);
+                const double a = num(match->angle) * (match->degrees ? pi / constants::degrees_per_half_turn : 1);
                 if (d <= 0) {
                     fail("perspective distance");
                 }
@@ -596,10 +594,10 @@ namespace weft {
             float h = n.box[3];
             std::array<float, 7> key{w,
                                      h,
-                                     len(get(n.style, "border-top-width", "0")),
-                                     len(get(n.style, "border-right-width", "0")),
-                                     len(get(n.style, "border-bottom-width", "0")),
-                                     len(get(n.style, "border-left-width", "0")),
+                                     len(get(n.style, PropertyId::BorderTopWidth, "0")),
+                                     len(get(n.style, PropertyId::BorderRightWidth, "0")),
+                                     len(get(n.style, PropertyId::BorderBottomWidth, "0")),
+                                     len(get(n.style, PropertyId::BorderLeftWidth, "0")),
                                      float(index)};
             if (auto i = border_wedges.find(key); i != border_wedges.end()) {
                 return i->second;
@@ -681,7 +679,7 @@ namespace weft {
                 key += std::to_string(v.size()) + ":";
                 key += v;
             };
-            add(get(n.style, "fill-rule"));
+            add(get(n.style, PropertyId::FillRule));
             for (const auto* k :
                  {"x", "y", "width", "height", "rx", "ry", "cx", "cy", "r", "d", "points", "x1", "y1", "x2", "y2"}) {
                 if (a.contains(k)) {
@@ -715,7 +713,7 @@ namespace weft {
                 g = e;
             } else if (n.tag == "path") {
                 if (a.contains("d")) {
-                    g = path(a.at("d"), get(n.style, "fill-rule") == "evenodd");
+                    g = path(a.at("d"), get(n.style, PropertyId::FillRule) == "evenodd");
                 }
             } else if (n.tag == "polygon" || n.tag == "polyline") {
                 std::ostringstream p;
@@ -730,11 +728,11 @@ namespace weft {
                 if (n.tag == "polygon") {
                     p << 'Z';
                 }
-                g = path(p.str(), get(n.style, "fill-rule") == "evenodd");
+                g = path(p.str(), get(n.style, PropertyId::FillRule) == "evenodd");
             } else if (n.tag == "line") {
                 std::ostringstream p;
                 p << 'M' << v("x1") << ',' << v("y1") << 'L' << v("x2") << ',' << v("y2");
-                g = path(p.str(), get(n.style, "fill-rule") == "evenodd");
+                g = path(p.str(), get(n.style, PropertyId::FillRule) == "evenodd");
             } else if (n.tag != "text" && n.tag != "g" && n.tag != "svg" && n.tag != "defs" && n.tag != "clipPath") {
                 fail("SVG element " + n.tag);
             }
@@ -778,8 +776,8 @@ namespace weft {
 
         ComPtr<ID2D1StrokeStyle> svg_stroke_uncached(const SceneNode& n) {
             D2D1_STROKE_STYLE_PROPERTIES p = D2D1::StrokeStyleProperties();
-            auto cap = get(n.style, "stroke-linecap", "butt");
-            auto join = get(n.style, "stroke-linejoin", "miter");
+            auto cap = get(n.style, PropertyId::StrokeLinecap, "butt");
+            auto join = get(n.style, PropertyId::StrokeLinejoin, "miter");
             if (cap != "butt" && cap != "round" && cap != "square" && !cap.empty()) {
                 fail("stroke linecap");
             }
@@ -792,8 +790,8 @@ namespace weft {
             p.lineJoin = join == "round"   ? D2D1_LINE_JOIN_ROUND
                          : join == "bevel" ? D2D1_LINE_JOIN_BEVEL
                                            : D2D1_LINE_JOIN_MITER;
-            const auto width = len(get(n.style, "stroke-width", "1"));
-            auto d = get(n.style, "stroke-dasharray", "none");
+            const auto width = len(get(n.style, PropertyId::StrokeWidth, "1"));
+            auto d = get(n.style, PropertyId::StrokeDasharray, "none");
             std::vector<float> dash;
             if (d != "none" && !d.empty()) {
                 Scanner s{d};
@@ -820,7 +818,7 @@ namespace weft {
             if (!dash.empty()) {
                 p.dashStyle = D2D1_DASH_STYLE_CUSTOM;
             }
-            p.dashOffset = len(get(n.style, "stroke-dashoffset", "0")) / (width > 0 ? width : 1);
+            p.dashOffset = len(get(n.style, PropertyId::StrokeDashoffset, "0")) / (width > 0 ? width : 1);
             ComPtr<ID2D1StrokeStyle> style;
             check(factory->CreateStrokeStyle(p, dash.empty() ? nullptr : dash.data(), UINT32(dash.size()), &style));
             return style;
@@ -857,16 +855,16 @@ namespace weft {
         }
 
         void svg(const SceneNode& n, const SceneNode& root) {
-            if (get(n.style, "display") == "none" || n.tag == "defs" || n.tag == "clipPath") {
+            if (get(n.style, PropertyId::Display) == "none" || n.tag == "defs" || n.tag == "clipPath") {
                 return;
             }
             const auto old = matrix();
             const auto t =
-                n.attributes.contains("transform") ? n.attributes.at("transform") : get(n.style, "transform");
+                n.attributes.contains("transform") ? n.attributes.at("transform") : get(n.style, PropertyId::Transform);
             target->SetTransform(transform(t, 0, 0, true) * old);
             ComPtr<ID2D1Layer> group;
             ComPtr<ID2D1Layer> clip;
-            const auto opacity = len(get(n.style, "opacity", "1"));
+            const auto opacity = len(get(n.style, PropertyId::Opacity, "1"));
             if (opacity < 1) {
                 group = layer();
                 target->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), nullptr,
@@ -884,20 +882,21 @@ namespace weft {
                 draw_text(n, true);
             }
             if (g) {
-                auto fill = get(n.style, "fill", constants::default_color);
-                auto stroke = get(n.style, "stroke", "none");
+                auto fill = get(n.style, PropertyId::Fill, constants::default_color);
+                auto stroke = get(n.style, PropertyId::Stroke, "none");
                 if (fill != "none" && n.tag != "line") {
                     auto c = color(fill, n.style);
-                    c.a *= std::clamp(len(get(n.style, "fill-opacity", "1")), 0.f, 1.f);
+                    c.a *= std::clamp(len(get(n.style, PropertyId::FillOpacity, "1")), 0.f, 1.f);
                     solid(c);
                     target->FillGeometry(g.Get(), brush.Get());
                 }
                 if (stroke != "none") {
                     auto c = color(stroke, n.style);
-                    c.a *= std::clamp(len(get(n.style, "stroke-opacity", "1")), 0.f, 1.f);
+                    c.a *= std::clamp(len(get(n.style, PropertyId::StrokeOpacity, "1")), 0.f, 1.f);
                     solid(c);
                     auto style = svg_stroke(n);
-                    target->DrawGeometry(g.Get(), brush.Get(), len(get(n.style, "stroke-width", "1")), style.Get());
+                    target->DrawGeometry(g.Get(), brush.Get(), len(get(n.style, PropertyId::StrokeWidth, "1")),
+                                         style.Get());
                 }
             }
             for (const auto& c : n.children) {
@@ -941,10 +940,10 @@ namespace weft {
             auto content = n;
             content.box[0] = content.box[1] = 0;
             content.children.clear();
-            content.style.erase("transform");
-            content.style["opacity"] = "1";
-            content.style["background-color"] = "transparent";
-            content.style["background-image"] = "none";
+            content.style.erase(PropertyId::Transform);
+            content.style[PropertyId::Opacity] = "1";
+            content.style[PropertyId::BackgroundColor] = "transparent";
+            content.style[PropertyId::BackgroundImage] = "none";
             for (const auto* side : {"top", "right", "bottom", "left"}) {
                 content.style[std::string("border-") + side + "-color"] = "transparent";
             }
@@ -1000,7 +999,7 @@ namespace weft {
             }
             const auto run = text.shape(n.text, n.style);
             const auto& m = run->metrics;
-            float size = len(get(n.style, "font-size", constants::default_font_size));
+            float size = len(get(n.style, PropertyId::FontSize, constants::default_font_size));
             float x{};
             // Top of the line box; the baseline is m.baseline below it.
             float y{};
@@ -1010,20 +1009,21 @@ namespace weft {
                 if (n.attributes.contains("dy")) {
                     y += len(n.attributes.at("dy"), size);
                 }
-                auto anchor = get(n.style, "text-anchor", "start");
+                auto anchor = get(n.style, PropertyId::TextAnchor, "start");
                 if (anchor == "middle") {
                     x -= m.width / 2;
                 } else if (anchor == "end") {
                     x -= m.width;
                 }
-                y -= get(n.style, "dominant-baseline") == "central" ? m.height / 2 : m.baseline;
+                y -= get(n.style, PropertyId::DominantBaseline) == "central" ? m.height / 2 : m.baseline;
             } else {
                 const auto origin = scene_text_origin(n, m);
                 x = origin[0];
                 y = origin[1];
             }
-            solid(svg_text ? color(get(n.style, "fill", "#000000"), n.style)
-                           : paint_color(n, constants::scene::paint_slot_color, get(n.style, "color", "#000000")));
+            solid(svg_text
+                      ? color(get(n.style, PropertyId::Fill, "#000000"), n.style)
+                      : paint_color(n, constants::scene::paint_slot_color, get(n.style, PropertyId::Color, "#000000")));
             draw_run(*run, n.text, x, y + m.baseline);
         }
 
@@ -1107,7 +1107,7 @@ namespace weft {
         }
 
         void shadow(const SceneNode& n, const std::array<float, 4>& corners) {
-            auto value = get(n.style, "box-shadow", "none");
+            auto value = get(n.style, PropertyId::BoxShadow, "none");
             if (value.empty() || value == "none") {
                 return;
             }
@@ -1273,7 +1273,7 @@ namespace weft {
         }
 
         void gradient(const SceneNode& n, ID2D1Geometry* shape) {
-            auto image = get(n.style, "background-image", "none");
+            auto image = get(n.style, PropertyId::BackgroundImage, "none");
             if (image == "none") {
                 return;
             }
@@ -1309,7 +1309,7 @@ namespace weft {
             float h = n.box[3];
             float bw = w;
             float bh = h;
-            auto size = split(get(n.style, "background-size", "100% 100%"));
+            auto size = split(get(n.style, PropertyId::BackgroundSize, "100% 100%"));
             if (size.size() == 2) {
                 bw = len(size[0], w);
                 bh = len(size[1], h);
@@ -1323,7 +1323,7 @@ namespace weft {
                                                   std::abs(bh * std::cos(angle * pi / constants::degrees_per_half_turn))
                                             : 1.f;
             auto s = stops(args, stop_reference);
-            auto position = split(get(n.style, "background-position", "0% 0%"));
+            auto position = split(get(n.style, PropertyId::BackgroundPosition, "0% 0%"));
             float ox = 0;
             float oy = 0;
             if (!position.empty()) {
@@ -1361,9 +1361,12 @@ namespace weft {
                     return;
                 }
             }
-            auto cache_key = std::tuple{
-                image, get(n.style, "background-size", "100% 100%"), get(n.style, "background-position", "0% 0%"), w, h,
-                scale};
+            auto cache_key = std::tuple{image,
+                                        get(n.style, PropertyId::BackgroundSize, "100% 100%"),
+                                        get(n.style, PropertyId::BackgroundPosition, "0% 0%"),
+                                        w,
+                                        h,
+                                        scale};
             auto fill = [&](ID2D1Bitmap* bitmap) {
                 ComPtr<ID2D1BitmapBrush> bg;
                 check(target->CreateBitmapBrush(bitmap, &bg));
@@ -1434,18 +1437,17 @@ namespace weft {
             // Plane projection for preserve-3d descendants of perspective/rotateY.
             // Rasterize the whole subtree first, then inverse-map with bilinear
             // premultiplied samples. This also preserves group opacity and order.
-            auto t = get(node.style, "transform");
-            static const std::regex grammar(R"(perspective\(\s*([\d.]+)px\s*\)\s+rotateY\(\s*([-\d.]+)(deg)?\s*\))");
-            std::smatch m;
-            if (!std::regex_search(t, m, grammar)) {
+            auto t = get(node.style, PropertyId::Transform);
+            const auto m = scene_grammar::find_perspective(t);
+            if (!m) {
                 fail("3D transform outside perspective rotateY plane subset");
             }
-            float distance = num(m[1]);
-            float angle = num(m[2]) * (m[3].matched ? pi / constants::degrees_per_half_turn : 1);
+            float distance = num(m->distance);
+            float angle = num(m->angle) * (m->degrees ? pi / constants::degrees_per_half_turn : 1);
             auto f = SceneFrame{};
             f.root = node;
             f.root.box[0] = f.root.box[1] = 0;
-            f.root.style.erase("transform");
+            f.root.style.erase(PropertyId::Transform);
             const std::array<std::uint64_t, 3> key{node.identity.view_epoch, node.identity.slot,
                                                    node.identity.generation};
             std::optional<SceneBitmap> uncached;
@@ -1639,7 +1641,7 @@ namespace weft {
             }
             for (std::size_t i = 0; i < n.children.size(); ++i) {
                 if (p.children[i].first != n.children[i].identity ||
-                    p.children[i].second != get(n.children[i].style, "z-index", "0")) {
+                    p.children[i].second != get(n.children[i].style, PropertyId::ZIndex, "0")) {
                     return false;
                 }
             }
@@ -1659,7 +1661,9 @@ namespace weft {
             p->text = n.text;
             p->size = {n.box[2], n.box[3]};
             p->pivot = origin(n.style, n.box[2], n.box[3]);
-            p->clipped = (get(n.style, "overflow") == "hidden" || get(n.style, "overflow") == "auto") || n.tag == "svg";
+            p->clipped =
+                (get(n.style, PropertyId::Overflow) == "hidden" || get(n.style, PropertyId::Overflow) == "auto") ||
+                n.tag == "svg";
             for (const auto& [k, v] : n.style) {
                 if (!parameter(k)) {
                     p->style.set(k, v);
@@ -1682,7 +1686,7 @@ namespace weft {
             p->shape = round_box(n.box[2], n.box[3], p->radii);
             std::vector<float> z;
             for (const auto& c : n.children) {
-                auto v = get(c.style, "z-index", "0");
+                auto v = get(c.style, PropertyId::ZIndex, "0");
                 p->children.emplace_back(c.identity, v);
                 z.push_back(v == "auto" ? 0 : num(v));
                 p->order.push_back(p->order.size());
@@ -1746,8 +1750,8 @@ namespace weft {
             }
             auto source = n;
             source.box[0] = source.box[1] = 0;
-            source.style.erase("transform");
-            source.style.erase("opacity");
+            source.style.erase(PropertyId::Transform);
+            source.style.erase(PropertyId::Opacity);
             source.attributes.erase("style");
             if (source.paint) {
                 source.paint->values[constants::scene::paint_slot_opacity].reset();
@@ -1769,14 +1773,15 @@ namespace weft {
                 frame.root = source;
                 auto inspect = [&](auto&& self, const SceneNode& c) -> void {
                     if ((!c.space.empty() && c.space != constants::xhtml_namespace_uri) ||
-                        get(c.style, "transform").find("perspective(") != std::string::npos) {
+                        get(c.style, PropertyId::Transform).find("perspective(") != std::string::npos) {
                         supported = false;
                     }
                     if (!c.text.empty()) {
                         auto m = measure(c.text, c.style);
-                        float px = len(get(c.style, "padding-left", "0")) + len(get(c.style, "padding-right", "0")) +
-                                   len(get(c.style, "border-left-width", "0")) +
-                                   len(get(c.style, "border-right-width", "0"));
+                        float px = len(get(c.style, PropertyId::PaddingLeft, "0")) +
+                                   len(get(c.style, PropertyId::PaddingRight, "0")) +
+                                   len(get(c.style, PropertyId::BorderLeftWidth, "0")) +
+                                   len(get(c.style, PropertyId::BorderRightWidth, "0"));
                         if (m.width + px > c.box[2] + constants::scene::layer_text_fit_tolerance_px ||
                             m.height > c.box[3] + constants::scene::layer_text_fit_tolerance_px) {
                             supported = false;
@@ -1787,7 +1792,7 @@ namespace weft {
                     }
                 };
                 inspect(inspect, source);
-                if (get(source.style, "overflow") != "hidden") {
+                if (get(source.style, PropertyId::Overflow) != "hidden") {
                     SceneRaster bounds(text);
                     for (const auto& e : bounds.geometry(frame)) {
                         if (e.rect[0] < -constants::scene::layer_bounds_tolerance_px ||
@@ -1846,11 +1851,11 @@ namespace weft {
         }
 
         void paint(const SceneNode& n) {
-            if (get(n.style, "display") == "none" || n.box[2] <= 0 || n.box[3] <= 0) {
+            if (get(n.style, PropertyId::Display) == "none" || n.box[2] <= 0 || n.box[3] <= 0) {
                 return;
             }
             const auto old = matrix();
-            auto t = get(n.style, "transform", "none");
+            auto t = get(n.style, PropertyId::Transform, "none");
             if (t.find("perspective(") != t.npos) {
                 projective(n, old);
                 return;
@@ -1869,8 +1874,8 @@ namespace weft {
             if (alpha) {
                 ++work.typed_draws;
             }
-            float opacity =
-                alpha ? float(alpha->scalar.absolute + alpha->scalar.relative) : len(get(n.style, "opacity", "1"));
+            float opacity = alpha ? float(alpha->scalar.absolute + alpha->scalar.relative)
+                                  : len(get(n.style, PropertyId::Opacity, "1"));
             if (retained(n, opacity)) {
                 target->SetTransform(old);
                 return;
@@ -1896,7 +1901,7 @@ namespace weft {
             auto shape = commands ? commands->shape : round_box(n.box[2], n.box[3], radii);
             shadow(n, radii);
             auto background = paint_color(n, constants::scene::paint_slot_background_color,
-                                          get(n.style, "background-color", "transparent"));
+                                          get(n.style, PropertyId::BackgroundColor, "transparent"));
             if (!gpu_target || background.a > 0) {
                 solid(background);
                 target->FillGeometry(shape.Get(), brush.Get());
@@ -1919,8 +1924,9 @@ namespace weft {
                     target->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), shape.Get()), border_clip.Get());
                 }
                 bool uniform = gpu_target;
-                const auto border_width = commands ? commands->widths[0] : len(get(n.style, "border-top-width", "0"));
-                const auto border_color = get(n.style, "border-top-color", "currentcolor");
+                const auto border_width =
+                    commands ? commands->widths[0] : len(get(n.style, PropertyId::BorderTopWidth, "0"));
+                const auto border_color = get(n.style, PropertyId::BorderTopColor, "currentcolor");
                 for (const auto* edge : {"top", "right", "bottom", "left"}) {
                     uniform = uniform &&
                               len(get(n.style, std::string("border-") + edge + "-width", "0")) == border_width &&
@@ -1971,7 +1977,8 @@ namespace weft {
                 }
             }
             bool clipped = commands ? commands->clipped
-                                    : (get(n.style, "overflow") == "hidden" || get(n.style, "overflow") == "auto") ||
+                                    : (get(n.style, PropertyId::Overflow) == "hidden" ||
+                                       get(n.style, PropertyId::Overflow) == "auto") ||
                                           n.tag == "svg";
             ComPtr<ID2D1Layer> clip;
             if (clipped) {
@@ -1996,7 +2003,7 @@ namespace weft {
                     }
                     std::stable_sort(ordered.begin(), ordered.end(), [](auto a, auto b) {
                         auto z = [](auto n) {
-                            auto v = get(n->style, "z-index", "0");
+                            auto v = get(n->style, PropertyId::ZIndex, "0");
                             return v == "auto" ? 0 : num(v);
                         };
                         return z(a) < z(b);
@@ -2205,7 +2212,7 @@ namespace weft {
 
     std::array<double, 6> SceneRaster::transform_matrix(const SceneNode& n) const {
         impl_->require_owner();
-        auto m = transform(get(n.style, "transform", "none"), n.box[2], n.box[3], false);
+        auto m = transform(get(n.style, PropertyId::Transform, "none"), n.box[2], n.box[3], false);
         return {m._11, m._12, m._21, m._22, m._31, m._32};
     }
 
@@ -2218,11 +2225,11 @@ namespace weft {
         impl_->require_owner();
         NodeIdentity result{};
         auto svg_visit = [&](auto&& self, const SceneNode& n, Plane parent, const SceneNode& root) -> void {
-            if (get(n.style, "display") == "none" || n.tag == "defs" || n.tag == "clipPath") {
+            if (get(n.style, PropertyId::Display) == "none" || n.tag == "defs" || n.tag == "clipPath") {
                 return;
             }
             const auto t =
-                n.attributes.contains("transform") ? n.attributes.at("transform") : get(n.style, "transform");
+                n.attributes.contains("transform") ? n.attributes.at("transform") : get(n.style, PropertyId::Transform);
             const auto m = parent * affine_plane(transform(t, 0, 0, true));
             Plane inverse;
             if (!m.inverse(inverse)) {
@@ -2238,31 +2245,33 @@ namespace weft {
                 }
             }
             auto shape = impl_->svg_shape(n);
-            if (shape && get(n.style, "pointer-events") != "none") {
-                const auto pointer = get(n.style, "pointer-events", "visiblePainted");
+            if (shape && get(n.style, PropertyId::PointerEvents) != "none") {
+                const auto pointer = get(n.style, PropertyId::PointerEvents, "visiblePainted");
                 const bool painted = pointer == "auto" || pointer == "painted" || pointer == "visiblePainted";
                 const bool fill = pointer == "all" || pointer == "fill" || pointer == "visibleFill" ||
                                   pointer == "visible" ||
-                                  (painted && get(n.style, "fill", constants::default_color) != "none");
+                                  (painted && get(n.style, PropertyId::Fill, constants::default_color) != "none");
                 const bool stroke = pointer == "all" || pointer == "stroke" || pointer == "visibleStroke" ||
-                                    pointer == "visible" || (painted && get(n.style, "stroke", "none") != "none");
+                                    pointer == "visible" ||
+                                    (painted && get(n.style, PropertyId::Stroke, "none") != "none");
                 if (fill && n.tag != "line") {
                     check(shape->FillContainsPoint({float(p[0]), float(p[1])}, nullptr, &inside));
                 }
                 if (!inside && stroke) {
                     auto style = impl_->svg_stroke(n);
-                    check(shape->StrokeContainsPoint({float(p[0]), float(p[1])}, len(get(n.style, "stroke-width", "1")),
-                                                     style.Get(), nullptr, &inside));
+                    check(shape->StrokeContainsPoint({float(p[0]), float(p[1])},
+                                                     len(get(n.style, PropertyId::StrokeWidth, "1")), style.Get(),
+                                                     nullptr, &inside));
                 }
                 if (inside) {
                     result = n.identity;
                 }
             }
-            if (n.tag == "text" && get(n.style, "pointer-events") != "none") {
+            if (n.tag == "text" && get(n.style, PropertyId::PointerEvents) != "none") {
                 auto metrics = impl_->measure(n.text, n.style);
                 float tx = n.attributes.contains("x") ? len(n.attributes.at("x")) : 0;
                 float ty = n.attributes.contains("y") ? len(n.attributes.at("y")) : 0;
-                auto anchor = get(n.style, "text-anchor", "start");
+                auto anchor = get(n.style, PropertyId::TextAnchor, "start");
                 if (anchor == "middle") {
                     tx -= metrics.width / 2;
                 }
@@ -2279,7 +2288,7 @@ namespace weft {
             }
         };
         auto visit = [&](auto&& self, const SceneNode& n, Plane parent) -> void {
-            if (get(n.style, "display") == "none") {
+            if (get(n.style, PropertyId::Display) == "none") {
                 return;
             }
             auto m = parent * plane(n);
@@ -2290,10 +2299,11 @@ namespace weft {
             auto p = inverse.point(x, y);
             const bool inside = p[0] >= 0 && p[0] < n.box[2] && p[1] >= 0 && p[1] < n.box[3];
             if (!inside &&
-                ((get(n.style, "overflow") == "hidden" || get(n.style, "overflow") == "auto") || n.tag == "svg")) {
+                ((get(n.style, PropertyId::Overflow) == "hidden" || get(n.style, PropertyId::Overflow) == "auto") ||
+                 n.tag == "svg")) {
                 return;
             }
-            if (inside && n.tag != "#text" && get(n.style, "pointer-events") != "none") {
+            if (inside && n.tag != "#text" && get(n.style, PropertyId::PointerEvents) != "none") {
                 result = n.identity;
             }
             if (n.space == constants::svg_namespace_uri) {
@@ -2308,7 +2318,7 @@ namespace weft {
                 order.push_back(&c);
             }
             std::stable_sort(order.begin(), order.end(), [](auto a, auto b) {
-                return len(get(a->style, "z-index", "0")) < len(get(b->style, "z-index", "0"));
+                return len(get(a->style, PropertyId::ZIndex, "0")) < len(get(b->style, PropertyId::ZIndex, "0"));
             });
             for (auto c : order) {
                 self(self, *c, m);
@@ -2341,23 +2351,24 @@ namespace weft {
                 float tx = n.attributes.contains("x") ? len(n.attributes.at("x")) : 0;
                 float ty = n.attributes.contains("y") ? len(n.attributes.at("y")) : 0;
                 if (n.attributes.contains("dy")) {
-                    ty += len(n.attributes.at("dy"), len(get(n.style, "font-size", constants::default_font_size)));
+                    ty += len(n.attributes.at("dy"),
+                              len(get(n.style, PropertyId::FontSize, constants::default_font_size)));
                 }
-                auto anchor = get(n.style, "text-anchor", "start");
+                auto anchor = get(n.style, PropertyId::TextAnchor, "start");
                 if (anchor == "middle") {
                     tx -= metrics.width / 2;
                 }
                 if (anchor == "end") {
                     tx -= metrics.width;
                 }
-                ty -= get(n.style, "dominant-baseline") == "central" ? metrics.height / 2 : metrics.baseline;
+                ty -= get(n.style, PropertyId::DominantBaseline) == "central" ? metrics.height / 2 : metrics.baseline;
                 r = {tx, ty, tx + metrics.width, ty + metrics.height};
             }
             for (const auto& c : n.children) {
                 if (c.tag != "defs" && c.tag != "clipPath") {
                     auto q = self(self, c);
                     auto t = transform(c.attributes.contains("transform") ? c.attributes.at("transform")
-                                                                          : get(c.style, "transform"),
+                                                                          : get(c.style, PropertyId::Transform),
                                        0, 0, true);
                     if (q.right >= q.left) {
                         for (auto p : std::array<D2D1_POINT_2F, 4>{
@@ -2393,10 +2404,10 @@ namespace weft {
             e.identity = n.identity;
             e.rect = {left, top, right - left, bottom - top};
             e.client_rects = {e.rect};
-            e.client_width = std::max(0.f, n.box[2] - len(get(n.style, "border-left-width", "0")) -
-                                               len(get(n.style, "border-right-width", "0")));
-            e.client_height = std::max(0.f, n.box[3] - len(get(n.style, "border-top-width", "0")) -
-                                                len(get(n.style, "border-bottom-width", "0")));
+            e.client_width = std::max(0.f, n.box[2] - len(get(n.style, PropertyId::BorderLeftWidth, "0")) -
+                                               len(get(n.style, PropertyId::BorderRightWidth, "0")));
+            e.client_height = std::max(0.f, n.box[3] - len(get(n.style, PropertyId::BorderTopWidth, "0")) -
+                                                len(get(n.style, PropertyId::BorderBottomWidth, "0")));
             e.scroll_width = e.client_width;
             e.scroll_height = e.client_height;
             e.offset = {n.box[0], n.box[1], n.box[2], n.box[3]};
@@ -2408,9 +2419,9 @@ namespace weft {
             if (n.tag == "defs" || n.tag == "clipPath") {
                 return;
             }
-            auto t =
-                transform(n.attributes.contains("transform") ? n.attributes.at("transform") : get(n.style, "transform"),
-                          0, 0, true);
+            auto t = transform(n.attributes.contains("transform") ? n.attributes.at("transform")
+                                                                  : get(n.style, PropertyId::Transform),
+                               0, 0, true);
             auto m = parent * affine_plane(t);
             auto b = bounds(bounds, n);
             if (b.right >= b.left) {
@@ -2439,8 +2450,9 @@ namespace weft {
                 }
                 return;
             }
-            const bool positioned = get(n.style, "position", "static") != "static" ||
-                                    get(n.style, "transform", "none") != "none" || n.identity == f.root.identity;
+            const bool positioned = get(n.style, PropertyId::Position, "static") != "static" ||
+                                    get(n.style, PropertyId::Transform, "none") != "none" ||
+                                    n.identity == f.root.identity;
             for (const auto& c : n.children) {
                 self(self, c, m, positioned ? n.identity : offset_parent, positioned ? 0 : ox + n.box[0],
                      positioned ? 0 : oy + n.box[1]);
