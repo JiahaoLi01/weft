@@ -72,12 +72,12 @@ namespace weft::constants::scene {
     inline constexpr float damage_full_repaint_ratio = .65f;
 
     // Native paint compiler.
-    // NativePaint::gradient codes, mirrored by shaders/scene_native_probe.hlsl.
+    // NativePaint::gradient codes, mirrored by src/render/backends/d3d11/scene.hlsl.
     inline constexpr unsigned gradient_none = 0u;
     inline constexpr unsigned gradient_linear = 1u;
     inline constexpr unsigned gradient_radial = 2u;
     inline constexpr unsigned gradient_conic = 3u;
-    // Mirrors MaxGradientStops in shaders/scene_native_probe.hlsl.
+    // Mirrors MaxGradientStops in src/render/backends/d3d11/scene.hlsl.
     inline constexpr int max_gradient_stops = 8;
     inline constexpr int max_native_paint_commands = 2048;
     // Deepest nesting of isolated opacity groups.

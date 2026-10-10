@@ -1,7 +1,7 @@
 #pragma once
 
 #include "probe_common.hpp"
-#include "scene_native_gpu_probe.hpp"
+#include "render/backends/d3d11/scene_renderer.hpp"
 #include "gallery_scene_manifest.hpp"
 #include "gallery_constants.hpp"
 #include "../tests/scene_visual_compare.hpp"
@@ -27,7 +27,7 @@ namespace probes {
             unsigned height{};
             std::optional<std::array<float, 4>> clip;
             std::shared_ptr<const weft::SceneFrame> retained_frame;
-            SceneNativeGpu::Slot native;
+            SceneRenderer::Slot native;
             bool last_native{};
         };
 
@@ -35,7 +35,7 @@ namespace probes {
         Experiment& gpu_;
         TwoFramePipeline& pipeline_;
         Backend& api_;
-        SceneNativeGpu native_;
+        SceneRenderer native_;
         ComPtr<ID2D1Device> d2d_;
         ComPtr<ID3D11Buffer> constants_;
         std::array<std::array<std::unique_ptr<Slot>, weft::probe_constants::gallery::surface_versions_per_card>,
@@ -145,12 +145,15 @@ namespace probes {
         bool retain_paint{};
         bool native_paint{};
 
-        const SceneNativeGpu& native_work() const {
+        const SceneRenderer& native_work() const {
             return native_;
         }
 
         SceneGpuSurfaces(Experiment& gpu, TwoFramePipeline& pipeline)
-            : gpu_(gpu), pipeline_(pipeline), api_(gpu.ensure_backend()), native_(gpu) {
+            : gpu_(gpu),
+              pipeline_(pipeline),
+              api_(gpu.ensure_backend()),
+              native_(gpu, weft::testing::thread_scene_text()) {
             api_.enable_external(weft::probe_constants::gallery::external_texture_limit,
                                  weft::probe_constants::gallery::external_import_budget_bytes);
             ComPtr<IDXGIDevice> device;

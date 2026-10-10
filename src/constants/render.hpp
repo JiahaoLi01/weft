@@ -1,10 +1,11 @@
 #pragma once
 
 #include "constants/common.hpp"
+#include "constants/scene.hpp"
 
 // Budgets, limits and validation tolerances of the renderer: the ResourceLifetime model, the
-// experimental renderer C ABI (src/render/render_backend.cpp), the rounded clip mask and the D3D11
-// reference renderer.
+// experimental renderer C ABI (src/render/render_backend.cpp), the rounded clip mask, the D3D11
+// reference renderer and its native scene pass.
 namespace weft::constants::render {
     // Frame pipelining defaults shared by LifetimeConfig and the default weft_renderer_desc.
     inline constexpr int default_max_prepared_frames = 2;
@@ -110,6 +111,41 @@ namespace weft::constants::render {
         // Asset identity metadata: expired entries are pruned from this size; live entries are bounded.
         inline constexpr int asset_identity_prune_threshold = 1024;
         inline constexpr int max_asset_identities = 2048;
+
+        // Native scene pass (scene_renderer.cpp). The shader-mirrored values match the static consts at the top
+        // of scene.hlsl.
+        namespace scene {
+            // Paint::extra.z / extra.w flags: FlagEnabled, and its disabled counterpart.
+            inline constexpr float flag_enabled = 1.f;
+            inline constexpr float flag_disabled = 0.f;
+            // MaxGradientStops and StopsPerOffsetVector.
+            inline constexpr int max_gradient_stops = constants::scene::max_gradient_stops;
+            inline constexpr int stops_per_offset_vector = 4;
+            inline constexpr int gradient_offset_vectors = max_gradient_stops / stops_per_offset_vector;
+            // Size of the shader Paint record (24 float4 registers).
+            inline constexpr int record_bytes = 384;
+            // Size of the View constant buffer (one float4).
+            inline constexpr int view_constants_bytes = 16;
+            inline constexpr int record_initial_capacity = 16;
+            // Nested transparent groups available per slot.
+            inline constexpr int max_group_depth = 4;
+            // Text and layer images keep a transparent margin around the node on each side.
+            inline constexpr int image_margin = 2;
+            inline constexpr int image_margins = 2 * image_margin;
+            // Instance bounds grow by this many device pixels on each side for antialiasing.
+            inline constexpr int record_bounds_outset = 2;
+            inline constexpr int record_bounds_outsets = 2 * record_bounds_outset;
+            // Initial extent of the bounds accumulation.
+            inline constexpr float record_bounds_sentinel = 1e10f;
+            // Overflow tolerances for text metrics and for layer descendants, in CSS pixels.
+            inline constexpr float text_fit_tolerance = .01f;
+            inline constexpr double layer_bounds_tolerance = .01;
+            // Text/layer image cache: entry cap and byte budget. A single image must fit in the budget.
+            inline constexpr int image_cache_max_entries = 128;
+            inline constexpr int image_cache_budget_bytes = 16 * constants::bytes_per_mib;
+            // Transparent-group scratch targets across all slots.
+            inline constexpr int scratch_budget_bytes = 128 * constants::bytes_per_mib;
+        } // namespace scene
     } // namespace d3d11
 
     // Rounded clip probe work bounds.

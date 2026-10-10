@@ -191,39 +191,7 @@ namespace weft::probe_constants::gallery {
     // Adds half the divisor before dividing by color_channel_max, rounding to nearest.
     inline constexpr int color_channel_rounding = weft::constants::color_channel_max / 2;
 
-    // --- Native scene shader (shaders/scene_native_probe.hlsl) ---
-
-    // These mirror the static consts at the top of shaders/scene_native_probe.hlsl.
-    // Record::extra.z / extra.w flags: FlagEnabled, and its disabled counterpart.
-    inline constexpr float flag_enabled = 1.f;
-    inline constexpr float flag_disabled = 0.f;
-    // MaxGradientStops and StopsPerOffsetVector.
-    inline constexpr int max_gradient_stops = weft::constants::scene::max_gradient_stops;
-    inline constexpr int stops_per_offset_vector = 4;
-    inline constexpr int gradient_offset_vectors = max_gradient_stops / stops_per_offset_vector;
-    // Size of the shader Paint record (24 float4 registers).
-    inline constexpr int native_record_bytes = 384;
-    // Size of the View constant buffer (one float4).
-    inline constexpr int native_view_constants_bytes = 16;
-    inline constexpr int native_record_initial_capacity = 16;
-    // Nested transparent groups available per card.
-    inline constexpr int native_max_group_depth = 4;
-    // Text and layer sources keep a transparent margin around the node on each side.
-    inline constexpr int text_source_margin = 2;
-    inline constexpr int text_source_margins = 2 * text_source_margin;
-    // Instance bounds grow by this many device pixels on each side for antialiasing.
-    inline constexpr int record_bounds_outset = 2;
-    inline constexpr int record_bounds_outsets = 2 * record_bounds_outset;
-    // Initial extent of the bounds accumulation.
-    inline constexpr float record_bounds_sentinel = 1e10f;
-    // Overflow tolerances for text metrics and for layer descendants, in CSS pixels.
-    inline constexpr float text_fit_tolerance = .01f;
-    inline constexpr double layer_bounds_tolerance = .01;
-    // Text/layer image cache: entry cap and byte budget. A single source must fit in the budget.
-    inline constexpr int native_image_cache_max_entries = 128;
-    inline constexpr int native_image_cache_budget_bytes = 16 * weft::constants::bytes_per_mib;
-    // Transparent-group scratch targets across all cards.
-    inline constexpr int native_scratch_budget_bytes = 128 * weft::constants::bytes_per_mib;
+    // The native scene pass constants are weft::constants::render::d3d11::scene (src/constants/render.hpp).
 
     // --- GPU scene tests ---
 

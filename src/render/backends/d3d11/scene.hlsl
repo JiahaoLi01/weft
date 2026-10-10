@@ -1,10 +1,10 @@
 // Encoded premultiplied intermediate matches the existing D2D/Chrome scene
 // contract; the shared conversion pass produces the engine's linear target.
 
-// ProbeNativePaint::gradient values (include/caseelephant/scene_native_probe.hpp).
+// NativePaint::gradient values (src/scene/scene_native.hpp).
 static const float GradientLinear = 1;
 static const float GradientRadial = 2;
-// Record::extra.z / extra.w flags written by probes/scene_native_gpu_probe.hpp.
+// Paint::extra.z / extra.w flags written by scene_renderer.cpp.
 static const float FlagEnabled = 1;
 static const uint MaxGradientStops = 8;
 static const uint StopsPerOffsetVector = 4;
