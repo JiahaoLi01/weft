@@ -31,7 +31,7 @@ cmake --build --preset windows-release --parallel 8
 - 线性不透明 gradient 走原生 brush，使用 sRGB 插值，其他 gradient 保留软件生成与有界缓存；[D2D gamma 枚举](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ne-d2d1-d2d1_gamma) 区分这两种插值。GPU brush 按参考 RGBA8 premultiplied 精度量化，保持低透明度背景的阈值一致，没有放宽原图 oracle。
 - DirectWrite text layout、路径、圆角 geometry 与 D2D scratch layer 重用；检测到四字节 Unicode 的 HTML color-text 路径使用有界设备字号文本图缓存，保持当前文本/字体/盒子与外部 transform/opacity。原本缩放动画中重复生成的彩色 emoji 是明显热点。这不是通用 color-font/SDF 声明，SVG 文本仍走原绘制路径。
 - projective 平面保留原 inverse-map/bilinear 实现，未变的平面内容先复用再投影。可见区域裁剪变化发布新 version，滚动露出不能复用旧裁剪图。文本图缓存最多 32 项/8MiB，gradient 32 项/32MiB，平面内容 16 项/16MiB；超大内容走非缓存路径。字体布局/路径/geometry/layer 都有容量上限，缓存属于各适配器，不保留 DOM/JS 引用。
-- CPU asset identity 改为弱引用元数据；不再因累计 64MiB 动画位图清空所有活跃纹理身份。过期地址重新分配身份，活跃 source ID 稳定。全不透明 RGBA8 可用 hardware sRGB decode-before-filter 的紧凑 texture；半透明仍保留 linear-premultiplied float upload，防止边缘颜色污染。
+- CPU asset identity 改为弱引用元数据；不再因累计 64MiB 动画位图清空所有活跃纹理身份。过期地址重新分配身份，活跃 source ID 稳定。全不透明 RGBA8 可用 hardware sRGB decode-before-filter 的紧凑 texture；半透明仍转成 linear-premultiplied float texture，防止边缘颜色污染（2026-10-10 起由 GPU 从原始 RGBA8 转换，结果逐位不变）。
 
 ## 固定性能条件
 

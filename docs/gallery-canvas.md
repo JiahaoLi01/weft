@@ -48,4 +48,6 @@ Canvas 合同还覆盖 256 次随机清除/绘制/尺寸重置的逐次 snapshot
 最终 Debug 67/67（74.12 秒）、Release 67/67（26.16 秒）、强制 GC 4/4（51.32 秒）。旧 HUD probe 增加明确 host-only 提交，检查完成确认前/后的 lease；Debug 最终 Canvas/4K 范围另 5/5（9.74 秒）。全量和最终范围日志分开保留，未用失败结果替代通过结果。
 
 
+2026-10-10 性能修复：4K 目录窗口里 Canvas 页只有约 64 FPS，原因是渲染器每帧在 CPU 上把两张 800×600 半透明位图展开成 float 纹理（prepare 8.7 ms）。现在由 GPU 转换（逐位相同），快照反预乘改为查表，宿主在像素不变时复用同一资产；Canvas 页 Present 约 229 FPS、内容更新约 92 次/秒。条件与前后数据见 [交互性能](gallery-interaction-profile.md#拖拽卡顿与-canvas-帧率2026-10-10第二轮)。
+
 2026-10-09 后续修复：可见 host timer pump 改为 classic locale / max_digits10，与 rAF 共享可往返的小数时间；单调性检查没有放松。新增 [4K 完整目录窗口](gallery-preview.md)，两例 Canvas 同页运行，其余 70 例显示实际缺口。旧单例/Tab 命令仍可用；此文的历史 67/67 和 Canvas seal 保留。

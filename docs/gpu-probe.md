@@ -29,7 +29,7 @@
 
 ## 颜色结果
 
-固定画幅 256×128，DPR 1。输入 CSS 颜色先 sRGB decode，再 premultiply；coverage 不做 transfer。两像素 straight-sRGB 图片逐 texel 转成 linear-premultiplied float 后上传，再线性过滤，避免透明蓝色污染红色边缘。没有接入产品 PNG decoder；这是固定资产反例。
+固定画幅 256×128，DPR 1。输入 CSS 颜色先 sRGB decode，再 premultiply；coverage 不做 transfer。两像素 straight-sRGB 图片逐 texel 转成 linear-premultiplied float 后再线性过滤，避免透明蓝色污染红色边缘。半透明输入的转换自 2026-10-10 起在 GPU 上进行（`srgb_convert.hlsl`，与原 CPU 表逐位相同，见 [交互性能](gallery-interaction-profile.md#拖拽卡顿与-canvas-帧率2026-10-10第二轮)）。没有接入产品 PNG decoder；这是固定资产反例。
 
 Direct 绘制到 R8G8B8A8 typeless texture 的 sRGB RTV；RTT 先绘制到 linear RGBA32F，再整体合成到同样的 sRGB RTV。blend 为 ONE / INV_SRC_ALPHA，RGB 与 alpha 均使用 premultiplied 规则。sRGB 输出的线性混合与编码合同参考 [Microsoft output-merger](https://learn.microsoft.com/en-us/windows/win32/direct3d11/d3d10-graphics-programming-guide-output-merger-stage)，实际 readback 另做验证。
 

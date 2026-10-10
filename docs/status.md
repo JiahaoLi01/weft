@@ -4,6 +4,35 @@
 
 ## 本次已实现
 
+性能修复：画廊拖拽卡顿与 Canvas 帧率（2026-10-10，第 7 步之前）。用户反馈 anime.js 拖拽和 D3 散点图拖拽很卡，Canvas 页只有 60–70 FPS。详见 [交互性能](gallery-interaction-profile.md#拖拽卡顿与-canvas-帧率2026-10-10第二轮)。
+- **原因**：
+  - Canvas 页：渲染器每帧在 CPU 上把两张半透明 Canvas 位图展开成 float 纹理（prepare 8.7 ms/帧）。
+  - 拖拽：240 Hz 显示器上渲染线程的 shell 快照/比较/复制与卡片重绘让单帧接近刷新间隔，帧成批排队又成批阻塞，present 间隔 P99 16–28 ms。
+- **改动**：
+  - 半透明 sRGB 输入改由 GPU 转换（`srgb_convert.hlsl`），WARP 与 RTX 5090 上 65,536 个组合逐位等于原 CPU 结果；
+  - Canvas 快照查表反预乘；
+  - shell 按 subtree revision 复用布局与静态包；
+  - Canvas 像素不变时复用资产；
+  - 交互窗口改用 frame-latency waitable swapchain（最多 2 帧排队）；
+  - 新增 live 拖拽/Canvas 基准和 render trace 区段。
+- **结果**（RTX 5090、4K 240 Hz，可见窗口三轮中位数）：
+  - Canvas 页 Present 64 → 229 FPS，内容更新 57 → 92 次/秒；
+  - anime 拖拽 present P99 16.0 → 7.8 ms；
+  - 散点图拖拽 present P99 17.2 → 11.0 ms，输入延迟 P99 33.0 → 16.9 ms。
+
+验证：
+- **全量测试**：`ctest --preset windows-release --parallel 6` 94/94（43.7 s），`windows-debug` 94/94（455.8 s）。
+- **产物对照**：WARP 29 组确定性套件 1,306 个文件与改动前逐字节相同。
+- **硬件**：RTX 5090 上 `--gallery-canvas-hardware`、`--scene-native-test-hardware`、`--cache-hardware`、`--complex-css-test-hardware`、`weft_render_d3d11_tests --hardware` 通过。`--gallery-window-test-hardware` 10 次中 1 次单采样点超阈值，原因见交互性能文档（墙钟动画边缘的硬件/软件 D2D 抗锯齿差异，与本轮改动无关）。
+
+未解决：
+- anime 页与 Canvas 页的内容更新率受 owner 限制（约 10–11 ms/帧，约 90–95 次/秒）；
+- 渲染线程 encode 需要字形图集才能合批。
+
+下一步：第 7 步类型化样式，同时降低 owner 每帧样式解析与原生卡片编译开销。
+
+以下第 6 步及更早内容为历史阶段证据：
+
 重构第 6 步：scene 可移植化（2026-10-10）。scene 的文字、几何与命中不再依赖 Windows，D2D 只作为 Windows 参考 raster。按 [重构计划](refactoring-plan.md#第-6-步记录2026-10-10)，分四部分：
 - **几何与命中**：`SceneGeometry`（`src/scene/scene_geometry.*`）计算元素盒与命中，不用图形 API；D2D 重放同一份解析后的 transform 和 path。
 - **文字**：

@@ -76,3 +76,86 @@ python tools/analyze_gallery_trace.py artifacts/local/interaction-profile/manual
 新增512个cascade全量/memo mutation差分及缓存命中仍触发token-work上限的反例、128次同步读mutation/epoch更新、detached/GC/reset、1000个Move夹Down/Up的队列反例、Unicode source位移/透明度复用而字体/颜色/内容必须失效。既有scene的随机mutation/动画/布局full-reference差分和Chrome图像门槛保留。Release/Debug正常配置全量各86/86通过（235.63/524.98s）。最终强制GC五项合同5/5通过（43.02s），覆盖script生命周期、owner队列、scene随机差分、共享平台同步读和style memo；大型30原例的强制GC重放在115/210 captures时主动停止，不纳入通过数，停止后的JSON尾部不完整是部分产物，浏览器审计因此失败；日志保留。硬件、GC最终计数以status和seal实际日志为准。
 
 下一步瓶颈是K-Line hover时整棵SVG/样式值复制、全量style input traversal和geometry；Anime同时可见的多个JS动画求值/scene rebuild；同步字体图像首次建立与部分SVG/圆角D2D fallback也仍有尖峰。实体输入到显示时延、长时间运行、实际游戏接入、公平Ultralight同负载对照、2WebGL/4Lottie和所有移动验证仍未完成。
+
+## 拖拽卡顿与 Canvas 帧率（2026-10-10，第二轮）
+
+用户反馈：带输入时（anime.js 拖拽、D3 Interactive 散点图）拖拽很卡；Canvas 页只有 60–70 FPS，其他页约 220。
+
+### 测量方法
+
+- `--gallery-live-benchmark-hardware <目录> <场景>`：与交互窗口相同的节奏（墙钟时间、不等待地取 owner 最新帧、可见窗口），每个渲染帧投递一次鼠标移动，与真实鼠标被合并后的 WM_MOUSEMOVE 一样。
+  - 场景：`anime-drag`（anime-08 的 `.drag-item`）、`scatter-drag`（散点图按下拖动）、`anime`（无输入）、`webgl`（两例 Canvas）。
+  - 热身 16 帧后的第 1–6 秒为测量区间，写 `live.json`：present 间隔、owner 发布间隔与 active 时间、被拖卡片（或 Canvas）的内容更新间隔、输入接收到 owner 发布和到渲染线程取到的时间。
+  - 只统计测量区间内接收的输入，可见窗口出现时真实光标产生的早期输入不计入。
+- `--gallery-owner-profile <目录> drag`：单例 CPU，按下后每帧移动两秒。
+- 确定性同步基准新增 `--gallery-input-benchmark-hardware <目录> anime-drag` 与 `--gallery-benchmark-hardware <目录> webgl`。
+- render-trace 新增区段：shell page/packet、owner exchange、scene publish/retire、packet assets、submit（含 prepare/encode/present/wait 与 draws/assets 数）、window messages、pipeline poll、hud。
+
+### 发现
+
+1. **Canvas**：渲染线程的 prepare 每帧 8.7 ms。
+   - 两例粒子 Canvas 总有半透明像素，渲染器每帧在 CPU 上逐像素 sRGB 解码、预乘并展开成 R32G32B32A32_FLOAT（每例 7.7 MB）再上传；加上 encode 2.3 ms，渲染线程约 14.7 ms/帧，即 64 FPS。
+   - 宿主每帧为同一份 Canvas 像素新建 1.9 MB 资产，渲染器缓存因此失效。
+   - owner 侧的 Canvas 快照每像素做 3 次整数除法反预乘。
+2. **拖拽**：单例 owner 开销不大（anime-08 持续拖动 P50 0.45 ms，散点图 2.9 ms），问题在窗口节奏。
+   - 显示器为 4K 240 Hz，Present 同步间隔 1、两个缓冲、DXGI 默认 3 帧队列。
+   - 渲染线程每帧要为整个 shell 快照 DOM、深拷贝比较并复制 FlowPage，每次输入再来一遍；owner 发布新帧时还要重绘多张卡片。
+   - 单帧 CPU 接近或超过 4.17 ms 刷新间隔时，帧被成批排队后又成批阻塞，present 间隔 P99 16–28 ms；阻塞期间 owner 收不到新请求而空闲。
+
+### 改动
+
+- **渲染器**（`weft::render_d3d11`）：
+  - 半透明 sRGB 输入改为上传原始 RGBA8 到 R8G8B8A8_UINT 源纹理，由 `srgb_convert.hlsl` 在 GPU 上写入同一 float 纹理。
+  - 转换使用与 CPU 相同的单精度 256 项解码表和 alpha 表，资源计费仍按 float 纹理，源纹理在资源就绪后释放。
+  - `render_d3d11_contract` 用 65,536 个通道值×alpha 组合逐位比较，WARP 与 RTX 5090 全部相同。
+- **Canvas 快照**：反预乘改为每个 alpha 一行的 64 KiB 查表，结果与整数除法逐字节相同。
+- **画廊宿主**：
+  - shell 的 subtree revision 随 DOM、hover/active 与滚动变化而变；revision 不变时 page() 与静态包直接复用，page() 返回引用。自测在 revision 未变时仍做完整快照比较，作为反例检查。
+  - Canvas 像素未变时复用同一资产，渲染器命中缓存。
+  - 窗口标题只在文字变化时设置。
+- **帧节奏**：交互窗口与 live 基准使用 frame-latency waitable swapchain（3 个缓冲，最多 2 帧排队），每帧开始前等待交换链接收下一帧。
+  - 只允许 1 帧时，单帧 CPU 超过一个刷新周期就整体降到 120 Hz；允许 2 帧多一个刷新周期（4.2 ms）的延迟，但保持 240 Hz。
+  - 确定性测试和其他窗口仍是原来的两帧流水线节奏。
+
+### 前后对比
+
+条件：
+- 环境：Ryzen 9 9950X3D、RTX 5090、Windows 11 26200、MSVC Release、4K 240 Hz 显示器。
+- 负载：64 个 scene VM 与 2 个 Canvas VM 全部运行，开 trace。
+- 之前为单轮隐藏窗口（改动前代码，同一测量工具）；之后为可见窗口三轮的中位数。同一版本隐藏与可见窗口的结果一致（例如 anime 拖拽 present P99 7.2 / 7.1 ms）。
+
+| 场景 | Present FPS | present 间隔 P99 / 最大 ms | 内容更新/秒 | 更新间隔 P99 / 最大 ms | 输入到渲染线程取到 P50 / P99 ms |
+| --- | --- | --- | --- | --- | --- |
+| anime 拖拽 | 220 → 239 | 16.0 / 23.3 → 7.8 / 9.4 | 99 → 93 | 25.3 / 29.3 → 20.8 / 25.0 | 13.7 / 25.7 → 12.9 / 24.9 |
+| 散点图拖拽 | 192 → 238 | 17.2 / 28.5 → 11.0 / 12.2 | 139 → 133 | 20.2 / 31.9 → 16.6 / 20.8 | 11.6 / 33.0 → 12.4 / 16.9 |
+| Canvas 页 | 64 → 229 | 21.1 / 24.5 → 11.7 / 12.7 | 57 → 92 | 34.8 / 38.7 → 16.7 / 24.8 | — |
+
+渲染线程每帧 CPU（Canvas 页）P50 从 14.7 ms 降到 2.2 ms；shell page/packet/input 合计从约 1.3 ms 降到约 0.1 ms。
+
+### 仍然存在
+
+- **anime 页受 owner 限制**：14 个同时动画的卡片每帧约 10 ms（anime-00、anime-05 各约 2 ms），被拖卡片约 93 次/秒更新、延迟约 13 ms。可能的方向：
+  - 输入命中的卡片先步进并提前发布部分帧；
+  - 第 7 步类型化样式，减少每帧样式字符串解析和 scene 编译。
+- **Canvas 页受 owner 限制**：owner 约 11 ms，其中粒子 Canvas 的 JS 约 6 ms（每帧约 270 个粒子，各有 beginPath/arc/fillStyle 模板字符串/fill），D2D 软件栅格与快照共约 2.3 ms。
+- **渲染线程**：
+  - encode 约 1.3 ms，为 750 个 draw，每个字形是独立纹理，需要字形图集或实例化才能合批；
+  - 每张原生卡片重绘 0.2–0.4 ms，主要是逐帧把样式字符串编译成 paint。
+- **硬件 4K 自测偶发失败**：`--gallery-window-test-hardware` 10 次中失败 1 次（改动前代码 4 次全过），单个采样点差 10 色阶（阈值更小）。该自测用墙钟时间，D3 动画每次停在不同位置；当采样点恰好落在动画边缘时，硬件 D2D 与软件 D2D 参考的抗锯齿会不同。本轮改动不涉及这条路径。WARP 版（CTest）不受影响。
+- **未验证**：
+  - 120/144/60 Hz 显示器、其他 GPU 与笔记本功耗状态；
+  - 物理鼠标从设备到窗口的系统延迟（基准从 WindowProc 接收开始计时）；
+  - 到屏幕的光子延迟。
+
+### 复现
+
+```powershell
+$exe = '.\build\windows-msvc\bin\Release\weft_d3d11_probe.exe'
+& $exe --gallery-live-benchmark-hardware artifacts/local/perf-drag/live-anime-drag anime-drag
+& $exe --gallery-live-benchmark-hardware artifacts/local/perf-drag/live-scatter-drag scatter-drag
+& $exe --gallery-live-benchmark-hardware artifacts/local/perf-drag/live-webgl webgl
+& $exe --gallery-owner-profile artifacts/local/perf-drag/cpu-drag drag
+.\build\windows-msvc\bin\Release\weft_render_d3d11_tests.exe --hardware
+```
+
+live 基准会弹出约 8 秒的可见窗口。各轮产物与 trace 在 `artifacts/local/perf-drag/`。
