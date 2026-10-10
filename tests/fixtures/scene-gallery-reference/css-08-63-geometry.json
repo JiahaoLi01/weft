@@ -1,0 +1,107 @@
+[
+  {
+    "tag": "div",
+    "rect": [
+      0,
+      0,
+      387,
+      288
+    ],
+    "style": {
+      "width": "387px",
+      "height": "288px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "none",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "0px",
+      "border-color": "rgb(245, 230, 200)",
+      "color": "rgb(245, 230, 200)"
+    }
+  },
+  {
+    "tag": "div",
+    "rect": [
+      24,
+      32,
+      339,
+      44
+    ],
+    "style": {
+      "width": "339px",
+      "height": "44px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "none",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "0px",
+      "border-color": "rgb(245, 230, 200)",
+      "color": "rgb(245, 230, 200)"
+    }
+  },
+  {
+    "tag": "div",
+    "rect": [
+      24,
+      32,
+      339,
+      16
+    ],
+    "style": {
+      "width": "339px",
+      "height": "16px",
+      "font-size": "12px",
+      "line-height": "16px",
+      "transform": "none",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "0px",
+      "border-color": "oklab(0.92919 0.00408328 0.0425454 / 0.4)",
+      "color": "oklab(0.92919 0.00408328 0.0425454 / 0.4)"
+    }
+  },
+  {
+    "tag": "div",
+    "rect": [
+      24,
+      56,
+      339,
+      20
+    ],
+    "style": {
+      "width": "339px",
+      "height": "20px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "none",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "3.35544e+07px",
+      "border-color": "oklab(0.753448 0.0112933 0.126953 / 0.2)",
+      "color": "rgb(245, 230, 200)"
+    }
+  },
+  {
+    "tag": "div",
+    "rect": [
+      25,
+      57,
+      184.625,
+      18
+    ],
+    "style": {
+      "width": "184.625px",
+      "height": "18px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "none",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "3.35544e+07px",
+      "border-color": "rgb(245, 230, 200)",
+      "color": "rgb(245, 230, 200)"
+    }
+  }
+]

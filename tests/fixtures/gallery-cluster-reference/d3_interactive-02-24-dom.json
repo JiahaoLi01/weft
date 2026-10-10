@@ -1,0 +1,563 @@
+{
+  "state": {
+    "active": {
+      "group": "D3_INTERACTIVE_TESTS",
+      "index": 2,
+      "label": "Brushable Timeline (drag to select)"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "svg",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "D0"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "D5"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "D10"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "D15"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "D20"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "D25"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "D30"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "D35"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "D40"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "D45"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "0"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "5"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "10"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "15"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "20"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "25"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": "display: none;",
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": "display: none;",
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": "display: none;",
+      "text": ""
+    }
+  ]
+}

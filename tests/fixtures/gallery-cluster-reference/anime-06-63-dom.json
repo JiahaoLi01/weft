@@ -1,0 +1,93 @@
+{
+  "state": {
+    "active": {
+      "group": "ANIME_TESTS",
+      "index": 6,
+      "label": "Wave Text"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "span",
+      "style": "transform: translateY(-9.8842px); color: rgb(222, 182, 88);",
+      "text": "C"
+    },
+    {
+      "tag": "span",
+      "style": "transform: translateY(-7.8447px); color: rgb(225, 187, 96);",
+      "text": "R"
+    },
+    {
+      "tag": "span",
+      "style": "transform: translateY(-5.4639px); color: rgb(230, 193, 106);",
+      "text": "P"
+    },
+    {
+      "tag": "span",
+      "style": "transform: translateY(-2.7418px); color: rgb(235, 201, 117);",
+      "text": "G"
+    },
+    {
+      "tag": "span",
+      "style": "transform: translateY(-0.0017px); color: rgb(240, 208, 128);",
+      "text": " "
+    },
+    {
+      "tag": "span",
+      "style": "transform: translateY(-0.2065px); color: rgb(240, 207, 127);",
+      "text": "F"
+    },
+    {
+      "tag": "span",
+      "style": "transform: translateY(-0.7526px); color: rgb(239, 206, 125);",
+      "text": "r"
+    },
+    {
+      "tag": "span",
+      "style": "transform: translateY(-1.6401px); color: rgb(237, 204, 121);",
+      "text": "a"
+    },
+    {
+      "tag": "span",
+      "style": "transform: translateY(-2.8689px); color: rgb(235, 200, 116);",
+      "text": "m"
+    },
+    {
+      "tag": "span",
+      "style": "transform: translateY(-4.439px); color: rgb(232, 196, 110);",
+      "text": "e"
+    },
+    {
+      "tag": "span",
+      "style": "transform: translateY(-6.3505px); color: rgb(228, 191, 102);",
+      "text": "w"
+    },
+    {
+      "tag": "span",
+      "style": "transform: translateY(-8.6033px); color: rgb(224, 185, 93);",
+      "text": "o"
+    },
+    {
+      "tag": "span",
+      "style": "transform: translateY(-11.1974px); color: rgb(219, 178, 82);",
+      "text": "r"
+    },
+    {
+      "tag": "span",
+      "style": "transform: translateY(-14.1329px); color: rgb(214, 170, 71);",
+      "text": "k"
+    }
+  ]
+}

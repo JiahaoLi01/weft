@@ -1,0 +1,5 @@
+Original embedded font name-table copyright/license notice:
+
+The Ahem font belongs to the public domain. In jurisdictions that do not recognize public domain ownership of these files, the following Creative Commons Zero declaration applies: http://labs.creativecommons.org/licenses/zero-waive/1.0/us/legalcode
+
+Full CC0 1.0 legal text: CC0.txt

@@ -1,0 +1,53 @@
+/*
+ * CRPG design tokens — Tailwind v4 @theme block.
+ *
+ * Variables declared here become Tailwind utilities automatically:
+ *   --color-parchment  →  bg-parchment / text-parchment / border-parchment
+ *   --font-display     →  font-display (used via `font-[family-name:var(--font-display)]`
+ *                         or directly `var(--font-display)` in style props)
+ *
+ * Add new tokens here when they're genuinely global (used by >1 feature or
+ * the design system). Feature-specific colors (e.g. a rarity-exclusive
+ * purple for epic items) stay inside the feature's own CSS file.
+ *
+ * Font registration (@font-face) is done at runtime by src/config/fonts.ts
+ * (see `ensureFontFaceInjected`); we only declare font-family *stacks* here
+ * so the @font-face registry and CSS variable values don't drift apart.
+ */
+
+@theme {
+    /* CRPG color palette */
+    --color-parchment: #f5e6c8;
+    --color-parchment-dark: #d4c4a0;
+    --color-ink: #2c1810;
+    --color-ink-light: #5c4033;
+    --color-gold: #d4a843;
+    --color-gold-light: #f0d080;
+    /* 黄铜 —— 战斗 UI 的"雕版框架"色(细线框 / 角饰 / 刻度)。比 gold 低饱和,
+     * 维多利亚新古典的金属色。与 config/battle-palette.ts 的 ANTIQUE_GOLD 同值,
+     * 改动需两边同步。 */
+    --color-brass: #c7a667;
+    --color-blood: #8b1a1a;
+    --color-blood-light: #c44040;
+    --color-mana: #2a4a8a;
+    --color-mana-light: #4a7acc;
+    --color-health: #2d8b2d;
+    --color-health-light: #4caf4c;
+    --color-stamina: #b8860b;
+    --color-panel: rgba(20, 15, 10, 0.85);
+    --color-panel-light: rgba(40, 30, 20, 0.75);
+    --color-panel-border: rgba(212, 168, 67, 0.4);
+
+    /* Fonts — Noto Serif SC covers both CJK display and Latin serif.
+     * --font-subtitle is a five-way mixed stack: Cinzel Decorative for
+     * ASCII digits, EB Garamond for Latin, Shippori Mincho for Japanese
+     * kana (scoped via unicode-range), LXGW Neo Zhi Song Plus for kanji,
+     * Noto Serif SC as final fallback. See fonts.ts for @font-face decls. */
+    --font-ui: "Segoe UI", system-ui, sans-serif;
+    --font-display: "Noto Serif SC", "Cinzel", "Times New Roman", serif;
+    --font-subtitle: "Cinzel Decorative", "EB Garamond", "Shippori Mincho", "LXGW NeoZhiSong Plus", "Noto Serif SC", "Times New Roman", serif;
+    /* --font-default: 与 --font-subtitle 同样的混合栈,作为通用默认字体(浮空血条名等
+     * 引用 var(--font-default))。见 fonts.ts 的 "default" 条目。 */
+    --font-default: "Cinzel Decorative", "EB Garamond", "Shippori Mincho", "LXGW NeoZhiSong Plus", "Noto Serif SC", "Times New Roman", serif;
+    --font-mono: "Consolas", monospace;
+}

@@ -1,0 +1,18 @@
+{
+  "state": {
+    "active": {
+      "group": "ANIME_TESTS",
+      "index": 5,
+      "label": "Particle Explosion"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    }
+  ]
+}

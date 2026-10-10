@@ -1,0 +1,88 @@
+{
+  "state": {
+    "active": {
+      "group": "ANIME_TESTS",
+      "index": 1,
+      "label": "Text Reveal"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0.9018; transform: translateY(1.9636px);",
+      "text": "P"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0.8292; transform: translateY(3.4169px);",
+      "text": "u"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0.7365; transform: translateY(5.2702px);",
+      "text": "r"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0.6238; transform: translateY(7.5236px);",
+      "text": "p"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0.4912; transform: translateY(10.1769px);",
+      "text": "l"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0.3385; transform: translateY(13.2302px);",
+      "text": "e"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0.1658; transform: translateY(16.6836px);",
+      "text": " "
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0; transform: translateY(20px);",
+      "text": "S"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0; transform: translateY(20px);",
+      "text": "c"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0; transform: translateY(20px);",
+      "text": "h"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0; transform: translateY(20px);",
+      "text": "e"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0; transform: translateY(20px);",
+      "text": "m"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0; transform: translateY(20px);",
+      "text": "e"
+    }
+  ]
+}

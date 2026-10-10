@@ -1,0 +1,21 @@
+:root { --theme:#e6c98b; --Theme:#9ac7b0; --number:16; --parent:var(--theme); --x:#e6c98b; color:#123456; }
+:root.alternate { --theme:#c98b74; }
+#cases { --empty:; }
+#cases > div { height:24px; width:220px; }
+#case-a { color:var(--theme); }
+#case-b { --theme:#ffffff; color:var(--parent); }
+#case-c { color:var(--missing,var(--Theme)); }
+#case-d { color:#ff0000; color:var(--empty,#ffffff); }
+#case-e { --a:var(--b); --b:var(--a); color:var(--a,#a9ada5); }
+#case-f { --a:var(--theme,var(--a)); color:var(--a,#a9ada5); }
+#case-g { --a:initial; color:var(--a,#8f948c); }
+#case-h { color:#ff0000; color:var(--number); }
+#case-i { color:var(--missing,); }
+#case-j { color:inherit; }
+#case-k { color:rgba(160,154,130,.22); }
+#case-l { color:var(--theme); }
+#case-l[aria-expanded="true"] { color:var(--Theme); }
+#case-m[data-label="a,b"], [absent] { color:var(--Theme); }
+#case-n { --x:var(--missing,initial); color:var(--x,#a9ada5); }
+#case-o { --x:var(--missing,inherit); color:var(--x,#a9ada5); }
+#case-p { --x:var(--missing,unset); color:var(--x,#a9ada5); }

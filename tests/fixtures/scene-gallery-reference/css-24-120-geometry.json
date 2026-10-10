@@ -1,0 +1,65 @@
+[
+  {
+    "tag": "div",
+    "rect": [
+      0,
+      0,
+      387,
+      288
+    ],
+    "style": {
+      "width": "387px",
+      "height": "288px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "none",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "0px",
+      "border-color": "rgb(245, 230, 200)",
+      "color": "rgb(245, 230, 200)"
+    }
+  },
+  {
+    "tag": "div",
+    "rect": [
+      0,
+      0,
+      387,
+      288
+    ],
+    "style": {
+      "width": "387px",
+      "height": "288px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "none",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "0px",
+      "border-color": "rgb(245, 230, 200)",
+      "color": "rgb(245, 230, 200)"
+    }
+  },
+  {
+    "tag": "div",
+    "rect": [
+      149.7871856689453,
+      100.28718566894531,
+      87.42562866210938,
+      87.42562866210938
+    ],
+    "style": {
+      "width": "64px",
+      "height": "64px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "matrix(-0.5, 0.866025, -0.866025, -0.5, 0, 0)",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "3.35544e+07px",
+      "border-color": "rgb(212, 168, 67) oklab(0.753448 0.0112933 0.126953 / 0.3) oklab(0.753448 0.0112933 0.126953 / 0.1)",
+      "color": "rgb(245, 230, 200)"
+    }
+  }
+]

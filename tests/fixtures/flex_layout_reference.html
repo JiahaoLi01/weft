@@ -1,0 +1,54 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>CaseElephant Flex browser reference</title>
+<style>
+@font-face { font-family: Ahem; src: url('../../third_party/ahem/Ahem.ttf'); }
+body { margin: 0; font: 20px/20px Ahem; }
+.stage { position: relative; margin: 0; padding: 0; width: 600px; }
+.node { border-style: solid; border-width: 0; }
+#report { font: 12px/1.4 monospace; white-space: pre-wrap; }
+</style>
+<div id="samples"></div><pre id="report">pending</pre>
+<script src="flex_layout_cases.js"></script>
+<script>
+async function run() {
+  const loaded = await document.fonts.load('20px Ahem', 'X');
+  if (!loaded.length) throw Error('Ahem font did not load');
+  await document.fonts.ready;
+  const results = [];
+  for (const fixture of caseElephantFlexFixture.cases) {
+    const stage = document.createElement('div'); stage.className = 'stage';
+    const elements = [];
+    function create(spec) {
+      const n = document.createElement('div'); n.className = 'node'; n.dataset.ceId = spec.id;
+      for (const [key, value] of Object.entries(spec.style || {})) n.style.setProperty(key, value);
+      if (spec.text) n.textContent = spec.text;
+      elements.push([n, spec]);
+      for (const child of spec.children || []) n.appendChild(create(child));
+      return n;
+    }
+    const root = create(fixture.root); stage.appendChild(root); document.querySelector('#samples').appendChild(stage);
+    const origin = root.getBoundingClientRect();
+    const boxes = elements.map(([n,spec]) => {
+      const r = n.getBoundingClientRect();
+      const box = {id: spec.id, x:r.x-origin.x, y:r.y-origin.y, width:r.width, height:r.height};
+      if (spec.text) {
+        const range = document.createRange(); range.selectNodeContents(n);
+        const fragments = [...range.getClientRects()];
+        const rows = new Set(fragments.map(rect => rect.y));
+        box.text_lines = rows.size;
+        box.text_width = Math.max(0, ...fragments.map(rect=>rect.width));
+        box.text_height = rows.size * parseFloat(getComputedStyle(n).lineHeight);
+      }
+      return box;
+    });
+    results.push({id: fixture.id, boxes});
+  }
+  const report = {fixture:caseElephantFlexFixture.fixture, browser:navigator.userAgent,
+    input_sha256:caseElephantFlexFixture.input_sha256,
+    font_loaded:true, tolerance_css_px:caseElephantFlexFixture.tolerance_css_px, cases:results};
+  document.querySelector('#report').textContent = JSON.stringify(report);
+  document.documentElement.dataset.done = 'true';
+}
+run().catch(e=>{ document.querySelector('#report').textContent=JSON.stringify({error:String(e),stack:e.stack}); });
+</script>

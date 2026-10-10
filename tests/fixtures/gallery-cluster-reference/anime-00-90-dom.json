@@ -1,0 +1,143 @@
+{
+  "state": {
+    "active": {
+      "group": "ANIME_TESTS",
+      "index": 0,
+      "label": "Stagger Grid (5x5)"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.9009) rotate(-17.8322deg); background-color: rgb(60, 84, 130); border-radius: 19.8135%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.91) rotate(-16.2deg); background-color: rgb(74, 92, 125); border-radius: 18%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.9136) rotate(-15.5585deg); background-color: rgb(80, 95, 122); border-radius: 17.2872%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.91) rotate(-16.2deg); background-color: rgb(74, 92, 125); border-radius: 18%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.9009) rotate(-17.8322deg); background-color: rgb(60, 84, 130); border-radius: 19.8135%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.91) rotate(-16.2deg); background-color: rgb(74, 92, 125); border-radius: 18%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.922) rotate(-14.0365deg); background-color: rgb(93, 102, 117); border-radius: 15.5961%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.9276) rotate(-13.025deg); background-color: rgb(101, 107, 113); border-radius: 14.4722%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.922) rotate(-14.0365deg); background-color: rgb(93, 102, 117); border-radius: 15.5961%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.91) rotate(-16.2deg); background-color: rgb(74, 92, 125); border-radius: 18%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.9136) rotate(-15.5585deg); background-color: rgb(80, 95, 122); border-radius: 17.2872%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.9276) rotate(-13.025deg); background-color: rgb(101, 107, 113); border-radius: 14.4722%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.9405) rotate(-10.7165deg); background-color: rgb(121, 118, 105); border-radius: 11.9072%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.9276) rotate(-13.025deg); background-color: rgb(101, 107, 113); border-radius: 14.4722%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.9136) rotate(-15.5585deg); background-color: rgb(80, 95, 122); border-radius: 17.2872%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.91) rotate(-16.2deg); background-color: rgb(74, 92, 125); border-radius: 18%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.922) rotate(-14.0365deg); background-color: rgb(93, 102, 117); border-radius: 15.5961%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.9276) rotate(-13.025deg); background-color: rgb(101, 107, 113); border-radius: 14.4722%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.922) rotate(-14.0365deg); background-color: rgb(93, 102, 117); border-radius: 15.5961%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.91) rotate(-16.2deg); background-color: rgb(74, 92, 125); border-radius: 18%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.9009) rotate(-17.8322deg); background-color: rgb(60, 84, 130); border-radius: 19.8135%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.91) rotate(-16.2deg); background-color: rgb(74, 92, 125); border-radius: 18%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.9136) rotate(-15.5585deg); background-color: rgb(80, 95, 122); border-radius: 17.2872%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.91) rotate(-16.2deg); background-color: rgb(74, 92, 125); border-radius: 18%;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: scale(0.9009) rotate(-17.8322deg); background-color: rgb(60, 84, 130); border-radius: 19.8135%;",
+      "text": ""
+    }
+  ]
+}

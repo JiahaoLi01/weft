@@ -1,0 +1,10 @@
+{
+  "fonts": [
+    {
+      "familyName": "Consolas",
+      "postScriptName": "Consolas",
+      "isCustomFont": false,
+      "glyphCount": 15
+    }
+  ]
+}

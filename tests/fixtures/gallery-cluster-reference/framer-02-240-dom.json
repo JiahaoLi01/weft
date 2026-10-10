@@ -1,0 +1,23 @@
+{
+  "state": {
+    "active": {
+      "group": "FRAMER_TESTS",
+      "index": 2,
+      "label": "Hover + Tap"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "background-color: rgb(212, 168, 67); transform: none;",
+      "text": "TAP"
+    }
+  ]
+}

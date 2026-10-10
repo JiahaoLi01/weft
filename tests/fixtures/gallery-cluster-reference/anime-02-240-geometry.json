@@ -1,0 +1,65 @@
+[
+  {
+    "tag": "div",
+    "rect": [
+      0,
+      0,
+      387,
+      288
+    ],
+    "style": {
+      "width": "387px",
+      "height": "288px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "none",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "0px",
+      "border-color": "rgb(245, 230, 200)",
+      "color": "rgb(245, 230, 200)"
+    }
+  },
+  {
+    "tag": "div",
+    "rect": [
+      0,
+      0,
+      387,
+      288
+    ],
+    "style": {
+      "width": "387px",
+      "height": "288px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "none",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "0px",
+      "border-color": "rgb(245, 230, 200)",
+      "color": "rgb(245, 230, 200)"
+    }
+  },
+  {
+    "tag": "div",
+    "rect": [
+      12,
+      88.20610046386719,
+      48,
+      48
+    ],
+    "style": {
+      "width": "40px",
+      "height": "40px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "matrix(1.2, 0, 0, 1.2, 0, 76.2061)",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "2.3712%",
+      "border-color": "rgb(245, 230, 200)",
+      "color": "rgb(245, 230, 200)"
+    }
+  }
+]

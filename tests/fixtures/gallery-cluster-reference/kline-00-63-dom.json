@@ -1,0 +1,2293 @@
+{
+  "state": {
+    "active": {
+      "group": "KLINE_TESTS",
+      "index": 0,
+      "label": "Interactive K-Line Chart (120 days, OHLC + Volume + SMA + Crosshair + Tooltip)"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "svg",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "$140.0"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "$145.0"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "$150.0"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "$155.0"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "$160.0"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "$165.0"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Day 0"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Day 10"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Day 20"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Day 30"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Day 40"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Day 50"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Day 60"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Day 70"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Day 80"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Day 90"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Day 100"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Day 110"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "0.0K"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "1.0K"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "2.0K"
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Volume"
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "SMA(20)"
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "$153.5"
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "CRPG Gold Price — 120 Day K-Line"
+    },
+    {
+      "tag": "div",
+      "style": "min-width: 150px; display: block; left: 531.608px; top: 158.75px;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "color:#4caf4c;font-weight:bold;margin-bottom:4px",
+      "text": "Day 49 ▲"
+    },
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "b",
+      "style": null,
+      "text": "$148.53"
+    },
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "b",
+      "style": null,
+      "text": "$151.10"
+    },
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "b",
+      "style": null,
+      "text": "$147.11"
+    },
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "b",
+      "style": "color:#4caf4c",
+      "text": "$150.10"
+    },
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "b",
+      "style": null,
+      "text": "2084"
+    },
+    {
+      "tag": "div",
+      "style": "color:#4caf4c",
+      "text": "Change: 1.05%"
+    }
+  ]
+}

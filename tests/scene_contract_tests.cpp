@@ -1,0 +1,137 @@
+#include "caseelephant/scene_probe.hpp"
+#include "../probes/gallery_scene_session.hpp"
+#include <iostream>
+#include <thread>
+#include <windows.h>
+void require(bool b,const char* s){if(!b)throw std::runtime_error(s);}
+int main(){try{struct ComScope{ComScope(){CoInitializeEx(nullptr,COINIT_MULTITHREADED);}~ComScope(){CoUninitialize();}} com;caseelephant::ScriptDomProbe vm;vm.eval(scene_read(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));vm.eval(scene_read(CE_SOURCE_DIR "/probes/animation_frame_bootstrap.js"));
+    require(vm.eval(R"JS((()=>{const root=document.getElementById('root');const parent=document.createElementNS('http://www.w3.org/2000/svg','g');parent.setAttribute('class','tick');const a=document.createElementNS(parent.namespaceURI,'line'),b=document.createElementNS(parent.namespaceURI,'text');parent.appendChild(a);parent.appendChild(b);root.appendChild(parent);let errors=0;for(const s of ['.tick > line',' ','.tick [x]','line,']){try{root.querySelectorAll(s)}catch(e){errors++}}return root.querySelectorAll('.tick line').length===1&&root.querySelectorAll('line,.tick line').length===1&&a.matches('g line')&&root.querySelector('.tick text')===b&&!b.matches('.tick line')&&errors===4})())JS")=="true","descendant namespace selectors/invalid syntax");
+    require(vm.eval(R"JS((()=>{globalThis.timer=[];let id=setInterval(function(a){timer.push([a,this===globalThis,performance.now()]);if(timer.length===2)clearTimeout(id)},5,'arg');__ceHost.pump(4);__ceHost.pump(5);__ceHost.pump(100);__ceHost.pump(101);return JSON.stringify(timer)==='[["arg",true,5],["arg",true,100]]'&&__ceHost.pending()===0})())JS")=="true","interval pause coalescing/self cancellation/shared ids");
+    require(vm.eval(R"JS((()=>{let id=setInterval(()=>{throw Error('timer failure')},1);__ceHost.pump(102);let error=false;try{__ceHost.pump(102)}catch(e){error=String(e).includes('timer failure')}clearInterval(id);return error&&__ceHost.pending()===0})())JS")=="true","interval error/cancel leaked task");
+    vm.reset_document();vm.eval(scene_read(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+    caseelephant::SceneRasterProbe raster;caseelephant::SceneProbe scene(".bg-gold\\/20{background-color:rgba(212,168,67,.2)}.parent{transition-property:color;transition-duration:1s;transition-timing-function:linear}.explicit{color:#ff0000}","@keyframes k{from{transform:translateX(0);opacity:0}to{transform:translateX(20px);opacity:1}}",[&](auto t,const auto& s){return raster.measure(t,s);});
+    vm.eval("document.getElementById('root').setAttribute('style','background:#000000;position:relative');const p=document.createElement('div');p.setAttribute('class','parent');p.setAttribute('style','color:#000000');const a=document.createElement('span');a.textContent='A';const b=document.createElement('span');b.setAttribute('class','explicit');b.textContent='B';p.appendChild(a);p.appendChild(b);document.getElementById('root').appendChild(p)");
+    scene.frame(vm.snapshot_subtree("#root"),100,100,0);vm.eval("p.style.color='#ffffff'");scene.frame(vm.snapshot_subtree("#root"),100,100,10);auto f=scene.frame(vm.snapshot_subtree("#root"),100,100,510);auto c=caseelephant::parse_probe_css_color(f.root.children[0].children[0].style.at("color"));require(std::abs(c[0]-.5f)<.001,"animated inherited color jumped to target");require(f.root.children[0].children[1].style.at("color")=="#ff0000","animation replaced explicitly specified child color");
+    vm.eval("document.getElementById('root').textContent='';const n=document.createElement('div');n.setAttribute('class','bg-gold/20');n.setAttribute('style','position:absolute;left:10px;top:10px;width:20px;height:20px;animation:k 1s linear forwards;animation-delay:.5s');document.getElementById('root').appendChild(n)");auto a=scene.frame(vm.snapshot_subtree("#root"),100,100,600);require(!a.root.children[0].style.contains("transform"),"animation delay applied without backwards fill");auto mid=scene.frame(vm.snapshot_subtree("#root"),100,100,1600);require(mid.root.children[0].style.at("transform")=="translateX(10px)","unitless zero transform did not interpolate");require(raster.hit_test(mid,35,15)==mid.root.children[0].identity && raster.hit_test(mid,15,15)!=mid.root.children[0].identity,"transformed hit region used stale box");auto bitmap=raster.raster(mid);require(bitmap.rgba[(15*100+35)*4]>10 && bitmap.rgba[(15*100+15)*4]==0,"transform/opacity/escaped utility raster");
+    auto end=scene.frame(vm.snapshot_subtree("#root"),100,100,2100);require(end.root.children[0].style.at("transform")=="translateX(20px)","forwards end fill");
+    vm.eval("document.getElementById('root').removeChild(n)");scene.frame(vm.snapshot_subtree("#root"),100,100,2200);vm.eval("document.getElementById('root').appendChild(n)");auto reinsert=scene.frame(vm.snapshot_subtree("#root"),100,100,2300);require(!reinsert.root.children[0].style.contains("transform"),"removed animation state crossed reinsertion");
+    bool invalid=false;try{scene.frame(vm.snapshot_subtree("#root"),100,100,2299);}catch(const std::exception&){invalid=true;}require(invalid,"backwards scene clock");
+    invalid=false;try{caseelephant::compute_style_probe(vm.snapshot_subtree("#root"),".bg-gold\\/20{background-color:#ffffff}",caseelephant::flow_page_style_profile());}catch(const std::exception&){invalid=true;}require(invalid,"legacy CSS profile silently gained escaped selectors");
+
+    require(vm.eval(R"JS((()=>{let rejected=0;for(const value of [1n,Symbol('delay')]){try{setTimeout(()=>{},value)}catch(e){rejected++}try{clearInterval(value)}catch(e){rejected++}}let value=0;const id=setTimeout(()=>value++,2.9);__ceHost.pump(1);const before=value;__ceHost.pump(2);clearInterval(id);return rejected===4&&before===0&&value===1})())JS")=="true","timer WebIDL coercion / fractional delay");
+    vm.reset_document();vm.eval(scene_read(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+    vm.eval("const r=document.getElementById('root');r.style.backgroundColor='#000000';const parent=document.createElement('div');parent.setAttribute('style','width:30px;height:30px;transform:scale(1)');const inner=document.createElement('div');inner.setAttribute('style','position:absolute;inset:0;background-color:#ffffff');parent.appendChild(inner);r.appendChild(parent)");
+    caseelephant::SceneProbe containing("","",[&](auto t,const auto& st){return raster.measure(t,st);});
+    auto contained=containing.frame(vm.snapshot_subtree("#root"),80,80,0);
+    require(contained.root.children[0].children[0].box[2]==30 && contained.root.children[0].children[0].box[3]==30,"transform failed to establish absolute containing block");
+    auto frozen=contained;
+    bool wrong_owner=false,wrong_raster=false;
+    auto owner_snapshot=vm.snapshot_subtree("#root");
+    std::thread outsider([&]{try{containing.frame(owner_snapshot,80,80,0);}catch(const std::logic_error&){wrong_owner=true;}try{raster.raster(frozen);}catch(const std::logic_error&){wrong_raster=true;}});outsider.join();
+    require(wrong_owner && wrong_raster,"scene adapter permitted foreign-thread access");
+    vm.reset_document();vm.collect_garbage();
+    require(raster.raster(frozen).rgba[(5*80+5)*4]==255,"owned scene lost pixels after DOM teardown");
+    vm.eval(scene_read(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+    vm.eval("const root=document.getElementById('root');const n=document.createElement('div');n.setAttribute('style','width:20px;height:20px;color:#0000ff;border-width:2px;animation:chase 1s linear infinite');root.appendChild(n)");
+    caseelephant::SceneProbe chase("","@keyframes chase{75%{border-color:#ff0000}}",[&](auto t,const auto& st){return raster.measure(t,st);});
+    chase.frame(vm.snapshot_subtree("#root"),80,80,0);auto implicit=chase.frame(vm.snapshot_subtree("#root"),80,80,875);
+    auto border=caseelephant::parse_probe_css_color(implicit.root.children[0].style.at("border-top-color"));
+    require(std::abs(border[0]-.5f)<.001 && std::abs(border[2]-.5f)<.001,"implicit border keyframe end did not use underlying currentcolor");
+    vm.eval("n.setAttribute('style','width:20px;height:20px;animation:fade 1s linear infinite alternate-reverse')");
+    caseelephant::SceneProbe reverse("","@keyframes fade{from{opacity:0}to{opacity:1}}",[&](auto t,const auto& st){return raster.measure(t,st);});
+    reverse.frame(vm.snapshot_subtree("#root"),80,80,0);
+    require(std::abs(std::stof(reverse.frame(vm.snapshot_subtree("#root"),80,80,250).root.children[0].style.at("opacity"))-.75f)<.001,"alternate-reverse first iteration");
+    require(std::abs(std::stof(reverse.frame(vm.snapshot_subtree("#root"),80,80,1250).root.children[0].style.at("opacity"))-.25f)<.001,"alternate-reverse second iteration");
+    vm.eval("const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 10 10');document.getElementById('root').appendChild(svg)");
+    invalid=false;try{reverse.frame(vm.snapshot_subtree("#root"),80,80,1300);}catch(const std::invalid_argument&){invalid=true;}
+    require(!invalid,"supported SVG viewBox rejected");
+    vm.reset_document();vm.eval(scene_read(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+    const std::string static_sheet=".shade{background-color:#d4a843}.other{background-color:#225577}";
+    caseelephant::SceneProbe persisted(static_sheet,"",[&](auto t,const auto& st){return raster.measure(t,st);});
+    vm.eval("const root=document.getElementById('root');root.setAttribute('style','background-color:#000000;position:relative;overflow:hidden');globalThis.boxes=[];globalThis.parents=[];for(let i=0;i<2;i++){let p=document.createElement('div');p.setAttribute('style','position:absolute;left:'+i*40+'px;top:0px;width:40px;height:80px');root.appendChild(p);parents.push(p)}for(let i=0;i<24;i++){let b=document.createElement('div');b.setAttribute('class','shade');b.setAttribute('style','position:absolute;left:'+i%6*5+'px;top:'+Math.floor(i/6)*15+'px;width:8px;height:8px');parents[i%2].appendChild(b);boxes.push(b)}let seed=0x9e3779b9;globalThis.mutate=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;let b=boxes[seed%24],op=(seed>>>8)%4;if(op===0){b.style.transform='translateX('+((seed>>>16)%8)+'px)'}else if(op===1)b.setAttribute('class',(seed&1)?'shade':'other');else if(op===2){if(b.parentNode)b.parentNode.removeChild(b);else parents[seed%2].appendChild(b)}else parents[seed%2].appendChild(b)}");
+    for(unsigned iteration=0;iteration<120;++iteration){
+        vm.eval("mutate()");auto snapshot=vm.snapshot_subtree("#root");auto actual=persisted.frame(snapshot,80,80,iteration);
+        caseelephant::SceneProbe fresh(static_sheet,"",[&](auto t,const auto& st){return raster.measure(t,st);},false);auto expected=fresh.frame(snapshot,80,80,iteration);
+        auto a_geometry=raster.geometry(actual),b_geometry=raster.geometry(expected);require(a_geometry.size()==b_geometry.size(),"mutation changed retained scene node count");
+        for(std::size_t i=0;i<a_geometry.size();++i)require(a_geometry[i].identity==b_geometry[i].identity && a_geometry[i].rect==b_geometry[i].rect,"retained mutation geometry differs from fresh full scene");
+        require(raster.raster(actual).rgba==raster.raster(expected).rgba,"retained mutation pixels differ from fresh full scene");
+        if(iteration%16==0)vm.collect_garbage();
+    }
+    require(persisted.work().layout_reuses>0,"mutation did not exercise layout cache");
+    vm.reset_document();vm.eval(scene_read(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+    vm.eval("const root=document.getElementById('root');root.setAttribute('style','position:relative;background-color:#000000');let n=document.createElement('div');n.setAttribute('style','position:relative;width:30px;height:30px;color:#fff;animation:move 1s linear infinite');n.textContent='x';root.appendChild(n)");
+    const std::string keyframes="@keyframes move{from{transform:translateX(0);color:#000000}to{transform:translateX(20px);color:#ffffff}}";
+    caseelephant::SceneProbe retained("",keyframes,[&](auto t,const auto& st){return raster.measure(t,st);});
+    caseelephant::SceneProbe full("",keyframes,[&](auto t,const auto& st){return raster.measure(t,st);},false);
+    for(unsigned i=0;i<40;++i){if(i==10)vm.eval("n.style.width='40px'");if(i==15)vm.eval("n.style.fontSize='20px'");if(i==20)vm.eval("n.textContent='中文x'");if(i==25)vm.eval("n.style.transform='none'");if(i==30)vm.eval("n.style.display='none'");auto d=vm.snapshot_subtree("#root");auto w=i>=35?90.f:80.f;auto optimized_frame=retained.frame(d,w,80,i*25),reference_frame=full.frame(d,w,80,i*25);auto ag=raster.geometry(optimized_frame),bg=raster.geometry(reference_frame);require(ag.size()==bg.size(),"timeline cache geometry count");for(std::size_t j=0;j<ag.size();++j)require(ag[j].identity==bg[j].identity && ag[j].rect==bg[j].rect,"timeline cache geometry");require(raster.raster(optimized_frame).rgba==raster.raster(reference_frame).rgba,"timeline cache pixels");}
+    require(retained.work().style_reuses>0 && retained.work().layout_reuses>0 && retained.work().layout_evaluations<full.work().layout_evaluations,"cache reference path was not independent");
+    vm.reset_document();vm.eval(scene_read(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+    vm.eval("let root=document.getElementById('root');let svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('width','20');svg.setAttribute('height','20');let rect=document.createElementNS(svg.namespaceURI,'rect');rect.setAttribute('width','5');rect.setAttribute('height','10');rect.setAttribute('fill','#ff0000');svg.appendChild(rect);root.appendChild(svg)");
+    caseelephant::SceneProbe keyed("rect[width='10']{fill:#00ff00}","",[&](auto t,const auto& st){return raster.measure(t,st);});
+    keyed.frame(vm.snapshot_subtree("#root"),80,80,0);vm.eval("rect.setAttribute('x','5')");keyed.frame(vm.snapshot_subtree("#root"),80,80,1);require(keyed.work().style_reuses==1 && keyed.work().layout_reuses==1,"SVG paint attribute invalidated cascade/layout");
+    vm.eval("rect.setAttribute('width','10')");auto selected=keyed.frame(vm.snapshot_subtree("#root"),80,80,2);require(selected.root.children[0].children[0].style.at("fill")=="#00ff00","attribute selector dependency was omitted from style key");
+    vm.eval("rect.setAttribute('font-size','30px')");keyed.frame(vm.snapshot_subtree("#root"),80,80,3);require(keyed.work().style_evaluations==3,"SVG presentation attribute did not invalidate cascade");
+    keyed.reset();require(keyed.work().style_evaluations==0 && keyed.work().layout_reuses==0,"scene reset retained cache evidence");
+    {
+        auto dom=vm.snapshot_subtree("#root");dom.attributes["class"]="theme";dom.children[0].attributes["class"]="box";
+        const std::string css=".theme:hover .box{color:#ffffff}.box:active{opacity:.5}[style] > .box{width:inherit}rect{fill:#335577}";
+        caseelephant::CompiledStyleProbe styles(css,caseelephant::scene_style_profile());caseelephant::StyleMemoProbe memo;caseelephant::ProbeComputedStyle values;
+        for(unsigned i=0;i<128;++i){dom.hovered=bool(i&1);dom.children[0].active=bool(i&2);dom.children[0].hovered=bool(i&4);dom.attributes["style"]="width:"+std::to_string(60+i%17)+"px;color:#112233;background-color:#"+std::string(i&8?"445566":"667788");dom.children[0].children[0].attributes["fill"]=i&16?"#ff0000":"#00ff00";
+            styles.update(dom,values,memo);const auto expected=caseelephant::compute_style_probe(dom,css,caseelephant::scene_style_profile());
+            auto same=[](auto&& self,const auto& a,const auto& b)->bool{if(a.identity!=b.identity || a.values!=b.values || a.custom_properties!=b.custom_properties || a.specified_properties!=b.specified_properties || a.invalid_at_computed_value!=b.invalid_at_computed_value || a.children.size()!=b.children.size())return false;for(std::size_t j=0;j<a.children.size();++j)if(!self(self,a.children[j],b.children[j]))return false;return true;};
+            require(same(same,values,expected),"state, ancestor style selector, explicit inheritance or SVG cascade memo differed from full");
+            auto normalized=dom;styles.normalize_selector_state(normalized);require(caseelephant::compute_style_probe(normalized,css,caseelephant::scene_style_profile()).children[0].values==expected.children[0].values,"irrelevant state normalization changed selector matching");
+        }
+    }
+    vm.reset_document();vm.eval(scene_read(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+    vm.eval("const root=document.getElementById('root');root.style.backgroundColor='#000000';let parent=document.createElement('div');parent.style.color='#0000ff';let n=document.createElement('div');n.setAttribute('style','width:20px;height:20px;background-color:#445566;border-width:2px;animation:motion 1s linear infinite alternate-reverse, shade 800ms steps(4,end) infinite;animation-delay:100ms,0ms');n.textContent='x';parent.appendChild(n);root.appendChild(parent)");
+    const std::string tracks="@keyframes motion{25%{transform:translateX(0)}75%{transform:translateX(20px);border-color:#ff0000}}@keyframes shade{from{opacity:.2}to{opacity:.8}}";
+    caseelephant::SceneProbe planned("",tracks,[&](auto text,const auto& st){return raster.measure(text,st);});
+    caseelephant::SceneProbe unplanned("",tracks,[&](auto text,const auto& st){return raster.measure(text,st);},false);
+    caseelephant::SceneProbe retained_solver("",tracks,[&](auto text,const auto& st){return raster.measure(text,st);});caseelephant::ProbeSceneFrame retained_frame;
+    for(unsigned i=0;i<160;++i){
+        if(i==12)vm.eval("parent.style.color='#00ff00'");if(i==25)vm.eval("n.style.animationDuration='2s,300ms'");if(i==37)vm.eval("n.style.animationDelay='-200ms,50ms'");
+        if(i==50)vm.eval("n.style.animationTimingFunction='cubic-bezier(.42,0,.58,1),linear'");if(i==63)vm.eval("n.style.width='30px';n.style.borderColor='#ffffff'");
+        if(i==76)vm.eval("parent.removeChild(n)");if(i==78)vm.eval("parent.appendChild(n)");if(i==91)vm.eval("n.style.animation='shade 500ms linear infinite, motion 1s ease infinite alternate'");
+        if(i==104)vm.eval("n.style.fontSize='20px';n.textContent='中文'");if(i==117)vm.eval("n.style.animation='none'");if(i==130)vm.eval("n.style.animation='motion 1s linear infinite'");
+        if(i>=133)vm.eval("n.style.transform='translateX("+std::to_string(i)+"px)'");auto dom=vm.snapshot_subtree("#root");auto sampled=planned.frame(dom,80,80,i*25),uncached=unplanned.frame(dom,80,80,i*25);
+        retained_solver.update(dom,retained_frame,80,80,i*25);require(retained_frame.root==uncached.root && caseelephant::scene_paint_source_equal_probe(retained_frame.root,sampled.root) && retained_frame.animated==uncached.animated,"retained owner scene differed from full mutation/animation solve");
+        require(sampled.root==uncached.root && sampled.animated==uncached.animated,"compiled animation target/underlying/duration/order invalidation differs from full sampling");
+        require(raster.raster(sampled).rgba==raster.raster(uncached).rgba,"compiled animation mutation raster differs from full sampling");
+    }
+    require(planned.work().animation_reuses>100 && planned.work().animation_compilations<unplanned.work().animation_compilations,"compiled animation plans did not reuse unchanged targets");
+    vm.eval("n.style.animation='missing 1s linear infinite'");for(unsigned i=0;i<2;++i){bool rejected=false;try{planned.frame(vm.snapshot_subtree("#root"),80,80,4100+i);}catch(const std::invalid_argument&){rejected=true;}require(rejected,"failed animation compilation reused a stale valid plan");}
+    vm.eval("n.style.animation='shade 1s linear infinite'");require(planned.frame(vm.snapshot_subtree("#root"),80,80,4200).animated,"valid animation did not recover after compile failure");
+    planned.reset();require(planned.work().animation_reuses==0 && planned.work().animation_compilations==0,"animation plan/reset statistics survived epoch reset");
+    vm.reset_document();vm.eval(scene_read(CE_SOURCE_DIR "/probes/web_host_bootstrap.js"));
+    vm.eval("const root=document.getElementById('root');root.style.position='relative';root.style.backgroundColor='#000000';let p=document.createElement('div');p.setAttribute('style','width:30px;height:24px;color:#225577;transform:scale(1);transition-property:color;transition-duration:200ms;transition-timing-function:linear');let n=document.createElement('div');n.setAttribute('style','position:absolute;inset:0;background:#884422;border-radius:4px');p.appendChild(n);root.appendChild(p)");
+    caseelephant::SceneProbe layout_retained("","",[&](auto text,const auto& st){return raster.measure(text,st);});
+    caseelephant::SceneProbe layout_reference("","",[&](auto text,const auto& st){return raster.measure(text,st);},false);
+    caseelephant::SceneProbe layout_updated("","",[&](auto text,const auto& st){return raster.measure(text,st);});caseelephant::ProbeSceneFrame layout_output;
+    std::optional<caseelephant::ProbeSceneFrame> independent;
+    for(unsigned i=0;i<64;++i){
+        if(i%7==1)vm.eval("p.style.transform='translateX("+std::to_string(i%13)+"px)'");
+        if(i%11==3)vm.eval("p.style.transform='none'");
+        if(i%11==4)vm.eval("p.style.transform='scale(1)'");
+        if(i%8==2)vm.eval("p.style.color='"+std::string(i%16<8?"#ff0000":"#00ff00")+"';n.style.background='"+std::string(i%16<8?"#335599":"#dd8844")+"'");
+        if(i%9==5)vm.eval("p.style.width='"+std::to_string(30+i%19)+"px';n.style.borderRadius='"+std::to_string(i%9)+"px'");
+        const auto dom=vm.snapshot_subtree("#root");const float width=i<48?80.f:90.f;
+        auto actual=layout_retained.frame(dom,width,80,i*17),expected=layout_reference.frame(dom,width,80,i*17);
+        layout_updated.update(dom,layout_output,width,80,i*17);require(layout_output.root==expected.root && caseelephant::scene_paint_source_equal_probe(layout_output.root,actual.root),"in-place target/transition/layout differed from owning full frame");
+        require(actual.root==expected.root && actual.elements.size()==expected.elements.size(),"unchanged layout reference became stale after paint, containing-block or viewport mutation");
+        for(std::size_t j=0;j<actual.elements.size();++j){const auto& x=actual.elements[j];const auto& y=expected.elements[j];
+            require(x.identity==y.identity && x.rect==y.rect && x.client_rects==y.client_rects && x.client_width==y.client_width && x.client_height==y.client_height && x.scroll_width==y.scroll_width && x.scroll_height==y.scroll_height,"retained layout element geometry differs from full layout");}
+        require(raster.raster(actual).rgba==raster.raster(expected).rgba,"preexpanded shorthand/transition inheritance differs from full reference");
+        if(i==0){independent=actual;actual.root.children.clear();}
+    }
+    require(independent->root.children.size()==1 && independent->root.children[0].box[2]==30,"returned scene ownership changed during retained layout reuse");
+    require(layout_retained.work().layout_reuses>20,"layout reference reuse counterexample did not reuse");
+    vm.reset_document();vm.collect_garbage();require(vm.stats().live_nodes==3,"random mutation/reset leaked detached nodes");
+    caseelephant::ProbeSceneFrame previous;previous.root.identity={1,1,1};previous.root.box={0,0,80,80};previous.root.space="http://www.w3.org/1999/xhtml";
+    auto child=previous.root;child.identity.slot=2;child.box={10,10,20,20};child.style={{"background-color","#ffffff"},{"opacity",".500000"}};child.paint=caseelephant::compile_scene_paint_values(child.style);previous.root.children.push_back(child);previous.elements=raster.geometry(previous);
+    auto changed=previous;changed.root.children[0].paint->values[0]->scalar.absolute=.4999999;
+    require(previous.root==changed.root && !caseelephant::scene_paint_source_equal_probe(previous.root,changed.root),"rounded diagnostic spelling hid a different numeric source");
+    const auto damaged=caseelephant::scene_damage_probe(previous,changed,2);require(damaged.changed && !damaged.full && damaged.rect[0]<=10 && damaged.rect[2]>=30,"numeric paint mutation did not invalidate its retained surface");
+    GallerySceneSession fixed(false,0,80);const auto copies=fixed.snapshots;fixed.step(1);require(fixed.snapshots==copies && fixed.snapshot_reuses>0,"idle scene copied unchanged DOM");fixed.width=90;fixed.step(2);require(fixed.current.root.box[2]==90 && fixed.snapshots==copies,"viewport resize reused stale static scene or copied unchanged DOM");const auto geometry_builds=fixed.profile.geometry_builds;fixed.vm.eval("document.getElementById('root').style.backgroundColor='#aabbcc'");fixed.step(3);require(fixed.profile.geometry_builds==geometry_builds,"paint-only style forced geometry solve");fixed.vm.eval("document.getElementById('root').style.transform='translateX(2px)'");fixed.step(4);require(fixed.profile.geometry_builds>geometry_builds,"transform failed to update geometry");fixed.set_profiling(false);const auto times=fixed.scene.work();fixed.vm.eval("document.getElementById('root').style.backgroundColor='#334455'");fixed.step(5);const auto after_times=fixed.scene.work();require(times.style_ms==after_times.style_ms && times.build_ms==after_times.build_ms && times.layout_ms==after_times.layout_ms,"disabled profiler still collected phase clocks");fixed.unmount();
+    std::cout<<"PASS scene contracts: timer lifecycle, selector diagnostics, cascade inheritance, timeline, transform hit/pixels, detach/reinsert, owner isolation, implicit endpoints, 120 mutation raster/layout differentials\n";return 0;
+}catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<'\n';return 1;}}

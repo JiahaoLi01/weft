@@ -1,0 +1,48 @@
+{
+  "state": {
+    "active": {
+      "group": "ANIME_TESTS",
+      "index": 8,
+      "label": "Draggable: Free"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": "",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "background-color: rgb(212, 168, 67); left: 20px; top: 60px; transform: translateX(0px) translateY(0px); touch-action: none;",
+      "text": "1"
+    },
+    {
+      "tag": "div",
+      "style": "background-color: rgb(196, 64, 64); left: 70px; top: 110px; transform: translateX(0px) translateY(0px); touch-action: none;",
+      "text": "2"
+    },
+    {
+      "tag": "div",
+      "style": "background-color: rgb(74, 122, 204); left: 120px; top: 60px; transform: translateX(0px) translateY(0px); touch-action: none;",
+      "text": "3"
+    },
+    {
+      "tag": "div",
+      "style": "background-color: rgb(76, 175, 76); left: 170px; top: 110px; transform: translateX(0px) translateY(0px); touch-action: none;",
+      "text": "4"
+    },
+    {
+      "tag": "div",
+      "style": "background-color: rgb(184, 134, 11); left: 220px; top: 60px; transform: translateX(0px) translateY(0px); touch-action: none;",
+      "text": "5"
+    },
+    {
+      "tag": "div",
+      "style": null,
+      "text": "drag the blocks"
+    }
+  ]
+}

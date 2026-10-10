@@ -1,0 +1,57 @@
+{
+  "name": "d3",
+  "version": "7.9.0",
+  "purpose": "Unmodified upstream UMD for native DOM and browser differential fixtures; test dependency only",
+  "metadata_url": "https://registry.npmjs.org/d3/7.9.0",
+  "archive_url": "https://registry.npmjs.org/d3/-/d3-7.9.0.tgz",
+  "archive_sha256": "7e36605710a2ba54846797c8c6d888911341b215ae53257dc32a49a0b824355e",
+  "registry_integrity": "sha512-e1U46jVP+w7Iut8Jt8ri1YsPOvFpg46k+K8TpCb0P+zjCkjkPnV7WzfDJzMHy1LnA+wj5pLT1wjO901gLXeEhA==",
+  "registry_shasum": "579e7acb3d749caf8860bd1741ae8d371070cd5d",
+  "upstream_git_commit": "1f8dd3b92960f58726006532c11e9457864513ec",
+  "upstream_repository": {
+    "url": "git+https://github.com/d3/d3.git",
+    "type": "git"
+  },
+  "license": "ISC",
+  "files": {
+    "d3.js": {
+      "sha256": "0c0d58be2106c14e242fc75bc09a17467800630751580665f6e9552a0c064ea2",
+      "bytes": 587043,
+      "archive_path": "package/dist/d3.js"
+    },
+    "LICENSE": {
+      "sha256": "3e6849627f74ff73c257a3ae1efb574015d94fc1035c05ec3c15805165efcbc4",
+      "bytes": 731,
+      "archive_path": "package/LICENSE"
+    },
+    "upstream-package.json": {
+      "sha256": "7b8169c299e9b62e31dd518dfff1f5cc456856f0fd6a1afcfcd5f260317beb88",
+      "bytes": 2231,
+      "archive_path": "package/package.json"
+    },
+    "upstream-yarn.lock": {
+      "sha256": "4097cf40c3e6689ddb86fe123c04fd84b358d402be04a91532f70a9facad134b",
+      "bytes": 106770,
+      "source_url": "https://raw.githubusercontent.com/d3/d3/1f8dd3b92960f58726006532c11e9457864513ec/yarn.lock"
+    },
+    "bundled-licenses.json": {
+      "sha256": "6d025b6c269a9d44a91d370bf12af96e56abe8a6551e0d55eb7d18a9a511078a",
+      "bytes": 26124
+    },
+    "BUNDLED-LICENSE-NOTICES.txt": {
+      "sha256": "d1c08ab82c437a139226d318cb584599a2a24040123613bbfd0760b592d31905",
+      "bytes": 41897
+    }
+  },
+  "retrieved_date": "2026-10-07",
+  "modifications": "None: copied original bytes from package tarball",
+  "build_options": "No build. Load the checked-in d3.js UMD directly as source script; normal builds require no network.",
+  "attribution": {
+    "upstream_lock": "upstream-yarn.lock",
+    "module_inventory": "bundled-licenses.json",
+    "runtime_license_notices": "BUNDLED-LICENSE-NOTICES.txt",
+    "verified_module_archives": 37
+  },
+  "registry_integrity_verified": true,
+  "registry_shasum_verified": true
+}

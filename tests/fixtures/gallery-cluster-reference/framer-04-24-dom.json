@@ -1,0 +1,38 @@
+{
+  "state": {
+    "active": {
+      "group": "FRAMER_TESTS",
+      "index": 4,
+      "label": "Stagger List"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "opacity: 1; transform: none;",
+      "text": "STR"
+    },
+    {
+      "tag": "div",
+      "style": "opacity: 0.808078; transform: translateX(-5.75767px);",
+      "text": "DEX"
+    },
+    {
+      "tag": "div",
+      "style": "opacity: 0.378414; transform: translateX(-18.6476px);",
+      "text": "INT"
+    },
+    {
+      "tag": "div",
+      "style": "opacity: 0; transform: translateX(-30px);",
+      "text": "WIS"
+    }
+  ]
+}

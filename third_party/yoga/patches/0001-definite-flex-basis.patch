@@ -1,0 +1,13 @@
+diff --git a/yoga/algorithm/CalculateLayout.cpp b/yoga/algorithm/CalculateLayout.cpp
+--- a/yoga/algorithm/CalculateLayout.cpp
++++ b/yoga/algorithm/CalculateLayout.cpp
+@@ -94,7 +94,8 @@
+   const bool isColumnStyleDimDefined =
+       child->hasDefiniteLength(Dimension::Height, ownerHeight);
+ 
+-  if (resolvedFlexBasis.isDefined() && yoga::isDefined(mainAxisSize)) {
++  if (resolvedFlexBasis.isDefined() &&
++      (yoga::isDefined(mainAxisSize) || !isMainAxisRow)) {
+     if (child->getLayout().computedFlexBasis.isUndefined() ||
+         (child->getConfig()->isExperimentalFeatureEnabled(
+              ExperimentalFeature::WebFlexBasis) &&

@@ -1,0 +1,168 @@
+{
+  "state": {
+    "active": {
+      "group": "ANIME_TESTS",
+      "index": 5,
+      "label": "Particle Explosion"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(240, 208, 128); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(196, 64, 64); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(212, 168, 67); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(240, 208, 128); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(212, 168, 67); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(212, 168, 67); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(240, 208, 128); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(212, 168, 67); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(212, 168, 67); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(240, 208, 128); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(240, 208, 128); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(196, 64, 64); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(240, 208, 128); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(212, 168, 67); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(196, 64, 64); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(212, 168, 67); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(240, 208, 128); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(240, 208, 128); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(255, 255, 255); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(255, 255, 255); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(196, 64, 64); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(212, 168, 67); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(240, 208, 128); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(212, 168, 67); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(212, 168, 67); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(196, 64, 64); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(240, 208, 128); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(255, 255, 255); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(196, 64, 64); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(212, 168, 67); transform: translateX(0px) translateY(0px) scale(1); opacity: 1;",
+      "text": ""
+    }
+  ]
+}

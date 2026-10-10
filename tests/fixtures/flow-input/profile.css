@@ -1,0 +1,13 @@
+#inputpage{position:relative;isolation:isolate;width:640px;height:420px;border-radius:20px;background-color:#14222d;font-family:ProbeRoboto, ProbeCjk;font-size:16px;line-height:24px;font-weight:400;font-style:normal;color:#ede7d6;white-space:normal}
+#inputpage button{display:block;margin:0;padding:0;border:0;font-family:ProbeRoboto, ProbeCjk;font-size:16px;line-height:24px;font-weight:400;font-style:normal;background-color:#263b48;color:#ede7d6}
+#high,#low{position:absolute;left:330px;top:25px;width:120px;height:45px}
+#high{z-index:6}#low{z-index:1}
+#scroller{position:absolute;left:20px;top:20px;width:240px;height:180px;box-sizing:border-box;padding:10px;overflow:auto;border-radius:28px / 24px;background-color:#304c5c}
+#content{width:260px}#content button{width:260px;height:26px}#content span{pointer-events:none;white-space:nowrap}
+#overlay{position:absolute;left:80px;top:60px;width:100px;height:30px;z-index:3;pointer-events:none;background-color:#825342}
+#overlay-child{pointer-events:auto}
+#paragraph{position:absolute;left:300px;top:110px;width:170px}#outer{background-color:#345644}#inner{color:#e6c98b}
+#disabled,#hidden{position:absolute;left:300px;top:245px;width:100px;height:36px}#inputpage #hidden{left:430px;display:none}
+#disabled-child{display:block;width:100px;height:36px;text-align:left}
+#round{position:absolute;left:320px;top:315px;width:100px;height:70px;border-radius:50%;background-color:#456d59}
+#edge{position:absolute;left:580px;top:390px;width:100px;height:60px}

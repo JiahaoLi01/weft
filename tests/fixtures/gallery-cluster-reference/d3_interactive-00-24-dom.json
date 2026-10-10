@@ -1,0 +1,223 @@
+{
+  "state": {
+    "active": {
+      "group": "D3_INTERACTIVE_TESTS",
+      "index": 0,
+      "label": "Sunburst (hover + click + tooltip)"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "svg",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Combat"
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Exploration"
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Social"
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Crafting"
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Magic"
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Melee"
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Ranged"
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Dungeons"
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Wilderness"
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Towns"
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Quests"
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Dialogue"
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Trade"
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Smithing"
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Alchemy"
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Enchanting"
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Fire"
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Ice"
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Lightning"
+    },
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    }
+  ]
+}

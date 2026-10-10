@@ -1,0 +1,23 @@
+{
+  "state": {
+    "active": {
+      "group": "FRAMER_TESTS",
+      "index": 3,
+      "label": "Layout Animation"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "width: 60px; height: 60px;",
+      "text": ""
+    }
+  ]
+}

@@ -1,0 +1,302 @@
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes pinRingFill {
+  from {
+    stroke-dashoffset: 43.98;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 0.4;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: translate(-50%, -50%) scale(1.15);
+  }
+}
+@keyframes float-up {
+  0% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+  50% {
+    transform: translateY(-30px);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-60px);
+    opacity: 0;
+  }
+}
+@keyframes scan-line {
+  0% {
+    top: -2%;
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    top: 102%;
+    opacity: 0;
+  }
+}
+@keyframes expand-line {
+  from {
+    width: 0;
+  }
+  to {
+    width: 12rem;
+  }
+}
+@keyframes fade-pulse {
+  0%, 100% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+@keyframes hp-drain {
+  0% {
+    width: 100%;
+    background: #2d8b2d;
+  }
+  40% {
+    width: 40%;
+    background: #b8860b;
+  }
+  60% {
+    width: 70%;
+    background: #2d8b2d;
+  }
+  100% {
+    width: 100%;
+    background: #2d8b2d;
+  }
+}
+@keyframes shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  10%, 30%, 50%, 70%, 90% {
+    transform: translateX(-4px);
+  }
+  20%, 40%, 60%, 80% {
+    transform: translateX(4px);
+  }
+}
+@keyframes bounce-in {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  70% {
+    transform: scale(0.9);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes slide-in-r {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+@keyframes slide-in-l {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+@keyframes slide-up {
+  from {
+    transform: translateY(50px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+@keyframes rotate-swing {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(15deg);
+  }
+  75% {
+    transform: rotate(-15deg);
+  }
+}
+@keyframes color-cycle {
+  0% {
+    color: #d4a843;
+  }
+  25% {
+    color: #c44040;
+  }
+  50% {
+    color: #4a7acc;
+  }
+  75% {
+    color: #4caf4c;
+  }
+  100% {
+    color: #d4a843;
+  }
+}
+@keyframes border-chase {
+  0% {
+    border-color: #d4a843 transparent transparent transparent;
+  }
+  25% {
+    border-color: transparent #d4a843 transparent transparent;
+  }
+  50% {
+    border-color: transparent transparent #d4a843 transparent;
+  }
+  75% {
+    border-color: transparent transparent transparent #d4a843;
+  }
+}
+@keyframes gradient-shift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+@keyframes typewriter {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+@keyframes blink-caret {
+  0%, 100% {
+    border-right-color: #d4a843;
+  }
+  50% {
+    border-right-color: transparent;
+  }
+}
+@keyframes ripple {
+  0% {
+    transform: scale(0);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+@keyframes float-bob {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-12px);
+  }
+}
+@keyframes progress-stripe {
+  from {
+    background-position: 40px 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+@keyframes flip-x {
+  0% {
+    transform: perspective(400px) rotateY(0);
+  }
+  100% {
+    transform: perspective(400px) rotateY(360deg);
+  }
+}
+@keyframes countdown {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: 283;
+  }
+}
+@keyframes damage-flash {
+  0%, 100% {
+    background: transparent;
+  }
+  10%, 30% {
+    background: rgba(200, 40, 40, 0.3);
+  }
+  20%, 40% {
+    background: transparent;
+  }
+}
+@keyframes stagger-fade {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes webui-clear-pulse {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes settings-fade-out {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

@@ -1,0 +1,44 @@
+[
+  {
+    "tag": "div",
+    "rect": [
+      0,
+      0,
+      387,
+      288
+    ],
+    "style": {
+      "width": "387px",
+      "height": "288px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "none",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "0px",
+      "border-color": "rgb(245, 230, 200)",
+      "color": "rgb(245, 230, 200)"
+    }
+  },
+  {
+    "tag": "div",
+    "rect": [
+      146.18397521972656,
+      16.683975219726562,
+      94.63204956054688,
+      94.63204956054688
+    ],
+    "style": {
+      "width": "80px",
+      "height": "80px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "matrix(1.1829, 0, 0, 1.1829, 0, 0)",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "8px",
+      "border-color": "rgb(245, 230, 200)",
+      "color": "rgb(245, 230, 200)"
+    }
+  }
+]

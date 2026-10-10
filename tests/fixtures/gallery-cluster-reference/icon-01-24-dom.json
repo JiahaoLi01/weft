@@ -1,0 +1,93 @@
+{
+  "state": {
+    "active": {
+      "group": "ICON_TESTS",
+      "index": 1,
+      "label": "Animated Icon Cycle"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "opacity: 1; transform: scale(1.34355);",
+      "text": ""
+    },
+    {
+      "tag": "svg",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "opacity: 0.398785; transform: none;",
+      "text": ""
+    },
+    {
+      "tag": "svg",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "opacity: 0.398785; transform: none;",
+      "text": ""
+    },
+    {
+      "tag": "svg",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "opacity: 0.398785; transform: none;",
+      "text": ""
+    },
+    {
+      "tag": "svg",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    }
+  ]
+}

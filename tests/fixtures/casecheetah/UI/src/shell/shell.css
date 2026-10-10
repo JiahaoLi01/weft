@@ -1,0 +1,283 @@
+/* 新外壳（HierarchyUI.md 第 5 节）：the business tree docked right, the dossier beside it, the view strip at the bottom.
+   Painted frames are nine-sliced (NineSlice.tsx); every surface takes the pointer so clicks do not fall through to the map. */
+
+/* ---- 九宫格 ---- */
+.nine-slice { position: relative; isolation: isolate; pointer-events: auto; }
+.nine-slice-art { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.nine-slice-art .slice { position: absolute; display: block; overflow: hidden; }
+.nine-slice-art .slice img { position: absolute; max-width: none; user-select: none; }
+.nine-slice-content { position: relative; height: 100%; }
+
+/* ---- 顶栏：集团的抬头与菜单 ---- */
+.group-strip { display: grid; gap: 2px; text-align: left; padding: 4px 6px; pointer-events: auto; }
+.group-strip b { font: 400 17px var(--display); letter-spacing: 2px; color: var(--ivory); }
+.group-strip span { font: 12px Georgia, serif; color: var(--gold); }
+.group-strip:hover b { color: #fff8e2; }
+.clock { width: 520px; }
+.clock button { white-space: nowrap; }
+.clock .menu-button { font: 20px var(--display); padding: 6px 10px 10px; margin-left: 4px; }
+.top-menu { position: absolute; right: 24px; top: 104px; z-index: 31; display: grid; min-width: 150px; padding: 12px 18px; pointer-events: auto;
+  background: #161817; box-shadow: 0 0 26px 18px #161817; border-radius: 28px; }
+.top-menu button { text-align: left; font: 14px var(--display); padding: 9px 2px; color: #d9d3c2; }
+.top-menu kbd { font: 11px Georgia, serif; color: var(--muted); margin-left: 8px; }
+
+/* ---- 右侧书册 ---- */
+.right-dock { position: absolute; z-index: 12; top: 0; right: 0; bottom: 0; width: 372px; pointer-events: auto; animation: panel-arrive .5s cubic-bezier(.2,.7,.2,1) both; }
+.right-dock-surface { height: 100%; }
+.right-dock-surface > .nine-slice-content { display: flex; flex-direction: column; padding: 122px 20px 22px 58px; }
+.dock-tabs { display: flex; gap: 6px; margin: 0 0 10px; }
+.dock-tabs button { font: 15px var(--display); letter-spacing: 3px; padding: 6px 12px 9px; color: #a6ada2; }
+.dock-tabs button.active { color: var(--ivory); }
+.dock-tabs button.active::after { content: ''; position: absolute; left: 10px; right: 10px; bottom: 2px; height: 2px; border-radius: 2px; background: linear-gradient(90deg, transparent, var(--gold) 20%, var(--gold) 70%, transparent); }
+.dock-scroll { flex: 1; min-height: 0; overflow: auto; padding-right: 6px; scrollbar-width: thin; scrollbar-color: #79786a transparent; }
+.dock-scroll::-webkit-scrollbar { width: 3px; }
+.dock-scroll::-webkit-scrollbar-thumb { background: #79786a; }
+.place-archive .panel-heading h1 { font-size: 26px; }
+
+/* ---- 经营树 ---- */
+.business-tree { font-size: 13px; color: #d9d6cb; }
+.tree-empty { margin-top: 30px; }
+.breadcrumbs { display: flex; flex-wrap: wrap; gap: 2px 4px; align-items: baseline; margin: 2px 0 12px; font-size: 11px; color: var(--muted); }
+.breadcrumbs button { font-size: 11px; color: #b9b7a8; padding: 2px 1px; }
+.breadcrumbs button.current { color: var(--gold); }
+.breadcrumbs i { font-style: normal; margin: 0 3px; color: #77786d; }
+.breadcrumbs .history { display: inline-flex; gap: 2px; margin-right: 6px; }
+.breadcrumbs .history button { font: 15px/1 Georgia, serif; color: var(--gold); padding: 0 4px 2px; }
+.breadcrumbs .history button:disabled { color: #55564e; cursor: default; }
+.observe-banner { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 0 0 10px; padding: 8px 0; border-bottom: 1px solid rgba(194, 179, 143, .25); font-size: 12px; }
+.observe-banner b { font: 400 14px var(--display); color: var(--ivory); }
+.observe-banner em { font: normal 12px Georgia, serif; color: #d6a46a; }
+.ledger-tree, .tree-children { list-style: none; margin: 0; padding: 0; }
+/* Ink lines join a parent to its children: a soft vertical stroke down the left of each child list. */
+.tree-children { position: relative; margin-left: 13px; padding-left: 9px; }
+.tree-children::before { content: ''; position: absolute; left: 0; top: 2px; bottom: 14px; width: 1px; background: linear-gradient(180deg, rgba(194, 179, 143, .45), rgba(194, 179, 143, .12)); }
+.tree-node { position: relative; }
+.tree-children > .tree-node::before { content: ''; position: absolute; left: -9px; top: 17px; width: 8px; height: 1px; background: rgba(194, 179, 143, .35); }
+.tree-row { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 3px 4px 3px 0; cursor: pointer; border-radius: 3px; transition: background .2s; }
+.tree-row:hover { background: rgba(236, 232, 221, .04); }
+.tree-node.selected > .tree-row { background: none; }
+.tree-node.selected > .tree-row .tree-name { color: #fff3d6; }
+/* The selected row's gold brush swash under its name. */
+.tree-node.selected > .tree-row .tree-name::after { content: ''; position: absolute; left: -4px; right: 0; bottom: -3px; height: 3px; border-radius: 3px;
+  background: linear-gradient(90deg, rgba(214, 186, 120, 0), rgba(214, 186, 120, .85) 12%, rgba(214, 186, 120, .55) 75%, rgba(214, 186, 120, 0)); }
+.twist { flex: 0 0 9px; width: 9px; height: 9px; position: relative; }
+.twist.closed::before, .twist.open::before { content: ''; position: absolute; inset: 1px; border-right: 1.5px solid #a99f82; border-bottom: 1.5px solid #a99f82; transform: rotate(-45deg); transition: transform .2s; }
+.twist.open::before { transform: rotate(45deg); }
+.tree-name { position: relative; flex: 1 1 auto; min-width: 0; font: 15px var(--display); letter-spacing: 1px; color: #e3dfd2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.depth-2 > .tree-row .tree-name, .depth-3 > .tree-row .tree-name { font-size: 14px; }
+.tree-name em { font: normal 11px 'Microsoft YaHei', sans-serif; letter-spacing: 0; color: #8f9188; margin-left: 7px; }
+.tree-figure { flex: 0 0 auto; font: 12px Georgia, serif; color: #cfc8b1; }
+.tree-figure.negative { color: #d48a6a; }
+.tree-section { margin: 8px 0 2px 22px; font-size: 10px; letter-spacing: 3px; color: #8f8a74; }
+.seal { flex: 0 0 auto; display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; font: 13px var(--display); font-style: normal; color: #f3ead2;
+  --seal-hue: 38; background: radial-gradient(circle at 40% 35%, hsl(var(--seal-hue) 32% 46%), hsl(var(--seal-hue) 30% 28%) 70%, hsl(var(--seal-hue) 25% 20%));
+  box-shadow: 0 0 0 1px hsl(var(--seal-hue) 25% 55% / .5); }
+.seal.group { width: 30px; height: 30px; font-size: 15px; --seal-hue: 40; }
+.seal.brand { width: 22px; height: 22px; font-size: 11px; background: none; color: hsl(var(--seal-hue) 45% 70%); box-shadow: 0 0 0 1px hsl(var(--seal-hue) 35% 55% / .7); }
+.good-art { flex: 0 0 auto; width: 30px; height: 30px; object-fit: contain; }
+.cell .good-art, .observed-list .good-art { width: 22px; height: 22px; vertical-align: middle; margin-right: 6px; }
+.facility-mark { flex: 0 0 auto; display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; font: 12px var(--display); font-style: normal; color: #e9dfc2;
+  background: radial-gradient(circle at 45% 40%, #3c3f3a, #23251f 72%); box-shadow: 0 0 0 1px rgba(194, 179, 143, .35); }
+.ink-dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: #7fa59a; box-shadow: 0 0 6px rgba(127, 165, 154, .5); }
+.ink-dot.limited { background: #c58a55; box-shadow: 0 0 6px rgba(197, 138, 85, .5); }
+.ink-dot.idle { background: #6d6f69; box-shadow: none; }
+.ink-dot.building { background: none; box-shadow: 0 0 0 1px #b9ad8c; }
+.util { display: inline-block; width: 44px; height: 4px; border-radius: 2px; background: rgba(236, 232, 221, .12); overflow: hidden; vertical-align: middle; }
+.util i { display: block; height: 100%; background: linear-gradient(90deg, #6f9a92, #9cc3b8); }
+
+/* ---- 焦点卡 ---- */
+.focus-card { margin: 4px 0 10px 18px; padding: 12px 14px 12px 16px; border-radius: 18px;
+  background: radial-gradient(ellipse at 30% 0%, rgba(214, 186, 120, .10), rgba(214, 186, 120, 0) 70%), rgba(28, 30, 27, .92);
+  box-shadow: 0 0 0 1px rgba(194, 179, 143, .16), 0 6px 22px rgba(0, 0, 0, .35); animation: card-open .28s ease-out both; }
+@keyframes card-open { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.focus-card dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; margin: 0 0 10px; }
+.focus-card dt { font-size: 10px; letter-spacing: 2px; color: var(--gold); }
+.focus-card dd { margin: 2px 0 0; font: 17px Georgia, serif; color: #efe8d2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.focus-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.brush-button { font: 13px var(--display); letter-spacing: 2px; padding: 6px 16px 8px; color: #f2ead2; border-radius: 14px;
+  background: radial-gradient(ellipse at 50% 60%, rgba(176, 141, 82, .55), rgba(120, 92, 52, .35) 60%, rgba(120, 92, 52, 0) 78%); }
+.brush-button:hover:enabled { color: #fff; background: radial-gradient(ellipse at 50% 60%, rgba(196, 160, 96, .7), rgba(140, 108, 60, .4) 60%, rgba(140, 108, 60, 0) 80%); }
+.intel-note { font: 12px Georgia, serif; color: #d6a46a; }
+
+/* ---- 档案与工作台：beside the tree, the map live around them ---- */
+.dossier-layer { position: absolute; z-index: 11; top: 112px; bottom: 112px; right: 352px; width: min(680px, calc(100vw - 420px)); pointer-events: none; animation: dossier-arrive .32s cubic-bezier(.2,.7,.2,1) both; }
+.dossier-layer.wide { z-index: 13; width: min(1000px, calc(100vw - 400px)); }
+.dossier-layer.compact { bottom: auto; max-height: calc(100vh - 224px); }
+.dossier-layer.compact .dossier-panel { position: relative; inset: auto; max-height: inherit; }
+.dossier-layer.compact .modal-content { height: auto; max-height: inherit; }
+@keyframes dossier-arrive { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+.dossier-layer .dossier-panel { position: absolute; inset: 0; pointer-events: auto; }
+.dossier-layer .dossier-panel::after { content: ''; position: absolute; z-index: -1; inset: 18px 18px 26px 26px; background: #141615; box-shadow: 0 0 26px 22px #141615; border-radius: 34px; pointer-events: none; }
+.dossier-layer .modal-content { padding: 22px 30px 18px 34px; }
+.dossier-layer .modal-title h1 { font-size: 25px; }
+.observed-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.observed-list li { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.observed-list button { display: inline-flex; align-items: center; gap: 8px; }
+.observed-list em { font-style: normal; color: var(--ops-dim, #8f9188); font-size: 11px; }
+.observed-unknown p { color: #b9a98a; }
+
+/* ---- 视图条 ---- */
+.view-dock { position: absolute; z-index: 11; bottom: 26px; left: calc(50% - 186px); transform: translateX(-50%); display: grid; justify-items: center; gap: 6px; pointer-events: none; max-width: calc(100% - 420px); }
+/* With a dossier open the strip stays centred on one row below it (the dossier ends 112 px above the bottom); the key line,
+   which would reach the dossier's edge, gives way. */
+.view-dock.with-dossier .map-key { display: none; }
+.view-dock > * { pointer-events: auto; }
+.view-strip > .nine-slice-content { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 18px; padding: 22px 34px 26px 38px; }
+.view-tabs { display: flex; flex-wrap: wrap; gap: 2px 4px; }
+.view-tabs button { font: 15px var(--display); letter-spacing: 1px; padding: 8px 12px 11px; color: #b6b9ad; }
+.view-tabs button.active { color: var(--ivory); }
+.view-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12px; }
+.view-tools > button { font: 13px var(--display); padding: 6px 8px 8px; color: #a6ada2; }
+.view-tools > button.active { color: #e8e2cf; }
+.view-dock .metric-legend, .view-dock .share-focus { padding: 8px 18px; border-radius: 16px; background: rgba(20, 22, 21, .88); box-shadow: 0 0 18px 10px rgba(20, 22, 21, .7); }
+.view-dock .map-key { font-size: 11px; color: var(--muted); display: flex; gap: 14px; }
+
+/* The old map dock and rail are gone; their anchors no longer apply. */
+.map-controls, .rail { display: none; }
+
+/* 焦点的周边与进货签（HierarchyUI.md 第 4 节）：the sources of the focused works' inputs priced at the works (the cheapest gold),
+   and where its lines bought. */
+.source-chip, .buy-chip { pointer-events: auto; display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px 1px 2px; white-space: nowrap;
+  font: 400 10px/1.6 var(--ops-figure); color: #e8dcc0; background: rgba(20, 22, 19, .84); border: 1px solid rgba(160, 154, 130, .35); border-radius: 9px; }
+.source-chip img, .buy-chip img { width: 16px; height: 16px; object-fit: contain; }
+.source-chip .cost-name, .buy-chip .cost-name { font: 10px 'Microsoft YaHei', sans-serif; color: var(--ops-soft); }
+.source-chip b, .buy-chip b { font: 400 11px var(--ops-figure); color: #f0e2bd; }
+.source-chip.cheapest { border-color: rgba(230, 201, 139, .9); background: rgba(48, 38, 18, .9); box-shadow: 0 0 10px rgba(230, 201, 139, .35); }
+.source-chip.cheapest b { color: #f3d48f; }
+.buy-chip { border-color: rgba(110, 170, 160, .55); }
+.buy-chip b { color: #b9ddd4; }
+.source-chip.dot, .buy-chip.dot { width: 6px; height: 6px; padding: 0; border-radius: 50%; background: #c9a96a; }
+.buy-chip.dot { background: #7fb3a8; }
+.map-key i.flow.bought { border-top-color: #7fb3a8; }
+.map-key i.source-swatch { width: 9px; height: 9px; border: 1px solid rgba(230, 201, 139, .9); border-radius: 50%; background: rgba(48, 38, 18, .9); margin-bottom: 0; }
+/* A narrower focus dims the rest of the tree's group. */
+.marker-chip.focus-dim { opacity: .45; }
+
+/* 去网页化（HierarchyUI.md 第 9 节）：no underlined links in the dossiers, the workbenches and the books — short ink-washed
+   buttons, stronger under the pointer. */
+.dossier-layer button.link, .right-dock button.link {
+  border-bottom: 0; padding: 1px 8px 2px; border-radius: 10px; color: #e3cf9c;
+  background: radial-gradient(ellipse at 50% 60%, rgba(176, 141, 82, .24), rgba(120, 92, 52, .1) 62%, rgba(120, 92, 52, 0) 80%);
+}
+.dossier-layer button.link:hover:enabled, .right-dock button.link:hover:enabled {
+  color: #fff3d0; background: radial-gradient(ellipse at 50% 60%, rgba(196, 160, 96, .55), rgba(140, 108, 60, .3) 60%, rgba(140, 108, 60, 0) 80%);
+}
+.dossier-layer button.link:disabled, .right-dock button.link:disabled { color: #77786d; background: none; }
+
+/* 地块档案（左侧）：the place clicked, docked at the left edge — straight on the left, top and bottom, brushed on the right only;
+   the docked art fades in and never slides (UIArtDirection.md 第 37–41 行). Under the dossiers and workbenches; the header's corner
+   sits over its top, the footer's key line over its foot. */
+.left-dock { position: absolute; z-index: 10; top: 0; left: 0; bottom: 0; width: 372px; pointer-events: auto; animation: dock-fade .35s ease-out both; }
+@keyframes dock-fade { from { opacity: 0; } to { opacity: 1; } }
+.left-dock-surface { height: 100%; }
+.left-dock-surface > .nine-slice-content { display: flex; flex-direction: column; padding: 122px 58px 40px 22px; }
+/* The 3-D capture's frame bleeds a few pixels past the column: no sideways scrollbar for it. */
+.left-dock .dock-scroll { overflow-x: hidden; }
+.left-dock-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 4px; }
+.left-dock-tools .link { font: 12px var(--display); letter-spacing: 2px; color: var(--gold); padding: 3px 0; }
+.left-dock-tools .link:hover { color: #fff3d0; }
+.place-close { width: 22px; height: 22px; font: 17px/1 Georgia, serif; color: #b9b7a8; }
+.place-close:hover { color: #fff3d0; }
+/* The way into the place's goods and prices (地块竞品), right under its name: the archive previews, the workbench lists. */
+.place-actions { display: flex; flex-wrap: wrap; gap: 6px 10px; margin: -6px 0 18px -10px; }
+/* The place on the map: a gold dot where the ground was clicked. */
+.place-anchor { position: absolute; z-index: 9; width: 0; height: 0; pointer-events: none; }
+.place-dot { position: absolute; left: -4px; top: -4px; width: 8px; height: 8px; border-radius: 50%; background: #e6c98b; box-shadow: 0 0 0 2px rgba(20, 18, 14, .6), 0 0 10px rgba(230, 201, 139, .8); }
+/* The view strip centres on the map between the two docks. */
+.view-dock.with-place { left: 50%; max-width: calc(100% - 784px); }
+
+/* 天下树：世界 → 国家 → 集散区, and 列强. */
+.world-tree { margin: 4px 0 14px; }
+.world-tree .tree-row { width: 100%; text-align: left; }
+.world-tree .tree-row em { flex: 0 0 auto; font: normal 11px 'Microsoft YaHei', sans-serif; color: #8f9188; }
+.world-tree .world-root > .tree-row { cursor: default; }
+.world-tree .world-root .tree-name { font-size: 16px; color: #f2ead2; }
+.world-tree .country.here > .tree-row .tree-name { color: #f2ead2; }
+.world-tree .market .tree-name { font-size: 14px; }
+.world-tree .tree-fold { padding: 4px 0 8px 17px; }
+.world-tree .tree-section { margin-top: 6px; }
+
+/* 设施徽记：the painted object in the tree and on the map markers. */
+.facility-emblem { flex: 0 0 26px; width: 26px; height: 26px; object-fit: contain; }
+.chip-emblem { flex: none; width: 18px; height: 18px; object-fit: contain; }
+
+/* 预览：the buildings of the tree row under the pointer. */
+.marker-chip.preview, .marker-pin-compact.preview { opacity: 1; border-color: rgba(240, 214, 150, .95); box-shadow: 0 0 0 2px rgba(230, 201, 139, .55), 0 0 18px rgba(230, 201, 139, .55); }
+/* The world tree's fold is a quiet toggle, not an action. */
+.right-dock .world-tree .tree-fold button.link { background: none; padding: 1px 0; color: #9c9a8c; font-size: 12px; }
+.right-dock .world-tree .tree-fold button.link:hover:enabled { background: none; color: #e3cf9c; }
+
+/* 商品书册（HierarchyUI.md 第 8.1 节）：goods by class, their pictures, the group's part (产／用) and last week's output. */
+.goods-book .goods-class { margin-bottom: 6px; }
+.goods-book .tree-section { margin: 8px 0 2px; }
+.good-row .good-art { flex: 0 0 26px; width: 26px; height: 26px; }
+.good-roles { display: inline-flex; gap: 3px; }
+.good-roles .role { font: normal 10px/16px 'Microsoft YaHei', sans-serif; width: 16px; text-align: center; border-radius: 50%; }
+.good-roles .role.make { color: #1b1710; background: rgba(230, 201, 139, .85); }
+.good-roles .role.use { color: #0e1816; background: rgba(127, 179, 168, .85); }
+/* A good on a chain, a link or a list: its picture, its name, an amount. */
+.good-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px 1px 2px; border-radius: 10px; color: #e3dfd2; font-size: 12px;
+  background: radial-gradient(ellipse at 50% 60%, rgba(176, 141, 82, .2), rgba(120, 92, 52, .08) 62%, rgba(120, 92, 52, 0) 80%); }
+.good-chip img, .good-chip .good-art { width: 20px; height: 20px; object-fit: contain; }
+.good-chip em { font: 11px Georgia, serif; color: #b9b7a8; font-style: normal; }
+.good-chip:hover:enabled { color: #fff3d0; }
+.good-title { display: inline-flex; align-items: center; gap: 10px; }
+.good-title .good-art { width: 40px; height: 40px; }
+/* 供需链：upstream and downstream, each a row of goods and the works between them. */
+.good-chain .chain-side { margin: 6px 0 12px; }
+.good-chain h3 { margin: 0 0 6px; font: 12px var(--display); letter-spacing: 2px; color: var(--gold); font-weight: normal; }
+.chain-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.chain-list li { display: grid; gap: 3px; padding: 4px 0; border-bottom: 1px solid rgba(236, 232, 221, .05); }
+.chain-type { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #cfc8b1; }
+.chain-type .facility-emblem, .chain-type .facility-mark { flex: 0 0 22px; width: 22px; height: 22px; }
+.chain-goods { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.chain-goods > em { font: 11px Georgia, serif; color: #9c9a8c; font-style: normal; }
+.chain-goods .arrow, .supply-pair i { font-style: normal; color: #8f8a73; }
+.chain-goods .plus { font-style: normal; color: #77786d; margin: 0 2px; }
+.chain-self { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.chain-self .good-art { width: 20px; height: 20px; }
+.chain-self b { font-weight: normal; color: #f2ead2; }
+.chain-machines { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 11px; color: #9c9a8c; padding-left: 28px; }
+.chain-need { font-size: 12px; color: #e3cf9c; }
+/* 商品档案's tables (the dossiers' grid tables). */
+.table.good-producers { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, .45fr) minmax(0, 1fr) minmax(0, .55fr); align-items: baseline; }
+.table.good-users { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, .7fr) minmax(0, .45fr) minmax(0, 1fr); align-items: baseline; }
+.table.good-markets { grid-template-columns: minmax(0, 1.3fr) repeat(5, minmax(0, .6fr)) minmax(0, 1.2fr); align-items: baseline; }
+.table.good-producers .num, .table.good-users .num, .table.good-markets .num { text-align: right; }
+.table.good-producers .mine button, .table.good-users .mine button { color: var(--gold); }
+/* A good's 供需 on the map: its makers gold, its users teal. */
+.marker-chip.role-make { border-color: rgba(230, 201, 139, .9); }
+.marker-chip.role-use { border-color: rgba(127, 179, 168, .9); }
+.marker-chip.role-store { border-color: rgba(190, 170, 120, .8); border-style: dashed; }
+.map-key i.flow.others { border-top-color: #6f6a5c; }
+.map-key i.flow.link { border-top: 2px dotted #b8955a; }
+.map-key i.role-swatch { width: 9px; height: 9px; border-radius: 50%; border: 1px solid; margin-bottom: 0; }
+.map-key i.role-swatch.make { border-color: rgba(230, 201, 139, .9); }
+.map-key i.role-swatch.use { border-color: rgba(127, 179, 168, .9); }
+/* 集团内供需签 and list. */
+.link-chip { pointer-events: auto; display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px 1px 2px; white-space: nowrap;
+  font: 400 10px/1.6 var(--ops-figure); color: #e8dcc0; background: rgba(28, 24, 16, .86); border: 1px dotted rgba(184, 149, 90, .8); border-radius: 9px; }
+.link-chip img { width: 16px; height: 16px; object-fit: contain; }
+.link-chip .cost-name { font: 10px 'Microsoft YaHei', sans-serif; color: var(--ops-soft); }
+.link-chip b { font: 400 11px var(--ops-figure); color: #f0e2bd; }
+.link-chip.dot { width: 6px; height: 6px; padding: 0; border-radius: 50%; background: #b8955a; }
+.supply-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.supply-list li { display: grid; gap: 2px; }
+.supply-pair { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.supply-list em { font-size: 11px; color: #9c9a8c; font-style: normal; }
+/* 世界树：a country's or a 集散区's name opens its archive, the chevron its children. */
+.world-tree .country-row, .world-tree .market-row { cursor: default; }
+.world-tree button.twist { padding: 0; }
+.world-tree .twist.leaf { visibility: hidden; }
+.world-tree button.tree-name { text-align: left; cursor: pointer; }
+.world-tree button.tree-name:hover { color: #fff3d0; }
+.world-tree .plot .tree-name { font-size: 13px; }
+.world-tree .tree-node.country.selected > .tree-row .tree-name { color: #fff3d6; }
+/* 国家档案. */
+.country-markets, .country-types { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.country-markets li { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.country-markets em { font-size: 11px; color: #9c9a8c; font-style: normal; }
+.country-types li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.country-types li span { flex: 1; }
+.country-types .facility-emblem, .country-types .facility-mark { flex: 0 0 22px; width: 22px; height: 22px; }
+.share-list span.mine { color: var(--gold); }

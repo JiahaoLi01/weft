@@ -1,0 +1,9 @@
+#gallery { position: relative; width: 640px; height: 420px; background-color: #596864; font-family: ProbeRoboto; font-size: 16px; line-height: 24px; color: #ece8dd; white-space: nowrap; }
+.caption { position: absolute; left: 204px; top: 12px; width: 330px; height: 24px; }
+.subtitle { position: absolute; left: 204px; top: 38px; width: 390px; height: 24px; font-size: 12px; color: #c2b38f; }
+.panel-label { position: absolute; left: 58px; top: 44px; width: 130px; height: 24px; font-size: 14px; }
+.dock-label { position: absolute; left: 14px; top: 130px; width: 104px; height: 24px; font-size: 14px; }
+.dock-right-label { position: absolute; left: 60px; top: 280px; width: 92px; height: 24px; font-size: 14px; }
+#resize { position: absolute; left: 228px; top: 354px; width: 164px; height: 32px; margin: 0; padding: 0; border: 0; background-color: #27332f; font-family: ProbeRoboto; font-size: 14px; line-height: 32px; color: #ece8dd; white-space: nowrap; text-align: left; }
+.status { position: absolute; left: 204px; top: 390px; width: 400px; height: 24px; font-size: 12px; color: #ece8dd; }
+.marker { position: absolute; left: 58px; top: 86px; width: 112px; height: 3px; background-color: #c2b38f; }

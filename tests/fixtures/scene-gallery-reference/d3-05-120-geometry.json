@@ -1,0 +1,44 @@
+[
+  {
+    "tag": "div",
+    "rect": [
+      0,
+      0,
+      384,
+      384
+    ],
+    "style": {
+      "width": "384px",
+      "height": "384px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "none",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "0px",
+      "border-color": "rgb(245, 230, 200)",
+      "color": "rgb(245, 230, 200)"
+    }
+  },
+  {
+    "tag": "svg",
+    "rect": [
+      52,
+      92,
+      280,
+      200
+    ],
+    "style": {
+      "width": "280px",
+      "height": "200px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "none",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "0px",
+      "border-color": "rgb(245, 230, 200)",
+      "color": "rgb(245, 230, 200)"
+    }
+  }
+]

@@ -1,0 +1,23 @@
+{
+  "state": {
+    "active": {
+      "group": "SPRING_TESTS",
+      "index": 0,
+      "label": "Animated Number"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "span",
+      "style": null,
+      "text": "1,895"
+    }
+  ]
+}

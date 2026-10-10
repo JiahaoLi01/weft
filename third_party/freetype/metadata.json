@@ -1,0 +1,23 @@
+{
+  "name": "freetype",
+  "version": "2.13.3",
+  "commit": "42608f77f20749dd6ddc9e0536788eaad70ea4b5",
+  "upstream": "https://github.com/freetype/freetype",
+  "archive_url": "https://github.com/freetype/freetype/archive/42608f77f20749dd6ddc9e0536788eaad70ea4b5.zip",
+  "archive_sha256": "458f3bef657a2f9af1b925770e6e4e169077200dad833b8303b7c78502f1a6c5",
+  "license_file": "source/docs/FTL.TXT",
+  "modified_files": [],
+  "retrieved_date": "2026-10-07",
+  "license_choice": "FreeType Project License (FTL); GPL alternative not selected",
+  "build_options": {
+    "static": true,
+    "FT_DISABLE": [
+      "ZLIB",
+      "BZIP2",
+      "PNG",
+      "HARFBUZZ",
+      "BROTLI"
+    ],
+    "MSVC": "/utf-8"
+  }
+}

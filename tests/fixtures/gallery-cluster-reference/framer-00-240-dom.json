@@ -1,0 +1,18 @@
+{
+  "state": {
+    "active": {
+      "group": "FRAMER_TESTS",
+      "index": 0,
+      "label": "Fade In"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": "opacity: 1; transform: none;",
+      "text": "Fade In Loop"
+    }
+  ]
+}

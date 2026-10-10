@@ -1,0 +1,168 @@
+{
+  "state": {
+    "active": {
+      "group": "ANIME_TESTS",
+      "index": 5,
+      "label": "Particle Explosion"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(255, 255, 255); transform: translateX(81.6327px) translateY(6.1229px) scale(0.3719); opacity: 0.3017;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(255, 255, 255); transform: translateX(56.047px) translateY(-51.8645px) scale(0.3623); opacity: 0.3534;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(240, 208, 128); transform: translateX(-7.816px) translateY(-71.6212px) scale(0.2213); opacity: 0.3022;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(196, 64, 64); transform: translateX(-39.2835px) translateY(-3.6403px) scale(0.1511); opacity: 0.1686;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(255, 255, 255); transform: translateX(-21.4269px) translateY(-80px) scale(0.1978); opacity: 0.4189;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(212, 168, 67); transform: translateX(-73.0597px) translateY(48.33px) scale(0.2614); opacity: 0.2031;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(196, 64, 64); transform: translateX(55.9917px) translateY(-87.1579px) scale(0.3207); opacity: 0.3692;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(240, 208, 128); transform: translateX(-43.8069px) translateY(-45.6504px) scale(0.4162); opacity: 0.3228;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(212, 168, 67); transform: translateX(-89.8029px) translateY(-12.1272px) scale(0.3022); opacity: 0.239;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(212, 168, 67); transform: translateX(-23.5532px) translateY(-30.7051px) scale(0.3834); opacity: 0.3925;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(212, 168, 67); transform: translateX(83.6863px) translateY(82.1501px) scale(0.3534); opacity: 0.1233;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(212, 168, 67); transform: translateX(-57.4095px) translateY(99.5556px) scale(0.1075); opacity: 0.3129;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(196, 64, 64); transform: translateX(-52.8613px) translateY(-47.073px) scale(0.3967); opacity: 0.2377;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(255, 255, 255); transform: translateX(40.1387px) translateY(-32.4725px) scale(0.3933); opacity: 0.2766;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(196, 64, 64); transform: translateX(47.8223px) translateY(-59.7002px) scale(0.1147); opacity: 0.1734;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(240, 208, 128); transform: translateX(48.6361px) translateY(52.2151px) scale(0.3642); opacity: 0.3655;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(196, 64, 64); transform: translateX(-14.9033px) translateY(-24.7436px) scale(0.4267); opacity: 0.3108;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(196, 64, 64); transform: translateX(-44.257px) translateY(35.7456px) scale(0.2806); opacity: 0.2968;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(240, 208, 128); transform: translateX(-48.3323px) translateY(18.3649px) scale(0.4154); opacity: 0.3572;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(196, 64, 64); transform: translateX(24.77px) translateY(48.0432px) scale(0.3984); opacity: 0.3238;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(255, 255, 255); transform: translateX(-50.0129px) translateY(-56.1071px) scale(0.3623); opacity: 0.1741;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(196, 64, 64); transform: translateX(74.4877px) translateY(73.6974px) scale(0.1727); opacity: 0.1497;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(196, 64, 64); transform: translateX(-15.9663px) translateY(-48.5693px) scale(0.3669); opacity: 0.2702;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(196, 64, 64); transform: translateX(-100.363px) translateY(87.5785px) scale(0.3423); opacity: 0.3895;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(255, 255, 255); transform: translateX(0.6409px) translateY(40.7286px) scale(0.3081); opacity: 0.1476;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(212, 168, 67); transform: translateX(-53.6218px) translateY(1.795px) scale(0.4267); opacity: 0.234;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(196, 64, 64); transform: translateX(63.0107px) translateY(-71.7597px) scale(0.3022); opacity: 0.1433;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(255, 255, 255); transform: translateX(-35.4347px) translateY(20.2892px) scale(0.3462); opacity: 0.1169;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(255, 255, 255); transform: translateX(34.2368px) translateY(-74.6667px) scale(0.3108); opacity: 0.3963;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "position: absolute; width: 6px; height: 6px; border-radius: 50%; left: 50%; top: 50%; pointer-events: none; background-color: rgb(240, 208, 128); transform: translateX(43.3936px) translateY(-57.2831px) scale(0.2973); opacity: 0.2644;",
+      "text": ""
+    }
+  ]
+}

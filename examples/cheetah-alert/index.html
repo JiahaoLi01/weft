@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>CaseElephant / 中文 AlertBar</title>
+<style>
+@font-face { font-family: ProbeRoboto; src: url('./Roboto-Regular.ttf'); }
+@font-face { font-family: ProbeCjk; src: url('./NotoSansCJKsc-Regular.otf'); }
+html,body,#root { margin:0; width:640px; height:420px; } body {background:#596864;}
+#font-oracle {position:absolute;left:660px;top:0;width:220px;font:400 16px/24px ProbeRoboto,ProbeCjk;}
+.font-word {display:inline;} .font-baseline {display:inline-block;width:0;height:0;}
+</style></head><body><div id="root"></div>
+<div id="font-oracle" aria-label="字体度量参考">
+<div data-word="office AV"><span class="font-word">office AV</span><span class="font-baseline"></span></div>
+<div data-word="仓库"><span class="font-word">仓库</span><span class="font-baseline"></span></div>
+<div data-word="A仓B"><span class="font-word">A仓B</span><span class="font-baseline"></span></div>
+<div data-word="仓́"><span class="font-word">仓́</span><span class="font-baseline"></span></div>
+</div><script type="module" src="./src/main.tsx"></script></body></html>

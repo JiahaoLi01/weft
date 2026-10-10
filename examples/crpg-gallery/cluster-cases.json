@@ -1,0 +1,413 @@
+{
+  "format": "gallery-shared-cluster-v1",
+  "groups": [
+    {
+      "name": "D3_INTERACTIVE_TESTS",
+      "prefix": "d3_interactive",
+      "count": 4,
+      "width": 1596,
+      "height": 1500
+    },
+    {
+      "name": "KLINE_TESTS",
+      "prefix": "kline",
+      "count": 1,
+      "width": 1596,
+      "height": 800
+    },
+    {
+      "name": "FRAMER_TESTS",
+      "prefix": "framer",
+      "count": 6,
+      "width": 518.666666666667,
+      "height": 320
+    },
+    {
+      "name": "SPRING_TESTS",
+      "prefix": "spring",
+      "count": 3,
+      "width": 518.666666666667,
+      "height": 288
+    },
+    {
+      "name": "ICON_TESTS",
+      "prefix": "icon",
+      "count": 2,
+      "width": 788,
+      "height": 288
+    },
+    {
+      "name": "ANIME_TESTS",
+      "prefix": "anime",
+      "count": 14,
+      "width": 387,
+      "height": 288
+    }
+  ],
+  "frames": 301,
+  "capture_frames": [
+    24,
+    63,
+    90,
+    120,
+    180,
+    240,
+    300
+  ],
+  "inputs": {
+    "d3_interactive-00": [
+      {
+        "frame": 30,
+        "action": "move",
+        "x": 1023,
+        "y": 750
+      },
+      {
+        "frame": 50,
+        "action": "click",
+        "x": 1023,
+        "y": 750
+      },
+      {
+        "frame": 150,
+        "action": "move",
+        "x": -10,
+        "y": -10
+      }
+    ],
+    "d3_interactive-01": [
+      {
+        "frame": 45,
+        "action": "click",
+        "selector": "svg circle",
+        "index": 1
+      },
+      {
+        "frame": 180,
+        "action": "click",
+        "selector": "svg circle",
+        "index": 1
+      }
+    ],
+    "d3_interactive-02": [
+      {
+        "frame": 35,
+        "action": "down",
+        "selector": ".overlay",
+        "fraction": [
+          0.2,
+          0.5
+        ]
+      },
+      {
+        "frame": 40,
+        "action": "move",
+        "selector": ".overlay",
+        "fraction": [
+          0.4,
+          0.5
+        ],
+        "buttons": 1
+      },
+      {
+        "frame": 45,
+        "action": "move",
+        "selector": ".overlay",
+        "fraction": [
+          0.7,
+          0.5
+        ],
+        "buttons": 1
+      },
+      {
+        "frame": 50,
+        "action": "up",
+        "selector": ".overlay",
+        "fraction": [
+          0.7,
+          0.5
+        ]
+      }
+    ],
+    "d3_interactive-03": [
+      {
+        "frame": 45,
+        "action": "wheel",
+        "selector": "svg",
+        "fraction": [
+          0.5,
+          0.5
+        ],
+        "delta": -240
+      },
+      {
+        "frame": 130,
+        "action": "move",
+        "selector": "svg circle",
+        "index": 0,
+        "visible": true
+      },
+      {
+        "frame": 140,
+        "action": "click",
+        "selector": "svg circle",
+        "index": 0,
+        "visible": true
+      },
+      {
+        "frame": 200,
+        "action": "down",
+        "selector": "svg",
+        "fraction": [
+          0.2,
+          0.3
+        ]
+      },
+      {
+        "frame": 205,
+        "action": "move",
+        "selector": "svg",
+        "fraction": [
+          0.25,
+          0.33
+        ],
+        "buttons": 1
+      },
+      {
+        "frame": 210,
+        "action": "up",
+        "selector": "svg",
+        "fraction": [
+          0.25,
+          0.33
+        ]
+      }
+    ],
+    "kline-00": [
+      {
+        "frame": 30,
+        "action": "move",
+        "x": 700,
+        "y": 250
+      },
+      {
+        "frame": 80,
+        "action": "click",
+        "x": 700,
+        "y": 250
+      },
+      {
+        "frame": 200,
+        "action": "move",
+        "x": -10,
+        "y": -10
+      }
+    ],
+    "framer-01": [
+      {
+        "frame": 30,
+        "action": "click",
+        "x": 259,
+        "y": 160
+      },
+      {
+        "frame": 150,
+        "action": "click",
+        "x": 259,
+        "y": 160
+      }
+    ],
+    "framer-02": [
+      {
+        "frame": 30,
+        "action": "move",
+        "x": 259,
+        "y": 160
+      },
+      {
+        "frame": 80,
+        "action": "down",
+        "x": 259,
+        "y": 160
+      },
+      {
+        "frame": 100,
+        "action": "up",
+        "x": 259,
+        "y": 160
+      },
+      {
+        "frame": 150,
+        "action": "move",
+        "x": -10,
+        "y": -10
+      }
+    ],
+    "framer-03": [
+      {
+        "frame": 30,
+        "action": "click",
+        "x": 259,
+        "y": 160
+      },
+      {
+        "frame": 150,
+        "action": "click",
+        "x": 259,
+        "y": 160
+      }
+    ],
+    "anime-08": [
+      {
+        "frame": 30,
+        "action": "down",
+        "selector": ".drag-item",
+        "index": 0
+      },
+      {
+        "frame": 35,
+        "action": "move",
+        "x": 150,
+        "y": 170,
+        "buttons": 1
+      },
+      {
+        "frame": 40,
+        "action": "move",
+        "x": 220,
+        "y": 180,
+        "buttons": 1
+      },
+      {
+        "frame": 45,
+        "action": "up",
+        "x": 220,
+        "y": 180
+      }
+    ],
+    "anime-09": [
+      {
+        "frame": 30,
+        "action": "down",
+        "selector": ".snap-box"
+      },
+      {
+        "frame": 40,
+        "action": "move",
+        "x": 240,
+        "y": 190,
+        "buttons": 1
+      },
+      {
+        "frame": 50,
+        "action": "up",
+        "x": 240,
+        "y": 190
+      }
+    ],
+    "anime-10": [
+      {
+        "frame": 30,
+        "action": "down",
+        "selector": ".h-drag"
+      },
+      {
+        "frame": 40,
+        "action": "move",
+        "x": 150,
+        "y": 180,
+        "buttons": 1
+      },
+      {
+        "frame": 50,
+        "action": "up",
+        "x": 150,
+        "y": 180
+      },
+      {
+        "frame": 160,
+        "action": "down",
+        "selector": ".v-drag"
+      },
+      {
+        "frame": 170,
+        "action": "move",
+        "x": 250,
+        "y": 120,
+        "buttons": 1
+      },
+      {
+        "frame": 180,
+        "action": "up",
+        "x": 250,
+        "y": 120
+      }
+    ],
+    "anime-11": [
+      {
+        "frame": 30,
+        "action": "down",
+        "selector": ".throw-ball"
+      },
+      {
+        "frame": 35,
+        "action": "move",
+        "x": 230,
+        "y": 130,
+        "buttons": 1
+      },
+      {
+        "frame": 40,
+        "action": "move",
+        "x": 320,
+        "y": 100,
+        "buttons": 1
+      },
+      {
+        "frame": 45,
+        "action": "up",
+        "x": 320,
+        "y": 100
+      }
+    ],
+    "anime-12": [
+      {
+        "frame": 30,
+        "action": "click",
+        "selector": ".shuffle-btn"
+      },
+      {
+        "frame": 150,
+        "action": "click",
+        "selector": ".shuffle-btn"
+      }
+    ],
+    "anime-13": [
+      {
+        "frame": 30,
+        "action": "click",
+        "selector": ".display-btn"
+      },
+      {
+        "frame": 90,
+        "action": "click",
+        "selector": ".display-btn"
+      },
+      {
+        "frame": 150,
+        "action": "click",
+        "selector": ".display-btn"
+      },
+      {
+        "frame": 210,
+        "action": "click",
+        "selector": ".display-btn"
+      },
+      {
+        "frame": 270,
+        "action": "click",
+        "selector": ".display-btn"
+      }
+    ]
+  }
+}

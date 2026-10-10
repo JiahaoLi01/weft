@@ -1,0 +1,88 @@
+{
+  "state": {
+    "active": {
+      "group": "ANIME_TESTS",
+      "index": 1,
+      "label": "Text Reveal"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0.5376; transform: translateY(9.248px);",
+      "text": "P"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0.3916; transform: translateY(12.168px);",
+      "text": "u"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0.2256; transform: translateY(15.488px);",
+      "text": "r"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0.0396; transform: translateY(19.208px);",
+      "text": "p"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0; transform: translateY(20px);",
+      "text": "l"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0; transform: translateY(20px);",
+      "text": "e"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0; transform: translateY(20px);",
+      "text": " "
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0; transform: translateY(20px);",
+      "text": "S"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0; transform: translateY(20px);",
+      "text": "c"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0; transform: translateY(20px);",
+      "text": "h"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0; transform: translateY(20px);",
+      "text": "e"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0; transform: translateY(20px);",
+      "text": "m"
+    },
+    {
+      "tag": "span",
+      "style": "opacity: 0; transform: translateY(20px);",
+      "text": "e"
+    }
+  ]
+}

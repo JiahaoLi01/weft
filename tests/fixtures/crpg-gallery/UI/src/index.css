@@ -1,0 +1,43 @@
+/*
+ * CRPG WebUI — stylesheet entry.
+ *
+ * This file is intentionally thin. It only wires up Tailwind and imports
+ * the organized CSS under `styles/`. See `styles/README.md` for the
+ * directory layout and conventions (where to put what, naming rules,
+ * import order, Tailwind v4 gotchas).
+ *
+ * Game UI runs inside Ultralight (WebKit 615.1) embedded in UE5, with a
+ * transparent background so the game world shows through.
+ *
+ * Font registration (@font-face): emitted at runtime by src/config/fonts.ts
+ * (`restoreFontsFromStorage()` → `ensureFontFaceInjected()`). Keeping the
+ * registry in one place avoids drift between CSS and the config table.
+ *
+ * CSS spec: @import statements must come before every other rule. They're
+ * the entire body of this file for that reason — any @theme / @layer base
+ * / keyframes / component CSS belongs in the files imported below.
+ */
+
+@import "tailwindcss";
+
+/* 1. Design tokens + global resets. Must load before everything else so
+ *    feature CSS can reference --color-* / --font-* variables. */
+@import "./styles/core/theme.css";
+@import "./styles/core/base.css";
+
+/* 2. Shared animation library (keyframes + @utility animate-*). */
+@import "./styles/core/animations.css";
+
+/* 3. Reusable UI primitives (buttons, panels, tooltips, ...).
+ *    Add files here as primitives are built. */
+/* @import "./styles/primitives/button.css"; */
+
+/* 4. Feature-specific styles. One file per major feature; order here
+ *    doesn't usually matter because each feature is scoped via its
+ *    class-name prefix. */
+@import "./styles/features/subtitle.css";
+@import "./styles/features/settings.css";
+@import "./styles/features/battle.css";
+
+/* Tailwind source scan — files matched here are watched for class names. */
+@source "../src/**/*.{tsx,ts,jsx,js}";

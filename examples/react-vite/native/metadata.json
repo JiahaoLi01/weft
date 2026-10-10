@@ -1,0 +1,21 @@
+{
+  "react": "19.3.0",
+  "react_dom": "19.3.0",
+  "scheduler": "0.28.0",
+  "vite": "8.3.3",
+  "node": "24.19.0",
+  "format": "Vite library IIFE, production, ES2020, minify:false, no upstream source patches",
+  "inputs": {
+    "examples/react-vite/package.json": "b5e4f18e8d48c831caa21a963f3a65a4bd7339be8dffd50a4f5c80c2d5ea9a58",
+    "examples/react-vite/package-lock.json": "8b994b951333ac04681aefb36e0e1c76e7c975d6e95ec99d8624851241e5108f",
+    "examples/react-vite/vite.config.js": "92399f9eb3ea9ac262f289f9d3c5ded02dc9af474c821c7b63552f0e6957e752",
+    "examples/react-vite/scripts/prepare.mjs": "a99a1bc76c97c9144e9349fa66e716573110918695708b85a1c79a857c3abcb5",
+    "examples/react-vite/src/main.jsx": "95a928f5471606b2078702fe085736242b5d1ed8bb0935b85a0ad9e9f5584a56",
+    "third_party/react-runtime/metadata.json": "b1f33f87356ab1d0e61de36df757b19013c2bb765da7b0c82283eac99621b6e0",
+    "tools/freeze_react_bundle.mjs": "cb9471c69ac616ff35b89df260afa20e245830dec93167896b66202f28155fae"
+  },
+  "outputs": {
+    "examples/react-vite/native/app.js": "fac28baee3fe7076f281e699b215ffc93e85a8f9332b1ef79a49960afd5b6c63",
+    "examples/react-vite/native/BUNDLED-LICENSES.txt": "38d99b207eec4100c68805d464c40cdf0058590aedd50c23c9509fb54be1144f"
+  }
+}

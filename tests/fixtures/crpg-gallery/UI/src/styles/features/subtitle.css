@@ -1,0 +1,155 @@
+/*
+ * ── Subtitle overlay — "soft glow" variant ─────────────────────────
+ *
+ * Accompanies UI/src/components/SubtitleOverlay.tsx. All subtitle DOM
+ * classes (.subtitle-root, .subtitle-item, .subtitle-glow, .subtitle-text)
+ * live here, so the entire visual contract is in one place.
+ *
+ * Per art direction: text appears / disappears with the glow; the
+ * radial-gradient soft-glow backing fades in/out; no slide animation.
+ * `--bg-opacity` is driven by the user's subtitle settings.
+ * Text wraps at `max-width: 80%`, supporting multi-line subtitles.
+ *
+ * ── DOM pooling, and why the old keep-alive hack is gone ───────────
+ *
+ * The store renders a FIXED pool of `.subtitle-item` slots that are mounted
+ * once and never removed (see subtitle-store.ts / SubtitleOverlay.tsx). The
+ * old design unmounted each item on exit, and Ultralight's paint pipeline
+ * hitched on that DOM-node removal (dropped a frame on fade-out; could leave a
+ * faint ghost). It papered over this with a `subtitle-root-keepalive`
+ * brightness-filter animation forcing repaints across the removal.
+ *
+ * With pooling there is no removal: an exited slot just goes `display:none`
+ * (the `[data-state="idle"]` rule below) AFTER it has already faded to
+ * opacity:0, so even a frozen frame there is blank — never a ghost. The
+ * keep-alive animation, its keyframes, and the `useExitKeepAlive` hook were
+ * all deleted. `display:none` (not `height:0`) is used for idle slots so they
+ * leave the flex flow entirely and don't pollute the `gap` between the active
+ * subtitles.
+ */
+
+/* ── Layout ──────────────────────────────────────────────────────── */
+.subtitle-item {
+    position: relative;
+    padding: 12px 36px;
+    max-width: 80%;
+}
+
+/* Idle (pooled-but-empty) slot: out of flow entirely so it adds no height and
+ * no flex `gap`. Applied only once the slot has faded to opacity:0, so the
+ * display flip is visually a no-op. */
+.subtitle-item[data-state="idle"] {
+    display: none;
+}
+
+/* ── Glow backing ─────────────────────────────────────────────────── */
+.subtitle-glow {
+    position: absolute;
+    inset: -12px -48px;
+    background: radial-gradient(
+        ellipse at center,
+        rgba(5, 3, 10, calc(0.7 * var(--bg-opacity, 1))) 0%,
+        rgba(5, 3, 10, calc(0.25 * var(--bg-opacity, 1))) 50%,
+        transparent 80%
+    );
+    filter: blur(10px);
+    z-index: 0;
+    opacity: 0;
+    /* Visual-only timing (correctness is handled by the conditional root
+     * keep-alive above). Tune freely per art. */
+    transition: opacity 100ms ease-out;
+}
+
+.subtitle-item[data-state="visible"] .subtitle-glow {
+    opacity: 1;
+}
+
+.subtitle-item[data-state="exiting"] .subtitle-glow {
+    opacity: 0;
+    transition-duration: 100ms;
+}
+
+/* ── Text layer ───────────────────────────────────────────────────── */
+.subtitle-text {
+    position: relative;
+    z-index: 1;
+    color: #fff;
+    /* Mixed stack — see --font-subtitle in core/theme.css. The slot is
+     * settings-controlled; per-glyph fallback resolves digits/Latin to
+     * Cinzel Decorative and CJK to Noto Serif SC. */
+    font-family: var(--font-subtitle);
+    letter-spacing: 0.5px;
+    line-height: 1.5;
+    text-align: center;
+    font-weight: 400;
+    white-space: pre-wrap; /* respect \n for explicit multi-line */
+    word-break: break-word; /* allow long lines to wrap within width */
+    text-shadow:
+        0 1px 4px rgba(0, 0, 0, 0.9),
+        0 0 14px rgba(0, 0, 0, 0.55);
+    opacity: 1; /* default — no fade on enter (art intent: instant text) */
+}
+
+/* On exit, fade the text out alongside the glow. With the conditional
+ * root keep-alive in place this is now purely a visual choice: text
+ * fades with glow instead of snap-cutting. Art-approved feel.
+ *
+ * Duration in sync with the glow's exit. Enter still snap-shows text at
+ * full opacity — no enter transition here. Tune freely per art. */
+.subtitle-item[data-state="exiting"] .subtitle-text {
+    opacity: 0;
+    transition: opacity 200ms ease-out;
+}
+
+/* Italic variant for sound-description lines like `[门开启的声音]`. */
+.subtitle-text .subtitle-sdh {
+    font-style: italic;
+}
+
+/* ── Ruby (furigana) ──────────────────────────────────────────────
+ *
+ * Subtitle content is parsed in SubtitleOverlay.tsx via lib/ruby.ts; ruby
+ * groups become <ruby><rt>…</rt></ruby> nodes with class .ruby-key (the
+ * author tagged it as a key word with the `!` syntax) or .ruby-normal.
+ *
+ * The .subtitle-root container carries a `data-furigana-mode` attribute
+ * driven by subtitle settings (off / key / all). The selectors below
+ * implement the visibility rules:
+ *
+ *   off  — no rt visible (kanji-only display)
+ *   key  — only key-word rt visible
+ *   all  — every rt visible
+ *
+ * Hiding via `display: none` collapses the ruby group's height back to a
+ * normal text line so the subtitle baseline doesn't bounce when the
+ * setting changes. Tradeoff: a tiny relayout when the player flips modes;
+ * acceptable since this is a settings action, not a per-frame thing. */
+.subtitle-text ruby {
+    /* Place rt above the base, centered over the run. */
+    ruby-position: over;
+    ruby-align: center;
+}
+
+.subtitle-text rt {
+    /* Furigana sits above the kanji; size and weight tuned for legibility
+     * on the existing soft-glow backdrop. opacity 0.85 keeps the rt from
+     * out-shouting the base line while still being clearly readable. */
+    font-size: 0.5em;
+    line-height: 1;
+    letter-spacing: 0.05em;
+    opacity: 0.85;
+    /* Lift the rt slightly so the descenders of katakana like ー or ッ
+     * don't kiss the kanji's top edge. */
+    transform: translateY(-0.15em);
+}
+
+/* Density filter ────────────────────────────────────────────────── */
+.subtitle-root[data-furigana-mode="off"] .subtitle-text rt {
+    display: none;
+}
+
+.subtitle-root[data-furigana-mode="key"] .subtitle-text .ruby-normal rt {
+    display: none;
+}
+
+/* `all` mode is the default — every rt is shown; no extra rule needed. */

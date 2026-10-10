@@ -1,0 +1,23 @@
+{
+  "state": {
+    "active": {
+      "group": "FRAMER_TESTS",
+      "index": 5,
+      "label": "AnimatePresence"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "opacity: 0; transform: scale(0.5);",
+      "text": ""
+    }
+  ]
+}

@@ -1,0 +1,391 @@
+{
+  "state": {
+    "active": {
+      "group": "D3_INTERACTIVE_TESTS",
+      "index": 1,
+      "label": "Collapsible Skill Tree (click to toggle)"
+    },
+    "errors": [],
+    "bridge": [
+      {
+        "name": "tree_click",
+        "data": {
+          "name": "Attributes"
+        }
+      },
+      {
+        "name": "tree_click",
+        "data": {
+          "name": "Attributes"
+        }
+      }
+    ]
+  },
+  "dom": [
+    {
+      "tag": "svg",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Character"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Attributes"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Skills"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Inventory"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Strength"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Dexterity"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Intelligence"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Wisdom"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Swordsmanship"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Archery"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Stealth"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Magic"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Weapons"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Armor"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Potions"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Fireball"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Heal"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "Shield"
+    }
+  ]
+}

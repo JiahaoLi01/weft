@@ -1,0 +1,43 @@
+{
+  "state": {
+    "active": {
+      "group": "SPRING_TESTS",
+      "index": 1,
+      "label": "Trail Animation"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "opacity: 1.00777; transform: translateY(-0.155334px);",
+      "text": "⚔️"
+    },
+    {
+      "tag": "div",
+      "style": "opacity: 1.05497; transform: translateY(0.135486px);",
+      "text": "🛡️"
+    },
+    {
+      "tag": "div",
+      "style": "opacity: 1.02903; transform: translateY(1.77331px);",
+      "text": "💎"
+    },
+    {
+      "tag": "div",
+      "style": "opacity: 0.798567; transform: translateY(4.69172px);",
+      "text": "🔥"
+    },
+    {
+      "tag": "div",
+      "style": "opacity: 0.456495; transform: translateY(8.15593px);",
+      "text": "⭐"
+    }
+  ]
+}

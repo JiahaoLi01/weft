@@ -1,0 +1,112 @@
+{
+  "fixture": "caseelephant-d3d11-color-v1",
+  "width": 256,
+  "height": 128,
+  "source": "actual Chrome PNG capture",
+  "samples": [
+    {
+      "id": "white-half",
+      "rgba": [
+        128,
+        128,
+        128,
+        255
+      ]
+    },
+    {
+      "id": "ordered-red-blue",
+      "rgba": [
+        64,
+        0,
+        128,
+        255
+      ]
+    },
+    {
+      "id": "srgb-gray-input",
+      "rgba": [
+        128,
+        128,
+        128,
+        255
+      ]
+    },
+    {
+      "id": "coverage-128",
+      "rgba": [
+        128,
+        128,
+        128,
+        255
+      ]
+    },
+    {
+      "id": "parent-opacity-group",
+      "rgba": [
+        0,
+        0,
+        128,
+        255
+      ]
+    },
+    {
+      "id": "premultiplied-image-edge",
+      "rgba": [
+        127,
+        0,
+        0,
+        255
+      ]
+    },
+    {
+      "id": "actual-freetype-glyph",
+      "rgba": [
+        255,
+        255,
+        255,
+        255
+      ]
+    },
+    {
+      "id": "glyph-exterior",
+      "rgba": [
+        0,
+        0,
+        0,
+        255
+      ]
+    },
+    {
+      "id": "scissor-interior",
+      "rgba": [
+        255,
+        0,
+        0,
+        255
+      ]
+    },
+    {
+      "id": "scissor-exterior",
+      "rgba": [
+        0,
+        0,
+        0,
+        255
+      ]
+    }
+  ],
+  "browser_file_version": "154.0.8037.98",
+  "captured_date": "2026-10-07",
+  "browser_flags": [
+    "--force-color-profile=srgb",
+    "--force-device-scale-factor=1",
+    "--window-size=256,128",
+    "--disable-gpu"
+  ],
+  "png_sha256": "cd6f589443f0789b6736058afdc8ffa00485f83baa2df174681013ed8bf0418b",
+  "dom_sha256": "6d5e1d3747bd9a218f38ab88f0567094edc910d64ae16393c5dd8ea6cf22071b",
+  "font_loaded": true,
+  "html_sha256": "b3fbed7e5d2e9af0c209d4849ae3a79be83e0d6bee9991b6c5409d853d3750c6",
+  "font_sha256": "b719ecb31c5b21fc573c03f6421c74ac63c271a5a3ff841e34f9705fb94b8448",
+  "purpose": "Independent browser comparison; transparency color differences are intentional"
+}

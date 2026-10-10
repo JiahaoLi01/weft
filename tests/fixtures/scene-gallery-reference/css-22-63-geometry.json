@@ -1,0 +1,107 @@
+[
+  {
+    "tag": "div",
+    "rect": [
+      0,
+      0,
+      387,
+      288
+    ],
+    "style": {
+      "width": "387px",
+      "height": "288px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "none",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "0px",
+      "border-color": "rgb(245, 230, 200)",
+      "color": "rgb(245, 230, 200)"
+    }
+  },
+  {
+    "tag": "div",
+    "rect": [
+      0,
+      0,
+      387,
+      288
+    ],
+    "style": {
+      "width": "387px",
+      "height": "288px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "none",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "0px",
+      "border-color": "rgb(245, 230, 200)",
+      "color": "rgb(245, 230, 200)"
+    }
+  },
+  {
+    "tag": "div",
+    "rect": [
+      169.5,
+      120,
+      48,
+      48
+    ],
+    "style": {
+      "width": "48px",
+      "height": "48px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "none",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "3.35544e+07px",
+      "border-color": "rgb(245, 230, 200)",
+      "color": "rgb(245, 230, 200)"
+    }
+  },
+  {
+    "tag": "div",
+    "rect": [
+      109.93936920166016,
+      60.439369201660156,
+      167.12127685546875,
+      167.12127685546875
+    ],
+    "style": {
+      "width": "48px",
+      "height": "48px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "matrix(3.48169, 0, 0, 3.48169, 0, 0)",
+      "opacity": "0.129577",
+      "background-position": "0% 0%",
+      "border-radius": "3.35544e+07px",
+      "border-color": "rgb(212, 168, 67)",
+      "color": "rgb(245, 230, 200)"
+    }
+  },
+  {
+    "tag": "div",
+    "rect": [
+      142.59530639648438,
+      93.0953140258789,
+      101.80937194824219,
+      101.80937957763672
+    ],
+    "style": {
+      "width": "48px",
+      "height": "48px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "matrix(2.12103, 0, 0, 2.12103, 0, 0)",
+      "opacity": "0.469743",
+      "background-position": "0% 0%",
+      "border-radius": "3.35544e+07px",
+      "border-color": "rgb(212, 168, 67)",
+      "color": "rgb(245, 230, 200)"
+    }
+  }
+]

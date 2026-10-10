@@ -1,0 +1,15 @@
+Roboto Regular, version 2.138; 2017.
+Copyright 2011 Google Inc. All Rights Reserved.
+
+The unmodified font is already included in the pinned HarfBuzz 11.2.1 source:
+third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf
+HarfBuzz commit: 33a3f8de60dcad7535f14f07d6710144548853ac
+
+Its embedded name table identifies the license as Apache License, Version 2.0:
+http://www.apache.org/licenses/LICENSE-2.0
+This supplemental notice and the accompanying license retain the font-specific
+attribution. HarfBuzz's code license does not substitute for this font license.
+No font file or upstream source was changed or copied.
+
+Used only for M0 Latin/SDF visual probes. This is not the product font selection
+and does not provide CJK fallback or text layout compatibility.

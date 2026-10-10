@@ -1,0 +1,20 @@
+/* Authored native inspection shell. Original Tailwind/Grid is not implemented. */
+#shell {position:relative;width:1920px;height:1080px;background-color:#0a0806;color:#e7e3d6;font-family:ProbeRoboto,ProbeCjk;font-size:16px;line-height:24px;font-weight:400;font-style:normal;white-space:normal;text-align:left}
+#shell div, #shell button {display:block;margin:0;padding:0;border:0;box-sizing:border-box;font-weight:400;font-style:normal}
+#title {position:absolute;left:24px;top:18px;width:1400px;height:36px;font-size:28px;line-height:36px;color:#e6c98b}
+#summary {position:absolute;left:24px;top:60px;width:1820px;height:28px;color:#9ac7b0}
+#sidebar {position:absolute;left:20px;top:110px;width:250px;height:900px;background-color:#171510;padding:12px}
+.nav {height:48px;width:226px;color:#e6c98b;background-color:#26231b;padding:8px;margin-bottom:8px}
+.nav[data-active="true"] {background-color:#3d4939;color:#b9e4bf}
+#scope {width:226px;height:250px;white-space:pre-line;font-size:15px;line-height:24px;color:#a9ada5;margin-top:16px}
+#scroller {position:absolute;left:292px;top:104px;width:1600px;height:916px;overflow:auto;background-color:#0a0806}
+#content {position:relative;width:1600px}
+.heading {position:absolute;left:0px;width:1600px;height:32px;font-size:22px;line-height:32px;color:#e6c98b}
+.card {position:absolute;background-color:#211d14;overflow:hidden}
+.label {position:absolute;left:8px;top:4px;height:24px;font-size:14px;line-height:24px;color:#e7e3d6;white-space:nowrap}
+.body {position:absolute;left:2px;top:32px;background-color:#100e0b;overflow:hidden}
+.diagnostic {position:absolute;left:16px;top:18px;color:#c98b74;font-size:16px;line-height:26px}
+.execution {position:absolute;left:16px;top:112px;color:#a9ada5;font-size:14px;line-height:22px}
+.live {background-color:#0a0806;position:absolute}
+.live-note {position:absolute;left:8px;top:12px;width:350px;height:90px;color:#9ac7b0;font-size:14px;line-height:24px}
+#detail {position:absolute;left:292px;top:1028px;width:1600px;height:44px;font-size:14px;line-height:20px;color:#c98b74;overflow:hidden}

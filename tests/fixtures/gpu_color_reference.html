@@ -1,0 +1,32 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>CaseElephant independent browser color reference</title>
+<style>
+@font-face { font-family:Ahem; src:url('../../third_party/ahem/Ahem.ttf'); }
+html,body { margin:0; padding:0; width:256px; height:128px; overflow:hidden; background:black; }
+.quad { position:absolute; width:64px; height:64px; }
+.group { position:absolute; left:0; top:64px; width:64px; height:64px; opacity:0.5; }
+</style>
+<div class="quad" style="left:0;top:0;background:rgb(255 255 255 / 50%)"></div>
+<div class="quad" style="left:64px;top:0;background:rgb(255 0 0 / 50%)"></div>
+<div class="quad" style="left:64px;top:0;background:rgb(0 0 255 / 50%)"></div>
+<div class="quad" style="left:128px;top:0;background:#808080"></div>
+<canvas id="coverage" class="quad" style="left:192px;top:0" width="1" height="1"></canvas>
+<div class="group"><div class="quad" style="background:red"></div><div class="quad" style="background:blue"></div></div>
+<canvas id="edge" class="quad" style="left:64px;top:64px" width="1" height="1"></canvas>
+<div style="position:absolute;left:148px;top:84px;width:24px;height:24px;color:white;font:24px/24px Ahem">X</div>
+<div style="position:absolute;left:208px;top:80px;width:32px;height:32px;background:red"></div>
+<script>
+async function run() {
+  const faces=await document.fonts.load('24px Ahem', 'X'); await document.fonts.ready;
+  if (!faces.length) throw Error('Ahem did not load');
+  document.documentElement.dataset.fontLoaded='true';
+  const coverage=document.querySelector('#coverage').getContext('2d');
+  coverage.putImageData(new ImageData(new Uint8ClampedArray([255,255,255,128]),1,1),0,0);
+  const source=document.createElement('canvas'); source.width=2; source.height=1;
+  source.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray([255,0,0,255,0,0,255,0]),2,1),0,0);
+  document.querySelector('#edge').getContext('2d').drawImage(source,0,0,1,1);
+  document.documentElement.dataset.done='true';
+}
+run().catch(e=>document.documentElement.dataset.error=String(e));
+</script>

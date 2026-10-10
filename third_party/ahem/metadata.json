@@ -1,0 +1,13 @@
+{
+  "name": "ahem",
+  "version": "WPT font 2017-09-21",
+  "commit": "986881aaf27ffc441f67dd9e5595e797141b1f40",
+  "upstream": "https://github.com/web-platform-tests/wpt",
+  "source_url": "https://raw.githubusercontent.com/web-platform-tests/wpt/986881aaf27ffc441f67dd9e5595e797141b1f40/fonts/Ahem.ttf",
+  "font_sha256": "b719ecb31c5b21fc573c03f6421c74ac63c271a5a3ff841e34f9705fb94b8448",
+  "license_file": "LICENSE.txt",
+  "license": "Public domain; CC0 fallback as embedded in the font",
+  "cc0_url": "https://creativecommons.org/publicdomain/zero/1.0/legalcode.txt",
+  "purpose": "Deterministic ASCII geometry test font, not a product font or CJK fallback",
+  "retrieved_date": "2026-10-07"
+}

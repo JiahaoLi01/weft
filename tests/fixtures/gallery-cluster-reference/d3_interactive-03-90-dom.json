@@ -1,0 +1,668 @@
+{
+  "state": {
+    "active": {
+      "group": "D3_INTERACTIVE_TESTS",
+      "index": 3,
+      "label": "Zoomable Scatter (scroll to zoom, hover, click)"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "svg",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "defs",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "clipPath",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "rect",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "20"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "30"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "40"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "50"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "60"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "70"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "80"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "20"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "30"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "40"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "50"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "60"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "70"
+    },
+    {
+      "tag": "g",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "line",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "text",
+      "style": null,
+      "text": "80"
+    }
+  ]
+}

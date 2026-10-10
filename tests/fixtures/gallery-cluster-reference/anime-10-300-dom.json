@@ -1,0 +1,38 @@
+{
+  "state": {
+    "active": {
+      "group": "ANIME_TESTS",
+      "index": 10,
+      "label": "Draggable: Axis Lock"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": "",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: translateX(26.5px) translateY(0px); touch-action: pan-y; z-index: 1;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: translateX(0px) translateY(18px); touch-action: pan-x; z-index: 2;",
+      "text": ""
+    }
+  ]
+}

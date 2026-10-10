@@ -1,0 +1,15 @@
+/* A local sample overlay, separate from the original game and static goldens. */
+#gallery #ce-motion {position:absolute;left:28px;top:280px;width:584px;height:78px;background-color:rgba(16,18,17,.88)}
+#gallery #ce-motion-title {position:absolute;left:12px;top:4px;width:358px;height:22px;font-size:11px;line-height:22px;color:#cec8b5}
+#gallery #ce-motion-pause, #gallery #ce-motion-speed {position:absolute;top:4px;width:92px;height:22px;background-color:#34413b;color:#e6c98b;font-size:11px;line-height:22px;text-align:center;border-radius:5px}
+#gallery #ce-motion-pause {left:380px}
+#gallery #ce-motion-speed {left:480px}
+#gallery #ce-motion-live-label, #gallery #ce-motion-reference-label {position:absolute;left:12px;width:54px;height:18px;font-size:11px;line-height:18px}
+#gallery #ce-motion-live-label {top:28px;color:#e6c98b}
+#gallery #ce-motion-reference-label {top:54px;color:#9ac7b0}
+#gallery #ce-motion-live-track, #gallery #ce-motion-reference-track {position:absolute;left:76px;width:494px;height:2px;background-color:rgba(169,173,165,.3)}
+#gallery #ce-motion-live-track {top:36px}
+#gallery #ce-motion-reference-track {top:62px}
+#gallery #ce-motion-live, #gallery #ce-motion-reference {position:absolute;left:76px;width:18px;height:14px}
+#gallery #ce-motion-live {top:30px;background-color:#e6c98b}
+#gallery #ce-motion-reference {top:56px;background-color:#9ac7b0}

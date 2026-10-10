@@ -1,0 +1,43 @@
+:root {
+  --ops-text: #e7e3d6;
+  --ops-soft: #a9ada5;
+  --ops-dim: #8f948c;
+  --ops-line: rgba(160, 154, 130, .22);
+  --ops-gold: #e6c98b;
+  --ops-good: #9ac7b0;
+  --ops-bad: #c98b74;
+  --ops-figure: Georgia, 'Times New Roman', serif;
+  --modal-left: 262px;
+}
+.nine-slice { position: relative; isolation: isolate; pointer-events: auto; }
+.nine-slice-art { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.nine-slice-art .slice { position: absolute; display: block; overflow: hidden; }
+.nine-slice-art .slice img { position: absolute; max-width: none; user-select: none; }
+.nine-slice-content { position: relative; height: 100%; }
+/* Authored explicit-size preview profile, not the game's operations.css. */
+#gallery { position:relative; isolation:isolate; width:640px; height:420px; background-color:#596864; font-family:ProbeRoboto, ProbeCjk; font-size:14px; line-height:24px; font-weight:400; font-style:normal; white-space:nowrap; text-align:left; color:#ede7d6; }
+#gallery button, #gallery i, #gallery b, #gallery span, #gallery ul, #gallery li { display:block; margin:0; padding:0; border:0; box-sizing:border-box; font-family:ProbeRoboto, ProbeCjk; font-size:14px; line-height:24px; font-weight:400; font-style:normal; text-align:left; white-space:nowrap; }
+#caption { position:absolute; left:28px; top:12px; width:580px; height:28px; font-size:20px; line-height:28px; }
+#subtitle { position:absolute; left:28px; top:43px; width:580px; height:24px; color:#cec8b5; }
+#selection { position:absolute; left:54px; top:366px; width:532px; height:18px; font-size:13px; line-height:18px; color:#ede7d6; }
+#many { position:absolute; left:28px; top:384px; width:170px; height:30px; background-color:#26312c; color:#e6c98b; }
+#reply { position:absolute; left:210px; top:384px; width:178px; height:30px; background-color:#26312c; color:#e6c98b; }
+#reply-status { position:absolute; left:400px; top:382px; width:238px; height:36px; font-size:11px; line-height:24px; color:#cec8b5; }
+
+/* Authored adapter: keep explicit geometry and font resources. */
+#gallery { color:var(--ops-text); }
+#subtitle, #reply-status { color:var(--ops-soft); }
+#many, #reply { color:var(--ops-gold); }
+
+/* Authored bounded automatic-layout adapter; original React is unchanged. */
+#gallery .alert-bar {position:absolute;left:26px;top:16px;display:flex;gap:8px}
+#gallery .alert-chip {position:relative;display:block}
+#gallery .alert-chip > button {display:flex;align-items:center;gap:6px;padding:5px 12px 5px 6px;box-sizing:content-box;background-color:rgba(16,18,17,.78);color:var(--ops-soft);font-size:11px;line-height:22px}
+#gallery .alert-chip > button i {width:22px;height:22px;line-height:22px;font-size:13px;text-align:center;background-color:rgba(230,201,139,.16);color:var(--ops-gold)}
+#gallery .alert-chip > button b {font-size:14px;line-height:22px;color:var(--ops-text)}
+#gallery .alert-chip > button span {font-size:11px;line-height:22px;color:inherit}
+#gallery .alert-chip > button[aria-expanded="true"] {color:var(--ops-text)}
+#gallery .alert-list {position:absolute;top:calc(100% + 6px);left:0;width:340px;padding:8px 12px;box-sizing:content-box;list-style:none;background-color:rgba(16,18,17,.9)}
+#gallery .alert-list li {padding:1px 0;list-style:none;font-size:11px;line-height:14px}
+#gallery .alert-list button {width:100%;font-size:11px;line-height:14px;color:var(--ops-text);background-color:transparent}
+#gallery .alert-list .quiet {font-size:11px;line-height:14px;color:var(--ops-dim)}

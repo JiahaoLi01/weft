@@ -1,0 +1,33 @@
+{
+  "state": {
+    "active": {
+      "group": "SPRING_TESTS",
+      "index": 2,
+      "label": "Progress Bar"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "width: 75%;",
+      "text": ""
+    },
+    {
+      "tag": "span",
+      "style": null,
+      "text": "HP 75/100"
+    }
+  ]
+}

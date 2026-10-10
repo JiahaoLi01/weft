@@ -1,0 +1,13 @@
+{
+  "name": "probe-font-notices",
+  "version": "Roboto 2.138 license supplement",
+  "commit": "33a3f8de60dcad7535f14f07d6710144548853ac",
+  "upstream": "https://github.com/harfbuzz/harfbuzz",
+  "font_path": "third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf",
+  "font_sha256": "797e35f7f5d6020a5c6ea13b42ecd668bcfb3bbc4baa0e74773527e5b6cb3174",
+  "license": "Apache-2.0, recorded in the font's embedded name table",
+  "license_file": "LICENSE-Apache-2.0.txt",
+  "license_source_url": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+  "purpose": "License supplement for already-pinned, unmodified Roboto probe font",
+  "retrieved_date": "2026-10-07"
+}

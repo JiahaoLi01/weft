@@ -1,0 +1,28 @@
+{
+  "state": {
+    "active": {
+      "group": "ANIME_TESTS",
+      "index": 4,
+      "label": "SVG Morph Path"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "svg",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "path",
+      "style": null,
+      "text": ""
+    }
+  ]
+}

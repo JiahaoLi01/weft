@@ -1,0 +1,58 @@
+{
+  "state": {
+    "active": {
+      "group": "ANIME_TESTS",
+      "index": 13,
+      "label": "Layout: Display Cycle"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "button",
+      "style": null,
+      "text": "flex-row"
+    },
+    {
+      "tag": "div",
+      "style": "display: flex; flex-flow: wrap; gap: 8px;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "background: rgb(39, 39, 42); border: 1px solid rgba(212, 168, 67, 0.2); border-radius: 6px; width: 64px; height: 32px; line-height: 32px; font-size: 12px; color: rgb(212, 168, 67); text-align: center; flex-shrink: 0; transform: translateX(0px) translateY(0px);",
+      "text": "STR"
+    },
+    {
+      "tag": "div",
+      "style": "background: rgb(39, 39, 42); border: 1px solid rgba(212, 168, 67, 0.2); border-radius: 6px; width: 64px; height: 32px; line-height: 32px; font-size: 12px; color: rgb(212, 168, 67); text-align: center; flex-shrink: 0; transform: translateX(0px) translateY(0px);",
+      "text": "DEX"
+    },
+    {
+      "tag": "div",
+      "style": "background: rgb(39, 39, 42); border: 1px solid rgba(212, 168, 67, 0.2); border-radius: 6px; width: 64px; height: 32px; line-height: 32px; font-size: 12px; color: rgb(212, 168, 67); text-align: center; flex-shrink: 0; transform: translateX(0px) translateY(0px);",
+      "text": "INT"
+    },
+    {
+      "tag": "div",
+      "style": "background: rgb(39, 39, 42); border: 1px solid rgba(212, 168, 67, 0.2); border-radius: 6px; width: 64px; height: 32px; line-height: 32px; font-size: 12px; color: rgb(212, 168, 67); text-align: center; flex-shrink: 0; transform: translateX(0px) translateY(0px);",
+      "text": "WIS"
+    },
+    {
+      "tag": "div",
+      "style": "background: rgb(39, 39, 42); border: 1px solid rgba(212, 168, 67, 0.2); border-radius: 6px; width: 64px; height: 32px; line-height: 32px; font-size: 12px; color: rgb(212, 168, 67); text-align: center; flex-shrink: 0; transform: translateX(0px) translateY(0px);",
+      "text": "CHA"
+    },
+    {
+      "tag": "div",
+      "style": "background: rgb(39, 39, 42); border: 1px solid rgba(212, 168, 67, 0.2); border-radius: 6px; width: 64px; height: 32px; line-height: 32px; font-size: 12px; color: rgb(212, 168, 67); text-align: center; flex-shrink: 0; transform: translateX(0px) translateY(0px);",
+      "text": "CON"
+    }
+  ]
+}

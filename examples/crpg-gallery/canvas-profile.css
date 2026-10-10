@@ -1,0 +1,3 @@
+/* Explicit viewport adapter for the two original Canvas cases. */
+#root { position: relative; width: 800px; height: 600px; background: #0a0806; }
+canvas { display: block; width: 100%; height: 100%; }

@@ -1,0 +1,841 @@
+/*
+ * Settings page — ornate "spellbook" look.
+ *
+ * Visual model:
+ *   - full-screen darkened parchment/cityscape background image
+ *   - ornate left + right side panels rendered via CSS border-image so the
+ *     gold corner ornaments stay sharp at any container size
+ *   - gold accent palette for tabs / section headers / buttons
+ *
+ * The panel/background image URLs are wired via CSS custom properties set
+ * inline on the page root (fed by Vite asset imports), so this stylesheet
+ * stays free of absolute paths.
+ */
+
+@layer base {
+  /* gold accent palette — kept here, scoped to this feature */
+  .settings-page {
+    --settings-bg-img: none;
+    --settings-left-img: none;
+    --settings-right-img: none;
+    --settings-gold:        #c9a76a;
+    --settings-gold-soft:   #b08a4f;
+    --settings-gold-dim:    #8a7245;
+    --settings-text:        #d8c8aa;
+    --settings-text-soft:   #a89878;
+    --settings-text-dim:    #786850;
+    --settings-divider:     rgba(170, 130, 70, 0.35);
+    --settings-row-hover:   rgba(140, 100, 50, 0.12);
+    --settings-row-active:  rgba(170, 130, 70, 0.18);
+  }
+}
+
+.settings-page {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font-display);
+  color: var(--settings-text);
+}
+
+/* 关闭时的淡出动画 — handleCancel 时设 isClosing=true，画面 240ms 淡出后再 goBack().
+ * 这一帧内屏蔽 pointer-events 防止用户在 fade 过程中再触发其他 focus / click。
+ * App.tsx 的 webui-clear-pulse 会在 stack 真正变空那一帧再清一次 GPU 纹理；这里
+ * 是视觉层面的淡出，跟那个互不冲突。 */
+.settings-page.is-closing {
+  animation: settings-fade-out 240ms ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes settings-fade-out {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* ── Background ─────────────────────────────────────────────── */
+.settings-bg {
+  position: absolute;
+  inset: 0;
+  background-image: var(--settings-bg-img);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  /* opaque dark fallback so HUD never bleeds through if the asset fails */
+  background-color: #14110a;
+  z-index: 0;
+}
+
+.settings-shell {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Header bar ─────────────────────────────────────────────── */
+.settings-header {
+  display: flex;
+  align-items: center;
+  height: 56px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--settings-divider);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.15));
+  flex-shrink: 0;
+}
+
+.settings-logo {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 24px;
+  color: var(--settings-gold);
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.settings-title {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  font-family: var(--font-display);
+  font-size: 16px;
+  letter-spacing: 0.25em;
+  color: var(--settings-text);
+  margin-left: 16px;
+  padding-left: 18px;
+  border-left: 1px solid var(--settings-divider);
+}
+
+/* Tabs are centered between the two TabHint pills. flex:1 + center alignment
+ * pulls them to the middle of the header regardless of category count. */
+.settings-tabs {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  height: 100%;
+  flex: 1;
+  gap: 32px;
+}
+
+/* Hint pill flanking the tab strip. Renders e.g. "[LB]" on the left, "[RB]"
+ * on the right (or "[Q]"/"[E]" when keyboard) — the actual key name comes
+ * from the live binding store and reflects rebinds in real time.
+ * `placeholder` variant keeps the layout from jumping while the bridge
+ * delivers the binding payload (a few frames after Settings mounts). */
+.settings-tab-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  /* Width matches the close-button so the layout stays balanced even when
+   * the right-side hint sits next to it. */
+  min-width: 44px;
+  height: 26px;
+  padding: 0 10px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--settings-gold);
+  border: 1px solid var(--settings-gold-dim);
+  border-radius: 3px;
+  background: linear-gradient(180deg, rgba(201, 167, 106, 0.08), rgba(201, 167, 106, 0.02));
+  pointer-events: none;
+  user-select: none;
+}
+
+.settings-tab-hint--placeholder {
+  border-color: transparent;
+  background: transparent;
+}
+
+.settings-tab-hint-key {
+  /* Slight glow on the glyph itself so it reads as "this is a button". */
+  text-shadow: 0 0 6px rgba(201, 167, 106, 0.35);
+}
+
+.settings-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 4px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  letter-spacing: 0.18em;
+  color: var(--settings-text-dim);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.25s ease;
+}
+
+.settings-tab:hover {
+  color: var(--settings-text-soft);
+}
+
+.settings-tab.is-active {
+  color: var(--settings-text);
+}
+
+/* Always-rendered indicator that fades in/out by opacity, so when the
+   active tab changes the old line fades out while the new one fades in. */
+.settings-tab::after {
+  content: '';
+  position: absolute;
+  left: -10px;
+  right: -10px;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--settings-gold) 50%,
+    transparent 100%
+  );
+  opacity: 0;
+  transform: scaleX(0.6);
+  transform-origin: center;
+  transition: opacity 0.28s ease, transform 0.28s ease;
+  pointer-events: none;
+}
+
+.settings-tab.is-active::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.settings-close {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--settings-text-soft);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.settings-close:hover {
+  color: var(--settings-text);
+  border-color: var(--settings-divider);
+}
+
+/* ── Body ───────────────────────────────────────────────────── */
+.settings-body {
+  flex: 1;
+  display: flex;
+  gap: 20px;
+  padding: 20px 32px;
+  min-height: 0;
+}
+
+/* shared border-image frame for both panels */
+.settings-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-style: solid;
+  border-image-repeat: stretch;
+}
+
+.settings-panel-left {
+  width: 460px;
+  flex-shrink: 0;
+  border-width: 56px;
+  border-image-source: var(--settings-left-img);
+  border-image-slice: 70 fill;
+}
+
+.settings-panel-right {
+  flex: 1;
+  border-width: 64px;
+  border-image-source: var(--settings-right-img);
+  border-image-slice: 80 fill;
+}
+
+/* the panel's content area sits inside the border-image inset,
+   add a small extra padding for breathing room */
+.settings-panel-inner {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin: -8px -4px;
+}
+
+/* ── Settings list (left panel content) ─────────────────────── */
+.settings-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 8px 8px 8px;
+}
+
+.settings-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.settings-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.settings-list::-webkit-scrollbar-thumb {
+  background: var(--settings-gold-dim);
+  border-radius: 3px;
+}
+
+.settings-section-header {
+  padding: 14px 12px 6px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 0.22em;
+  color: var(--settings-gold);
+  text-transform: uppercase;
+}
+
+.settings-section-header::before {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  background: var(--settings-gold);
+  transform: rotate(45deg);
+  flex-shrink: 0;
+}
+
+.settings-section-header::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--settings-gold-dim), transparent);
+}
+
+/* setting row */
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  cursor: default;
+  transition: background-color 0.12s ease;
+  border-radius: 2px;
+}
+
+.settings-row:hover {
+  background: var(--settings-row-hover);
+}
+
+.settings-row.is-active {
+  background: var(--settings-row-active);
+}
+
+/* Spatial-navigation focus ring for setting rows. Driven by useFocusable's
+ * `focused` flag (see SettingToggle/Slider/Dropdown). Visually we add a
+ * 1px gold outline + a soft inner glow so keyboard / gamepad users have a
+ * clear "you are here" cue without disturbing the existing hover styling.
+ *
+ * `:focus` from the browser would mostly do the same job, but spatial-nav
+ * doesn't always end up calling .focus() on the exact element we want
+ * highlighted (e.g. dropdown trigger vs. wrapper row). Driving from a
+ * className keeps the visual contract on the component, not on which
+ * descendant happens to hold native focus this frame. */
+.settings-row.is-focused {
+  outline: 1px solid var(--settings-gold);
+  outline-offset: -1px;
+  box-shadow: inset 0 0 12px rgba(201, 167, 106, 0.15);
+}
+
+/* Same focus treatment for tabs, footer actions, and the close button.
+ * The selectors are explicit (rather than a generic `*.is-focused`) so a
+ * page-level rule never accidentally catches an unrelated `.is-focused`
+ * class added elsewhere. */
+.settings-tab.is-focused {
+  color: var(--settings-gold);
+}
+
+.settings-tab.is-focused::after {
+  /* Reuse the existing under-tab gold sliver from .settings-tab.is-active
+   * so focus and active share an underline; doubling them would look
+   * crowded under a tab that's both. */
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--settings-gold) 50%, transparent);
+}
+
+.settings-action.is-focused,
+.settings-close.is-focused {
+  outline: 1px solid var(--settings-gold);
+  outline-offset: 2px;
+  box-shadow: 0 0 12px rgba(201, 167, 106, 0.4);
+}
+
+.settings-row-label {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-display);
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  color: var(--settings-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-row-control {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-row-value {
+  font-family: var(--font-display);
+  font-size: 13px;
+  color: var(--settings-text-soft);
+  letter-spacing: 0.05em;
+  min-width: 64px;
+  text-align: right;
+}
+
+.settings-row.is-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* ── Slider ─────────────────────────────────────────────────── */
+.settings-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 140px;
+  height: 4px;
+  background: linear-gradient(
+    90deg,
+    var(--settings-gold) 0%,
+    var(--settings-gold) var(--fill, 0%),
+    rgba(140, 110, 70, 0.25) var(--fill, 0%),
+    rgba(140, 110, 70, 0.25) 100%
+  );
+  outline: none;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.settings-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--settings-gold);
+  border: 1px solid var(--settings-gold-soft);
+  cursor: pointer;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Toggle ─────────────────────────────────────────────────── */
+.settings-toggle {
+  position: relative;
+  width: 38px;
+  height: 18px;
+  border-radius: 9px;
+  background: rgba(60, 50, 30, 0.5);
+  border: 1px solid var(--settings-gold-dim);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  padding: 0;
+}
+
+.settings-toggle.is-on {
+  background: rgba(140, 110, 60, 0.6);
+  border-color: var(--settings-gold);
+}
+
+.settings-toggle-handle {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--settings-text);
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.settings-toggle.is-on .settings-toggle-handle {
+  transform: translateX(20px);
+  background: var(--settings-gold);
+}
+
+/* ── Dropdown (custom select look) ──────────────────────────── */
+.settings-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.settings-dropdown-trigger {
+  min-width: 130px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 10px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--settings-text);
+  background: rgba(20, 15, 8, 0.55);
+  border: 1px solid var(--settings-gold-dim);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.settings-dropdown-trigger:hover {
+  border-color: var(--settings-gold-soft);
+}
+
+.settings-dropdown-arrow {
+  font-size: 9px;
+  color: var(--settings-gold);
+}
+
+.settings-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 100%;
+  z-index: 50;
+  background: #0d0a06;
+  border: 1px solid var(--settings-gold-dim);
+  border-radius: 2px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6);
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.settings-dropdown-option {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--settings-text-soft);
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.1s ease, color 0.1s ease;
+}
+
+.settings-dropdown-option:hover {
+  background: var(--settings-row-hover);
+  color: var(--settings-text);
+}
+
+.settings-dropdown-option.is-selected {
+  background: var(--settings-row-active);
+  color: var(--settings-gold);
+}
+
+/* Highlighted-but-not-yet-committed option while the menu is open and the
+ * player is browsing with arrow keys / D-pad. Distinct from `.is-selected`
+ * (the currently applied value) so the player can see "this is what you'd
+ * pick if you press Enter right now." Both can apply to the same item. */
+.settings-dropdown-option.is-highlight {
+  background: var(--settings-row-hover);
+  color: var(--settings-text);
+}
+
+.settings-dropdown-option.is-highlight.is-selected {
+  /* When highlight lands on the already-selected option, keep the gold
+   * text from is-selected but lift the background slightly so it still
+   * reads as "the cursor is here". */
+  background: var(--settings-row-active);
+}
+
+/* ── Detail pane (right panel content) ──────────────────────── */
+.settings-detail {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 8px 12px;
+  overflow-y: auto;
+}
+
+.settings-detail-empty {
+  margin: auto;
+  padding: 6px 14px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-style: italic;
+  color: var(--settings-text-soft);
+  letter-spacing: 0.05em;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 2px;
+}
+
+.settings-detail-title {
+  font-family: var(--font-display);
+  font-size: 26px;
+  letter-spacing: 0.04em;
+  color: var(--settings-text);
+  margin-bottom: 4px;
+}
+
+.settings-detail-subtitle {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  color: var(--settings-text-soft);
+  margin-bottom: 18px;
+}
+
+.settings-detail-divider {
+  height: 1px;
+  margin: 6px 0 18px 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--settings-gold-dim),
+    transparent
+  );
+}
+
+.settings-detail-media {
+  width: 100%;
+  max-height: 280px;
+  border-radius: 2px;
+  border: 1px solid var(--settings-gold-dim);
+  margin-bottom: 16px;
+  object-fit: cover;
+}
+
+.settings-detail-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.settings-detail-option-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.settings-detail-option-bullet {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-top: 6px;
+  background: var(--settings-gold);
+  transform: rotate(45deg);
+  flex-shrink: 0;
+}
+
+.settings-detail-option-name {
+  font-family: var(--font-display);
+  font-size: 14px;
+  color: var(--settings-text);
+  margin-right: 4px;
+}
+
+/* Per-option description — sits on its own line under the name, dimmed
+ * relative to the name itself. Used by discrete settings whose options
+ * carry meaningful behavioral differences (e.g. furigana density). The
+ * description goes through `renderRuby` so authors can include inline
+ * `[漢字]{かん|じ}` examples that render as live <ruby> demos. */
+.settings-detail-option-desc {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--settings-text-soft);
+  letter-spacing: 0.02em;
+}
+
+/* Scoped ruby styling for in-description examples. The base text is the
+ * desc font (13px); rt at 0.65em ≈ 8.5px — small but legible. opacity
+ * dims the kana relative to the kanji so the example reads as
+ * annotation, not body content. Without this the browser default
+ * `font-size: 50%` collapses rt to 6.5px which is unreadable. */
+.settings-detail-option-desc ruby {
+  ruby-position: over;
+  ruby-align: center;
+}
+
+.settings-detail-option-desc rt {
+  font-size: 0.65em;
+  line-height: 1;
+  opacity: 0.85;
+}
+
+.settings-detail-description {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  color: var(--settings-text-soft);
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+/* ── Color-blind preview ────────────────────────────────────── */
+.settings-cb-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.settings-cb-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.settings-cb-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.25);
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.settings-cb-row.is-current {
+  border-color: var(--settings-gold);
+  background: rgba(140, 110, 60, 0.18);
+}
+
+.settings-cb-label {
+  flex: 0 0 110px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  color: var(--settings-text);
+}
+
+.settings-cb-row.is-current .settings-cb-label {
+  color: var(--settings-gold);
+}
+
+.settings-cb-swatches {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  height: 22px;
+  border: 1px solid var(--settings-gold-dim);
+  border-radius: 2px;
+  overflow: hidden;
+  padding: 1px;
+  background: #000;
+}
+
+.settings-cb-swatch {
+  display: block;
+  height: 100%;
+}
+
+/* ── Footer bar ─────────────────────────────────────────────── */
+.settings-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 48px;
+  padding: 0 32px;
+  border-top: 1px solid var(--settings-divider);
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.15));
+  flex-shrink: 0;
+  gap: 24px;
+}
+
+.settings-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  color: var(--settings-text-soft);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.settings-action:hover:not(:disabled) {
+  color: var(--settings-text);
+}
+
+.settings-action.is-primary {
+  color: var(--settings-gold);
+}
+
+.settings-action.is-primary:hover:not(:disabled) {
+  color: #f0d68f;
+  text-shadow: 0 0 8px rgba(201, 167, 106, 0.4);
+}
+
+.settings-action:disabled {
+  color: var(--settings-text-dim);
+  cursor: not-allowed;
+}
+
+.settings-action-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0;
+  color: var(--settings-gold);
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--settings-gold-dim);
+  border-radius: 2px;
+}
+
+/* ── Waiting / loading state ────────────────────────────────── */
+.settings-waiting {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 14px;
+  letter-spacing: 0.15em;
+  color: var(--settings-text-soft);
+}

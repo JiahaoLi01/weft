@@ -1,0 +1,19 @@
+{
+  "name": "harfbuzz",
+  "version": "11.2.1",
+  "commit": "33a3f8de60dcad7535f14f07d6710144548853ac",
+  "upstream": "https://github.com/harfbuzz/harfbuzz",
+  "archive_url": "https://github.com/harfbuzz/harfbuzz/archive/33a3f8de60dcad7535f14f07d6710144548853ac.zip",
+  "archive_sha256": "45e3886b49ba1afaf33eca5c6cad802f61554ac9a051fea9121b59c65f8738d2",
+  "license_file": "source/COPYING",
+  "modified_files": [],
+  "retrieved_date": "2026-10-07",
+  "build_options": {
+    "static": true,
+    "HB_HAVE_FREETYPE": "auto-enabled because freetype target exists",
+    "HB_BUILD_SUBSET": false,
+    "HB_BUILD_UTILS": false,
+    "HB_HAVE_CORETEXT": false,
+    "MSVC": "/utf-8"
+  }
+}

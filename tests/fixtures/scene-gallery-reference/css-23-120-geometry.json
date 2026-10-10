@@ -1,0 +1,128 @@
+[
+  {
+    "tag": "div",
+    "rect": [
+      0,
+      0,
+      387,
+      288
+    ],
+    "style": {
+      "width": "387px",
+      "height": "288px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "none",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "0px",
+      "border-color": "rgb(245, 230, 200)",
+      "color": "rgb(245, 230, 200)"
+    }
+  },
+  {
+    "tag": "div",
+    "rect": [
+      0,
+      0,
+      387,
+      288
+    ],
+    "style": {
+      "width": "387px",
+      "height": "288px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "none",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "0px",
+      "border-color": "rgb(245, 230, 200)",
+      "color": "rgb(245, 230, 200)"
+    }
+  },
+  {
+    "tag": "div",
+    "rect": [
+      173.5,
+      124,
+      40,
+      40
+    ],
+    "style": {
+      "width": "40px",
+      "height": "40px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "none",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "3.35544e+07px",
+      "border-color": "rgb(245, 230, 200)",
+      "color": "rgb(245, 230, 200)"
+    }
+  },
+  {
+    "tag": "div",
+    "rect": [
+      193.5,
+      144,
+      0,
+      0
+    ],
+    "style": {
+      "width": "40px",
+      "height": "40px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "matrix(2.13163e-29, 0, 0, 2.13163e-29, 0, 0)",
+      "opacity": "1",
+      "background-position": "0% 0%",
+      "border-radius": "3.35544e+07px",
+      "border-color": "oklab(0.753448 0.0112933 0.126953 / 0.5)",
+      "color": "rgb(245, 230, 200)"
+    }
+  },
+  {
+    "tag": "div",
+    "rect": [
+      120.9771728515625,
+      71.4771728515625,
+      145.045654296875,
+      145.045654296875
+    ],
+    "style": {
+      "width": "40px",
+      "height": "40px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "matrix(3.62614, 0, 0, 3.62614, 0, 0)",
+      "opacity": "0.0934647",
+      "background-position": "0% 0%",
+      "border-radius": "3.35544e+07px",
+      "border-color": "oklab(0.753448 0.0112933 0.126953 / 0.5)",
+      "color": "rgb(245, 230, 200)"
+    }
+  },
+  {
+    "tag": "div",
+    "rect": [
+      138.72854614257812,
+      89.2285385131836,
+      109.54292297363281,
+      109.54291534423828
+    ],
+    "style": {
+      "width": "40px",
+      "height": "40px",
+      "font-size": "16px",
+      "line-height": "24px",
+      "transform": "matrix(2.73857, 0, 0, 2.73857, 0, 0)",
+      "opacity": "0.315357",
+      "background-position": "0% 0%",
+      "border-radius": "3.35544e+07px",
+      "border-color": "oklab(0.753448 0.0112933 0.126953 / 0.5)",
+      "color": "rgb(245, 230, 200)"
+    }
+  }
+]

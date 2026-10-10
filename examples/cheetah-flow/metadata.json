@@ -1,0 +1,18 @@
+{
+  "fixture": "casecheetah-flow-v1",
+  "inputs": {
+    "tools/build_cheetah_flow.py": "92f7c9f149d3293e2ff4e9dbb2fd9c1e4d8958349f106e28dc43a0ba60616eb3",
+    "examples/cheetah-auto/profile.css": "3c4542ced7bea3c6be33bc62c24dd98cbf3b55c8007d089230a44bcb2fe2f34d",
+    "examples/cheetah-auto/index.html": "0f4526ed37c61fedb5dbe7421f84304acfed8779273393272d91a7c1d3cc8548",
+    "examples/cheetah-alert/native/app.js": "fb10e66661352906950ab54da759211e91d372fd78490be59f7586e78d17e606",
+    "examples/cheetah-flow/scroll.js": "086d70b3dee4850b20471b8b97892ea3b5c9e345afbcfa643d304565bbf2aaba",
+    "tests/fixtures/casecheetah/UI/public/art/ink-panel-v2.png": "dcbe73cade0076320044c17297fdacacfeb1927246021dcb1ac1435d9564b683"
+  },
+  "outputs": {
+    "examples/cheetah-flow/index.html": "fa50fa6d8df49c465bd315d3fef3d5d6dad5a14e243d6fbeac657433d62ffcd5",
+    "examples/cheetah-flow/profile.css": "e02248ba43e23cf2836edb540c46e2bc58e94b47ce0d0082b32547f47112fd73",
+    "examples/cheetah-flow/scroll.js": "086d70b3dee4850b20471b8b97892ea3b5c9e345afbcfa643d304565bbf2aaba",
+    "examples/cheetah-flow/art/ink-panel-v2.png": "dcbe73cade0076320044c17297fdacacfeb1927246021dcb1ac1435d9564b683"
+  },
+  "note": "Unmodified pinned React/AlertBar/Zustand/UE bundle; authored profile and external scroll control"
+}

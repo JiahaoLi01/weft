@@ -1,0 +1,15 @@
+#gallery{display:block;position:relative;width:640px;height:420px;box-sizing:border-box;padding:20px;font-family:ProbeRoboto, ProbeCjk;font-size:16px;line-height:24px;font-weight:400;font-style:normal;color:#e2e8ed;background-color:#14222d;border-radius:22px;overflow:hidden}
+#title{display:block;font-size:20px;line-height:30px}
+#accent{color:#8cdeb4;font-size:24px;line-height:30px}
+#subtitle{display:block;font-size:13px;line-height:24px;color:#9fb1be}
+#viewport{display:block;position:relative;width:574px;height:174px;padding:12px;overflow:auto;background-color:#233945;border-radius:20px 8px 24px 12px / 12px 18px 24px 16px}
+#content{display:block;width:704px}
+#intro{display:block;width:542px;font-size:16px;line-height:24px}
+#emphasis{color:#f4c46f;background-color:rgba(117,88,41,0.45)}
+#inner{display:block;position:relative;width:266px;height:52px;border-radius:50%;overflow:hidden;background-color:#72c7a0}
+#stripe{display:block;position:absolute;left:0;top:0;width:310px;height:21px;background-color:#dd765f}
+#inner-label{display:block;position:relative;left:25px;top:18px;font-size:14px;line-height:22px;white-space:nowrap;color:#122c26}
+.record{display:block;font-size:14px;line-height:26px;color:#b9d4dc}
+#footer{display:block;font-size:13px;line-height:28px;color:#9fb1be}
+#controls{display:flex;gap:12px;padding-top:10px}
+#advance,#reset{display:block;padding:6px 15px;font-size:14px;line-height:20px;color:#152c26;background-color:#8cdeb4;border-radius:10px}

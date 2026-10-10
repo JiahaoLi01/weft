@@ -1,0 +1,155 @@
+{
+  "format": "gallery-canvas-browser-v1",
+  "version": {
+    "protocolVersion": "1.3",
+    "product": "Chrome/155.0.8059.39",
+    "revision": "@3ff7ac5a9224be9156d7f8703a06e22890aafd34",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
+    "jsVersion": "15.5.35.20"
+  },
+  "seed": 3458213392,
+  "frames_per_case": 64,
+  "conditions": {
+    "viewport": [
+      800,
+      600
+    ],
+    "backing": [
+      800,
+      600
+    ],
+    "dpr": 1,
+    "css": "explicit positioned Canvas adapter",
+    "input_events": 2,
+    "scheduler": "deterministic host rAF queue; real Canvas2D and unmodified original component bodies"
+  },
+  "cases": [
+    {
+      "id": "webgl-00",
+      "captures": [
+        {
+          "frame": 11,
+          "width": 800,
+          "height": 600,
+          "rect": [
+            0,
+            0,
+            800,
+            600
+          ]
+        },
+        {
+          "frame": 39,
+          "width": 800,
+          "height": 600,
+          "rect": [
+            0,
+            0,
+            400,
+            300
+          ]
+        },
+        {
+          "frame": 63,
+          "width": 800,
+          "height": 600,
+          "rect": [
+            0,
+            0,
+            800,
+            600
+          ]
+        }
+      ],
+      "state": {
+        "active": {
+          "group": "WEBGL_TESTS",
+          "index": 0,
+          "label": "Canvas2D: Mouse Particle Emitter (move mouse)"
+        },
+        "errors": [],
+        "bridge": []
+      },
+      "errors": [],
+      "blocked": []
+    },
+    {
+      "id": "webgl-01",
+      "captures": [
+        {
+          "frame": 11,
+          "width": 800,
+          "height": 600,
+          "rect": [
+            0,
+            0,
+            800,
+            600
+          ]
+        },
+        {
+          "frame": 39,
+          "width": 800,
+          "height": 600,
+          "rect": [
+            0,
+            0,
+            400,
+            300
+          ]
+        },
+        {
+          "frame": 63,
+          "width": 800,
+          "height": 600,
+          "rect": [
+            0,
+            0,
+            800,
+            600
+          ]
+        }
+      ],
+      "state": {
+        "active": {
+          "group": "WEBGL_TESTS",
+          "index": 1,
+          "label": "Canvas2D: Fireworks (click to spawn)"
+        },
+        "errors": [],
+        "bridge": []
+      },
+      "errors": [],
+      "blocked": []
+    }
+  ],
+  "files": {
+    "webgl-00-11-bitmap.png": "904fe1714e55d8fc80d6451a9115620b43adb3b71fc44e97996e96f924bcf7fe",
+    "webgl-00-39-bitmap.png": "1107a31f79848405e7479944a17c6a6d7635ca37821b40c8d62f8e61fb14441f",
+    "webgl-00-63-bitmap.png": "0ca2f59a013aa1c841a13b6d4a2f3d4de5f6433862edc30ecef319d41e77564a",
+    "webgl-01-11-bitmap.png": "48c74b9e3e444ef766fc692f6ac04b4c2f8afddf189cf1bd8a23f934d6fcc205",
+    "webgl-01-39-bitmap.png": "25dfcfb5a672d67c37b89b75823a9ed9420d61a95e49227f5fd393bfcca3aa01",
+    "webgl-01-63-bitmap.png": "6917b7f94f86653e2f233a0a6987243cde58094187e39be05da035515fe65e72"
+  },
+  "inputs": {
+    "examples/crpg-gallery/native/WEBGL_TESTS.js": "5dc30f0aea933260c020b0888d1b858ae1fdc7573e58b688dec9373fb5139af2",
+    "examples/crpg-gallery/native/platform.js": "726eb6e00c9f4a231b3cfda8910b4fc48440aedd88c5cf8b421334e9c1ff4a24",
+    "examples/crpg-gallery/canvas-profile.css": "6fe673d468f5d904728da2eca9bf4324108132132b7b0789ebf8c3df41005692",
+    "tools/browser_canvas_reference.mjs": "a9a218967876981addcba73352324f29308fde3784d3097dea0b019a24eb5701",
+    "tests/fixtures/crpg-gallery/UI/src/components/debug/TestGallery.tsx": "4d3351e1465275161e8cafdfb82d8eac1374db119f2321c77917c690d614c320"
+  },
+  "comparison_profile": {
+    "note": "bounded shape/color regression, not exact pixel parity; D2D/Skia AA and repeated low-alpha UNORM rounding differ",
+    "component_max": 85,
+    "channel_mean_max": [
+      9,
+      0.4,
+      0.4,
+      0.03
+    ],
+    "bright_rgb_threshold": 40,
+    "bright_mean_max": 6,
+    "bright_iou_min": 0.9,
+    "bright_union_min": 500
+  }
+}

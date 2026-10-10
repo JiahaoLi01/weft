@@ -1,0 +1,23 @@
+{
+  "state": {
+    "active": {
+      "group": "ANIME_TESTS",
+      "index": 2,
+      "label": "Timeline Sequence"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "transform: translateX(153.475px) translateY(80px) rotate(83.7446deg);",
+      "text": ""
+    }
+  ]
+}

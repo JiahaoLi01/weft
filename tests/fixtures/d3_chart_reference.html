@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CaseElephant D3 DOM reference</title>
+  <style>
+    body { margin: 24px; font: 16px system-ui, sans-serif; color: #243145; background: #f3f6fa; }
+    h1 { font-size: 22px; }
+    #d3-probe { max-width: 560px; padding: 20px; background: white; border-radius: 12px; }
+    svg { max-width: 100%; height: auto; display: block; }
+    .legend { display: flex; gap: 16px; margin-top: 12px; }
+    .row { font-size: 14px; }
+    pre { white-space: pre-wrap; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>D3 7.9.0：同一份 DOM 验收脚本</h1>
+  <p>下面的图由浏览器绘制。CaseElephant 当前探针只验证原生 DOM 与脚本；GPU 像素输出尚未验证。</p>
+  <p>初始数据 a,b,c 更新为 c,d,a；节点 a、c 保持身份，b 被移除，d 插入。</p>
+  <pre id="report">正在运行…</pre>
+  <script src="../../third_party/d3/d3.js"></script>
+  <script>
+    window.addEventListener("error", function (event) {
+      document.querySelector("#report").textContent = "FAILED: " + event.message;
+      document.body.setAttribute("data-fixture-result", "failed");
+    });
+  </script>
+  <script src="d3_probe.js"></script>
+  <script>
+    if (globalThis.caseElephantD3Report) {
+      document.querySelector("#report").textContent = JSON.stringify(globalThis.caseElephantD3Report, null, 2);
+      document.body.setAttribute("data-fixture-result", "passed");
+    }
+  </script>
+</body>
+</html>

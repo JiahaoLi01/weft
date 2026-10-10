@@ -1,0 +1,50 @@
+/*
+ * Global base styles.
+ *
+ * Everything goes inside `@layer base` so Tailwind utilities (mt-8, p-4, …)
+ * override. Tailwind v4 uses CSS Cascade Layers: unlayered rules beat
+ * layered rules regardless of specificity, so if we wrote `body { margin: 0 }`
+ * at the top level it would silently kill every `mb-x` class on the body.
+ */
+
+@layer base {
+    html,
+    body,
+    #root {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        font-family: var(--font-ui);
+        color: var(--color-parchment);
+        /* Transparent background — game world shows through */
+        background: transparent;
+        /* Prevent text selection in game UI */
+        user-select: none;
+        -webkit-user-select: none;
+    }
+
+    /* Allow text selection in specific elements */
+    input,
+    textarea,
+    [contenteditable],
+    .selectable {
+        user-select: text;
+        -webkit-user-select: text;
+    }
+
+    /*
+     * Tailwind v4 preflight 改了默认 — <button> 不再自动 cursor: pointer,而是跟原生
+     * 浏览器一样默认 cursor: default。在普通 web 上这无所谓,但在我们的 Ultralight 集成
+     * 里,UMG widget 的 per-pixel hit-test 依赖 cursor 状态判断"鼠标在不在交互元素上":
+     *   - cursor: pointer (kCursor_Hand)  → 视为交互区,click 走 UI
+     *   - cursor: default (kCursor_Pointer) → 视为非交互区,click 透传到游戏世界
+     * 没有这条规则,所有不带 cursor-pointer class 的 <button> 都会被判成"非交互",
+     * onClick 不触发 (见 UUltralightWidget::NativeOnMouseButtonDown)。
+     * 修法:全局给 <button>/[role=button] 兜底 pointer cursor,跟 Tailwind v3 行为对齐。
+     * 个别按钮想覆盖直接加 className(cursor-default/cursor-wait/...)。
+     */
+    button:not(:disabled),
+    [role="button"]:not(:disabled) {
+        cursor: pointer;
+    }
+}

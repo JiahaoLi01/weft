@@ -1,0 +1,28 @@
+{
+  "state": {
+    "active": {
+      "group": "ANIME_TESTS",
+      "index": 11,
+      "label": "Draggable: Throw"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": "",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "left: 50%; top: 50%; transform: translate(-50%, -50%); touch-action: none;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": null,
+      "text": "throw with momentum"
+    }
+  ]
+}

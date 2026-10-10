@@ -1,0 +1,22 @@
+/* Docking belongs to the surface. Text insets belong to its content child.
+   Straight docking edges have zero texture gutter and stay fixed during motion. */
+[data-paint-anchor="left"] { --anchor-paint: url('/art/ink-dock-left-v1.png'); }
+[data-paint-anchor="right"] { --anchor-paint: url('/art/ink-dock-right-v1.png'); }
+[data-paint-anchor="top-left"] { --anchor-paint: url('/art/ink-corner-tl-v1.png'); }
+[data-paint-anchor="top-right"] { --anchor-paint: url('/art/ink-corner-tr-v1.png'); }
+[data-paint-anchor="bottom-left"] { --anchor-paint: url('/art/ink-corner-tl-v1.png'); --anchor-flip: scaleY(-1); }
+[data-paint-anchor="bottom-right"] { --anchor-paint: url('/art/ink-corner-tr-v1.png'); --anchor-flip: scaleY(-1); }
+[data-paint-anchor="bottom"] { --anchor-paint: url('/art/ink-dock-bottom-v1.png'); }
+[data-paint-anchor="top"] { --anchor-paint: url('/art/ink-dock-bottom-v1.png'); --anchor-flip: scaleY(-1); }
+
+.dock-surface { isolation: isolate; }
+.dock-surface[data-paint-anchor]::before, .painted[data-paint-anchor]::before {
+  content: ''; position: absolute; z-index: -1; inset: 0;
+  background: var(--anchor-paint) center/100% 100% no-repeat;
+  transform: var(--anchor-flip, none); pointer-events: none;
+  animation: dock-breathe 16s ease-in-out infinite alternate;
+}
+.painted[data-paint-anchor] { animation: dock-arrive .4s ease-out both; }
+.rail .dock-surface[data-paint-anchor]::before { animation: none; }
+@keyframes dock-arrive { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dock-breathe { from { opacity: .97; } to { opacity: 1; } }

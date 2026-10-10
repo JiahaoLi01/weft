@@ -1,0 +1,28 @@
+{
+  "fixture": "casecheetah-style-v1",
+  "inputs": {
+    "tools/build_cheetah_style.py": "fe71298b78e9c477bd12898499f636c070dce490da9057109aa5afa6d32f52bd",
+    "examples/cheetah-alert/src/profile.css": "56614d423ebcfc044257bad470894a44f0c43218500813b592beb09c5bbb26c1",
+    "examples/cheetah-alert/native/metadata.json": "df60305dff4a105deef49fbdd4a27a9d30cc165476490e4c95742436e033895c",
+    "tests/fixtures/casecheetah/UI/src/operations.css": "f72001b2b8683d25c04d02bdc6fba11c652f097dad42f101118408aae7ce80ac",
+    "examples/cheetah-alert/native/app.js": "fb10e66661352906950ab54da759211e91d372fd78490be59f7586e78d17e606",
+    "examples/cheetah-alert/native/BUNDLED-LICENSES.txt": "d18e31983a98b92d10ecc9c0cc70bda4e53dc095d54d238ebe97d4e6f6dc2608",
+    "third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf": "797e35f7f5d6020a5c6ea13b42ecd668bcfb3bbc4baa0e74773527e5b6cb3174",
+    "third_party/noto-cjk/source/NotoSansCJKsc-Regular.otf": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+    "tests/fixtures/casecheetah/UI/public/art/ink-panel-v2.png": "dcbe73cade0076320044c17297fdacacfeb1927246021dcb1ac1435d9564b683"
+  },
+  "outputs": {
+    "examples/cheetah-style/app.js": "fb10e66661352906950ab54da759211e91d372fd78490be59f7586e78d17e606",
+    "examples/cheetah-style/BUNDLED-LICENSES.txt": "d18e31983a98b92d10ecc9c0cc70bda4e53dc095d54d238ebe97d4e6f6dc2608",
+    "examples/cheetah-style/index.html": "620396b4520a3187249f1e5a229e65f32442e8a9fb7884b411faf71cebc624d9",
+    "examples/cheetah-style/NotoSansCJKsc-Regular.otf": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+    "examples/cheetah-style/profile.css": "745a90027ba084748d043327b596c53dc63c6da61a4006e998b800900d11fdce",
+    "examples/cheetah-style/Roboto-Regular.ttf": "797e35f7f5d6020a5c6ea13b42ecd668bcfb3bbc4baa0e74773527e5b6cb3174",
+    "examples/cheetah-style/art/ink-panel-v2.png": "dcbe73cade0076320044c17297fdacacfeb1927246021dcb1ac1435d9564b683"
+  },
+  "original_css": {
+    "theme": ":root {\n  --ops-text: #e7e3d6;\n  --ops-soft: #a9ada5;\n  --ops-dim: #8f948c;\n  --ops-line: rgba(160, 154, 130, .22);\n  --ops-gold: #e6c98b;\n  --ops-good: #9ac7b0;\n  --ops-bad: #c98b74;\n  --ops-figure: Georgia, 'Times New Roman', serif;\n  --modal-left: 262px;\n}",
+    "expanded_rule": ".alert-chip > button[aria-expanded=\"true\"] { color: var(--ops-text); }"
+  },
+  "note": "Exact captured :root block and expanded rule; authored explicit geometry; unchanged AlertBar IIFE; no live game IO"
+}

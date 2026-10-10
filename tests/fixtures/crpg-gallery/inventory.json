@@ -1,0 +1,1402 @@
+{
+  "format": "gallery-original-case-inventory-v1",
+  "source": "UI/src/components/debug/TestGallery.tsx",
+  "source_sha256": "4d3351e1465275161e8cafdfb82d8eac1374db119f2321c77917c690d614c320",
+  "case_count": 72,
+  "levels": {
+    "execution": "Original case executes without unsupported calls/errors",
+    "pixels": "Our renderer produces independently checked pixels",
+    "interaction": "Original controls/animations perform expected behavior",
+    "performance": "Comparable fixed conditions and tail metrics; separate from correctness"
+  },
+  "note": "Registration inventory, not evidence of passing cases. Original labels including historical failure marks are preserved.",
+  "groups": [
+    {
+      "name": "CSS_TESTS",
+      "count": 26,
+      "cases": [
+        {
+          "id": "css-00",
+          "label": "Solid Color",
+          "index": 0,
+          "source_line": 276,
+          "source_start": 11704,
+          "source_end": 11785,
+          "utf8_start": 12272,
+          "utf8_end": 12353,
+          "case_source_sha256": "ea3b9bda51e78f75bdb570b893d33c93f2f7f1156a66b3ba1b9b6d7bb6916d26",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-01",
+          "label": "Linear Gradient",
+          "index": 1,
+          "source_line": 277,
+          "source_start": 11790,
+          "source_end": 11935,
+          "utf8_start": 12358,
+          "utf8_end": 12503,
+          "case_source_sha256": "1c7c08209345ba0821bffbc8b220c44ef31ca4b570c90b0bdf32cc58c608eba5",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-02",
+          "label": "Radial Gradient",
+          "index": 2,
+          "source_line": 278,
+          "source_start": 11940,
+          "source_end": 12096,
+          "utf8_start": 12508,
+          "utf8_end": 12664,
+          "case_source_sha256": "e00e8f53677a493edf1cfc4113bc51bbe5fe8977bd010831cf8d997877affb6a",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-03",
+          "label": "Conic Gradient ✗",
+          "index": 3,
+          "source_line": 279,
+          "source_start": 12101,
+          "source_end": 12267,
+          "utf8_start": 12669,
+          "utf8_end": 12837,
+          "case_source_sha256": "7ec719d874927c21073d6bd718dddb4195e629fd7fd9a877b244bca40966e83c",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-04",
+          "label": "Hover Scale",
+          "index": 4,
+          "source_line": 282,
+          "source_start": 12305,
+          "source_end": 12632,
+          "utf8_start": 12883,
+          "utf8_end": 13210,
+          "case_source_sha256": "34c5dd899f14453d4536ee3c8e281d98254a9c22f1299bb202ecc3281c1b22ba",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-05",
+          "label": "Hover Color + BG",
+          "index": 5,
+          "source_line": 286,
+          "source_start": 12637,
+          "source_end": 13184,
+          "utf8_start": 13215,
+          "utf8_end": 13762,
+          "case_source_sha256": "9a3820da1aeea46cecdda9d86ec090e22d0a9a831f3704d0283ac503228bfa9e",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-06",
+          "label": "Multi-property Transition",
+          "index": 6,
+          "source_line": 293,
+          "source_start": 13189,
+          "source_end": 13607,
+          "utf8_start": 13767,
+          "utf8_end": 14185,
+          "case_source_sha256": "317dadd485a9bc57be5502070bc9e5a6dba5509ad6b165355f19ea4356e5304e",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-07",
+          "label": "Width Transition",
+          "index": 7,
+          "source_line": 297,
+          "source_start": 13612,
+          "source_end": 14083,
+          "utf8_start": 14190,
+          "utf8_end": 14661,
+          "case_source_sha256": "4cef0957d4afff46e78ada134ba14c1e28a445aa3770ad7377f229f2ac6cdd85",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-08",
+          "label": "HP Bar Drain/Heal",
+          "index": 8,
+          "source_line": 306,
+          "source_start": 14131,
+          "source_end": 14467,
+          "utf8_start": 14717,
+          "utf8_end": 15053,
+          "case_source_sha256": "1c709470351589c910ebdb72b2956483fd12bcb8bafc8f14466fde496d744a5b",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-09",
+          "label": "Damage Shake",
+          "index": 9,
+          "source_line": 314,
+          "source_start": 14472,
+          "source_end": 14799,
+          "utf8_start": 15058,
+          "utf8_end": 15385,
+          "case_source_sha256": "3efbdced317b723463e17b5144ee1cda17ad4370f79bbcc7a1fd7dca506f61ca",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-10",
+          "label": "Damage Flash Overlay",
+          "index": 10,
+          "source_line": 321,
+          "source_start": 14804,
+          "source_end": 15115,
+          "utf8_start": 15390,
+          "utf8_end": 15701,
+          "case_source_sha256": "8ce07d206b4b3adc8e0da7c9f30ce3a03e97fded9fb19d2d7aa946a23096d12e",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-11",
+          "label": "Loot Bounce In",
+          "index": 11,
+          "source_line": 327,
+          "source_start": 15120,
+          "source_end": 15418,
+          "utf8_start": 15706,
+          "utf8_end": 16014,
+          "case_source_sha256": "1c64c5003955bc7b81b02f73004a56dbbdd3f5be13b08b4e2d80f7133ac7acec",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-12",
+          "label": "Float / Bob",
+          "index": 12,
+          "source_line": 334,
+          "source_start": 15423,
+          "source_end": 15846,
+          "utf8_start": 16019,
+          "utf8_end": 16442,
+          "case_source_sha256": "63cf23eeab7efcb267f49eabfc42562afb8f89f289150b5edd50fd5a0e392a63",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-13",
+          "label": "Swing (Pendulum)",
+          "index": 13,
+          "source_line": 341,
+          "source_start": 15851,
+          "source_end": 16053,
+          "utf8_start": 16447,
+          "utf8_end": 16649,
+          "case_source_sha256": "d7a137299915854fe75641fa8ce2db415db2e3122727bdac740e4806d892ed80",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-14",
+          "label": "Slide In (Left + Right)",
+          "index": 14,
+          "source_line": 348,
+          "source_start": 16105,
+          "source_end": 16708,
+          "utf8_start": 16709,
+          "utf8_end": 17318,
+          "case_source_sha256": "96d7a771d0028dfbabf99b7c68c2e73a36c8068ff417b40d710c02f8c9b6e2cc",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-15",
+          "label": "Staggered List",
+          "index": 15,
+          "source_line": 355,
+          "source_start": 16713,
+          "source_end": 17117,
+          "utf8_start": 17323,
+          "utf8_end": 17727,
+          "case_source_sha256": "14c098f1f94f1917e615261dad282dcc63046d69295f4903380d1e6185cb014b",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-16",
+          "label": "Color Cycle Text",
+          "index": 16,
+          "source_line": 362,
+          "source_start": 17122,
+          "source_end": 17328,
+          "utf8_start": 17732,
+          "utf8_end": 17938,
+          "case_source_sha256": "b84a343cca29a190bb636dfcd276be990d63bcf692c5be7b115354df12b4b618",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-17",
+          "label": "Border Chase",
+          "index": 17,
+          "source_line": 367,
+          "source_start": 17333,
+          "source_end": 17547,
+          "utf8_start": 17943,
+          "utf8_end": 18157,
+          "case_source_sha256": "574436c177e38f1226d9c222e7447f31fffbc4284b66c76f52f18e89b1028392",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-18",
+          "label": "Gradient Shift BG",
+          "index": 18,
+          "source_line": 372,
+          "source_start": 17552,
+          "source_end": 17779,
+          "utf8_start": 18162,
+          "utf8_end": 18389,
+          "case_source_sha256": "023d7fd5a2f974b625240d98f86346b83dc465e9f068db3d261ac29fad2019e0",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-19",
+          "label": "Typewriter + Caret",
+          "index": 19,
+          "source_line": 375,
+          "source_start": 17784,
+          "source_end": 18205,
+          "utf8_start": 18394,
+          "utf8_end": 18815,
+          "case_source_sha256": "c1390d0516086dc6827bacd6e63e040f6a6f280e5ea10777c850db378f7019a3",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-20",
+          "label": "Striped Progress Bar",
+          "index": 20,
+          "source_line": 382,
+          "source_start": 18210,
+          "source_end": 18812,
+          "utf8_start": 18820,
+          "utf8_end": 19422,
+          "case_source_sha256": "6cb4a36e9ab9689f062f13c86b74711d611c7c01d04447f980decd088bde381f",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-21",
+          "label": "Flip Card",
+          "index": 21,
+          "source_line": 390,
+          "source_start": 18817,
+          "source_end": 19173,
+          "utf8_start": 19427,
+          "utf8_end": 19783,
+          "case_source_sha256": "8299380f77adbcd89fd044070ffd758c12441d201852e745e7e1bafa604904b3",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-22",
+          "label": "Ripple Effect",
+          "index": 22,
+          "source_line": 397,
+          "source_start": 19178,
+          "source_end": 19592,
+          "utf8_start": 19788,
+          "utf8_end": 20202,
+          "case_source_sha256": "160d13e80ffaad1559fb12556ffd6d04116e243f16c66e5a7216a4ffbd2531dc",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-23",
+          "label": "Pulse Ring",
+          "index": 23,
+          "source_line": 404,
+          "source_start": 19597,
+          "source_end": 20001,
+          "utf8_start": 20207,
+          "utf8_end": 20611,
+          "case_source_sha256": "2f73ea2e2b2d5b2c8b2b4e7150e27a0872f5385108235d6adca65d3dd8a58637",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-24",
+          "label": "Spin + Pulse Combo",
+          "index": 24,
+          "source_line": 412,
+          "source_start": 20006,
+          "source_end": 20308,
+          "utf8_start": 20616,
+          "utf8_end": 20918,
+          "case_source_sha256": "4d32a3c834fad0cac4fee61ffef761910259a30dc6617ed6d7894aa5357bebbb",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        },
+        {
+          "id": "css-25",
+          "label": "Multi-element Orchestra",
+          "index": 25,
+          "source_line": 417,
+          "source_start": 20313,
+          "source_end": 20774,
+          "utf8_start": 20923,
+          "utf8_end": 21384,
+          "case_source_sha256": "ddd06c16c35d0fcdd5879ebc77c44d94054ea84d1d82ca0e661ba2d40f91ced7",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "CSS cascade/layout/paint",
+            "CSS transitions/keyframes",
+            "hover/click"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "D3_TESTS",
+      "count": 8,
+      "cases": [
+        {
+          "id": "d3-00",
+          "label": "D3 Bar Chart",
+          "index": 0,
+          "source_line": 427,
+          "source_start": 20817,
+          "source_end": 20887,
+          "utf8_start": 21427,
+          "utf8_end": 21497,
+          "case_source_sha256": "8ed336910f0132d0c520d87dcf14eea5a0e22b19ee5d6ed9537a811724e7f4b5",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "D3 SVG DOM",
+            "SVG path/text/transform paint",
+            "rAF/timers"
+          ]
+        },
+        {
+          "id": "d3-01",
+          "label": "D3 Line + Area",
+          "index": 1,
+          "source_line": 428,
+          "source_start": 20892,
+          "source_end": 20965,
+          "utf8_start": 21502,
+          "utf8_end": 21575,
+          "case_source_sha256": "9234d383f464ce3d2b49b74675238a5d36b7912937e8cf733f5d16de0e634d7e",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "D3 SVG DOM",
+            "SVG path/text/transform paint",
+            "rAF/timers"
+          ]
+        },
+        {
+          "id": "d3-02",
+          "label": "D3 Donut Chart",
+          "index": 2,
+          "source_line": 429,
+          "source_start": 20970,
+          "source_end": 21042,
+          "utf8_start": 21580,
+          "utf8_end": 21652,
+          "case_source_sha256": "0e4ee45350b42feec79efea34b0c19d3be4013384066bd91091d26c8b8f37f12",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "D3 SVG DOM",
+            "SVG path/text/transform paint",
+            "rAF/timers"
+          ]
+        },
+        {
+          "id": "d3-03",
+          "label": "D3 Radar (RPG Stats)",
+          "index": 3,
+          "source_line": 430,
+          "source_start": 21047,
+          "source_end": 21127,
+          "utf8_start": 21657,
+          "utf8_end": 21737,
+          "case_source_sha256": "5f7fc577fe6bbcffdbe875e605034a112e41ff9094521201ef574a4475a99ee3",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "D3 SVG DOM",
+            "SVG path/text/transform paint",
+            "rAF/timers"
+          ]
+        },
+        {
+          "id": "d3-04",
+          "label": "D3 Animated Bars",
+          "index": 4,
+          "source_line": 431,
+          "source_start": 21132,
+          "source_end": 21210,
+          "utf8_start": 21742,
+          "utf8_end": 21820,
+          "case_source_sha256": "65bd8317a5136dbf6adc5db8d52ef74c46a36cd1aeb103b354366bf40b98232e",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "D3 SVG DOM",
+            "SVG path/text/transform paint",
+            "rAF/timers"
+          ]
+        },
+        {
+          "id": "d3-05",
+          "label": "D3 Force Graph",
+          "index": 5,
+          "source_line": 432,
+          "source_start": 21215,
+          "source_end": 21289,
+          "utf8_start": 21825,
+          "utf8_end": 21899,
+          "case_source_sha256": "0ac90e308c75ef253640feb7418efd9943876497be2be3a161d36f54382798f2",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "D3 SVG DOM",
+            "SVG path/text/transform paint",
+            "rAF/timers"
+          ]
+        },
+        {
+          "id": "d3-06",
+          "label": "D3 Heatmap",
+          "index": 6,
+          "source_line": 433,
+          "source_start": 21294,
+          "source_end": 21361,
+          "utf8_start": 21904,
+          "utf8_end": 21971,
+          "case_source_sha256": "2217089836e9479d547a9572c1154017c4057b1c765368bcd2cf702e2c4effa8",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "D3 SVG DOM",
+            "SVG path/text/transform paint",
+            "rAF/timers"
+          ]
+        },
+        {
+          "id": "d3-07",
+          "label": "D3 Gauge",
+          "index": 7,
+          "source_line": 434,
+          "source_start": 21366,
+          "source_end": 21434,
+          "utf8_start": 21976,
+          "utf8_end": 22044,
+          "case_source_sha256": "7f7d4f2e7186482a7249347371f0c92edfd761ac1fd25286bd12b3c0556a8be3",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "D3 SVG DOM",
+            "SVG path/text/transform paint",
+            "rAF/timers"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "D3_INTERACTIVE_TESTS",
+      "count": 4,
+      "cases": [
+        {
+          "id": "d3_interactive-00",
+          "label": "Sunburst (hover + click + tooltip)",
+          "index": 0,
+          "source_line": 737,
+          "source_start": 34217,
+          "source_end": 34294,
+          "utf8_start": 34889,
+          "utf8_end": 34966,
+          "case_source_sha256": "9edd8a3893acad64fbdef8f8cd9df5aad8cb43ee12e61d8642735f2354b50271",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "SVG geometry",
+            "pointer/drag/wheel",
+            "D3 transitions",
+            "tooltip layout"
+          ]
+        },
+        {
+          "id": "d3_interactive-01",
+          "label": "Collapsible Skill Tree (click to toggle)",
+          "index": 1,
+          "source_line": 738,
+          "source_start": 34299,
+          "source_end": 34389,
+          "utf8_start": 34971,
+          "utf8_end": 35061,
+          "case_source_sha256": "26513eb39c573b75f1f251a34fe9bdc6a147180b928f14e9f87883498cd621d1",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "SVG geometry",
+            "pointer/drag/wheel",
+            "D3 transitions",
+            "tooltip layout"
+          ]
+        },
+        {
+          "id": "d3_interactive-02",
+          "label": "Brushable Timeline (drag to select)",
+          "index": 2,
+          "source_line": 739,
+          "source_start": 34394,
+          "source_end": 34481,
+          "utf8_start": 35066,
+          "utf8_end": 35153,
+          "case_source_sha256": "ca7457fdd2fc94ef049b3f7282b36cce943689c6eacee7cb0d33820ada1d61e7",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "SVG geometry",
+            "pointer/drag/wheel",
+            "D3 transitions",
+            "tooltip layout"
+          ]
+        },
+        {
+          "id": "d3_interactive-03",
+          "label": "Zoomable Scatter (scroll to zoom, hover, click)",
+          "index": 3,
+          "source_line": 740,
+          "source_start": 34486,
+          "source_end": 34583,
+          "utf8_start": 35158,
+          "utf8_end": 35255,
+          "case_source_sha256": "08ae0a79b64791d4ca6f6ac2eb0b645f4d8efbc2d5b7bb82a73e981117f78ef3",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "SVG geometry",
+            "pointer/drag/wheel",
+            "D3 transitions",
+            "tooltip layout"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "KLINE_TESTS",
+      "count": 1,
+      "cases": [
+        {
+          "id": "kline-00",
+          "label": "Interactive K-Line Chart (120 days, OHLC + Volume + SMA + Crosshair + Tooltip)",
+          "index": 0,
+          "source_line": 1197,
+          "source_start": 53327,
+          "source_end": 53456,
+          "utf8_start": 54211,
+          "utf8_end": 54340,
+          "case_source_sha256": "ef32bf517548058d11d816dc320749459ca8f601439c665f377161f8f46afda4",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "SVG paint",
+            "pointer/crosshair/tooltip"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "WEBGL_TESTS",
+      "count": 4,
+      "cases": [
+        {
+          "id": "webgl-00",
+          "label": "Canvas2D: Mouse Particle Emitter (move mouse)",
+          "index": 0,
+          "source_line": 1201,
+          "source_start": 53502,
+          "source_end": 53597,
+          "utf8_start": 54386,
+          "utf8_end": 54481,
+          "case_source_sha256": "28c7e181f1e51a09c64780328001c1702f6230e7aee7c478f2acaeed52b24ed6",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "Canvas2D or WebGL2",
+            "rAF",
+            "canvas texture composition"
+          ]
+        },
+        {
+          "id": "webgl-01",
+          "label": "Canvas2D: Fireworks (click to spawn)",
+          "index": 1,
+          "source_line": 1202,
+          "source_start": 53602,
+          "source_end": 53688,
+          "utf8_start": 54486,
+          "utf8_end": 54572,
+          "case_source_sha256": "79cc88413d6e450a6169313222c8732de7f624d16030c6d867e7c20bf7790228",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "Canvas2D or WebGL2",
+            "rAF",
+            "canvas texture composition"
+          ]
+        },
+        {
+          "id": "webgl-02",
+          "label": "Three.js: Wireframe Cube + Particle Cloud",
+          "index": 2,
+          "source_line": 1203,
+          "source_start": 53693,
+          "source_end": 53778,
+          "utf8_start": 54577,
+          "utf8_end": 54662,
+          "case_source_sha256": "cff17f7cf678e52c07f4f1923b14babf977aa082479d34dd3f079153e048c6f2",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "Canvas2D or WebGL2",
+            "rAF",
+            "canvas texture composition"
+          ]
+        },
+        {
+          "id": "webgl-03",
+          "label": "Three.js: 2000 Particle Sphere Wave",
+          "index": 3,
+          "source_line": 1204,
+          "source_start": 53783,
+          "source_end": 53871,
+          "utf8_start": 54667,
+          "utf8_end": 54755,
+          "case_source_sha256": "d961c0b3c2d0b539521c7fe7b7f44485d25c64170117e8fb7d90adf75c766ac4",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "Canvas2D or WebGL2",
+            "rAF",
+            "canvas texture composition"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "LOTTIE_TESTS",
+      "count": 4,
+      "cases": [
+        {
+          "id": "lottie-00",
+          "label": "Lottie: Checkmark",
+          "index": 0,
+          "source_line": 1941,
+          "source_start": 78264,
+          "source_end": 78393,
+          "utf8_start": 79898,
+          "utf8_end": 80027,
+          "case_source_sha256": "67d35a3fc33260cc8c4570798d38180f63dacf9ee1f0f9659d408445c35f4cd0",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "XHR/asset provider",
+            "SVG paint",
+            "rAF",
+            "remote animation JSON"
+          ]
+        },
+        {
+          "id": "lottie-01",
+          "label": "Lottie: Success",
+          "index": 1,
+          "source_line": 1942,
+          "source_start": 78398,
+          "source_end": 78528,
+          "utf8_start": 80032,
+          "utf8_end": 80162,
+          "case_source_sha256": "e40f9b7ff4482cbd8dfdc4ec377dc0a0f849721d72954ef27020259e2d789d60",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "XHR/asset provider",
+            "SVG paint",
+            "rAF",
+            "remote animation JSON"
+          ]
+        },
+        {
+          "id": "lottie-02",
+          "label": "Lottie: Confetti",
+          "index": 2,
+          "source_line": 1943,
+          "source_start": 78533,
+          "source_end": 78662,
+          "utf8_start": 80167,
+          "utf8_end": 80296,
+          "case_source_sha256": "b598ad10f7774a4019d5d3da18eb6450209ae70d6a4741d51c7e812bb6acbdcf",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "XHR/asset provider",
+            "SVG paint",
+            "rAF",
+            "remote animation JSON"
+          ]
+        },
+        {
+          "id": "lottie-03",
+          "label": "Lottie: Trophy",
+          "index": 3,
+          "source_line": 1944,
+          "source_start": 78667,
+          "source_end": 78796,
+          "utf8_start": 80301,
+          "utf8_end": 80430,
+          "case_source_sha256": "83d1d744c37ac153a0f34074c711e0ea8138016a6836fa05af2cb4e8aa97e16c",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "XHR/asset provider",
+            "SVG paint",
+            "rAF",
+            "remote animation JSON"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ANIME_TESTS",
+      "count": 14,
+      "cases": [
+        {
+          "id": "anime-00",
+          "label": "Stagger Grid (5x5)",
+          "index": 0,
+          "source_line": 1951,
+          "source_start": 78919,
+          "source_end": 78986,
+          "utf8_start": 80645,
+          "utf8_end": 80712,
+          "case_source_sha256": "b8fed2897592853fa55e576aadb9eea91fd165281ebe669659f195201c8b0019",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "rAF",
+            "computed style",
+            "SVG path geometry",
+            "drag/layout"
+          ]
+        },
+        {
+          "id": "anime-01",
+          "label": "Text Reveal",
+          "index": 1,
+          "source_line": 1952,
+          "source_start": 78991,
+          "source_end": 79050,
+          "utf8_start": 80717,
+          "utf8_end": 80776,
+          "case_source_sha256": "32b516927ba27b63477dedcf38ef12adeba324eecded29ba7ab7923274d01b6a",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "rAF",
+            "computed style",
+            "SVG path geometry",
+            "drag/layout"
+          ]
+        },
+        {
+          "id": "anime-02",
+          "label": "Timeline Sequence",
+          "index": 2,
+          "source_line": 1953,
+          "source_start": 79055,
+          "source_end": 79118,
+          "utf8_start": 80781,
+          "utf8_end": 80844,
+          "case_source_sha256": "db4500e2bef2bc7ceeb9c378050c050ccc73e48cbaf84a9f71133288c261d96d",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "rAF",
+            "computed style",
+            "SVG path geometry",
+            "drag/layout"
+          ]
+        },
+        {
+          "id": "anime-03",
+          "label": "Elastic Bounce",
+          "index": 3,
+          "source_line": 1954,
+          "source_start": 79123,
+          "source_end": 79188,
+          "utf8_start": 80849,
+          "utf8_end": 80914,
+          "case_source_sha256": "f3ee3ab1a84cd00888897cfcf5612243b3439a6f271ad5cc8fa2c70c9abe6c01",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "rAF",
+            "computed style",
+            "SVG path geometry",
+            "drag/layout"
+          ]
+        },
+        {
+          "id": "anime-04",
+          "label": "SVG Morph Path",
+          "index": 4,
+          "source_line": 1955,
+          "source_start": 79193,
+          "source_end": 79254,
+          "utf8_start": 80919,
+          "utf8_end": 80980,
+          "case_source_sha256": "21fa54342ea23c5b9c6b1595e32e7363fd5d2fd5d7514ab1edad18b4714d77f2",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "rAF",
+            "computed style",
+            "SVG path geometry",
+            "drag/layout"
+          ]
+        },
+        {
+          "id": "anime-05",
+          "label": "Particle Explosion",
+          "index": 5,
+          "source_line": 1956,
+          "source_start": 79259,
+          "source_end": 79332,
+          "utf8_start": 80985,
+          "utf8_end": 81058,
+          "case_source_sha256": "0cab0046d7760912a6aac45be3dd04b928e696118612b80c07128c07bd50e5d0",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "rAF",
+            "computed style",
+            "SVG path geometry",
+            "drag/layout"
+          ]
+        },
+        {
+          "id": "anime-06",
+          "label": "Wave Text",
+          "index": 6,
+          "source_line": 1957,
+          "source_start": 79337,
+          "source_end": 79392,
+          "utf8_start": 81063,
+          "utf8_end": 81118,
+          "case_source_sha256": "91e063202d3b7977bf003e5e8f67905cd9e41a214eba02d1f6d5039298077e6e",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "rAF",
+            "computed style",
+            "SVG path geometry",
+            "drag/layout"
+          ]
+        },
+        {
+          "id": "anime-07",
+          "label": "Progress Ring",
+          "index": 7,
+          "source_line": 1958,
+          "source_start": 79397,
+          "source_end": 79460,
+          "utf8_start": 81123,
+          "utf8_end": 81186,
+          "case_source_sha256": "6f7e1e892dff0ff62005a46f4a9165f2bcd3ecbc6ccb775b1ca70349fc9752ea",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "rAF",
+            "computed style",
+            "SVG path geometry",
+            "drag/layout"
+          ]
+        },
+        {
+          "id": "anime-08",
+          "label": "Draggable: Free",
+          "index": 8,
+          "source_line": 1960,
+          "source_start": 79481,
+          "source_end": 79547,
+          "utf8_start": 81207,
+          "utf8_end": 81273,
+          "case_source_sha256": "07415686392f335eb19a864cc8d24db66dcc0baa566f3eb61b4700a766a9c58c",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "rAF",
+            "computed style",
+            "SVG path geometry",
+            "drag/layout"
+          ]
+        },
+        {
+          "id": "anime-09",
+          "label": "Draggable: Snap Grid",
+          "index": 9,
+          "source_line": 1961,
+          "source_start": 79552,
+          "source_end": 79623,
+          "utf8_start": 81278,
+          "utf8_end": 81349,
+          "case_source_sha256": "a334f3d50dd9a5a4d69b8e9d1e6c0ca26a5313b5e53cea814660f1943778d7f9",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "rAF",
+            "computed style",
+            "SVG path geometry",
+            "drag/layout"
+          ]
+        },
+        {
+          "id": "anime-10",
+          "label": "Draggable: Axis Lock",
+          "index": 10,
+          "source_line": 1962,
+          "source_start": 79628,
+          "source_end": 79699,
+          "utf8_start": 81354,
+          "utf8_end": 81425,
+          "case_source_sha256": "534998756be50e243bf9e349cfa9f8e4d5d82b3f5ea505c7a46c1787024a241c",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "rAF",
+            "computed style",
+            "SVG path geometry",
+            "drag/layout"
+          ]
+        },
+        {
+          "id": "anime-11",
+          "label": "Draggable: Throw",
+          "index": 11,
+          "source_line": 1963,
+          "source_start": 79704,
+          "source_end": 79772,
+          "utf8_start": 81430,
+          "utf8_end": 81498,
+          "case_source_sha256": "c8f5a222db7f219aed63951b68bd3899e81e729bdbe03a4279be85d1c76ab74e",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "rAF",
+            "computed style",
+            "SVG path geometry",
+            "drag/layout"
+          ]
+        },
+        {
+          "id": "anime-12",
+          "label": "Layout: DOM Shuffle",
+          "index": 12,
+          "source_line": 1965,
+          "source_start": 79809,
+          "source_end": 79882,
+          "utf8_start": 81535,
+          "utf8_end": 81608,
+          "case_source_sha256": "6e4a5a1aeb2f7e0a2c704d935fad4c48b0aebcfbbe08ea570905db93d50ccaf4",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "rAF",
+            "computed style",
+            "SVG path geometry",
+            "drag/layout"
+          ]
+        },
+        {
+          "id": "anime-13",
+          "label": "Layout: Display Cycle",
+          "index": 13,
+          "source_line": 1966,
+          "source_start": 79887,
+          "source_end": 79959,
+          "utf8_start": 81613,
+          "utf8_end": 81685,
+          "case_source_sha256": "fd244929bcac315cd07aa91faa26906cbaf0b4c64d64d01bfb3e83c5c6d91756",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "rAF",
+            "computed style",
+            "SVG path geometry",
+            "drag/layout"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FRAMER_TESTS",
+      "count": 6,
+      "cases": [
+        {
+          "id": "framer-00",
+          "label": "Fade In",
+          "index": 0,
+          "source_line": 1972,
+          "source_start": 80072,
+          "source_end": 80124,
+          "utf8_start": 81890,
+          "utf8_end": 81942,
+          "case_source_sha256": "73edf303f83f2c0ed1e13482f5990504f275c1e5887469655de817a470b175a1",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "computed style",
+            "rAF",
+            "transform/opacity",
+            "layout measurement",
+            "presence/gesture"
+          ]
+        },
+        {
+          "id": "framer-01",
+          "label": "Spring Physics",
+          "index": 1,
+          "source_line": 1973,
+          "source_start": 80129,
+          "source_end": 80188,
+          "utf8_start": 81947,
+          "utf8_end": 82006,
+          "case_source_sha256": "1b808c01a6674387fa1bec69813d6b56c99d4971c6c652ad9017cb7982308580",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "computed style",
+            "rAF",
+            "transform/opacity",
+            "layout measurement",
+            "presence/gesture"
+          ]
+        },
+        {
+          "id": "framer-02",
+          "label": "Hover + Tap",
+          "index": 2,
+          "source_line": 1974,
+          "source_start": 80193,
+          "source_end": 80250,
+          "utf8_start": 82011,
+          "utf8_end": 82068,
+          "case_source_sha256": "693f7f58d45e6bfd0986ad0039fbdc73e4d8ee65145f4f9187f5ee1e8840cae6",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "computed style",
+            "rAF",
+            "transform/opacity",
+            "layout measurement",
+            "presence/gesture"
+          ]
+        },
+        {
+          "id": "framer-03",
+          "label": "Layout Animation",
+          "index": 3,
+          "source_line": 1975,
+          "source_start": 80255,
+          "source_end": 80320,
+          "utf8_start": 82073,
+          "utf8_end": 82138,
+          "case_source_sha256": "fb9bceb4f922d10e794fcb1ee1301b6a8d9c4a638155f653f0ee118c75172cb2",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "computed style",
+            "rAF",
+            "transform/opacity",
+            "layout measurement",
+            "presence/gesture"
+          ]
+        },
+        {
+          "id": "framer-04",
+          "label": "Stagger List",
+          "index": 4,
+          "source_line": 1976,
+          "source_start": 80325,
+          "source_end": 80383,
+          "utf8_start": 82143,
+          "utf8_end": 82201,
+          "case_source_sha256": "1b469dc0c9050cf2ca48ac59f2807762d84118480fae37737544e063fac2cbaa",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "computed style",
+            "rAF",
+            "transform/opacity",
+            "layout measurement",
+            "presence/gesture"
+          ]
+        },
+        {
+          "id": "framer-05",
+          "label": "AnimatePresence",
+          "index": 5,
+          "source_line": 1977,
+          "source_start": 80388,
+          "source_end": 80450,
+          "utf8_start": 82206,
+          "utf8_end": 82268,
+          "case_source_sha256": "1e94fa844362967717332514b8f376d4c6ecb0f58b49b726fcf927bfc839212a",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "computed style",
+            "rAF",
+            "transform/opacity",
+            "layout measurement",
+            "presence/gesture"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "SPRING_TESTS",
+      "count": 3,
+      "cases": [
+        {
+          "id": "spring-00",
+          "label": "Animated Number",
+          "index": 0,
+          "source_line": 1981,
+          "source_start": 80497,
+          "source_end": 80557,
+          "utf8_start": 82315,
+          "utf8_end": 82375,
+          "case_source_sha256": "0efd2be3f3d50bf0527316400d537a3b3c29f5f42b982a397dd0fb81221db758",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "rAF",
+            "computed style",
+            "animated values"
+          ]
+        },
+        {
+          "id": "spring-01",
+          "label": "Trail Animation",
+          "index": 1,
+          "source_line": 1982,
+          "source_start": 80562,
+          "source_end": 80621,
+          "utf8_start": 82380,
+          "utf8_end": 82439,
+          "case_source_sha256": "e2944f62e5d62121bea27ed06e2b00f6345e2bad87c36869f6793582c0186d6b",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "rAF",
+            "computed style",
+            "animated values"
+          ]
+        },
+        {
+          "id": "spring-02",
+          "label": "Progress Bar",
+          "index": 2,
+          "source_line": 1983,
+          "source_start": 80626,
+          "source_end": 80688,
+          "utf8_start": 82444,
+          "utf8_end": 82506,
+          "case_source_sha256": "1f3a82c2712e17ef334ad4f27ca362a95f15f05a432fbd89b95afb150a78769f",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "rAF",
+            "computed style",
+            "animated values"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ICON_TESTS",
+      "count": 2,
+      "cases": [
+        {
+          "id": "icon-00",
+          "label": "Lucide Icon Grid (SVG)",
+          "index": 0,
+          "source_line": 1987,
+          "source_start": 80733,
+          "source_end": 80817,
+          "utf8_start": 82551,
+          "utf8_end": 82635,
+          "case_source_sha256": "f359254dce7ff3a4115902e5f19ebcdf4b1a35d2efddc473bd2fa2379e5fcb82",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "SVG stroke/path paint",
+            "timers"
+          ]
+        },
+        {
+          "id": "icon-01",
+          "label": "Animated Icon Cycle",
+          "index": 1,
+          "source_line": 1988,
+          "source_start": 80822,
+          "source_end": 80908,
+          "utf8_start": 82640,
+          "utf8_end": 82726,
+          "case_source_sha256": "1e20ae5bec88f026c7b29a6c947674cd24120fcee2b15e6c62ad82d0330e9855",
+          "native_status": "not_run",
+          "browser_status": "not_run",
+          "requirements": [
+            "SVG stroke/path paint",
+            "timers"
+          ]
+        }
+      ]
+    }
+  ]
+}

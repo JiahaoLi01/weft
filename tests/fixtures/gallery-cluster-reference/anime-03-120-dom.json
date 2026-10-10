@@ -1,0 +1,43 @@
+{
+  "state": {
+    "active": {
+      "group": "ANIME_TESTS",
+      "index": 3,
+      "label": "Elastic Bounce"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "background-color: rgb(212, 168, 67); transform: translateY(-31.3927px) scale(0.8954);",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "background-color: rgb(196, 64, 64); transform: translateY(-40.6727px) scale(0.8644);",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "background-color: rgb(74, 122, 204); transform: translateY(-51.1527px) scale(0.8295);",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "background-color: rgb(76, 175, 76); transform: translateY(-60px) scale(0.8);",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": "background-color: rgb(184, 134, 11); transform: translateY(-60px) scale(0.8);",
+      "text": ""
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "state": {
+    "active": {
+      "group": "ANIME_TESTS",
+      "index": 7,
+      "label": "Progress Ring"
+    },
+    "errors": [],
+    "bridge": []
+  },
+  "dom": [
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "svg",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": null,
+      "text": ""
+    },
+    {
+      "tag": "circle",
+      "style": "stroke-dasharray: 251.327; stroke-dashoffset: 82.938;",
+      "text": ""
+    },
+    {
+      "tag": "div",
+      "style": null,
+      "text": "67%"
+    }
+  ]
+}
