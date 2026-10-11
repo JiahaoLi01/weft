@@ -2182,10 +2182,12 @@ namespace weft {
                 return;
             }
             auto p = inverse.point(x, y);
-            const bool inside = p[0] >= 0 && p[0] < n.box[2] && p[1] >= 0 && p[1] < n.box[3];
-            if (!inside &&
-                ((get(n.style, PropertyId::Overflow) == "hidden" || get(n.style, PropertyId::Overflow) == "auto") ||
-                 n.tag == "svg")) {
+            const bool in_box = p[0] >= 0 && p[0] < n.box[2] && p[1] >= 0 && p[1] < n.box[3];
+            // The painted corners round the border box and an overflow clip, not an svg viewport.
+            const auto rounded = scene_values::rounded_box(n.style, n.box[2], n.box[3]);
+            const bool inside = in_box && (!rounded || contains_rounded(*rounded, float(p[0]), float(p[1])));
+            const auto overflow = get(n.style, PropertyId::Overflow);
+            if ((!inside && (overflow == "hidden" || overflow == "auto")) || (!in_box && n.tag == "svg")) {
                 return;
             }
             if (inside && n.tag != "#text" && get(n.style, PropertyId::PointerEvents) != "none") {

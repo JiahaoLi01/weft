@@ -793,13 +793,24 @@ namespace weft {
             if (!m.inverse(inverse)) {
                 return;
             }
+            // The border box, with its rounded corners as painted.
             const auto box = HitShape::box(0, 0, n.box[2], n.box[3]);
+            std::optional<HitShape> corners;
+            if (const auto rounded = scene_values::rounded_box(n.style, n.box[2], n.box[3])) {
+                corners.emplace();
+                corners->kind = HitShape::Kind::Rounded;
+                corners->rounded = *rounded;
+            }
             if (n.tag != "#text" && get(n.style, PropertyId::PointerEvents) != "none") {
-                area(n, inverse, {box}, clip);
+                area(n, inverse, {box}, corners ? out.areas.add_clip(inverse, *corners, clip) : clip);
             }
             const auto overflow = get(n.style, PropertyId::Overflow);
-            if (overflow == "hidden" || overflow == "auto" || n.tag == "svg") {
+            const bool clipping = overflow == "hidden" || overflow == "auto";
+            if (clipping || n.tag == "svg") {
                 clip = out.areas.add_clip(inverse, box, clip);
+            }
+            if (clipping && corners) {
+                clip = out.areas.add_clip(inverse, *corners, clip);
             }
             if (n.space == constants::svg_namespace_uri) {
                 const auto viewport = m * affine_plane(viewport_affine(n));

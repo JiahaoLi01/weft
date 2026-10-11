@@ -128,6 +128,25 @@ int main() {
                            weft::test_constants::scene::contract_view_size, 0);
         require(geometry.hit_test(stacked, 10, 10) == stacked.root.children[0].identity,
                 "hit testing ignored z-index or refused z-index auto");
+        // Hits follow the painted corners: a disc's bounding-box corner is not the disc, and a rounded overflow clip
+        // clips its children's hits too.
+        vm.reset_document();
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
+        vm.eval(
+            "const c=document.getElementById('root');c.setAttribute('style','position:relative');const disc=document.createElement('div');disc.setAttribute('style','position:absolute;left:0;top:0;width:40px;height:40px;border-radius:20px');const ring=document.createElement('div');ring.setAttribute('style','position:absolute;left:50px;top:0;width:40px;height:40px;border-radius:20px;overflow:hidden');const fill=document.createElement('div');fill.setAttribute('style','width:40px;height:40px');ring.appendChild(fill);c.appendChild(disc);c.appendChild(ring)");
+        weft::SceneSolver rounding("", "", [&](auto t, const auto& st) {
+            return weft::testing::thread_scene_text().measure(t, st);
+        });
+        const auto corners =
+            rounding.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
+                           weft::test_constants::scene::contract_view_size, 0);
+        const auto disc = corners.root.children[0].identity;
+        const auto fill = corners.root.children[1].children[0].identity;
+        require(geometry.hit_test(corners, 20, 20) == disc && geometry.hit_test(corners, 2, 2) != disc,
+                "hit outside a rounded corner");
+        require(geometry.hit_test(corners, 70, 20) == fill && geometry.hit_test(corners, 52, 2) != fill &&
+                    geometry.hit_test(corners, 52, 2) != corners.root.children[1].identity,
+                "hit outside a rounded overflow clip");
         vm.reset_document();
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(

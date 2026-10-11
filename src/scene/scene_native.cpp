@@ -1,5 +1,6 @@
 #include "scene/scene_native.hpp"
 #include "scene/scene_transform.hpp"
+#include "scene/scene_values.hpp"
 #include "base/css_scalar.hpp"
 #include "constants/scene.hpp"
 #include <algorithm>
@@ -225,23 +226,8 @@ namespace weft {
                     constants::scene::max_geometry_transform_scale) {
                     throw std::invalid_argument("transform scale bound");
                 }
+                p.radii = scene_values::corner_radii(n.style, p.width, p.height);
                 unsigned k{};
-                for (const auto* corner : {"top-left", "top-right", "bottom-right", "bottom-left"}) {
-                    const auto key = std::string("border-") + corner + "-radius";
-                    p.radii[k++] = std::max(0.f, len(get(n.style, key.c_str(), "0"), std::min(p.width, p.height)));
-                }
-                float factor = 1;
-                for (auto q : std::array<std::array<float, 2>, 4>{{{p.width, p.radii[0] + p.radii[1]},
-                                                                   {p.width, p.radii[2] + p.radii[3]},
-                                                                   {p.height, p.radii[0] + p.radii[3]},
-                                                                   {p.height, p.radii[1] + p.radii[2]}}}) {
-                    if (q[1] > 0) {
-                        factor = std::min(factor, q[0] / q[1]);
-                    }
-                }
-                for (auto& r : p.radii) {
-                    r *= factor;
-                }
                 auto paint_color = [&](unsigned i, const char* key, const char* def) {
                     if (n.paint && n.paint->values[i] && n.paint->values[i]->kind == PaintValue::Color) {
                         std::array<float, 4> c{};

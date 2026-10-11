@@ -4,9 +4,13 @@
 #include "base/diagnostic.hpp"
 #include "constants/common.hpp"
 #include "constants/scene.hpp"
+#include "render/rounded_clip.hpp"
 #include "style/values.hpp"
 
+#include <algorithm>
+#include <array>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -57,5 +61,38 @@ namespace weft::scene_values {
             return n * reference / constants::percent_scale;
         }
         return n * (unit == css::Unit::Em ? reference : 1);
+    }
+
+    // Corner radii of a w x h box as the scene paints them, top-left first and clockwise: circular, percentages of
+    // the shorter side, reduced together so that adjacent corners never overlap.
+    inline std::array<float, 4> corner_radii(const Style& s, float w, float h) {
+        std::array<float, 4> r{};
+        unsigned k{};
+        for (const auto id : {PropertyId::BorderTopLeftRadius, PropertyId::BorderTopRightRadius,
+                              PropertyId::BorderBottomRightRadius, PropertyId::BorderBottomLeftRadius}) {
+            r[k++] = std::max(0.f, len(get(s, id, "0"), std::min(w, h)));
+        }
+        float factor = 1;
+        for (auto q : std::array<std::array<float, 2>, 4>{
+                 {{w, r[0] + r[1]}, {w, r[2] + r[3]}, {h, r[0] + r[3]}, {h, r[1] + r[2]}}}) {
+            if (q[1] > 0) {
+                factor = std::min(factor, q[0] / q[1]);
+            }
+        }
+        for (auto& v : r) {
+            v *= factor;
+        }
+        return r;
+    }
+
+    // The rounded border box of a w x h box in its own coordinates, when a corner is rounded.
+    inline std::optional<RoundedClip> rounded_box(const Style& s, float w, float h) {
+        const auto r = corner_radii(s, w, h);
+        if (std::all_of(r.begin(), r.end(), [](float v) {
+                return v <= 0;
+            })) {
+            return std::nullopt;
+        }
+        return RoundedClip{{0, 0, w, h}, r, r};
     }
 } // namespace weft::scene_values
