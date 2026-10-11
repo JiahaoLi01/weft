@@ -331,7 +331,7 @@ CMake 拆分：
 - 关键帧注释；
 - 混排文字的空白折叠（原来每个文字节点都构造一次 regex）；
 - grid `repeat()`；
-- perspective 平面语法：几何与 D2D 的三份合为 `scene_grammar`；
+- perspective 平面语法：几何与 D2D 的三份合为 `scene_grammar`（第 8.3a 步并入 `parse_scene_transform`）；
 - Canvas 颜色分量改为 `css::decimal_syntax`。
 
 剖析工具：
@@ -380,7 +380,7 @@ CMake 拆分：
 
 ## 第 8 步记录（2026-10-11）
 
-进行中。8.1、8.2 已完成：页面只剩一个文档格式化器，文档与 scene 共用一个 Yoga 适配器。
+进行中。8.1、8.2、8.3a 已完成：页面只剩一个文档格式化器，文档与 scene 共用一个 Yoga 适配器，scene 只有一个 transform 模型。
 
 **8.1a 行盒规则**（`009a11d`）：
 - 文档 inline 布局改用 Blink 的半行距拆分：上方 floor(leading / 2) 整像素，其余 LayoutUnit 行距在下方。与 scene 文字共用 `split_leading()`（scene 产物逐字节不变）。
@@ -461,8 +461,36 @@ CMake 拆分：
   - K 线 warm tick P50/P99 中位数 4.135/5.896 → 4.121/5.481 ms（6 轮）；
   - 散点图、anime、framer、spring 持平。
 
+**8.3a 一个 transform 模型**（`40b9470`）：
+- 原来 scene 的 transform 有两套文法（几何用的 `scene_transform_ops`、绘制用的类型化值）、一套透视文法（`scene_grammar`）和四处矩阵合成（几何、原生绘制、D2D 的字符串路径与类型化路径）。现在合成一个模型（[scene_transform.hpp](../src/scene/scene_transform.hpp)）：
+  - `parse_scene_transform`：唯一的文法，CSS 与 SVG 两种写法，包括透视平面子集；
+  - `scene_affine`：双精度求值；
+  - `scene_perspective`、`scene_plane`：透视平面与节点平面；
+  - `scene_transform_origin`。
+- 几何与命中、原生绘制、D2D 参考光栅都改用它。各自读样式文本还是读编译好的类型化值，保持原来的选择：D2D 的增量/全量逐字节对照依赖 CPU 光栅读文本。`scene_grammar.hpp` 删除。
+- 修正一个实际错误：SVG transform 属性里无单位的角度按规范是度，旧文法当成弧度。gallery 的 D3 径向标签用 `rotate(${x - 90}) translate(${y},0)`，d3_interactive-00 因此画错。改后与 Chrome 参考的平均通道差 0.32 → 0.075（24、63、120 三帧），偏差超过 64 的像素 38,910 → 1,024。
+- 文法的其他变化：
+  - SVG 列表允许用逗号分隔函数，rotate 可带中心；
+  - 透视平面接受 CSS 的其他合法写法（函数间不留空格、指数）。原正则接受的文本，新文法给出相同的平面（差分测试 4 万条随机文本）。
+
+验证：
+- 新增 `scene_transform_contract`：顺序、百分比、CSS 与 SVG 角度、旋转中心、分隔符、诊断与透视平面。以下 7 个变异各自都会使它失败：
+  - SVG 角度改回弧度；
+  - 去掉旋转中心；
+  - 去掉逗号分隔；
+  - 颠倒合成顺序；
+  - 平移百分比不按盒子解析；
+  - 放开透视的函数次序；
+  - 忽略 transform-origin。
+- `ctest --preset windows-release --parallel 6` 98/98，`windows-debug --parallel 6` 98/98（408.7 s；scene cluster 测试 375 → 408 s，Debug 下逐节点解析 transform 的开销）。
+- 产物与 8.2 后相比：
+  - 26 组逐字节相同，其中包括 D2D 光栅的 102 张 gallery 参考图；
+  - cluster：d3_interactive-00 的 14 张图如上变化；其余变换元素的几何最多差 6e-6 px，13 张原生图最多差 1 个通道值、最多 25 个像素；
+  - scene-native 8 张、render-stages 4 张 WARP 图最多差 1 个通道值、最多 292 个像素：原生矩阵改为先用 double 计算再转 float。
+- owner CPU 与 8.2b 交替 4 轮无回退：K 线 P50/P99 4.957/8.651 → 4.868/8.289 ms，散点图 1.977/3.323 → 2.008/3.366 ms，anime、framer、spring 持平。
+
 仍未做：
-- 8.3 一个 paint IR、一条命中路径与一个 transform 解析器。
+- 8.3b 一条命中路径；8.3c 一份 paint IR。
 - 自动最小尺寸仍用自底向上的固有尺寸估计，百分比的指定尺寸不参与上限。百分比边距或间距、百分比宽或按比例定高的替换盒，只在 flex item 确实需要时报 `WEFT_UNSUPPORTED_INTRINSIC`。
 - scene 文字仍不换行；子项全是行内级的块是单行、顶对齐的近似（不断行，不按基线对齐）；svg 比例只在父高度不确定时生效（沿用 scene 原规则）。
 - 适配器的错误仍是 `WEFT_UNSUPPORTED_*` 字符串异常，尚未迁入 `Diag`。

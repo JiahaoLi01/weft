@@ -1,5 +1,7 @@
 # 固定 gallery：26 CSS + 8 D3
 
+> 2026-10-11 重构第 8.3a 步：几何、命中、原生绘制与 D2D 参考共用一个 transform 文法与求值器（`scene_transform.hpp`）。SVG transform 属性里无单位的角度改按度解释，D3 径向标签不再画错。见 [重构记录](refactoring-plan.md#第-8-步记录2026-10-11)。
+
 > 2026-10-11 重构第 8.2 步：scene 布局改走与文档共用的 Yoga 适配器 `layout_boxes`。flex item 默认收缩并有自动最小尺寸，block 子项不 flex，display:none 盒子的几何为 0；102 个 Chrome 几何采集与像素参考逐字节不变。下文描述的是 scene 自有 adapter 当时的实现，见 [重构记录](refactoring-plan.md#第-8-步记录2026-10-11)。
 
 2026-10-09。34 个未修改原例已通过自己的 QuickJS/native DOM、owner scene layout/animation、Windows 软件参考/GPU 矢量 raster、D3D11 合成；不是只验证 DOM 输出。原游戏保持只读，原始函数、React/D3 和分组 bundle 不改。新增 34 例在 4K/FPS gallery 替换诊断卡，与已有两个 Canvas 共 36/72 native，其他 36 例仍标缺口。

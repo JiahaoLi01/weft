@@ -154,6 +154,7 @@ ScriptConfig 可配置受限执行预算，默认仍为 2 秒。只有 QJS_ENABL
 | scene_text_image | 文字节点定位、颜色、对齐与彩色字形报告；SDF field 按 scene 布局在 1×/2×/4× 重建覆盖率，平移 1 px 必须失败 |
 | flex_adapter_contract | measure 被跳过后最终文本仍排版、宽度/字体变化、basis 差异、盒约束与明确诊断 |
 | box_layout_contract | 文档与 scene 共用的 Yoga 适配器：block 子项不 flex、flex item 自动最小尺寸、文字溢出可用高度、grid 隐藏子项、行内单行、svg 属性与比例、transform 包含块、隐藏子树、视口与输入诊断 |
+| scene_transform_contract | scene 唯一的 transform 模型：合成顺序、百分比、CSS 与 SVG 角度、旋转中心、分隔符、诊断、透视平面与 transform-origin |
 | flow_input_contract / browser_diff / fixture_integrity | 3,150 点命中、128 随机算术 mutation、inline/圆角/滚动、完整 wheel、owner/GC 与 source/font hash |
 | d3d11_warp_cheetah_flow_window | 原样 React 的 HWND mouse/wheel、signed/receipt viewport、resize/cancel/close、GPU query 和 readback |
 | d3d11_warp_cheetah_flow_window_4k | 3840×2160 中英字形、两级 letterbox 命中、idle 合成/FPS 时钟、HUD 替换与实际 completion serial |
