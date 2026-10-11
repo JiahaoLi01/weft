@@ -67,6 +67,7 @@ namespace {
  const parent = document.createElement('div'); parent.setAttribute('id', 'cycle');
  const child = document.createElement('span'); parent.appendChild(child); document.body.appendChild(parent);
  parent.addEventListener('cycle', () => child.parentNode === parent);
+ parent.marker = 1;
  child.__data__ = { parent, listener: () => child };
  globalThis.detached = child;
 })()
@@ -84,6 +85,13 @@ namespace {
         probe.eval("document.body.appendChild(document.createElement('div')).setAttribute('id','replacement')");
         const auto replacement = probe.node_identity("#replacement");
         require(replacement != identity, "generation was reused without revocation");
+        // The slot's next occupant starts without the collected node's listeners or own properties.
+        const auto calls = probe.stats().listener_calls;
+        require(replacement.slot == identity.slot &&
+                    probe.eval("(()=>{const r=document.querySelector('#replacement');r.dispatchEvent(new "
+                               "Event('cycle'));return Reflect.ownKeys(r).length})()") == "0" &&
+                    probe.stats().listener_calls == calls,
+                "the next occupant of a node slot inherited script state");
         bool stale_rejected{};
         try {
             (void)probe.retain_node(identity);
@@ -157,6 +165,19 @@ heldNode.textContent = '中文 detached';
 })()
 )JS") == "true",
                 "event nesting result");
+        // A listener that creates many nodes grows the per-node script state; the target's later listeners still run.
+        require(probe.eval(R"JS(
+(() => {
+ const target = document.createElement('div'); const order = [];
+ target.addEventListener('grow', () => {
+   globalThis.grown = Array.from({ length: 4096 }, () => document.createElement('span')); order.push('grow');
+ }, { once: true });
+ target.addEventListener('grow', () => order.push('after'));
+ target.dispatchEvent(new Event('grow')); globalThis.grown = null;
+ return order.join();
+})()
+)JS") == "grow,after",
+                "listeners after node creation in a listener");
     }
 
     void random_tree_mutations() {

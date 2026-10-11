@@ -4,6 +4,15 @@
 
 ## 本次已实现
 
+重构第 9 步之四（b）：节点上不再有脚本状态（2026-10-11）。详见 [重构计划](refactoring-plan.md#第-9-步记录2026-10-11)。
+- **结果**：包装对象、expando、事件监听器和滚动事件标记从节点移到按 slot 索引的绑定表，节点只剩 DOM 数据。行为不变。
+- **验证**：
+  - `ctest --preset windows-release --parallel 6` 101/101，`windows-debug --parallel 6` 101/101（323.1 s）；
+  - 1306 个产物与改动前逐字节相同；强制 GC 下 DOM、rAF、scene、Canvas、React 5/5；
+  - 生命周期测试新增 slot 复用与“监听器里新建节点”两个反例，3 个变异全部被发现；
+  - owner CPU：测不出变化。本机负载重，三组高优先级交替对照方向互相矛盾（详见重构计划）；对照工具新增 `--high-priority`。
+- **下一步**：9.4c，slot 表改用空闲堆，新建节点不再线性扫描；然后 9.4d，原生节点与树操作移入 `src/dom`。
+
 重构第 9 步之四（a）：DOM 树边改用 NodeId（2026-10-11）。详见 [重构计划](refactoring-plan.md#第-9-步记录2026-10-11)。
 - **结果**：节点的 parent、document、children 不再是 JSValue，而是 NodeIdentity。每条边仍在邻居的包装对象上持有一个引用并由 `mark()` 报告，节点存活仍由 QuickJS 收集器决定。行为不变。
 - **验证**：

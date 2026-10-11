@@ -123,8 +123,8 @@ namespace weft {
             bool passive{};
         };
 
+        // A node's DOM data. Its script state is a Binding.
         struct Node {
-            Impl* owner{};
             NodeIdentity identity;
             int type{};
             std::string local;
@@ -138,15 +138,21 @@ namespace weft {
             NodeIdentity parent;
             NodeIdentity document;
             std::vector<NodeIdentity> children;
-            // Each owning value is duplicated exactly once and is reported by mark().
-            JSValue expando{JS_UNDEFINED};
-            std::vector<Listener> listeners;
-            // Borrowed wrapper identity: this is NOT an extra, hidden GC root.
-            JSValue self{JS_UNDEFINED};
             double scroll_left{};
             double scroll_top{};
-            bool scroll_pending{};
             std::uint64_t subtree_revision{1};
+        };
+
+        // A node's script state. Each owning value is duplicated exactly once and is reported by the node's mark().
+        struct Binding {
+            // The node's wrapper, borrowed: not an extra GC root. It stays until the slot is reused, so a finalizer
+            // can release references to neighbors collected earlier in the same collection.
+            JSValue wrapper{JS_UNDEFINED};
+            // The wrapper's own properties (D3's __data__ and __on, symbols, closures).
+            JSValue expando{JS_UNDEFINED};
+            std::vector<Listener> listeners;
+            // A scroll event job is queued for the node.
+            bool scroll_pending{};
         };
 
         struct Completion {
@@ -189,32 +195,40 @@ namespace weft {
         IntegerFormatHost integer_format_host;
         bool layout_running{};
 
-        // A node slot: the node while it lives, and its wrapper. The wrapper stays in the slot until the slot is
-        // reused, so a finalizer can release its references to neighbors collected earlier in the same collection.
-        struct NodeSlot {
-            Node* node{};
-            JSValue wrapper{JS_UNDEFINED};
-        };
-
         // Node identities: slot index + generation; a finalized node's identity never resolves again.
-        GenerationalSlots<NodeSlot> slots;
+        GenerationalSlots<Node*> slots;
+        // Script state by node slot, never shorter than slots. A deque keeps entries in place while it grows, so a
+        // Binding reference survives script that creates nodes.
+        std::deque<Binding> bindings;
 
         // The node an edge names; edges name live nodes outside finalizers.
         Node& node_at(NodeIdentity id) const {
             const auto* slot = slots.find(id.slot, id.generation);
-            if (!slot || !slot->node) {
+            if (!slot || !*slot) {
                 throw std::logic_error("WEFT_TREE_CORRUPTION: dangling node edge");
             }
-            return *slot->node;
+            return **slot;
         }
 
         Node* parent_of(const Node& n) const {
             return n.parent.generation ? &node_at(n.parent) : nullptr;
         }
 
+        Binding& binding(const Node& n) {
+            return bindings[n.identity.slot];
+        }
+
+        JSValue wrapper(const Node& n) const {
+            return bindings[n.identity.slot].wrapper;
+        }
+
+        JSValue wrapper_at(NodeIdentity id) const {
+            return wrapper(node_at(id));
+        }
+
         // The wrapper behind an edge, live or collected earlier in the current collection.
         JSValue edge_wrapper(NodeIdentity id) const noexcept {
-            return slots[id.slot].wrapper;
+            return bindings[id.slot].wrapper;
         }
 
         std::vector<NodeIdentity> hovered_nodes;
@@ -289,7 +303,7 @@ namespace weft {
             changes[change_head] = {revision, n.identity};
             change_head = (change_head + 1) % changes.size();
             change_count = std::min(change_count + 1, changes.size());
-            for (auto* p = &n; p; p = p->parent.generation ? slots[p->parent.slot].node : nullptr) {
+            for (auto* p = &n; p; p = p->parent.generation ? slots[p->parent.slot] : nullptr) {
                 p->subtree_revision = revision;
             }
         }
@@ -463,12 +477,13 @@ namespace weft {
             for (const auto& child : n->children) {
                 JS_MarkValue(rt, owner->edge_wrapper(child), mark_function);
             }
-            JS_MarkValue(rt, n->expando, mark_function);
+            const auto& binding = owner->bindings[n->identity.slot];
+            JS_MarkValue(rt, binding.expando, mark_function);
+            for (const Listener& l : binding.listeners) {
+                JS_MarkValue(rt, l.callback, mark_function);
+            }
             if (const auto* canvas = owner->canvases.find(n->identity)) {
                 JS_MarkValue(rt, canvas->context, mark_function);
-            }
-            for (const Listener& l : n->listeners) {
-                JS_MarkValue(rt, l.callback, mark_function);
             }
         }
 
@@ -479,7 +494,7 @@ namespace weft {
                 return;
             }
             JS_SetOpaque(value, nullptr);
-            owner->slots[n->identity.slot].node = nullptr;
+            owner->slots[n->identity.slot] = nullptr;
             owner->slots.vacate(n->identity.slot);
             ++owner->counters.finalized_nodes;
             --owner->counters.live_nodes;
@@ -492,13 +507,17 @@ namespace weft {
             for (const auto& child : n->children) {
                 JS_FreeValueRT(rt, owner->edge_wrapper(child));
             }
-            JS_FreeValueRT(rt, n->expando);
+            auto& binding = owner->bindings[n->identity.slot];
+            JS_FreeValueRT(rt, binding.expando);
+            binding.expando = JS_UNDEFINED;
+            for (const Listener& l : binding.listeners) {
+                JS_FreeValueRT(rt, l.callback);
+            }
+            binding.listeners.clear();
+            binding.scroll_pending = false;
             if (auto* canvas = owner->canvases.find(n->identity)) {
                 JS_FreeValueRT(rt, canvas->context);
                 owner->canvases.erase(n->identity);
-            }
-            for (const Listener& l : n->listeners) {
-                JS_FreeValueRT(rt, l.callback);
             }
             delete n;
         }
@@ -507,25 +526,25 @@ namespace weft {
         // This gives __data__, __on, symbols, and arbitrary closures an explicit mark edge.
         static int own_property(JSContext* c, JSPropertyDescriptor* desc, JSValueConst value, JSAtom atom) {
             Node* n = node_unchecked(c, value);
-            return n ? JS_GetOwnProperty(c, desc, n->expando, atom) : 0;
+            return n ? JS_GetOwnProperty(c, desc, state(c).binding(*n).expando, atom) : 0;
         }
 
         static int own_names(JSContext* c, JSPropertyEnum** table, std::uint32_t* length, JSValueConst value) {
             Node* n = node_unchecked(c, value);
-            return n ? JS_GetOwnPropertyNames(c, table, length, n->expando,
+            return n ? JS_GetOwnPropertyNames(c, table, length, state(c).binding(*n).expando,
                                               JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK | JS_GPN_SET_ENUM)
                      : -1;
         }
 
         static int delete_property(JSContext* c, JSValueConst value, JSAtom atom) {
             Node* n = node_unchecked(c, value);
-            return n ? JS_DeleteProperty(c, n->expando, atom, 0) : -1;
+            return n ? JS_DeleteProperty(c, state(c).binding(*n).expando, atom, 0) : -1;
         }
 
         static int define_property(JSContext* c, JSValueConst value, JSAtom atom, JSValueConst v, JSValueConst getter,
                                    JSValueConst setter, int flags) {
             Node* n = node_unchecked(c, value);
-            return n ? JS_DefineProperty(c, n->expando, atom, v, getter, setter, flags) : -1;
+            return n ? JS_DefineProperty(c, state(c).binding(*n).expando, atom, v, getter, setter, flags) : -1;
         }
 
         struct CanvasHandle {
@@ -623,7 +642,7 @@ namespace weft {
                         c, owner.canvas_dimension(n, magic == 0 ? dom::CanvasSide::Width : dom::CanvasSide::Height));
                 }
                 const auto type = magic == 2 ? "click" : "mousemove";
-                for (const auto& l : n.listeners) {
+                for (const auto& l : owner.binding(n).listeners) {
                     if (l.handler && l.type == type) {
                         return JS_DupValue(c, l.callback);
                     }
@@ -660,22 +679,23 @@ namespace weft {
                     return JS_UNDEFINED;
                 }
                 const auto type = magic == 2 ? "click" : "mousemove";
-                auto it = std::find_if(n.listeners.begin(), n.listeners.end(), [&](const auto& l) {
+                auto& listeners = owner.binding(n).listeners;
+                auto it = std::find_if(listeners.begin(), listeners.end(), [&](const auto& l) {
                     return l.handler && l.type == type;
                 });
                 if (!JS_IsFunction(c, value)) {
-                    if (it != n.listeners.end()) {
+                    if (it != listeners.end()) {
                         JS_FreeValue(c, it->callback);
-                        n.listeners.erase(it);
+                        listeners.erase(it);
                     }
                     return JS_UNDEFINED;
                 }
-                if (it != n.listeners.end()) {
+                if (it != listeners.end()) {
                     JS_FreeValue(c, it->callback);
                     it->callback = JS_DupValue(c, value);
                 } else {
-                    n.listeners.push_back({owner.next_listener++, type, JS_UNDEFINED, false, false, true});
-                    n.listeners.back().callback = JS_DupValue(c, value);
+                    listeners.push_back({owner.next_listener++, type, JS_UNDEFINED, false, false, true});
+                    listeners.back().callback = JS_DupValue(c, value);
                 }
                 return JS_UNDEFINED;
             } catch (const PendingJsException&) {
@@ -692,7 +712,7 @@ namespace weft {
             try {
                 const auto target = context_target(c, self);
                 if (magic == 0) {
-                    return JS_DupValue(c, target.element.self);
+                    return JS_DupValue(c, state(c).wrapper(target.element));
                 }
                 if (magic == 1) {
                     return JS_NewString(c, target.canvas.fill_style.c_str());
@@ -863,7 +883,7 @@ namespace weft {
                 throw std::logic_error("WEFT_CANVAS_INSTALL: owner factory installed once before app");
             }
             for (std::size_t i = 0; i < slots.size(); ++i) {
-                if (slots.occupied(i) && slots[i].node->local == "canvas") {
+                if (slots.occupied(i) && slots[i]->local == "canvas") {
                     throw std::logic_error("WEFT_CANVAS_INSTALL: existing canvas node");
                 }
             }
@@ -918,32 +938,32 @@ namespace weft {
                 throw std::runtime_error("native wrapper allocation failed");
             }
             auto n = std::make_unique<Node>();
-            n->owner = this;
             n->type = type;
             n->local = std::move(local);
             n->space = std::move(space);
-            n->expando = JS_NewObjectProto(context, JS_NULL);
-            if (JS_IsException(n->expando)) {
+            Value expando(context, JS_NewObjectProto(context, JS_NULL));
+            if (JS_IsException(expando.value)) {
                 faulted = true;
                 throw std::runtime_error("expando allocation failed");
             }
             const auto index = slots.first_free();
-            try {
-                if (index == slots.size()) {
-                    slots.append();
+            if (index == slots.size()) {
+                if (bindings.size() == slots.size()) {
+                    bindings.emplace_back();
                 }
-            } catch (...) {
-                JS_FreeValue(context, n->expando);
-                throw;
+                slots.append();
             }
             const auto generation = slots.occupy(index);
             n->identity = {static_cast<std::uint32_t>(index), generation, view_epoch};
-            n->self = object.value;
             n->document = document;
             if (document.generation) {
                 JS_DupValue(context, edge_wrapper(document));
             }
-            slots[index] = {n.get(), object.value};
+            auto& binding = bindings[index];
+            binding.wrapper = object.value;
+            binding.expando = expando.value;
+            expando.value = JS_UNDEFINED;
+            slots[index] = n.get();
             JS_SetOpaque(object.value, n.release());
             ++counters.created_nodes;
             ++counters.live_nodes;
@@ -964,7 +984,7 @@ namespace weft {
             changed(child);
             child.parent = {};
             JS_FreeValue(context, edge_wrapper(parent_node->identity));
-            JS_FreeValue(context, child.self);
+            JS_FreeValue(context, wrapper(child));
         }
 
         void insert(Node& parent_node, Node& child, Node* before) {
@@ -1006,15 +1026,15 @@ namespace weft {
             }
             // Reserve before changing tree edges, so C++ allocation cannot split mutation.
             parent_node.children.reserve(parent_node.children.size() + 1);
-            Value child_hold(context, JS_DupValue(context, child.self));
+            Value child_hold(context, JS_DupValue(context, wrapper(child)));
             detach(child);
             auto position = before
                                 ? std::find(parent_node.children.begin(), parent_node.children.end(), before->identity)
                                 : parent_node.children.end();
             parent_node.children.insert(position, child.identity);
             child.parent = parent_node.identity;
-            JS_DupValue(context, child.self);
-            JS_DupValue(context, parent_node.self);
+            JS_DupValue(context, wrapper(child));
+            JS_DupValue(context, wrapper(parent_node));
             changed(child);
         }
 
@@ -1048,7 +1068,7 @@ namespace weft {
             }
             while (!n.children.empty()) {
                 Node& child = node_at(n.children.back());
-                Value hold(context, JS_DupValue(context, child.self));
+                Value hold(context, JS_DupValue(context, wrapper(child)));
                 detach(child);
             }
             if (!JS_IsUndefined(replacement.value)) {
@@ -1191,7 +1211,7 @@ namespace weft {
                         const auto g = owner.geometry(n);
                         if (magic == OffsetParent) {
                             auto* p = owner.resolve(g.offset_parent);
-                            return p ? JS_DupValue(c, p->self) : JS_NULL;
+                            return p ? JS_DupValue(c, owner.wrapper(*p)) : JS_NULL;
                         }
                         return JS_NewFloat64(c, std::round(g.offset[std::size_t(magic - OffsetLeft)]));
                     }
@@ -1250,23 +1270,23 @@ namespace weft {
                     case OwnerDocument:
                         return n.type == constants::document_node_type || !n.document.generation
                                    ? JS_NULL
-                                   : JS_DupValue(c, owner.node_at(n.document).self);
+                                   : JS_DupValue(c, owner.wrapper_at(n.document));
                     case Parent:
-                        return n.parent.generation ? JS_DupValue(c, owner.node_at(n.parent).self) : JS_NULL;
+                        return n.parent.generation ? JS_DupValue(c, owner.wrapper_at(n.parent)) : JS_NULL;
                     case Children: {
                         Value result(c, JS_NewArray(c));
                         for (std::uint32_t i{}; i < n.children.size(); ++i) {
                             if (JS_SetPropertyUint32(c, result.value, i,
-                                                     JS_DupValue(c, owner.node_at(n.children[i]).self)) < 0) {
+                                                     JS_DupValue(c, owner.wrapper_at(n.children[i]))) < 0) {
                                 return JS_EXCEPTION;
                             }
                         }
                         return JS_DupValue(c, result.value);
                     }
                     case FirstChild:
-                        return n.children.empty() ? JS_NULL : JS_DupValue(c, owner.node_at(n.children.front()).self);
+                        return n.children.empty() ? JS_NULL : JS_DupValue(c, owner.wrapper_at(n.children.front()));
                     case LastChild:
-                        return n.children.empty() ? JS_NULL : JS_DupValue(c, owner.node_at(n.children.back()).self);
+                        return n.children.empty() ? JS_NULL : JS_DupValue(c, owner.wrapper_at(n.children.back()));
                     case NextSibling:
                     case PreviousSibling: {
                         const Node* parent = owner.parent_of(n);
@@ -1276,10 +1296,10 @@ namespace weft {
                         const auto& siblings = parent->children;
                         auto it = std::find(siblings.begin(), siblings.end(), n.identity);
                         if (magic == NextSibling && it != siblings.end() && ++it != siblings.end()) {
-                            return JS_DupValue(c, owner.node_at(*it).self);
+                            return JS_DupValue(c, owner.wrapper_at(*it));
                         }
                         if (magic == PreviousSibling && it != siblings.begin() && it != siblings.end()) {
-                            return JS_DupValue(c, owner.node_at(*--it).self);
+                            return JS_DupValue(c, owner.wrapper_at(*--it));
                         }
                         return JS_NULL;
                     }
@@ -1297,7 +1317,7 @@ namespace weft {
                         return JS_NewStringLen(c, n.data.data(), n.data.size());
                     case DocumentElement:
                         return n.type == constants::document_node_type && !n.children.empty()
-                                   ? JS_DupValue(c, owner.node_at(n.children.front()).self)
+                                   ? JS_DupValue(c, owner.wrapper_at(n.children.front()))
                                    : JS_UNDEFINED;
                     case Body: {
                         if (n.type != constants::document_node_type) {
@@ -1305,7 +1325,7 @@ namespace weft {
                         }
                         std::vector<Node*> found;
                         owner.query(n, "body", found, true);
-                        return found.empty() ? JS_NULL : JS_DupValue(c, found.front()->self);
+                        return found.empty() ? JS_NULL : JS_DupValue(c, owner.wrapper(*found.front()));
                     }
                     case DefaultView:
                         return n.type == constants::document_node_type ? JS_GetGlobalObject(c) : JS_UNDEFINED;
@@ -1439,10 +1459,12 @@ namespace weft {
         }
 
         void listener_phase(Node& target, JSValueConst event, std::string_view type, bool capture, int phase) {
-            event_property(event, "currentTarget", JS_DupValue(context, target.self));
+            event_property(event, "currentTarget", JS_DupValue(context, wrapper(target)));
             event_property(event, "eventPhase", JS_NewInt32(context, phase));
+            // Listener callbacks may create nodes; the Binding stays in place.
+            auto& listeners = binding(target).listeners;
             std::vector<std::uint64_t> snapshot;
-            for (const Listener& l : target.listeners) {
+            for (const Listener& l : listeners) {
                 if (l.type == type && l.capture == capture) {
                     snapshot.push_back(l.id);
                 }
@@ -1452,10 +1474,10 @@ namespace weft {
                 if (JS_ToBool(context, stop.value)) {
                     break;
                 }
-                auto it = std::find_if(target.listeners.begin(), target.listeners.end(), [&](const Listener& l) {
+                auto it = std::find_if(listeners.begin(), listeners.end(), [&](const Listener& l) {
                     return l.id == id;
                 });
-                if (it == target.listeners.end()) {
+                if (it == listeners.end()) {
                     continue; // Removed listeners stay removed in a taken snapshot.
                 }
                 Value callback(context, JS_DupValue(context, it->callback));
@@ -1463,7 +1485,7 @@ namespace weft {
                 const bool passive = it->passive;
                 if (it->once) {
                     JS_FreeValue(context, it->callback);
-                    target.listeners.erase(it);
+                    listeners.erase(it);
                 }
                 JSValue args[] = {event};
                 ++counters.listener_calls;
@@ -1475,7 +1497,7 @@ namespace weft {
                 event_property(event, "_passiveListener", JS_NewBool(context, passive));
                 JSValue raw_result =
                     JS_Call(context, JS_IsFunction(context, callback.value) ? callback.value : method.value,
-                            JS_IsFunction(context, callback.value) ? target.self : callback.value, 1, args);
+                            JS_IsFunction(context, callback.value) ? wrapper(target) : callback.value, 1, args);
                 event_property(event, "_passiveListener", JS_DupValue(context, previous_passive.value));
                 if (JS_IsException(raw_result)) {
                     if (faulted) {
@@ -1506,7 +1528,7 @@ namespace weft {
             std::vector<JSValue> path;
             path.reserve(constants::script::max_native_dom_depth);
             for (Node* p = &target; p; p = parent_of(*p)) {
-                path.push_back(JS_DupValue(context, p->self));
+                path.push_back(JS_DupValue(context, wrapper(*p)));
             }
 
             struct PathGuard {
@@ -1532,7 +1554,7 @@ namespace weft {
             event_property(event, "_dispatching", JS_TRUE);
             event_property(event, "_stopped", JS_FALSE);
             event_property(event, "_immediateStopped", JS_FALSE);
-            event_property(event, "target", JS_DupValue(context, target.self));
+            event_property(event, "target", JS_DupValue(context, wrapper(target)));
             auto stopped = [&] {
                 Value value(context, JS_GetPropertyStr(context, event, "_stopped"));
                 return JS_ToBool(context, value.value) != 0;
@@ -1677,14 +1699,14 @@ namespace weft {
                             before = &node(c, reference);
                         }
                         owner.insert(n, child, before);
-                        return JS_DupValue(c, child.self);
+                        return JS_DupValue(c, owner.wrapper(child));
                     }
                     case Remove: {
                         Node& child = node(c, arg(argc, argv, 0));
                         if (child.parent != n.identity) {
                             throw std::runtime_error("WEFT_NOT_FOUND: child is not in parent");
                         }
-                        Value hold(c, JS_DupValue(c, child.self));
+                        Value hold(c, JS_DupValue(c, owner.wrapper(child)));
                         owner.detach(child);
                         return JS_DupValue(c, hold.value);
                     }
@@ -1723,11 +1745,12 @@ namespace weft {
                         std::vector<Node*> results;
                         owner.query(n, selector, results, magic == QuerySelector);
                         if (magic == QuerySelector) {
-                            return results.empty() ? JS_NULL : JS_DupValue(c, results.front()->self);
+                            return results.empty() ? JS_NULL : JS_DupValue(c, owner.wrapper(*results.front()));
                         }
                         Value array(c, JS_NewArray(c));
                         for (std::uint32_t i{}; i < results.size(); ++i) {
-                            if (JS_SetPropertyUint32(c, array.value, i, JS_DupValue(c, results[i]->self)) < 0) {
+                            if (JS_SetPropertyUint32(c, array.value, i, JS_DupValue(c, owner.wrapper(*results[i]))) <
+                                0) {
                                 return JS_EXCEPTION;
                             }
                         }
@@ -1746,7 +1769,7 @@ namespace weft {
                         for (const auto* element : elements) {
                             for (const auto& a : element->attributes) {
                                 if (a.space.empty() && a.name == "id" && a.value == id) {
-                                    return JS_DupValue(c, element->self);
+                                    return JS_DupValue(c, owner.wrapper(*element));
                                 }
                             }
                         }
@@ -1897,22 +1920,23 @@ namespace weft {
                         } else {
                             capture = JS_ToBool(c, options) != 0;
                         }
-                        auto it = std::find_if(n.listeners.begin(), n.listeners.end(), [&](const Listener& l) {
+                        auto& listeners = owner.binding(n).listeners;
+                        auto it = std::find_if(listeners.begin(), listeners.end(), [&](const Listener& l) {
                             return l.type == type && l.capture == capture && equal_value(l.callback, callback);
                         });
-                        if (magic == AddListener && it == n.listeners.end()) {
+                        if (magic == AddListener && it == listeners.end()) {
                             if (owner.next_listener == std::numeric_limits<std::uint64_t>::max()) {
                                 throw std::runtime_error("WEFT_LISTENER_EXHAUSTED: listener token cannot wrap");
                             }
-                            n.listeners.reserve(n.listeners.size() + 1);
-                            if (n.listeners.size() >= constants::script::max_listeners_per_node) {
+                            listeners.reserve(listeners.size() + 1);
+                            if (listeners.size() >= constants::script::max_listeners_per_node) {
                                 throw std::runtime_error("WEFT_LISTENER_LIMIT");
                             }
-                            n.listeners.push_back({owner.next_listener++, std::move(type), JS_DupValue(c, callback),
-                                                   capture, once, false, passive});
-                        } else if (magic == RemoveListener && it != n.listeners.end()) {
+                            listeners.push_back({owner.next_listener++, std::move(type), JS_DupValue(c, callback),
+                                                 capture, once, false, passive});
+                        } else if (magic == RemoveListener && it != listeners.end()) {
                             JS_FreeValue(c, it->callback);
-                            n.listeners.erase(it);
+                            listeners.erase(it);
                         }
                         return JS_UNDEFINED;
                     }
@@ -2338,18 +2362,19 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         }
 
         void queue_scroll(Node& n) {
-            if (n.scroll_pending) {
+            auto& pending = binding(n).scroll_pending;
+            if (pending) {
                 return;
             }
-            n.scroll_pending = true;
-            JSValue argument = n.self;
+            pending = true;
+            JSValue argument = wrapper(n);
             if (JS_EnqueueJob(
                     context,
                     [](JSContext* c, int, JSValueConst* args) -> JSValue {
                         try {
                             auto& owner = state(c);
                             auto& n = node(c, args[0]);
-                            n.scroll_pending = false;
+                            owner.binding(n).scroll_pending = false;
                             if (owner.resolve(n.identity) != &n || !owner.connected(n)) {
                                 return JS_UNDEFINED;
                             }
@@ -2372,7 +2397,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
                         }
                     },
                     1, &argument) < 0) {
-                n.scroll_pending = false;
+                pending = false;
                 throw PendingJsException{};
             }
         }
@@ -2577,7 +2602,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             while (p && p->type != constants::document_node_type) {
                 p = parent_of(*p);
             }
-            return p && equal_value(p->self, document_root);
+            return p && equal_value(wrapper(*p), document_root);
         }
 
         Node* resolve(NodeIdentity id) const {
@@ -2585,7 +2610,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
                 return nullptr;
             }
             const auto* slot = slots.find(id.slot, id.generation);
-            return slot ? slot->node : nullptr;
+            return slot ? *slot : nullptr;
         }
 
         std::string dump(const Node& n) const {
@@ -2684,7 +2709,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         }
         const auto result = impl_->execute([&] {
             auto* c = impl_->context;
-            Value pinned(c, JS_DupValue(c, target->self));
+            Value pinned(c, JS_DupValue(c, impl_->wrapper(*target)));
             Value e(c, JS_NewObjectProto(c, impl_->wheel_prototype));
             auto property = [&](const char* k, JSValue v) {
                 impl_->event_property(e.value, k, v);
@@ -2869,7 +2894,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         }
         const auto result = impl_->execute([&] {
             auto* c = impl_->context;
-            Value pinned(c, JS_DupValue(c, target->self));
+            Value pinned(c, JS_DupValue(c, impl_->wrapper(*target)));
             Value prototype(c, JS_DupValue(c, impl_->mouse_prototype));
             if (std::string_view(type).starts_with("pointer")) {
                 Value global(c, JS_GetGlobalObject(c));
@@ -2901,7 +2926,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             property("eventPhase", JS_NewInt32(c, constants::script::event_phase_none));
             property("view", JS_GetGlobalObject(c));
             const auto* related = impl_->resolve(input.related_target);
-            property("relatedTarget", related ? JS_DupValue(c, related->self) : JS_NULL);
+            property("relatedTarget", related ? JS_DupValue(c, impl_->wrapper(*related)) : JS_NULL);
             property("detail", JS_NewInt32(c, input.type == MouseType::Move ? 0 : 1));
             property("button", JS_NewInt32(c, 0));
             property("buttons", JS_NewUint32(c, input.buttons));
@@ -3027,7 +3052,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         const auto token = impl_->next_root++;
         auto [it, inserted] = impl_->native_roots.emplace(token, JS_UNDEFINED);
         (void)inserted;
-        it->second = JS_DupValue(impl_->context, node->self);
+        it->second = JS_DupValue(impl_->context, impl_->wrapper(*node));
         return token;
     }
 
