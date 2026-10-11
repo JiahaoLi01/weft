@@ -327,14 +327,6 @@ namespace weft {
         return id && erase(*id);
     }
 
-    std::map<std::string, std::string> string_map(const StyleValues& values) {
-        std::map<std::string, std::string> out;
-        for (const auto& [id, value] : values) {
-            out.emplace_hint(out.end(), std::string(property_name(id)), value.text());
-        }
-        return out;
-    }
-
     namespace css {
         std::string style_value(const StyleValues& style, std::string_view property, const char* fallback) {
             const auto* value = style.find(property);

@@ -14,7 +14,7 @@
 
 namespace weft {
     namespace {
-        using Style = std::map<std::string, std::string>;
+        using Style = StyleValues;
         constexpr std::size_t absent = std::numeric_limits<std::size_t>::max();
 
         using Rect = geometry::Rect;
@@ -24,8 +24,8 @@ namespace weft {
             throw_diagnostic(Diag::DocumentProfile, s);
         }
 
-        std::string get(const Style& s, const std::string& k, const char* v = "") {
-            return css::style_value(s, k, v);
+        std::string get(const Style& s, std::string_view k, std::string_view v = {}) {
+            return std::string(s.text(k, v));
         }
 
         float number(const std::string& s) {
@@ -158,7 +158,7 @@ namespace weft {
                     !tags.contains(dom.local_name)) {
                     fail("HTML tag/namespace");
                 }
-                auto s = string_map(computed.values);
+                auto s = computed.values;
                 auto display = get(s, "display", "inline");
                 auto position = get(s, "position", "static");
                 if (display == "inline" &&
@@ -212,7 +212,9 @@ namespace weft {
                 // Flex items keep their margins (Yoga resolves them as CSS does); block flow has no margin collapsing
                 // yet, so its margins must be zero.
                 const bool flex_item = parent != absent && get(nodes[parent].style, "display") == "flex";
-                for (const auto& [k, v] : s) {
+                for (const auto& [property, value] : s) {
+                    const auto k = property_name(property);
+                    const auto& v = value.text();
                     if (k.starts_with("margin") && flex_item) {
                         if (v != "auto") {
                             (void)px(v);
@@ -371,16 +373,18 @@ namespace weft {
             FlexNode tree(std::size_t index) {
                 const auto& n = nodes[index];
                 auto s = n.style;
-                for (auto i = s.begin(); i != s.end();) {
-                    if (i->first == "color" || i->first == "background-color" || i->first == "font-family" ||
-                        i->first == "font-weight" || i->first == "font-style" || i->first == "text-align" ||
-                        i->first == "pointer-events" || i->first == "isolation" || i->first == "list-style" ||
-                        i->first == "user-select" || i->first == "z-index" || i->first == "border" ||
-                        i->first == "overflow-x" || i->first == "overflow-y" || i->first.ends_with("-radius")) {
-                        i = s.erase(i);
-                    } else {
-                        ++i;
+                std::vector<PropertyId> paint_only;
+                for (const auto& entry : s) {
+                    const auto k = property_name(entry.first);
+                    if (k == "color" || k == "background-color" || k == "font-family" || k == "font-weight" ||
+                        k == "font-style" || k == "text-align" || k == "pointer-events" || k == "isolation" ||
+                        k == "list-style" || k == "user-select" || k == "z-index" || k == "border" ||
+                        k == "overflow-x" || k == "overflow-y" || k.ends_with("-radius")) {
+                        paint_only.push_back(entry.first);
                     }
+                }
+                for (const auto property : paint_only) {
+                    s.erase(property);
                 }
                 s["overflow"] = n.overflow_x == "visible" ? "visible" : "hidden";
                 s["display"] = n.hidden ? "none" : get(n.style, "display");
@@ -411,7 +415,10 @@ namespace weft {
                         s["height"] = std::to_string(h) + "px";
                     }
                 }
-                for (auto& [k, v] : s) {
+                std::vector<std::pair<PropertyId, std::string>> resolved;
+                for (const auto& [property, value] : s) {
+                    const std::string k(property_name(property));
+                    const auto& v = value.text();
                     if (v.starts_with("calc(")) {
                         if (get(s, "position", "static") != "absolute" ||
                             (k != "left" && k != "top" && k != "right" && k != "bottom" && k != "width" &&
@@ -428,8 +435,11 @@ namespace weft {
                             fail("percent +/- px calc");
                         }
                         calcs.push_back({index, k, number(a.substr(0, a.size() - 1)), px(b) * (op == "-" ? -1 : 1)});
-                        v = a;
+                        resolved.emplace_back(property, a);
                     }
+                }
+                for (auto& [property, text] : resolved) {
+                    s.set(property, std::move(text));
                 }
                 FlexNode out{n.key, s, {}, {}};
                 if (n.hidden) {

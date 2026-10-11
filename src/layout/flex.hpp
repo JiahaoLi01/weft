@@ -1,14 +1,14 @@
 #pragma once
 #include "text/font.hpp"
 #include "layout/inline_layout.hpp"
-#include <map>
+#include "style/values.hpp"
 #include <string>
 #include <vector>
 
 namespace weft {
     struct FlexNode {
         std::string id;
-        std::map<std::string, std::string> style;
+        StyleValues style;
         std::string text;
         std::vector<FlexNode> children;
         std::shared_ptr<const InlineInput> inline_content;

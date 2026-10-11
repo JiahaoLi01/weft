@@ -4,7 +4,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
-#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -226,9 +225,6 @@ namespace weft {
     private:
         std::vector<Entry> entries_;
     };
-
-    // Name to text, for the layout paths that still hand string maps to the flex adapter.
-    std::map<std::string, std::string> string_map(const StyleValues&);
 
     namespace css {
         // The text of a property, or fallback, as the string-map overload in base/css_scalar.hpp.

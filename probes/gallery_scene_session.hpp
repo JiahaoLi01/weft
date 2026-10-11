@@ -192,7 +192,11 @@ struct GallerySceneSession {
             sync_scene(*root(document));
             auto find = [&](auto&& self, const auto& n) -> std::map<std::string, std::string> {
                 if (n.identity == identity) {
-                    auto s = weft::string_map(n.style);
+                    // getComputedStyle reads names and texts.
+                    std::map<std::string, std::string> s;
+                    for (const auto& [property, value] : n.style) {
+                        s.emplace_hint(s.end(), std::string(weft::property_name(property)), value.text());
+                    }
                     s["width"] = weft::testing::format_host_time(n.box[2]) + "px";
                     s["height"] = weft::testing::format_host_time(n.box[3]) + "px";
                     if (!s.contains("transform") || s["transform"].empty() || s["transform"] == "none") {

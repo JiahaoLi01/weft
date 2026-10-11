@@ -1,4 +1,5 @@
 #include "layout/flex.hpp"
+#include "base/diagnostic.hpp"
 #include "support/check.hpp"
 #include "fixtures/flex_layout_cases.hpp"
 #include <algorithm>
@@ -80,8 +81,17 @@ int main() {
         auto root = input(cases, "web-row-default");
         root.style["display"] = "block";
         bad(root, "WEFT_UNSUPPORTED_FORMAT");
+        // A name outside the property registry has no typed value; a registered property the adapter does not map
+        // is an explicit diagnostic.
+        bool unregistered{};
+        try {
+            root.style["padding-magic"] = "10px";
+        } catch (const weft::DiagnosticError& e) {
+            unregistered = e.code() == weft::Diag::StyleProfile;
+        }
+        require(unregistered, "unregistered property entered the typed adapter input");
         root = input(cases, "web-row-default");
-        root.style["padding-magic"] = "10px";
+        root.style["color"] = "red";
         bad(root, "WEFT_UNSUPPORTED_PROPERTY");
         root = input(cases, "web-row-default");
         root.children[0].style["flex"] = "1";
