@@ -68,9 +68,9 @@ probes/ tests/ tools/      证据与验证，只依赖 src，不被 src 依赖
 | 5 ✅ | D3D11 渲染器、FramePacket、两帧流水线移入 `src/render`，经 `RenderBackend` concept 接 C ABI；探针头改为独立 TU；shader 构建期编译内嵌 | `probes/d3d11_probe.cpp`、`probe_render_backend.hpp`、`two_frame_pipeline.hpp` | WARP/硬件产物逐字节对照、两帧退休、debug layer 零告警；见下方第 5 步记录 |
 | 6 ✅ | scene 可移植化：拆出纯几何/命中 TU；DirectWrite 量字换成与 flow 相同的 HarfBuzz 测量；D2D 退为 Windows 参考 raster | `scene_probe.hpp`、`scene_d2d_probe.cpp`、`gallery_scene_session.hpp` | 新增 Chrome 文字度量基线；几何与 D2D 差分；见下方第 6 步记录 |
 | 7 ✅ | 类型化样式：PropertyId、长度/颜色/关键字值，去掉字符串往返与正则插值 | `style_probe`、`flow_page`、`auto_page`、`scene_probe` | 级联/动画差分、gallery 像素与几何；见下方第 7 步记录 |
-| 8（8.1–8.2 ✅） | 统一格式化路径：一个调度器、一个 Yoga 适配器、一个 paint IR、一条命中路径；golden 迁移后删除 page/positioned/auto | `src/layout/*`、`input_probe` | 旧 profile 的浏览器差分全部改跑新路径 |
+| 8 ✅（paint IR 推迟到第 10 步） | 统一格式化路径：一个调度器、一个 Yoga 适配器、一个 paint IR、一条命中路径；golden 迁移后删除 page/positioned/auto | `src/layout/*`、`input_probe` | 旧 profile 的浏览器差分全部改跑新路径 |
 | 9 | DOM 与脚本分离：NodeId 原生树、与 style 共用选择器；QuickJS 对象成为包装；Canvas 状态移到旁表 | `script_dom_probe.cpp`、`style_probe.cpp` | DOM 生命周期、GC 压力、D3 / React 原包 |
-| 10（暂缓） | 第二个图形后端（Vulkan 或 Metal）与 Android/iOS 平台层，按 concept 接入；主机构建选项 | `src/render/backends`、`src/platform` | 平台验证按“配置/编译/链接/模拟器/真机功能/真机性能”分级记录 |
+| 10（暂缓） | 一份 paint IR 与统一渲染器（第 8 步推迟的部分）；第二个图形后端（Vulkan 或 Metal）与 Android/iOS 平台层，按 concept 接入；主机构建选项 | `src/render/backends`、`src/platform` | 平台验证按“配置/编译/链接/模拟器/真机功能/真机性能”分级记录 |
 
 ## 第 1 步记录（2026-10-10）
 
@@ -380,7 +380,7 @@ CMake 拆分：
 
 ## 第 8 步记录（2026-10-11）
 
-进行中。8.1、8.2、8.3a、8.3b 已完成：页面只剩一个文档格式化器，文档与 scene 共用一个 Yoga 适配器和一条命中路径，scene 只有一个 transform 模型。
+已完成（paint IR 推迟到第 10 步，见本节末尾）：页面只剩一个文档格式化器，文档与 scene 共用一个 Yoga 适配器和一条命中路径，scene 只有一个 transform 模型。
 
 **8.1a 行盒规则**（`009a11d`）：
 - 文档 inline 布局改用 Blink 的半行距拆分：上方 floor(leading / 2) 整像素，其余 LayoutUnit 行距在下方。与 scene 文字共用 `split_leading()`（scene 产物逐字节不变）。
@@ -522,13 +522,30 @@ CMake 拆分：
 - `ctest --preset windows-release --parallel 6` 99/99，`windows-debug --parallel 6` 99/99（323.9 s；比对辅助函数每帧只建一次命中表，scene gallery、cluster 测试 120、408 s → 82、324 s）。
 - owner CPU（与 8.3a 交替 4 轮）：K 线 P50/P99 4.629/7.779 → 4.670/7.767 ms，散点图 1.949/3.229 → 1.967/3.290 ms，其余持平。
 
+**8.3b 补充：scene 命中按圆角**（`038e534`）：
+- 文档命中早已按元素自己的圆角判定，scene 原来忽略 border-radius。现在 scene 的盒子区域和 overflow:hidden/auto 的裁剪都按画出来的圆角判定。
+- 半径的算法抽成 `scene_values::corner_radii`，命中、原生绘制与 D2D 参考共用同一个长度解析：
+  - D2D 一直支持 `calc()`，原生路径原来不支持；
+  - 动画在 px 与 % 之间插值圆角时会产生 `calc(… px + …%)`，这些帧原来整帧回退到 D2D；
+  - 现在原生路径也能画：scene-native 套件的原生回退 1512 → 1452 次，css-06-24 由原生绘制（与原 D2D 图相差 640 个边缘像素，测试按原容差通过）。
+- D2D oracle 的命中同样改为按圆角，网格差分仍然有效。
+- `scene_contract` 增加反例：
+  - 圆形盒子外接矩形的角不算命中；
+  - 圆角裁剪外的子元素不算命中。
+
 仍未做：
-- 8.3c 一份 paint IR。
-- scene 命中仍忽略 border-radius（D2D oracle 也忽略；文档已按圆角命中）。
 - 自动最小尺寸仍用自底向上的固有尺寸估计，百分比的指定尺寸不参与上限。百分比边距或间距、百分比宽或按比例定高的替换盒，只在 flex item 确实需要时报 `WEFT_UNSUPPORTED_INTRINSIC`。
 - scene 文字仍不换行；子项全是行内级的块是单行、顶对齐的近似（不断行，不按基线对齐）；svg 比例只在父高度不确定时生效（沿用 scene 原规则）。
 - 适配器的错误仍是 `WEFT_UNSUPPORTED_*` 字符串异常，尚未迁入 `Diag`。
 - p、button 的 UA 默认 margin/padding/border 未建模（ul 已显式诊断）；文档字体仍是固定的探针 FontSet，按 FontCatalog 匹配只在 scene 中实现。
+
+**用户决定（2026-10-11）**：一份 paint IR 推迟到渲染器合并时再做，作为第 10 步渲染工作的开头。
+
+理由：两套 IR 的消费者无法汇合。
+- scene 的 GPU 渲染器从 `SceneNode` 栅格化文字与图层，彩色字形和图层回退到 D2D（仅 Windows），只支持单个裁剪矩形；
+- 文档路径是已塑形字形、CPU 圆角裁剪链和轴对齐四边形，没有变换。
+
+只合并数据类型，代码不会减少，收益要等统一渲染器（字形图集、可移植彩色字形、裁剪栈、图层）落地才兑现。第 8 步就此完成，下一步是第 9 步。
 
 ## 顺序调整（2026-10-10）
 

@@ -1,6 +1,6 @@
 # 固定 gallery：26 CSS + 8 D3
 
-> 2026-10-11 重构第 8.3b 步：scene 命中改为先生成命中表（`SceneGeometry::hit_map`），再走文档共用的判定（`hit_areas`）；结果与原树遍历相同，`z-index:auto` 现在按 0 层叠。见 [重构记录](refactoring-plan.md#第-8-步记录2026-10-11)。
+> 2026-10-11 重构第 8.3b 步：scene 命中改为先生成命中表（`SceneGeometry::hit_map`），再走文档共用的判定（`hit_areas`）；结果与原树遍历相同，`z-index:auto` 现在按 0 层叠；之后命中也按画出来的圆角判定（盒子与 overflow 裁剪）。见 [重构记录](refactoring-plan.md#第-8-步记录2026-10-11)。
 
 > 2026-10-11 重构第 8.3a 步：几何、命中、原生绘制与 D2D 参考共用一个 transform 文法与求值器（`scene_transform.hpp`）。SVG transform 属性里无单位的角度改按度解释，D3 径向标签不再画错。见 [重构记录](refactoring-plan.md#第-8-步记录2026-10-11)。
 
