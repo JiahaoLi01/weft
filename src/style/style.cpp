@@ -1628,146 +1628,88 @@ namespace weft {
         return result;
     }
 
-    StyleProfile positioned_style_profile() {
+    StyleProfile document_style_profile() {
         StyleProfile p;
         p.single_value_inset = true;
-        p.ua_stylesheet = "i{font-style:italic}b{font-weight:700}";
-        auto add = [&](std::string k, std::string initial, bool inherited = false,
-                       CssGrammar grammar = CssGrammar::Tokens, std::vector<std::string> keywords = {}) {
-            p.properties.emplace(std::move(k),
-                                 CssProperty{std::move(initial), inherited, grammar, std::move(keywords)});
-        };
-        for (const auto* k : {"left", "top", "right", "bottom", "width", "height"}) {
-            add(k, "auto", false, CssGrammar::Length, {"auto"});
-        }
-        add("max-width", "none", false, CssGrammar::Length, {"none"});
-        for (const auto* k : {"margin", "padding", "border"}) {
-            add(k, "0", false, CssGrammar::Length);
-        }
-        for (const auto* k : {"font-size", "line-height"}) {
-            add(k, k == std::string("font-size") ? "medium" : "normal", true, CssGrammar::Length, {"normal", "medium"});
-        }
-        add("color", constants::default_color, true, CssGrammar::Color);
-        add("background-color", "transparent", false, CssGrammar::Color);
-        add("font-weight", constants::default_font_weight, true, CssGrammar::Number);
-        add("z-index", "auto", false, CssGrammar::Number, {"auto"});
-        for (const auto& [k, v] : std::map<std::string, std::string>{{"position", "static"},
-                                                                     {"display", "inline"},
-                                                                     {"overflow", "visible"},
-                                                                     {"isolation", "auto"},
-                                                                     {"box-sizing", "content-box"},
-                                                                     {"user-select", "auto"}}) {
-            add(k, v);
-        }
-        for (const auto& [k, v] : std::map<std::string, std::string>{{"pointer-events", "auto"},
-                                                                     {"font-family", "serif"},
-                                                                     {"font-style", "normal"},
-                                                                     {"list-style", "disc"},
-                                                                     {"white-space", "normal"},
-                                                                     {"text-align", "left"}}) {
-            add(k, v, true);
-        }
-        const std::map<std::string, std::vector<std::string>> keyword_values = {
-            {"position", {"static", "relative", "absolute", "fixed", "sticky"}},
-            {"display",
-             {"none", "block", "inline", "inline-block", "flex", "inline-flex", "grid", "inline-grid", "contents",
-              "table", "list-item"}},
-            {"overflow", {"visible", "hidden", "clip", "auto", "scroll"}},
-            {"isolation", {"auto", "isolate"}},
-            {"box-sizing", {"content-box", "border-box"}},
-            {"user-select", {"auto", "none", "text", "all"}},
-            {"pointer-events", {"auto", "none"}},
-            {"font-style", {"normal", "italic", "oblique"}},
-            {"white-space", {"normal", "nowrap", "pre", "pre-wrap", "pre-line", "break-spaces"}},
-            {"text-align", {"left", "right", "center", "justify", "start", "end"}}};
-        for (const auto& [k, v] : keyword_values) {
-            p.properties[k].grammar = CssGrammar::Keyword;
-            p.properties[k].keywords = v;
-        }
-        p.properties["font-weight"].keywords = {"normal", "bold", "bolder", "lighter"};
-        return p;
-    }
-
-    StyleProfile flex_page_style_profile() {
-        auto p = positioned_style_profile();
-        p.ua_stylesheet.clear();
-        p.single_value_inset = false;
-        for (const auto* k : {"isolation", "user-select", "font-style", "list-style", "margin", "padding", "border"}) {
-            p.properties.erase(k);
-        }
-        for (const auto* k : {"min-width",
-                              "min-height",
-                              "max-height",
-                              "gap",
-                              "row-gap",
-                              "column-gap",
-                              "flex-basis",
-                              "margin",
-                              "padding",
-                              "border-width",
-                              "border-top-width",
-                              "border-right-width",
-                              "border-bottom-width",
-                              "border-left-width",
-                              "padding-top",
-                              "padding-left",
-                              "padding-right",
-                              "padding-bottom",
-                              "margin-top",
-                              "margin-left",
-                              "margin-right",
-                              "margin-bottom"}) {
-            p.properties[k] = {"0", false, CssGrammar::Length, {"auto", "normal", "none"}};
-        }
-        for (const auto* k : {"flex-grow", "flex-shrink"}) {
-            p.properties[k] = {k == std::string("flex-grow") ? "0" : "1", false, CssGrammar::Number, {}};
-        }
-        for (const auto& [k, v] : std::map<std::string, std::string>{{"flex", "0 1 auto"},
-                                                                     {"flex-direction", "row"},
-                                                                     {"flex-wrap", "nowrap"},
-                                                                     {"align-items", "stretch"},
-                                                                     {"align-self", "auto"},
-                                                                     {"align-content", "normal"},
-                                                                     {"justify-content", "normal"}}) {
-            p.properties[k] = {v, false, CssGrammar::Tokens, {}};
-        }
-        p.properties["min-width"].initial = "auto";
-        p.properties["min-height"].initial = "auto";
-        p.properties["max-height"].initial = "none";
-        p.properties["flex-basis"].initial = "auto";
-        return p;
-    }
-
-    StyleProfile auto_page_style_profile() {
-        auto p = flex_page_style_profile();
-        p.single_value_inset = true;
         p.four_value_edges = true;
-        p.ua_stylesheet = "div,button,ul,li{display:block}i{font-style:italic}b{font-weight:700}";
-        p.properties["isolation"] = {"auto", false, CssGrammar::Keyword, {"auto", "isolate"}};
-        p.properties["font-style"] = {"normal", true, CssGrammar::Keyword, {"normal", "italic"}};
-        p.properties["list-style"] = {"disc", true, CssGrammar::Tokens, {}};
-        p.properties["user-select"] = {"auto", false, CssGrammar::Tokens, {}};
-        p.properties["border"] = {"0", false, CssGrammar::Length, {}};
-        for (auto& [k, v] : p.properties) {
-            if (k.starts_with("padding") || k.starts_with("border")) {
-                v.keywords.clear();
-            }
-        }
-        return p;
-    }
-
-    StyleProfile document_style_profile() {
-        auto p = auto_page_style_profile();
         p.flow_shorthands = true;
         p.ua_stylesheet = "div,p,button,ul,li,section{display:block}i{font-style:italic}b{font-weight:700}";
-        p.properties["border-radius"] = {"0", false, CssGrammar::Tokens, {}};
-        for (const auto* k : {"border-top-left-radius", "border-top-right-radius", "border-bottom-right-radius",
-                              "border-bottom-left-radius"}) {
-            p.properties[k] = {"0", false, CssGrammar::Radius, {}};
-        }
-        for (const auto* k : {"overflow-x", "overflow-y"}) {
-            p.properties[k] = {"visible", false, CssGrammar::Keyword, {"visible", "hidden", "auto", "scroll", "clip"}};
-        }
+        p.properties = {
+            {"align-content", {"normal", false, CssGrammar::Tokens, {}}},
+            {"align-items", {"stretch", false, CssGrammar::Tokens, {}}},
+            {"align-self", {"auto", false, CssGrammar::Tokens, {}}},
+            {"background-color", {"transparent", false, CssGrammar::Color, {}}},
+            {"border", {"0", false, CssGrammar::Length, {}}},
+            {"border-bottom-left-radius", {"0", false, CssGrammar::Radius, {}}},
+            {"border-bottom-right-radius", {"0", false, CssGrammar::Radius, {}}},
+            {"border-bottom-width", {"0", false, CssGrammar::Length, {}}},
+            {"border-left-width", {"0", false, CssGrammar::Length, {}}},
+            {"border-radius", {"0", false, CssGrammar::Tokens, {}}},
+            {"border-right-width", {"0", false, CssGrammar::Length, {}}},
+            {"border-top-left-radius", {"0", false, CssGrammar::Radius, {}}},
+            {"border-top-right-radius", {"0", false, CssGrammar::Radius, {}}},
+            {"border-top-width", {"0", false, CssGrammar::Length, {}}},
+            {"border-width", {"0", false, CssGrammar::Length, {}}},
+            {"bottom", {"auto", false, CssGrammar::Length, {"auto"}}},
+            {"box-sizing", {"content-box", false, CssGrammar::Keyword, {"content-box", "border-box"}}},
+            {"color", {constants::default_color, true, CssGrammar::Color, {}}},
+            {"column-gap", {"0", false, CssGrammar::Length, {"auto", "normal", "none"}}},
+            {"display",
+             {"inline",
+              false,
+              CssGrammar::Keyword,
+              {"none", "block", "inline", "inline-block", "flex", "inline-flex", "grid", "inline-grid", "contents",
+               "table", "list-item"}}},
+            {"flex", {"0 1 auto", false, CssGrammar::Tokens, {}}},
+            {"flex-basis", {"auto", false, CssGrammar::Length, {"auto", "normal", "none"}}},
+            {"flex-direction", {"row", false, CssGrammar::Tokens, {}}},
+            {"flex-grow", {"0", false, CssGrammar::Number, {}}},
+            {"flex-shrink", {"1", false, CssGrammar::Number, {}}},
+            {"flex-wrap", {"nowrap", false, CssGrammar::Tokens, {}}},
+            {"font-family", {"serif", true, CssGrammar::Tokens, {}}},
+            {"font-size", {"medium", true, CssGrammar::Length, {"normal", "medium"}}},
+            {"font-style", {"normal", true, CssGrammar::Keyword, {"normal", "italic"}}},
+            {"font-weight",
+             {constants::default_font_weight, true, CssGrammar::Number, {"normal", "bold", "bolder", "lighter"}}},
+            {"gap", {"0", false, CssGrammar::Length, {"auto", "normal", "none"}}},
+            {"height", {"auto", false, CssGrammar::Length, {"auto"}}},
+            {"isolation", {"auto", false, CssGrammar::Keyword, {"auto", "isolate"}}},
+            {"justify-content", {"normal", false, CssGrammar::Tokens, {}}},
+            {"left", {"auto", false, CssGrammar::Length, {"auto"}}},
+            {"line-height", {"normal", true, CssGrammar::Length, {"normal", "medium"}}},
+            {"list-style", {"disc", true, CssGrammar::Tokens, {}}},
+            {"margin", {"0", false, CssGrammar::Length, {"auto", "normal", "none"}}},
+            {"margin-bottom", {"0", false, CssGrammar::Length, {"auto", "normal", "none"}}},
+            {"margin-left", {"0", false, CssGrammar::Length, {"auto", "normal", "none"}}},
+            {"margin-right", {"0", false, CssGrammar::Length, {"auto", "normal", "none"}}},
+            {"margin-top", {"0", false, CssGrammar::Length, {"auto", "normal", "none"}}},
+            {"max-height", {"none", false, CssGrammar::Length, {"auto", "normal", "none"}}},
+            {"max-width", {"none", false, CssGrammar::Length, {"none"}}},
+            {"min-height", {"auto", false, CssGrammar::Length, {"auto", "normal", "none"}}},
+            {"min-width", {"auto", false, CssGrammar::Length, {"auto", "normal", "none"}}},
+            {"overflow", {"visible", false, CssGrammar::Keyword, {"visible", "hidden", "clip", "auto", "scroll"}}},
+            {"overflow-x", {"visible", false, CssGrammar::Keyword, {"visible", "hidden", "auto", "scroll", "clip"}}},
+            {"overflow-y", {"visible", false, CssGrammar::Keyword, {"visible", "hidden", "auto", "scroll", "clip"}}},
+            {"padding", {"0", false, CssGrammar::Length, {}}},
+            {"padding-bottom", {"0", false, CssGrammar::Length, {}}},
+            {"padding-left", {"0", false, CssGrammar::Length, {}}},
+            {"padding-right", {"0", false, CssGrammar::Length, {}}},
+            {"padding-top", {"0", false, CssGrammar::Length, {}}},
+            {"pointer-events", {"auto", true, CssGrammar::Keyword, {"auto", "none"}}},
+            {"position", {"static", false, CssGrammar::Keyword, {"static", "relative", "absolute", "fixed", "sticky"}}},
+            {"right", {"auto", false, CssGrammar::Length, {"auto"}}},
+            {"row-gap", {"0", false, CssGrammar::Length, {"auto", "normal", "none"}}},
+            {"text-align", {"left", true, CssGrammar::Keyword, {"left", "right", "center", "justify", "start", "end"}}},
+            {"top", {"auto", false, CssGrammar::Length, {"auto"}}},
+            {"user-select", {"auto", false, CssGrammar::Tokens, {}}},
+            {"white-space",
+             {"normal",
+              true,
+              CssGrammar::Keyword,
+              {"normal", "nowrap", "pre", "pre-wrap", "pre-line", "break-spaces"}}},
+            {"width", {"auto", false, CssGrammar::Length, {"auto"}}},
+            {"z-index", {"auto", false, CssGrammar::Number, {"auto"}}},
+        };
         return p;
     }
 } // namespace weft

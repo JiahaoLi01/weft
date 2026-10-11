@@ -7,10 +7,6 @@ namespace weft {
                 return "WEFT_CSS_VALUE";
             case Diag::StyleProfile:
                 return "WEFT_STYLE_PROFILE";
-            case Diag::PositionedProfile:
-                return "WEFT_POSITIONED_PROFILE";
-            case Diag::AutoProfile:
-                return "WEFT_AUTO_PROFILE";
             case Diag::DocumentProfile:
                 return "WEFT_DOCUMENT_PROFILE";
             case Diag::InlineProfile:

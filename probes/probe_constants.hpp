@@ -20,8 +20,6 @@ namespace weft::probe_constants {
     // Color fixture target, also the default Experiment and PNG size.
     inline constexpr int color_fixture_width = 256;
     inline constexpr int color_fixture_height = 128;
-    // The color fixture's scissor test clips this many pixels from each edge of its quad.
-    inline constexpr int scissor_test_inset = constants::render::d3d11::diagnostic_clip_inset;
     // Single-channel distance atlas of the SDF fixture.
     inline constexpr int sdf_atlas_width = 256;
     inline constexpr int sdf_atlas_height = 128;
@@ -35,13 +33,8 @@ namespace weft::probe_constants {
 
     // D3D11 reference renderer and backend limits (constants::render::d3d11), under their probe names.
     inline constexpr int frames_in_flight = constants::render::d3d11::frames_in_flight;
-    inline constexpr int backend_max_prepared_frames = constants::render::d3d11::max_prepared_frames;
-    inline constexpr int backend_prepared_frame_handle = constants::render::d3d11::prepared_frame_handle;
     // Assets of one FramePacket: the asset limit that the backend requests.
     inline constexpr int max_frame_assets = constants::render::default_max_assets;
-    inline constexpr unsigned backend_max_frame_asset_bytes = constants::render::d3d11::max_frame_asset_bytes;
-    inline constexpr int backend_features = constants::render::d3d11::features;
-    inline constexpr int backend_target_formats = constants::render::d3d11::target_formats;
     inline constexpr int max_imported_textures = constants::render::d3d11::max_imported_textures;
     inline constexpr int external_texture_capacity = constants::render::d3d11::external_texture_capacity;
     inline constexpr unsigned external_texture_max_bytes = constants::render::d3d11::external_texture_max_bytes;
@@ -53,12 +46,8 @@ namespace weft::probe_constants {
     inline constexpr int fixture_host_serial = 43;
     inline constexpr int completion_timeout_seconds = constants::render::d3d11::completion_timeout_seconds;
     inline constexpr int completion_poll_ms = constants::render::d3d11::completion_poll_ms;
-    inline constexpr int gpu_cache_max_resources = constants::render::d3d11::asset_cache_max_resources;
-    inline constexpr int gpu_cache_max_bytes = constants::render::d3d11::asset_cache_max_bytes;
     inline constexpr int asset_identity_prune_threshold = constants::render::d3d11::asset_identity_prune_threshold;
     inline constexpr int max_asset_identities = constants::render::d3d11::max_asset_identities;
-    // Glyph textures of one React page frame.
-    inline constexpr int page_glyph_max_bytes = 4 * constants::bytes_per_mib;
     // CheetahPacketCache budgets; a cache is cleared when a bound would be exceeded.
     inline constexpr int glyph_cache_max_entries = 2048;
     inline constexpr int glyph_cache_max_bytes = 16 * constants::bytes_per_mib;

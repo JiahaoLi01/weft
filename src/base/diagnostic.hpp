@@ -15,8 +15,6 @@ namespace weft {
         InvalidNumber,
         // Profile and module domains whose errors reject a whole document or value.
         StyleProfile,
-        PositionedProfile,
-        AutoProfile,
         DocumentProfile,
         InlineProfile,
         SceneProfile,

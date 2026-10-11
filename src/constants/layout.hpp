@@ -53,6 +53,4 @@ namespace weft::constants::layout {
     inline constexpr float line_fit_epsilon = 0.0001f;
     // Float tolerance when joining adjacent inline fragments of one element.
     inline constexpr float fragment_merge_epsilon = .0001f;
-    // Shaped single-line text may exceed the content box by this much before it counts as overflow.
-    inline constexpr float text_overflow_tolerance_px = 0.025f;
 } // namespace weft::constants::layout

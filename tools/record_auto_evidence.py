@@ -3,11 +3,11 @@ from datetime import datetime,timezone
 import hashlib,json,re,shutil,subprocess,sys
 from pathlib import Path
 root=Path(__file__).resolve().parents[1];sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
-sources=['CMakeLists.txt','third_party/manifest.json','tests/fixtures/casecheetah/manifest.json','examples/cheetah-auto/metadata.json','examples/cheetah-auto/profile.css','tests/fixtures/auto_layout_browser_reference.json','tests/fixtures/cheetah_auto_browser_reference.json','tests/auto_page_tests.cpp','tools/build_cheetah_auto.py','tools/compare_auto_layout.py','tools/compare_style_reports.py','tools/verify_auto_fixture.py','tools/record_auto_evidence.py']
+sources=['CMakeLists.txt','third_party/manifest.json','tests/fixtures/casecheetah/manifest.json','examples/cheetah-auto/metadata.json','examples/cheetah-auto/profile.css','tests/fixtures/auto_layout_browser_reference.json','tests/fixtures/cheetah_auto_browser_reference.json','tests/auto_layout_tests.cpp','tools/build_cheetah_auto.py','tools/compare_auto_layout.py','tools/compare_style_reports.py','tools/verify_auto_fixture.py','tools/record_auto_evidence.py']
 sources+=sorted(p.relative_to(root).as_posix() for d in ('src','include','probes','shaders','tests/fixtures/auto-layout') for p in (root/d).rglob('*') if p.is_file())
 for name,build,config,count,log in [('debug','windows-msvc','Debug',42,'auto-ctest-debug.log'),('release','windows-msvc','Release',42,'auto-ctest-release.log'),('gc-stress','windows-gc-stress','Debug',6,'auto-ctest-gc.log')]:
  folder=root/'artifacts/local'/('auto-'+name);folder.mkdir(parents=True,exist_ok=True)
- binary=root/'build'/build/'bin'/config/'weft_d3d11_probe.exe';test=binary.with_name('weft_auto_page_tests.exe')
+ binary=root/'build'/build/'bin'/config/'weft_d3d11_probe.exe';test=binary.with_name('weft_auto_layout_tests.exe')
  source_log=root/'artifacts/local'/log;text=source_log.read_text(encoding='utf-8');assert f'0 tests failed out of {count}' in text
  assert source_log.stat().st_mtime>=max(binary.stat().st_mtime,test.stat().st_mtime),'tests predate binaries'
  shutil.copyfile(source_log,folder/'ctest.log')

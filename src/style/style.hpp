@@ -96,9 +96,7 @@ namespace weft {
     // :root matches only an HTML document-element snapshot, never a scoped div.
     // Exact pairing checks are required before passing a computed tree to layout.
     void validate_style_pair(const DomSnapshot& dom, const ComputedStyle& style);
-    StyleProfile positioned_style_profile();
-    StyleProfile flex_page_style_profile();
-    StyleProfile auto_page_style_profile();
+    // The document formatter's property registry and UA sheet.
     StyleProfile document_style_profile();
     // The shared color subset is #rrggbb, transparent, and legacy comma rgb/rgba
     // numbers. Components/alpha clamp as CSS requires. No color spaces/named colors.

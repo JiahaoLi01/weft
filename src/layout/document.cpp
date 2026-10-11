@@ -323,7 +323,7 @@ namespace weft {
                           bool br = false) {
                 const auto& s = nodes[node].style;
                 const auto family = get(s, "font-family", constants::default_font_family);
-                if ((family != constants::default_font_family && family != constants::primary_font_family) ||
+                if ((family != constants::default_font_family && family != constants::latin_font_family) ||
                     get(s, "font-weight", constants::default_font_weight) != constants::default_font_weight ||
                     get(s, "font-style", "normal") != "normal") {
                     fail("fixed normal-weight font set");

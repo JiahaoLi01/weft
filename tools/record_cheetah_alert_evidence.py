@@ -11,7 +11,7 @@ import sys
 root=Path(__file__).resolve().parents[1]
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 sources=['CMakeLists.txt','src/text/font.hpp','src/text/font.cpp','tests/font_fallback_tests.cpp',
- 'src/layout/positioned_page.hpp','src/layout/positioned_page.cpp','tests/positioned_page_tests.cpp',
+ 'src/layout/document.hpp','src/layout/document.cpp','tests/document_cases_tests.cpp',
  'probes/d3d11_probe.cpp','probes/cheetah_probe.hpp','probes/cheetah_alert_probe.hpp','src/render/backends/d3d11/quad.hlsl',
  'third_party/manifest.json','tests/fixtures/casecheetah/manifest.json','tests/fixtures/cheetah_alert_browser_reference.json',
  'examples/cheetah-alert/native/metadata.json','tools/compare_cheetah_alert.py','tools/verify_cheetah_alert.py',
