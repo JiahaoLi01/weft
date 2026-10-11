@@ -1,5 +1,7 @@
 # Gallery 共享技术簇（2026-10-10）
 
+> 2026-10-11 重构第 8.2 步：cluster 场景的 Grid、reverse/wrapped Flex 与单行混合 inline 改由文档与 scene 共用的 Yoga 适配器计算；210 个采集的像素与几何逐字节不变。见 [重构记录](refactoring-plan.md#第-8-步记录2026-10-11)。
+
 本轮扩大的是 Windows 原生 scene 探针及检查宿主。原始 TestGallery 和固定 React/D3/Framer Motion/React Spring/Lucide/Anime bundles 保持不变；没有将浏览器截图、浏览器计算样式或原始 JS 绘制结果注入 native renderer。
 
 | 新分组 | 原例数量 | 共用能力 |

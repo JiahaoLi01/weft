@@ -28,7 +28,7 @@ Windows 构建：`cmake --preset windows-msvc` → `cmake --build --preset windo
 
 新增 flow profile：嵌套 inline/span 与匿名行盒、Unicode 断行、同步 DOM 几何与程序/wheel 滚动、椭圆圆角及嵌套裁剪。固定 libunibreak，27 个 mutation 场景和原样 React 长列表的八帧浏览器对照通过；同样内容已由自己的 DX11 输出像素。当前仍有字重/bidi、跨源 ligature、inline-block、实体滚轮/触摸、完整 scrollbar 和移动缺口，实际范围和可运行场景见 [flow 合同](docs/flow-layout-probe.md)。
 
-2026-10-11：上述 page、positioned、auto profile 已并入 flow，成为唯一的文档格式化器 `layout_document`；各自原有的浏览器对照都在统一路径上按原阈值通过，见 [重构计划](docs/refactoring-plan.md)。
+2026-10-11：上述 page、positioned、auto profile 已并入 flow，成为唯一的文档格式化器 `layout_document`；各自原有的浏览器对照都在统一路径上按原阈值通过，见 [重构计划](docs/refactoring-plan.md)。同日第 8.2 步起，文档与 scene 共用一个 Yoga 适配器（`layout_boxes`）。
 
 flow 命中与 HWND 滚轮已接入：命中复用真实绘制顺序、inline 分片和圆角链；原样 React 长列表在自己的消息队列中完成滚动、选中及窗口缩放。3,150 个浏览器命中点中 3,130 个完全一致，20 个边界点显式限定在每轴 2 CSS px；隐藏窗口和细分/取消滚轮已自动验证，实体设备与触摸仍未验收。可见样例、运行命令和证据见 [flow 输入与窗口](docs/flow-input-window-probe.md)。
 

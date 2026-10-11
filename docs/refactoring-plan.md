@@ -68,7 +68,7 @@ probes/ tests/ tools/      证据与验证，只依赖 src，不被 src 依赖
 | 5 ✅ | D3D11 渲染器、FramePacket、两帧流水线移入 `src/render`，经 `RenderBackend` concept 接 C ABI；探针头改为独立 TU；shader 构建期编译内嵌 | `probes/d3d11_probe.cpp`、`probe_render_backend.hpp`、`two_frame_pipeline.hpp` | WARP/硬件产物逐字节对照、两帧退休、debug layer 零告警；见下方第 5 步记录 |
 | 6 ✅ | scene 可移植化：拆出纯几何/命中 TU；DirectWrite 量字换成与 flow 相同的 HarfBuzz 测量；D2D 退为 Windows 参考 raster | `scene_probe.hpp`、`scene_d2d_probe.cpp`、`gallery_scene_session.hpp` | 新增 Chrome 文字度量基线；几何与 D2D 差分；见下方第 6 步记录 |
 | 7 ✅ | 类型化样式：PropertyId、长度/颜色/关键字值，去掉字符串往返与正则插值 | `style_probe`、`flow_page`、`auto_page`、`scene_probe` | 级联/动画差分、gallery 像素与几何；见下方第 7 步记录 |
-| 8（8.1 ✅） | 统一格式化路径：一个调度器、一个 Yoga 适配器、一个 paint IR、一条命中路径；golden 迁移后删除 page/positioned/auto | `src/layout/*`、`input_probe` | 旧 profile 的浏览器差分全部改跑新路径 |
+| 8（8.1–8.2 ✅） | 统一格式化路径：一个调度器、一个 Yoga 适配器、一个 paint IR、一条命中路径；golden 迁移后删除 page/positioned/auto | `src/layout/*`、`input_probe` | 旧 profile 的浏览器差分全部改跑新路径 |
 | 9 | DOM 与脚本分离：NodeId 原生树、与 style 共用选择器；QuickJS 对象成为包装；Canvas 状态移到旁表 | `script_dom_probe.cpp`、`style_probe.cpp` | DOM 生命周期、GC 压力、D3 / React 原包 |
 | 10（暂缓） | 第二个图形后端（Vulkan 或 Metal）与 Android/iOS 平台层，按 concept 接入；主机构建选项 | `src/render/backends`、`src/platform` | 平台验证按“配置/编译/链接/模拟器/真机功能/真机性能”分级记录 |
 
@@ -317,7 +317,7 @@ CMake 拆分：
 
 **7B 计算样式与 scene 改用 `StyleValues`**：
 - 级联在解析声明时确定 id，profile 按 id 建索引（是否继承、解析好的初始值），继承直接遍历父值。
-- page/positioned/auto/flow 在入口用 `string_map()` 转回字符串 map（它们原来就复制 map）。第 8 步统一格式化路径时去掉。
+- page/positioned/auto/flow 在入口用 `string_map()` 转回字符串 map（它们原来就复制 map）。第 8.2 步已去掉。
 - scene、D2D 参考 raster 和 D3D11 scene 渲染器按 id 比较和跳过属性：几何相关键、布局签名忽略表、paint 参数。
 - 关键帧声明只能用已注册属性，其他名字报 `SceneProfile`。原来这类名字会成为无人读取的条目。`scene_contract` 增加反例，去掉检查的变异会使它失败。
 
@@ -371,7 +371,7 @@ CMake 拆分：
 
 未做，留到后续步骤：
 - 插值仍输出 12 位有效数字文本，消费方再解析。去掉这次往返会改变输出（不再舍入），留到第 8 步统一 paint IR 时一起量化。
-- page/positioned/auto/flow 给 Flex 适配器的仍是字符串 map（第 8 步）。
+- page/positioned/auto/flow 给 Flex 适配器的仍是字符串 map（第 8.2 步已改为类型化输入）。
 - 剩余 owner 开销主要是结构性的复制与比较，不属于样式类型。按 kline 采样：
   - `DomSnapshot` 每帧快照、复制与比较，其中 gallery 会话 `sync_scene` 的比较约 4.5%；
   - scene 保留上一帧 `SceneFrame`、DOM 与计算样式的整份复制，约 15%；
@@ -380,7 +380,7 @@ CMake 拆分：
 
 ## 第 8 步记录（2026-10-11）
 
-进行中。8.1 已完成：页面只剩一个文档格式化器。
+进行中。8.1、8.2 已完成：页面只剩一个文档格式化器，文档与 scene 共用一个 Yoga 适配器。
 
 **8.1a 行盒规则**（`009a11d`）：
 - 文档 inline 布局改用 Blink 的半行距拆分：上方 floor(leading / 2) 整像素，其余 LayoutUnit 行距在下方。与 scene 文字共用 `split_leading()`（scene 产物逐字节不变）。
@@ -419,9 +419,53 @@ CMake 拆分：
 - `ctest --preset windows-release --parallel 6` 96/96，`windows-debug --parallel 6` 96/96（319.75 s）。
 - 产物：除迁移的 7 组套件外与 8.1a 后逐字节相同。迁移套件的变化来自绘制列表（透明背景不再发出绘制项，文字按 Blink 行盒）和字体测量；React 退休纹理仍为 522。
 
+**8.2a 类型化输入**（`9679ab7`）：
+- `FlexNode::style` 改为 `StyleValues`。适配器从解析好的 payload 读 px、% 长度和无单位系数，其余值仍走原文本路径，诊断不变。
+- 文档格式化器直接持有计算出的 `StyleValues`，`string_map()` 删除；gallery 探针在脚本边界自己生成 getComputedStyle 的 map。
+
+**8.2b 一个 Yoga 适配器**（`3719a5a`）：
+- 新接口 `layout_boxes`（[flex.hpp](../src/layout/flex.hpp)）：
+  - 输入是按树序排列的 `LayoutBox`，借用格式化器的样式与文本，不复制；
+  - 文字由格式化器经 `TextMeasurer` 测量（`FunctionRef`，不分配）；
+  - 文档的 `FlexNode` 树在入口展平；scene 直接展平 `SceneNode`，每次布局每个文字盒只调用一次测量回调。
+- scene 原有的约 400 行 Yoga 代码删除。下列能力移入共享适配器：
+  - grid（等宽 1fr 列）；
+  - svg 替换盒（宽高属性与 viewBox 比例）；
+  - 子项全是行内级的块（单行、顶对齐的近似）；
+  - transform 建立的包含块。
+- 属性按作用分类：
+  - 盒属性映射到 Yoga，文字属性交给文字测量，绘制属性忽略；
+  - 影响盒子却没有映射的属性（`border`、`list-style`、`overflow-x/y`）报错；
+  - `CssAdapter` 与 `RestrictedBlockAdapter` 合并为一种 CSS 模式。
+- scene 改用与文档相同的 CSS 语义：
+  - flex item 默认 shrink 1，并有自动最小尺寸（原来非 flex 容器的项从不收缩，flex 容器的项可以缩到 0）；
+  - block 的子项不 grow、不 shrink，align-self 不起作用；
+  - display:none 的盒子及其子树几何为 0；grid 的 display:none 子项不占格；grid 的行、列间距分别取 row-gap、column-gap；
+  - `normal` 对齐关键字按 CSS 解释；scene 也接受适配器支持的其他值，如 space-between、baseline、content-box、inline-flex；
+  - 文字盒的高度不再被可用高度截断（CSS 中内容溢出）。
+- scene 给匿名文字节点同时写了 `border-width` 简写和四个长写。共享适配器把这种组合当作丢失了声明顺序而报错（kline-00 发现）。这个简写没有读者，已删去。
+
+验证：
+- 先做实验：scene 用三种 shrink 规则（CSS、全 0、全 1）时，34 个 gallery 场景与 30 个 cluster 场景的产物都逐字节相同。所有采集场景都没有主轴溢出，因此改成 CSS 语义不改变已有证据。
+- 新增 `box_layout_contract`，10 组反例覆盖上述 CSS 行为与输入诊断。以下 7 个变异各自都会使它失败：
+  - block 子项可以 flex；
+  - 去掉自动最小尺寸；
+  - 恢复文字高度截断；
+  - grid 的隐藏子项参与行高或占格；
+  - transform 不建立包含块；
+  - 忽略 viewBox 比例。
+- `ctest --preset windows-release --parallel 6` 97/97，`windows-debug --parallel 6` 97/97（375.8 s）。
+- Debug 下 scene gallery、cluster 测试由 89、311 s 变为 121、375 s：共享适配器每次布局都逐属性校验并计算固有尺寸，未优化构建中开销明显。Release 下两者不变（6.56、27.92 s → 6.58、27.77 s，交替各 3 次）。
+- 29 组确定性套件的 1,306 个产物与 8.1 后逐字节相同，包括 scene 的 102 个 Chrome 几何采集、cluster 的 210 个采集与像素参考。
+- owner CPU（与 8.2a 二进制交替运行，固定 60 Hz，不含 GPU）：
+  - K 线 warm tick P50/P99 中位数 4.135/5.896 → 4.121/5.481 ms（6 轮）；
+  - 散点图、anime、framer、spring 持平。
+
 仍未做：
-- 8.2 一个 Yoga 适配器：文档与 scene 共用，类型化输入，去掉 `string_map()`。
 - 8.3 一个 paint IR、一条命中路径与一个 transform 解析器。
+- 自动最小尺寸仍用自底向上的固有尺寸估计，百分比的指定尺寸不参与上限。百分比边距或间距、百分比宽或按比例定高的替换盒，只在 flex item 确实需要时报 `WEFT_UNSUPPORTED_INTRINSIC`。
+- scene 文字仍不换行；子项全是行内级的块是单行、顶对齐的近似（不断行，不按基线对齐）；svg 比例只在父高度不确定时生效（沿用 scene 原规则）。
+- 适配器的错误仍是 `WEFT_UNSUPPORTED_*` 字符串异常，尚未迁入 `Diag`。
 - p、button 的 UA 默认 margin/padding/border 未建模（ul 已显式诊断）；文档字体仍是固定的探针 FontSet，按 FontCatalog 匹配只在 scene 中实现。
 
 ## 顺序调整（2026-10-10）

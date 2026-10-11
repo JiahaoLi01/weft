@@ -4,6 +4,21 @@
 
 ## 本次已实现
 
+重构第 8 步之二：文档与 scene 共用一个 Yoga 适配器（2026-10-11）。详见 [重构计划](refactoring-plan.md#第-8-步记录2026-10-11)。
+- **结果**：scene 删掉自己的 Yoga 代码，改走共享的 `layout_boxes`，并改用与文档相同的 CSS 语义（flex item 默认收缩并有自动最小尺寸、block 子项不 flex 等）。34 个 gallery 场景和 30 个 cluster 场景的像素与 Chrome 几何对照逐字节不变。
+- **关键改动**：
+  - 适配器输入类型化，并借用格式化器的样式，`string_map()` 删除；文字测量由格式化器经 `FunctionRef` 提供；
+  - grid、svg 比例、行内单行近似、transform 包含块移入共享适配器；
+  - 新增 `box_layout_contract`，7 个旧语义变异全部被它发现。
+- **验证**：
+  - `ctest --preset windows-release --parallel 6` 97/97，`windows-debug --parallel 6` 97/97（375.8 s）；
+  - 29 组确定性套件产物逐字节不变；
+  - owner CPU 与 8.2a 交替 6 轮，无回退（K 线 P50/P99 4.135/5.896 → 4.121/5.481 ms）；
+  - Debug 下 scene gallery、cluster 测试由 89、311 s 变为 121、375 s：共享适配器每次布局都逐属性校验并计算固有尺寸，未优化构建中开销明显。Release 下两者不变（6.56、27.92 s → 6.58、27.77 s）。
+- **未解决**：自动最小尺寸仍是估计（百分比指定尺寸不参与上限）；scene 文字不换行，行内子项按单行近似；适配器的错误尚未迁入 `Diag`。
+
+下一步：第 8.3 步，一个 paint IR、一条命中路径与一个 transform 解析器。
+
 重构第 8 步之一：统一的文档格式化器（2026-10-11）。page、positioned、auto 三个页面 profile 已删除，页面只剩 `layout_document`（原 flow）。详见 [重构计划](refactoring-plan.md#第-8-步记录2026-10-11)。
 - **结果**：七项旧浏览器对照全部在统一路径上按原阈值通过，最大差与旧 profile 相同；AlertBar 字体基线 0.4416 → 0.0896 px（阈值 0.5）。
 - **关键改动**：
@@ -12,8 +27,6 @@
   - React 页面改走共享 packet 构建器；三个样式 profile 合并为一张表（逐项相同）。
 - **验证**：`ctest --preset windows-release --parallel 6` 96/96，`windows-debug --parallel 6` 96/96（319.75 s）；除迁移的 7 组套件外产物逐字节不变。
 - **未解决**：p、button 的 UA 默认边距未建模（ul 已诊断）；文档字体仍是固定探针 FontSet。
-
-下一步：第 8.2 步，文档与 scene 共用一个类型化的 Yoga 适配器。
 
 垂直同步开关（2026-10-11）。画廊窗口在 240 Hz 显示器上一直锁在 240 FPS，现在可以关掉垂直同步看实际帧率。详见 [交互性能](gallery-interaction-profile.md#关闭垂直同步2026-10-11)。
 - **用法**：

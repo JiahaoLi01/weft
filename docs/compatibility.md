@@ -67,6 +67,8 @@ CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后�
 
 ## 样式和布局
 
+2026-10-11 重构第 8.2 步：文档与 scene 共用一个 Yoga 适配器。scene 布局因此改用文档已有的 CSS 语义：flex item 默认收缩并有自动最小尺寸；block 的子项不 flex，align-self 不起作用；display:none 盒子的几何为 0；grid 的 display:none 子项不占格，行、列间距分别取 row-gap、column-gap。scene 也接受适配器支持的 space-between、baseline、content-box、inline-flex 等值。scene 的 102 个 Chrome 几何采集与 cluster 的 210 个采集不变。仍是近似的部分：scene 文字不换行；子项全是行内级的块按单行、顶对齐排列；自动最小尺寸不考虑百分比的指定尺寸。
+
 | 能力 | P0 探针 | v0.1 目标 | 后续 |
 | --- | --- | --- | --- |
 | 层叠 | UA/author/inline、important、继承与 source order | 同左，配套 CSSOM 更新 | cascade layers、复杂 at-rule |

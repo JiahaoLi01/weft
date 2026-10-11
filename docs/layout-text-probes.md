@@ -1,5 +1,7 @@
 # M0 Flex 与字体探针
 
+> 2026-10-11 重构第 8.2 步：本文的 Flex adapter 成为文档与 scene 共用的 Yoga 适配器 `layout_boxes`。CssAdapter 与 RestrictedBlockAdapter 合并；绘制属性不再被拒绝，只有影响盒子却没有映射的属性报错；需要百分比边距等的 intrinsic 限制只在需要自动最小尺寸时报错；文字盒高度不再被可用高度截断。33 场景的 raw/css 报告与浏览器对照逐字节不变。见 [重构记录](refactoring-plan.md#第-8-步记录2026-10-11)。
+
 2026 年 10 月 7 日：独立 C++20 Flex adapter 的 **33/33** 场景、**452 项**盒几何与文本指标，在 Debug 和 Release 均与实际 Chrome 参考结果一致。FreeType/HarfBuzz 的字体度量、塑形和字形 coverage 已实际执行。结果支持继续验证 Yoga，但尚未达到 M0 的完整布局与文本退出条件。
 
 ## 比较方法与范围
