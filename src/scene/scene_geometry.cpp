@@ -8,6 +8,8 @@
 #include "constants/scene.hpp"
 
 #include <algorithm>
+#include <array>
+#include <charconv>
 #include <cmath>
 #include <cstdlib>
 #include <numbers>
@@ -23,6 +25,7 @@ namespace weft {
         using scene_values::get;
         using scene_values::len;
         using scene_values::num;
+        using scene_values::view;
 
         std::vector<std::string> split(std::string_view s, char delimiter = ' ') {
             return css::split(s, delimiter, {.quotes = false}).parts;
@@ -64,9 +67,15 @@ namespace weft {
         using Plane = ScenePlane;
 
         // An SVG element's transform attribute, or its transform property, in user units.
+        // An SVG element's transform attribute, else its CSS transform; most elements have neither.
         SceneAffine svg_affine(const SceneNode& n) {
-            const auto text =
-                n.attributes.contains("transform") ? n.attributes.at("transform") : get(n.style, PropertyId::Transform);
+            static const auto identity = scene_affine({}, 0, 0);
+            const auto it = n.attributes.find("transform");
+            const std::string_view text =
+                it != n.attributes.end() ? std::string_view(it->second) : view(n.style, PropertyId::Transform);
+            if (text.empty() || text == "none") {
+                return identity;
+            }
             return scene_affine(parse_scene_transform(text, true).value(), 0, 0);
         }
 
@@ -555,6 +564,8 @@ namespace weft {
         SceneText& text;
         std::unordered_map<std::string, std::shared_ptr<const Shape>> shapes;
         std::size_t shape_bytes{};
+        // Reused to build shape keys without allocating.
+        std::string key_buffer;
 
         explicit Impl(SceneText& t) : text(t) {
         }
@@ -569,17 +580,23 @@ namespace weft {
             if (n.tag == "text" || n.tag == "g" || n.tag == "svg" || n.tag == "defs" || n.tag == "clipPath") {
                 return {};
             }
-            std::string key = n.tag;
-            auto add = [&](std::string_view v) {
-                key += std::to_string(v.size()) + ":";
-                key += v;
+            // The key: tag, fill rule and the geometry attributes, each value with its length.
+            static constexpr std::array<std::string_view, 15> geometry_attributes{
+                "cx", "cy", "d", "height", "points", "r", "rx", "ry", "width", "x", "x1", "x2", "y", "y1", "y2"};
+            auto& key = key_buffer;
+            key.assign(n.tag);
+            const auto add = [&](std::string_view v) {
+                char digits[24];
+                key.append(digits, std::to_chars(digits, digits + sizeof digits, v.size()).ptr);
+                key += ':';
+                key.append(v);
             };
-            add(get(n.style, PropertyId::FillRule));
-            for (const auto* k :
-                 {"x", "y", "width", "height", "rx", "ry", "cx", "cy", "r", "d", "points", "x1", "y1", "x2", "y2"}) {
-                if (a.contains(k)) {
-                    add(k);
-                    add(a.at(k));
+            const auto fill_rule = view(n.style, PropertyId::FillRule);
+            add(fill_rule);
+            for (const auto& [name, value] : a) {
+                if (std::binary_search(geometry_attributes.begin(), geometry_attributes.end(), name)) {
+                    add(name);
+                    add(value);
                 }
             }
             if (auto it = shapes.find(key); it != shapes.end()) {
@@ -590,7 +607,7 @@ namespace weft {
                 return i == a.end() ? def : len(i->second);
             };
             auto out = std::make_shared<Shape>();
-            out->evenodd = get(n.style, PropertyId::FillRule) == "evenodd";
+            out->evenodd = fill_rule == "evenodd";
             if (n.tag == "rect") {
                 const float rx = v("rx");
                 build_rect(*out, v("x"), v("y"), v("width"), v("height"), rx, v("ry", rx));
@@ -631,19 +648,19 @@ namespace weft {
                     shape_bytes = 0;
                 }
                 shape_bytes += key.size();
-                shapes.emplace(std::move(key), out);
+                shapes.emplace(key, out);
             }
             return out;
         }
 
         HitStroke stroke(const SceneNode& n) {
             HitStroke s;
-            s.width = len(get(n.style, PropertyId::StrokeWidth, "1"));
-            const auto cap = get(n.style, PropertyId::StrokeLinecap, "butt");
+            s.width = len(view(n.style, PropertyId::StrokeWidth, "1"));
+            const auto cap = view(n.style, PropertyId::StrokeLinecap, "butt");
             s.cap = cap == "round"    ? HitStroke::Cap::Round
                     : cap == "square" ? HitStroke::Cap::Square
                                       : HitStroke::Cap::Butt;
-            auto d = get(n.style, PropertyId::StrokeDasharray, "none");
+            const auto d = view(n.style, PropertyId::StrokeDasharray, "none");
             if (d != "none" && !d.empty()) {
                 for (auto value : parse_scene_numbers(d)) {
                     if (value < 0 || s.dashes.size() >= constants::scene::max_stroke_dashes) {
@@ -661,13 +678,15 @@ namespace weft {
                     s.dashes.clear();
                 }
             }
-            s.offset = len(get(n.style, PropertyId::StrokeDashoffset, "0"));
+            s.offset = len(view(n.style, PropertyId::StrokeDashoffset, "0"));
             return s;
         }
 
         // clip-path="url(#id)" of one user-space rect, as in the reference raster.
         std::shared_ptr<const Shape> clip(const SceneNode& n, const SceneNode& root) {
-            auto v = n.attributes.contains("clip-path") ? n.attributes.at("clip-path") : "";
+            const auto attribute = n.attributes.find("clip-path");
+            const std::string_view v =
+                attribute == n.attributes.end() ? std::string_view{} : std::string_view(attribute->second);
             if (v.empty() || v == "none") {
                 return {};
             }
@@ -724,7 +743,7 @@ namespace weft {
         };
         auto svg_visit = [&](auto&& self, const SceneNode& n, Plane parent, const SceneNode& root,
                              std::size_t clip) -> void {
-            if (get(n.style, PropertyId::Display) == "none" || n.tag == "defs" || n.tag == "clipPath") {
+            if (view(n.style, PropertyId::Display) == "none" || n.tag == "defs" || n.tag == "clipPath") {
                 return;
             }
             const auto m = parent * affine_plane(svg_affine(n));
@@ -738,15 +757,15 @@ namespace weft {
                 shape.outline = std::shared_ptr<const HitOutline>(path, path.get());
                 clip = out.areas.add_clip(inverse, std::move(shape), clip);
             }
-            const auto pointer = get(n.style, PropertyId::PointerEvents, "visiblePainted");
+            const auto pointer = view(n.style, PropertyId::PointerEvents, "visiblePainted");
             if (auto shape = impl_->shape(n); shape && pointer != "none") {
                 const bool painted = pointer == "auto" || pointer == "painted" || pointer == "visiblePainted";
                 const bool fill = pointer == "all" || pointer == "fill" || pointer == "visibleFill" ||
                                   pointer == "visible" ||
-                                  (painted && get(n.style, PropertyId::Fill, constants::default_color) != "none");
+                                  (painted && view(n.style, PropertyId::Fill, constants::default_color) != "none");
                 const bool stroke = pointer == "all" || pointer == "stroke" || pointer == "visibleStroke" ||
                                     pointer == "visible" ||
-                                    (painted && get(n.style, PropertyId::Stroke, "none") != "none");
+                                    (painted && view(n.style, PropertyId::Stroke, "none") != "none");
                 std::vector<HitShape> shapes;
                 const std::shared_ptr<const HitOutline> outline(shape, shape.get());
                 if (fill && n.tag != "line") {
@@ -770,7 +789,7 @@ namespace weft {
                 auto metrics = impl_->text.measure(n.text, n.style);
                 float tx = n.attributes.contains("x") ? len(n.attributes.at("x")) : 0;
                 float ty = n.attributes.contains("y") ? len(n.attributes.at("y")) : 0;
-                auto anchor = get(n.style, PropertyId::TextAnchor, "start");
+                const auto anchor = view(n.style, PropertyId::TextAnchor, "start");
                 if (anchor == "middle") {
                     tx -= metrics.width / 2;
                 }
@@ -785,7 +804,7 @@ namespace weft {
             }
         };
         auto visit = [&](auto&& self, const SceneNode& n, Plane parent, std::size_t clip) -> void {
-            if (get(n.style, PropertyId::Display) == "none") {
+            if (view(n.style, PropertyId::Display) == "none") {
                 return;
             }
             const auto m = parent * scene_plane(n);
@@ -801,10 +820,10 @@ namespace weft {
                 corners->kind = HitShape::Kind::Rounded;
                 corners->rounded = *rounded;
             }
-            if (n.tag != "#text" && get(n.style, PropertyId::PointerEvents) != "none") {
+            if (n.tag != "#text" && view(n.style, PropertyId::PointerEvents) != "none") {
                 area(n, inverse, {box}, corners ? out.areas.add_clip(inverse, *corners, clip) : clip);
             }
-            const auto overflow = get(n.style, PropertyId::Overflow);
+            const auto overflow = view(n.style, PropertyId::Overflow);
             const bool clipping = overflow == "hidden" || overflow == "auto";
             if (clipping || n.tag == "svg") {
                 clip = out.areas.add_clip(inverse, box, clip);
@@ -819,20 +838,23 @@ namespace weft {
                 }
                 return;
             }
-            // Stacking order among siblings, as painted; auto stacks at 0.
-            const auto z = [](const SceneNode& c) {
-                const auto v = get(c.style, PropertyId::ZIndex, "0");
-                return v == "auto" ? 0.f : len(v);
-            };
-            std::vector<const SceneNode*> order;
+            // Stacking order among siblings, as painted; auto stacks at 0. A single child is not ordered, so its
+            // z-index is not read.
+            std::vector<std::pair<float, const SceneNode*>> order;
+            order.reserve(n.children.size());
             for (const auto& c : n.children) {
-                order.push_back(&c);
+                float z{};
+                if (n.children.size() > 1) {
+                    const auto v = view(c.style, PropertyId::ZIndex, "0");
+                    z = v == "auto" ? 0.f : len(v);
+                }
+                order.emplace_back(z, &c);
             }
-            std::stable_sort(order.begin(), order.end(), [&](auto a, auto b) {
-                return z(*a) < z(*b);
+            std::stable_sort(order.begin(), order.end(), [](const auto& a, const auto& b) {
+                return a.first < b.first;
             });
-            for (auto c : order) {
-                self(self, *c, m, clip);
+            for (const auto& entry : order) {
+                self(self, *entry.second, m, clip);
             }
         };
         visit(visit, f.root, Plane{}, HitAreas::none);
@@ -863,16 +885,16 @@ namespace weft {
                 float ty = n.attributes.contains("y") ? len(n.attributes.at("y")) : 0;
                 if (n.attributes.contains("dy")) {
                     ty += len(n.attributes.at("dy"),
-                              len(get(n.style, PropertyId::FontSize, constants::default_font_size)));
+                              len(view(n.style, PropertyId::FontSize, constants::default_font_size)));
                 }
-                auto anchor = get(n.style, PropertyId::TextAnchor, "start");
+                const auto anchor = view(n.style, PropertyId::TextAnchor, "start");
                 if (anchor == "middle") {
                     tx -= metrics.width / 2;
                 }
                 if (anchor == "end") {
                     tx -= metrics.width;
                 }
-                ty -= get(n.style, PropertyId::DominantBaseline) == "central" ? metrics.height / 2 : metrics.baseline;
+                ty -= view(n.style, PropertyId::DominantBaseline) == "central" ? metrics.height / 2 : metrics.baseline;
                 r = {tx, ty, tx + metrics.width, ty + metrics.height};
             }
             for (const auto& c : n.children) {
@@ -904,10 +926,10 @@ namespace weft {
             e.identity = n.identity;
             e.rect = {b.left, b.top, b.right - b.left, b.bottom - b.top};
             e.client_rects = {e.rect};
-            e.client_width = std::max(0.f, n.box[2] - len(get(n.style, PropertyId::BorderLeftWidth, "0")) -
-                                               len(get(n.style, PropertyId::BorderRightWidth, "0")));
-            e.client_height = std::max(0.f, n.box[3] - len(get(n.style, PropertyId::BorderTopWidth, "0")) -
-                                                len(get(n.style, PropertyId::BorderBottomWidth, "0")));
+            e.client_width = std::max(0.f, n.box[2] - len(view(n.style, PropertyId::BorderLeftWidth, "0")) -
+                                               len(view(n.style, PropertyId::BorderRightWidth, "0")));
+            e.client_height = std::max(0.f, n.box[3] - len(view(n.style, PropertyId::BorderTopWidth, "0")) -
+                                                len(view(n.style, PropertyId::BorderBottomWidth, "0")));
             e.scroll_width = e.client_width;
             e.scroll_height = e.client_height;
             e.offset = {n.box[0], n.box[1], n.box[2], n.box[3]};
@@ -947,8 +969,8 @@ namespace weft {
                 }
                 return;
             }
-            const bool positioned = get(n.style, PropertyId::Position, "static") != "static" ||
-                                    get(n.style, PropertyId::Transform, "none") != "none" ||
+            const bool positioned = view(n.style, PropertyId::Position, "static") != "static" ||
+                                    view(n.style, PropertyId::Transform, "none") != "none" ||
                                     n.identity == f.root.identity;
             for (const auto& c : n.children) {
                 self(self, c, m, positioned ? n.identity : offset_parent, positioned ? 0 : ox + n.box[0],

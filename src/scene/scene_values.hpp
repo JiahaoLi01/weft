@@ -31,6 +31,11 @@ namespace weft::scene_values {
         return std::string(s.text(k, fallback));
     }
 
+    // A computed value without copying it, for read-only walks; valid while the style is unchanged.
+    inline std::string_view view(const Style& s, PropertyId k, const char* fallback = "") {
+        return s.text(k, fallback);
+    }
+
     // Element attributes stay a string map.
     inline std::string get(const std::map<std::string, std::string>& s, const std::string& k,
                            const char* fallback = "") {
