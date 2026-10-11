@@ -298,8 +298,8 @@ namespace probes {
         bool debug = true;
         for (std::size_t i = 0; i < pages.size(); ++i) {
             auto packet = cheetah_packet(pages[i].page, fonts, {});
-            const auto textures = packet.assets.size();
-            const auto draws = packet.draws.size();
+            const auto textures = packet.list->assets.size();
+            const auto draws = packet.list->items.size();
             Experiment direct(warp, weft::constants::default_view_width, weft::constants::default_view_height);
             Experiment rtt(warp, weft::constants::default_view_width, weft::constants::default_view_height);
             auto p = direct.execute(false, packet);

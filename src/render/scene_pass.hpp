@@ -87,9 +87,15 @@ namespace weft::render {
         std::size_t group_depth{};
     };
 
+    // Makes an image record sample its image bottom up, for a texture whose rows start at the bottom.
+    inline void flip_rows(SceneRecord& record) {
+        record.uv = {record.uv[0], 1 - record.uv[1], record.uv[2], -record.uv[3]};
+    }
+
     // Plans a list that passed paint::check for a width x height device px target at scale device px per CSS px,
     // with every item clip narrowed to crop when given. A linear pass takes its colors linear and premultiplied from
-    // here; rounded clips are normalized. A clip outside the rounded clip bounds is Diag::PaintList.
+    // here; rounded clips are normalized. A clip outside the rounded clip bounds, or a chain longer than
+    // max_rounded_clips, is Diag::PaintList.
     Result<ScenePass> plan_scene_pass(const paint::DisplayList& list, float scale, unsigned width, unsigned height,
                                       std::optional<paint::ClipRect> crop = std::nullopt, Space space = Space::Encoded);
 } // namespace weft::render

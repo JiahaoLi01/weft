@@ -3,8 +3,8 @@ weft_add_library(render_d3d11
     SOURCES renderer.cpp backend.cpp two_frame_pipeline.cpp
     PUBLIC weft::render d3d11
     PRIVATE dxgi)
-weft_add_hlsl(weft_render_d3d11 quad quad.hlsl)
 weft_add_hlsl(weft_render_d3d11 srgb_convert srgb_convert.hlsl)
+weft_add_hlsl(weft_render_d3d11 encoded_convert srgb_convert.hlsl DEFINES ENCODED_PREMULTIPLIED=1)
 # The linear pass of display lists: the shared scene shader compositing linear premultiplied colors.
 weft_add_hlsl(weft_render_d3d11 display_linear scene.hlsl ALWAYS_OPTIMIZE DEFINES SPACE_LINEAR=1)
 

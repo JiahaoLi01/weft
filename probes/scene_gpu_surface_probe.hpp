@@ -37,7 +37,6 @@ namespace probes {
         Backend& api_;
         SceneRenderer native_;
         ComPtr<ID2D1Device> d2d_;
-        ComPtr<ID3D11Buffer> constants_;
         std::array<std::array<std::unique_ptr<Slot>, weft::probe_constants::gallery::surface_versions_per_card>,
                    gallery_scene_count>
             slots_;
@@ -108,25 +107,12 @@ namespace probes {
             ctx->RSSetScissorRects(1, &clip);
             ctx->RSSetState(gpu_.raster.Get());
             ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-            ctx->VSSetShader(gpu_.vs.Get(), nullptr, 0);
-            ctx->PSSetShader(gpu_.ps.Get(), nullptr, 0);
-            QuadConstants data{{0, 0, float(s.width), float(s.height)},
-                               {float(s.width), float(s.height)},
-                               weft::probe_constants::gallery::encoded_bgra_material,
-                               1,
-                               {1, 1, 1, 1},
-                               {0, 0, 1, 1},
-                               {},
-                               {}};
-            ctx->UpdateSubresource(constants_.Get(), 0, nullptr, &data, 0, 0);
-            auto* buffer = constants_.Get();
-            ctx->VSSetConstantBuffers(0, 1, &buffer);
-            ctx->PSSetConstantBuffers(0, 1, &buffer);
-            auto* sampler = gpu_.sampler.Get();
-            ctx->PSSetSamplers(0, 1, &sampler);
+            ctx->VSSetShader(gpu_.convert_vs.Get(), nullptr, 0);
+            ctx->PSSetShader(gpu_.encoded_convert_ps.Get(), nullptr, 0);
             auto* view = s.encoded_srv.Get();
             ctx->PSSetShaderResources(0, 1, &view);
-            ctx->Draw(weft::probe_constants::gallery::quad_vertex_count, 0);
+            // One triangle over the target.
+            ctx->Draw(3, 0);
             ctx->ClearState();
         }
 
@@ -159,10 +145,6 @@ namespace probes {
             ComPtr<IDXGIDevice> device;
             check_hresult(gpu.device.As(&device), "GPU scene D2D device identity");
             check_hresult(D2D1CreateDevice(device.Get(), nullptr, &d2d_), "GPU scene shared D2D device");
-            D3D11_BUFFER_DESC desc{};
-            desc.ByteWidth = sizeof(QuadConstants);
-            desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-            check_hresult(gpu.device->CreateBuffer(&desc, nullptr, &constants_), "GPU scene conversion constants");
         }
 
         Slot* image(unsigned index) const {
@@ -377,7 +359,13 @@ namespace probes {
         template <std::size_t N>
         std::vector<weft_render_handle> dependencies(FramePacket& packet, const std::array<int, N>& indices,
                                                      const std::array<bool, N>& visible) {
-            std::vector<int> mapping(packet.assets.size(), -1);
+            std::shared_ptr<weft::paint::DisplayList> list;
+            if (packet.list) {
+                list = std::make_shared<weft::paint::DisplayList>(*packet.list);
+                require(!list->external_textures, "GPU scene list without external textures");
+            }
+            auto& assets = list ? list->assets : packet.assets;
+            std::vector<int> mapping(assets.size(), -1);
             std::vector<weft_render_handle> external;
             for (unsigned i = 0; i < N; ++i) {
                 if (visible[i]) {
@@ -390,13 +378,26 @@ namespace probes {
             for (std::size_t i = 0; i < mapping.size(); ++i) {
                 if (mapping[i] == -1) {
                     mapping[i] = int(cpu.size());
-                    cpu.push_back(packet.assets[i]);
+                    cpu.push_back(assets[i]);
                 }
+            }
+            // A visible scene becomes an external texture after the remaining CPU assets.
+            auto remap = [&](int asset) {
+                const auto index = mapping.at(unsigned(asset));
+                return index >= 0 ? index : int(cpu.size()) - index - 2;
+            };
+            if (list) {
+                for (auto& image : list->images) {
+                    image.asset = std::uint32_t(remap(int(image.asset)));
+                }
+                list->assets = std::move(cpu);
+                list->external_textures = std::uint32_t(external.size());
+                packet.list = std::move(list);
+                return external;
             }
             for (auto& d : packet.draws) {
                 if (d.asset >= 0) {
-                    auto index = mapping.at(unsigned(d.asset));
-                    d.asset = index >= 0 ? index : int(cpu.size()) - index - 2;
+                    d.asset = remap(d.asset);
                 }
             }
             packet.assets = std::move(cpu);

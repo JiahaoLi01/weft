@@ -2,6 +2,7 @@
 
 #include "constants/common.hpp"
 #include "render/backends/d3d11/backend.hpp"
+#include "render/quad_list.hpp"
 #include "render/srgb.hpp"
 
 #include <d3d11sdklayers.h>
@@ -20,22 +21,7 @@
 
 namespace weft::render::d3d11 {
     namespace {
-        // Compiled at build time from quad.hlsl (cmake/WeftShaders.cmake) with the flags the renderer used for
-        // runtime compilation: /O3 with NDEBUG, /Zi /Od without.
-        constexpr unsigned char quad_vs[] = {
-#ifdef NDEBUG
-#include "shaders/quad.vs.inc"
-#else
-#include "shaders/quad.vs.debug.inc"
-#endif
-        };
-        constexpr unsigned char quad_ps[] = {
-#ifdef NDEBUG
-#include "shaders/quad.ps.inc"
-#else
-#include "shaders/quad.ps.debug.inc"
-#endif
-        };
+        // Compiled at build time from srgb_convert.hlsl (cmake/WeftShaders.cmake): /O3 with NDEBUG, /Zi /Od without.
         constexpr unsigned char convert_vs_bytes[] = {
 #ifdef NDEBUG
 #include "shaders/srgb_convert.vs.inc"
@@ -50,6 +36,13 @@ namespace weft::render::d3d11 {
 #include "shaders/srgb_convert.ps.debug.inc"
 #endif
         };
+        constexpr unsigned char encoded_convert_ps_bytes[] = {
+#ifdef NDEBUG
+#include "shaders/encoded_convert.ps.inc"
+#else
+#include "shaders/encoded_convert.ps.debug.inc"
+#endif
+        };
         // The shared scene shader as a linear pass, always optimized (cmake/WeftShaders.cmake).
         constexpr unsigned char display_vs_bytes[] = {
 #include "shaders/display_linear.vs.inc"
@@ -60,28 +53,43 @@ namespace weft::render::d3d11 {
         // Entries of each srgb_convert.hlsl table: one per byte value.
         constexpr unsigned convert_table_entries = 256;
 
-        // An immutable structured buffer of values and its view, alive while recorded commands use them.
+        // Writes values into buffer through context, first growing it to hold them. A driver that records command lists
+        // itself takes UpdateSubresource in command order; with command lists the runtime emulates (WARP), those updates
+        // of a large structured buffer left the draws reading zeros, so the buffer is dynamic and mapped with discard.
         template <class T>
-        std::pair<ComPtr<ID3D11Buffer>, ComPtr<ID3D11ShaderResourceView>>
-        structured(ID3D11Device* device, const std::vector<T>& values, const char* what) {
-            D3D11_BUFFER_DESC d{};
-            d.ByteWidth = UINT(values.size() * sizeof(T));
-            d.Usage = D3D11_USAGE_IMMUTABLE;
-            d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-            d.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
-            d.StructureByteStride = sizeof(T);
-            const D3D11_SUBRESOURCE_DATA data{values.data(), 0, 0};
-            std::pair<ComPtr<ID3D11Buffer>, ComPtr<ID3D11ShaderResourceView>> out;
-            throw_if_failed(device->CreateBuffer(&d, &data, &out.first), what);
-            D3D11_SHADER_RESOURCE_VIEW_DESC v{};
-            v.Format = DXGI_FORMAT_UNKNOWN;
-            v.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
-            v.Buffer.NumElements = UINT(values.size());
-            throw_if_failed(device->CreateShaderResourceView(out.first.Get(), &v, &out.second), what);
-            return out;
+        ID3D11ShaderResourceView* upload(ID3D11Device* device, ID3D11DeviceContext* context, PassBuffer& buffer,
+                                         const std::vector<T>& values, bool driver_command_lists, const char* what) {
+            if (buffer.capacity < values.size()) {
+                const auto capacity = std::max({values.size(), 2 * buffer.capacity,
+                                                std::size_t(weft::constants::render::scene::record_initial_capacity)});
+                D3D11_BUFFER_DESC d{};
+                d.ByteWidth = UINT(capacity * sizeof(T));
+                d.Usage = driver_command_lists ? D3D11_USAGE_DEFAULT : D3D11_USAGE_DYNAMIC;
+                d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+                d.CPUAccessFlags = driver_command_lists ? 0u : UINT(D3D11_CPU_ACCESS_WRITE);
+                d.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+                d.StructureByteStride = sizeof(T);
+                PassBuffer grown;
+                throw_if_failed(device->CreateBuffer(&d, nullptr, &grown.buffer), what);
+                D3D11_SHADER_RESOURCE_VIEW_DESC v{};
+                v.Format = DXGI_FORMAT_UNKNOWN;
+                v.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+                v.Buffer.NumElements = UINT(capacity);
+                throw_if_failed(device->CreateShaderResourceView(grown.buffer.Get(), &v, &grown.view), what);
+                grown.capacity = capacity;
+                buffer = std::move(grown);
+            }
+            if (driver_command_lists) {
+                const D3D11_BOX box{0, 0, 0, UINT(values.size() * sizeof(T)), 1, 1};
+                context->UpdateSubresource(buffer.buffer.Get(), 0, &box, values.data(), 0, 0);
+            } else {
+                D3D11_MAPPED_SUBRESOURCE mapped{};
+                throw_if_failed(context->Map(buffer.buffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped), what);
+                std::memcpy(mapped.pData, values.data(), values.size() * sizeof(T));
+                context->Unmap(buffer.buffer.Get(), 0);
+            }
+            return buffer.view.Get();
         }
-
-        namespace materials = weft::constants::render::d3d11::shader_material;
 
         void lifetime(LifetimeResult r, const char* operation) {
             ensure(r == LifetimeResult::Ok, operation);
@@ -97,6 +105,33 @@ namespace weft::render::d3d11 {
         }
 
         using Color = std::array<float, 4>;
+
+        // One item over the whole w x h px target.
+        paint::Item whole(paint::Item::Kind kind, UINT w, UINT h) {
+            paint::Item item;
+            item.kind = kind;
+            item.clip = {0, 0, float(w), float(h)};
+            item.width = float(w);
+            item.height = float(h);
+            return item;
+        }
+
+        // The image of the list's one external texture over the whole target.
+        paint::DisplayList composite(UINT w, UINT h) {
+            paint::DisplayList list;
+            list.external_textures = 1;
+            list.images.emplace_back();
+            list.items.push_back(whole(paint::Item::Kind::Image, w, h));
+            return list;
+        }
+
+        // A box of one straight sRGB color over the whole target.
+        paint::DisplayList fill(UINT w, UINT h, const paint::Color& color) {
+            paint::DisplayList list;
+            list.boxes.emplace_back().background = color;
+            list.items.push_back(whole(paint::Item::Kind::Box, w, h));
+            return list;
+        }
     } // namespace
 
     void ensure(bool condition, std::string_view message) {
@@ -162,8 +197,12 @@ namespace weft::render::d3d11 {
             throw_if_failed(device.As(&info), "ID3D11InfoQueue");
         }
         throw_if_failed(device->CreateDeferredContext(0, &deferred), "CreateDeferredContext");
-        throw_if_failed(device->CreateVertexShader(quad_vs, sizeof(quad_vs), nullptr, &vs), "CreateVertexShader");
-        throw_if_failed(device->CreatePixelShader(quad_ps, sizeof(quad_ps), nullptr, &ps), "CreatePixelShader");
+        {
+            D3D11_FEATURE_DATA_THREADING threading{};
+            throw_if_failed(device->CheckFeatureSupport(D3D11_FEATURE_THREADING, &threading, sizeof(threading)),
+                            "threading support");
+            driver_command_lists = threading.DriverCommandLists != FALSE;
+        }
         throw_if_failed(device->CreateVertexShader(display_vs_bytes, sizeof(display_vs_bytes), nullptr, &display_vs),
                         "display list vertex shader");
         throw_if_failed(device->CreatePixelShader(display_ps_bytes, sizeof(display_ps_bytes), nullptr, &display_ps),
@@ -178,6 +217,9 @@ namespace weft::render::d3d11 {
                         "Create conversion vertex shader");
         throw_if_failed(device->CreatePixelShader(convert_ps_bytes, sizeof(convert_ps_bytes), nullptr, &convert_ps),
                         "Create conversion pixel shader");
+        throw_if_failed(device->CreatePixelShader(encoded_convert_ps_bytes, sizeof(encoded_convert_ps_bytes), nullptr,
+                                                  &encoded_convert_ps),
+                        "Create encoded conversion pixel shader");
         {
             // The CPU reference values: sRGB decode, then byte / 255, both in single precision.
             std::array<float, 2 * convert_table_entries> tables{};
@@ -199,10 +241,6 @@ namespace weft::render::d3d11 {
             throw_if_failed(device->CreateShaderResourceView(buffer.Get(), &tv, &convert_tables),
                             "Create conversion table view");
         }
-        D3D11_BUFFER_DESC cb{};
-        cb.ByteWidth = sizeof(QuadConstants);
-        cb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-        throw_if_failed(device->CreateBuffer(&cb, nullptr, &constants), "CreateBuffer");
         D3D11_BLEND_DESC b{};
         auto& rt = b.RenderTarget[0];
         rt.BlendEnable = TRUE;
@@ -329,11 +367,42 @@ namespace weft::render::d3d11 {
     }
 
     PreparedFrame Renderer::prepare(FramePacket packet,
+                                    const std::vector<std::pair<std::uint64_t, std::uint64_t>>& keys,
+                                    std::uint32_t external_textures) {
+        if (packet.list) {
+            ensure(packet.draws.empty() && packet.assets.empty() && !external_textures,
+                   "a list packet holds only its list");
+            return prepare(std::move(packet.list), keys);
+        }
+        return prepare(std::make_shared<const paint::DisplayList>(quad_list(packet, external_textures, width, height)),
+                       keys);
+    }
+
+    PreparedFrame Renderer::prepare(paint::DisplayList list,
                                     const std::vector<std::pair<std::uint64_t, std::uint64_t>>& keys) {
+        return prepare(std::make_shared<const paint::DisplayList>(std::move(list)), keys);
+    }
+
+    PreparedFrame Renderer::prepare(std::shared_ptr<const paint::DisplayList> list,
+                                    const std::vector<std::pair<std::uint64_t, std::uint64_t>>& keys) {
+        ensure(list && bool(paint::check(*list, weft::constants::render::scene::max_group_depth)),
+               "well-formed display list");
+        for (const auto& item : list->items) {
+            ensure(item.kind != paint::Item::Kind::Text && item.kind != paint::Item::Kind::Layer,
+                   "the display list pass draws no scene rasters");
+            if (item.kind == paint::Item::Kind::Image) {
+                const auto& image = list->images[item.payload];
+                ensure(image.stroke >= 0 && (image.asset >= list->assets.size() ||
+                                             list->assets[image.asset]->encoding != Encoding::SignedDistance ||
+                                             image.stroke < list->assets[image.asset]->spread - 1),
+                       "SDF stroke exceeds distance padding");
+            }
+        }
         PreparedFrame frame;
-        frame.snapshot = std::move(packet);
-        frame.dependencies.reserve(frame.snapshot.assets.size());
-        assets.reserve(frame.snapshot.assets.size());
+        frame.list = std::move(list);
+        const auto& sources = frame.list->assets;
+        frame.dependencies.reserve(sources.size());
+        assets.reserve(sources.size());
 
         struct ExistingLeases {
             Renderer& renderer;
@@ -358,8 +427,8 @@ namespace weft::render::d3d11 {
                 }
             }
         }
-        for (std::size_t i = 0; i < frame.snapshot.assets.size(); ++i) {
-            const auto& a = *frame.snapshot.assets[i];
+        for (std::size_t i = 0; i < sources.size(); ++i) {
+            const auto& a = *sources[i];
             NativeAsset n;
             const bool r8 = a.encoding != Encoding::SrgbStraight;
             const auto key =
@@ -475,27 +544,6 @@ namespace weft::render::d3d11 {
         return frame;
     }
 
-    PreparedFrame Renderer::prepare(paint::DisplayList list,
-                                    const std::vector<std::pair<std::uint64_t, std::uint64_t>>& keys) {
-        for (const auto& item : list.items) {
-            ensure(item.kind == paint::Item::Kind::Box || item.kind == paint::Item::Kind::Image,
-                   "display list pass draws boxes and images");
-            if (item.kind == paint::Item::Kind::Image) {
-                const auto& image = list.images.at(item.payload);
-                const auto& asset = *list.assets.at(image.asset);
-                ensure(image.stroke >= 0 &&
-                           (asset.encoding != Encoding::SignedDistance || image.stroke < asset.spread - 1),
-                       "SDF stroke exceeds distance padding");
-            }
-        }
-        ensure(bool(paint::check(list, 0)), "well-formed display list");
-        FramePacket packet;
-        packet.assets = list.assets;
-        auto frame = prepare(std::move(packet), keys);
-        frame.list = std::move(list);
-        return frame;
-    }
-
     void Renderer::collect() {
         for (auto& a : assets) {
             ResourceInfo state;
@@ -521,45 +569,6 @@ namespace weft::render::d3d11 {
                 cached.native.rtv.Reset();
             }
         }
-    }
-
-    void Renderer::bind_target(Surface& target) {
-        ID3D11ShaderResourceView* empty{};
-        deferred->PSSetShaderResources(0, 1, &empty);
-        auto* rtv = target.rtv.Get();
-        deferred->OMSetRenderTargets(1, &rtv, nullptr);
-    }
-
-    void Renderer::draw(const Draw& d, ID3D11ShaderResourceView* texture, UINT material, float spread) {
-        Color color = d.srgb;
-        for (int c = 0; c < 3; ++c) {
-            color[c] = srgb_to_linear(color[c]) * color[3];
-        }
-        Color outline = d.outline;
-        for (int c = 0; c < 3; ++c) {
-            outline[c] = srgb_to_linear(outline[c]) * outline[3];
-        }
-        ensure(d.stroke >= 0 && (material != materials::signed_distance || d.stroke < spread - 1),
-               "SDF stroke exceeds distance padding");
-        QuadConstants data{{d.rect.x, d.rect.y, d.rect.w, d.rect.h},
-                           {static_cast<float>(width), static_cast<float>(height)},
-                           material,
-                           d.opacity,
-                           color,
-                           d.uv,
-                           {spread, d.stroke, 0, 0},
-                           outline};
-        deferred->UpdateSubresource(constants.Get(), 0, nullptr, &data, 0, 0);
-        deferred->PSSetShaderResources(0, 1, &texture);
-        D3D11_RECT clip{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
-        if (d.clipped) {
-            clip = {static_cast<LONG>(d.rect.x + weft::constants::render::d3d11::diagnostic_clip_inset),
-                    static_cast<LONG>(d.rect.y + weft::constants::render::d3d11::diagnostic_clip_inset),
-                    static_cast<LONG>(d.rect.x + d.rect.w - weft::constants::render::d3d11::diagnostic_clip_inset),
-                    static_cast<LONG>(d.rect.y + d.rect.h - weft::constants::render::d3d11::diagnostic_clip_inset)};
-        }
-        deferred->RSSetScissorRects(1, &clip);
-        deferred->Draw(weft::constants::render::d3d11::quad_vertex_count, 0);
     }
 
     Encoded Renderer::encode(const PreparedFrame& frame, bool rtt, bool fail_after_upload,
@@ -624,80 +633,30 @@ namespace weft::render::d3d11 {
             }
             const float transparent[4]{};
             auto& destination = rtt ? intermediate : output;
-            if (native_target) {
-                ID3D11ShaderResourceView* empty{};
-                deferred->PSSetShaderResources(0, 1, &empty);
-                deferred->OMSetRenderTargets(1, &native_target, nullptr);
-                if (clear_native_target) {
-                    deferred->ClearRenderTargetView(native_target, native_clear ? native_clear : transparent);
-                }
-            } else {
-                bind_target(destination);
-                deferred->ClearRenderTargetView(destination.rtv.Get(), transparent);
+            auto* target = native_target ? native_target : destination.rtv.Get();
+            if (!native_target || clear_native_target) {
+                deferred->ClearRenderTargetView(target, native_target && native_clear ? native_clear : transparent);
             }
-            D3D11_VIEWPORT viewport{0, 0, static_cast<float>(width), static_cast<float>(height), 0, 1};
-            deferred->RSSetViewports(1, &viewport);
-            deferred->RSSetState(raster.Get());
-            deferred->OMSetDepthStencilState(depth.Get(), 0);
-            deferred->OMSetBlendState(blend.Get(), nullptr, D3D11_DEFAULT_SAMPLE_MASK);
-            deferred->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-            deferred->VSSetShader(vs.Get(), nullptr, 0);
-            deferred->PSSetShader(ps.Get(), nullptr, 0);
-            auto* cb = constants.Get();
-            deferred->VSSetConstantBuffers(0, 1, &cb);
-            deferred->PSSetConstantBuffers(0, 1, &cb);
-            auto* ss = sampler.Get();
-            deferred->PSSetSamplers(0, 1, &ss);
-            if (frame.list) {
-                encode_list(*frame.list, native_target ? native_target : destination.rtv.Get());
+            std::vector<ImageView> images;
+            images.reserve(assets.size() + frame.external.size());
+            for (const auto& a : assets) {
+                images.push_back({a.srv.Get()});
             }
-            for (const auto& d : frame.snapshot.draws) {
-                if (d.group) {
-                    bind_target(group);
-                    deferred->ClearRenderTargetView(group.rtv.Get(), transparent);
-                    Draw red = d;
-                    red.group = false;
-                    red.opacity = 1;
-                    red.srgb = {1, 0, 0, 1};
-                    draw(red, nullptr, materials::solid);
-                    Draw blue = red;
-                    blue.srgb = {0, 0, 1, 1};
-                    draw(blue, nullptr, materials::solid);
-                    bind_target(destination);
-                    Draw composite = d;
-                    composite.uv = {d.rect.x / width, d.rect.y / height, d.rect.w / width, d.rect.h / height};
-                    draw(composite, group.srv.Get(), materials::texture);
-                } else {
-                    if (d.asset >= 0 && size_t(d.asset) >= frame.snapshot.assets.size()) {
-                        const auto& external = frame.external.at(size_t(d.asset) - frame.snapshot.assets.size());
-                        draw(d, external.srv.Get(),
-                             external.bottom_left ? materials::texture_bottom_up : materials::texture);
-                        continue;
-                    }
-                    auto* texture = d.asset < 0 ? nullptr : assets[static_cast<std::size_t>(d.asset)].srv.Get();
-                    const auto* asset =
-                        d.asset < 0 ? nullptr : frame.snapshot.assets[static_cast<std::size_t>(d.asset)].get();
-                    const UINT shader_material = !asset                                  ? materials::solid
-                                                 : asset->encoding == Encoding::Coverage ? materials::coverage
-                                                 : asset->encoding == Encoding::SignedDistance
-                                                     ? materials::signed_distance
-                                                     : materials::texture;
-                    draw(d, texture, shader_material, asset ? asset->spread : 0);
-                }
+            for (const auto& e : frame.external) {
+                images.push_back({e.srv.Get(), e.bottom_left});
             }
+            record(deferred.Get(), *frame.list, target, width, height, images);
             if (rtt) {
-                bind_target(output);
                 deferred->ClearRenderTargetView(output.rtv.Get(), transparent);
-                draw({{0, 0, static_cast<float>(width), static_cast<float>(height)}}, intermediate.srv.Get(),
-                     materials::texture);
+                record(deferred.Get(), composite(width, height), output.rtv.Get(), width, height,
+                       {{intermediate.srv.Get()}});
             }
             // A transparent linear destination checks premultiplied RGB/alpha
             // independently of the opaque screenshot's alpha=1 background.
             if (!native_target) {
-                bind_target(group);
+                constexpr paint::Color half_green{0, 1, 0, .5f};
                 deferred->ClearRenderTargetView(group.rtv.Get(), transparent);
-                draw({{0, 0, static_cast<float>(width), static_cast<float>(height)}, {0, 1, 0, 0.5f}}, nullptr,
-                     materials::solid);
+                record(deferred.Get(), fill(width, height, half_green), group.rtv.Get(), width, height, {});
             }
             deferred->ClearState();
             throw_if_failed(deferred->FinishCommandList(FALSE, &encoded.commands), "FinishCommandList");
@@ -713,53 +672,90 @@ namespace weft::render::d3d11 {
         }
     }
 
-    void Renderer::encode_list(const paint::DisplayList& list, ID3D11RenderTargetView* target) {
-        const auto pass = plan_scene_pass(list, 1, width, height, std::nullopt, Space::Linear).value();
+    void Renderer::record(ID3D11DeviceContext* context, const paint::DisplayList& list, ID3D11RenderTargetView* target,
+                          UINT target_width, UINT target_height, const std::vector<ImageView>& images) {
+        auto planned = plan_scene_pass(list, 1, target_width, target_height, std::nullopt, Space::Linear);
+        ensure(bool(planned), "display list pass plan");
+        auto& pass = *planned;
+        for (std::size_t i = 0; i < list.items.size(); ++i) {
+            if (list.items[i].kind == paint::Item::Kind::Image &&
+                images.at(list.images[list.items[i].payload].asset).bottom_up) {
+                flip_rows(pass.records[i]);
+            }
+        }
         if (pass.clear != paint::Color{}) {
-            deferred->ClearRenderTargetView(target, pass.clear.data());
+            context->ClearRenderTargetView(target, pass.clear.data());
         }
         if (pass.batches.empty()) {
             return;
         }
-        const auto [records, record_view] = structured(device.Get(), pass.records, "display list records");
-        ComPtr<ID3D11Buffer> clip_buffer;
-        ComPtr<ID3D11ShaderResourceView> clip_view;
-        if (!pass.clips.empty()) {
-            std::tie(clip_buffer, clip_view) = structured(device.Get(), pass.clips, "display list clips");
-        }
-        D3D11_RECT scissor{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
-        deferred->RSSetScissorRects(1, &scissor);
-        deferred->VSSetShader(display_vs.Get(), nullptr, 0);
-        deferred->PSSetShader(display_ps.Get(), nullptr, 0);
+        auto* record_view =
+            upload(device.Get(), context, display_records, pass.records, driver_command_lists, "display list records");
+        auto* clip_view = pass.clips.empty() ? nullptr
+                                             : upload(device.Get(), context, display_clips, pass.clips,
+                                                      driver_command_lists, "display list clips");
+        const D3D11_VIEWPORT viewport{0, 0, float(target_width), float(target_height), 0, 1};
+        context->RSSetViewports(1, &viewport);
+        const D3D11_RECT scissor{0, 0, LONG(target_width), LONG(target_height)};
+        context->RSSetScissorRects(1, &scissor);
+        context->RSSetState(raster.Get());
+        context->OMSetDepthStencilState(depth.Get(), 0);
+        context->OMSetBlendState(blend.Get(), nullptr, D3D11_DEFAULT_SAMPLE_MASK);
+        context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        context->VSSetShader(display_vs.Get(), nullptr, 0);
+        context->PSSetShader(display_ps.Get(), nullptr, 0);
         auto* cb = display_constants.Get();
-        deferred->VSSetConstantBuffers(0, 1, &cb);
-        deferred->PSSetConstantBuffers(0, 1, &cb);
-        ID3D11ShaderResourceView* views[3]{record_view.Get(), nullptr, clip_view.Get()};
-        deferred->VSSetShaderResources(0, 1, views);
-        deferred->PSSetShaderResources(0, 3, views);
-        std::array<float, 4> view{static_cast<float>(width), static_cast<float>(height), 1, 0};
+        context->VSSetConstantBuffers(0, 1, &cb);
+        context->PSSetConstantBuffers(0, 1, &cb);
+        auto* ss = sampler.Get();
+        context->PSSetSamplers(0, 1, &ss);
+        ID3D11ShaderResourceView* views[3]{record_view, nullptr, clip_view};
+        context->VSSetShaderResources(0, 1, views);
+        context->PSSetShaderResources(0, 3, views);
+        context->OMSetRenderTargets(1, &target, nullptr);
+        std::array<float, 4> view{float(target_width), float(target_height), 1, 0};
+        auto draw = [&](std::uint32_t first, std::uint32_t count, ID3D11ShaderResourceView* image) {
+            view[3] = float(first);
+            context->UpdateSubresource(display_constants.Get(), 0, nullptr, view.data(), 0, 0);
+            context->PSSetShaderResources(1, 1, &image);
+            context->DrawInstanced(weft::constants::render::d3d11::quad_vertex_count, count, 0, 0);
+        };
+        // The target, then one layer per open group.
+        std::vector<ID3D11RenderTargetView*> targets{target};
         for (const auto& batch : pass.batches) {
-            ID3D11ShaderResourceView* image{};
-            if (batch.step == ScenePass::Step::Image) {
-                const auto& item = list.items[batch.first];
-                image = assets.at(list.images[item.payload].asset).srv.Get();
-            } else {
-                ensure(batch.step == ScenePass::Step::Boxes, "display list pass draws boxes and images");
+            switch (batch.step) {
+                case ScenePass::Step::Boxes:
+                    draw(batch.first, batch.count, nullptr);
+                    break;
+                case ScenePass::Step::Image:
+                    draw(batch.first, 1, images.at(list.images[list.items[batch.first].payload].asset).view);
+                    break;
+                case ScenePass::Step::BeginGroup: {
+                    ensure(target_width == width && target_height == height, "groups draw at the renderer's size");
+                    const auto nesting = targets.size() - 1;
+                    while (group_layers.size() <= nesting) {
+                        group_layers.push_back(surface(DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT));
+                    }
+                    auto* layer = group_layers[nesting].rtv.Get();
+                    // The layer may still be the image of the composite that ended its previous group.
+                    ID3D11ShaderResourceView* none{};
+                    context->PSSetShaderResources(1, 1, &none);
+                    const float transparent[4]{};
+                    context->ClearRenderTargetView(layer, transparent);
+                    context->OMSetRenderTargets(1, &layer, nullptr);
+                    targets.push_back(layer);
+                    break;
+                }
+                case ScenePass::Step::EndGroup:
+                    targets.pop_back();
+                    context->OMSetRenderTargets(1, &targets.back(), nullptr);
+                    draw(batch.first, 1, group_layers[targets.size() - 1].srv.Get());
+                    break;
             }
-            view[3] = static_cast<float>(batch.first);
-            deferred->UpdateSubresource(display_constants.Get(), 0, nullptr, view.data(), 0, 0);
-            deferred->PSSetShaderResources(1, 1, &image);
-            deferred->DrawInstanced(weft::constants::render::d3d11::quad_vertex_count, batch.count, 0, 0);
         }
-        // Back to the quad pipeline for the rest of the recording.
         ID3D11ShaderResourceView* empty[3]{};
-        deferred->VSSetShaderResources(0, 1, empty);
-        deferred->PSSetShaderResources(0, 3, empty);
-        deferred->VSSetShader(vs.Get(), nullptr, 0);
-        deferred->PSSetShader(ps.Get(), nullptr, 0);
-        cb = constants.Get();
-        deferred->VSSetConstantBuffers(0, 1, &cb);
-        deferred->PSSetConstantBuffers(0, 1, &cb);
+        context->VSSetShaderResources(0, 1, empty);
+        context->PSSetShaderResources(0, 3, empty);
     }
 
     void Renderer::complete() {

@@ -15,6 +15,7 @@
 #include "input/mouse_router.hpp"
 #include "weft/render_backend_d3d11.h"
 #include "render/backends/d3d11/host.hpp"
+#include "render/quad_list.hpp"
 #include "render/backends/d3d11/two_frame_pipeline.hpp"
 #include "render/srgb.hpp"
 #include "constants/common.hpp"
@@ -244,7 +245,7 @@ namespace probes {
             lifetime(tracker.InspectUseToken(encoded.token, token), "Inspect upload plan");
             test(token.upload_count == assets.size(), "independent retry includes every upload");
             lifetime(tracker.ReleasePreparedFrame(frame.id), "ReleasePreparedFrame");
-            frame.snapshot = {};
+            frame.list.reset();
             for (const auto& a : assets) {
                 lifetime(tracker.ReleaseResource(a.id), "Release CPU asset lease");
             }

@@ -85,6 +85,7 @@ namespace probes {
         std::size_t expected_textures{};
         std::size_t samples{};
         int max_error{};
+        float edge_error{};
         std::string previous_key;
         std::ostringstream captures;
         bool first = true;
@@ -230,7 +231,7 @@ namespace probes {
                     }
                 }
                 auto packet = cheetah_packet(raster, fonts, images, high_resolution ? &packet_cache : nullptr);
-                expected_textures += packet.assets.size();
+                expected_textures += packet.list->assets.size();
                 presenter.capture = capture;
                 const auto packet_finished = seconds();
                 if (pipeline) {
@@ -269,15 +270,14 @@ namespace probes {
                         presenter.height == weft::constants::default_view_height) {
                         for (int y = 1; y < weft::constants::default_view_height; y += 7) {
                             for (int x = 1; x < weft::constants::default_view_width; x += 7) {
-                                const auto expected = cheetah_sample(packet, x, y);
-                                const auto actual = pixels[std::size_t(y) * weft::constants::default_view_width + x];
-                                for (int c = 0; c < 4; ++c) {
-                                    max_error = std::max(max_error, std::abs(int(actual[c]) - int(expected[c])));
-                                }
+                                compare_oracle(cheetah_sample(packet, x, y),
+                                               pixels[std::size_t(y) * weft::constants::default_view_width + x],
+                                               max_error, edge_error);
                                 ++samples;
                             }
                         }
-                        require(max_error <= weft::probe_constants::cpu_oracle_tolerance,
+                        require(max_error <= weft::probe_constants::cpu_oracle_tolerance &&
+                                    edge_error <= weft::probe_constants::rounded_clip_edge_linear_tolerance,
                                 "flow window CPU pixel oracle");
                     }
                     if (high_resolution && presenter.width == weft::constants::uhd_width &&
@@ -286,15 +286,15 @@ namespace probes {
                         // Avoid the separate native diagnostic HUD in this comparison.
                         for (int y = 11; y < weft::constants::uhd_height; y += 97) {
                             for (int x = 11; x < weft::probe_constants::fps_hud_x; x += 97) {
-                                const auto expected = cheetah_sample(packet, x, y);
-                                const auto actual = pixels[std::size_t(y) * weft::constants::uhd_width + x];
-                                for (int c = 0; c < 4; ++c) {
-                                    max_error = std::max(max_error, std::abs(int(actual[c]) - int(expected[c])));
-                                }
+                                compare_oracle(cheetah_sample(packet, x, y),
+                                               pixels[std::size_t(y) * weft::constants::uhd_width + x], max_error,
+                                               edge_error);
                                 ++samples;
                             }
                         }
-                        require(max_error <= weft::probe_constants::cpu_oracle_tolerance, "4K native pixel oracle");
+                        require(max_error <= weft::probe_constants::cpu_oracle_tolerance &&
+                                    edge_error <= weft::probe_constants::rounded_clip_edge_linear_tolerance,
+                                "4K native pixel oracle");
                         require(pixels[1000 * weft::constants::uhd_width + 8] == Pixel{0, 0, 0, 255},
                                 "4K internal letterbox");
                         require(pixels[1000 * weft::constants::uhd_width + 300] == Pixel{89, 104, 100, 255},
@@ -558,11 +558,6 @@ namespace probes {
             PostMessageW(window.state.hwnd, WM_CLOSE, 0, 0);
             step(++time);
         } else if (self_test && high_resolution) {
-            Draw precision{{3000.25f, 100, 16.f / 11.f, 8}};
-            const auto original_width = precision.rect.w;
-            crop_draw(precision, {0, 0, weft::constants::uhd_width, weft::constants::uhd_height});
-            require(precision.rect.w <= original_width && precision.uv[2] <= 1,
-                    "4K crop expanded source UV from float cancellation");
             window.client_size(weft::constants::uhd_width, weft::constants::uhd_height);
             step(0, true);
             auto pixel = [&](float x, float y) {
@@ -806,9 +801,7 @@ namespace probes {
                             ",\"gpu_cache_hits\":" + std::to_string(gpu.cache_hits) +
                             ",\"gpu_cache_peak_bytes\":" + std::to_string(gpu.peak_cached_bytes) +
                             ",\"cpu_glyph_cache_bytes\":" + std::to_string(packet_cache.glyphs.bytes) +
-                            ",\"cpu_mask_cache_bytes\":" + std::to_string(packet_cache.masks.bytes) +
-                            ",\"glyph_cache_hits\":" + std::to_string(packet_cache.glyphs.hits) +
-                            ",\"mask_cache_hits\":" + std::to_string(packet_cache.masks.hits) + "}";
+                            ",\"glyph_cache_hits\":" + std::to_string(packet_cache.glyphs.hits) + "}";
             write_text(folder / "profile.json", profile_text);
         }
         const auto motion_state = motion ? script.eval("JSON.stringify(__ceMotion.snapshot())") : "null";
@@ -837,7 +830,8 @@ namespace probes {
             << ",\"os_wheel_chars\":" << os_chars
             << ",\"line_pixels\":24,\"char_pixels\":8,\"native_textures_retired\":" << gpu.native_releases
             << ",\"completed_serial\":" << gpu.tracker.Stats().completed_serial << ",\"cpu_pixel_samples\":" << samples
-            << ",\"cpu_pixel_max_difference\":" << max_error << ",\"actual_completion_query\":true"
+            << ",\"cpu_pixel_max_difference\":" << max_error
+            << ",\"cpu_pixel_rounded_edge_max_linear_difference\":" << edge_error << ",\"actual_completion_query\":true"
             << ",\"render_width\":" << gpu.width << ",\"render_height\":" << gpu.height
             << ",\"logical_width\":640,\"logical_height\":420,\"host_only_compositions\":" << compositions
             << ",\"high_ppem_glyphs\":" << high_ppem_glyphs << ",\"fps_samples\":" << rate.samples
@@ -847,7 +841,6 @@ namespace probes {
             << ",\"native_uploads\":" << gpu.uploads << ",\"gpu_cache_hits\":" << gpu.cache_hits
             << ",\"gpu_cache_peak_bytes\":" << gpu.peak_cached_bytes
             << ",\"glyph_cache_hits\":" << packet_cache.glyphs.hits
-            << ",\"mask_cache_hits\":" << packet_cache.masks.hits
             << ",\"motion_enabled\":" << (motion ? "true" : "false") << ",\"motion\":" << motion_state
             << ",\"pipeline_depth\":" << (pipeline ? weft::probe_constants::frames_in_flight : 1)
             << ",\"peak_in_flight\":" << (pipeline ? pipeline->peak_in_flight : 1)

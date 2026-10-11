@@ -17,7 +17,7 @@ namespace weft::render::d3d11 {
         ensure(!r.pipeline_enabled, "synchronous and asynchronous window hosts cannot be mixed");
         ensure(!r.submitted || r.acknowledged, "previous window frame must complete before reuse");
         auto& api = r.ensure_backend();
-        const auto count = packet.assets.size();
+        const auto count = packet.list ? packet.list->assets.size() : packet.assets.size();
         PacketView view(packet, r.window_serial + 1, r.cache_assets ? &r : nullptr);
         weft_render_handle frame{};
         weft_render_handle use{};
@@ -25,7 +25,7 @@ namespace weft::render::d3d11 {
         auto milliseconds = [](auto a, auto b) {
             return std::chrono::duration<double, std::milli>(b - a).count();
         };
-        render_result(weft_renderer_prepare(api.renderer, &view.frame, &frame), "backend prepare window");
+        render_result(view.prepare(api.renderer, frame), "backend prepare window");
         const auto prepared_at = std::chrono::steady_clock::now();
         r.prepare_ms = milliseconds(started, prepared_at);
         void* native_commands{};

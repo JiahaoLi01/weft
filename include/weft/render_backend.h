@@ -21,6 +21,8 @@ extern "C" {
 #define WEFT_RENDER_API_CUSTOM_BEGIN 1024u
 
 typedef struct weft_renderer weft_renderer;
+/* Defined by render_external_texture.h. */
+struct weft_render_external_asset;
 
 typedef enum weft_render_result {
     WEFT_RENDER_OK = 0,
@@ -45,7 +47,9 @@ enum {
     WEFT_RENDER_FEATURE_SOLID = 1u,
     WEFT_RENDER_FEATURE_IMAGE = 2u,
     WEFT_RENDER_FEATURE_COVERAGE = 4u,
-    WEFT_RENDER_FEATURE_SDF = 8u
+    WEFT_RENDER_FEATURE_SDF = 8u,
+    /* weft_renderer_prepare_list through weft_render_backend::prepare_list */
+    WEFT_RENDER_FEATURE_DISPLAY_LIST = 16u
 };
 
 typedef enum weft_render_encoding {
@@ -99,6 +103,10 @@ typedef struct weft_render_frame {
     const weft_render_asset* assets;
 } weft_render_frame;
 
+/* An immutable display list of the Weft runtime: boxes, images, rounded clips and isolated groups in paint
+ * order, with its own asset leases. Opaque to hosts, which pass it through; built-in backends read it. */
+typedef struct weft_paint_list weft_paint_list;
+
 typedef struct weft_render_capabilities {
     uint32_t struct_size;
     uint32_t features;
@@ -124,6 +132,15 @@ typedef struct weft_render_handle {
     uint32_t kind;
     uint32_t reserved;
 } weft_render_handle;
+
+typedef struct weft_render_list_frame {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    const weft_paint_list* list; /* call-scoped; a successful prepare keeps its own reference */
+    uint32_t external_count;     /* the list's external textures (render_external_texture.h), in order */
+    uint32_t reserved;
+    const weft_render_handle* external_textures; /* call-scoped caller leases */
+} weft_render_list_frame;
 
 typedef struct weft_render_pass {
     uint32_t struct_size;
@@ -164,6 +181,11 @@ typedef struct weft_render_backend {
     /* Only after host guarantees the old device can never access resources. */
     void (*abandon)(void*) WEFT_RENDER_NOEXCEPT;
     weft_render_result (*shutdown)(void*) WEFT_RENDER_NOEXCEPT;
+    /* Required with WEFT_RENDER_FEATURE_DISPLAY_LIST, null otherwise; a struct_size that ends before it means
+     * null. Prepares a display list frame as prepare does: inputs are call-scoped, success owns a complete
+     * snapshot (its own list reference and the external texture metadata). */
+    weft_render_result (*prepare_list)(void*, const weft_paint_list*, const struct weft_render_external_asset*,
+                                       uint32_t, uint64_t* native_frame) WEFT_RENDER_NOEXCEPT;
 } weft_render_backend;
 
 typedef struct weft_renderer_desc {
@@ -198,6 +220,10 @@ weft_render_result weft_renderer_destroy(weft_renderer*) WEFT_RENDER_NOEXCEPT;
 weft_render_result weft_renderer_get_info(weft_renderer*, weft_render_info*) WEFT_RENDER_NOEXCEPT;
 weft_render_result weft_renderer_prepare(weft_renderer*, const weft_render_frame*,
                                          weft_render_handle*) WEFT_RENDER_NOEXCEPT;
+/* A display list frame; requires WEFT_RENDER_FEATURE_DISPLAY_LIST, and the external texture extension when the
+ * list draws external textures. */
+weft_render_result weft_renderer_prepare_list(weft_renderer*, const weft_render_list_frame*,
+                                              weft_render_handle*) WEFT_RENDER_NOEXCEPT;
 weft_render_result weft_renderer_release_prepared(weft_renderer*, weft_render_handle) WEFT_RENDER_NOEXCEPT;
 weft_render_result weft_renderer_encode(weft_renderer*, weft_render_handle, const weft_render_pass*,
                                         weft_render_handle*) WEFT_RENDER_NOEXCEPT;

@@ -69,7 +69,7 @@ namespace weft::render::d3d11 {
             D3D11_QUERY_DESC query{D3D11_QUERY_EVENT, 0};
             throw_if_failed(gpu.device->CreateQuery(&query, &slot.done), "pipeline completion query");
             D3D11_BUFFER_DESC buffer{};
-            buffer.ByteWidth = sizeof(QuadConstants);
+            buffer.ByteWidth = weft::constants::render::scene::view_constants_bytes;
             buffer.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
             throw_if_failed(gpu.device->CreateBuffer(&buffer, nullptr, &slot.constants),
                             "pipeline frame constant buffer");

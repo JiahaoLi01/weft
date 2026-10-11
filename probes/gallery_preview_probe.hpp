@@ -23,15 +23,10 @@ namespace probes {
         line.paint.shaped = fonts.shape(value.substr(0, value.find('\n')), 28).shaped;
         line.clip = {584, 2056, 3200, 88};
         page.paints.push_back(std::move(line));
-        auto footer = cheetah_packet(page, fonts, {});
-        const auto offset = int(packet.assets.size());
-        packet.assets.insert(packet.assets.end(), footer.assets.begin(), footer.assets.end());
-        for (auto draw : footer.draws) {
-            if (draw.asset >= 0) {
-                draw.asset += offset;
-            }
-            packet.draws.push_back(std::move(draw));
-        }
+        const auto footer = cheetah_packet(page, fonts, {});
+        auto list = std::make_shared<weft::paint::DisplayList>(*packet.list);
+        require(bool(weft::paint::append(*list, *footer.list)), "gallery detail footer");
+        packet.list = std::move(list);
     }
 
     // Owner-thread inspection host. This is an authored DOM/CSS shell around the
@@ -329,19 +324,37 @@ namespace probes {
     }
 
     inline void gallery_preview_packet_equal(const FramePacket& cached, const FramePacket& full) {
-        require(cached.draws.size() == full.draws.size(), "gallery cached/full draw count");
-        for (std::size_t i = 0; i < full.draws.size(); ++i) {
-            const auto& a = cached.draws[i];
-            const auto& b = full.draws[i];
-            require(a.rect.x == b.rect.x && a.rect.y == b.rect.y && a.rect.w == b.rect.w && a.rect.h == b.rect.h &&
-                        a.srgb == b.srgb && a.uv == b.uv,
+        const auto& a = *cached.list;
+        const auto& b = *full.list;
+        require(a.items.size() == b.items.size() && a.external_textures == b.external_textures,
+                "gallery cached/full item count");
+        for (std::size_t i = 0; i < b.items.size(); ++i) {
+            const auto& x = a.items[i];
+            const auto& y = b.items[i];
+            require(x.kind == y.kind && x.transform == y.transform && x.clip == y.clip && x.width == y.width &&
+                        x.height == y.height && x.opacity == y.opacity && x.clips_count == y.clips_count,
                     "gallery cached/full paint/clip order");
-            require((a.asset < 0) == (b.asset < 0), "gallery cached/full missing asset");
-            if (a.asset >= 0) {
-                const auto& x = *cached.assets[unsigned(a.asset)];
-                const auto& y = *full.assets[unsigned(b.asset)];
-                require(x.width == y.width && x.height == y.height && x.encoding == y.encoding && x.bytes == y.bytes,
-                        "gallery cached/full asset content");
+            for (std::uint32_t c = 0; c < x.clips_count; ++c) {
+                const auto& p = a.clips[x.clips_begin + c];
+                const auto& q = b.clips[y.clips_begin + c];
+                require(p.rect == q.rect && p.radius_x == q.radius_x && p.radius_y == q.radius_y,
+                        "gallery cached/full rounded clips");
+            }
+            if (x.kind == weft::paint::Item::Kind::Box) {
+                require(a.boxes[x.payload].background == b.boxes[y.payload].background, "gallery cached/full box");
+            } else if (x.kind == weft::paint::Item::Kind::Image) {
+                const auto& p = a.images[x.payload];
+                const auto& q = b.images[y.payload];
+                require(p.uv == q.uv && p.color == q.color && p.stroke == q.stroke && p.outline == q.outline &&
+                            (p.asset < a.assets.size()) == (q.asset < b.assets.size()),
+                        "gallery cached/full image");
+                if (p.asset < a.assets.size()) {
+                    const auto& s = *a.assets[p.asset];
+                    const auto& t = *b.assets[q.asset];
+                    require(s.width == t.width && s.height == t.height && s.encoding == t.encoding &&
+                                s.bytes == t.bytes,
+                            "gallery cached/full asset content");
+                }
             }
         }
     }

@@ -55,12 +55,13 @@ namespace probes {
         report << "{\"fixture\":\"casecheetah-nine-slice-v1\",\"driver\":" << json_string(warp ? "warp" : "hardware")
                << ",\"adapter\":" << json_string(gpu.adapter) << ",\"frames\":[";
         int max_error{};
+        float edge_error{};
         std::size_t samples{};
         std::vector<Pixel> initial;
         unsigned expected_releases{};
         auto render = [&](const auto& page) {
             auto packet = cheetah_packet(page, fonts, images);
-            expected_releases += unsigned(packet.assets.size());
+            expected_releases += unsigned(packet.list->assets.size());
             render_window(gpu, packet, [&] {
                 presenter.present();
             });
@@ -68,20 +69,20 @@ namespace probes {
         };
         for (int i = 0; i < weft::probe_constants::interaction_frames; ++i) {
             auto [packet, pixels] = render(pages[i]);
+            const auto& list = *packet.list;
             unsigned image_draws{};
-            for (const auto& d : packet.draws) {
-                if (d.asset >= 0 && packet.assets[d.asset]->encoding == Encoding::SrgbStraight) {
+            for (const auto& item : list.items) {
+                if (item.kind == weft::paint::Item::Kind::Image &&
+                    list.assets[list.images[item.payload].asset]->encoding == Encoding::SrgbStraight) {
                     ++image_draws;
                 }
             }
             require(image_draws == 13, "original 9 card + 2 left + 2 right pieces reach GPU");
             for (int y = 3; y < weft::constants::default_view_height; y += 11) {
                 for (int x = 2; x < weft::constants::default_view_width; x += 11) {
-                    const auto expected = cheetah_sample(packet, x, y);
-                    const auto actual = pixels[std::size_t(y) * weft::constants::default_view_width + x];
-                    for (int c = 0; c < 4; ++c) {
-                        max_error = std::max(max_error, std::abs(int(actual[c]) - int(expected[c])));
-                    }
+                    compare_oracle(cheetah_sample(packet, x, y),
+                                   pixels[std::size_t(y) * weft::constants::default_view_width + x], max_error,
+                                   edge_error);
                     ++samples;
                 }
             }
@@ -98,9 +99,11 @@ namespace probes {
                 report << ',';
             }
             report << "{\"state\":" << states[i] << ",\"layout\":" << page_json(pages[i].geometry)
-                   << ",\"image_draws\":" << image_draws << ",\"textures\":" << packet.assets.size() << '}';
+                   << ",\"image_draws\":" << image_draws << ",\"textures\":" << list.assets.size() << '}';
         }
-        require(max_error <= weft::probe_constants::cpu_oracle_tolerance, "game PNG/crop/linear-alpha CPU oracle");
+        require(max_error <= weft::probe_constants::cpu_oracle_tolerance &&
+                    edge_error <= weft::probe_constants::rounded_clip_edge_linear_tolerance,
+                "game PNG/crop/linear-alpha CPU oracle");
         gpu.check_debug_messages();
         require(expected_releases == gpu.native_releases, "all image/glyph resources retire after actual completion");
         report

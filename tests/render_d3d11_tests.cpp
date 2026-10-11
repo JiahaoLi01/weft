@@ -1,5 +1,4 @@
 #include "render/backends/d3d11/host.hpp"
-#include "render/quad_lowering.hpp"
 #include "render/srgb.hpp"
 #include "support/check.hpp"
 
@@ -16,8 +15,8 @@
 
 // The D3D11 reference renderer as a library, without the probes: two frames through the synchronous host on
 // WARP (--hardware: the default adapter), pixel readback, texture retirement after the actual completion query, the
-// GPU conversion of translucent sRGB inputs against the CPU reference bit for bit, a display list drawn by the
-// shared scene shader against its quads, and a clean debug layer.
+// GPU conversion of translucent sRGB inputs against the CPU reference bit for bit, a display list drawn directly and
+// as a C ABI list frame against CPU expectations, isolated groups, and a clean debug layer.
 namespace {
 #define CHECK(v) WEFT_REQUIRE(v)
 
@@ -94,6 +93,73 @@ namespace {
     }
 
     namespace paint = weft::paint;
+    using Linear = std::array<float, 4>;
+
+    // Linear premultiplied light of a straight sRGB color.
+    Linear linear(const paint::Color& c) {
+        return {weft::render::srgb_to_linear(c[0]) * c[3], weft::render::srgb_to_linear(c[1]) * c[3],
+                weft::render::srgb_to_linear(c[2]) * c[3], c[3]};
+    }
+
+    Linear scaled(Linear c, float k) {
+        for (auto& v : c) {
+            v *= k;
+        }
+        return c;
+    }
+
+    // Source-over of premultiplied colors.
+    Linear over(const Linear& top, const Linear& under) {
+        Linear out{};
+        for (unsigned c = 0; c < 4; ++c) {
+            out[c] = top[c] + under[c] * (1 - top[3]);
+        }
+        return out;
+    }
+
+    // What an sRGB RGBA8 target stores for a linear premultiplied color.
+    Pixel encode(const Linear& c) {
+        Pixel out{};
+        for (unsigned i = 0; i < 4; ++i) {
+            const float v = std::clamp(c[i], 0.f, 1.f);
+            out[i] = std::uint8_t(std::lround((i == 3 ? v : weft::render::linear_to_srgb(v)) * 255));
+        }
+        return out;
+    }
+
+    bool close_to(const Pixel& actual, const Pixel& expected, int levels) {
+        for (std::size_t c = 0; c < 4; ++c) {
+            if (std::abs(int(actual[c]) - int(expected[c])) > levels) {
+                std::cerr << "pixel " << int(actual[0]) << ',' << int(actual[1]) << ',' << int(actual[2]) << ','
+                          << int(actual[3]) << " expected " << int(expected[0]) << ',' << int(expected[1]) << ','
+                          << int(expected[2]) << ',' << int(expected[3]) << '\n';
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // The bilinear premultiplied-linear sample of page_list's picture (conversion_asset over uv {.25, .25, .5, .5},
+    // drawn 24 px square at (48, 4)) at a pixel center.
+    Linear picture_sample(float x, float y) {
+        const auto asset = conversion_asset();
+        const float tx = (.25f + (x - 48) / 24 * .5f) * conversion_size - .5f;
+        const float ty = (.25f + (y - 4) / 24 * .5f) * conversion_size - .5f;
+        const int ix = int(std::floor(tx));
+        const int iy = int(std::floor(ty));
+        Linear out{};
+        for (int yy = 0; yy < 2; ++yy) {
+            for (int xx = 0; xx < 2; ++xx) {
+                const auto texel =
+                    reference_texel(asset->bytes.data() + (std::size_t(iy + yy) * conversion_size + ix + xx) * 4);
+                const float weight = (xx ? tx - ix : 1 - (tx - ix)) * (yy ? ty - iy : 1 - (ty - iy));
+                for (unsigned c = 0; c < 4; ++c) {
+                    out[c] += texel[c] * weight;
+                }
+            }
+        }
+        return out;
+    }
 
     // A page-like display list: an opaque backdrop, a translucent box, a tinted coverage mask, a translucent image
     // over part of its asset, signed distances with an outline, and a box and an image cut by a rounded clip.
@@ -164,6 +230,40 @@ namespace {
         }
         return list;
     }
+
+    // A 64 x 32 black list with an isolated group of a red box (when red) under an overlapping blue one at half
+    // opacity, and a white box in a group at half opacity inside another at half opacity.
+    paint::DisplayList groups(bool red) {
+        paint::DisplayList list;
+        auto add = [&](paint::Item::Kind kind, float opacity = 1) -> paint::Item& {
+            auto& item = list.items.emplace_back();
+            item.kind = kind;
+            item.opacity = opacity;
+            item.clip = {0, 0, 64, 32};
+            return item;
+        };
+        auto box = [&](paint::Color color, float x, float y, float w, float h) {
+            auto& item = add(paint::Item::Kind::Box);
+            item.payload = std::uint32_t(list.boxes.size());
+            item.transform = {1, 0, 0, 1, x, y};
+            item.width = w;
+            item.height = h;
+            list.boxes.emplace_back().background = color;
+        };
+        box({0, 0, 0, 1}, 0, 0, 64, 32);
+        add(paint::Item::Kind::BeginGroup);
+        if (red) {
+            box({1, 0, 0, 1}, 8, 4, 16, 16);
+        }
+        box({0, 0, 1, 1}, 16, 4, 16, 16);
+        add(paint::Item::Kind::EndGroup, .5f);
+        add(paint::Item::Kind::BeginGroup);
+        add(paint::Item::Kind::BeginGroup);
+        box({1, 1, 1, 1}, 40, 4, 16, 16);
+        add(paint::Item::Kind::EndGroup, .5f);
+        add(paint::Item::Kind::EndGroup, .5f);
+        return list;
+    }
 } // namespace
 
 int main(int argc, char** argv) {
@@ -231,41 +331,63 @@ int main(int argc, char** argv) {
         CHECK(exact == std::size_t(conversion_size) * conversion_size);
         renderer.check_debug_messages();
 
-        // The same display list as a linear pass of the shared scene shader and as quads with CPU rounded masks.
+        // A page-like list drawn directly by the shared scene shader, against CPU expectations of its parts.
         Renderer listed(!hardware, 96, 64);
         weft::render::d3d11::render_list(listed, page_list(), [] {
         });
         CHECK(listed.acknowledged && listed.native_releases == 3);
         const auto drawn = read_output(listed);
-        Renderer quads(!hardware, 96, 64);
-        weft::render::d3d11::render_window(quads, weft::render::lower_to_quads(page_list()), [] {
-        });
-        const auto reference = read_output(quads);
-        std::size_t edges{};
-        int worst{};
-        double total{};
-        for (std::size_t i = 0; i < drawn.size(); ++i) {
-            int difference{};
-            for (unsigned c = 0; c < 4; ++c) {
-                difference = std::max(difference, std::abs(int(drawn[i][c]) - int(reference[i][c])));
-                total += std::abs(int(drawn[i][c]) - int(reference[i][c]));
-            }
-            worst = std::max(worst, difference);
-            edges += difference > 2;
-        }
-        const auto mean = total / (drawn.size() * 4);
-        std::cout << "display list vs quads: " << edges << " pixels over 2 levels, worst " << worst << ", mean " << mean
-                  << '\n';
-        // Away from rounded clip edges the two paths sample and blend alike; along them the GPU's analytic coverage
-        // differs from the quads' 16x16 supersampled CSS px masks by a few levels.
-        CHECK(edges <= 32 && worst <= 16 && mean < .1);
-        CHECK(drawn[std::size_t(10) * 96 + 10] == reference[std::size_t(10) * 96 + 10]);
+        auto at = [&](unsigned x, unsigned y) {
+            return drawn[std::size_t(y) * 96 + x];
+        };
+        const auto base = linear({.1f, .12f, .15f, 1});
+        CHECK(close_to(at(80, 50), encode(base), 1));
+        CHECK(close_to(at(10, 10), encode(over(linear({1, 1, 1, .5f}), base)), 1));
+        // The tinted mask's coverage is linear in its texels, so filtering between them is exact: 4 (8 v + u) / 255
+        // at texel coordinates (5.25, 6.25).
+        CHECK(close_to(at(39, 17), encode(over(scaled(linear({.9f, .7f, .2f, 1}), 4 * 55.25f / 255), base)), 1));
+        CHECK(close_to(at(60, 16), encode(over(picture_sample(60.5f, 16.5f), base)), 2));
+        // Inside the distance contour the fill, in the outline band the outline color.
+        const auto fill = at(84, 12);
+        const auto band = at(90, 11);
+        CHECK(fill[0] >= 250 && fill[1] >= 250 && fill[2] >= 250);
+        CHECK(band[2] > band[0] + 60 && band[2] > 200);
+        // The rounded clip removes the cut box from its corner and keeps it inside.
+        CHECK(close_to(at(8, 30), encode(base), 1));
+        CHECK(close_to(at(20, 45), encode(over(linear({.8f, .2f, .3f, .9f}), base)), 1));
         listed.check_debug_messages();
-        quads.check_debug_messages();
+
+        // The same list as a C ABI list frame, through the backend that also takes quad frames.
+        Renderer framed(!hardware, 96, 64);
+        FramePacket list_packet;
+        list_packet.list = std::make_shared<const weft::paint::DisplayList>(page_list());
+        weft::render::d3d11::render_window(framed, list_packet, [] {
+        });
+        CHECK(read_output(framed) == drawn && framed.native_releases == 3);
+        framed.check_debug_messages();
+
+        // Isolated groups composite once at their opacity: red under blue at half opacity shows half blue where they
+        // overlap, and nested halves are a quarter. The second frame has no red box: its group layer starts cleared.
+        Renderer grouped(!hardware, 64, 32);
+        const auto black = linear({0, 0, 0, 1});
+        for (int frame = 0; frame < 2; ++frame) {
+            weft::render::d3d11::render_list(grouped, groups(frame == 0), [] {
+            });
+            const auto pixels = read_output(grouped);
+            CHECK(close_to(pixels[std::size_t(10) * 64 + 10],
+                           encode(frame == 0 ? over(scaled(linear({1, 0, 0, 1}), .5f), black) : black), 1));
+            CHECK(
+                close_to(pixels[std::size_t(10) * 64 + 20], encode(over(scaled(linear({0, 0, 1, 1}), .5f), black)), 1));
+            CHECK(close_to(pixels[std::size_t(10) * 64 + 45], encode(over(scaled(linear({1, 1, 1, 1}), .25f), black)),
+                           1));
+            CHECK(close_to(pixels[std::size_t(28) * 64 + 60], encode(black), 0));
+        }
+        grouped.check_debug_messages();
+        std::cout << "driver command lists: " << renderer.driver_command_lists << '\n';
         std::cout << "PASS D3D11 renderer library on " << renderer.adapter << ": 2 frames, " << renderer.native_releases
                   << " textures retired after completion; " << exact
-                  << " GPU-converted sRGB texels equal the CPU reference bit for bit; a display list within " << worst
-                  << " levels of its quads (" << edges << " clip-edge pixels over 2); debug layer "
+                  << " GPU-converted sRGB texels equal the CPU reference bit for bit; a display list drawn directly "
+                     "and as a C ABI list frame matches its CPU expectations; isolated groups; debug layer "
                   << (renderer.debug_layer ? "clean" : "unavailable") << '\n';
         return 0;
     } catch (const std::exception& error) {

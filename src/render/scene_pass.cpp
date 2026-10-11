@@ -53,14 +53,15 @@ namespace weft::render {
                 }
             } else if (item.kind == Kind::Image) {
                 const auto& source = list.images[item.payload];
-                const auto& asset = *list.assets[source.asset];
                 r.uv = source.uv;
                 r.background = in(space, source.color);
                 r.outline = in(space, source.outline);
-                if (asset.encoding == paint::Encoding::Coverage) {
+                // External textures are images with their own colors.
+                const auto* asset = source.asset < list.assets.size() ? list.assets[source.asset].get() : nullptr;
+                if (asset && asset->encoding == paint::Encoding::Coverage) {
                     r.mode[0] = scene_limits::image_mode_coverage;
-                } else if (asset.encoding == paint::Encoding::SignedDistance) {
-                    r.mode = {scene_limits::image_mode_signed_distance, asset.spread, source.stroke, 0};
+                } else if (asset && asset->encoding == paint::Encoding::SignedDistance) {
+                    r.mode = {scene_limits::image_mode_signed_distance, asset->spread, source.stroke, 0};
                 }
             } else if (image && list.rasters[item.payload].mask) {
                 r.background = in(space, list.rasters[item.payload].tint);
@@ -93,10 +94,22 @@ namespace weft::render {
                 right = std::max(right, x);
                 bottom = std::max(bottom, y);
             }
-            r.bounds = {left - scene_limits::record_bounds_outset / scale,
-                        top - scene_limits::record_bounds_outset / scale,
-                        right - left + scene_limits::record_bounds_outsets / scale,
-                        bottom - top + scene_limits::record_bounds_outsets / scale};
+            // Bounds reach past the item by the antialiasing outset, and at most that far past its clip: the shader draws
+            // nothing outside the clip, so an item clipped away covers no pixels. A linear pass's axis-aligned images
+            // and boxes without corners cover the pixels whose centers they contain, as the rasterizer covers their
+            // bounds, so they need no outset.
+            const bool pixel_centers =
+                space == Space::Linear && m[1] == 0 && m[2] == 0 &&
+                (item.kind == Kind::Image ||
+                 (item.kind == Kind::Box && std::all_of(r.radii.begin(), r.radii.end(), [](float v) {
+                      return v == 0;
+                  })));
+            const float outset = pixel_centers ? 0 : scene_limits::record_bounds_outset / scale;
+            const float x0 = std::max(left - outset, clip[0] - outset);
+            const float y0 = std::max(top - outset, clip[1] - outset);
+            const float x1 = std::min(right + outset, clip[2] + outset);
+            const float y1 = std::min(bottom + outset, clip[3] + outset);
+            r.bounds = {x0, y0, std::max(0.f, x1 - x0), std::max(0.f, y1 - y0)};
             return r;
         }
 
@@ -134,6 +147,9 @@ namespace weft::render {
         }
         pass.records.reserve(list.items.size());
         for (const auto& item : list.items) {
+            if (item.clips_count > std::uint32_t(scene_limits::max_rounded_clips)) {
+                return make_diagnostic(Diag::PaintList, "rounded clip chain bound");
+            }
             auto clip = item.clip;
             if (crop) {
                 clip = {std::max(clip[0], (*crop)[0]), std::max(clip[1], (*crop)[1]), std::min(clip[2], (*crop)[2]),

@@ -671,10 +671,10 @@ CMake 拆分：
 | 10.5 | 可移植文字与路径：FreeType 彩色字形；SVG 填充与描边的 CPU 三角化（带抗锯齿）；scene 不再回退 D2D 绘制 | D2D oracle 与 Chrome 对照；回退计数降为 0 或逐项列出 |
 | 10.6 | `src/platform` concept；Android（NDK）与 iOS 平台层；主机构建选项 | 按“配置/编译/链接/模拟器/真机功能/真机性能”分级记录，未执行的标为未验证 |
 
-依赖与工具（需要用户确认下载）：
+依赖与工具（2026-10-11 用户批准：先装 Vulkan-Headers 与 Vulkan SDK，需要时再装 DXC 与 Android NDK；没有 macOS）：
 - Vulkan 官方头文件（Khronos Vulkan-Headers，Apache-2.0），按固定 tag vendored 进 `third_party`，记录 SHA-256。运行时经驱动自带的 `vulkan-1.dll` 加载，不依赖 Vulkan SDK。
 - SPIR-V 编译：本机 Windows SDK 的 dxc 没有 SPIR-V 后端；RenderDoc 自带 glslang 16.2.0 可把现有 HLSL 编成 SPIR-V，但不是可复现的构建依赖。候选：vendored glslang 源码在构建期编译，或要求安装固定版本的 Vulkan SDK。
-- validation layer 需要 Vulkan SDK 或单独的 layer 包。
+- validation layer 需要 Vulkan SDK 或单独的 layer 包。已安装 Vulkan SDK 1.4.363.0（LunarG 签名的安装包，SHA-256 与 winget 清单一致），含验证层与带 SPIR-V 后端的 DXC 1.9.0.5512。
 - Android NDK 用于编译与链接验证；iOS 需要 macOS 与 Xcode，本机只能做到“代码与配置”，编译及以上全部标为未验证。
 
 ## 第 10 步记录（2026-10-11）
@@ -738,6 +738,60 @@ CMake 拆分：
 - 1306 个产物逐字节相同：scene 的像素不变，文档探针此时仍走四边形；
 - `render_d3d11_contract` 新增对照：同一个显示列表（整屏底色、半透明盒子、着色的覆盖率遮罩、取半透明图片子区域、带描边的 SDF、被圆角裁剪切到的盒子与图片）直接绘制与经四边形降级绘制，在 WARP 上只有 16 个像素超过 2 级，最差 8 级，都在圆角裁剪边缘（解析覆盖率与 16×16 超采样遮罩之差），平均差 0.019 级；
 - 变异检查 5 个（裁剪链失效、覆盖率遮罩不着色、线性颜色不转换、忽略 uv、忽略 SDF 描边）全部被发现。
+
+**10.3c：文档与四边形帧都走显示列表，逐四边形绘制与 CPU 圆角遮罩退役**：
+- C ABI 增加显示列表帧（[backend API](render-backend-api.md#显示列表帧2026-10-11)）：
+  - 不透明句柄 `weft_paint_list`、`weft_render_list_frame` 与 `weft_renderer_prepare_list`；
+  - 能力位 `WEFT_RENDER_FEATURE_DISPLAY_LIST` 与后端表末尾可选的 `prepare_list` 同时出现，`struct_size` 在它之前结束的旧表按无此能力处理；
+  - 核心在回调前校验结构与上限、资产、有限可逆的变换、颜色、盒子与渐变、圆角裁剪和图片能力；scene 光栅条目不过 ABI。
+- IR：
+  - 外部纹理是排在资产之后的图片下标（`DisplayList::external_textures`），按自身颜色绘制、不带 SDF 描边；
+  - `paint::append()` 带缩放与平移追加列表并重排下标，HUD 与页脚拼接用它；
+  - 一个条目的圆角裁剪链最多 16 层（`max_rounded_clips`，架构合同要求的嵌套上限），超出时规划返回 `Diag::PaintList`，C ABI 返回 `UNSUPPORTED_FEATURE`。
+- `FramePacket` 可以只带一个不可变显示列表；`PacketView` 按帧的种类选择入口。
+- D3D11 渲染器只剩一条绘制路径 `record()`：
+  - 四边形帧经可移植的 `render::quad_list()` 变成显示列表：纯色成为盒子，带纹理成为图片条目，组诊断成为隔离组，裁剪诊断成为内缩的裁剪；
+  - 隔离组在渲染器尺寸的线性 float 图层里合成，嵌套用多层，每次开始时清空；
+  - rtt 合成、线性 alpha 检查、外部纹理的生产者和窗口宿主的呈现（输出图像加 HUD）也都是显示列表；
+  - 底部起始的外部纹理翻转记录的 uv（`render::flip_rows`）；
+  - 记录与裁剪缓冲按最大帧增长并复用，详见下面的性能。
+- 规划器把实例范围收到裁剪外 2 px 以内，被裁掉的条目不再光栅化；线性 pass 的轴对齐图片和无圆角盒子不再外扩 2 px，覆盖规则与原四边形光栅一致。输出不变。
+- 删除 `quad.hlsl`、`Renderer::draw`/`QuadConstants` 与 `lower_to_quads`/`QuadMasks`（CPU 圆角遮罩）。Direct2D 编码预乘纹理的线性转换改为 `srgb_convert.hlsl` 的编译期变体（`encoded_convert`）。
+- 线性变体在裁剪与图片范围外输出透明黑而不是 discard：预乘 source-over 不改目标，相邻像素的导数也保持有定义。WARP 上输出不变，编码变体代码不变。
+- 文档探针（cheetah 系列、flow、React 窗口、图库 shell 与 HUD）发送显示列表帧。CPU 对照改为对显示列表求值：
+  - 像素中心包含、裁剪矩形、双线性采样，圆角裁剪取 16×16 子像素面积；
+  - 圆角边缘（像素中心 1 px 内有圆角经过）在线性光下比较，界 0.05：线性距离过渡在 45° 边上与精确面积最多差 0.043，而 sRGB 编码会把透明边缘上的同一差放大到几十级。
+
+像素变化（与第 9 步基线逐套对照，WARP）：
+- cheetah、cheetah-alert/auto/style：每帧 1–84 个像素差 1 级，来自图片与字形的 uv 由插值改为按像素中心计算；
+- cheetah-flow 与 flow 窗口：最差 7 级，每帧 11–21 个像素超过 2 级，都在圆角卡片边缘，即解析抗锯齿取代 16×16 超采样遮罩；
+- flow：透明根节点的圆角处最差 59 级（同上，透明边缘被 sRGB 放大）；椭圆裁剪的 alpha 与独立的稠密面积积分最多差 11 级，界从 5 改为 12；
+- sdf 与 backend 的 SDF 图：8 个像素差 3–9 级，都在缩放字形抗锯齿带的暗端：uv 改为按像素中心计算，千分之几的覆盖率差在暗端被 sRGB 编码放大；
+- render-cache：遮罩资产不再参与，GPU 缓存命中由 99 次变为 137 次；flow 每帧纹理数 161/166/106 变为 155/158/99；
+- 其余 19 个套件逐字节不变，包括颜色夹具（组与裁剪诊断）、外部纹理、React、scene、图库与两帧。
+
+性能（4K 文档滚动窗口 `--cheetah-flow-window-perf-sync-hardware` 与 `--cheetah-flow-window-perf-hardware`，与第 9 步末的二进制交替运行）：
+- 条件：AMD Ryzen 9 9950X3D + RTX 5090，Release，3840×2160，原样 React flow 页面（60 个 DOM 元素，中文与拉丁字体，原图）。每轮 8 帧预热加 120 帧，两个二进制交替各 3 轮，每侧 360 帧，未控制热状态。
+
+  | 每帧阶段（ms） | 第 9 步 P50 / P99 / 最大 | 10.3c P50 / P99 / 最大 |
+  | --- | --- | --- |
+  | 构包（版面到显示列表，旧路径再降成四边形） | 0.057 / 0.079 / 0.093 | 0.048 / 0.069 / 0.078 |
+  | 准备 | 0.038 / 0.072 / 0.155 | 0.047 / 0.070 / 0.076 |
+  | 录制 | 0.342 / 0.553 / 0.594 | 0.440 / 0.626 / 0.690 |
+  | 窗口合成 | 0.122 / 0.207 / 0.259 | 0.164 / 0.251 / 0.256 |
+  | UI 的 GPU 时间 | 0.063 / 0.072 / 0.512 | 0.125 / 0.312 / 2.309 |
+  | 两帧流水线的一帧（不含完成等待） | 5.04 / 6.68 / 6.99 | 5.31 / 6.93 / 7.19 |
+
+- 两帧流水线吞吐 186.4 → 178.5 帧/秒（3 轮平均）；冷启动首帧约 41 → 23 ms；峰值工作集 120 → 115 MB。
+- 构包变快，因为不再生成 CPU 遮罩。录制、合成与 GPU 变慢：每个条目一条 448 字节的记录，每个字形仍是一次绘制。
+- 每帧新建记录缓冲曾让 GPU 出现 6–8 ms 的尖峰。改为复用缓冲后，360 帧中最慢的一帧是 2.3 ms：原生录制命令列表的驱动用 `UpdateSubresource`；WARP 由运行时模拟命令列表，在那里结构化缓冲的 `UpdateSubresource` 让大列表只画出清屏色（原因未查明），所以 WARP 改用 discard 映射。
+- 下一步 10.3d：字形 atlas 让相邻字形合成一次实例化绘制，并压缩记录。
+
+验证：
+- `ctest --preset windows-release --parallel 6` 102/102，`windows-debug --parallel 6` 102/102（235.6 s）；
+- 文档类浏览器差分（cheetah、alert、auto、style、flow、React）全部通过；RTX 5090 上 16 个硬件探针（颜色、backend、SDF、cheetah 四套、flow、React、外部纹理、两帧、缓存、两个 flow 窗口与 React 窗口）全部通过，覆盖原生命令列表的缓冲写入路径；
+- `paint_contract` 增加四边形列表、外部纹理、`append` 与裁剪链上限检查；`render_backend_contract` 增加显示列表帧的能力、表长度、拒绝原因与引用持有检查；`render_d3d11_contract` 改为显示列表直接绘制与 C ABI 列表帧逐字节相同、各部分对 CPU 期望值，以及嵌套隔离组和逐帧清空的组图层；
+- 变异检查 12 个：首轮 9 个（组与裁剪诊断失效、底部起始纹理不翻转、组图层不清空、嵌套组取错图层、线性裁剪与图片范围失效、追加时外部纹理不后移、能力位不查）全部被发现；补充的 3 个里两个裁剪链上限被发现，“scene pass 也去掉外扩”起初未被发现，补规划器范围测试后被发现。
 
 ## 顺序调整（2026-10-10）
 

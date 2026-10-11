@@ -42,6 +42,7 @@ namespace probes {
         unsigned fallback{};
         std::size_t samples{};
         int error{};
+        float edge_error{};
         int mask_error{};
         std::ostringstream report;
         report << "{\"fixture\":\"flow-layout-gpu-v1\",\"driver\":" << json_string(warp ? "warp" : "hardware")
@@ -49,7 +50,7 @@ namespace probes {
         std::vector<Pixel> previous;
         auto render = [&](const weft::PositionedPage& page) {
             auto packet = cheetah_packet(page, fonts, images);
-            retired += unsigned(packet.assets.size());
+            retired += unsigned(packet.list->assets.size());
             render_window(gpu, packet, [&] {
                 gpu.immediate->CopyResource(gpu.staging.Get(), gpu.output.texture.Get());
                 presenter.present();
@@ -67,12 +68,8 @@ namespace probes {
             gpu.immediate->Unmap(gpu.staging.Get(), 0);
             for (int y = 0; y < weft::constants::default_view_height; y += 3) {
                 for (int x = 0; x < weft::constants::default_view_width; x += 3) {
-                    auto expected = cheetah_sample(packet, x, y);
-                    for (int c = 0; c < 4; ++c) {
-                        error = std::max(
-                            error, std::abs(int(expected[c]) -
-                                            int(pixels[std::size_t(y) * weft::constants::default_view_width + x][c])));
-                    }
+                    compare_oracle(cheetah_sample(packet, x, y),
+                                   pixels[std::size_t(y) * weft::constants::default_view_width + x], error, edge_error);
                     ++samples;
                 }
             }
@@ -98,19 +95,17 @@ namespace probes {
             if (i) {
                 report << ',';
             }
-            report << "{\"layout\":" << page_json(pages[i].page.geometry) << ",\"textures\":" << packet.assets.size()
-                   << '}';
+            report << "{\"layout\":" << page_json(pages[i].page.geometry)
+                   << ",\"textures\":" << packet.list->assets.size() << '}';
         }
-        // Separate dense area integration does not reuse the mask generation code.
+        // The GPU's analytic elliptical clip coverage against a separate dense area integration.
         weft::PositionedPage shape;
         weft::PositionedPaint solid;
         solid.paint = {weft::PaintKind::Rectangle, "ellipse", {}, 10, 10, 100, 80, 0, {1, 1, 1, 1}, {}};
         solid.clip = {0, 0, weft::constants::default_view_width, weft::constants::default_view_height};
         solid.rounded_clips = {weft::normalize_rounded({{10, 10, 100, 80}, {70, 70, 70, 70}, {56, 56, 56, 56}})};
         shape.paints.push_back(solid);
-        auto isolated = cheetah_packet(shape, fonts, {});
-        require(isolated.assets.size() == 1, "solid coverage mask prepared");
-        const auto& mask = isolated.assets[0]->bytes;
+        const auto ellipse = render(shape).second;
         for (int y = 0; y < 80; ++y) {
             for (int x = 0; x < 100; ++x) {
                 unsigned count{};
@@ -125,7 +120,9 @@ namespace probes {
                     }
                 }
                 const auto reference = int(std::lround(count * 255. / (dense * dense)));
-                mask_error = std::max(mask_error, std::abs(reference - int(mask[std::size_t(y) * 100 + x])));
+                // White over transparent: alpha is the coverage.
+                const auto alpha = int(ellipse[std::size_t(y + 10) * weft::constants::default_view_width + x + 10][3]);
+                mask_error = std::max(mask_error, std::abs(reference - alpha));
             }
         }
         if (mask_error > weft::probe_constants::ellipse_area_tolerance) {
@@ -144,11 +141,18 @@ namespace probes {
                  weft::constants::default_view_height);
         require(pixels[10 * weft::constants::default_view_width + 10] == Pixel{0, 0, 0, 0},
                 "masked PNG outside corner");
-        require(error <= weft::probe_constants::cpu_oracle_tolerance, "flow bilinear linear-premultiplied GPU oracle");
+        if (error > weft::probe_constants::cpu_oracle_tolerance ||
+            edge_error > weft::probe_constants::rounded_clip_edge_linear_tolerance) {
+            std::cerr << "oracle difference " << error << ", at rounded clip edges " << edge_error << '\n';
+        }
+        require(error <= weft::probe_constants::cpu_oracle_tolerance &&
+                    edge_error <= weft::probe_constants::rounded_clip_edge_linear_tolerance,
+                "flow bilinear linear-premultiplied GPU oracle");
         gpu.check_debug_messages();
         require(retired == gpu.native_releases, "all textures retire on actual completion");
         report
             << "],\"cpu_pixel_samples\":" << samples << ",\"cpu_pixel_max_difference\":" << error
+            << ",\"cpu_pixel_rounded_edge_max_linear_difference\":" << edge_error
             << ",\"independent_ellipse_area_max_difference\":" << mask_error << ",\"rounded_paints\":" << masks
             << ",\"fallback_glyphs\":" << fallback << ",\"native_textures_retired\":" << retired
             << ",\"actual_completion_query\":true,\"post_vm_reset_render_verified\":true,\"render_backend_abi_version\":1,\"debug_warning_error_count\":"

@@ -131,8 +131,8 @@ namespace probes {
                              "external atomic failure rollback");
                     api.inject_recording_failure = false;
                 }
-                const auto old = gpu.constants;
-                gpu.constants = buffers[slot];
+                const auto old = gpu.display_constants;
+                gpu.display_constants = buffers[slot];
                 void* commands{};
                 weft_render_d3d11_pass native{};
                 auto pass = api.pass(gpu.deferred.Get(), slot ? float_target.rtv.Get() : gpu.output.rtv.Get(),
@@ -141,7 +141,7 @@ namespace probes {
                     pass.target_format = WEFT_RENDER_TARGET_LINEAR_RGBA32F;
                 }
                 const auto result = weft_renderer_encode(api.renderer, prepared, &pass, &use);
-                gpu.constants = old;
+                gpu.display_constants = old;
                 render_result(result, "external encode");
                 render_result(weft_renderer_release_prepared(api.renderer, prepared), "release external prepared");
                 render_result(weft_renderer_release_texture(api.renderer, leases[slot]),

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "render/paint_list.hpp"
 #include "weft/render_backend.h"
 #include "weft/render_external_texture.h"
 
@@ -61,6 +62,16 @@ namespace weft::render {
             } -> std::same_as<void>;
             {
                 backend.prepare_external(frame, assets, count, out)
+            } -> std::same_as<weft_render_result>;
+        };
+
+    // Optional display list frames (weft_renderer_prepare_list), with the external textures the list draws.
+    template <class B>
+    concept DisplayListBackend =
+        RenderBackend<B> && requires(B& backend, const weft_paint_list& list, const weft_render_external_asset* assets,
+                                     std::uint32_t count, std::uint64_t& out) {
+            {
+                backend.prepare_list(list, assets, count, out)
             } -> std::same_as<weft_render_result>;
         };
 
@@ -137,6 +148,21 @@ namespace weft::render {
             }
         };
 
+        template <DisplayListBackend B>
+        struct ListThunks {
+            static weft_render_result prepare_list(void* user_data, const weft_paint_list* list,
+                                                   const weft_render_external_asset* assets, std::uint32_t count,
+                                                   std::uint64_t* native_frame) noexcept {
+                *native_frame = 0;
+                try {
+                    return BackendThunks<B>::self(user_data).prepare_list(*list, assets, count, *native_frame);
+                } catch (...) {
+                    *native_frame = 0;
+                    return WEFT_RENDER_BACKEND_ERROR;
+                }
+            }
+        };
+
         template <ExternalTextureBackend B>
         struct ExternalThunks {
             static weft_render_result import_texture(void* user_data, const weft_render_external_texture* texture,
@@ -168,26 +194,34 @@ namespace weft::render {
         };
     } // namespace detail
 
-    // The C function table for backend; it borrows backend until weft_renderer_destroy succeeds.
+    // The C function table for backend; it borrows backend until weft_renderer_destroy succeeds. A DisplayListBackend
+    // that reports WEFT_RENDER_FEATURE_DISPLAY_LIST also prepares display list frames.
     template <RenderBackend B>
     weft_render_backend make_c_backend(B& backend, const BackendDescription& description) noexcept {
         using Thunks = detail::BackendThunks<B>;
-        return {sizeof(weft_render_backend),
-                WEFT_RENDER_ABI_VERSION,
-                description.api,
-                0,
-                description.device_epoch,
-                description.queue,
-                description.capabilities,
-                &backend,
-                Thunks::prepare,
-                Thunks::release_prepared,
-                Thunks::encode,
-                Thunks::discard_encoded,
-                Thunks::submitted,
-                Thunks::completed,
-                Thunks::abandon,
-                Thunks::shutdown};
+        weft_render_backend table{sizeof(weft_render_backend),
+                                  WEFT_RENDER_ABI_VERSION,
+                                  description.api,
+                                  0,
+                                  description.device_epoch,
+                                  description.queue,
+                                  description.capabilities,
+                                  &backend,
+                                  Thunks::prepare,
+                                  Thunks::release_prepared,
+                                  Thunks::encode,
+                                  Thunks::discard_encoded,
+                                  Thunks::submitted,
+                                  Thunks::completed,
+                                  Thunks::abandon,
+                                  Thunks::shutdown,
+                                  nullptr};
+        if constexpr (DisplayListBackend<B>) {
+            if (description.capabilities.features & WEFT_RENDER_FEATURE_DISPLAY_LIST) {
+                table.prepare_list = detail::ListThunks<B>::prepare_list;
+            }
+        }
+        return table;
     }
 
     // The external texture extension table for backend, for weft_renderer_install_external_backend.

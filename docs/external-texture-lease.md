@@ -20,7 +20,7 @@ renderer destroy 遇到任何 live import 都返回 busy 并保留回调数据�
 
 ## 颜色、坐标与 native schema
 
-首版只接收 **linear-sRGB premultiplied RGBA**，用于 LDR 合成；生产者保证有限 `0 ≤ RGB ≤ A ≤ 1`，透明 texel 的 RGB 为零。RGBA8 UNORM、RGBA16F 和 RGBA32F 输入均在真实 GPU 验证。默认 top-left，可显式 bottom-left；UV 为视觉上的左上原点，backend 在 sample 时做整体 Y 翻转。opacity、UV 子矩形和有序混合沿既有 quad 合同。
+首版只接收 **linear-sRGB premultiplied RGBA**，用于 LDR 合成；生产者保证有限 `0 ≤ RGB ≤ A ≤ 1`，透明 texel 的 RGB 为零。RGBA8 UNORM、RGBA16F 和 RGBA32F 输入均在真实 GPU 验证。默认 top-left，可显式 bottom-left；UV 为视觉上的左上原点，backend 在 sample 时做整体 Y 翻转。opacity、UV 子矩形和有序混合沿既有 quad 合同。2026-10-11 起显示列表帧也可以画外部纹理（列表里排在资产之后的图片下标），D3D11 适配器把四边形帧同样转成显示列表，bottom-left 改为翻转该条目记录的 uv。
 
 sRGB SRV、straight alpha、encoded-premultiplied Canvas、HDR、BGRA、mipmap、array 和 MSAA 没有被映射成近似输入。ANGLE 的 encoded Canvas 输出后续必须明确转换：先处理 alpha/颜色编码，再生成可过滤的 linear-premultiplied texel，不能在双线性过滤之后才做转换。当前 import 明确返回 unsupported。
 

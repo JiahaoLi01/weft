@@ -75,7 +75,7 @@ namespace weft::paint {
 
     // An asset drawn over the item, sampled over uv (normalized origin and extent): an image keeps its own colors, a
     // coverage mask paints color where it covers, and signed distances paint color inside the contour and outline up
-    // to stroke source texels outside it.
+    // to stroke source texels outside it. An asset index past DisplayList::assets names an external texture.
     struct Image {
         std::uint32_t asset{};
         std::array<float, 4> uv{0, 0, 1, 1};
@@ -129,14 +129,23 @@ namespace weft::paint {
         std::vector<Raster> rasters;
         // Leases of the assets images draw.
         std::vector<std::shared_ptr<const Asset>> assets;
+        // Host textures images draw after the assets: image asset assets.size() + i is external texture i, linear
+        // premultiplied and drawn with its own colors. The list only counts them; a renderer binds them per frame.
+        std::uint32_t external_textures{};
         std::vector<RoundedClip> clips;
     };
 
-    // Whether a list is well formed: payloads in range and of the item's kind, images of a leased asset, rasters with
-    // a source, rounded clip ranges inside the clips, groups balanced and nested at most max_group_depth deep.
-    // Diag::PaintList otherwise.
+    // Whether a list is well formed: payloads in range and of the item's kind, images of a leased asset or an external
+    // texture without a stroke, rasters with a source, rounded clip ranges inside the clips, groups balanced and
+    // nested at most max_group_depth deep. Diag::PaintList otherwise.
     Status check(const DisplayList& list, std::size_t max_group_depth);
 
     // The deepest group nesting of a well-formed list.
     std::size_t group_depth(const DisplayList& list);
+
+    // Appends from's items after into's under transform, which maps from's target px into into's and must scale by
+    // positive factors and translate (Diag::PaintList otherwise). Item transforms compose with it, clip rects and
+    // rounded clips map through it, and payloads, assets, rounded clips and external textures are renumbered: from's
+    // assets follow into's, and every external texture follows every asset.
+    Status append(DisplayList& into, const DisplayList& from, const Affine& transform = identity);
 } // namespace weft::paint

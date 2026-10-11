@@ -1,9 +1,12 @@
 #include "weft/render_external_texture.h"
 #include "constants/common.hpp"
+#include "constants/render.hpp"
+#include "render/paint_list.hpp"
 #include "support/check.hpp"
 #include "test_constants/render.hpp"
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
@@ -55,6 +58,9 @@ namespace {
         std::array<std::shared_ptr<std::vector<uint8_t>>, 2> frames;
         std::array<Use, 4> uses;
         weft_renderer* renderer{};
+        // The display list of the last prepared list frame and the number of list frames prepared.
+        std::shared_ptr<const weft::paint::DisplayList> list;
+        unsigned list_preparations{};
         unsigned preparations{};
         unsigned encodes{};
         unsigned retirements{};
@@ -79,6 +85,26 @@ namespace {
                             data->assign(f->assets[0].bytes, f->assets[0].bytes + f->assets[0].byte_count);
                         }
                         s.frames[i] = std::move(data);
+                        *out = i + 1;
+                        return WEFT_RENDER_OK;
+                    }
+                }
+                return WEFT_RENDER_BUSY;
+            } catch (...) {
+                return WEFT_RENDER_OUT_OF_MEMORY;
+            }
+        }
+
+        static weft_render_result prepare_list(void* ptr, const weft_paint_list* l, const weft_render_external_asset*,
+                                               uint32_t, uint64_t* out) noexcept {
+            auto& s = *static_cast<FakeBackend*>(ptr);
+            *out = 0;
+            ++s.list_preparations;
+            try {
+                for (size_t i = 0; i < s.frames.size(); ++i) {
+                    if (!s.frames[i]) {
+                        s.frames[i] = std::make_shared<std::vector<uint8_t>>();
+                        s.list = l->list;
                         *out = i + 1;
                         return WEFT_RENDER_OK;
                     }
@@ -268,6 +294,127 @@ namespace {
         EXPECT(weft_renderer_notify_completed(metal, 7, 11, 4), INVALID_SERIAL);
         EXPECT(weft_renderer_destroy(metal), OK);
         EXPECT(weft_renderer_destroy(custom), OK);
+    }
+
+    // A display list frame reaches prepare_list only through a backend that reports lists, after the core validated
+    // it; a backend table that ends before prepare_list has no lists.
+    void DisplayListFrames() {
+        namespace paint = weft::paint;
+        FakeBackend b;
+        auto table = b.table();
+        weft_renderer* r{};
+        table.capabilities.features |= WEFT_RENDER_FEATURE_DISPLAY_LIST;
+        EXPECT(weft_renderer_create(&table, nullptr, &r), INVALID_ARGUMENT);
+        table.prepare_list = FakeBackend::prepare_list;
+        table.capabilities.features &= ~uint32_t(WEFT_RENDER_FEATURE_DISPLAY_LIST);
+        EXPECT(weft_renderer_create(&table, nullptr, &r), INVALID_ARGUMENT);
+
+        // A box and a coverage image of one asset.
+        auto valid = [] {
+            auto list = std::make_shared<paint::DisplayList>();
+            list->assets.push_back(
+                std::make_shared<const paint::Asset>(paint::Asset{2, 1, paint::Encoding::Coverage, {64, 128}}));
+            list->boxes.emplace_back().background = {1, 0, 0, 1};
+            list->images.emplace_back();
+            for (auto kind : {paint::Item::Kind::Box, paint::Item::Kind::Image}) {
+                paint::Item item;
+                item.kind = kind;
+                item.width = item.height = 4;
+                item.clip = {0, 0, 64, 64};
+                list->items.push_back(item);
+            }
+            return list;
+        };
+        weft_paint_list handle{valid()};
+        weft_render_list_frame frame{sizeof(frame), WEFT_RENDER_ABI_VERSION, &handle, 0, 0, nullptr};
+        weft_render_handle h{};
+        auto old = b.table();
+        old.struct_size = uint32_t(offsetof(weft_render_backend, prepare_list));
+        EXPECT(weft_renderer_create(&old, nullptr, &r), OK);
+        EXPECT(weft_renderer_prepare_list(r, &frame, &h), UNSUPPORTED_FEATURE);
+        EXPECT(weft_renderer_destroy(r), OK);
+
+        table.capabilities.features |= WEFT_RENDER_FEATURE_DISPLAY_LIST;
+        EXPECT(weft_renderer_create(&table, nullptr, &r), OK);
+        b.renderer = r;
+        auto refused = [&](auto&& change, weft_render_result expected) {
+            auto list = valid();
+            change(*list);
+            handle.list = list;
+            return weft_renderer_prepare_list(r, &frame, &h) == expected && !h.renderer_id;
+        };
+        CHECK(refused(
+            [](paint::DisplayList& l) {
+                l.items[0].opacity = 2;
+            },
+            WEFT_RENDER_INVALID_ARGUMENT));
+        CHECK(refused(
+            [](paint::DisplayList& l) {
+                l.items[1].transform = {0, 0, 0, 0, 0, 0};
+            },
+            WEFT_RENDER_INVALID_ARGUMENT));
+        CHECK(refused(
+            [](paint::DisplayList& l) {
+                l.boxes[0].gradient.stops.resize(9);
+            },
+            WEFT_RENDER_INVALID_ARGUMENT));
+        CHECK(refused(
+            [](paint::DisplayList& l) {
+                l.images[0].asset = 1;
+            },
+            WEFT_RENDER_INVALID_ARGUMENT));
+        CHECK(refused(
+            [](paint::DisplayList& l) {
+                l.assets[0] = std::make_shared<const paint::Asset>(paint::Asset{2, 1, paint::Encoding::Coverage, {1}});
+            },
+            WEFT_RENDER_INVALID_ARGUMENT));
+        CHECK(refused(
+            [](paint::DisplayList& l) {
+                l.assets[0] = std::make_shared<const paint::Asset>(
+                    paint::Asset{1, 1, paint::Encoding::SrgbStraight, {1, 2, 3, 4}});
+            },
+            WEFT_RENDER_UNSUPPORTED_FEATURE));
+        CHECK(refused(
+            [](paint::DisplayList& l) {
+                l.clips.push_back({{0, 0, -1, 4}, {}, {}});
+            },
+            WEFT_RENDER_INVALID_ARGUMENT));
+        CHECK(refused(
+            [](paint::DisplayList& l) {
+                l.clips.assign(weft::constants::render::scene::max_rounded_clips + 1, {{0, 0, 4, 4}, {}, {}});
+                l.items[0].clips_count = std::uint32_t(l.clips.size());
+            },
+            WEFT_RENDER_UNSUPPORTED_FEATURE));
+        // The list's external textures are exactly the frame's, and need the extension.
+        CHECK(refused(
+            [](paint::DisplayList& l) {
+                l.external_textures = 1;
+                l.images[0].asset = 1;
+            },
+            WEFT_RENDER_INVALID_ARGUMENT));
+        weft_render_handle missing{};
+        frame.external_count = 1;
+        frame.external_textures = &missing;
+        CHECK(refused(
+            [](paint::DisplayList& l) {
+                l.external_textures = 1;
+                l.images[0].asset = 1;
+            },
+            WEFT_RENDER_UNSUPPORTED_FEATURE));
+        frame.external_count = 0;
+        frame.external_textures = nullptr;
+        handle.list = nullptr;
+        EXPECT(weft_renderer_prepare_list(r, &frame, &h), INVALID_ARGUMENT);
+        CHECK(!b.list_preparations && !b.preparations);
+
+        // A valid list: the backend keeps its own reference past the call.
+        const auto list = valid();
+        handle.list = list;
+        EXPECT(weft_renderer_prepare_list(r, &frame, &h), OK);
+        handle.list.reset();
+        CHECK(b.list_preparations == 1 && b.list == list && list.use_count() == 2 && info(r).prepared_frames == 1);
+        EXPECT(weft_renderer_release_prepared(r, h), OK);
+        EXPECT(weft_renderer_destroy(r), OK);
     }
 
     void ValidationBeforeNativeRecording() {
@@ -766,6 +913,7 @@ namespace {
 int main() {
     try {
         IndependentBackendsAndSnapshotOwnership();
+        DisplayListFrames();
         ValidationBeforeNativeRecording();
         PartialRecordingFailureAndDrain();
         CapacityGenerationsAndSharedSubmission();
@@ -774,7 +922,7 @@ int main() {
         ExternalValidationAndIndependentPins();
         ExternalMutationFailureAndAbandon();
         std::cout
-            << "PASS backend ABI: native scope isolation, snapshot/pins, partial failure, no-allocation submission, drain and generations\n";
+            << "PASS backend ABI: native scope isolation, snapshot/pins, display list frames, partial failure, no-allocation submission, drain and generations\n";
         return 0;
     } catch (const std::exception& e) {
         deny_allocation = false;

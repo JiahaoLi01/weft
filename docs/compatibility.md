@@ -21,7 +21,7 @@
 
 Windows 另有受限主鼠标 HWND/swapchain 样例，使用 actual layout hit、代际 target、MouseEvent、capture cancel 与 resize。自动测试从自己的 HWND 消息路径进入 React；实体鼠标、完整焦点/键盘/IME/PointerEvent 和移动未自动验收，见 [实际窗口范围](native-window-probe.md)。
 
-GPU 后端已有可注册的实验 C ABI 与实际 D3D11 reference/window 接入；公共层不依赖图形 API。当前有序 quad、coverage/SDF、target/capability 和生命周期合同见 [backend API](render-backend-api.md)。Vulkan/Metal API ID 和模拟接口测试不构成这些平台的实际渲染支持。
+GPU 后端已有可注册的实验 C ABI 与实际 D3D11 reference/window 接入；公共层不依赖图形 API。当前四边形帧与显示列表帧（盒子、图片、圆角裁剪链、隔离组；2026-10-11）、coverage/SDF、target/capability 和生命周期合同见 [backend API](render-backend-api.md)。Vulkan/Metal API ID 和模拟接口测试不构成这些平台的实际渲染支持。
 
 新增可选 external texture lease 扩展，通用生命周期与 D3D11 的 linear-premultiplied RGBA8/16F/32F、top/bottom origin、UV/opacity 和真实两帧退休已验证。首版同 device/queue、单 mip/采样、无 shared/CPU write；encoded sRGB/HDR/多队列/ANGLE/移动均显式未支持。这是 renderer 能力，尚没有 JS WebGL API 或新增 gallery 案例通过，见 [实际范围](external-texture-lease.md)。
 

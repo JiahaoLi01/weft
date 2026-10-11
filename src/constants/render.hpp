@@ -26,9 +26,9 @@ namespace weft::constants::render {
     inline constexpr int max_in_flight_uses_limit = 4096;
     inline constexpr int max_external_textures_limit = 4096;
 
-    // Bits a backend may report: WEFT_RENDER_FEATURE_* (four features) and one bit per
+    // Bits a backend may report: WEFT_RENDER_FEATURE_* (five features) and one bit per
     // weft_render_target_format (six formats).
-    inline constexpr unsigned known_feature_bits = 15u;
+    inline constexpr unsigned known_feature_bits = 31u;
     inline constexpr unsigned known_target_format_bits = 63u;
 
     // Accepted sdf_spread range, in texels, for signed distance assets.
@@ -36,6 +36,8 @@ namespace weft::constants::render {
     inline constexpr int max_sdf_spread = 32;
     // Largest normalized UV origin + extent; the slack absorbs float rounding of a full extent.
     inline constexpr float max_uv_extent = 1.000001f;
+    // A diagnostic clipped quad (Draw::clipped) is clipped this many pixels inside each edge.
+    inline constexpr int diagnostic_clip_inset = 16;
 
     // Bytes per texel of the linear RGBA texture formats.
     inline constexpr int rgba16f_bytes_per_pixel = 8;
@@ -55,28 +57,11 @@ namespace weft::constants::render {
     namespace d3d11 {
         // Material ids of quad.hlsl. They mirror the Material* constants at the top of the shader, which
         // declares the ids its pixel shader branches on.
-        namespace shader_material {
-            // Solid linear premultiplied color.
-            inline constexpr unsigned solid = 0;
-            // R8 coverage mask that multiplies the color.
-            inline constexpr unsigned coverage = 1;
-            // Linear premultiplied texture.
-            inline constexpr unsigned texture = 2;
-            // R8 signed distance glyph, with an optional outline stroke.
-            inline constexpr unsigned signed_distance = 3;
-            // Texture whose rows start at the bottom (an external texture with a bottom-left origin).
-            inline constexpr unsigned texture_bottom_up = 4;
-            // Encoded premultiplied BGRA8 produced by Direct2D.
-            inline constexpr unsigned encoded_bgra = 5;
-        } // namespace shader_material
-
-        // The vertex shader draws each quad as two triangles from SV_VertexID.
+        // The vertex shader draws each instance as two triangles from SV_VertexID.
         inline constexpr int quad_vertex_count = 6;
         // Render targets are at most this many pixels wide and high; the backend reports the same
         // max_texture_size and max_target_size.
         inline constexpr int max_surface_dimension = 4096;
-        // A diagnostic clipped quad (Draw::clipped) is scissored this many pixels inside each edge.
-        inline constexpr int diagnostic_clip_inset = 16;
 
         // Host frames that may be encoded or in flight at once: the backend's encoded and in-flight use
         // limits and the TwoFramePipeline slots.
@@ -86,9 +71,9 @@ namespace weft::constants::render {
         inline constexpr int prepared_frame_handle = 1;
         // CPU frame input budget of the backend. Three 1024x1536 RGBA images of a real game workload fit.
         inline constexpr unsigned max_frame_asset_bytes = 32u * constants::bytes_per_mib;
-        // Backend capabilities: all four WEFT_RENDER_FEATURE_* bits, and the SRGB_RGBA8, LINEAR_RGBA8 and
+        // Backend capabilities: all five WEFT_RENDER_FEATURE_* bits, and the SRGB_RGBA8, LINEAR_RGBA8 and
         // LINEAR_RGBA32F bits of weft_render_target_format.
-        inline constexpr int features = 15;
+        inline constexpr int features = 31;
         inline constexpr int target_formats = 7;
         // External texture extension.
         inline constexpr int max_imported_textures = 128;
@@ -136,12 +121,15 @@ namespace weft::constants::render {
         inline constexpr int record_initial_capacity = 16;
         // Nested transparent groups available per slot.
         inline constexpr int max_group_depth = 4;
+        // Rounded clips an item's chain may hold; the shader multiplies the coverage of each, so a longer chain is
+        // refused (Diag::PaintList, or WEFT_RENDER_UNSUPPORTED_FEATURE at the C ABI). The CPU reference coverage
+        // takes the same bound (rounded_mask_max_clips).
+        inline constexpr int max_rounded_clips = 16;
         // Text and layer images keep a transparent margin around the node on each side.
         inline constexpr int image_margin = 2;
         inline constexpr int image_margins = 2 * image_margin;
-        // Instance bounds grow by this many device pixels on each side for antialiasing.
+        // Instance bounds grow by this many device pixels on each side for antialiasing, and stop as far past the clip.
         inline constexpr int record_bounds_outset = 2;
-        inline constexpr int record_bounds_outsets = 2 * record_bounds_outset;
         // Initial extent of the bounds accumulation.
         inline constexpr float record_bounds_sentinel = 1e10f;
         // Overflow tolerances for text metrics and for layer descendants, in CSS pixels.
@@ -162,9 +150,4 @@ namespace weft::constants::render {
     inline constexpr int rounded_mask_max_pixels = 8 * 1024 * 1024;
     // Supersampling grid per axis for partially covered mask pixels.
     inline constexpr unsigned rounded_mask_samples_per_axis = 16;
-    // Quad lowering (quad_lowering.hpp): rounded-clip mask bytes prepared for one packet, and the masks kept across
-    // packets; a kept-mask bound that would be exceeded clears them.
-    inline constexpr int quad_mask_packet_max_bytes = 32 * constants::bytes_per_mib;
-    inline constexpr int quad_mask_cache_max_entries = 1024;
-    inline constexpr int quad_mask_cache_max_bytes = 32 * constants::bytes_per_mib;
 } // namespace weft::constants::render

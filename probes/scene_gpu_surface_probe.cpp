@@ -125,11 +125,12 @@ namespace probes {
                 auto reference = cheetah_sample(expected, x, y);
                 auto actual = pixels[std::size_t(y) * gpu.width + x];
                 for (unsigned c = 0; c < 4; ++c) {
-                    if (auto error = unsigned(std::abs(int(reference[c]) - actual[c])); error > conversion_error) {
+                    if (auto error = unsigned(std::abs(int(reference.pixel[c]) - actual[c]));
+                        error > conversion_error) {
                         conversion_error = error;
                         if (error > weft::probe_constants::gallery::max_cpu_oracle_difference) {
                             std::cerr << "conversion (" << x << "," << y << "," << c
-                                      << ") CPU=" << unsigned(reference[c]) << " GPU=" << unsigned(actual[c])
+                                      << ") CPU=" << unsigned(reference.pixel[c]) << " GPU=" << unsigned(actual[c])
                                       << " difference=" << error << '\n';
                         }
                     }

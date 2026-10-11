@@ -376,6 +376,7 @@ namespace probes {
         std::size_t cache_differences{};
         std::size_t geometry_checks{};
         unsigned pixel_error{};
+        float edge_pixel_error{};
         unsigned captures{};
         unsigned seen_cases{};
         std::array<unsigned, weft::probe_constants::gallery::canvas_case_count> raf_calls{};
@@ -1002,8 +1003,8 @@ namespace probes {
                     for (unsigned i = 0; i < weft::probe_constants::gallery::canvas_case_count; ++i) {
                         if (visible[i]) {
                             const auto asset = images.at(i ? "live-1" : "live-0");
-                            for (std::size_t a = 0; a < static_packet.assets.size(); ++a) {
-                                if (static_packet.assets[a] == asset) {
+                            for (std::size_t a = 0; a < static_packet.list->assets.size(); ++a) {
+                                if (static_packet.list->assets[a] == asset) {
                                     canvas_assets[i] = int(a);
                                 }
                             }
@@ -1019,8 +1020,8 @@ namespace probes {
             }
             for (unsigned i = 0; i < gallery_scene_count; ++i) {
                 if (scene_visible[i] && scene_asset_indices[i] < 0) {
-                    for (std::size_t a = 0; a < static_packet.assets.size(); ++a) {
-                        if (static_packet.assets[a] == scene_images[i]) {
+                    for (std::size_t a = 0; a < static_packet.list->assets.size(); ++a) {
+                        if (static_packet.list->assets[a] == scene_images[i]) {
                             scene_asset_indices[i] = int(a);
                         }
                     }
@@ -1028,11 +1029,12 @@ namespace probes {
             }
             trace_end("shell packet", shell_packet_trace);
             const auto assets_trace = trace_start();
-            auto packet = static_packet; // Complete owning packet, independent of older submissions.
+            // A complete owning list, independent of older submissions.
+            auto frame_list = std::make_shared<weft::paint::DisplayList>(*static_packet.list);
             for (unsigned i = 0; i < gallery_scene_count; ++i) {
                 if (scene_visible[i]) {
                     require(scene_asset_indices[i] >= 0, "visible scene placeholder asset");
-                    packet.assets[unsigned(scene_asset_indices[i])] = scene_images[i];
+                    frame_list->assets[unsigned(scene_asset_indices[i])] = scene_images[i];
                 }
             }
             for (unsigned i = 0; i < weft::probe_constants::gallery::canvas_case_count; ++i) {
@@ -1046,9 +1048,11 @@ namespace probes {
                         cached = {bitmap.rgba, std::make_shared<const Asset>(Asset{
                                                    bitmap.width, bitmap.height, Encoding::SrgbStraight, *bitmap.rgba})};
                     }
-                    packet.assets[unsigned(canvas_assets[i])] = cached.second;
+                    frame_list->assets[unsigned(canvas_assets[i])] = cached.second;
                 }
             }
+            FramePacket packet;
+            packet.list = frame_list;
             if (self_test && (frames < 16 || frames == 159)) {
                 std::map<std::string, std::shared_ptr<const Asset>> images;
                 for (unsigned i = 0; i < gallery_scene_count; ++i) {
@@ -1058,7 +1062,7 @@ namespace probes {
                 }
                 for (unsigned i = 0; i < weft::probe_constants::gallery::canvas_case_count; ++i) {
                     if (visible[i]) {
-                        images.emplace(i ? "live-1" : "live-0", packet.assets[unsigned(canvas_assets[i])]);
+                        images.emplace(i ? "live-1" : "live-0", frame_list->assets[unsigned(canvas_assets[i])]);
                     }
                 }
                 const auto full = gallery_preview_packet(current->page, fonts, images, nullptr);
@@ -1085,8 +1089,8 @@ namespace probes {
                     "{\"prepare_ms\":" + format_host_time(gpu.prepare_ms) + ",\"encode_ms\":" +
                         format_host_time(gpu.encode_ms) + ",\"present_ms\":" + format_host_time(gpu.present_ms) +
                         ",\"wait_ms\":" + format_host_time(gpu.wait_ms) +
-                        ",\"draws\":" + std::to_string(packet.draws.size()) +
-                        ",\"assets\":" + std::to_string(packet.assets.size()) + "}");
+                        ",\"draws\":" + std::to_string(packet.list->items.size()) +
+                        ",\"assets\":" + std::to_string(packet.list->assets.size()) + "}");
             }
             ++frames;
             if (render_trace.enabled() && frame_trace_start != std::chrono::steady_clock::time_point{}) {
@@ -1178,29 +1182,37 @@ namespace probes {
                 // Pixel oracle and every original registry id, across the ten sections.
                 if (frames <= weft::probe_constants::gallery::catalog_group_count) {
                     pipeline.drain();
-                    auto oracle_packet = packet;
+                    auto oracle_list = std::make_shared<weft::paint::DisplayList>(*packet.list);
                     for (unsigned i = weft::probe_constants::gallery::core_scene_count; i < gallery_scene_count; ++i) {
                         if (scene_visible[i]) {
                             const auto source = scene_gpu.read(i);
-                            oracle_packet.assets[unsigned(scene_asset_indices[i])] = std::make_shared<const Asset>(
+                            oracle_list->assets[unsigned(scene_asset_indices[i])] = std::make_shared<const Asset>(
                                 Asset{source.width, source.height, Encoding::SrgbStraight, source.rgba});
                         }
                     }
+                    FramePacket oracle_packet;
+                    oracle_packet.list = oracle_list;
                     const auto pixels = gallery_output(gpu);
                     for (int y = weft::probe_constants::gallery::oracle_grid_origin; y < weft::constants::uhd_height;
                          y += weft::probe_constants::gallery::oracle_grid_stride_y) {
                         for (int x = weft::probe_constants::gallery::oracle_grid_origin;
                              x < weft::probe_constants::gallery::oracle_grid_right;
                              x += weft::probe_constants::gallery::oracle_grid_stride_x) {
-                            auto expected = cheetah_sample(oracle_packet, x, y);
+                            const auto expected = cheetah_sample(oracle_packet, x, y);
                             const auto actual = pixels[std::size_t(y) * weft::constants::uhd_width + x];
+                            if (expected.rounded_edge) {
+                                edge_pixel_error =
+                                    std::max(edge_pixel_error, linear_difference(actual, expected.pixel));
+                                ++oracle_samples;
+                                continue;
+                            }
                             for (unsigned c = 0; c < 4; ++c) {
-                                if (auto error = unsigned(std::abs(int(expected[c]) - actual[c]));
+                                if (auto error = unsigned(std::abs(int(expected.pixel[c]) - actual[c]));
                                     error > pixel_error) {
                                     pixel_error = error;
                                     if (error > weft::probe_constants::gallery::max_cpu_oracle_difference) {
                                         std::cerr << "window frame " << frames << " point " << x << "," << y << "," << c
-                                                  << " expected " << unsigned(expected[c]) << " actual "
+                                                  << " expected " << unsigned(expected.pixel[c]) << " actual "
                                                   << unsigned(actual[c]) << " error " << error << "\n";
                                     }
                                 }
@@ -1208,7 +1220,8 @@ namespace probes {
                             ++oracle_samples;
                         }
                     }
-                    require(pixel_error <= weft::probe_constants::gallery::max_cpu_oracle_difference,
+                    require(pixel_error <= weft::probe_constants::gallery::max_cpu_oracle_difference &&
+                                edge_pixel_error <= weft::probe_constants::rounded_clip_edge_linear_tolerance,
                             "4K gallery shell/canvas pixel oracle");
                     save_png(folder / ("group-" + std::to_string(frames - 1) + ".png"), presenter.pixels(),
                              weft::constants::uhd_width, weft::constants::uhd_height);
@@ -1805,6 +1818,7 @@ namespace probes {
                 std::to_string(canvas_inputs) + ",\"captures\":" + std::to_string(captures) +
                 ",\"visible_cases_in_group_captures\":" + std::to_string(seen_cases) + ",\"cpu_pixel_samples\":" +
                 std::to_string(oracle_samples) + ",\"cpu_pixel_max_difference\":" + std::to_string(pixel_error) +
+                ",\"cpu_pixel_rounded_edge_max_linear_difference\":" + std::to_string(edge_pixel_error) +
                 ",\"static_packet_rebuilds\":" + std::to_string(static_rebuilds) + ",\"cached_full_packet_checks\":" +
                 std::to_string(cache_differences) + ",\"card_geometry_checks\":" + std::to_string(geometry_checks) +
                 ",\"minimized_opportunities\":" + std::to_string(pause_count) +

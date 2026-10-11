@@ -2,11 +2,15 @@
 #include "base/generational_slots.hpp"
 #include "base/owner_thread.hpp"
 #include "constants/render.hpp"
+#include "render/paint_list.hpp"
+#include "render/rounded_clip.hpp"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <new>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -44,6 +48,15 @@ namespace {
     bool color(const float* rgba) {
         return std::all_of(rgba, rgba + 4, unit);
     }
+
+    bool finite(const float* values, std::size_t count) {
+        return std::all_of(values, values + count, [](float v) {
+            return std::isfinite(v);
+        });
+    }
+
+    // A backend table that ends before prepare_list has none.
+    constexpr std::size_t backend_without_lists = offsetof(weft_render_backend, prepare_list);
 } // namespace
 
 struct weft_renderer {
@@ -272,6 +285,168 @@ namespace {
         return WEFT_RENDER_OK;
     }
 
+    // An asset of a display list: what validate_frame requires of a frame's assets.
+    weft_render_result validate_asset(const weft_renderer& r, const weft::paint::Asset& a, uint64_t& total) {
+        const auto& caps = r.backend.capabilities;
+        const auto encoding = static_cast<uint32_t>(a.encoding);
+        if (!a.width || !a.height || encoding > WEFT_RENDER_SIGNED_DISTANCE) {
+            return WEFT_RENDER_INVALID_ARGUMENT;
+        }
+        if (a.width > caps.max_texture_size || a.height > caps.max_texture_size) {
+            return WEFT_RENDER_UNSUPPORTED_FEATURE;
+        }
+        const uint64_t channels = encoding == WEFT_RENDER_SRGB_STRAIGHT ? weft::constants::rgba8_bytes_per_pixel : 1;
+        if (a.bytes.size() != uint64_t(a.width) * a.height * channels) {
+            return WEFT_RENDER_INVALID_ARGUMENT;
+        }
+        if (a.bytes.size() > r.limits.max_frame_asset_bytes - total) {
+            return WEFT_RENDER_BUSY;
+        }
+        total += a.bytes.size();
+        if (encoding == WEFT_RENDER_SIGNED_DISTANCE) {
+            if (!std::isfinite(a.spread) || a.spread < weft::constants::render::min_sdf_spread ||
+                a.spread > weft::constants::render::max_sdf_spread) {
+                return WEFT_RENDER_INVALID_ARGUMENT;
+            }
+        } else if (a.spread != 0) {
+            return WEFT_RENDER_INVALID_ARGUMENT;
+        }
+        return WEFT_RENDER_OK;
+    }
+
+    // A box: unit colors, finite non-negative geometry and a gradient the shared shader can draw.
+    bool valid_box(const weft::paint::Box& b) {
+        using weft::paint::GradientKind;
+        const auto& g = b.gradient;
+        bool valid = color(b.background.data()) && finite(b.radii.data(), b.radii.size()) &&
+                     finite(b.widths.data(), b.widths.size()) && finite(g.tile.data(), g.tile.size()) &&
+                     std::isfinite(g.angle) && g.kind <= GradientKind::Conic &&
+                     g.stops.size() <= weft::constants::render::scene::max_gradient_stops &&
+                     (g.kind == GradientKind::None || !g.stops.empty());
+        for (unsigned i = 0; valid && i < b.radii.size(); ++i) {
+            valid = b.radii[i] >= 0 && b.widths[i] >= 0 && color(b.edges[i].data());
+        }
+        for (const auto& stop : g.stops) {
+            valid = valid && unit(stop.offset) && color(stop.color.data());
+        }
+        return valid;
+    }
+
+    // A display list frame: a well-formed list of boxes, images and isolated groups within the renderer's limits,
+    // with valid assets and exactly external_count external textures. Scene rasters do not cross the ABI, and a
+    // rounded clip chain holds at most max_rounded_clips.
+    weft_render_result validate_list(const weft_renderer& r, const weft_paint_list* p, uint32_t external_count) {
+        const auto& caps = r.backend.capabilities;
+        if (!(caps.features & WEFT_RENDER_FEATURE_DISPLAY_LIST)) {
+            return WEFT_RENDER_UNSUPPORTED_FEATURE;
+        }
+        if (!p || !p->list) {
+            return WEFT_RENDER_INVALID_ARGUMENT;
+        }
+        const auto& list = *p->list;
+        if (!weft::paint::check(list, weft::constants::render::scene::max_group_depth) ||
+            list.external_textures != external_count) {
+            return WEFT_RENDER_INVALID_ARGUMENT;
+        }
+        if (list.items.size() > r.limits.max_draws || list.assets.size() > r.limits.max_assets ||
+            external_count > r.limits.max_assets - list.assets.size()) {
+            return WEFT_RENDER_BUSY;
+        }
+        uint64_t total{};
+        for (const auto& a : list.assets) {
+            if (const auto v = validate_asset(r, *a, total); v != WEFT_RENDER_OK) {
+                return v;
+            }
+        }
+        for (const auto& c : list.clips) {
+            try {
+                (void)weft::normalize_rounded(c);
+            } catch (const std::invalid_argument&) {
+                return WEFT_RENDER_INVALID_ARGUMENT;
+            }
+        }
+        using Kind = weft::paint::Item::Kind;
+        for (const auto& item : list.items) {
+            const auto& m = item.transform;
+            if (!finite(m.data(), m.size()) || !std::isfinite(item.width) || !std::isfinite(item.height) ||
+                item.width < 0 || item.height < 0 || !unit(item.opacity) ||
+                std::any_of(
+                    item.clip.begin(), item.clip.end(),
+                    [](float v) {
+                        return std::isnan(v);
+                    })) {
+                return WEFT_RENDER_INVALID_ARGUMENT;
+            }
+            uint32_t feature = WEFT_RENDER_FEATURE_SOLID;
+            if (item.kind == Kind::Text || item.kind == Kind::Layer ||
+                item.clips_count > uint32_t(weft::constants::render::scene::max_rounded_clips)) {
+                return WEFT_RENDER_UNSUPPORTED_FEATURE;
+            }
+            if (item.kind == Kind::BeginGroup || item.kind == Kind::EndGroup) {
+                continue;
+            }
+            // Boxes and images map item space through an invertible transform.
+            if (!std::isnormal(m[0] * m[3] - m[1] * m[2])) {
+                return WEFT_RENDER_INVALID_ARGUMENT;
+            }
+            if (item.kind == Kind::Box) {
+                if (!valid_box(list.boxes[item.payload])) {
+                    return WEFT_RENDER_INVALID_ARGUMENT;
+                }
+            } else {
+                const auto& image = list.images[item.payload];
+                if (!color(image.color.data()) || !color(image.outline.data()) ||
+                    !finite(image.uv.data(), image.uv.size()) || !std::isfinite(image.stroke) || image.stroke < 0) {
+                    return WEFT_RENDER_INVALID_ARGUMENT;
+                }
+                if (image.asset >= list.assets.size()) {
+                    continue; /* external capability validated by the extension */
+                }
+                const auto& a = *list.assets[image.asset];
+                feature = a.encoding == weft::paint::Encoding::Coverage         ? WEFT_RENDER_FEATURE_COVERAGE
+                          : a.encoding == weft::paint::Encoding::SignedDistance ? WEFT_RENDER_FEATURE_SDF
+                                                                                : WEFT_RENDER_FEATURE_IMAGE;
+                if (a.encoding == weft::paint::Encoding::SignedDistance ? image.stroke >= a.spread - 1
+                                                                        : image.stroke != 0) {
+                    return WEFT_RENDER_INVALID_ARGUMENT;
+                }
+            }
+            if (!(caps.features & feature)) {
+                return WEFT_RENDER_UNSUPPORTED_FEATURE;
+            }
+        }
+        return WEFT_RENDER_OK;
+    }
+
+    // Pins the caller leases of a frame's external textures for prepared slot index and lists their metadata in
+    // r.external_scratch, whose capacity covers every frame that passed validation. Fails without pins.
+    weft_render_result pin_external(weft_renderer& r, std::size_t index, uint32_t count,
+                                    const weft_render_handle* handles) {
+        auto& deps = r.prepared[index].textures;
+        auto& scratch = r.external_scratch;
+        deps.clear();
+        scratch.clear();
+        for (uint32_t i = 0; i < count; ++i) {
+            TextureSlot* t{};
+            if (const auto v = texture_handle(r, handles[i], t); v != WEFT_RENDER_OK) {
+                deps.clear();
+                return v;
+            }
+            auto description = t->description;
+            description.retired = nullptr;
+            description.retirement_user_data = nullptr;
+            scratch.push_back({description, t->native});
+            const auto slot = handles[i].slot;
+            if (std::find(deps.begin(), deps.end(), slot) == deps.end()) {
+                deps.push_back(slot);
+            }
+        }
+        for (auto i : deps) {
+            ++r.textures[i].pins;
+        }
+        return WEFT_RENDER_OK;
+    }
+
     weft_render_result validate_pass(const weft_renderer& r, const weft_render_pass* p) {
         if (!p || p->struct_size < sizeof(*p)) {
             return WEFT_RENDER_INVALID_ARGUMENT;
@@ -308,18 +483,25 @@ weft_render_result weft_renderer_create(const weft_render_backend* b, const weft
         return WEFT_RENDER_INVALID_ARGUMENT;
     }
     *out = nullptr;
-    if (!b || b->struct_size < sizeof(*b)) {
+    if (!b || b->struct_size < backend_without_lists) {
         return WEFT_RENDER_INVALID_ARGUMENT;
     }
     if (b->abi_version != WEFT_RENDER_ABI_VERSION) {
         return WEFT_RENDER_UNSUPPORTED_ABI;
     }
-    const auto& c = b->capabilities;
-    if (!b->api || b->reserved || !b->device_epoch || !b->queue || c.struct_size < sizeof(c) || c.reserved ||
-        !c.max_texture_size || !c.max_target_size || (c.features & ~weft::constants::render::known_feature_bits) ||
-        !c.target_formats || (c.target_formats & ~weft::constants::render::known_target_format_bits) || !b->prepare ||
-        !b->release_prepared || !b->encode || !b->discard_encoded || !b->submitted || !b->completed || !b->abandon ||
-        !b->shutdown) {
+    // A table from before display lists ends at shutdown.
+    weft_render_backend table{};
+    std::copy_n(reinterpret_cast<const unsigned char*>(b), std::min<std::size_t>(b->struct_size, sizeof(table)),
+                reinterpret_cast<unsigned char*>(&table));
+    table.struct_size = sizeof(table);
+    const auto& c = table.capabilities;
+    const bool lists = c.features & WEFT_RENDER_FEATURE_DISPLAY_LIST;
+    if (!table.api || table.reserved || !table.device_epoch || !table.queue || c.struct_size < sizeof(c) ||
+        c.reserved || !c.max_texture_size || !c.max_target_size ||
+        (c.features & ~weft::constants::render::known_feature_bits) || !c.target_formats ||
+        (c.target_formats & ~weft::constants::render::known_target_format_bits) || !table.prepare ||
+        !table.release_prepared || !table.encode || !table.discard_encoded || !table.submitted || !table.completed ||
+        !table.abandon || !table.shutdown || lists != (table.prepare_list != nullptr)) {
         return WEFT_RENDER_INVALID_ARGUMENT;
     }
     weft_renderer_desc limits{sizeof(weft_renderer_desc),
@@ -350,7 +532,7 @@ weft_render_result weft_renderer_create(const weft_render_backend* b, const weft
     try {
         auto* r = new weft_renderer;
         try {
-            r->backend = *b;
+            r->backend = table;
             r->limits = limits;
             r->prepared = Slots(limits.max_prepared_frames);
             r->uses = Slots(limits.max_in_flight_uses);
@@ -364,7 +546,7 @@ weft_render_result weft_renderer_create(const weft_render_backend* b, const weft
                     break;
                 }
             }
-            r->identity = {id, b->device_epoch, b->queue, b->api, 0};
+            r->identity = {id, table.device_epoch, table.queue, table.api, 0};
             *out = r;
             return WEFT_RENDER_OK;
         } catch (...) {
@@ -440,6 +622,59 @@ weft_render_result weft_renderer_prepare(weft_renderer* r, const weft_render_fra
         return WEFT_RENDER_BACKEND_ERROR;
     }
     *out = publish(*r, r->prepared, i, native, prepared_kind);
+    ++r->prepared_count;
+    return WEFT_RENDER_OK;
+}
+
+weft_render_result weft_renderer_prepare_list(weft_renderer* r, const weft_render_list_frame* f,
+                                              weft_render_handle* out) noexcept {
+    if (!out) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    *out = {};
+    if (const auto v = owner(r, true); v != WEFT_RENDER_OK) {
+        return v;
+    }
+    if (!f || f->struct_size < sizeof(*f) || f->reserved || (f->external_count && !f->external_textures)) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    if (f->abi_version != WEFT_RENDER_ABI_VERSION) {
+        return WEFT_RENDER_UNSUPPORTED_ABI;
+    }
+    try {
+        if (const auto v = validate_list(*r, f->list, f->external_count); v != WEFT_RENDER_OK) {
+            return v;
+        }
+    } catch (const std::bad_alloc&) {
+        return WEFT_RENDER_OUT_OF_MEMORY;
+    } catch (...) {
+        return WEFT_RENDER_BACKEND_ERROR;
+    }
+    if (f->external_count && !r->external.struct_size) {
+        return WEFT_RENDER_UNSUPPORTED_FEATURE;
+    }
+    if (f->external_count > r->textures.size()) {
+        return WEFT_RENDER_BUSY;
+    }
+    const auto index = r->prepared.first_free();
+    if (index == r->prepared.size()) {
+        return WEFT_RENDER_BUSY;
+    }
+    if (const auto v = pin_external(*r, index, f->external_count, f->external_textures); v != WEFT_RENDER_OK) {
+        return v;
+    }
+    uint64_t native{};
+    weft_render_result v;
+    {
+        Callback guard(*r);
+        v = r->backend.prepare_list(r->backend.user_data, f->list, r->external_scratch.data(), f->external_count,
+                                    &native);
+    }
+    if (v != WEFT_RENDER_OK || !native) {
+        release_textures(*r, r->prepared[index]);
+        return v == WEFT_RENDER_OK ? WEFT_RENDER_BACKEND_ERROR : v;
+    }
+    *out = publish(*r, r->prepared, index, native, prepared_kind);
     ++r->prepared_count;
     return WEFT_RENDER_OK;
 }
@@ -795,33 +1030,15 @@ weft_render_result weft_renderer_prepare_external(weft_renderer* r, const weft_r
     if (index == r->prepared.size()) {
         return WEFT_RENDER_BUSY;
     }
-    auto& deps = r->prepared[index].textures;
-    auto& scratch = r->external_scratch;
-    deps.clear();
-    scratch.clear();
-    for (uint32_t i = 0; i < f->external_count; ++i) {
-        TextureSlot* t{};
-        if (const auto v = texture_handle(*r, f->external_textures[i], t); v != WEFT_RENDER_OK) {
-            deps.clear();
-            return v;
-        }
-        auto description = t->description;
-        description.retired = nullptr;
-        description.retirement_user_data = nullptr;
-        scratch.push_back({description, t->native});
-        const auto slot = f->external_textures[i].slot;
-        if (std::find(deps.begin(), deps.end(), slot) == deps.end()) {
-            deps.push_back(slot);
-        }
-    }
-    for (auto i : deps) {
-        ++r->textures[i].pins;
+    if (const auto v = pin_external(*r, index, f->external_count, f->external_textures); v != WEFT_RENDER_OK) {
+        return v;
     }
     uint64_t native{};
     weft_render_result v;
     {
         Callback guard(*r);
-        v = r->external.prepare(r->external.user_data, &f->frame, scratch.data(), f->external_count, &native);
+        v = r->external.prepare(r->external.user_data, &f->frame, r->external_scratch.data(), f->external_count,
+                                &native);
     }
     if (v != WEFT_RENDER_OK || !native) {
         release_textures(*r, r->prepared[index]);

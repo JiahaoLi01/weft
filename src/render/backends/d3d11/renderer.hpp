@@ -22,9 +22,10 @@
 #include <utility>
 #include <vector>
 
-// D3D11 reference renderer: one device and its immediate queue, ordered quads in linear premultiplied
-// color. Uploads and draws are recorded on a deferred context; the host executes, submits and confirms
-// completion. GPU resources retire only after an actual completion query (ResourceLifetime).
+// D3D11 reference renderer: one device and its immediate queue, display lists in linear premultiplied color
+// (quad packets as their display lists, render/quad_list.hpp). Uploads and draws are recorded on a deferred
+// context; the host executes, submits and confirms completion. GPU resources retire only after an actual completion
+// query (ResourceLifetime).
 //
 // Failures throw std::runtime_error. The C ABI adapter (backend.hpp) turns them into weft_render_result
 // values, so no exception crosses the ABI. The state stays public: probes and tests assert on upload,
@@ -65,12 +66,10 @@ namespace weft::render::d3d11 {
 
     struct PreparedFrame {
         PreparedFrameId id;
-        // A packet's quads and assets; for a display list, the list's assets only.
-        FramePacket snapshot;
-        // A display list drawn in place of the quads, in a linear pass of the shared scene shader.
-        std::optional<paint::DisplayList> list;
+        // The immutable list the frame draws, in a linear pass of the shared scene shader.
+        std::shared_ptr<const paint::DisplayList> list;
         std::vector<ResourceId> dependencies;
-        // Host textures drawn by Draw::asset indices past snapshot.assets.
+        // The list's external textures.
         std::vector<ExternalGpuAsset> external;
     };
 
@@ -79,19 +78,20 @@ namespace weft::render::d3d11 {
         ComPtr<ID3D11CommandList> commands;
     };
 
-    // Constant buffer of quad.hlsl, one quad per draw.
-    struct alignas(16) QuadConstants {
-        std::array<float, 4> rect;
-        std::array<float, 2> target;
-        UINT material;
-        float opacity;
-        std::array<float, 4> color;
-        std::array<float, 4> uv;
-        std::array<float, 4> sdf;
-        std::array<float, 4> outline;
+    // A structured buffer of per-frame pass data that grows to the largest frame. With command lists the driver records
+    // itself it is written by UpdateSubresource in command order: renaming a buffer mapped with discard stalled the GPU
+    // for milliseconds on an RTX 5090. Where the runtime emulates command lists (WARP) it is mapped with discard.
+    struct PassBuffer {
+        ComPtr<ID3D11Buffer> buffer;
+        ComPtr<ID3D11ShaderResourceView> view;
+        std::size_t capacity{};
     };
 
-    static_assert(sizeof(QuadConstants) == 96);
+    // A texture that image items sample: an asset's or an external texture's view, whose rows may start at the bottom.
+    struct ImageView {
+        ID3D11ShaderResourceView* view{};
+        bool bottom_up{};
+    };
 
     class Backend;
 
@@ -104,25 +104,28 @@ namespace weft::render::d3d11 {
         ComPtr<ID3D11DeviceContext> immediate;
         ComPtr<ID3D11DeviceContext> deferred;
         ComPtr<ID3D11InfoQueue> info;
-        ComPtr<ID3D11VertexShader> vs;
-        ComPtr<ID3D11PixelShader> ps;
-        ComPtr<ID3D11Buffer> constants;
         // The linear display list pass (scene.hlsl, SPACE_LINEAR) and its View constants.
         ComPtr<ID3D11VertexShader> display_vs;
         ComPtr<ID3D11PixelShader> display_ps;
         ComPtr<ID3D11Buffer> display_constants;
+        PassBuffer display_records;
+        PassBuffer display_clips;
         ComPtr<ID3D11BlendState> blend;
         ComPtr<ID3D11RasterizerState> raster;
         ComPtr<ID3D11DepthStencilState> depth;
         ComPtr<ID3D11SamplerState> sampler;
-        // GPU conversion of translucent encoded sRGB inputs and its decode/alpha tables.
+        // GPU conversion of translucent encoded sRGB inputs and its decode/alpha tables, and of encoded premultiplied
+        // textures (Direct2D targets): convert_vs draws one triangle over the viewport.
         ComPtr<ID3D11VertexShader> convert_vs;
         ComPtr<ID3D11PixelShader> convert_ps;
         ComPtr<ID3D11ShaderResourceView> convert_tables;
-        // Offscreen sRGB result, its linear float render-to-texture source and the opacity group target.
+        ComPtr<ID3D11PixelShader> encoded_convert_ps;
+        // Offscreen sRGB result, its linear float render-to-texture source and the linear alpha check target.
         Surface output;
         Surface intermediate;
         Surface group;
+        // Linear float targets of nested isolated groups, created on first use at the renderer's size.
+        std::vector<Surface> group_layers;
         // CPU readback copies of output (RGBA8) and group (linear float).
         ComPtr<ID3D11Texture2D> staging;
         ComPtr<ID3D11Texture2D> alpha_staging;
@@ -161,6 +164,8 @@ namespace weft::render::d3d11 {
         std::string adapter;
         D3D_FEATURE_LEVEL level{};
         bool debug_layer{};
+        // Whether the driver records command lists itself rather than the runtime emulating them.
+        bool driver_command_lists{};
         bool submitted{};
         bool acknowledged{};
         // Serial that complete() reports once host_done signals.
@@ -185,18 +190,23 @@ namespace weft::render::d3d11 {
         // Releases least recently used completed cache entries until `required` more bytes fit; `all`
         // drains the cache and requires every submission complete.
         void evict_assets(std::size_t required = 0, bool all = false);
-        // Creates or reuses one leased texture per asset and pins them for the frame. keys are the
-        // (asset_id, asset_version) cache keys when cache_assets is set.
-        PreparedFrame prepare(FramePacket packet,
+        // Creates or reuses one leased texture per asset of the list and pins them for the frame. keys are the
+        // (asset_id, asset_version) cache keys when cache_assets is set. The list draws boxes, images and isolated
+        // groups (no scene rasters) at one device px per CSS px.
+        PreparedFrame prepare(std::shared_ptr<const paint::DisplayList> list,
                               const std::vector<std::pair<std::uint64_t, std::uint64_t>>& keys = {});
-        // Prepares a display list's assets like a packet's. The list draws boxes and images (no groups or scene
-        // rasters) at one device px per CSS px.
         PreparedFrame prepare(paint::DisplayList list,
                               const std::vector<std::pair<std::uint64_t, std::uint64_t>>& keys = {});
+        // A list packet prepares its list; a quad packet its quad_list, whose asset indices past the packet's assets
+        // name external_textures.
+        PreparedFrame prepare(FramePacket packet, const std::vector<std::pair<std::uint64_t, std::uint64_t>>& keys = {},
+                              std::uint32_t external_textures = 0);
         // Releases native textures whose leases have retired and drops completed upload copies.
         void collect();
-        void bind_target(Surface& target);
-        void draw(const Draw& d, ID3D11ShaderResourceView* texture, UINT material, float spread = 0);
+        // Records list into target (target_width x target_height px) on context: image asset i samples images[i]
+        // (the list's assets, then its external textures). Groups need a target of the renderer's size.
+        void record(ID3D11DeviceContext* context, const paint::DisplayList& list, ID3D11RenderTargetView* target,
+                    UINT target_width, UINT target_height, const std::vector<ImageView>& images);
         // Records uploads and draws into a command list. With native_context and native_target the host's
         // deferred context and render target are used; otherwise the offscreen output (rtt draws through
         // the linear intermediate). fail_after_upload injects a recording failure for tests.
@@ -210,9 +220,5 @@ namespace weft::render::d3d11 {
         void check_debug_messages();
         Backend& ensure_backend();
         void complete_backend();
-
-    private:
-        // Records a display list's pass into target on the deferred context, then restores the quad pipeline.
-        void encode_list(const paint::DisplayList& list, ID3D11RenderTargetView* target);
     };
 } // namespace weft::render::d3d11

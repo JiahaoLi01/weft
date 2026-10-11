@@ -119,39 +119,66 @@ namespace weft::render::d3d11 {
         ++released_imports;
     }
 
+    weft_render_result Backend::external_views(const weft_render_external_asset* textures, std::uint32_t count,
+                                               std::vector<ExternalGpuAsset>& out) {
+        out.reserve(count);
+        for (uint32_t i = 0; i < count; ++i) {
+            const auto id = textures[i].native_texture;
+            if (!id || id > imports.size() || !imports[id - 1].srv) {
+                return WEFT_RENDER_STALE_HANDLE;
+            }
+            out.push_back({imports[id - 1].srv, textures[i].description.origin == WEFT_RENDER_EXTERNAL_BOTTOM_LEFT});
+        }
+        return WEFT_RENDER_OK;
+    }
+
     weft_render_result Backend::prepare_external(const weft_render_frame& f, const weft_render_external_asset* textures,
                                                  std::uint32_t count, std::uint64_t& out) {
         out = 0;
+        std::vector<ExternalGpuAsset> external;
         try {
-            std::vector<ExternalGpuAsset> external;
-            external.reserve(count);
-            for (uint32_t i = 0; i < count; ++i) {
-                const auto id = textures[i].native_texture;
-                if (!id || id > imports.size() || !imports[id - 1].srv) {
-                    return WEFT_RENDER_STALE_HANDLE;
-                }
-                external.push_back(
-                    {imports[id - 1].srv, textures[i].description.origin == WEFT_RENDER_EXTERNAL_BOTTOM_LEFT});
+            if (const auto result = external_views(textures, count, external); result != WEFT_RENDER_OK) {
+                return result;
             }
-            const auto result = prepare(f, out);
-            if (result == WEFT_RENDER_OK) {
-                prepared->external = std::move(external);
-            }
-            return result;
         } catch (...) {
             return WEFT_RENDER_OUT_OF_MEMORY;
         }
+        return prepare_quads(f, std::move(external), out);
+    }
+
+    weft_render_result Backend::prepare_list(const weft_paint_list& list, const weft_render_external_asset* textures,
+                                             std::uint32_t count, std::uint64_t& out) {
+        out = 0;
+        std::vector<ExternalGpuAsset> external;
+        try {
+            if (const auto result = external_views(textures, count, external); result != WEFT_RENDER_OK) {
+                return result;
+            }
+        } catch (...) {
+            return WEFT_RENDER_OUT_OF_MEMORY;
+        }
+        return prepare_with(std::move(external), out, [&] {
+            // A list shares its immutable assets; their identities are the cache keys.
+            std::vector<std::pair<std::uint64_t, std::uint64_t>> keys;
+            if (gpu.cache_assets) {
+                keys.reserve(list.list->assets.size());
+                for (const auto& asset : list.list->assets) {
+                    keys.emplace_back(gpu.asset_identity(asset), 1);
+                }
+            }
+            return gpu.prepare(list.list, keys);
+        });
     }
 
     weft_render_result Backend::prepare(const weft_render_frame& frame, std::uint64_t& out) {
-        const auto* input = &frame;
-        out = 0;
-        const auto state = gpu.tracker.Stats();
-        if (prepared || state.encoded_tokens || (state.submitted_tokens && !gpu.pipeline_enabled)) {
-            return WEFT_RENDER_BUSY;
-        }
-        gpu.assets.clear();
-        try {
+        return prepare_quads(frame, {}, out);
+    }
+
+    weft_render_result Backend::prepare_quads(const weft_render_frame& frame, std::vector<ExternalGpuAsset> external,
+                                              std::uint64_t& out) {
+        const auto external_count = std::uint32_t(external.size());
+        return prepare_with(std::move(external), out, [&] {
+            const auto* input = &frame;
             FramePacket packet;
             packet.assets.reserve(input->asset_count);
             packet.draws.reserve(input->draw_count);
@@ -180,7 +207,21 @@ namespace weft::render::d3d11 {
                 std::copy_n(a.outline_srgb, 4, d.outline.begin());
                 packet.draws.push_back(d);
             }
-            prepared = gpu.prepare(std::move(packet), keys);
+            return gpu.prepare(std::move(packet), keys, external_count);
+        });
+    }
+
+    template <class Make>
+    weft_render_result Backend::prepare_with(std::vector<ExternalGpuAsset> external, std::uint64_t& out, Make&& make) {
+        out = 0;
+        const auto state = gpu.tracker.Stats();
+        if (prepared || state.encoded_tokens || (state.submitted_tokens && !gpu.pipeline_enabled)) {
+            return WEFT_RENDER_BUSY;
+        }
+        gpu.assets.clear();
+        try {
+            prepared = make();
+            prepared->external = std::move(external);
             out = limits::prepared_frame_handle;
             return WEFT_RENDER_OK;
         } catch (...) {
@@ -382,6 +423,11 @@ namespace weft::render::d3d11 {
     }
 
     PacketView::PacketView(const FramePacket& packet, uint64_t version, Renderer* cache) {
+        if (packet.list) {
+            ensure(packet.draws.empty() && packet.assets.empty(), "a list packet holds only its list");
+            list.list = packet.list;
+            return;
+        }
         for (size_t i = 0; i < packet.assets.size(); ++i) {
             const auto& a = *packet.assets[i];
             assets.push_back({cache ? cache->asset_identity(packet.assets[i]) : i + 1, cache ? 1 : version, a.width,
@@ -400,5 +446,21 @@ namespace weft::render::d3d11 {
         }
         frame = {sizeof(frame),          WEFT_RENDER_ABI_VERSION, draws.data(),
                  uint32_t(draws.size()), uint32_t(assets.size()), assets.data()};
+    }
+
+    weft_render_result PacketView::prepare(weft_renderer* renderer, weft_render_handle& out,
+                                           const std::vector<weft_render_handle>& external) const {
+        const auto count = uint32_t(external.size());
+        if (list.list) {
+            const weft_render_list_frame input{
+                sizeof(input), WEFT_RENDER_ABI_VERSION, &list, count, 0, count ? external.data() : nullptr};
+            return weft_renderer_prepare_list(renderer, &input, &out);
+        }
+        if (!count) {
+            return weft_renderer_prepare(renderer, &frame, &out);
+        }
+        const weft_render_external_frame input{sizeof(input),  WEFT_RENDER_EXTERNAL_ABI_VERSION, frame, count, 0,
+                                               external.data()};
+        return weft_renderer_prepare_external(renderer, &input, &out);
     }
 } // namespace weft::render::d3d11

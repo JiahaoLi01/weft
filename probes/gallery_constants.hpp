@@ -187,9 +187,7 @@ namespace weft::probe_constants::gallery {
     inline constexpr int producer_completion_timeout_s = weft::probe_constants::completion_timeout_seconds;
     inline constexpr int completion_poll_ms = weft::probe_constants::completion_poll_ms;
     // MaterialEncodedBgra in src/render/backends/d3d11/quad.hlsl: decode the encoded BGRA card target.
-    inline constexpr int encoded_bgra_material = static_cast<int>(weft::probe_constants::shader_material::encoded_bgra);
     // Two triangles per instanced quad.
-    inline constexpr int quad_vertex_count = weft::probe_constants::quad_vertex_count;
     // Adds half the divisor before dividing by color_channel_max, rounding to nearest.
     inline constexpr int color_channel_rounding = weft::constants::color_channel_max / 2;
 

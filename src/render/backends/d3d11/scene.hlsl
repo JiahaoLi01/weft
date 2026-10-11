@@ -209,15 +209,28 @@ bool wedge(float2 position, float2 a, float2 b, float2 c, float2 d) {
 float4 ps_main(Vertex v) : SV_Target {
     Paint p = paints[v.index];
     float2 world = v.position.xy / scale;
+#if SPACE_LINEAR
+    // A linear pass draws transparent black outside its clip and its image instead of discarding: premultiplied
+    // source-over leaves the target unchanged, and neighbouring pixels keep defined derivatives for their
+    // antialiasing.
+    float coverage = world.x < p.clip.x || world.y < p.clip.y || world.x >= p.clip.z || world.y >= p.clip.w
+                         ? 0
+                         : clipChain(p, world);
+#else
     if (world.x < p.clip.x || world.y < p.clip.y || world.x >= p.clip.z || world.y >= p.clip.w) {
         discard;
     }
     float coverage = clipChain(p, world);
+#endif
     float2 position = float2(dot(p.invX.xyz, float3(world, 1)), dot(p.invY.xyz, float3(world, 1)));
     if (p.extra.z == FlagEnabled) {
+#if SPACE_LINEAR
+        coverage = any(position < 0) || any(position >= p.size.xy) ? 0 : coverage;
+#else
         if (any(position < 0) || any(position >= p.size.xy)) {
             discard;
         }
+#endif
         // precise keeps the division a scene raster has always sampled at: its uv is the identity.
         precise float2 local = position / p.size.xy;
         float2 uv = p.uv.xy + local * p.uv.zw;

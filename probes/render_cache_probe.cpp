@@ -146,7 +146,7 @@ namespace probes {
             }
             if (i % 11 == 0) {
                 auto dropped = cheetah_packet(page(state + 1), fonts, images, &cpu);
-                require(!dropped.draws.empty(), "dropped packet prepared");
+                require(!dropped.list->items.empty(), "dropped packet prepared");
             }
             compare(read(cached, cheetah_packet(page(state), fonts, images, &cpu)),
                     read(reference, cheetah_packet(page(state), fonts, images)));

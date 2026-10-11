@@ -20,7 +20,7 @@ namespace probes {
 
     inline ComPtr<ID3D11Buffer> external_constants(Experiment& gpu) {
         D3D11_BUFFER_DESC d{};
-        d.ByteWidth = sizeof(QuadConstants);
+        d.ByteWidth = weft::constants::render::scene::view_constants_bytes;
         d.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
         ComPtr<ID3D11Buffer> result;
         check_hresult(gpu.device->CreateBuffer(&d, nullptr, &result), "external independent constants");
@@ -66,30 +66,16 @@ namespace probes {
             ComPtr<ID3D11Buffer> old;
 
             ~Restore() {
-                gpu.constants = std::move(old);
+                gpu.display_constants = std::move(old);
             }
-        } restore{gpu, gpu.constants};
+        } restore{gpu, gpu.display_constants};
 
-        gpu.constants = buffer;
+        gpu.display_constants = buffer;
         auto* ctx = gpu.deferred.Get();
         ctx->ClearState();
-        auto* rtv = target.rtv.Get();
-        ctx->OMSetRenderTargets(1, &rtv, nullptr);
         const float clear[4]{};
-        ctx->ClearRenderTargetView(rtv, clear);
-        const D3D11_VIEWPORT viewport{0, 0, float(gpu.width), float(gpu.height), 0, 1};
-        ctx->RSSetViewports(1, &viewport);
-        ctx->RSSetState(gpu.raster.Get());
-        ctx->OMSetDepthStencilState(gpu.depth.Get(), 0);
-        ctx->OMSetBlendState(gpu.blend.Get(), nullptr, D3D11_DEFAULT_SAMPLE_MASK);
-        ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        ctx->VSSetShader(gpu.vs.Get(), nullptr, 0);
-        ctx->PSSetShader(gpu.ps.Get(), nullptr, 0);
-        auto* cb = buffer.Get();
-        ctx->VSSetConstantBuffers(0, 1, &cb);
-        ctx->PSSetConstantBuffers(0, 1, &cb);
-        auto* sampler = gpu.sampler.Get();
-        ctx->PSSetSamplers(0, 1, &sampler);
+        ctx->ClearRenderTargetView(target.rtv.Get(), clear);
+        FramePacket quadrants;
         const auto colors = external_colors(variation);
         for (unsigned q = 0; q < 4; ++q) {
             auto straight = colors[q];
@@ -98,11 +84,11 @@ namespace probes {
                     straight[c] /= straight[3];
                 }
             }
-            gpu.draw({{float(q % 2) * gpu.width / 2, float(q / 2) * gpu.height / 2, float(gpu.width) / 2,
-                       float(gpu.height) / 2},
-                      straight},
-                     nullptr, weft::probe_constants::shader_material::solid);
+            quadrants.draws.push_back({{float(q % 2) * gpu.width / 2, float(q / 2) * gpu.height / 2,
+                                        float(gpu.width) / 2, float(gpu.height) / 2},
+                                       straight});
         }
+        gpu.record(ctx, quad_list(quadrants, 0, gpu.width, gpu.height), target.rtv.Get(), gpu.width, gpu.height, {});
         ctx->ClearState();
         ComPtr<ID3D11CommandList> commands;
         check_hresult(ctx->FinishCommandList(FALSE, &commands), "external producer commands");

@@ -12,10 +12,6 @@
 // Pass a constant to them as a static_cast<T>(constant) prvalue, like the literal it replaced:
 // binding the reference to the inline variable itself changes MSVC code generation.
 namespace weft::probe_constants {
-    // Material ids of the D3D11 reference renderer's quad shader.
-    namespace shader_material = constants::render::d3d11::shader_material;
-
-    inline constexpr int quad_vertex_count = constants::render::d3d11::quad_vertex_count;
     inline constexpr int max_surface_dimension = constants::render::d3d11::max_surface_dimension;
     // Color fixture target, also the default Experiment and PNG size.
     inline constexpr int color_fixture_width = 256;
@@ -99,14 +95,23 @@ namespace weft::probe_constants {
     inline constexpr int rgba8_parity_tolerance = 2;
     // GPU pixels versus an independent CPU sample oracle.
     inline constexpr int cpu_oracle_tolerance = 3;
+    // Where a rounded clip edge passes within a pixel, the GPU's antialiasing ramps linearly with the distance to the
+    // edge, which differs from the oracle's exact area by up to 0.043 of coverage on a diagonal edge; with a half
+    // level of quantization this bounds the difference in linear light. The sRGB encoding of a translucent edge
+    // magnifies the same difference to several dozen 8-bit levels, so edges compare in linear light.
+    inline constexpr float rounded_clip_edge_linear_tolerance = .05f;
+    // The oracle measures rounded clip area over this many samples per side of a pixel.
+    inline constexpr int oracle_clip_subpixels = 16;
     // Pipelined or cached frames versus the full path.
     inline constexpr int pipeline_pixel_tolerance = 1;
     // Linear premultiplied float readback of the color fixture.
     inline constexpr float linear_alpha_tolerance = 0.00001f;
     // Linear coverage error of SDF straight edges and strokes.
     inline constexpr float sdf_edge_tolerance = 0.12f;
-    // Rounded mask versus a dense elliptical area integration.
-    inline constexpr int ellipse_area_tolerance = 5;
+    // GPU elliptical clip coverage versus a dense area integration, in 8-bit alpha levels. The antialiasing ramps
+    // linearly with the distance to the edge, which on a diagonal edge differs from the exact pixel area by up to
+    // 0.043 (11 levels).
+    inline constexpr int ellipse_area_tolerance = 12;
     // Linear float composite of external textures; filtering has finite subtexel precision.
     inline constexpr float external_float_tolerance = 1.f / 256;
     // Logical scroll offset and animated position, and the time-based motion speed checks.

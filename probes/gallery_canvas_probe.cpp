@@ -57,7 +57,7 @@ namespace probes {
                             const auto actual =
                                 pixels[std::size_t(y) * weft::probe_constants::gallery::canvas_backing_width + x];
                             for (unsigned c = 0; c < 4; ++c) {
-                                error = std::max(error, unsigned(std::abs(int(expected[c]) - actual[c])));
+                                error = std::max(error, unsigned(std::abs(int(expected.pixel[c]) - actual[c])));
                             }
                             ++samples;
                         }

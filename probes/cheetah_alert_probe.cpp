@@ -126,10 +126,12 @@ namespace probes {
         std::size_t fallback_glyphs{};
         unsigned expected_releases{};
         int max_error{};
+        float edge_error{};
         std::vector<Pixel> first;
         for (int i = 0; i < weft::probe_constants::alert_frames; ++i) {
             auto packet = cheetah_packet(pages[i], fonts, images);
-            expected_releases += unsigned(packet.assets.size());
+            const auto& list = *packet.list;
+            expected_releases += unsigned(list.assets.size());
             for (const auto& p : pages[i].paints) {
                 for (const auto& g : p.paint.shaped.glyphs) {
                     require(g.glyph_id != 0, "no tofu glyph reaches GPU");
@@ -142,31 +144,30 @@ namespace probes {
             const auto pixels = presenter.pixels();
             for (int y = 1; y < weft::constants::default_view_height; y += 9) {
                 for (int x = 1; x < weft::constants::default_view_width; x += 9) {
-                    const auto expected = cheetah_sample(packet, x, y);
-                    const auto actual = pixels[std::size_t(y) * weft::constants::default_view_width + x];
-                    for (int c = 0; c < 4; ++c) {
-                        max_error = std::max(max_error, std::abs(int(actual[c]) - int(expected[c])));
-                    }
+                    compare_oracle(cheetah_sample(packet, x, y),
+                                   pixels[std::size_t(y) * weft::constants::default_view_width + x], max_error,
+                                   edge_error);
                     ++samples;
                 }
             }
-            // Separate text-only oracle visits every covered glyph quad. Sampling a
+            // Separate text-only oracle visits every pixel of each glyph image. Sampling a
             // coarse image grid alone could miss an empty/misidentified CJK glyph.
-            for (const auto& d : packet.draws) {
-                if (d.asset >= 0 && packet.assets[d.asset]->encoding == Encoding::Coverage) {
-                    for (int y = std::max(0, int(std::floor(d.rect.y)));
+            for (const auto& item : list.items) {
+                if (item.kind == weft::paint::Item::Kind::Image &&
+                    list.assets[list.images[item.payload].asset]->encoding == Encoding::Coverage) {
+                    const float left = item.transform[4];
+                    const float top = item.transform[5];
+                    for (int y = std::max(0, int(std::floor(top)));
                          y < std::min(static_cast<int>(weft::constants::default_view_height),
-                                      int(std::ceil(d.rect.y + d.rect.h)));
+                                      int(std::ceil(top + item.height)));
                          ++y) {
-                        for (int x = std::max(0, int(std::floor(d.rect.x)));
+                        for (int x = std::max(0, int(std::floor(left)));
                              x < std::min(static_cast<int>(weft::constants::default_view_width),
-                                          int(std::ceil(d.rect.x + d.rect.w)));
+                                          int(std::ceil(left + item.width)));
                              ++x) {
-                            const auto expected = cheetah_sample(packet, x, y);
-                            const auto actual = pixels[std::size_t(y) * weft::constants::default_view_width + x];
-                            for (int c = 0; c < 4; ++c) {
-                                max_error = std::max(max_error, std::abs(int(actual[c]) - int(expected[c])));
-                            }
+                            compare_oracle(cheetah_sample(packet, x, y),
+                                           pixels[std::size_t(y) * weft::constants::default_view_width + x], max_error,
+                                           edge_error);
                             ++samples;
                         }
                     }
@@ -183,7 +184,7 @@ namespace probes {
                 report << ',';
             }
             report << "{\"state\":" << states[i] << ",\"layout\":" << page_json(pages[i].geometry)
-                   << ",\"textures\":" << packet.assets.size();
+                   << ",\"textures\":" << list.assets.size();
             if (original_style) {
                 report << ",\"style_colors\":" << colors[i];
             }
@@ -216,8 +217,8 @@ namespace probes {
         text.paint.shaped.glyphs.push_back(glyph);
         collision.paints.push_back(text);
         auto collision_packet = cheetah_packet(collision, fonts, images);
-        require(collision_packet.assets.size() == 2 &&
-                    collision_packet.assets[0]->bytes != collision_packet.assets[1]->bytes,
+        const auto& collision_assets = collision_packet.list->assets;
+        require(collision_assets.size() == 2 && collision_assets[0]->bytes != collision_assets[1]->bytes,
                 "glyph cache must include font resource identity");
         expected_releases += 2;
         render_window(gpu, collision_packet, [&] {
@@ -226,15 +227,14 @@ namespace probes {
         const auto collision_pixels = presenter.pixels();
         for (int y = 0; y < 40; ++y) {
             for (int x = 0; x < 80; ++x) {
-                const auto expected = cheetah_sample(collision_packet, x, y);
-                const auto actual = collision_pixels[std::size_t(y) * weft::constants::default_view_width + x];
-                for (int c = 0; c < 4; ++c) {
-                    max_error = std::max(max_error, std::abs(int(actual[c]) - int(expected[c])));
-                }
+                compare_oracle(cheetah_sample(collision_packet, x, y),
+                               collision_pixels[std::size_t(y) * weft::constants::default_view_width + x], max_error,
+                               edge_error);
                 ++samples;
             }
         }
-        require(fallback_glyphs > 100 && max_error <= weft::probe_constants::cpu_oracle_tolerance,
+        require(fallback_glyphs > 100 && max_error <= weft::probe_constants::cpu_oracle_tolerance &&
+                    edge_error <= weft::probe_constants::rounded_clip_edge_linear_tolerance,
                 "fallback coverage/image independent CPU oracle");
         gpu.check_debug_messages();
         require(expected_releases == gpu.native_releases, "all font/image textures retire at actual GPU completion");
@@ -268,6 +268,7 @@ namespace probes {
             << ",\"original_component_verified\":true,\"original_store_and_bridge_verified\":true,\"authored_preview_css\":true,\"chinese_font_verified\":true,\"font_id_cache_collision_verified\":true,\"post_vm_reset_render_verified\":true,\"stale_list_target_verified\":true,\"actual_completion_query\":true,\"native_textures_retired\":"
             << gpu.native_releases << ",\"fallback_glyph_count\":" << fallback_glyphs
             << ",\"cpu_pixel_samples\":" << samples << ",\"cpu_pixel_max_difference\":" << max_error
+            << ",\"cpu_pixel_rounded_edge_max_linear_difference\":" << edge_error
             << ",\"debug_layer\":" << (gpu.debug_layer ? "true" : "false")
             << ",\"debug_warning_error_count\":" << (gpu.debug_layer ? "0" : "null")
             << ",\"render_backend_abi_version\":1,\"real_unreal_commands_executed\":false,\"browser_pixel_parity_verified\":false,\"full_game_verified\":false,\"mobile_verified\":false,\"passed\":true}";

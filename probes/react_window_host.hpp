@@ -329,7 +329,8 @@ namespace probes {
         unsigned occluded{};
         bool capture{};
         bool last_visible{};
-        std::vector<Draw> overlay_draws;
+        // The HUD's display list and the views of its coverage assets.
+        std::shared_ptr<const weft::paint::DisplayList> overlay_list;
         std::vector<ComPtr<ID3D11ShaderResourceView>> overlay_assets;
         std::shared_ptr<const std::vector<ComPtr<ID3D11ShaderResourceView>>> overlay_lease_;
         unsigned overlay_updates{};
@@ -450,17 +451,17 @@ namespace probes {
 
         void overlay(const FramePacket& packet) {
             require(!renderer.submitted || renderer.acknowledged, "replace overlay only after actual host completion");
-            require(packet.assets.size() < weft::probe_constants::max_frame_assets &&
-                        packet.draws.size() < weft::probe_constants::overlay_max_draws,
+            require(packet.list && packet.list->assets.size() < weft::probe_constants::max_frame_assets &&
+                        packet.list->items.size() < weft::probe_constants::overlay_max_draws,
                     "bounded diagnostic overlay");
             std::size_t bytes{};
-            for (const auto& asset : packet.assets) {
+            for (const auto& asset : packet.list->assets) {
                 require(asset && asset->bytes.size() <= weft::probe_constants::overlay_max_bytes - bytes,
                         "diagnostic overlay byte bound");
                 bytes += asset->bytes.size();
             }
             std::vector<ComPtr<ID3D11ShaderResourceView>> assets;
-            for (const auto& value : packet.assets) {
+            for (const auto& value : packet.list->assets) {
                 const auto& a = *value;
                 require(a.encoding == Encoding::Coverage && a.width && a.height &&
                             a.bytes.size() == std::size_t(a.width) * a.height,
@@ -485,7 +486,7 @@ namespace probes {
             // Replacing the HUD cannot destroy assets of an older in-flight HUD.
             auto lease = std::make_shared<const std::vector<ComPtr<ID3D11ShaderResourceView>>>(assets);
             renderer.immediate->ClearState();
-            overlay_draws = packet.draws;
+            overlay_list = packet.list;
             overlay_assets = std::move(assets);
             overlay_lease_ = std::move(lease);
             ++overlay_updates;
@@ -498,59 +499,32 @@ namespace probes {
         void present() {
             auto* context = renderer.immediate.Get();
             context->ClearState();
-            auto* target = rtv.Get();
-            context->OMSetRenderTargets(1, &target, nullptr);
             const float background[]{0, 0, 0, 1};
-            context->ClearRenderTargetView(target, background);
+            context->ClearRenderTargetView(rtv.Get(), background);
             const auto viewport =
                 weft::Viewport::fit(float(width), float(height), float(renderer.width), float(renderer.height));
-            QuadConstants constants{{viewport.x, viewport.y, viewport.width, viewport.height},
-                                    {float(width), float(height)},
-                                    weft::probe_constants::shader_material::texture,
-                                    1,
-                                    {1, 1, 1, 1},
-                                    {0, 0, 1, 1},
-                                    {},
-                                    {}};
-            context->UpdateSubresource(renderer.constants.Get(), 0, nullptr, &constants, 0, 0);
-            D3D11_VIEWPORT full{0, 0, float(width), float(height), 0, 1};
-            context->RSSetViewports(1, &full);
-            D3D11_RECT clip{0, 0, LONG(width), LONG(height)};
-            context->RSSetScissorRects(1, &clip);
-            context->RSSetState(renderer.raster.Get());
-            context->OMSetDepthStencilState(renderer.depth.Get(), 0);
-            context->OMSetBlendState(renderer.blend.Get(), nullptr, D3D11_DEFAULT_SAMPLE_MASK);
-            context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-            context->VSSetShader(renderer.vs.Get(), nullptr, 0);
-            context->PSSetShader(renderer.ps.Get(), nullptr, 0);
-            auto* cb = renderer.constants.Get();
-            context->VSSetConstantBuffers(0, 1, &cb);
-            context->PSSetConstantBuffers(0, 1, &cb);
-            auto* texture = renderer.output.srv.Get();
-            context->PSSetShaderResources(0, 1, &texture);
-            auto* sampler = renderer.sampler.Get();
-            context->PSSetSamplers(0, 1, &sampler);
-            context->Draw(weft::probe_constants::quad_vertex_count, 0);
-            for (const auto& d : overlay_draws) {
-                Color color = d.srgb;
-                for (int c = 0; c < 3; ++c) {
-                    color[c] = decode(color[c]) * color[3];
-                }
-                QuadConstants hud{{viewport.x + d.rect.x * viewport.scale, viewport.y + d.rect.y * viewport.scale,
-                                   d.rect.w * viewport.scale, d.rect.h * viewport.scale},
-                                  {float(width), float(height)},
-                                  d.asset < 0 ? weft::probe_constants::shader_material::solid
-                                              : weft::probe_constants::shader_material::coverage,
-                                  d.opacity,
-                                  color,
-                                  d.uv,
-                                  {},
-                                  {}};
-                context->UpdateSubresource(renderer.constants.Get(), 0, nullptr, &hud, 0, 0);
-                ID3D11ShaderResourceView* asset = d.asset < 0 ? nullptr : overlay_assets.at(d.asset).Get();
-                context->PSSetShaderResources(0, 1, &asset);
-                context->Draw(weft::probe_constants::quad_vertex_count, 0);
+            // The UI output letterboxed into the window, and the HUD over it at the same scale. The output is the
+            // list's external texture, after the HUD's coverage assets.
+            weft::paint::DisplayList window;
+            window.external_textures = 1;
+            window.images.emplace_back();
+            auto& output = window.items.emplace_back();
+            output.kind = weft::paint::Item::Kind::Image;
+            output.transform = {1, 0, 0, 1, viewport.x, viewport.y};
+            output.clip = {0, 0, float(width), float(height)};
+            output.width = viewport.width;
+            output.height = viewport.height;
+            if (overlay_list) {
+                require(bool(weft::paint::append(window, *overlay_list,
+                                                 {viewport.scale, 0, 0, viewport.scale, viewport.x, viewport.y})),
+                        "HUD over the window");
             }
+            std::vector<ImageView> images;
+            for (const auto& view : overlay_assets) {
+                images.push_back({view.Get()});
+            }
+            images.push_back({renderer.output.srv.Get()});
+            renderer.record(context, window, rtv.Get(), width, height, images);
             context->ClearState();
             if (capture) {
                 context->CopyResource(readback.Get(), back.Get());

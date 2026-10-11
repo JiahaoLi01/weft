@@ -40,12 +40,12 @@ namespace weft::render::d3d11 {
             Renderer& gpu;
             ComPtr<ID3D11Buffer> previous;
 
-            ConstantScope(Renderer& g, const ComPtr<ID3D11Buffer>& buffer) : gpu(g), previous(g.constants) {
-                g.constants = buffer;
+            ConstantScope(Renderer& g, const ComPtr<ID3D11Buffer>& buffer) : gpu(g), previous(g.display_constants) {
+                g.display_constants = buffer;
             }
 
             ~ConstantScope() {
-                gpu.constants = std::move(previous);
+                gpu.display_constants = std::move(previous);
             }
         };
 
@@ -116,15 +116,7 @@ namespace weft::render::d3d11 {
         weft_render_handle frame{};
         weft_render_handle use{};
         const auto started = clock();
-        if (external.empty()) {
-            render_result(weft_renderer_prepare(backend_.renderer, &view.frame, &frame), "pipeline prepare");
-        } else {
-            const weft_render_external_frame input{
-                sizeof(input),  WEFT_RENDER_EXTERNAL_ABI_VERSION, view.frame, uint32_t(external.size()), 0,
-                external.data()};
-            render_result(weft_renderer_prepare_external(backend_.renderer, &input, &frame),
-                          "pipeline external prepare");
-        }
+        render_result(view.prepare(backend_.renderer, frame, external), "pipeline prepare");
         gpu_.prepare_ms = elapsed(started);
         void* native_commands{};
         weft_render_d3d11_pass native{};

@@ -16,7 +16,19 @@
 
 `weft_render_frame` 是 prepare 调用期间借用的完整数组：有序 quad、纯色、sRGB straight 图像、线性 coverage、单通道 signed distance。资产使用非零 immutable asset ID/version、尺寸、encoding、字节数和 SDF spread；同一个身份/version 的内容不得修改。准备成功后，适配器必须拥有完整输入快照，调用者可以立即释放原始数组与像素。不同帧不依赖前一个未提交包的上传 delta。
 
-默认上限为两个 prepared、两个未提交 use、64 个总在途 use、65,536 draw、512 asset 和 16 MiB 输入像素，可在 creation descriptor 进一步限制。在录制前校验 asset index、字节数、有限几何/颜色、opacity、UV、SDF 描边范围、capabilities 和 target。不支持能力显式返回错误；当前不支持通用 group、clip/path/SVG、生产 atlas。
+默认上限为两个 prepared、两个未提交 use、64 个总在途 use、65,536 draw、512 asset 和 16 MiB 输入像素，可在 creation descriptor 进一步限制。在录制前校验 asset index、字节数、有限几何/颜色、opacity、UV、SDF 描边范围、capabilities 和 target。不支持能力显式返回错误。四边形帧没有 group 与裁剪，这两项由下面的显示列表帧提供；path/SVG 与生产 atlas 尚未支持。
+
+### 显示列表帧（2026-10-11）
+
+Weft 运行时产出的帧是不可变显示列表（`paint::DisplayList`：盒子、图片、圆角裁剪链、隔离组，带自己的资产 lease），经不透明句柄 `weft_paint_list` 穿过 C ABI。宿主只是转交，不能构造或读取其内容；内置后端读取它。
+
+- 入口 `weft_renderer_prepare_list(renderer, weft_render_list_frame*, handle*)`：帧带列表句柄，以及列表所画的外部纹理的调用方 lease（个数必须等于列表声明的数量，要求已安装外部纹理扩展）。成功后 prepared handle 与四边形帧相同，encode、提交和完成协议不变。
+- 能力位 `WEFT_RENDER_FEATURE_DISPLAY_LIST` 与后端表末尾新增的可选回调 `prepare_list` 必须同时出现，否则 create 返回 `INVALID_ARGUMENT`。旧后端表的 `struct_size` 在 `prepare_list` 之前结束，按无此能力处理；对它调用 `prepare_list` 返回 `UNSUPPORTED_FEATURE`。
+- 核心在回调前校验：结构（`paint::check`，含组深度上限）、条目数与资产数上限、资产尺寸/字节数/spread 与 16 MiB 预算、有限且可逆的变换、单位范围的颜色与 opacity、盒子的半径/边宽/渐变（最多 8 个色标）、圆角裁剪可以规范化、图片的 encoding 与能力、SDF 描边小于 spread − 1。scene 光栅条目（文字、图层）不能穿过 ABI，返回 `UNSUPPORTED_FEATURE`。
+- 后端回调只在调用期间借用句柄；成功的准备自己持有列表的共享引用（列表不可变，不复制条目），外部纹理元数据与四边形帧的扩展相同。
+- 外部纹理在列表里排在资产之后：图片的 asset 下标 `assets.size() + i` 是第 i 个外部纹理，按自身颜色绘制、不能带 SDF 描边。底部起始的纹理由后端翻转记录的 uv（`render::flip_rows`），不改列表。
+
+D3D11 参考适配器只有一条绘制路径：四边形帧在适配器里先由可移植的 `render::quad_list()` 转成显示列表（纯色四边形成为盒子，带纹理的成为图片条目），与显示列表帧走同一个线性 pass（`scene.hlsl` 的 `SPACE_LINEAR` 变体）。逐四边形绘制的 `quad.hlsl`、CPU 圆角遮罩与 `lower_to_quads` 已删除；隔离组在渲染器尺寸的线性 float 图层里合成，rtt 合成与线性 alpha 检查也是一条只含一个条目的列表。
 
 所有后端遵守 linear-sRGB premultiplied 合成；coverage/distance 不经过 sRGB transfer。通用 target 类型包括 sRGB/linear RGBA8、BGRA8、linear RGBA16F/RGBA32F，由 backend capability 位选择。类型存在不等于适配器支持；当前 D3D11 reference 宣告 RGBA8 与 RGBA32F，单采样。
 
@@ -30,7 +42,7 @@
 
 未来 Vulkan payload 可以声明 VkCommandBuffer、目标 image/view、render-pass/dynamic-rendering 范围、layout/barrier 的入出状态与责任；Metal payload 可声明 device、command buffer 和已打开的 render encoder 及 attachment/load/store 合同。这些 native scope schema 分别定义，不能强迫 Metal encoder 遵循 D3D11 deferred-context 模型。通用层不会隐式 begin/end 宿主的 pass；具体 scope 开始、结束和失败取消方式由对应 schema 写明。shader 的 HLSL/SPIR-V/MSL 工具链也由适配器选择。
 
-新增 adapter 需要实现 prepare、release_prepared、encode、discard_encoded、submitted、completed、abandon、shutdown，并选择能力。无需修改 DOM、布局、输入或通用提交状态机。它必须以真实资源和同步实现下面的合同，只有注册一个 API ID 不算后端完成。
+新增 adapter 需要实现 prepare、release_prepared、encode、discard_encoded、submitted、completed、abandon、shutdown，并选择能力；报告 `WEFT_RENDER_FEATURE_DISPLAY_LIST` 时还要实现 prepare_list（C++ 后端满足 `DisplayListBackend` concept，由 `make_c_backend` 生成）。无需修改 DOM、布局、输入或通用提交状态机。它必须以真实资源和同步实现下面的合同，只有注册一个 API ID 不算后端完成。
 
 ## 提交与错误合同
 

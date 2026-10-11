@@ -73,7 +73,7 @@ namespace probes {
                 const auto page = layout();
                 presenter.capture = capture;
                 auto packet = cheetah_packet(page.page, fonts, {});
-                expected_textures += packet.assets.size();
+                expected_textures += packet.list->assets.size();
                 render_window(renderer, std::move(packet), [&] {
                     presenter.present();
                 });
@@ -163,7 +163,7 @@ namespace probes {
                 Experiment failed(warp, weft::constants::default_view_width, weft::constants::default_view_height);
                 const auto page = layout();
                 auto packet = cheetah_packet(page.page, fonts, {});
-                const auto expected = packet.assets.size();
+                const auto expected = packet.list->assets.size();
                 bool rejected{};
                 try {
                     render_window(failed, std::move(packet), [] {

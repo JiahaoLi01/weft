@@ -1,5 +1,5 @@
 #include "paint/display_list.hpp"
-#include "render/quad_lowering.hpp"
+#include "render/quad_list.hpp"
 #include "render/scene_pass.hpp"
 #include "render/srgb.hpp"
 #include "scene/scene.hpp"
@@ -10,8 +10,8 @@
 #include <stdexcept>
 #include <string>
 
-// The portable paint IR: structural checks of display lists, the portable plan of a scene pass, and the quad
-// lowering of page display lists.
+// The portable paint IR: structural checks of display lists, the portable plan of a scene pass, quad packets as
+// display lists, external textures and appended lists.
 namespace {
     using weft::testing::require;
     namespace paint = weft::paint;
@@ -67,6 +67,31 @@ namespace {
 
     // Runs of boxes share a draw, images and groups get their own steps, and an opaque first box that covers the
     // target becomes the clear color unless crop narrows it.
+    // Instance bounds: an encoded box keeps its antialiasing outset (2 device px), a linear pass's plain box covers
+    // pixel centers and its bounds are the box; both stop at the outset past the clip, and a box clipped away covers
+    // nothing.
+    void bounds() {
+        paint::DisplayList list;
+        list.boxes.emplace_back().background = {1, 0, 0, 1};
+        auto box = item(Kind::Box);
+        box.transform = {1, 0, 0, 1, 10.5f, 20.25f};
+        box.width = 30;
+        box.height = 40;
+        box.clip = {0, 0, 100, 50};
+        list.items = {box, box};
+        list.items[1].clip = {200, 200, 300, 300};
+        const auto encoded = weft::render::plan_scene_pass(list, 2, 400, 400).value();
+        require(encoded.records[0].bounds == std::array<float, 4>{9.5f, 19.25f, 32, 31.75f}, "encoded box bounds");
+        require(encoded.records[1].bounds[2] == 0 && encoded.records[1].bounds[3] == 0, "clipped box bounds");
+        const auto linear =
+            weft::render::plan_scene_pass(list, 2, 400, 400, std::nullopt, weft::render::Space::Linear).value();
+        require(linear.records[0].bounds == std::array<float, 4>{10.5f, 20.25f, 30, 29.75f}, "linear box bounds");
+        list.boxes[0].radii = {4, 4, 4, 4};
+        const auto rounded =
+            weft::render::plan_scene_pass(list, 2, 400, 400, std::nullopt, weft::render::Space::Linear).value();
+        require(rounded.records[0].bounds == encoded.records[0].bounds, "rounded linear box keeps its outset");
+    }
+
     void scene_pass() {
         using Step = weft::render::ScenePass::Step;
         paint::DisplayList list;
@@ -163,68 +188,110 @@ namespace {
         clipped.clips[0].rect[2] = -1;
         const auto refused = weft::render::plan_scene_pass(clipped, 2, 100, 80);
         require(!refused && refused.error().code == weft::Diag::PaintList, "invalid rounded clip");
+        auto chained = clipped;
+        chained.clips.assign(weft::render::scene_limits::max_rounded_clips + 1, {{0, 0, 10, 10}, {}, {}});
+        chained.items[4].clips_count = std::uint32_t(chained.clips.size());
+        const auto chain = weft::render::plan_scene_pass(chained, 2, 100, 80);
+        require(!chain && chain.error().code == weft::Diag::PaintList &&
+                    chain.error().message.find("rounded clip chain bound") != std::string::npos,
+                "rounded clip chain bound");
     }
 
-    bool throws(const auto& f) {
-        try {
-            f();
-        } catch (const std::runtime_error&) {
-            return true;
-        }
-        return false;
-    }
-
-    // Items crop to their clips, moving image uv; a rounded clip that cuts an item draws it through a mask, kept and
-    // reused across packets; assets follow first use.
+    // Quads become items in order: boxes, tinted images and external textures; the group diagnostic is an isolated
+    // group of red and blue, the clipped diagnostic a clip inset into its quad.
     void quads() {
+        using weft::render::Draw;
+        weft::render::FramePacket packet;
+        packet.assets.push_back(
+            std::make_shared<const paint::Asset>(paint::Asset{1, 1, paint::Encoding::Coverage, {9}}));
+        packet.draws.push_back({{1, 2, 3, 4}, {.5f, .25f, 0, 1}});
+        packet.draws.push_back({{0, 0, 8, 8}, {1, 0, 0, .5f}, 0, false, false, .75f, {.25f, 0, .5f, 1}});
+        packet.draws.push_back({{8, 8, 4, 4}, {1, 1, 1, 1}, 1});
+        packet.draws.push_back({{20, 20, 40, 40}, {1, 1, 1, 1}, -1, true, false, .5f});
+        packet.draws.push_back({{40, 40, 40, 40}, {0, 1, 0, 1}, -1, false, true});
+        const auto list = weft::render::quad_list(packet, 1, 100, 80);
+        require(bool(paint::check(list, 1)) && list.assets == packet.assets && list.external_textures == 1,
+                "quad list is well formed");
+        require(list.items.size() == 8 && list.items[0].kind == Kind::Box &&
+                    list.items[0].transform == paint::Affine{1, 0, 0, 1, 1, 2} && list.items[0].width == 3 &&
+                    list.items[0].height == 4 && list.items[0].clip == paint::ClipRect{0, 0, 100, 80} &&
+                    list.boxes[list.items[0].payload].background == paint::Color{.5f, .25f, 0, 1},
+                "solid quad box");
+        const auto& tinted = list.images[list.items[1].payload];
+        require(list.items[1].kind == Kind::Image && list.items[1].opacity == .75f && tinted.asset == 0 &&
+                    tinted.color == paint::Color{1, 0, 0, .5f} && tinted.uv == std::array<float, 4>{.25f, 0, .5f, 1},
+                "textured quad image");
+        require(list.images[list.items[2].payload].asset == 1, "external texture after the assets");
+        require(list.items[3].kind == Kind::BeginGroup && list.items[6].kind == Kind::EndGroup &&
+                    list.items[6].opacity == .5f && list.items[4].opacity == 1 && list.items[5].opacity == 1 &&
+                    list.boxes[list.items[4].payload].background == paint::Color{1, 0, 0, 1} &&
+                    list.boxes[list.items[5].payload].background == paint::Color{0, 0, 1, 1},
+                "group diagnostic");
+        require(list.items[7].clip == paint::ClipRect{56, 56, 64, 64}, "clipped diagnostic");
+    }
+
+    // External textures are image assets past the leased ones, drawn with their own colors and no distance stroke.
+    void external_textures() {
         paint::DisplayList list;
-        auto art = std::make_shared<paint::Asset>(
-            paint::Asset{2, 2, paint::Encoding::SrgbStraight, std::vector<std::uint8_t>(16, 255)});
-        list.assets = {art};
-        paint::Image picture;
-        picture.uv = {0, 0, 1, 1};
-        list.images.push_back(picture);
-        list.boxes.emplace_back().background = {1, 0, 0, 1};
-        auto at = [](Kind kind, float x, float y, float w, float h, paint::ClipRect clip) {
-            auto i = item(kind);
-            i.transform = {1, 0, 0, 1, x, y};
-            i.width = w;
-            i.height = h;
-            i.clip = clip;
-            return i;
-        };
-        // An image cropped to its right half, a box inside a rounded clip, a box the rounded clip cuts.
-        list.items = {at(Kind::Image, 0, 0, 20, 10, {10, 0, 40, 40}), at(Kind::Box, 12, 12, 4, 4, {0, 0, 40, 40}),
-                      at(Kind::Box, 8, 8, 24, 24, {0, 0, 40, 40})};
-        list.clips.push_back({{8, 8, 24, 24}, {8, 8, 8, 8}, {8, 8, 8, 8}});
-        list.items[1].clips_count = list.items[2].clips_count = 1;
-        weft::render::QuadMasks kept;
-        const auto packet = weft::render::lower_to_quads(list, &kept);
-        require(packet.draws.size() == 3 && packet.assets.size() == 2 && packet.assets[0] == art, "quad assets");
-        const auto& image = packet.draws[0];
-        require(image.rect.x == 10 && image.rect.w == 10 && image.uv == std::array<float, 4>{.5f, 0, .5f, 1},
-                "cropped image uv");
-        require(packet.draws[1].asset == -1 && packet.draws[1].srgb == paint::Color{1, 0, 0, 1}, "box inside its clip");
-        const auto& cut = packet.draws[2];
-        const auto& mask = *packet.assets[cut.asset];
-        require(cut.asset == 1 && mask.encoding == paint::Encoding::Coverage && mask.width == 24 && mask.height == 24 &&
-                    mask.bytes[0] < 64 && mask.bytes[12 * 24 + 12] == 255,
-                "rounded mask");
-        require(kept.misses == 1 && kept.hits == 0 && kept.masks.size() == 1, "mask kept");
-        const auto again = weft::render::lower_to_quads(list, &kept);
-        require(kept.hits == 1 && again.assets[again.draws[2].asset] == packet.assets[1], "kept mask reused");
-        auto rotated = list;
-        rotated.items[0].transform[1] = 1;
-        require(throws([&] {
-                    weft::render::lower_to_quads(rotated);
-                }),
-                "quads need translated items");
-        auto rounded = list;
-        rounded.boxes[0].radii[0] = 2;
-        require(throws([&] {
-                    weft::render::lower_to_quads(rounded);
-                }),
-                "quads need plain boxes");
+        list.assets.push_back(std::make_shared<const paint::Asset>(paint::Asset{1, 1, paint::Encoding::Coverage, {9}}));
+        list.images.resize(2);
+        list.images[1].asset = 1;
+        list.items = {item(Kind::Image, 0), item(Kind::Image, 1)};
+        require(rejected(list, 1, "image payload or asset out of range"), "external texture beyond the count");
+        list.external_textures = 1;
+        require(bool(paint::check(list, 1)), "external texture within the count");
+        list.images[1].stroke = 1;
+        require(rejected(list, 1, "external texture with a distance stroke"), "external texture stroke");
+        list.images[1].stroke = 0;
+        list.images[1].uv = {0, .25f, 1, .5f};
+        for (auto& i : list.items) {
+            i.width = i.height = 10;
+            i.clip = {0, 0, 10, 10};
+        }
+        auto planned = weft::render::plan_scene_pass(list, 1, 10, 10, std::nullopt, weft::render::Space::Linear);
+        require(planned && planned->records[0].mode[0] == weft::render::scene_limits::image_mode_coverage &&
+                    planned->records[1].mode == std::array<float, 4>{},
+                "external texture is a color image");
+        weft::render::flip_rows(planned->records[1]);
+        require(planned->records[1].uv == std::array<float, 4>{0, .75f, 1, -.5f}, "bottom-up rows flip the uv");
+    }
+
+    // An appended list follows under its transform: payloads, assets, rounded clips and external textures renumber,
+    // and the destination's external textures move past the new assets.
+    void append() {
+        paint::DisplayList into;
+        into.external_textures = 1;
+        into.images.emplace_back().asset = 0;
+        into.items = {item(Kind::Image, 0)};
+        paint::DisplayList from;
+        from.assets.push_back(std::make_shared<const paint::Asset>(paint::Asset{1, 1, paint::Encoding::Coverage, {9}}));
+        from.external_textures = 1;
+        from.boxes.emplace_back().background = {0, 1, 0, 1};
+        from.images.resize(2);
+        from.images[1].asset = 1;
+        from.clips.push_back({{1, 2, 3, 4}, {1, 1, 1, 1}, {2, 2, 2, 2}});
+        auto box = item(Kind::Box, 0);
+        box.transform = {1, 0, 0, 1, 5, 6};
+        box.clip = {0, 0, 10, 20};
+        box.clips_count = 1;
+        from.items = {box, item(Kind::Image, 0), item(Kind::Image, 1)};
+        require(bool(paint::append(into, from, {2, 0, 0, 3, 100, 200})), "append");
+        require(bool(paint::check(into, 1)) && into.assets == from.assets && into.external_textures == 2,
+                "appended list is well formed");
+        require(into.images[0].asset == 1 && into.images[1].asset == 0 && into.images[2].asset == 2,
+                "assets, then each list's external textures");
+        const auto& moved = into.items[1];
+        require(moved.transform == paint::Affine{2, 0, 0, 3, 110, 218} &&
+                    moved.clip == paint::ClipRect{100, 200, 120, 260} && moved.clips_begin == 0 &&
+                    into.clips[0].rect == std::array<float, 4>{102, 206, 6, 12} &&
+                    into.clips[0].radius_x == std::array<float, 4>{2, 2, 2, 2} &&
+                    into.clips[0].radius_y == std::array<float, 4>{6, 6, 6, 6},
+                "transform and clips map");
+        require(into.items[2].payload == 1 && into.items[3].payload == 2 &&
+                    into.boxes[into.items[1].payload].background == paint::Color{0, 1, 0, 1},
+                "payloads renumber");
+        const auto status = paint::append(into, from, {1, 1, 0, 1, 0, 0});
+        require(!status && status.error().code == weft::Diag::PaintList, "skewed append");
     }
 } // namespace
 
@@ -232,9 +299,12 @@ int main() {
     try {
         checks();
         scene_pass();
+        bounds();
         quads();
-        std::cout
-            << "PASS paint contracts: display list payloads, rasters, group nesting and kinds; scene pass plans; quad lowering\n";
+        external_textures();
+        append();
+        std::cout << "PASS paint contracts: display list payloads, rasters, group nesting and kinds; scene pass plans; "
+                     "quad lists; external textures; appended lists\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';
