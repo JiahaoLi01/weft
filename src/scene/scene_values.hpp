@@ -4,6 +4,7 @@
 #include "base/diagnostic.hpp"
 #include "constants/common.hpp"
 #include "constants/scene.hpp"
+#include "dom/node.hpp"
 #include "render/rounded_clip.hpp"
 #include "style/values.hpp"
 
@@ -37,8 +38,7 @@ namespace weft::scene_values {
     }
 
     // Element attributes stay a string map.
-    inline std::string get(const std::map<std::string, std::string>& s, const std::string& k,
-                           const char* fallback = "") {
+    inline std::string get(const AttributeMap& s, const std::string& k, const char* fallback = "") {
         return css::style_value(s, k, fallback);
     }
 

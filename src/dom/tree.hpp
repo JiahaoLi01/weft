@@ -159,8 +159,8 @@ namespace weft::dom {
 
     private:
         // A node's attributes as a snapshot holds them; namespaced attributes are outside the snapshot profile.
-        static std::map<std::string, std::string> snapshot_attributes(const Node& n);
-        static bool same_attributes(const std::map<std::string, std::string>& copied, const Node& n);
+        static AttributeMap snapshot_attributes(const Node& n);
+        static bool same_attributes(const AttributeMap& copied, const Node& n);
 
         struct Change {
             std::uint64_t revision{};

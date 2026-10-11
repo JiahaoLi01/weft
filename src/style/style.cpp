@@ -6,7 +6,9 @@
 #include "dom/selector.hpp"
 #include <thread>
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <charconv>
 #include <cmath>
 #include <functional>
 #include <set>
@@ -455,7 +457,7 @@ namespace weft {
             }
 
             const std::string* attribute(std::string_view name) const {
-                const auto it = node().attributes.find(std::string(name));
+                const auto it = node().attributes.find(name);
                 return it == node().attributes.end() ? nullptr : &it->second;
             }
 
@@ -490,7 +492,7 @@ namespace weft {
             }
 
             const std::string* attribute(std::string_view name) const {
-                const auto it = n->attributes.find(std::string(name));
+                const auto it = n->attributes.find(name);
                 return it == n->attributes.end() ? nullptr : &it->second;
             }
 
@@ -686,6 +688,27 @@ namespace weft {
             }
         };
 
+        // SVG presentation attributes the scene profile maps to declarations, in cascade order.
+        constexpr std::array<std::string_view, 18> presentation_attributes{
+            "fill",           "fill-opacity",      "fill-rule",       "stroke",           "stroke-width",
+            "stroke-opacity", "stroke-linecap",    "stroke-linejoin", "stroke-dasharray", "stroke-dashoffset",
+            "display",        "pointer-events",    "font-size",       "font-weight",      "font-family",
+            "text-anchor",    "dominant-baseline", "opacity"};
+
+        // Appends a decimal length and ':' as memo and selector keys write them.
+        void append_length(std::string& key, std::size_t length) {
+            char digits[24];
+            key.append(digits, std::to_chars(digits, digits + sizeof digits, length).ptr);
+            key += ':';
+        }
+
+        // Whether text contains needle, which is lower case, ignoring ASCII case.
+        bool contains_ascii_lower(std::string_view text, std::string_view needle) {
+            return std::search(text.begin(), text.end(), needle.begin(), needle.end(), [](char a, char b) {
+                       return std::tolower(static_cast<unsigned char>(a)) == b;
+                   }) != text.end();
+        }
+
         struct Engine {
             const StyleProfile& profile;
             const ProfileIndex& profile_index;
@@ -765,7 +788,7 @@ namespace weft {
             std::string selector_key() {
                 selector_lengths.push_back(selector_path.size());
                 auto add = [&](std::string_view value) {
-                    selector_path += std::to_string(value.size()) + ":";
+                    append_length(selector_path, value.size());
                     selector_path += value;
                 };
                 const auto* n = path.back();
@@ -799,32 +822,29 @@ namespace weft {
                                  const std::string& selectors) {
                 std::string key = selectors;
                 auto add = [&](std::string_view value) {
-                    key += std::to_string(value.size()) + ":";
+                    append_length(key, value.size());
                     key += value;
                 };
                 const auto& dom = *path.back();
                 // Ancestor inline declarations affect descendants through selectors,
                 // inherited values and variables, not through unrelated paint values.
-                auto inline_value = dom.attributes.contains("style") ? dom.attributes.at("style") : std::string{};
+                const auto style = dom.attributes.find("style");
+                const std::string_view inline_value =
+                    style == dom.attributes.end() ? std::string_view{} : std::string_view(style->second);
                 add(inline_value);
                 bool presentation_parent{};
                 if (profile.scene_syntax) {
-                    for (const auto* k : {"fill", "fill-opacity", "fill-rule", "stroke", "stroke-width",
-                                          "stroke-opacity", "stroke-linecap", "stroke-linejoin", "stroke-dasharray",
-                                          "stroke-dashoffset", "display", "pointer-events", "font-size", "font-weight",
-                                          "font-family", "text-anchor", "dominant-baseline", "opacity"}) {
-                        if (dom.attributes.contains(k)) {
+                    for (const auto k : presentation_attributes) {
+                        if (const auto it = dom.attributes.find(k); it != dom.attributes.end()) {
                             add(k);
-                            add(dom.attributes.at(k));
-                            const auto v = lower(dom.attributes.at(k));
-                            presentation_parent |= v.find("inherit") != v.npos || v.find("var(") != v.npos;
+                            add(it->second);
+                            presentation_parent |=
+                                contains_ascii_lower(it->second, "inherit") || contains_ascii_lower(it->second, "var(");
                         }
                     }
                 }
-                const auto inline_lower = lower(inline_value);
-                const bool all = parent_all || presentation_parent ||
-                                 inline_lower.find("inherit") != inline_lower.npos ||
-                                 inline_lower.find("var(") != inline_lower.npos;
+                const bool all = parent_all || presentation_parent || contains_ascii_lower(inline_value, "inherit") ||
+                                 contains_ascii_lower(inline_value, "var(");
                 key += '|';
                 if (parent) {
                     for (const auto& [id, v] : parent->values) {
@@ -839,7 +859,7 @@ namespace weft {
                 auto tokens = [&](auto&& self, const Tokens& values) -> void {
                     key += '[';
                     for (const auto& t : values) {
-                        key += std::to_string(int(t.kind)) + ":";
+                        append_length(key, std::size_t(t.kind));
                         add(t.text);
                         self(self, t.args);
                     }
@@ -1046,12 +1066,9 @@ namespace weft {
                     }
                 }
                 if (profile.scene_syntax && dom.namespace_uri == constants::svg_namespace_uri) {
-                    for (const auto* k : {"fill", "fill-opacity", "fill-rule", "stroke", "stroke-width",
-                                          "stroke-opacity", "stroke-linecap", "stroke-linejoin", "stroke-dasharray",
-                                          "stroke-dashoffset", "display", "pointer-events", "font-size", "font-weight",
-                                          "font-family", "text-anchor", "dominant-baseline", "opacity"}) {
-                        if (dom.attributes.contains(k)) {
-                            for (const auto& d : declarations(std::string(k) + ":" + dom.attributes.at(k), profile)) {
+                    for (const auto k : presentation_attributes) {
+                        if (const auto it = dom.attributes.find(k); it != dom.attributes.end()) {
+                            for (const auto& d : declarations(std::string(k) + ":" + it->second, profile)) {
                                 auto rank = Rank{0, 1, 0, 0, 0, 0, 0};
                                 if (!ranks.contains(d.key) || ranks[d.key] < rank) {
                                     ranks[d.key] = rank;

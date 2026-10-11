@@ -276,8 +276,8 @@ namespace weft::dom {
         return changed;
     }
 
-    std::map<std::string, std::string> Tree::snapshot_attributes(const Node& n) {
-        std::map<std::string, std::string> result;
+    AttributeMap Tree::snapshot_attributes(const Node& n) {
+        AttributeMap result;
         for (const auto& a : n.attributes) {
             if (!a.space.empty()) {
                 throw std::runtime_error("WEFT_PAGE_PROFILE: namespaced attributes require SVG adapter");
@@ -287,7 +287,7 @@ namespace weft::dom {
         return result;
     }
 
-    bool Tree::same_attributes(const std::map<std::string, std::string>& copied, const Node& n) {
+    bool Tree::same_attributes(const AttributeMap& copied, const Node& n) {
         if (copied.size() != n.attributes.size()) {
             return false;
         }

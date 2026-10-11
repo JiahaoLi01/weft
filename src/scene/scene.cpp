@@ -76,7 +76,7 @@ namespace weft {
         }
 
         // Element attributes stay a string map.
-        std::string get(const std::map<std::string, std::string>& s, const std::string& k, const char* fallback = "") {
+        std::string get(const AttributeMap& s, const std::string& k, const char* fallback = "") {
             return css::style_value(s, k, fallback);
         }
 

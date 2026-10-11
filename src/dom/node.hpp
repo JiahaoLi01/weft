@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
@@ -16,6 +17,9 @@ namespace weft {
         friend bool operator==(const NodeIdentity&, const NodeIdentity&) = default;
     };
 
+    // Element attributes by qualified name. Lookups take a string_view or literal without building a string.
+    using AttributeMap = std::map<std::string, std::string, std::less<>>;
+
     // Owner-produced value copy of a subtree.
     struct DomSnapshot {
         NodeIdentity identity;
@@ -23,7 +27,7 @@ namespace weft {
         std::string local_name;
         std::string namespace_uri;
         std::string data;
-        std::map<std::string, std::string> attributes;
+        AttributeMap attributes;
         std::vector<DomSnapshot> children;
         double scroll_left{};
         double scroll_top{};

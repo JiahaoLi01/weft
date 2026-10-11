@@ -19,7 +19,7 @@ namespace weft {
         std::string tag;
         std::string space;
         std::string text;
-        std::map<std::string, std::string> attributes;
+        AttributeMap attributes;
         SceneStyle style;
         std::array<float, 4> box{}; // Parent-local border box, before transform.
         std::vector<SceneNode> children;
