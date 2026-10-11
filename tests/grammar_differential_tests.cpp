@@ -1,9 +1,11 @@
 #include "base/css_scalar.hpp"
-#include "scene/scene_grammar.hpp"
+#include "scene/scene_transform.hpp"
 #include "support/check.hpp"
 #include "test_constants/style_text.hpp"
 
+#include <cmath>
 #include <iostream>
+#include <numbers>
 #include <random>
 #include <regex>
 #include <string>
@@ -81,6 +83,9 @@ namespace {
         require(accepted > std::size_t(limits::decimal_min_accepted), "decimal coverage");
     }
 
+    // The scene's one projective transform. Every text the regex of the former perspective matcher accepts, with
+    // valid numbers, parses through the one transform grammar to the same plane; that grammar also takes other CSS
+    // spellings (no space between functions, exponents), which the old matcher refused.
     void perspectives() {
         static const std::regex grammar(R"(perspective\(\s*([\d.]+)px\s*\)\s+rotateY\(\s*([-\d.]+)(deg)?\s*\))");
         std::mt19937 random(limits::perspective_seed);
@@ -103,28 +108,38 @@ namespace {
                                               " rotateY(-12.5)",
                                               "translate(1px)"};
         std::size_t matched{};
-        std::size_t found{};
         for (int i = 0; i < limits::perspective_texts; ++i) {
             const auto text = random_text(random, pieces, limits::perspective_max_pieces);
             std::smatch m;
-            const bool whole = std::regex_match(text, m, grammar);
-            const auto p = weft::scene_grammar::perspective(text);
-            require(whole == p.has_value(), "perspective match of '" + text + "'");
-            if (whole) {
-                require(p->distance == m[1].str() && p->angle == m[2].str() && p->degrees == m[3].matched,
-                        "perspective captures of '" + text + "'");
-                ++matched;
+            if (!std::regex_match(text, m, grammar)) {
+                continue;
             }
-            const bool any = std::regex_search(text, m, grammar);
-            const auto q = weft::scene_grammar::find_perspective(text);
-            require(any == q.has_value(), "perspective search of '" + text + "'");
-            if (any) {
-                require(q->distance == m[1].str() && q->angle == m[2].str() && q->degrees == m[3].matched,
-                        "perspective search captures of '" + text + "'");
-                ++found;
+            const auto distance = weft::css::parse_number<double>(m[1].str());
+            const auto angle = weft::css::parse_number<double>(m[2].str());
+            const auto operations = weft::parse_scene_transform(text);
+            if (!distance || !angle) {
+                require(!operations, "transform grammar accepted invalid numbers in '" + text + "'");
+                continue;
             }
+            require(bool(operations), "transform grammar refused '" + text + "'");
+            if (*distance <= 0) {
+                bool refused{};
+                try {
+                    (void)weft::scene_perspective(*operations);
+                } catch (const weft::DiagnosticError&) {
+                    refused = true;
+                }
+                require(refused, "perspective distance accepted in '" + text + "'");
+                continue;
+            }
+            const auto plane = weft::scene_perspective(*operations);
+            const double radians = m[3].matched ? *angle * std::numbers::pi / 180 : *angle;
+            require(plane && plane->distance == *distance &&
+                        std::abs(plane->radians - radians) <= limits::perspective_radians_tolerance,
+                    "perspective plane of '" + text + "'");
+            ++matched;
         }
-        require(matched > std::size_t(limits::perspective_min_matched) && found > matched, "perspective coverage");
+        require(matched > std::size_t(limits::perspective_min_matched), "perspective coverage");
     }
 
     void grid_repeats() {
@@ -168,7 +183,7 @@ int main() {
         perspectives();
         grid_repeats();
         std::cout << "PASS regex-free grammars equal their regexes: " << spans
-                  << " number spans, whitespace and comment replacement, decimal, perspective match/search, grid "
+                  << " number spans, whitespace and comment replacement, decimal, perspective plane, grid "
                      "repeat\n";
         return 0;
     } catch (const std::exception& error) {

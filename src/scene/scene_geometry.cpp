@@ -1,5 +1,4 @@
 #include "scene/scene_geometry.hpp"
-#include "scene/scene_grammar.hpp"
 #include "scene/scene_values.hpp"
 
 #include "base/css_scalar.hpp"
@@ -62,84 +61,22 @@ namespace weft {
             }
         };
 
-        // Projective plane, column vectors: m = [a b c; d e f; g h i].
-        struct Plane {
-            std::array<double, 9> m{1, 0, 0, 0, 1, 0, 0, 0, 1};
-
-            Plane operator*(const Plane& b) const {
-                Plane out;
-                out.m.fill(0);
-                for (unsigned y = 0; y < 3; ++y) {
-                    for (unsigned x = 0; x < 3; ++x) {
-                        for (unsigned k = 0; k < 3; ++k) {
-                            out.m[y * 3 + x] += m[y * 3 + k] * b.m[k * 3 + x];
-                        }
-                    }
-                }
-                return out;
-            }
-
-            std::array<double, 2> point(double x, double y) const {
-                double z = m[6] * x + m[7] * y + m[8];
-                if (std::abs(z) < constants::scene::plane_singular_epsilon) {
-                    return {constants::scene::plane_far_point, constants::scene::plane_far_point};
-                }
-                return {(m[0] * x + m[1] * y + m[2]) / z, (m[3] * x + m[4] * y + m[5]) / z};
-            }
-
-            bool inverse(Plane& out) const {
-                auto& a = m;
-                const double det = a[0] * (a[4] * a[8] - a[5] * a[7]) - a[1] * (a[3] * a[8] - a[5] * a[6]) +
-                                   a[2] * (a[3] * a[7] - a[4] * a[6]);
-                if (std::abs(det) < constants::scene::plane_singular_epsilon) {
-                    return false;
-                }
-                out.m = {(a[4] * a[8] - a[5] * a[7]) / det, (a[2] * a[7] - a[1] * a[8]) / det,
-                         (a[1] * a[5] - a[2] * a[4]) / det, (a[5] * a[6] - a[3] * a[8]) / det,
-                         (a[0] * a[8] - a[2] * a[6]) / det, (a[2] * a[3] - a[0] * a[5]) / det,
-                         (a[3] * a[7] - a[4] * a[6]) / det, (a[1] * a[6] - a[0] * a[7]) / det,
-                         (a[0] * a[4] - a[1] * a[3]) / det};
-                return true;
-            }
-
-            static Plane translation(double x, double y) {
-                return {{1, 0, x, 0, 1, y, 0, 0, 1}};
-            }
-        };
+        using Plane = ScenePlane;
 
         Plane affine_plane(const SceneAffine& a) {
-            return {{a.m11, a.m21, a.dx, a.m12, a.m22, a.dy, 0, 0, 1}};
+            return ScenePlane::affine(a);
         }
 
-        Plane plane(const SceneNode& n) {
-            auto o = scene_transform_origin(n.style, n.box[2], n.box[3]);
-            auto t = get(n.style, PropertyId::Transform, "none");
-            Plane local;
-            if (t.find("perspective(") != t.npos) {
-                const auto match = scene_grammar::perspective(t);
-                if (!match) {
-                    fail("projective plane grammar");
-                }
-                const double d = num(match->distance);
-                const double a = num(match->angle) * (match->degrees ? pi / constants::degrees_per_half_turn : 1);
-                if (d <= 0) {
-                    fail("perspective distance");
-                }
-                local.m = {std::cos(a), 0, 0, 0, 1, 0, std::sin(a) / d, 0, 1};
-            } else {
-                local = affine_plane(scene_transform(scene_transform_ops(t, n.box[2], n.box[3], false)));
-            }
-            return Plane::translation(o[0] + n.box[0], o[1] + n.box[1]) * local * Plane::translation(-o[0], -o[1]);
+        // An SVG element's transform attribute, or its transform property, in user units.
+        SceneAffine svg_affine(const SceneNode& n) {
+            const auto text =
+                n.attributes.contains("transform") ? n.attributes.at("transform") : get(n.style, PropertyId::Transform);
+            return scene_affine(parse_scene_transform(text, true).value(), 0, 0);
         }
 
         SceneAffine viewport_affine(const SceneNode& n) {
             const auto v = scene_svg_viewport(n);
             return {v.sx, 0, 0, v.sy, v.tx, v.ty};
-        }
-
-        std::string svg_transform(const SceneNode& n) {
-            return n.attributes.contains("transform") ? n.attributes.at("transform")
-                                                      : get(n.style, PropertyId::Transform);
         }
 
         using Point = std::array<double, 2>;
@@ -593,109 +530,6 @@ namespace weft {
         }
     } // namespace
 
-    SceneAffine SceneAffine::rotation(double degrees, double cx, double cy) {
-        const double a = degrees * pi / constants::degrees_per_half_turn;
-        const double c = std::cos(a);
-        const double s = std::sin(a);
-        return {c, s, -s, c, cx - cx * c + cy * s, cy - cx * s - cy * c};
-    }
-
-    std::vector<SceneTransformOp> scene_transform_ops(std::string_view list, float w, float h, bool svg) {
-        std::vector<SceneTransformOp> out;
-        const std::string s(list);
-        std::size_t p{};
-        if (s.empty() || s == "none") {
-            return out;
-        }
-        while (p < s.size()) {
-            while (p < s.size() && std::isspace(static_cast<unsigned char>(s[p]))) {
-                ++p;
-            }
-            if (p == s.size()) {
-                break;
-            }
-            auto b = s.find('(', p);
-            auto e = s.find(')', b);
-            if (b == s.npos || e == s.npos) {
-                fail("transform syntax");
-            }
-            auto name = css::trim(s.substr(p, b - p));
-            auto args = s.substr(b + 1, e - b - 1);
-            std::replace(args.begin(), args.end(), ',', ' ');
-            auto a = split(args);
-            auto n = [&](unsigned i, float ref = 1) {
-                return i < a.size() ? len(a[i], ref) : 0;
-            };
-            SceneTransformOp op;
-            if (name == "translate" || name == "translateX" || name == "translateY") {
-                op.kind = SceneTransformOp::Kind::Translate;
-                op.args[0] = name == "translateY" ? 0 : n(0, w);
-                op.args[1] = name == "translateY" ? n(0, h) : name == "translateX" ? 0 : n(1, h);
-            } else if (name == "scale" || name == "scaleX" || name == "scaleY") {
-                op.kind = SceneTransformOp::Kind::Scale;
-                const float x = name == "scaleY" ? 1 : n(0);
-                op.args[0] = x;
-                op.args[1] = name == "scaleX" ? 1 : name == "scaleY" ? n(0) : a.size() > 1 ? n(1) : x;
-            } else if (name == "rotate") {
-                op.kind = SceneTransformOp::Kind::Rotate;
-                auto v = a.at(0);
-                op.args[0] = v.ends_with("deg") ? num(v.substr(0, v.size() - 3))
-                                                : len(v) * constants::degrees_per_half_turn / float(pi);
-                if (svg && a.size() > 2) {
-                    op.args[1] = n(1);
-                    op.args[2] = n(2);
-                }
-            } else if (name == "matrix") {
-                if (a.size() != 6) {
-                    fail("matrix arity");
-                }
-                op.kind = SceneTransformOp::Kind::Matrix;
-                for (unsigned i = 0; i < 6; ++i) {
-                    op.args[i] = n(i);
-                }
-            } else if (name == "perspective" || name == "rotateY") {
-                fail("projective transform requires layer");
-            } else {
-                fail("unsupported transform " + name);
-            }
-            out.push_back(op);
-            p = e + 1;
-        }
-        return out;
-    }
-
-    SceneAffine scene_transform(const std::vector<SceneTransformOp>& ops) {
-        SceneAffine m;
-        for (const auto& op : ops) {
-            SceneAffine local;
-            switch (op.kind) {
-                case SceneTransformOp::Kind::Translate:
-                    local = SceneAffine::translation(op.args[0], op.args[1]);
-                    break;
-                case SceneTransformOp::Kind::Scale:
-                    local = SceneAffine::scale(op.args[0], op.args[1]);
-                    break;
-                case SceneTransformOp::Kind::Rotate:
-                    local = SceneAffine::rotation(op.args[0], op.args[1], op.args[2]);
-                    break;
-                case SceneTransformOp::Kind::Matrix:
-                    local = {op.args[0], op.args[1], op.args[2], op.args[3], op.args[4], op.args[5]};
-                    break;
-            }
-            m = local * m;
-        }
-        return m;
-    }
-
-    std::array<float, 2> scene_transform_origin(const SceneStyle& style, float w, float h) {
-        auto v = get(style, PropertyId::TransformOrigin, "50% 50%");
-        if (v == "top") {
-            return {w / 2, 0};
-        }
-        auto a = split(v);
-        return {a.empty() ? w / 2 : len(a[0], w), a.size() < 2 ? h / 2 : len(a[1], h)};
-    }
-
     SceneViewport scene_svg_viewport(const SceneNode& n) {
         auto i = n.attributes.find("viewBox");
         if (i == n.attributes.end()) {
@@ -1015,8 +849,7 @@ namespace weft {
 
     std::array<double, 6> SceneGeometry::transform_matrix(const SceneNode& n) const {
         impl_->require_owner();
-        const auto m = scene_transform(
-            scene_transform_ops(get(n.style, PropertyId::Transform, "none"), n.box[2], n.box[3], false));
+        const auto m = scene_node_affine(n);
         return {m.m11, m.m12, m.m21, m.m22, m.dx, m.dy};
     }
 
@@ -1027,7 +860,7 @@ namespace weft {
             if (get(n.style, PropertyId::Display) == "none" || n.tag == "defs" || n.tag == "clipPath") {
                 return;
             }
-            const auto m = parent * affine_plane(scene_transform(scene_transform_ops(svg_transform(n), 0, 0, true)));
+            const auto m = parent * affine_plane(svg_affine(n));
             Plane inverse;
             if (!m.inverse(inverse)) {
                 return;
@@ -1078,7 +911,7 @@ namespace weft {
             if (get(n.style, PropertyId::Display) == "none") {
                 return;
             }
-            auto m = parent * plane(n);
+            auto m = parent * scene_plane(n);
             Plane inverse;
             if (!m.inverse(inverse)) {
                 return;
@@ -1150,7 +983,7 @@ namespace weft {
             for (const auto& c : n.children) {
                 if (c.tag != "defs" && c.tag != "clipPath") {
                     auto q = self(self, c);
-                    auto t = scene_transform(scene_transform_ops(svg_transform(c), 0, 0, true));
+                    auto t = svg_affine(c);
                     if (q.right >= q.left) {
                         for (auto p : std::array<Point, 4>{
                                  {{q.left, q.top}, {q.right, q.top}, {q.right, q.bottom}, {q.left, q.bottom}}}) {
@@ -1191,7 +1024,7 @@ namespace weft {
             if (n.tag == "defs" || n.tag == "clipPath") {
                 return;
             }
-            auto m = parent * affine_plane(scene_transform(scene_transform_ops(svg_transform(n), 0, 0, true)));
+            auto m = parent * affine_plane(svg_affine(n));
             auto b = bounds(bounds, n);
             if (b.right >= b.left) {
                 append(n, m, {b.left, b.top, b.right - b.left, b.bottom - b.top}, {});
@@ -1202,7 +1035,7 @@ namespace weft {
         };
         auto visit = [&](auto&& self, const SceneNode& n, Plane parent, NodeIdentity offset_parent, double ox,
                          double oy) -> void {
-            const auto m = parent * plane(n);
+            const auto m = parent * scene_plane(n);
             if (n.tag != "#text") {
                 append(n, m, {0, 0, n.box[2], n.box[3]}, offset_parent);
                 out.back().offset[0] += ox;

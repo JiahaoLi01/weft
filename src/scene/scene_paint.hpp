@@ -1,10 +1,12 @@
 #pragma once
+#include "base/result.hpp"
 #include "constants/scene.hpp"
 #include "style/values.hpp"
 #include <array>
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace weft {
@@ -53,6 +55,12 @@ namespace weft {
         // indexed by the constants::scene::paint_slot_* values.
         std::array<std::optional<PaintValue>, constants::scene::paint_property_count> values;
     };
+
+    // The functions of a CSS transform value (svg = false) or an SVG transform attribute (svg = true, where unitless
+    // angles are degrees, rotate takes an optional center and commas may separate functions): translate[XY],
+    // scale[XY], rotate, matrix, perspective and rotateY. Lengths stay unresolved; percentages are fractions in
+    // relative. The one transform grammar of the scene; outside it, Diag::SceneRaster.
+    Result<std::vector<PaintOperation>> parse_scene_transform(std::string_view text, bool svg = false);
 
     const std::array<const char*, constants::scene::paint_property_count>& scene_paint_properties();
     std::optional<PaintValue> parse_scene_paint_value(const std::string&);

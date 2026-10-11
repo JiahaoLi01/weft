@@ -71,4 +71,8 @@ namespace weft::test_constants::scene {
     // exact extrema in double.
     inline constexpr double geometry_rect_tolerance_px = .05;
     inline constexpr double geometry_matrix_tolerance = .0001;
+    // Transform model checks compare doubles computed along different paths (trigonometry, list composition).
+    inline constexpr double transform_tolerance = 1e-9;
+    // A unitless CSS angle converts through the float degrees-per-radian factor of the transform grammar.
+    inline constexpr double unitless_angle_tolerance = 1e-6;
 } // namespace weft::test_constants::scene

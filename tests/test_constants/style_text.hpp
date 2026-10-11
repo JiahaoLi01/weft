@@ -80,6 +80,8 @@ namespace weft::test_constants::style_text {
     inline constexpr int perspective_texts = 40000;
     inline constexpr int perspective_max_pieces = 9;
     inline constexpr int perspective_min_matched = 100;
+    // Unitless rotateY angles go through the float degrees-per-radian factor of the transform grammar.
+    inline constexpr double perspective_radians_tolerance = 1e-6;
     inline constexpr int grid_repeat_seed = 0x921d;
     inline constexpr int grid_repeat_texts = 40000;
     inline constexpr int grid_repeat_max_pieces = 9;

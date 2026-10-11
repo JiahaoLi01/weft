@@ -1,4 +1,5 @@
 #include "scene/scene_native.hpp"
+#include "scene/scene_transform.hpp"
 #include "base/css_scalar.hpp"
 #include "constants/scene.hpp"
 #include <algorithm>
@@ -64,70 +65,29 @@ namespace weft {
             return {m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]};
         }
 
+        // The node's compiled transform (an animation sample keeps full precision there), else its property, about
+        // its transform-origin and placed at its box.
         Matrix matrix(const SceneNode& n) {
-            auto t = n.paint && n.paint->values[constants::scene::paint_slot_transform]
-                         ? n.paint->values[constants::scene::paint_slot_transform]
-                         : parse_scene_paint_value(get(n.style, PropertyId::Transform, "none"));
+            const std::optional<PaintValue>* compiled =
+                n.paint ? &n.paint->values[constants::scene::paint_slot_transform] : nullptr;
+            std::optional<PaintValue> parsed;
+            if (!compiled || !*compiled) {
+                parsed = parse_scene_paint_value(get(n.style, PropertyId::Transform, "none"));
+                compiled = &parsed;
+            }
+            const auto& t = *compiled;
             if (!t || t->kind != PaintValue::Transform) {
                 throw std::invalid_argument("transform grammar");
             }
-            Matrix m{1, 0, 0, 1, 0, 0};
-            for (const auto& op : t->operations) {
-                auto v = [&](unsigned i, float ref = 1) {
-                    return float(op.args[i].absolute + op.args[i].relative * ref);
-                };
-                Matrix a{1, 0, 0, 1, 0, 0};
-                switch (op.kind) {
-                    case PaintOp::Translate:
-                        a[4] = v(0, n.box[2]);
-                        a[5] = op.count > 1 ? v(1, n.box[3]) : 0;
-                        break;
-                    case PaintOp::TranslateX:
-                        a[4] = v(0, n.box[2]);
-                        break;
-                    case PaintOp::TranslateY:
-                        a[5] = v(0, n.box[3]);
-                        break;
-                    case PaintOp::Scale:
-                        a[0] = v(0);
-                        a[3] = op.count > 1 ? v(1) : v(0);
-                        break;
-                    case PaintOp::ScaleX:
-                        a[0] = v(0);
-                        break;
-                    case PaintOp::ScaleY:
-                        a[3] = v(0);
-                        break;
-                    case PaintOp::Rotate: {
-                        float r = v(0) * std::numbers::pi_v<float> / constants::degrees_per_half_turn;
-                        a = {std::cos(r), std::sin(r), -std::sin(r), std::cos(r), 0, 0};
-                        break;
-                    }
-                    case PaintOp::Matrix:
-                        for (unsigned i = 0; i < 6; ++i) {
-                            a[i] = v(i);
-                        }
-                        break;
-                    default:
-                        throw std::invalid_argument("projective transform");
-                }
-                m = multiply(m, a);
+            if (std::any_of(t->operations.begin(), t->operations.end(), [](const auto& op) {
+                    return op.kind == PaintOp::Perspective || op.kind == PaintOp::RotateY;
+                })) {
+                throw std::invalid_argument("projective transform");
             }
-            auto s = get(n.style, PropertyId::TransformOrigin, "50% 50%");
-            auto o = split(s);
-            float x = n.box[2] / 2;
-            float y = n.box[3] / 2;
-            if (s == "top") {
-                y = 0;
-            } else {
-                if (!o.empty()) {
-                    x = len(o[0], n.box[2]);
-                }
-                if (o.size() > 1) {
-                    y = len(o[1], n.box[3]);
-                }
-            }
-            return multiply(Matrix{1, 0, 0, 1, n.box[0] + x, n.box[1] + y}, multiply(m, Matrix{1, 0, 0, 1, -x, -y}));
+            const auto o = scene_transform_origin(n.style, n.box[2], n.box[3]);
+            const auto m = SceneAffine::translation(-o[0], -o[1]) * scene_affine(t->operations, n.box[2], n.box[3]) *
+                           SceneAffine::translation(o[0] + n.box[0], o[1] + n.box[1]);
+            return {float(m.m11), float(m.m12), float(m.m21), float(m.m22), float(m.dx), float(m.dy)};
         }
 
         void gradient(NativePaint& p, const Style& s) {

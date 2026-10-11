@@ -2,7 +2,6 @@
 #include "scene/scene.hpp"
 #include "scene/scene_geometry.hpp"
 #include "scene/scene_text_image.hpp"
-#include "scene/scene_grammar.hpp"
 #include "scene/scene_values.hpp"
 #include "base/css_scalar.hpp"
 #include "base/owner_thread.hpp"
@@ -101,140 +100,27 @@ namespace weft {
             }
         };
 
-        // D2D row-vector matrices. CSS transform functions multiply in listed order
-        // for column vectors, hence prepend each local operation here.
-        D2D1::Matrix3x2F transform(std::string s, float w, float h, bool svg) {
-            auto matrix = D2D1::Matrix3x2F::Identity();
-            for (const auto& op : scene_transform_ops(s, w, h, svg)) {
-                const auto& a = op.args;
-                auto local = D2D1::Matrix3x2F::Identity();
-                switch (op.kind) {
-                    case SceneTransformOp::Kind::Translate:
-                        local = D2D1::Matrix3x2F::Translation(a[0], a[1]);
-                        break;
-                    case SceneTransformOp::Kind::Scale:
-                        local = D2D1::Matrix3x2F::Scale(a[0], a[1]);
-                        break;
-                    case SceneTransformOp::Kind::Rotate:
-                        local = D2D1::Matrix3x2F::Rotation(a[0], D2D1::Point2F(a[1], a[2]));
-                        break;
-                    case SceneTransformOp::Kind::Matrix:
-                        local = {a[0], a[1], a[2], a[3], a[4], a[5]};
-                        break;
-                }
-                matrix = local * matrix;
-            }
-            return matrix;
+        // The shared scene transforms as D2D row-vector matrices (the same layout as SceneAffine).
+        D2D1::Matrix3x2F d2d(const SceneAffine& a) {
+            return {float(a.m11), float(a.m12), float(a.m21), float(a.m22), float(a.dx), float(a.dy)};
+        }
+
+        D2D1::Matrix3x2F transform(const std::string& s, float w, float h, bool svg) {
+            return d2d(scene_affine(parse_scene_transform(s, svg).value(), w, h));
         }
 
         D2D1::Matrix3x2F transform(const PaintValue& value, float w, float h) {
-            auto matrix = D2D1::Matrix3x2F::Identity();
-            for (const auto& a : value.operations) {
-                auto n = [&](unsigned i, float ref = 1) {
-                    return i < a.count ? float(a.args[i].absolute + a.args[i].relative * ref) : 0.f;
-                };
-                auto op = D2D1::Matrix3x2F::Identity();
-                switch (a.kind) {
-                    case PaintOp::Translate:
-                        op = D2D1::Matrix3x2F::Translation(n(0, w), n(1, h));
-                        break;
-                    case PaintOp::TranslateX:
-                        op = D2D1::Matrix3x2F::Translation(n(0, w), 0);
-                        break;
-                    case PaintOp::TranslateY:
-                        op = D2D1::Matrix3x2F::Translation(0, n(0, h));
-                        break;
-                    case PaintOp::Scale:
-                        op = D2D1::Matrix3x2F::Scale(n(0), a.count > 1 ? n(1) : n(0));
-                        break;
-                    case PaintOp::ScaleX:
-                        op = D2D1::Matrix3x2F::Scale(n(0), 1);
-                        break;
-                    case PaintOp::ScaleY:
-                        op = D2D1::Matrix3x2F::Scale(1, n(0));
-                        break;
-                    case PaintOp::Rotate:
-                        op = D2D1::Matrix3x2F::Rotation(n(0));
-                        break;
-                    case PaintOp::Matrix:
-                        op = {n(0), n(1), n(2), n(3), n(4), n(5)};
-                        break;
-                    default:
-                        fail("projective transform requires layer");
-                }
-                matrix = op * matrix;
-            }
-            return matrix;
+            return d2d(scene_affine(value.operations, w, h));
         }
 
         std::array<float, 2> origin(const Style& s, float w, float h) {
             return scene_transform_origin(s, w, h);
         }
 
-        struct Plane {
-            std::array<double, 9> m{1, 0, 0, 0, 1, 0, 0, 0, 1};
-
-            Plane operator*(const Plane& b) const {
-                Plane out;
-                out.m.fill(0);
-                for (unsigned y = 0; y < 3; ++y) {
-                    for (unsigned x = 0; x < 3; ++x) {
-                        for (unsigned k = 0; k < 3; ++k) {
-                            out.m[y * 3 + x] += m[y * 3 + k] * b.m[k * 3 + x];
-                        }
-                    }
-                }
-                return out;
-            }
-
-            std::array<double, 2> point(double x, double y) const {
-                double z = m[6] * x + m[7] * y + m[8];
-                if (std::abs(z) < constants::scene::plane_singular_epsilon) {
-                    return {constants::scene::plane_far_point, constants::scene::plane_far_point};
-                }
-                return {(m[0] * x + m[1] * y + m[2]) / z, (m[3] * x + m[4] * y + m[5]) / z};
-            }
-
-            bool inverse(Plane& out) const {
-                auto& a = m;
-                const double det = a[0] * (a[4] * a[8] - a[5] * a[7]) - a[1] * (a[3] * a[8] - a[5] * a[6]) +
-                                   a[2] * (a[3] * a[7] - a[4] * a[6]);
-                if (std::abs(det) < constants::scene::plane_singular_epsilon) {
-                    return false;
-                }
-                out.m = {(a[4] * a[8] - a[5] * a[7]) / det, (a[2] * a[7] - a[1] * a[8]) / det,
-                         (a[1] * a[5] - a[2] * a[4]) / det, (a[5] * a[6] - a[3] * a[8]) / det,
-                         (a[0] * a[8] - a[2] * a[6]) / det, (a[2] * a[3] - a[0] * a[5]) / det,
-                         (a[3] * a[7] - a[4] * a[6]) / det, (a[1] * a[6] - a[0] * a[7]) / det,
-                         (a[0] * a[4] - a[1] * a[3]) / det};
-                return true;
-            }
-
-            static Plane translation(double x, double y) {
-                return {{1, 0, x, 0, 1, y, 0, 0, 1}};
-            }
-        };
+        using Plane = ScenePlane;
 
         Plane plane(const SceneNode& n) {
-            auto o = origin(n.style, n.box[2], n.box[3]);
-            auto t = get(n.style, PropertyId::Transform, "none");
-            Plane local;
-            if (t.find("perspective(") != t.npos) {
-                const auto match = scene_grammar::perspective(t);
-                if (!match) {
-                    fail("projective plane grammar");
-                }
-                const double d = num(match->distance);
-                const double a = num(match->angle) * (match->degrees ? pi / constants::degrees_per_half_turn : 1);
-                if (d <= 0) {
-                    fail("perspective distance");
-                }
-                local.m = {std::cos(a), 0, 0, 0, 1, 0, std::sin(a) / d, 0, 1};
-            } else {
-                auto a = transform(t, n.box[2], n.box[3], false);
-                local.m = {a._11, a._21, a._31, a._12, a._22, a._32, 0, 0, 1};
-            }
-            return Plane::translation(o[0] + n.box[0], o[1] + n.box[1]) * local * Plane::translation(-o[0], -o[1]);
+            return scene_plane(n);
         }
 
         Plane affine_plane(D2D1::Matrix3x2F m) {
@@ -1437,13 +1323,12 @@ namespace weft {
             // Plane projection for preserve-3d descendants of perspective/rotateY.
             // Rasterize the whole subtree first, then inverse-map with bilinear
             // premultiplied samples. This also preserves group opacity and order.
-            auto t = get(node.style, PropertyId::Transform);
-            const auto m = scene_grammar::find_perspective(t);
+            const auto m = scene_perspective(parse_scene_transform(get(node.style, PropertyId::Transform)).value());
             if (!m) {
                 fail("3D transform outside perspective rotateY plane subset");
             }
-            float distance = num(m->distance);
-            float angle = num(m->angle) * (m->degrees ? pi / constants::degrees_per_half_turn : 1);
+            const float distance = float(m->distance);
+            const float angle = float(m->radians);
             auto f = SceneFrame{};
             f.root = node;
             f.root.box[0] = f.root.box[1] = 0;

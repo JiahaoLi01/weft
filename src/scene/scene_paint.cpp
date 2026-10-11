@@ -13,18 +13,111 @@ namespace weft {
     namespace {
         using css::trim;
 
-        // Percentages resolve against the reference box (as hundredths), em against the font size.
-        PaintNumber number(std::string_view input) {
+        // Percentages are fractions of the reference length; em, like the geometry lengths, multiplies it.
+        std::optional<PaintNumber> paint_number(std::string_view input) {
             const auto s = trim(input);
             const auto [digits, unit] = css::split_unit(s, {.px = true, .percent = true, .em = true});
             const double reference = unit == css::Unit::Percent ? .01 : unit == css::Unit::Em ? 1 : 0;
             const auto n = css::parse_number<double>(std::string(digits), constants::scene::max_numeric_magnitude);
             if (!n) {
-                throw std::invalid_argument("paint number");
+                return std::nullopt;
             }
-            return {reference ? 0 : *n, reference ? *n * reference : 0};
+            return PaintNumber{reference ? 0 : *n, reference ? *n * reference : 0};
         }
     } // namespace
+
+    Result<std::vector<PaintOperation>> parse_scene_transform(std::string_view text, bool svg) {
+        const auto s = trim(text);
+        std::vector<PaintOperation> out;
+        if (s.empty() || s == "none") {
+            return out;
+        }
+        static const std::map<std::string, PaintOp, std::less<>> kinds{
+            {"translate", PaintOp::Translate},     {"translateX", PaintOp::TranslateX},
+            {"translateY", PaintOp::TranslateY},   {"scale", PaintOp::Scale},
+            {"scaleX", PaintOp::ScaleX},           {"scaleY", PaintOp::ScaleY},
+            {"rotate", PaintOp::Rotate},           {"matrix", PaintOp::Matrix},
+            {"perspective", PaintOp::Perspective}, {"rotateY", PaintOp::RotateY}};
+        std::size_t pos{};
+        while (pos < s.size()) {
+            while (pos < s.size() && (std::isspace(static_cast<unsigned char>(s[pos])) || (svg && s[pos] == ','))) {
+                ++pos;
+            }
+            if (pos == s.size()) {
+                break;
+            }
+            const auto b = s.find('(', pos);
+            const auto e = b == s.npos ? s.npos : s.find(')', b);
+            if (e == s.npos) {
+                return make_diagnostic(Diag::SceneRaster, "transform syntax");
+            }
+            const auto name = trim(s.substr(pos, b - pos));
+            const auto kind = kinds.find(name);
+            if (kind == kinds.end()) {
+                return make_diagnostic(Diag::SceneRaster, "unsupported transform " + name);
+            }
+            PaintOperation op;
+            op.kind = kind->second;
+            auto args = s.substr(b + 1, e - b - 1);
+            std::replace(args.begin(), args.end(), ',', ' ');
+            std::istringstream stream(args);
+            std::string arg;
+            while (stream >> arg) {
+                if (op.count >= op.args.size()) {
+                    return make_diagnostic(Diag::SceneRaster, "transform arguments of " + name);
+                }
+                // The angle of rotate and rotateY: deg, or radians when unitless (SVG: degrees).
+                if ((op.kind == PaintOp::Rotate || op.kind == PaintOp::RotateY) && op.count == 0) {
+                    const bool degrees = arg.ends_with("deg");
+                    if (degrees) {
+                        arg.resize(arg.size() - 3);
+                    }
+                    auto value = paint_number(arg);
+                    if (!value) {
+                        return make_diagnostic(Diag::SceneRaster, "transform number " + arg);
+                    }
+                    const auto factor =
+                        degrees || svg
+                            ? 1.
+                            : double(static_cast<float>(constants::degrees_per_half_turn) / std::numbers::pi_v<float>);
+                    value->absolute *= factor;
+                    value->relative *= factor;
+                    op.args[op.count++] = *value;
+                } else if (const auto value = paint_number(arg)) {
+                    op.args[op.count++] = *value;
+                } else {
+                    return make_diagnostic(Diag::SceneRaster, "transform number " + arg);
+                }
+            }
+            bool arity{};
+            switch (op.kind) {
+                case PaintOp::Matrix:
+                    arity = op.count == 6;
+                    break;
+                case PaintOp::Translate:
+                case PaintOp::Scale:
+                    arity = op.count == 1 || op.count == 2;
+                    break;
+                case PaintOp::Rotate:
+                    arity = op.count == 1 || (svg && op.count == 3);
+                    break;
+                default:
+                    arity = op.count == 1;
+            }
+            if (!arity) {
+                return make_diagnostic(Diag::SceneRaster, "transform arguments of " + name);
+            }
+            if (op.kind == PaintOp::Perspective && !trim(args).ends_with("px")) {
+                return make_diagnostic(Diag::SceneRaster, "perspective needs a px distance");
+            }
+            if (out.size() >= constants::scene::max_paint_transform_operations) {
+                return make_diagnostic(Diag::SceneRaster, "transform list length");
+            }
+            out.push_back(op);
+            pos = e + 1;
+        }
+        return out;
+    }
 
     const std::array<const char*, constants::scene::paint_property_count>& scene_paint_properties() {
         static const std::array<const char*, constants::scene::paint_property_count> keys{
@@ -52,78 +145,20 @@ namespace weft {
                 return out;
             }
             if (s.find('(') == s.npos) {
+                const auto scalar = paint_number(s);
+                if (!scalar) {
+                    return {};
+                }
                 out.kind = PaintValue::Scalar;
-                out.scalar = number(s);
+                out.scalar = *scalar;
                 return out;
             }
-            out.kind = PaintValue::Transform;
-            std::size_t pos{};
-            while (pos < s.size()) {
-                while (pos < s.size() && std::isspace(static_cast<unsigned char>(s[pos]))) {
-                    ++pos;
-                }
-                if (pos == s.size()) {
-                    break;
-                }
-                const auto b = s.find('(', pos);
-                const auto e = s.find(')', b);
-                if (b == s.npos || e == s.npos) {
-                    return {};
-                }
-                const auto name = trim(s.substr(pos, b - pos));
-                PaintOperation op;
-                static const std::map<std::string, PaintOp> kinds{
-                    {"translate", PaintOp::Translate},     {"translateX", PaintOp::TranslateX},
-                    {"translateY", PaintOp::TranslateY},   {"scale", PaintOp::Scale},
-                    {"scaleX", PaintOp::ScaleX},           {"scaleY", PaintOp::ScaleY},
-                    {"rotate", PaintOp::Rotate},           {"matrix", PaintOp::Matrix},
-                    {"perspective", PaintOp::Perspective}, {"rotateY", PaintOp::RotateY}};
-                auto k = kinds.find(name);
-                if (k == kinds.end()) {
-                    return {};
-                }
-                op.kind = k->second;
-                auto args = s.substr(b + 1, e - b - 1);
-                std::replace(args.begin(), args.end(), ',', ' ');
-                std::istringstream stream(args);
-                std::string arg;
-                while (stream >> arg) {
-                    if (op.count >= 6) {
-                        return {};
-                    }
-                    const bool angular = op.kind == PaintOp::Rotate || op.kind == PaintOp::RotateY;
-                    if (angular && op.count == 0) {
-                        const bool degrees = arg.ends_with("deg");
-                        if (degrees) {
-                            arg.resize(arg.size() - 3);
-                        }
-                        auto value = number(arg);
-                        const auto factor = degrees ? 1.
-                                                    : double(static_cast<float>(constants::degrees_per_half_turn) /
-                                                             std::numbers::pi_v<float>);
-                        value.absolute *= factor;
-                        value.relative *= factor;
-                        op.args[op.count++] = value;
-                    } else {
-                        op.args[op.count++] = number(arg);
-                    }
-                }
-                if (!op.count || (op.kind == PaintOp::Matrix && op.count != 6) ||
-                    (op.kind == PaintOp::Rotate && op.count != 1) ||
-                    ((op.kind == PaintOp::Translate || op.kind == PaintOp::Scale)
-                         ? op.count > 2
-                         : (op.kind != PaintOp::Matrix && op.count != 1))) {
-                    return {};
-                }
-                if (op.kind == PaintOp::Perspective && !trim(args).ends_with("px")) {
-                    return {};
-                }
-                if (out.operations.size() >= constants::scene::max_paint_transform_operations) {
-                    return {};
-                }
-                out.operations.push_back(op);
-                pos = e + 1;
+            auto operations = parse_scene_transform(s);
+            if (!operations) {
+                return {};
             }
+            out.kind = PaintValue::Transform;
+            out.operations = std::move(*operations);
             return out;
         } catch (const std::exception&) {
             return {};
