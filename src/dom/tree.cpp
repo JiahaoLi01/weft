@@ -203,17 +203,101 @@ namespace weft::dom {
         result.scroll_top = n.scroll_top;
         result.hovered = n.hovered;
         result.active = n.active;
-        for (const auto& a : n.attributes) {
-            if (!a.space.empty()) {
-                throw std::runtime_error("WEFT_PAGE_PROFILE: namespaced attributes require SVG adapter");
-            }
-            result.attributes.emplace(a.name, a.value);
-        }
+        result.revision = n.subtree_revision;
+        result.attributes = snapshot_attributes(n);
         result.children.reserve(n.children.size());
         for (const auto& id : n.children) {
             result.children.push_back(snapshot(at(id)));
         }
         return result;
+    }
+
+    bool Tree::refresh(const Node& n, DomSnapshot& copy) const {
+        if (copy.identity != n.identity) {
+            copy = snapshot(n);
+            return true;
+        }
+        // Revisions start at 1, so a copy the tree did not produce (revision 0) never matches.
+        if (copy.revision == n.subtree_revision) {
+            return false;
+        }
+        ++snapshot_nodes_;
+        bool changed{};
+        if (copy.data != n.data) {
+            copy.data = n.data;
+            changed = true;
+        }
+        if (!same_attributes(copy.attributes, n)) {
+            copy.attributes = snapshot_attributes(n);
+            changed = true;
+        }
+        if (copy.scroll_left != n.scroll_left || copy.scroll_top != n.scroll_top || copy.hovered != n.hovered ||
+            copy.active != n.active) {
+            copy.scroll_left = n.scroll_left;
+            copy.scroll_top = n.scroll_top;
+            copy.hovered = n.hovered;
+            copy.active = n.active;
+            changed = true;
+        }
+        const bool same_children = copy.children.size() == n.children.size() &&
+                                   std::equal(n.children.begin(), n.children.end(), copy.children.begin(),
+                                              [](const NodeIdentity& id, const DomSnapshot& child) {
+                                                  return child.identity == id;
+                                              });
+        if (same_children) {
+            for (std::size_t i = 0; i < n.children.size(); ++i) {
+                changed |= refresh(at(n.children[i]), copy.children[i]);
+            }
+        } else {
+            // Children keep their copies by identity; a node new to this parent is copied whole.
+            std::vector<DomSnapshot> children;
+            children.reserve(n.children.size());
+            for (std::size_t i = 0; i < n.children.size(); ++i) {
+                const auto& id = n.children[i];
+                auto found = i < copy.children.size() && copy.children[i].identity == id
+                                 ? copy.children.begin() + std::ptrdiff_t(i)
+                                 : std::find_if(
+                                       copy.children.begin(), copy.children.end(),
+                                       [&](const DomSnapshot& child) {
+                                           return child.identity == id;
+                                       });
+                if (found == copy.children.end()) {
+                    children.push_back(snapshot(at(id)));
+                } else {
+                    children.push_back(std::move(*found));
+                    found->identity = {};
+                    refresh(at(id), children.back());
+                }
+            }
+            copy.children = std::move(children);
+            changed = true;
+        }
+        copy.revision = n.subtree_revision;
+        return changed;
+    }
+
+    std::map<std::string, std::string> Tree::snapshot_attributes(const Node& n) {
+        std::map<std::string, std::string> result;
+        for (const auto& a : n.attributes) {
+            if (!a.space.empty()) {
+                throw std::runtime_error("WEFT_PAGE_PROFILE: namespaced attributes require SVG adapter");
+            }
+            result.emplace(a.name, a.value);
+        }
+        return result;
+    }
+
+    bool Tree::same_attributes(const std::map<std::string, std::string>& copied, const Node& n) {
+        if (copied.size() != n.attributes.size()) {
+            return false;
+        }
+        for (const auto& a : n.attributes) {
+            const auto it = copied.find(a.name);
+            if (!a.space.empty() || it == copied.end() || it->second != a.value) {
+                return false;
+            }
+        }
+        return true;
     }
 
     std::string Tree::dump(const Node& n) const {

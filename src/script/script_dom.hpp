@@ -166,6 +166,10 @@ namespace weft {
         std::string dump_document() const;
         DomSnapshot snapshot_subtree(std::string_view selector) const;
         DomSnapshot snapshot_subtree(NodeIdentity) const;
+        // Brings an earlier snapshot of the subtree at root up to date, copying only what changed since it was taken;
+        // a snapshot of another node or epoch is replaced. Returns whether its content changed. After an exception,
+        // discard the snapshot.
+        bool refresh_snapshot(NodeIdentity root, DomSnapshot& snapshot) const;
         std::uint64_t subtree_revision(NodeIdentity) const;
         // Cursor belongs to epoch(); discard it on epoch change. A journal overflow
         // requires a full snapshot. Journal identities do not retain detached nodes.

@@ -4,6 +4,7 @@
 #include "dom/node_table.hpp"
 #include "dom/tree.hpp"
 #include "support/check.hpp"
+#include <algorithm>
 #include <cstdint>
 #include <iostream>
 #include <memory>
@@ -259,6 +260,204 @@ namespace {
                 "query scope");
     }
 
+    // A refreshed copy equals a fresh snapshot after random mutations, reports exactly whether its content changed,
+    // carries the nodes' revisions, and costs nothing when nothing changed. The mutations include changes recorded
+    // without a content difference.
+    void tree_refresh_differential() {
+        Page p;
+        std::vector<dom::Node*> pool;
+        for (int i = 0; i < 24; ++i) {
+            pool.push_back(i % 4 == 3 ? &p.text("t" + std::to_string(i)) : &p.element(i % 2 ? "div" : "span"));
+        }
+        std::uint32_t seed = 0x95a;
+        const auto next = [&] {
+            seed = seed * weft::constants::lcg_multiplier + weft::constants::lcg_increment;
+            return seed >> 8;
+        };
+        const auto revisions_match = [&](auto&& self, const weft::DomSnapshot& copy) -> bool {
+            if (copy.revision != p.tree.at(copy.identity).subtree_revision) {
+                return false;
+            }
+            for (const auto& child : copy.children) {
+                if (!self(self, child)) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        auto copy = p.tree.snapshot(*p.body);
+        // Copies kept by update_copy: one from tree snapshots, one from values whose revisions were cleared.
+        auto mirror = copy;
+        auto plain_mirror = copy;
+        const auto clear_revisions = [](auto&& self, weft::DomSnapshot& value) -> void {
+            value.revision = 0;
+            for (auto& child : value.children) {
+                self(self, child);
+            }
+        };
+        constexpr int steps = 6000;
+        for (int step = 0; step < steps; ++step) {
+            auto& n = *pool[next() % pool.size()];
+            switch (next() % 8) {
+                case 0: {
+                    dom::Node* parent = p.body;
+                    if (const auto pick = next() % (pool.size() + 1);
+                        pick < pool.size() && pool[pick]->type == element_type) {
+                        parent = pool[pick];
+                    }
+                    dom::Node* before = parent->children.empty() || next() % 3 == 0
+                                            ? nullptr
+                                            : &p.tree.at(parent->children[next() % parent->children.size()]);
+                    try {
+                        p.tree.insert(*parent, n, before);
+                    } catch (const std::runtime_error&) {
+                        // Cycles and other refusals leave the tree as it was.
+                    }
+                    break;
+                }
+                case 1:
+                    p.tree.detach(n);
+                    break;
+                case 2:
+                    if (n.type == text_type) {
+                        n.data = "t" + std::to_string(next() % 5);
+                        p.tree.changed(n);
+                    }
+                    break;
+                case 3:
+                    if (n.type == element_type) {
+                        const std::string name = next() % 2 ? "id" : "data-x";
+                        const auto value = std::to_string(next() % 3);
+                        auto it = std::find_if(n.attributes.begin(), n.attributes.end(), [&](const dom::Attribute& a) {
+                            return a.name == name;
+                        });
+                        if (it == n.attributes.end()) {
+                            n.attributes.push_back({name, name, "", value});
+                        } else {
+                            it->value = value;
+                        }
+                        p.tree.changed(n);
+                    }
+                    break;
+                case 4:
+                    if (!n.attributes.empty()) {
+                        n.attributes.erase(n.attributes.begin() + std::ptrdiff_t(next() % n.attributes.size()));
+                        p.tree.changed(n);
+                    }
+                    break;
+                case 5: {
+                    bool& flag = next() % 2 ? n.hovered : n.active;
+                    flag = !flag;
+                    p.tree.changed(n);
+                    break;
+                }
+                case 6:
+                    n.scroll_top = double(next() % 3);
+                    p.tree.changed(n);
+                    break;
+                default:
+                    // A recorded change with no content difference.
+                    p.tree.changed(n);
+                    break;
+            }
+            if (next() % 3) {
+                continue;
+            }
+            const auto before = copy;
+            const bool changed = p.tree.refresh(*p.body, copy);
+            const auto fresh = p.tree.snapshot(*p.body);
+            const auto at = " at step " + std::to_string(step);
+            require(copy == fresh, "refresh differs from a fresh snapshot" + at);
+            require(changed == (before != fresh), "refresh misreported a change" + at);
+            // The revision shortcut never disagrees with full content equality, for equal or older copies.
+            require(dom::same_content(copy, fresh) && dom::same_content(before, fresh) == (before == fresh) &&
+                        dom::same_content(fresh, before) == (before == fresh),
+                    "same_content disagrees with content equality" + at);
+            require(revisions_match(revisions_match, copy), "refreshed revisions" + at);
+            const auto mirrored_before = mirror;
+            require(dom::update_copy(mirror, fresh) == (mirrored_before != fresh) && mirror == fresh &&
+                        revisions_match(revisions_match, mirror),
+                    "update_copy from a snapshot" + at);
+            auto plain = fresh;
+            clear_revisions(clear_revisions, plain);
+            const auto plain_before = plain_mirror;
+            require(dom::update_copy(plain_mirror, plain) == (plain_before != plain) && plain_mirror == plain,
+                    "update_copy from a value without revisions" + at);
+            require(dom::same_content(plain, fresh) &&
+                        dom::same_content(plain_before, fresh) == (plain_before == fresh),
+                    "same_content without revisions" + at);
+            require(dom::same_content(plain_before, plain) == (plain_before == plain),
+                    "same_content between values without revisions" + at);
+            const auto visited = p.tree.snapshot_nodes();
+            require(!p.tree.refresh(*p.body, copy) && p.tree.snapshot_nodes() == visited,
+                    "refresh of an unchanged subtree did work" + at);
+        }
+        // A copy of another node is replaced.
+        auto other = p.tree.snapshot(*p.html);
+        require(p.tree.refresh(*p.body, other) && other == p.tree.snapshot(*p.body), "copy of another node");
+    }
+
+    // Snapshot equality is content equality: every field but the revision counts.
+    void snapshot_equality() {
+        Page p;
+        auto& a = p.element("div");
+        p.tree.insert(*p.body, a, nullptr);
+        const auto base = p.tree.snapshot(*p.body);
+        auto copy = base;
+        copy.revision += 7;
+        require(copy == base, "revision is not content");
+        // Two new nodes share the initial revision; only identity tells their copies apart.
+        auto& first = p.element("div");
+        auto& second = p.element("div");
+        const auto one = p.tree.snapshot(first);
+        const auto two = p.tree.snapshot(second);
+        require(one.revision == two.revision && !dom::same_content(one, two) && one != two,
+                "copies of two nodes at one revision");
+        const std::vector<void (*)(weft::DomSnapshot&)> edits{
+            [](weft::DomSnapshot& s) {
+                ++s.identity.generation;
+            },
+            [](weft::DomSnapshot& s) {
+                ++s.type;
+            },
+            [](weft::DomSnapshot& s) {
+                s.local_name += "x";
+            },
+            [](weft::DomSnapshot& s) {
+                s.namespace_uri += "x";
+            },
+            [](weft::DomSnapshot& s) {
+                s.data += "x";
+            },
+            [](weft::DomSnapshot& s) {
+                s.attributes["x"] = "1";
+            },
+            [](weft::DomSnapshot& s) {
+                s.children.clear();
+            },
+            [](weft::DomSnapshot& s) {
+                s.scroll_left += 1;
+            },
+            [](weft::DomSnapshot& s) {
+                s.scroll_top += 1;
+            },
+            [](weft::DomSnapshot& s) {
+                s.hovered = !s.hovered;
+            },
+            [](weft::DomSnapshot& s) {
+                s.active = !s.active;
+            },
+            [](weft::DomSnapshot& s) {
+                s.children[0].data += "x";
+            },
+        };
+        for (std::size_t i = 0; i < edits.size(); ++i) {
+            auto edited = base;
+            edits[i](edited);
+            require(edited != base, "snapshot equality misses content field " + std::to_string(i));
+        }
+    }
+
     void tree_lifetimes() {
         Page p;
         auto& a = p.element("div");
@@ -337,10 +536,12 @@ int main() {
         tree_copies();
         tree_queries();
         tree_lifetimes();
+        tree_refresh_differential();
+        snapshot_equality();
         node_tables();
         canvas_sizes();
         std::cout << "PASS DOM: native tree edges, refusals, journal, copies, queries and lifetimes without a script "
-                     "engine; node side tables; canvas sizes\n";
+                     "engine; incremental snapshots and copies against full ones; node side tables; canvas sizes\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

@@ -221,6 +221,55 @@ heldNode.textContent = '中文 detached';
                 "random mutation graph leaked");
     }
 
+    // A snapshot refreshed after script mutations and host input equals a fresh one and reports exactly whether it
+    // changed; refreshing an unchanged subtree copies nothing.
+    void incremental_snapshots() {
+        weft::ScriptDom probe;
+        probe.eval(R"JS(
+globalThis.root = document.createElement('div'); root.setAttribute('id', 'root'); document.body.appendChild(root);
+let seed = 0x95b;
+globalThis.random = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return seed >>> 0; };
+globalThis.pool = Array.from({ length: 32 }, (_, i) =>
+  i % 4 === 3 ? document.createTextNode('t' + i) : document.createElement(i % 2 ? 'div' : 'span'));
+globalThis.mutate = () => {
+  const n = pool[random() % pool.length];
+  switch (random() % 6) {
+    case 0: {
+      const parents = [root, ...pool.filter(p => p.nodeType === 1)];
+      const parent = parents[random() % parents.length];
+      try { parent.insertBefore(n, parent.childNodes[random() % (parent.childNodes.length + 1)] || null); } catch (_) {}
+      break;
+    }
+    case 1: if (n.parentNode) n.parentNode.removeChild(n); break;
+    case 2: if (n.nodeType === 3) n.data = 't' + random() % 4; else if (random() % 4 === 0) n.textContent = 'x'; break;
+    case 3: if (n.nodeType === 1) n.setAttribute(random() % 2 ? 'id' : 'data-x', String(random() % 3)); break;
+    case 4: if (n.nodeType === 1) n.removeAttribute(random() % 2 ? 'id' : 'data-x'); break;
+    default: if (n.nodeType === 1) n.id = n.id; // recorded as a change, with no content difference
+  }
+};
+)JS");
+        const auto root = probe.node_identity("#root");
+        auto copy = probe.snapshot_subtree(root);
+        const auto check = [&](const std::string& at) {
+            const auto before = copy;
+            const bool changed = probe.refresh_snapshot(root, copy);
+            const auto fresh = probe.snapshot_subtree(root);
+            require(copy == fresh, "refreshed snapshot differs from a fresh one " + at);
+            require(changed == (before != fresh), "refresh misreported a change " + at);
+            const auto copied = probe.stats().snapshot_nodes;
+            require(!probe.refresh_snapshot(root, copy) && probe.stats().snapshot_nodes == copied,
+                    "refresh of an unchanged subtree copied nodes " + at);
+        };
+        for (int round = 0; round < 400; ++round) {
+            probe.eval("for (let i = random() % 4; i > 0; --i) mutate()");
+            check("after round " + std::to_string(round));
+        }
+        probe.dispatch_mouse(root, {weft::MouseType::Over});
+        check("after host hover");
+        probe.dispatch_mouse(root, {weft::MouseType::Out});
+        check("after host hover ends");
+    }
+
     void reentrant_attribute_conversion() {
         weft::ScriptDom probe;
         require(probe.eval(R"JS(
@@ -400,6 +449,7 @@ int main(int argc, char** argv) {
         js_root_preserves_detached();
         event_path_and_listener_snapshot();
         random_tree_mutations();
+        incremental_snapshots();
         reentrant_attribute_conversion();
         conversion_exceptions();
         lifetime_pressure();

@@ -8,6 +8,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -41,7 +42,7 @@ namespace weft::dom {
         std::vector<NodeIdentity> children;
         double scroll_left{};
         double scroll_top{};
-        // Journal revision of the latest change in this node's subtree.
+        // Journal revision of the latest change in this node's subtree; at least 1.
         std::uint64_t subtree_revision{1};
     };
 
@@ -116,7 +117,8 @@ namespace weft::dom {
         bool connected(const Node& n) const;
 
         // Records a change of n for the journal and marks its subtree revision up to the root. Nothing is recorded
-        // once the revision counter is exhausted.
+        // once the revision counter is exhausted. Changing a node's fields outside the tree operations needs this
+        // call: snapshots and refresh() rely on the revisions.
         void changed(Node& n) noexcept;
 
         bool exhausted() const noexcept {
@@ -137,8 +139,12 @@ namespace weft::dom {
 
         // An owned copy of a subtree; namespaced attributes are outside the snapshot profile.
         DomSnapshot snapshot(const Node& n) const;
+        // Brings an earlier copy of n's subtree up to date. A subtree whose revision has not moved since it was
+        // copied is kept as it is, so the work follows what changed. A copy of another node or epoch is replaced.
+        // Returns whether the content changed. After an exception the copy is incomplete; discard it.
+        bool refresh(const Node& n, DomSnapshot& copy) const;
 
-        // Nodes copied by snapshot() over every epoch.
+        // Nodes copied by snapshot() and nodes revisited by refresh() over every epoch.
         std::uint64_t snapshot_nodes() const noexcept {
             return snapshot_nodes_;
         }
@@ -152,6 +158,10 @@ namespace weft::dom {
         void query(const Node& root, const std::vector<Selector>& list, std::vector<Node*>& result, bool first) const;
 
     private:
+        // A node's attributes as a snapshot holds them; namespaced attributes are outside the snapshot profile.
+        static std::map<std::string, std::string> snapshot_attributes(const Node& n);
+        static bool same_attributes(const std::map<std::string, std::string>& copied, const Node& n);
+
         struct Change {
             std::uint64_t revision{};
             NodeIdentity identity;

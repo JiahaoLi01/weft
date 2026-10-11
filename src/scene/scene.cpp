@@ -870,7 +870,7 @@ namespace weft {
         void build_into(SceneNode& output, const DomSnapshot& d, const ComputedStyle& c, const Style* parent = nullptr,
                         const DomSnapshot* old_dom = nullptr, const ComputedStyle* old_computed = nullptr,
                         const SceneNode* old_node = nullptr, const Style* old_parent = nullptr) {
-            if (incremental && old_dom && old_computed && old_node && d == *old_dom &&
+            if (incremental && old_dom && old_computed && old_node && dom::same_content(d, *old_dom) &&
                 same_inheritance(parent, old_parent) && same_computed(c, *old_computed) && static_subtree(*old_node)) {
                 keep_live(*old_node);
                 ++work.static_subtree_reuses;
@@ -1519,7 +1519,17 @@ namespace weft {
         // Returned frames remain complete, independently owned values.
         if (!reuse) {
             i.previous = f;
-            i.previous_dom = d;
+            // Only subtrees whose revision moved are copied.
+            if (i.previous_dom) {
+                try {
+                    dom::update_copy(*i.previous_dom, d);
+                } catch (...) {
+                    i.previous_dom.reset();
+                    throw;
+                }
+            } else {
+                i.previous_dom = d;
+            }
             i.previous_computed = i.computed;
         }
         i.previous_width = w;

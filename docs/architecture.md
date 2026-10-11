@@ -325,6 +325,12 @@ Windows `SceneRaster` 是可替换的软件矢量参考适配器：DirectWrite m
 
 检查宿主对连续待处理Move显式选择latest采样策略，仅同card/buttons且无wheel或测试延迟可合并，执行中事件和Down/Up/Cancel/Wheel/reset保持边界；常规input()可靠语义不变，新增coalesced计数。Unicode/emoji字体图像只去除已经composite的authored transform/opacity冗余，computed字体/颜色/尺寸/文本继续失效。双线程profiler以共同steady-clock微秒时钟写owned数值事件，文件有上限，不改变外部C ABI；具体证据和仍偏慢的K-Line/Anime见[交互阶段](gallery-interaction-profile.md)。
 
+2026-10-11 重构第 9.5 步：快照增量化。
+- `DomSnapshot` 记录复制时节点的子树版本号；它不属于内容，`==` 不比较它。
+- `dom::Tree::refresh` 与 `ScriptDom::refresh_snapshot` 把旧副本刷新到最新：版本号没变的子树原样保留，工作量只取决于变化部分，并报告内容是否真的变化。
+- 宿主几何/样式读保留一份文档副本原地刷新。scene 会话与求解器用 `dom::update_copy` 增量维护副本，用 `dom::same_content` 按版本号跳过未变子树的比较。
+- 交给宿主与求解器的仍是完整、自包含的值。
+
 2026-10-10 增量更新补充：`CompiledStyle::update` 保留canonical raw computed值，可报告变化/重建的own节点身份。同父重排保留值，跨父挂载重建；输出不是shorthand展开表示。Scene另存expanded派生值，按changed identities及代际重建，不把展开值写回cascade。`SceneSolver::update`可修改owner专属输出，异常后必须丢弃部分输出/reset；跨线程发布仍创建完整独立immutable snapshot。geometry reuse由字体/文本/盒子/transform/SVG geometry/身份投影证明，pure paint变化不失效，measure/layout仍不调用JS。
 
 检查host区分主动正常ReleaseCapture和真实捕获/焦点丢失；hover/active只更新weak generational旧/新路径。诊断footer在native overlay，原应用DOM/事件正常更新。所有不可见卡片统一暂停rAF、继续timer，属于Gallery显式host策略。详细profiler默认关闭，关闭时无阶段timestamp/trace；保留必要completion及调度/FPS。开启后每线程有界latest trace、600样本曲线、5Hz HUD；串联共同steady-clock和run_id，不能把旧文件或采样子集当全运行。Windows factory-scoped shape/stroke缓存与本次solve局部bounds不跨线程保留DOM引用，GPU重写/退休继续只按actual serial。实际证据见[增量与profiler](incremental-ui-profiler.md)。

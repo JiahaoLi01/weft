@@ -1987,6 +1987,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             computed_style_host = {};
             layout_epoch_host = {};
             clear_host_reads();
+            read_snapshot.reset();
             JS_FreeValue(context, canvas_prototype);
             canvas_prototype = JS_UNDEFINED;
             JS_FreeValue(context, document_root);
@@ -2222,8 +2223,8 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             }
         }
 
+        // The document copy is kept: host_snapshot() refreshes it.
         void clear_host_reads() {
-            read_snapshot.reset();
             read_geometry.clear();
             read_geometry_valid = false;
             read_styles.clear();
@@ -2258,9 +2259,19 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             return true;
         }
 
+        // The document as hosts read it. One copy is kept and refreshed, so a read after a small change copies only
+        // what changed.
         const DomSnapshot& host_snapshot() {
+            const Node& document = node(context, document_root);
             if (!read_snapshot) {
-                read_snapshot = snapshot(node(context, document_root));
+                read_snapshot = tree.snapshot(document);
+                return *read_snapshot;
+            }
+            try {
+                tree.refresh(document, *read_snapshot);
+            } catch (...) {
+                read_snapshot.reset();
+                throw;
             }
             return *read_snapshot;
         }
@@ -2880,6 +2891,15 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             throw std::runtime_error("WEFT_NOT_FOUND: no snapshot root");
         }
         return impl_->snapshot(*found.front());
+    }
+
+    bool ScriptDom::refresh_snapshot(NodeIdentity id, DomSnapshot& snapshot) const {
+        impl_->require_runtime();
+        auto* node = impl_->resolve(id);
+        if (!node) {
+            throw std::runtime_error("WEFT_STALE_NODE: snapshot root");
+        }
+        return impl_->tree.refresh(*node, snapshot);
     }
 
     DomSnapshot ScriptDom::snapshot_subtree(NodeIdentity id) const {

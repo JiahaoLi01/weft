@@ -69,7 +69,7 @@ probes/ tests/ tools/      证据与验证，只依赖 src，不被 src 依赖
 | 6 ✅ | scene 可移植化：拆出纯几何/命中 TU；DirectWrite 量字换成与 flow 相同的 HarfBuzz 测量；D2D 退为 Windows 参考 raster | `scene_probe.hpp`、`scene_d2d_probe.cpp`、`gallery_scene_session.hpp` | 新增 Chrome 文字度量基线；几何与 D2D 差分；见下方第 6 步记录 |
 | 7 ✅ | 类型化样式：PropertyId、长度/颜色/关键字值，去掉字符串往返与正则插值 | `style_probe`、`flow_page`、`auto_page`、`scene_probe` | 级联/动画差分、gallery 像素与几何；见下方第 7 步记录 |
 | 8 ✅（paint IR 推迟到第 10 步） | 统一格式化路径：一个调度器、一个 Yoga 适配器、一个 paint IR、一条命中路径；golden 迁移后删除 page/positioned/auto | `src/layout/*`、`input_probe` | 旧 profile 的浏览器差分全部改跑新路径 |
-| 9（9.1–9.4 ✅） | DOM 与脚本分离：NodeId 原生树、与 style 共用选择器；QuickJS 对象成为包装；Canvas 状态移到旁表 | `script_dom_probe.cpp`、`style_probe.cpp` | DOM 生命周期、GC 压力、D3 / React 原包 |
+| 9 ✅ | DOM 与脚本分离：NodeId 原生树、与 style 共用选择器；QuickJS 对象成为包装；Canvas 状态移到旁表 | `script_dom_probe.cpp`、`style_probe.cpp` | DOM 生命周期、GC 压力、D3 / React 原包 |
 | 10（暂缓） | 一份 paint IR 与统一渲染器（第 8 步推迟的部分）；第二个图形后端（Vulkan 或 Metal）与 Android/iOS 平台层，按 concept 接入；主机构建选项 | `src/render/backends`、`src/platform` | 平台验证按“配置/编译/链接/模拟器/真机功能/真机性能”分级记录 |
 
 ## 第 1 步记录（2026-10-10）
@@ -549,7 +549,7 @@ CMake 拆分：
 
 ## 第 9 步记录（2026-10-11）
 
-进行中：原生 DOM 树已在 `src/dom`，节点之间的边用 NodeId，QuickJS 对象只做包装；DOM 查询与样式共用一个选择器引擎，Canvas 状态在节点旁表。只剩 9.5 增量快照。
+已完成：原生 DOM 树在 `src/dom`，节点之间的边用 NodeId，QuickJS 对象只做包装；DOM 查询与样式共用一个选择器引擎；Canvas 状态在节点旁表；快照按版本号增量刷新。
 
 **9.1 DOM 值类型移入 `src/dom`**（`c435dd5`）：
 - `NodeIdentity`、`DomSnapshot`、`DomChanges`（`dom/node.hpp`）与 `ElementGeometry`（`dom/geometry.hpp`）是各层都用的值。style、layout、scene 原来为了它们引用 `script/script_dom.hpp`，连带 Canvas 模型。
@@ -623,8 +623,26 @@ CMake 拆分：
   11 个变异全部被发现；其中去掉环检查后树会成环，遍历不终止，以超时失败。
 - 验证：Release 101/101，Debug 101/101（336.1 s）；1306 个产物逐字节不变；强制 GC 下 6/6（67.0 s）。owner CPU：后台安静时与 9.4b 的二进制以高优先级交替 5 轮：K 线 P50/P99 3.978/6.046 → 3.960/5.859 ms，散点图 1.737/2.520 → 1.723/2.792 ms，anime 两边都是 0.115 ms，各轮范围重叠，记为持平。K 线 P50 与 9.3 时安静条件下的 3.98–4.01 ms 一致，9.4 整体没有可测的回退。数据在 `artifacts/local/step9/owner-cpu-9.4d/`。
 
-第 9 步余下部分：
-- 9.5 增量快照（现在每次全量复制）。
+**9.5 增量快照**：
+- 快照记录复制时节点的子树版本号（`DomSnapshot::revision`）。它不属于内容，`==` 不比较它。同一节点、同一非零版本号的两份副本内容必然相同。改动快照副本的代码（`normalize_selector_state`）会把版本号清零。
+- 9.5a 生产端：
+  - `dom::Tree::refresh` / `ScriptDom::refresh_snapshot` 把旧副本刷新到最新：版本号没变的子树原样保留；子节点按身份对应，重排、插入、移除只动变化的部分。
+  - 返回值是内容是否真的变化：只登记了变更、内容其实没变的，不算变化。
+  - 宿主几何/样式读保留一份文档副本原地刷新，不再在每次 DOM 变更后丢弃重建。
+  - gallery scene 会话首帧做一次全量快照，之后原地刷新，直接用刷新结果决定是否重建场景，不再深比较和整份拷贝。JS 几何读回调拿到的文档副本用 `dom::update_copy` 增量并入。
+- 9.5b 消费端：场景求解器的上一帧 DOM 用 `update_copy` 增量维护；静态子树复用的比较改用 `dom::same_content`，同一副本状态的子树直接判等，变化路径之外不再逐层深比较。
+- 测试：
+  - `dom_contract` 新增随机差分：6000 步随机变更，包括插入、移除、文本、属性、悬停/激活、滚动，以及只登记、不改内容的变更。定期刷新副本并断言：与全量快照相同；报告的“是否变化”与内容比较一致；版本号对齐；没有变化时不做任何工作。`update_copy`（来源分别为快照和清零了版本号的值）与 `same_content` 也逐步对照。
+  - 另有快照相等只看内容（逐字段）与“版本号相同、节点不同”的反例；`script_dom` 新增 400 轮 JS 随机变更加宿主悬停的集成差分。
+  - 变异：refresh 10 个，update_copy/same_content 8 个，全部被发现。refresh 原有 1 个等价变异：“副本版本号非零”的判断多余（节点版本号从 1 开始），已删去。
+- 剖析（windows-profile，K 线 owner 采样，`artifacts/local/step9/sample-*`）：改动前，快照相关开销约占三成，包括深比较、拷贝赋值、析构、复制与样式输入键。9.5a 后同样帧数的样本从 1275 降到 872；9.5b 后再降到 795。
+- 验证：Release 101/101，Debug 101/101（325.7 s）；1306 个产物逐字节不变；强制 GC 下 6/6（63.7 s，日志 `artifacts/local/step9/gc-stress-9.5.log`）。
+- owner CPU（高优先级交替 5 轮，后台安静）：
+  - 9.5a 相对 9.4d，每轮都更快：K 线 P50/P99 4.003/5.982 → 3.209/4.675 ms（P50 −20%），散点图 1.680/2.401 → 1.565/2.369 ms，anime 0.111/0.372 → 0.107/0.357 ms，framer、spring 小幅下降；
+  - 9.5b 相对 9.5a：K 线 P50/P99 3.270/5.505 → 2.915/4.712 ms（P50 −11%，每轮都更快）；散点图、anime、framer、spring 持平。整个 9.5 下来，K 线 P50 从 4.003 降到 2.915 ms（−27%）。
+  - 数据在 `artifacts/local/step9/owner-cpu-9.5a/`、`owner-cpu-9.5b/`。
+
+第 9 步就此完成。求解器里还有不随版本号的整份工作：样式输入键每帧重建、上一帧 SceneNode 与计算样式的整份拷贝。它们不属于快照，留待后续。
 
 ## 顺序调整（2026-10-10）
 

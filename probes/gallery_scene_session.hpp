@@ -184,13 +184,13 @@ struct GallerySceneSession {
         };
         vm.install_layout_host([this, root](const auto& document) {
             ProfileScope timer(profile.layout_reads, profile.layout_ms, profiling);
-            sync_scene(*root(document));
+            sync_read(*root(document));
             ensure_geometry();
             return current.elements;
         });
         vm.install_computed_style_host([this, root](const auto& document, auto identity) {
             ProfileScope timer(profile.style_reads, profile.style_ms, profiling);
-            sync_scene(*root(document));
+            sync_read(*root(document));
             auto find = [&](auto&& self, const auto& n) -> std::map<std::string, std::string> {
                 if (n.identity == identity) {
                     // getComputedStyle reads names and texts.
@@ -275,11 +275,26 @@ struct GallerySceneSession {
         scene_ms = elapsed() - js_ms - snapshot_ms;
     }
 
-    void sync_scene(const weft::DomSnapshot& root) {
-        const bool changed = !last_dom || *last_dom != root;
+    // A host read hands over the owner's document copy: last_dom takes only the subtrees that changed.
+    void sync_read(const weft::DomSnapshot& root) {
+        bool changed = true;
+        if (!last_dom) {
+            last_dom = root;
+        } else {
+            try {
+                changed = weft::dom::update_copy(*last_dom, root);
+            } catch (...) {
+                last_dom.reset();
+                throw;
+            }
+        }
+        sync_scene(changed);
+    }
+
+    // Builds the scene from last_dom; changed tells whether its content moved since the previous build.
+    void sync_scene(bool changed) {
         const bool resized = width != last_scene_width || height != last_scene_height;
         if (changed) {
-            last_dom = root;
             ++snapshots;
         } else {
             ++snapshot_reuses;
@@ -331,16 +346,23 @@ struct GallerySceneSession {
         if (!root_id.generation) {
             root_id = vm.node_identity("#root");
         }
+        // One snapshot of the scene root, refreshed in place: only subtrees that changed are copied.
         const auto revision = vm.subtree_revision(root_id);
-        if (!last_dom || revision != dom_revision) {
-            auto root = vm.snapshot_subtree(root_id);
-            dom_revision = revision;
-            snapshot_ms = elapsed();
-            sync_scene(root);
-        } else {
-            snapshot_ms = elapsed();
-            sync_scene(*last_dom);
+        bool changed{};
+        if (!last_dom) {
+            last_dom = vm.snapshot_subtree(root_id);
+            changed = true;
+        } else if (revision != dom_revision) {
+            try {
+                changed = vm.refresh_snapshot(root_id, *last_dom);
+            } catch (...) {
+                last_dom.reset();
+                throw;
+            }
         }
+        dom_revision = revision;
+        snapshot_ms = elapsed();
+        sync_scene(changed);
         ensure_geometry();
         scene_ms = elapsed() - snapshot_ms;
     }

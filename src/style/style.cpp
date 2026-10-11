@@ -1436,6 +1436,8 @@ namespace weft {
             }
             n.hovered &= h;
             n.active &= a;
+            // A normalized copy no longer matches the DOM state its revision names.
+            n.revision = 0;
             for (auto& child : n.children) {
                 self(self, child, depth + 1);
             }
