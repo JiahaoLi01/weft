@@ -1,8 +1,11 @@
 #include "render/backends/d3d11/host.hpp"
+#include "render/quad_lowering.hpp"
 #include "render/srgb.hpp"
 #include "support/check.hpp"
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -13,7 +16,8 @@
 
 // The D3D11 reference renderer as a library, without the probes: two frames through the synchronous host on
 // WARP (--hardware: the default adapter), pixel readback, texture retirement after the actual completion query, the
-// GPU conversion of translucent sRGB inputs against the CPU reference bit for bit, and a clean debug layer.
+// GPU conversion of translucent sRGB inputs against the CPU reference bit for bit, a display list drawn by the
+// shared scene shader against its quads, and a clean debug layer.
 namespace {
 #define CHECK(v) WEFT_REQUIRE(v)
 
@@ -41,11 +45,11 @@ namespace {
         D3D11_MAPPED_SUBRESOURCE mapped{};
         weft::render::d3d11::throw_if_failed(
             renderer.immediate->Map(renderer.staging.Get(), 0, D3D11_MAP_READ, 0, &mapped), "map readback");
-        std::vector<Pixel> pixels(std::size_t(width) * height);
-        for (unsigned y = 0; y < height; ++y) {
-            std::memcpy(pixels.data() + std::size_t(y) * width,
+        std::vector<Pixel> pixels(std::size_t(renderer.width) * renderer.height);
+        for (unsigned y = 0; y < renderer.height; ++y) {
+            std::memcpy(pixels.data() + std::size_t(y) * renderer.width,
                         static_cast<const std::uint8_t*>(mapped.pData) + std::size_t(y) * mapped.RowPitch,
-                        width * sizeof(Pixel));
+                        renderer.width * sizeof(Pixel));
         }
         renderer.immediate->Unmap(renderer.staging.Get(), 0);
         return pixels;
@@ -87,6 +91,78 @@ namespace {
             }
         }
         return true;
+    }
+
+    namespace paint = weft::paint;
+
+    // A page-like display list: an opaque backdrop, a translucent box, a tinted coverage mask, a translucent image
+    // over part of its asset, signed distances with an outline, and a box and an image cut by a rounded clip.
+    paint::DisplayList page_list() {
+        paint::DisplayList list;
+        auto box = [&](paint::Color color, float x, float y, float w, float h) {
+            paint::Item item;
+            item.kind = paint::Item::Kind::Box;
+            item.payload = std::uint32_t(list.boxes.size());
+            item.transform = {1, 0, 0, 1, x, y};
+            item.width = w;
+            item.height = h;
+            item.clip = {0, 0, 96, 64};
+            list.boxes.emplace_back().background = color;
+            list.items.push_back(item);
+            return list.items.size() - 1;
+        };
+        auto image = [&](paint::Image payload, float x, float y, float w, float h) {
+            paint::Item item;
+            item.kind = paint::Item::Kind::Image;
+            item.payload = std::uint32_t(list.images.size());
+            item.transform = {1, 0, 0, 1, x, y};
+            item.width = w;
+            item.height = h;
+            item.clip = {0, 0, 96, 64};
+            list.images.push_back(payload);
+            list.items.push_back(item);
+            return list.items.size() - 1;
+        };
+        std::vector<std::uint8_t> mask(64);
+        for (unsigned i = 0; i < mask.size(); ++i) {
+            mask[i] = std::uint8_t(i * 4);
+        }
+        list.assets.push_back(std::make_shared<const Asset>(Asset{8, 8, Encoding::Coverage, mask}));
+        list.assets.push_back(conversion_asset());
+        std::vector<std::uint8_t> distance(16 * 16);
+        for (unsigned y = 0; y < 16; ++y) {
+            for (unsigned x = 0; x < 16; ++x) {
+                const float d = 5 - std::hypot(x + .5f - 8, y + .5f - 8);
+                distance[y * 16 + x] = std::uint8_t(std::clamp(128 + d * 128 / 6, 0.f, 255.f));
+            }
+        }
+        list.assets.push_back(std::make_shared<const Asset>(Asset{16, 16, Encoding::SignedDistance, distance, 6}));
+        box({.1f, .12f, .15f, 1}, 0, 0, 96, 64);
+        box({1, 1, 1, .5f}, 4, 4, 20, 12);
+        paint::Image tinted;
+        tinted.asset = 0;
+        tinted.color = {.9f, .7f, .2f, 1};
+        image(tinted, 28, 4, 16, 16);
+        paint::Image picture;
+        picture.asset = 1;
+        picture.uv = {.25f, .25f, .5f, .5f};
+        image(picture, 48, 4, 24, 24);
+        paint::Image sdf;
+        sdf.asset = 2;
+        sdf.color = {1, 1, 1, 1};
+        sdf.stroke = 2;
+        sdf.outline = {.2f, .4f, 1, 1};
+        image(sdf, 76, 4, 16, 16);
+        // A rounded clip that cuts both of the next items.
+        list.clips.push_back({{8, 30, 40, 30}, {10, 10, 10, 10}, {8, 8, 8, 8}});
+        const auto cut_box = box({.8f, .2f, .3f, .9f}, 4, 28, 48, 34);
+        paint::Image cut_picture = picture;
+        cut_picture.uv = {0, 0, 1, 1};
+        const auto cut_image = image(cut_picture, 30, 34, 30, 30);
+        for (auto i : {cut_box, cut_image}) {
+            list.items[i].clips_count = 1;
+        }
+        return list;
     }
 } // namespace
 
@@ -154,9 +230,42 @@ int main(int argc, char** argv) {
         renderer.immediate->Unmap(texels.Get(), 0);
         CHECK(exact == std::size_t(conversion_size) * conversion_size);
         renderer.check_debug_messages();
+
+        // The same display list as a linear pass of the shared scene shader and as quads with CPU rounded masks.
+        Renderer listed(!hardware, 96, 64);
+        weft::render::d3d11::render_list(listed, page_list(), [] {
+        });
+        CHECK(listed.acknowledged && listed.native_releases == 3);
+        const auto drawn = read_output(listed);
+        Renderer quads(!hardware, 96, 64);
+        weft::render::d3d11::render_window(quads, weft::render::lower_to_quads(page_list()), [] {
+        });
+        const auto reference = read_output(quads);
+        std::size_t edges{};
+        int worst{};
+        double total{};
+        for (std::size_t i = 0; i < drawn.size(); ++i) {
+            int difference{};
+            for (unsigned c = 0; c < 4; ++c) {
+                difference = std::max(difference, std::abs(int(drawn[i][c]) - int(reference[i][c])));
+                total += std::abs(int(drawn[i][c]) - int(reference[i][c]));
+            }
+            worst = std::max(worst, difference);
+            edges += difference > 2;
+        }
+        const auto mean = total / (drawn.size() * 4);
+        std::cout << "display list vs quads: " << edges << " pixels over 2 levels, worst " << worst << ", mean " << mean
+                  << '\n';
+        // Away from rounded clip edges the two paths sample and blend alike; along them the GPU's analytic coverage
+        // differs from the quads' 16x16 supersampled CSS px masks by a few levels.
+        CHECK(edges <= 32 && worst <= 16 && mean < .1);
+        CHECK(drawn[std::size_t(10) * 96 + 10] == reference[std::size_t(10) * 96 + 10]);
+        listed.check_debug_messages();
+        quads.check_debug_messages();
         std::cout << "PASS D3D11 renderer library on " << renderer.adapter << ": 2 frames, " << renderer.native_releases
                   << " textures retired after completion; " << exact
-                  << " GPU-converted sRGB texels equal the CPU reference bit for bit; debug layer "
+                  << " GPU-converted sRGB texels equal the CPU reference bit for bit; a display list within " << worst
+                  << " levels of its quads (" << edges << " clip-edge pixels over 2); debug layer "
                   << (renderer.debug_layer ? "clean" : "unavailable") << '\n';
         return 0;
     } catch (const std::exception& error) {

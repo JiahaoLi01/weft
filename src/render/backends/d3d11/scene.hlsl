@@ -1,5 +1,7 @@
-// Encoded premultiplied intermediate matches the existing D2D/Chrome scene
-// contract; the shared conversion pass produces the engine's linear target.
+// The shared pass of display lists (src/render/scene_pass.hpp). A scene pass composites encoded premultiplied
+// colors, the existing D2D/Chrome scene contract, and the shared conversion pass produces the engine's linear
+// target. The SPACE_LINEAR variant is a linear pass: it gets linear premultiplied colors from the CPU and
+// composites them unquantized. A compile-time variant keeps the scene pass's code exactly as it was.
 
 // paint::GradientKind values (src/paint/display_list.hpp).
 static const float GradientLinear = 1;
@@ -17,6 +19,14 @@ static const float MinimumAntialiasWidth = .0001;
 static const float MinimumStopSpan = 1e-10;
 static const float WedgeEdgeEpsilon = .0001;
 static const float EqualBorderWidthEpsilon = .00001;
+// Paint::mode.x of images: a scene raster (premultiplied, or a mask with Paint::extra.w), a coverage mask tinted with
+// Paint::background, or signed distances.
+static const float ImageModeCoverage = 1;
+static const float ImageModeSignedDistance = 2;
+// FreeType encodes contour zero at byte 128, not normalized 0.5.
+static const float SdfByteMax = 255.0;
+static const float SdfZeroByte = 128.0;
+static const float MinimumRadius = 1e-6;
 
 struct Paint {
     float4 bounds;
@@ -32,10 +42,25 @@ struct Paint {
     float4 extra;
     float4 stops[8];
     float4 offsets[2];
+    // Image origin and extent in its asset.
+    float4 uv;
+    // x: image mode, y: distance spread and z: stroke, in source texels.
+    float4 mode;
+    float4 outline;
+    // x: first rounded clip, y: rounded clip count.
+    float4 clips;
+};
+
+// A rounded clip in CSS px: x, y, width, height, and corner radii TL, TR, BR, BL.
+struct Clip {
+    float4 rect;
+    float4 radiusX;
+    float4 radiusY;
 };
 
 StructuredBuffer<Paint> paints : register(t0);
 Texture2D image : register(t1);
+StructuredBuffer<Clip> clips : register(t2);
 SamplerState linearClamp : register(s0);
 
 cbuffer View : register(b0) {
@@ -82,8 +107,52 @@ float distanceRound(float2 position, float2 size, float4 radii) {
 // The reference producer quantizes its encoded brush before source-over.
 // Keep that order: low alpha (for example gold/10) otherwise crosses an
 // entire flat region's 8-bit foreground boundary before the final conversion.
+// A linear pass's colors arrive linear and premultiplied from the CPU, unquantized.
 float4 premult(float4 c) {
+#if SPACE_LINEAR
+    return c;
+#else
     return round(float4(c.rgb * c.a, c.a) * EncodedChannelMax) / EncodedChannelMax;
+#endif
+}
+
+// Coverage of world (CSS px) by one rounded clip, antialiased across a device pixel: the distance to the rectangle,
+// or inside a corner's box the first-order distance to its ellipse.
+float clipCoverage(Clip c, float2 world) {
+    float2 lo = c.rect.xy;
+    float2 hi = c.rect.xy + c.rect.zw;
+    float2 q = max(lo - world, world - hi);
+    float d = max(q.x, q.y);
+    float2 radius = float2(0, 0);
+    float2 center = float2(0, 0);
+    if (world.x < lo.x + c.radiusX.x && world.y < lo.y + c.radiusY.x) {
+        radius = float2(c.radiusX.x, c.radiusY.x);
+        center = lo + radius;
+    } else if (world.x > hi.x - c.radiusX.y && world.y < lo.y + c.radiusY.y) {
+        radius = float2(c.radiusX.y, c.radiusY.y);
+        center = float2(hi.x - radius.x, lo.y + radius.y);
+    } else if (world.x > hi.x - c.radiusX.z && world.y > hi.y - c.radiusY.z) {
+        radius = float2(c.radiusX.z, c.radiusY.z);
+        center = hi - radius;
+    } else if (world.x < lo.x + c.radiusX.w && world.y > hi.y - c.radiusY.w) {
+        radius = float2(c.radiusX.w, c.radiusY.w);
+        center = float2(lo.x + radius.x, hi.y - radius.y);
+    }
+    if (radius.x > MinimumRadius && radius.y > MinimumRadius) {
+        float2 n = (world - center) / radius;
+        float k = length(n);
+        float gradient = length((world - center) / (radius * radius)) / max(k, MinimumRadius);
+        d = max(d, (k - 1) / max(gradient, MinimumRadius));
+    }
+    return saturate(.5 - d * scale);
+}
+
+float clipChain(Paint p, float2 world) {
+    float coverage = 1;
+    for (uint i = 0; i < (uint)p.clips.y; i++) {
+        coverage *= clipCoverage(clips[(uint)p.clips.x + i], world);
+    }
+    return coverage;
 }
 
 float4 over(float4 a, float4 b) {
@@ -143,19 +212,41 @@ float4 ps_main(Vertex v) : SV_Target {
     if (world.x < p.clip.x || world.y < p.clip.y || world.x >= p.clip.z || world.y >= p.clip.w) {
         discard;
     }
+    float coverage = clipChain(p, world);
     float2 position = float2(dot(p.invX.xyz, float3(world, 1)), dot(p.invY.xyz, float3(world, 1)));
     if (p.extra.z == FlagEnabled) {
         if (any(position < 0) || any(position >= p.size.xy)) {
             discard;
         }
-        float4 sample = image.Sample(linearClamp, position / p.size.xy);
+        // precise keeps the division a scene raster has always sampled at: its uv is the identity.
+        precise float2 local = position / p.size.xy;
+        float2 uv = p.uv.xy + local * p.uv.zw;
+        if (p.mode.x == ImageModeSignedDistance) {
+            // Distance is linear data; no sRGB transfer, no coverage interpretation.
+            float d = (image.SampleLevel(linearClamp, uv, 0).r * SdfByteMax - SdfZeroByte) * p.mode.y / SdfZeroByte;
+            float aa = max(fwidth(d), MinimumAntialiasWidth);
+            float fill = saturate(.5 + d / aa);
+            float outer = saturate(.5 + (d + p.mode.z) / aa);
+            return (premult(p.background) * fill + premult(p.outline) * (outer - fill)) * p.extra.y * coverage;
+        }
+        float4 sample = image.Sample(linearClamp, uv);
+        if (p.mode.x == ImageModeCoverage) {
+            return premult(p.background) * sample.r * p.extra.y * coverage;
+        }
         return (p.extra.w == FlagEnabled ? float4(p.background.rgb * p.background.a, p.background.a) * sample.a
                                          : sample) *
-               p.extra.y;
+               p.extra.y * coverage;
     }
     float sd = distanceRound(position, p.size.xy, p.radii);
     float aa = max(fwidth(sd), MinimumAntialiasWidth);
     float outer = saturate(.5 - sd / aa);
+#if SPACE_LINEAR
+    // A document box without corners or rotation covers the pixels whose centers it contains, as the rasterizer
+    // covers a quad, rather than a distance band that leaks past its corners.
+    if (all(p.radii == 0) && p.invX.y == 0 && p.invY.x == 0) {
+        outer = all(position >= 0) && all(position < p.size.xy) ? 1 : 0;
+    }
+#endif
     float4 result = premult(p.background);
     if (p.size.z > 0) {
         result = over(gradient(p, position), result);
@@ -174,5 +265,5 @@ float4 ps_main(Vertex v) : SV_Target {
             break;
         }
     }
-    return result * outer * p.extra.y;
+    return result * outer * p.extra.y * coverage;
 }

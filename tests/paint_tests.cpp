@@ -1,6 +1,7 @@
 #include "paint/display_list.hpp"
 #include "render/quad_lowering.hpp"
 #include "render/scene_pass.hpp"
+#include "render/srgb.hpp"
 #include "scene/scene.hpp"
 #include "support/check.hpp"
 
@@ -119,20 +120,49 @@ namespace {
                 "crop keeps the first box");
         // Not covering the target at this scale: no clear.
         require(weft::render::plan_scene_pass(list, 1, 100, 80).value().clear == paint::Color{}, "partial first box");
-        // Images and rounded clips are outside the scene shader.
+        // Images: a coverage mask and signed distances, tinted, in either space.
         auto images = list;
-        images.assets.push_back(std::make_shared<paint::Asset>());
-        images.images.emplace_back();
+        images.assets.push_back(std::make_shared<paint::Asset>(paint::Asset{1, 1, paint::Encoding::Coverage, {255}}));
+        images.assets.push_back(
+            std::make_shared<paint::Asset>(paint::Asset{1, 1, paint::Encoding::SignedDistance, {128}, 6}));
+        paint::Image mask;
+        mask.uv = {.25f, .5f, .5f, .25f};
+        mask.color = {.5f, 1, 0, .5f};
+        images.images.push_back(mask);
+        paint::Image distance;
+        distance.asset = 1;
+        distance.stroke = 2;
+        distance.outline = {0, 0, 1, 1};
+        images.images.push_back(distance);
         images.items[1] = item(Kind::Image);
-        const auto refused = weft::render::plan_scene_pass(images, 2, 100, 80);
-        require(bool(paint::check(images, 1)) && !refused && refused.error().code == weft::Diag::PaintList &&
-                    refused.error().message.ends_with("item 1"),
-                "scene pass refuses images");
+        images.items[4] = item(Kind::Image, 1);
+        require(bool(paint::check(images, 1)), "image list is well formed");
+        const auto encoded = weft::render::plan_scene_pass(images, 2, 100, 80).value();
+        const auto& m = encoded.records[1];
+        require(encoded.batches[0].step == Step::Image && encoded.batches[0].first == 1 && m.extra[2] == 1 &&
+                    m.mode[0] == 1 && m.uv == mask.uv && m.background == mask.color,
+                "coverage image record");
+        const auto& d = encoded.records[4];
+        require(d.mode == std::array<float, 4>{2, 6, 2, 0} && d.outline == distance.outline, "distance image record");
+        const auto linear =
+            weft::render::plan_scene_pass(images, 2, 100, 80, std::nullopt, weft::render::Space::Linear).value();
+        require(linear.space == weft::render::Space::Linear &&
+                    linear.records[1].background ==
+                        paint::Color{weft::render::srgb_to_linear(.5f) * .5f, .5f, 0, .5f} &&
+                    linear.clear == paint::Color{weft::render::srgb_to_linear(.25f), weft::render::srgb_to_linear(.5f),
+                                                 weft::render::srgb_to_linear(.75f), 1},
+                "linear colors");
+        // Rounded clips are normalized and referenced by range; an invalid one refuses the plan.
         auto clipped = list;
-        clipped.clips.emplace_back();
+        clipped.clips.push_back({{0, 0, 10, 10}, {8, 8, 8, 8}, {8, 8, 8, 8}});
         clipped.items[4].clips_count = 1;
-        require(bool(paint::check(clipped, 1)) && !weft::render::plan_scene_pass(clipped, 2, 100, 80),
-                "scene pass refuses rounded clips");
+        const auto planned = weft::render::plan_scene_pass(clipped, 2, 100, 80).value();
+        require(planned.clips.size() == 1 && planned.clips[0].radius_x == std::array<float, 4>{5, 5, 5, 5} &&
+                    planned.records[4].clips == std::array<float, 4>{0, 1, 0, 0},
+                "rounded clip plan");
+        clipped.clips[0].rect[2] = -1;
+        const auto refused = weft::render::plan_scene_pass(clipped, 2, 100, 80);
+        require(!refused && refused.error().code == weft::Diag::PaintList, "invalid rounded clip");
     }
 
     bool throws(const auto& f) {

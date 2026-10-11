@@ -1,17 +1,34 @@
 #include "render/scene_pass.hpp"
 
+#include "render/rounded_clip.hpp"
+#include "render/srgb.hpp"
+
 #include <algorithm>
+#include <stdexcept>
 #include <string>
 
 namespace weft::render {
     namespace {
         using Kind = paint::Item::Kind;
 
+        // A straight sRGB color as the shader takes it: unchanged for an encoded pass (the shader premultiplies and
+        // quantizes), linear and premultiplied for a linear pass.
+        paint::Color in(Space space, paint::Color c) {
+            if (space == Space::Linear) {
+                for (unsigned i = 0; i < 3; ++i) {
+                    c[i] = srgb_to_linear(c[i]) * c[3];
+                }
+            }
+            return c;
+        }
+
         SceneRecord record(const paint::DisplayList& list, const paint::Item& item, const paint::ClipRect& clip,
-                           float scale, unsigned w, unsigned h) {
+                           float scale, unsigned w, unsigned h, Space space) {
             auto m = item.transform;
-            const bool image = item.kind == Kind::Text || item.kind == Kind::Layer;
+            const bool image = item.kind == Kind::Text || item.kind == Kind::Layer || item.kind == Kind::Image;
             SceneRecord r{};
+            r.uv = {0, 0, 1, 1};
+            r.clips = {float(item.clips_begin), float(item.clips_count), 0, 0};
             r.size = {item.width, item.height, 0, 0};
             r.clip = clip;
             r.extra = {0, item.opacity, image ? scene_limits::flag_enabled : scene_limits::flag_disabled,
@@ -23,24 +40,38 @@ namespace weft::render {
                 r.size[3] = float(g.stops.size());
                 r.radii = box.radii;
                 r.widths = box.widths;
-                r.background = box.background;
-                r.edges = box.edges;
+                r.background = in(space, box.background);
+                for (unsigned i = 0; i < r.edges.size(); ++i) {
+                    r.edges[i] = in(space, box.edges[i]);
+                }
                 r.tile = g.tile;
                 r.extra[0] = g.angle;
                 for (unsigned i = 0; i < g.stops.size(); ++i) {
-                    r.stops[i] = g.stops[i].color;
+                    r.stops[i] = in(space, g.stops[i].color);
                     r.offsets[i / scene_limits::stops_per_offset_vector][i % scene_limits::stops_per_offset_vector] =
                         g.stops[i].offset;
                 }
+            } else if (item.kind == Kind::Image) {
+                const auto& source = list.images[item.payload];
+                const auto& asset = *list.assets[source.asset];
+                r.uv = source.uv;
+                r.background = in(space, source.color);
+                r.outline = in(space, source.outline);
+                if (asset.encoding == paint::Encoding::Coverage) {
+                    r.mode[0] = scene_limits::image_mode_coverage;
+                } else if (asset.encoding == paint::Encoding::SignedDistance) {
+                    r.mode = {scene_limits::image_mode_signed_distance, asset.spread, source.stroke, 0};
+                }
             } else if (image && list.rasters[item.payload].mask) {
-                r.background = list.rasters[item.payload].tint;
+                r.background = in(space, list.rasters[item.payload].tint);
                 r.extra[3] = scene_limits::flag_enabled;
             }
             if (item.kind == Kind::EndGroup) {
                 m = paint::identity;
                 r.size = {float(w) / scale, float(h) / scale, 0, 0};
                 r.extra = {0, item.opacity, scene_limits::flag_enabled, scene_limits::flag_disabled};
-            } else if (image) {
+            } else if (item.kind == Kind::Text || item.kind == Kind::Layer) {
+                // Scene rasters keep a transparent margin around the node.
                 m[4] -= scene_limits::image_margin * (m[0] + m[2]);
                 m[5] -= scene_limits::image_margin * (m[1] + m[3]);
                 r.size[0] += scene_limits::image_margins;
@@ -89,15 +120,18 @@ namespace weft::render {
     } // namespace
 
     Result<ScenePass> plan_scene_pass(const paint::DisplayList& list, float scale, unsigned width, unsigned height,
-                                      std::optional<paint::ClipRect> crop) {
-        for (std::size_t i = 0; i < list.items.size(); ++i) {
-            if (list.items[i].kind == Kind::Image || list.items[i].clips_count) {
-                return make_diagnostic(Diag::PaintList,
-                                       "scene pass draws boxes, rasters and groups without rounded clips; item " +
-                                           std::to_string(i));
+                                      std::optional<paint::ClipRect> crop, Space space) {
+        ScenePass pass;
+        pass.space = space;
+        pass.clips.reserve(list.clips.size());
+        for (const auto& c : list.clips) {
+            try {
+                const auto n = normalize_rounded(c);
+                pass.clips.push_back({n.rect, n.radius_x, n.radius_y});
+            } catch (const std::invalid_argument& e) {
+                return make_diagnostic(Diag::PaintList, e.what());
             }
         }
-        ScenePass pass;
         pass.records.reserve(list.items.size());
         for (const auto& item : list.items) {
             auto clip = item.clip;
@@ -105,12 +139,13 @@ namespace weft::render {
                 clip = {std::max(clip[0], (*crop)[0]), std::max(clip[1], (*crop)[1]), std::min(clip[2], (*crop)[2]),
                         std::min(clip[3], (*crop)[3])};
             }
-            pass.records.push_back(record(list, item, clip, scale, width, height));
+            pass.records.push_back(record(list, item, clip, scale, width, height, space));
         }
         pass.group_depth = paint::group_depth(list);
         std::uint32_t i{};
-        if (!pass.records.empty() && clears(list, pass.records.front().clip, scale, width, height)) {
-            pass.clear = list.boxes[list.items.front().payload].background;
+        if (!pass.records.empty() && !list.items.front().clips_count &&
+            clears(list, pass.records.front().clip, scale, width, height)) {
+            pass.clear = in(space, list.boxes[list.items.front().payload].background);
             i = 1;
         }
         using Step = ScenePass::Step;
@@ -124,6 +159,7 @@ namespace weft::render {
                     break;
                 case Kind::Text:
                 case Kind::Layer:
+                case Kind::Image:
                     pass.batches.push_back({Step::Image, i++, 1});
                     break;
                 default: {

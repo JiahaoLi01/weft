@@ -73,9 +73,9 @@ namespace weft::paint {
         Gradient gradient;
     };
 
-    // An asset drawn over the item, sampled over uv (normalized origin and extent) and tinted with color: an image
-    // multiplies its own colors by color, a coverage mask paints color where it covers, and signed distances paint
-    // color inside the contour and outline up to stroke source texels outside it.
+    // An asset drawn over the item, sampled over uv (normalized origin and extent): an image keeps its own colors, a
+    // coverage mask paints color where it covers, and signed distances paint color inside the contour and outline up
+    // to stroke source texels outside it.
     struct Image {
         std::uint32_t asset{};
         std::array<float, 4> uv{0, 0, 1, 1};

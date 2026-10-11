@@ -93,6 +93,59 @@ namespace weft::render::d3d11 {
         r.immediate->ClearState();
     }
 
+    // Draws a display list through the renderer directly, without the C ABI: prepares it, encodes it into
+    // renderer.output, executes and submits it, calls present() after the UI work and waits for the actual
+    // completion. Only for a renderer without a C ABI backend or pipelined host.
+    template <class Present>
+    void render_list(Renderer& r, paint::DisplayList list, Present&& present) {
+        ensure(!r.backend && !r.pipeline_enabled, "the display list host drives the renderer directly");
+        ensure(!r.submitted || r.acknowledged, "previous frame must complete before reuse");
+        auto check = [](LifetimeResult result, const char* operation) {
+            ensure(result == LifetimeResult::Ok, operation);
+        };
+        r.assets.clear();
+        auto frame = r.prepare(std::move(list));
+        Encoded encoded;
+        try {
+            encoded = r.encode(frame, false);
+        } catch (...) {
+            check(r.tracker.ReleasePreparedFrame(frame.id), "release a list that failed to record");
+            for (const auto& a : r.assets) {
+                check(r.tracker.ReleaseResource(a.id), "release the leases of a list that failed to record");
+            }
+            r.collect();
+            throw;
+        }
+        // Recording pins the assets; the CPU leases and the prepared frame can go now.
+        check(r.tracker.ReleasePreparedFrame(frame.id), "release the prepared list");
+        for (const auto& a : r.assets) {
+            check(r.tracker.ReleaseResource(a.id), "release the list's asset leases");
+        }
+        r.pending_completion = r.window_serial + weft::constants::render::d3d11::serials_per_ui_frame;
+        r.acknowledged = false;
+        r.immediate->ExecuteCommandList(encoded.commands.Get(), TRUE);
+        r.immediate->End(r.ui_done.Get());
+        r.submitted = true;
+        {
+            struct Marker {
+                Renderer& r;
+
+                ~Marker() {
+                    r.immediate->End(r.host_done.Get());
+                }
+            } marker{r};
+
+            check(r.tracker.NotifySubmitted(encoded.token, weft::constants::render::d3d11::immediate_queue,
+                                            r.window_serial + 1),
+                  "list submission");
+            encoded.commands.Reset();
+            present();
+        }
+        r.complete();
+        r.window_serial += weft::constants::render::d3d11::serials_per_ui_frame;
+        r.immediate->ClearState();
+    }
+
     // The completed offscreen result is persistent. Host-only composition advances
     // the same actual completion serial without inventing a new DOM/UI packet.
     template <class Present>

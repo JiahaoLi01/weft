@@ -31,15 +31,38 @@ namespace weft::render {
         Vector extra;
         std::array<Vector, scene_limits::max_gradient_stops> stops;
         std::array<Vector, scene_limits::gradient_offset_vectors> offsets;
+        // Image origin and extent in its asset.
+        Vector uv{0, 0, 1, 1};
+        // Image mode, then distance spread and stroke in source texels.
+        Vector mode;
+        Vector outline;
+        // First rounded clip and count in ScenePass::clips.
+        Vector clips;
     };
 
     static_assert(sizeof(SceneRecord) == scene_limits::record_bytes);
+
+    // The shader's Clip record: a normalized rounded clip.
+    struct SceneClip {
+        std::array<float, 4> rect;
+        std::array<float, 4> radius_x;
+        std::array<float, 4> radius_y;
+    };
+
+    static_assert(sizeof(SceneClip) == scene_limits::clip_bytes);
+
+    // How a pass composites: encoded premultiplied colors (the scene contract shared with the D2D reference and
+    // Chrome), or linear premultiplied colors (the engine's documents).
+    enum class Space : std::uint8_t {
+        Encoded,
+        Linear
+    };
 
     struct ScenePass {
         enum class Step : std::uint8_t {
             // Records [first, first + count) in one instanced draw without an image.
             Boxes,
-            // Record first, sampling the image of its Text or Layer item.
+            // Record first, sampling the image of its Text, Layer or Image item.
             Image,
             // Continue in a cleared group target one level deeper.
             BeginGroup,
@@ -55,15 +78,18 @@ namespace weft::render {
 
         // One record per item, in item order: record i belongs to item i.
         std::vector<SceneRecord> records;
+        std::vector<SceneClip> clips;
         std::vector<Batch> batches;
-        // The target's initial color: an opaque first box covering the whole target becomes the clear.
+        // The target's initial color, premultiplied in the pass's space: an opaque first box covering the whole target
+        // becomes the clear.
         paint::Color clear{};
+        Space space{};
         std::size_t group_depth{};
     };
 
     // Plans a list that passed paint::check for a width x height device px target at scale device px per CSS px,
-    // with every item clip narrowed to crop when given. The pass draws boxes, rasters and groups without rounded
-    // clips; a list with other items is Diag::PaintList.
+    // with every item clip narrowed to crop when given. A linear pass takes its colors linear and premultiplied from
+    // here; rounded clips are normalized. A clip outside the rounded clip bounds is Diag::PaintList.
     Result<ScenePass> plan_scene_pass(const paint::DisplayList& list, float scale, unsigned width, unsigned height,
-                                      std::optional<paint::ClipRect> crop = std::nullopt);
+                                      std::optional<paint::ClipRect> crop = std::nullopt, Space space = Space::Encoded);
 } // namespace weft::render

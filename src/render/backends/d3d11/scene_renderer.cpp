@@ -206,6 +206,14 @@ namespace weft::render::d3d11 {
             ++reasons[valid.error().message];
             return false;
         }
+        // Scene slots hold no asset textures or clip buffer.
+        if (!list.clips.empty() || std::any_of(list.items.begin(), list.items.end(), [](const paint::Item& item) {
+                return item.kind == Kind::Image;
+            })) {
+            ++fallbacks;
+            ++reasons["scene renderer draws no image items or rounded clips"];
+            return false;
+        }
         auto planned = plan_scene_pass(list, scale, target_width, target_height, crop);
         if (!planned) {
             ++fallbacks;

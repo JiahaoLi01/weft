@@ -16,6 +16,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <thread>
+#include <tuple>
 
 namespace weft::render::d3d11 {
     namespace {
@@ -49,8 +50,36 @@ namespace weft::render::d3d11 {
 #include "shaders/srgb_convert.ps.debug.inc"
 #endif
         };
+        // The shared scene shader as a linear pass, always optimized (cmake/WeftShaders.cmake).
+        constexpr unsigned char display_vs_bytes[] = {
+#include "shaders/display_linear.vs.inc"
+        };
+        constexpr unsigned char display_ps_bytes[] = {
+#include "shaders/display_linear.ps.inc"
+        };
         // Entries of each srgb_convert.hlsl table: one per byte value.
         constexpr unsigned convert_table_entries = 256;
+
+        // An immutable structured buffer of values and its view, alive while recorded commands use them.
+        template <class T>
+        std::pair<ComPtr<ID3D11Buffer>, ComPtr<ID3D11ShaderResourceView>>
+        structured(ID3D11Device* device, const std::vector<T>& values, const char* what) {
+            D3D11_BUFFER_DESC d{};
+            d.ByteWidth = UINT(values.size() * sizeof(T));
+            d.Usage = D3D11_USAGE_IMMUTABLE;
+            d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            d.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+            d.StructureByteStride = sizeof(T);
+            const D3D11_SUBRESOURCE_DATA data{values.data(), 0, 0};
+            std::pair<ComPtr<ID3D11Buffer>, ComPtr<ID3D11ShaderResourceView>> out;
+            throw_if_failed(device->CreateBuffer(&d, &data, &out.first), what);
+            D3D11_SHADER_RESOURCE_VIEW_DESC v{};
+            v.Format = DXGI_FORMAT_UNKNOWN;
+            v.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+            v.Buffer.NumElements = UINT(values.size());
+            throw_if_failed(device->CreateShaderResourceView(out.first.Get(), &v, &out.second), what);
+            return out;
+        }
 
         namespace materials = weft::constants::render::d3d11::shader_material;
 
@@ -135,6 +164,16 @@ namespace weft::render::d3d11 {
         throw_if_failed(device->CreateDeferredContext(0, &deferred), "CreateDeferredContext");
         throw_if_failed(device->CreateVertexShader(quad_vs, sizeof(quad_vs), nullptr, &vs), "CreateVertexShader");
         throw_if_failed(device->CreatePixelShader(quad_ps, sizeof(quad_ps), nullptr, &ps), "CreatePixelShader");
+        throw_if_failed(device->CreateVertexShader(display_vs_bytes, sizeof(display_vs_bytes), nullptr, &display_vs),
+                        "display list vertex shader");
+        throw_if_failed(device->CreatePixelShader(display_ps_bytes, sizeof(display_ps_bytes), nullptr, &display_ps),
+                        "display list pixel shader");
+        {
+            D3D11_BUFFER_DESC d{};
+            d.ByteWidth = weft::constants::render::scene::view_constants_bytes;
+            d.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+            throw_if_failed(device->CreateBuffer(&d, nullptr, &display_constants), "display list view constants");
+        }
         throw_if_failed(device->CreateVertexShader(convert_vs_bytes, sizeof(convert_vs_bytes), nullptr, &convert_vs),
                         "Create conversion vertex shader");
         throw_if_failed(device->CreatePixelShader(convert_ps_bytes, sizeof(convert_ps_bytes), nullptr, &convert_ps),
@@ -436,6 +475,27 @@ namespace weft::render::d3d11 {
         return frame;
     }
 
+    PreparedFrame Renderer::prepare(paint::DisplayList list,
+                                    const std::vector<std::pair<std::uint64_t, std::uint64_t>>& keys) {
+        for (const auto& item : list.items) {
+            ensure(item.kind == paint::Item::Kind::Box || item.kind == paint::Item::Kind::Image,
+                   "display list pass draws boxes and images");
+            if (item.kind == paint::Item::Kind::Image) {
+                const auto& image = list.images.at(item.payload);
+                const auto& asset = *list.assets.at(image.asset);
+                ensure(image.stroke >= 0 &&
+                           (asset.encoding != Encoding::SignedDistance || image.stroke < asset.spread - 1),
+                       "SDF stroke exceeds distance padding");
+            }
+        }
+        ensure(bool(paint::check(list, 0)), "well-formed display list");
+        FramePacket packet;
+        packet.assets = list.assets;
+        auto frame = prepare(std::move(packet), keys);
+        frame.list = std::move(list);
+        return frame;
+    }
+
     void Renderer::collect() {
         for (auto& a : assets) {
             ResourceInfo state;
@@ -588,6 +648,9 @@ namespace weft::render::d3d11 {
             deferred->PSSetConstantBuffers(0, 1, &cb);
             auto* ss = sampler.Get();
             deferred->PSSetSamplers(0, 1, &ss);
+            if (frame.list) {
+                encode_list(*frame.list, native_target ? native_target : destination.rtv.Get());
+            }
             for (const auto& d : frame.snapshot.draws) {
                 if (d.group) {
                     bind_target(group);
@@ -648,6 +711,55 @@ namespace weft::render::d3d11 {
             lifetime(tracker.DiscardEncoded(encoded.token), "Discard failed recording");
             throw;
         }
+    }
+
+    void Renderer::encode_list(const paint::DisplayList& list, ID3D11RenderTargetView* target) {
+        const auto pass = plan_scene_pass(list, 1, width, height, std::nullopt, Space::Linear).value();
+        if (pass.clear != paint::Color{}) {
+            deferred->ClearRenderTargetView(target, pass.clear.data());
+        }
+        if (pass.batches.empty()) {
+            return;
+        }
+        const auto [records, record_view] = structured(device.Get(), pass.records, "display list records");
+        ComPtr<ID3D11Buffer> clip_buffer;
+        ComPtr<ID3D11ShaderResourceView> clip_view;
+        if (!pass.clips.empty()) {
+            std::tie(clip_buffer, clip_view) = structured(device.Get(), pass.clips, "display list clips");
+        }
+        D3D11_RECT scissor{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+        deferred->RSSetScissorRects(1, &scissor);
+        deferred->VSSetShader(display_vs.Get(), nullptr, 0);
+        deferred->PSSetShader(display_ps.Get(), nullptr, 0);
+        auto* cb = display_constants.Get();
+        deferred->VSSetConstantBuffers(0, 1, &cb);
+        deferred->PSSetConstantBuffers(0, 1, &cb);
+        ID3D11ShaderResourceView* views[3]{record_view.Get(), nullptr, clip_view.Get()};
+        deferred->VSSetShaderResources(0, 1, views);
+        deferred->PSSetShaderResources(0, 3, views);
+        std::array<float, 4> view{static_cast<float>(width), static_cast<float>(height), 1, 0};
+        for (const auto& batch : pass.batches) {
+            ID3D11ShaderResourceView* image{};
+            if (batch.step == ScenePass::Step::Image) {
+                const auto& item = list.items[batch.first];
+                image = assets.at(list.images[item.payload].asset).srv.Get();
+            } else {
+                ensure(batch.step == ScenePass::Step::Boxes, "display list pass draws boxes and images");
+            }
+            view[3] = static_cast<float>(batch.first);
+            deferred->UpdateSubresource(display_constants.Get(), 0, nullptr, view.data(), 0, 0);
+            deferred->PSSetShaderResources(1, 1, &image);
+            deferred->DrawInstanced(weft::constants::render::d3d11::quad_vertex_count, batch.count, 0, 0);
+        }
+        // Back to the quad pipeline for the rest of the recording.
+        ID3D11ShaderResourceView* empty[3]{};
+        deferred->VSSetShaderResources(0, 1, empty);
+        deferred->PSSetShaderResources(0, 3, empty);
+        deferred->VSSetShader(vs.Get(), nullptr, 0);
+        deferred->PSSetShader(ps.Get(), nullptr, 0);
+        cb = constants.Get();
+        deferred->VSSetConstantBuffers(0, 1, &cb);
+        deferred->PSSetConstantBuffers(0, 1, &cb);
     }
 
     void Renderer::complete() {

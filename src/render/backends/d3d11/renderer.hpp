@@ -3,6 +3,7 @@
 #include "constants/render.hpp"
 #include "render/frame_packet.hpp"
 #include "render/resource_lifetime.hpp"
+#include "render/scene_pass.hpp"
 
 // windows.h must not define min/max macros over std::min/std::max.
 #ifndef NOMINMAX
@@ -64,7 +65,10 @@ namespace weft::render::d3d11 {
 
     struct PreparedFrame {
         PreparedFrameId id;
+        // A packet's quads and assets; for a display list, the list's assets only.
         FramePacket snapshot;
+        // A display list drawn in place of the quads, in a linear pass of the shared scene shader.
+        std::optional<paint::DisplayList> list;
         std::vector<ResourceId> dependencies;
         // Host textures drawn by Draw::asset indices past snapshot.assets.
         std::vector<ExternalGpuAsset> external;
@@ -103,6 +107,10 @@ namespace weft::render::d3d11 {
         ComPtr<ID3D11VertexShader> vs;
         ComPtr<ID3D11PixelShader> ps;
         ComPtr<ID3D11Buffer> constants;
+        // The linear display list pass (scene.hlsl, SPACE_LINEAR) and its View constants.
+        ComPtr<ID3D11VertexShader> display_vs;
+        ComPtr<ID3D11PixelShader> display_ps;
+        ComPtr<ID3D11Buffer> display_constants;
         ComPtr<ID3D11BlendState> blend;
         ComPtr<ID3D11RasterizerState> raster;
         ComPtr<ID3D11DepthStencilState> depth;
@@ -181,6 +189,10 @@ namespace weft::render::d3d11 {
         // (asset_id, asset_version) cache keys when cache_assets is set.
         PreparedFrame prepare(FramePacket packet,
                               const std::vector<std::pair<std::uint64_t, std::uint64_t>>& keys = {});
+        // Prepares a display list's assets like a packet's. The list draws boxes and images (no groups or scene
+        // rasters) at one device px per CSS px.
+        PreparedFrame prepare(paint::DisplayList list,
+                              const std::vector<std::pair<std::uint64_t, std::uint64_t>>& keys = {});
         // Releases native textures whose leases have retired and drops completed upload copies.
         void collect();
         void bind_target(Surface& target);
@@ -198,5 +210,9 @@ namespace weft::render::d3d11 {
         void check_debug_messages();
         Backend& ensure_backend();
         void complete_backend();
+
+    private:
+        // Records a display list's pass into target on the deferred context, then restores the quad pipeline.
+        void encode_list(const paint::DisplayList& list, ID3D11RenderTargetView* target);
     };
 } // namespace weft::render::d3d11
