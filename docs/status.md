@@ -4,6 +4,15 @@
 
 ## 本次已实现
 
+重构第 9 步之四（a）：DOM 树边改用 NodeId（2026-10-11）。详见 [重构计划](refactoring-plan.md#第-9-步记录2026-10-11)。
+- **结果**：节点的 parent、document、children 不再是 JSValue，而是 NodeIdentity。每条边仍在邻居的包装对象上持有一个引用并由 `mark()` 报告，节点存活仍由 QuickJS 收集器决定。行为不变。
+- **验证**：
+  - `ctest --preset windows-release --parallel 6` 101/101，`windows-debug --parallel 6` 101/101（336.4 s）；
+  - 1306 个产物与改动前逐字节相同；强制 GC 下 DOM、rAF、scene、Canvas、React 5/5；
+  - 6 个所有权变异中 5 个被发现，剩下 1 个不可观测（理由见重构计划）；
+  - owner CPU 持平：K 线复测 5 轮，后台安静的两轮两者都是 3.98–4.01 ms。
+- **下一步**：9.4b，把节点上的脚本状态移到绑定层。
+
 重构第 9 步之三：Canvas 状态移到节点旁表，一份 canvas 尺寸解析（2026-10-11）。详见 [重构计划](refactoring-plan.md#第-9-步记录2026-10-11)。
 - **结果**：
   - 节点不再持有 Canvas 状态。CanvasState 与 context 包装放在按 slot 与代际索引的 `dom::NodeTable`，由元素的 mark/finalizer 负责这条边与释放；

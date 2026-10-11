@@ -549,7 +549,7 @@ CMake 拆分：
 
 ## 第 9 步记录（2026-10-11）
 
-进行中：DOM 值类型已独立，DOM 查询与样式共用一个选择器引擎，Canvas 状态已移到节点旁表。
+进行中：DOM 值类型已独立，DOM 查询与样式共用一个选择器引擎，Canvas 状态已移到节点旁表，树边已改用 NodeId。
 
 **9.1 DOM 值类型移入 `src/dom`**（`c435dd5`）：
 - `NodeIdentity`、`DomSnapshot`、`DomChanges`（`dom/node.hpp`）与 `ElementGeometry`（`dom/geometry.hpp`）是各层都用的值。style、layout、scene 原来为了它们引用 `script/script_dom.hpp`，连带 Canvas 模型。
@@ -583,8 +583,17 @@ CMake 拆分：
   - 9 个变异全部被发现：漏报 mark 边、finalizer 不清条目、getContext 不复查、resize 找不到条目、旁表忽略代际（查找、删除各一）、`-0`、前导空白、上限差一。
 - 验证：Release 101/101，Debug 101/101（323.8 s）；1306 个产物逐字节不变。强制 GC 配置（`build/windows-gc-stress`，每次分配前完整 GC）下 canvas_2d_contract、script_dom_lifecycle、animation_frame_contract、page_react_contract、dom_contract 5/5（53.0 s，日志 `artifacts/local/step9/gc-stress-9.3.log`）。owner CPU：与第 9.2 步结束时的二进制交替 3 轮，条件同 9.2：K 线 P50/P99 4.131/6.890 → 4.038/6.798 ms，散点图 1.669/2.781 → 1.666/2.949 ms，anime 0.109/0.348 → 0.110/0.409 ms，各轮范围重叠，记为持平。改动在热路径上只多了 GC 标记时每个节点一次越界判断（没有 canvas 时旁表为空）。原始数据在 `artifacts/local/step9/owner-cpu-9.3/comparison.json`。
 
+**9.4a 树边改用 NodeId**：
+- 节点的 parent、document 与 children 从 JSValue 改为 NodeIdentity；遍历（祖先、子节点、选择器、快照、事件路径、命中与滚动链）都按身份查 slot 表。
+- GC 所有权不变：每条边仍在邻居的包装对象上持有一个引用，`mark()` 报告它，finalizer 释放它，存活仍由 QuickJS 的收集器决定。
+- slot 表的值改为 `{node, wrapper}`。节点被回收时只清 node，wrapper 留到 slot 被复用为止：同一次收集里，后回收的节点仍能释放对先回收邻居的引用（此时该对象尚未真正释放）。
+- 变异：6 个中 5 个被发现。mark 漏报子边或父边、detach 不放开父对子的引用，生命周期测试都报泄漏；insert 不取子引用、新节点不取 document 引用，都会崩溃。“finalizer 不释放对子节点的引用”不可观测：父节点被回收时子节点必然在同一批垃圾里，QuickJS 整批释放，计数是否归零无从观察。真正能观测的是对始终存活的 document 的引用，它的变异会崩溃。
+- 验证：Release 101/101，Debug 101/101（336.4 s）；1306 个产物逐字节不变；强制 GC 下 script_dom_lifecycle、animation_frame、scene_contract、canvas_2d、page_react 5/5（60.3 s）。owner CPU：先交替 3 轮，K 线 P50 4.685 → 4.996 ms；但基线本身各轮在 4.15–5.16 ms 之间波动，于是只测 K 线复测 5 轮。复测中后台安静的两轮两者都在 3.98–4.01 ms，其余轮次互有快慢，记为持平。散点图与 anime 持平。原始数据在 `artifacts/local/step9/owner-cpu-9.4a/`。
+
 第 9 步余下部分：
-- 9.4 节点数据改为原生、边用 NodeId，QuickJS 对象只做包装（GC 所有权仍由包装追踪）；
+- 9.4b 节点上的脚本状态（wrapper、expando、listener、滚动事件标记）移到绑定层；
+- 9.4c 原生节点、树操作、变更日志与快照移入 `src/dom`，脚本层只做包装（GC 所有权仍由包装追踪）；
+- 9.4d 节点 slot 改用空闲表，新建节点不再线性扫描；
 - 9.5 增量快照（现在每次全量复制）。
 
 ## 顺序调整（2026-10-10）

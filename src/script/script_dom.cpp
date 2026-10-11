@@ -133,11 +133,13 @@ namespace weft {
             bool hovered{};
             bool active{};
             std::vector<Attribute> attributes;
-            // Each owning edge is duplicated exactly once and is reported by mark().
-            JSValue parent{JS_NULL};
-            JSValue document{JS_NULL};
+            // Tree edges by identity; a null identity (generation 0) is no node. Each edge owns one reference on the
+            // neighbor's wrapper, which mark() reports, so the collector still decides which nodes live.
+            NodeIdentity parent;
+            NodeIdentity document;
+            std::vector<NodeIdentity> children;
+            // Each owning value is duplicated exactly once and is reported by mark().
             JSValue expando{JS_UNDEFINED};
-            std::vector<JSValue> children;
             std::vector<Listener> listeners;
             // Borrowed wrapper identity: this is NOT an extra, hidden GC root.
             JSValue self{JS_UNDEFINED};
@@ -186,8 +188,35 @@ namespace weft {
         std::size_t read_style_bytes{};
         IntegerFormatHost integer_format_host;
         bool layout_running{};
+
+        // A node slot: the node while it lives, and its wrapper. The wrapper stays in the slot until the slot is
+        // reused, so a finalizer can release its references to neighbors collected earlier in the same collection.
+        struct NodeSlot {
+            Node* node{};
+            JSValue wrapper{JS_UNDEFINED};
+        };
+
         // Node identities: slot index + generation; a finalized node's identity never resolves again.
-        GenerationalSlots<Node*> slots;
+        GenerationalSlots<NodeSlot> slots;
+
+        // The node an edge names; edges name live nodes outside finalizers.
+        Node& node_at(NodeIdentity id) const {
+            const auto* slot = slots.find(id.slot, id.generation);
+            if (!slot || !slot->node) {
+                throw std::logic_error("WEFT_TREE_CORRUPTION: dangling node edge");
+            }
+            return *slot->node;
+        }
+
+        Node* parent_of(const Node& n) const {
+            return n.parent.generation ? &node_at(n.parent) : nullptr;
+        }
+
+        // The wrapper behind an edge, live or collected earlier in the current collection.
+        JSValue edge_wrapper(NodeIdentity id) const noexcept {
+            return slots[id.slot].wrapper;
+        }
+
         std::vector<NodeIdentity> hovered_nodes;
         std::vector<NodeIdentity> active_nodes;
         std::map<std::uint64_t, JSValue> native_roots;
@@ -260,7 +289,7 @@ namespace weft {
             changes[change_head] = {revision, n.identity};
             change_head = (change_head + 1) % changes.size();
             change_count = std::min(change_count + 1, changes.size());
-            for (auto* p = &n; p; p = JS_IsNull(p->parent) ? nullptr : node_unchecked(context, p->parent)) {
+            for (auto* p = &n; p; p = p->parent.generation ? slots[p->parent.slot].node : nullptr) {
                 p->subtree_revision = revision;
             }
         }
@@ -426,14 +455,17 @@ namespace weft {
             if (!n) {
                 return;
             }
-            JS_MarkValue(rt, n->parent, mark_function);
-            JS_MarkValue(rt, n->document, mark_function);
+            for (const auto& edge : {n->parent, n->document}) {
+                if (edge.generation) {
+                    JS_MarkValue(rt, owner->edge_wrapper(edge), mark_function);
+                }
+            }
+            for (const auto& child : n->children) {
+                JS_MarkValue(rt, owner->edge_wrapper(child), mark_function);
+            }
             JS_MarkValue(rt, n->expando, mark_function);
             if (const auto* canvas = owner->canvases.find(n->identity)) {
                 JS_MarkValue(rt, canvas->context, mark_function);
-            }
-            for (JSValue child : n->children) {
-                JS_MarkValue(rt, child, mark_function);
             }
             for (const Listener& l : n->listeners) {
                 JS_MarkValue(rt, l.callback, mark_function);
@@ -447,20 +479,23 @@ namespace weft {
                 return;
             }
             JS_SetOpaque(value, nullptr);
-            owner->slots[n->identity.slot] = nullptr;
+            owner->slots[n->identity.slot].node = nullptr;
             owner->slots.vacate(n->identity.slot);
             ++owner->counters.finalized_nodes;
             --owner->counters.live_nodes;
             // No script, layout, or other Node dereference is allowed in finalizers.
-            JS_FreeValueRT(rt, n->parent);
-            JS_FreeValueRT(rt, n->document);
+            for (const auto& edge : {n->parent, n->document}) {
+                if (edge.generation) {
+                    JS_FreeValueRT(rt, owner->edge_wrapper(edge));
+                }
+            }
+            for (const auto& child : n->children) {
+                JS_FreeValueRT(rt, owner->edge_wrapper(child));
+            }
             JS_FreeValueRT(rt, n->expando);
             if (auto* canvas = owner->canvases.find(n->identity)) {
                 JS_FreeValueRT(rt, canvas->context);
                 owner->canvases.erase(n->identity);
-            }
-            for (JSValue child : n->children) {
-                JS_FreeValueRT(rt, child);
             }
             for (const Listener& l : n->listeners) {
                 JS_FreeValueRT(rt, l.callback);
@@ -828,7 +863,7 @@ namespace weft {
                 throw std::logic_error("WEFT_CANVAS_INSTALL: owner factory installed once before app");
             }
             for (std::size_t i = 0; i < slots.size(); ++i) {
-                if (slots.occupied(i) && slots[i]->local == "canvas") {
+                if (slots.occupied(i) && slots[i].node->local == "canvas") {
                     throw std::logic_error("WEFT_CANVAS_INSTALL: existing canvas node");
                 }
             }
@@ -865,7 +900,8 @@ namespace weft {
             canvas_prototype = JS_DupValue(context, proto.value);
         }
 
-        JSValue make_node(int type, std::string local, std::string space, JSValueConst document) {
+        // A new node of the document named by document (a null identity for the document node itself).
+        JSValue make_node(int type, std::string local, std::string space, NodeIdentity document) {
             if (counters.live_nodes >= constants::script::max_live_nodes) {
                 faulted = true;
                 throw std::runtime_error("WEFT_NODE_LIMIT: native DOM node limit exceeded");
@@ -903,31 +939,32 @@ namespace weft {
             const auto generation = slots.occupy(index);
             n->identity = {static_cast<std::uint32_t>(index), generation, view_epoch};
             n->self = object.value;
-            n->document = JS_DupValue(context, document);
-            slots[index] = n.get();
+            n->document = document;
+            if (document.generation) {
+                JS_DupValue(context, edge_wrapper(document));
+            }
+            slots[index] = {n.get(), object.value};
             JS_SetOpaque(object.value, n.release());
             ++counters.created_nodes;
             ++counters.live_nodes;
             return JS_DupValue(context, object.value);
         }
 
+        // Removes child from its parent; the caller holds child. The edge pair's references go last, once the tree
+        // is consistent, because releasing them may finalize nodes.
         void detach(Node& child) {
-            if (JS_IsNull(child.parent)) {
+            Node* parent_node = parent_of(child);
+            if (!parent_node) {
                 return;
             }
-            Node& parent_node = node(context, child.parent);
-            auto it = std::find_if(parent_node.children.begin(), parent_node.children.end(), [&](JSValue value) {
-                return equal_value(value, child.self);
-            });
-            assert(it != parent_node.children.end());
-            JSValue held = *it;
-            parent_node.children.erase(it);
-            changed(parent_node);
+            auto it = std::find(parent_node->children.begin(), parent_node->children.end(), child.identity);
+            assert(it != parent_node->children.end());
+            parent_node->children.erase(it);
+            changed(*parent_node);
             changed(child);
-            JSValue old_parent = child.parent;
-            child.parent = JS_NULL;
-            JS_FreeValue(context, old_parent);
-            JS_FreeValue(context, held);
+            child.parent = {};
+            JS_FreeValue(context, edge_wrapper(parent_node->identity));
+            JS_FreeValue(context, child.self);
         }
 
         void insert(Node& parent_node, Node& child, Node* before) {
@@ -937,12 +974,11 @@ namespace weft {
             if (child.type == constants::document_node_type) {
                 throw std::runtime_error("WEFT_HIERARCHY: cannot insert Document");
             }
-            if (!equal_value(parent_node.document, child.document) &&
-                parent_node.type != constants::document_node_type) {
+            if (parent_node.document != child.document && parent_node.type != constants::document_node_type) {
                 throw std::runtime_error("WEFT_UNSUPPORTED_DOM: cross-document adoption");
             }
             std::size_t ancestors{};
-            for (Node* p = &parent_node; p; p = JS_IsNull(p->parent) ? nullptr : &node(context, p->parent)) {
+            for (Node* p = &parent_node; p; p = parent_of(*p)) {
                 if (p == &child) {
                     throw std::runtime_error("WEFT_HIERARCHY: insertion creates a cycle");
                 }
@@ -958,11 +994,11 @@ namespace weft {
                 if (depth > constants::script::max_native_dom_depth) {
                     throw std::runtime_error("WEFT_DOM_DEPTH_LIMIT: M0 native DOM depth limit exceeded");
                 }
-                for (JSValue value : current->children) {
-                    pending.emplace_back(&node(context, value), depth + 1);
+                for (const auto& id : current->children) {
+                    pending.emplace_back(&node_at(id), depth + 1);
                 }
             }
-            if (before && !equal_value(before->parent, parent_node.self)) {
+            if (before && before->parent != parent_node.identity) {
                 throw std::runtime_error("WEFT_NOT_FOUND: reference child is not in parent");
             }
             if (before == &child) {
@@ -972,13 +1008,13 @@ namespace weft {
             parent_node.children.reserve(parent_node.children.size() + 1);
             Value child_hold(context, JS_DupValue(context, child.self));
             detach(child);
-            auto position = before ? std::find_if(parent_node.children.begin(), parent_node.children.end(),
-                                                  [&](JSValue value) {
-                                                      return equal_value(value, before->self);
-                                                  })
-                                   : parent_node.children.end();
-            parent_node.children.insert(position, JS_DupValue(context, child.self));
-            child.parent = JS_DupValue(context, parent_node.self);
+            auto position = before
+                                ? std::find(parent_node.children.begin(), parent_node.children.end(), before->identity)
+                                : parent_node.children.end();
+            parent_node.children.insert(position, child.identity);
+            child.parent = parent_node.identity;
+            JS_DupValue(context, child.self);
+            JS_DupValue(context, parent_node.self);
             changed(child);
         }
 
@@ -987,8 +1023,8 @@ namespace weft {
                 return n.data;
             }
             std::string result;
-            for (JSValue v : n.children) {
-                result += text(node(context, v));
+            for (const auto& id : n.children) {
+                result += text(node_at(id));
             }
             return result;
         }
@@ -1011,8 +1047,9 @@ namespace weft {
                 n.children.reserve(std::max<std::size_t>(n.children.size(), 1));
             }
             while (!n.children.empty()) {
-                Value child(context, JS_DupValue(context, n.children.back()));
-                detach(node(context, child.value));
+                Node& child = node_at(n.children.back());
+                Value hold(context, JS_DupValue(context, child.self));
+                detach(child);
             }
             if (!JS_IsUndefined(replacement.value)) {
                 insert(n, node(context, replacement.value), nullptr);
@@ -1030,7 +1067,7 @@ namespace weft {
         // A live element for the shared selector engine. Ancestors continue past a query's root up to the document
         // element, as DOM selector matching scopes them.
         struct LiveElement {
-            JSContext* context{};
+            const Impl* owner{};
             const Node* n{};
 
             std::string_view local_name() const {
@@ -1059,18 +1096,16 @@ namespace weft {
             }
 
             bool document_root() const {
-                return !JS_IsNull(n->parent) && node(context, n->parent).type == constants::document_node_type;
+                const Node* p = owner->parent_of(*n);
+                return p && p->type == constants::document_node_type;
             }
 
             std::optional<LiveElement> parent() const {
-                if (JS_IsNull(n->parent)) {
+                const Node* p = owner->parent_of(*n);
+                if (!p || p->type != constants::element_node_type) {
                     return std::nullopt;
                 }
-                const Node& p = node(context, n->parent);
-                if (p.type != constants::element_node_type) {
-                    return std::nullopt;
-                }
-                return LiveElement{context, &p};
+                return LiveElement{owner, p};
             }
         };
 
@@ -1086,13 +1121,13 @@ namespace weft {
 
         bool matches(const Node& n, std::string_view selector) const {
             const auto list = selectors(selector);
-            return n.type == constants::element_node_type && dom::matches(list, LiveElement{context, &n});
+            return n.type == constants::element_node_type && dom::matches(list, LiveElement{this, &n});
         }
 
         void query(Node& n, const std::vector<dom::Selector>& list, std::vector<Node*>& result, bool first) const {
-            for (JSValue v : n.children) {
-                Node& child = node(context, v);
-                if (child.type == constants::element_node_type && dom::matches(list, LiveElement{context, &child})) {
+            for (const auto& id : n.children) {
+                Node& child = node_at(id);
+                if (child.type == constants::element_node_type && dom::matches(list, LiveElement{this, &child})) {
                     result.push_back(&child);
                     if (first) {
                         return;
@@ -1213,36 +1248,38 @@ namespace weft {
                     case Namespace:
                         return n.space.empty() ? JS_NULL : JS_NewString(c, n.space.c_str());
                     case OwnerDocument:
-                        return n.type == constants::document_node_type ? JS_NULL : JS_DupValue(c, n.document);
+                        return n.type == constants::document_node_type || !n.document.generation
+                                   ? JS_NULL
+                                   : JS_DupValue(c, owner.node_at(n.document).self);
                     case Parent:
-                        return JS_DupValue(c, n.parent);
+                        return n.parent.generation ? JS_DupValue(c, owner.node_at(n.parent).self) : JS_NULL;
                     case Children: {
                         Value result(c, JS_NewArray(c));
                         for (std::uint32_t i{}; i < n.children.size(); ++i) {
-                            if (JS_SetPropertyUint32(c, result.value, i, JS_DupValue(c, n.children[i])) < 0) {
+                            if (JS_SetPropertyUint32(c, result.value, i,
+                                                     JS_DupValue(c, owner.node_at(n.children[i]).self)) < 0) {
                                 return JS_EXCEPTION;
                             }
                         }
                         return JS_DupValue(c, result.value);
                     }
                     case FirstChild:
-                        return n.children.empty() ? JS_NULL : JS_DupValue(c, n.children.front());
+                        return n.children.empty() ? JS_NULL : JS_DupValue(c, owner.node_at(n.children.front()).self);
                     case LastChild:
-                        return n.children.empty() ? JS_NULL : JS_DupValue(c, n.children.back());
+                        return n.children.empty() ? JS_NULL : JS_DupValue(c, owner.node_at(n.children.back()).self);
                     case NextSibling:
                     case PreviousSibling: {
-                        if (JS_IsNull(n.parent)) {
+                        const Node* parent = owner.parent_of(n);
+                        if (!parent) {
                             return JS_NULL;
                         }
-                        auto& siblings = node(c, n.parent).children;
-                        auto it = std::find_if(siblings.begin(), siblings.end(), [&](JSValue v) {
-                            return equal_value(v, self);
-                        });
+                        const auto& siblings = parent->children;
+                        auto it = std::find(siblings.begin(), siblings.end(), n.identity);
                         if (magic == NextSibling && it != siblings.end() && ++it != siblings.end()) {
-                            return JS_DupValue(c, *it);
+                            return JS_DupValue(c, owner.node_at(*it).self);
                         }
                         if (magic == PreviousSibling && it != siblings.begin() && it != siblings.end()) {
-                            return JS_DupValue(c, *--it);
+                            return JS_DupValue(c, owner.node_at(*--it).self);
                         }
                         return JS_NULL;
                     }
@@ -1260,7 +1297,7 @@ namespace weft {
                         return JS_NewStringLen(c, n.data.data(), n.data.size());
                     case DocumentElement:
                         return n.type == constants::document_node_type && !n.children.empty()
-                                   ? JS_DupValue(c, n.children.front())
+                                   ? JS_DupValue(c, owner.node_at(n.children.front()).self)
                                    : JS_UNDEFINED;
                     case Body: {
                         if (n.type != constants::document_node_type) {
@@ -1273,9 +1310,9 @@ namespace weft {
                     case DefaultView:
                         return n.type == constants::document_node_type ? JS_GetGlobalObject(c) : JS_UNDEFINED;
                     case IsConnected: {
-                        Node* p = &n;
-                        while (!JS_IsNull(p->parent)) {
-                            p = &node(c, p->parent);
+                        const Node* p = &n;
+                        while (const Node* next = owner.parent_of(*p)) {
+                            p = next;
                         }
                         return JS_NewBool(c, p->type == constants::document_node_type);
                     }
@@ -1468,7 +1505,7 @@ namespace weft {
             }
             std::vector<JSValue> path;
             path.reserve(constants::script::max_native_dom_depth);
-            for (Node* p = &target; p; p = JS_IsNull(p->parent) ? nullptr : &node(context, p->parent)) {
+            for (Node* p = &target; p; p = parent_of(*p)) {
                 path.push_back(JS_DupValue(context, p->self));
             }
 
@@ -1644,7 +1681,7 @@ namespace weft {
                     }
                     case Remove: {
                         Node& child = node(c, arg(argc, argv, 0));
-                        if (!equal_value(child.parent, self)) {
+                        if (child.parent != n.identity) {
                             throw std::runtime_error("WEFT_NOT_FOUND: child is not in parent");
                         }
                         Value hold(c, JS_DupValue(c, child.self));
@@ -1658,7 +1695,7 @@ namespace weft {
                             throw std::runtime_error("WEFT_DOM_TYPE: creation requires Document");
                         }
                         if (magic == CreateTextNode) {
-                            Value object(c, owner.make_node(constants::text_node_type, "#text", "", self));
+                            Value object(c, owner.make_node(constants::text_node_type, "#text", "", n.identity));
                             node(c, object.value).data = string_value(c, arg(argc, argv, 0));
                             return JS_DupValue(c, object.value);
                         }
@@ -1677,7 +1714,8 @@ namespace weft {
                         if (space == constants::xhtml_namespace_uri) {
                             local = lower_ascii(local);
                         }
-                        return owner.make_node(constants::element_node_type, std::move(local), std::move(space), self);
+                        return owner.make_node(constants::element_node_type, std::move(local), std::move(space),
+                                               n.identity);
                     }
                     case QuerySelector:
                     case QuerySelectorAll: {
@@ -1786,7 +1824,7 @@ namespace weft {
                             if (other == &n) {
                                 return JS_TRUE;
                             }
-                            other = JS_IsNull(other->parent) ? nullptr : &node(c, other->parent);
+                            other = owner.parent_of(*other);
                         }
                         return JS_FALSE;
                     }
@@ -1797,10 +1835,10 @@ namespace weft {
                         }
                         std::vector<Node*> left;
                         std::vector<Node*> right;
-                        for (Node* p = &n; p; p = JS_IsNull(p->parent) ? nullptr : &node(c, p->parent)) {
+                        for (Node* p = &n; p; p = owner.parent_of(*p)) {
                             left.push_back(p);
                         }
-                        for (Node* p = &other; p; p = JS_IsNull(p->parent) ? nullptr : &node(c, p->parent)) {
+                        for (Node* p = &other; p; p = owner.parent_of(*p)) {
                             right.push_back(p);
                         }
                         if (left.back() != right.back()) {
@@ -1824,8 +1862,8 @@ namespace weft {
                             return JS_NewInt32(c, constants::script::document_position_preceding |
                                                       constants::script::document_position_contains);
                         }
-                        for (JSValue v : left[i - 1]->children) {
-                            Node* child = &node(c, v);
+                        for (const auto& id : left[i - 1]->children) {
+                            Node* child = &owner.node_at(id);
                             if (child == left[i]) {
                                 return JS_NewInt32(c, constants::script::document_position_following);
                             }
@@ -2016,11 +2054,12 @@ namespace weft {
                 method(prototype.value, "__ceFormatInteger", FormatInteger, 1);
                 JS_SetClassProto(context, node_class, JS_DupValue(context, prototype.value));
 
-                document_root = make_node(constants::document_node_type, "#document", "", JS_NULL);
-                Value html(context, make_node(constants::element_node_type, "html", constants::xhtml_namespace_uri,
-                                              document_root));
-                Value body(context, make_node(constants::element_node_type, "body", constants::xhtml_namespace_uri,
-                                              document_root));
+                document_root = make_node(constants::document_node_type, "#document", "", {});
+                const auto document = node(context, document_root).identity;
+                Value html(context,
+                           make_node(constants::element_node_type, "html", constants::xhtml_namespace_uri, document));
+                Value body(context,
+                           make_node(constants::element_node_type, "body", constants::xhtml_namespace_uri, document));
                 insert(node(context, document_root), node(context, html.value), nullptr);
                 insert(node(context, html.value), node(context, body.value), nullptr);
                 Value global(context, JS_GetGlobalObject(context));
@@ -2536,7 +2575,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         bool connected(const Node& target) const {
             const Node* p = &target;
             while (p && p->type != constants::document_node_type) {
-                p = JS_IsNull(p->parent) ? nullptr : &node(context, p->parent);
+                p = parent_of(*p);
             }
             return p && equal_value(p->self, document_root);
         }
@@ -2545,8 +2584,8 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             if (id.view_epoch != view_epoch) {
                 return nullptr;
             }
-            const auto* node = slots.find(id.slot, id.generation);
-            return node ? *node : nullptr;
+            const auto* slot = slots.find(id.slot, id.generation);
+            return slot ? slot->node : nullptr;
         }
 
         std::string dump(const Node& n) const {
@@ -2563,12 +2602,12 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             }
             output += "},\"children\":[";
             comma = false;
-            for (JSValue value : n.children) {
+            for (const auto& id : n.children) {
                 if (comma) {
                     output += ',';
                 }
                 comma = true;
-                output += dump(node(context, value));
+                output += dump(node_at(id));
             }
             return output + "]}";
         }
@@ -2587,8 +2626,8 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
                 result.attributes.emplace(a.name, a.value);
             }
             result.children.reserve(n.children.size());
-            for (const auto value : n.children) {
-                result.children.push_back(snapshot(node(context, value)));
+            for (const auto& id : n.children) {
+                result.children.push_back(snapshot(node_at(id)));
             }
             return result;
         }
@@ -2690,8 +2729,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             auto geometry = impl_->refresh_geometry();
             bool x_done = dx == 0;
             bool y_done = dy == 0;
-            for (; n && (!x_done || !y_done);
-                 n = JS_IsNull(n->parent) ? nullptr : &Impl::node(impl_->context, n->parent)) {
+            for (; n && (!x_done || !y_done); n = impl_->parent_of(*n)) {
                 auto it = std::find_if(geometry.begin(), geometry.end(), [&](const auto& g) {
                     return g.identity == n->identity;
                 });
@@ -2741,7 +2779,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         if (over || out || down || up) {
             auto& tracked = (over || out) ? impl_->hovered_nodes : impl_->active_nodes;
             auto ancestor = [&](Impl::Node* p, const Impl::Node* n) {
-                for (; p; p = JS_IsNull(p->parent) ? nullptr : &Impl::node(impl_->context, p->parent)) {
+                for (; p; p = impl_->parent_of(*p)) {
                     if (p == n) {
                         return true;
                     }
@@ -2766,7 +2804,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
                 return !flag;
             });
             if (over || down) {
-                for (auto* n = target; n; n = JS_IsNull(n->parent) ? nullptr : &Impl::node(impl_->context, n->parent)) {
+                for (auto* n = target; n; n = impl_->parent_of(*n)) {
                     bool& flag = over ? n->hovered : n->active;
                     if (!flag) {
                         flag = true;
