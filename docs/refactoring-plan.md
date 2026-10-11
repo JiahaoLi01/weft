@@ -380,7 +380,7 @@ CMake 拆分：
 
 ## 第 8 步记录（2026-10-11）
 
-进行中。8.1、8.2、8.3a 已完成：页面只剩一个文档格式化器，文档与 scene 共用一个 Yoga 适配器，scene 只有一个 transform 模型。
+进行中。8.1、8.2、8.3a、8.3b 已完成：页面只剩一个文档格式化器，文档与 scene 共用一个 Yoga 适配器和一条命中路径，scene 只有一个 transform 模型。
 
 **8.1a 行盒规则**（`009a11d`）：
 - 文档 inline 布局改用 Blink 的半行距拆分：上方 floor(leading / 2) 整像素，其余 LayoutUnit 行距在下方。与 scene 文字共用 `split_leading()`（scene 产物逐字节不变）。
@@ -489,8 +489,42 @@ CMake 拆分：
   - scene-native 8 张、render-stages 4 张 WARP 图最多差 1 个通道值、最多 292 个像素：原生矩阵改为先用 double 计算再转 float。
 - owner CPU 与 8.2b 交替 4 轮无回退：K 线 P50/P99 4.957/8.651 → 4.868/8.289 ms，散点图 1.977/3.323 → 2.008/3.366 ms，anime、framer、spring 持平。
 
+**8.3b 一条命中路径**（`4ef79ad`）：
+- 新模块 [hit_test.hpp](../src/layout/hit_test.hpp)：
+  - 格式化器按绘制顺序列出命中区域 `HitAreas`；
+  - 每个区域有逆平面与形状：半开矩形、闭合边界（SVG 文字）、圆角、按规则填充或描边的轮廓；
+  - 区域挂在一条裁剪链上，裁剪链按父索引共享；
+  - 一个函数 `hit_areas` 取最上层包含该点的区域。
+- 文档：`Page::hit_regions` 换成 `HitAreas`；`hit_page` 改用共享判定，`enabled` 由调用方的谓词决定。
+- scene：
+  - `SceneGeometry::hit_test` 不再逐点遍历整棵树判定，改为先生成命中表 `hit_map`，再做共享判定；
+  - fill/stroke 的包含判断移入共享模块；
+  - D2D 参考保留自己独立的树遍历，仍作差分 oracle；
+  - 比对辅助函数每帧只建一次命中表。
+- 平面类型 `geometry::Plane` 移到 `base`，布局与 scene 共用。
+- 修正 scene 命中与绘制的一处不一致：`z-index:auto` 在绘制中按 0 处理，命中却直接报错，现在也按 0。
+
+验证：
+- 命中结果与改动前完全相同：
+  - D2D oracle 的逐帧网格对比通过；
+  - gallery 中依赖悬停/点击状态的帧、cluster 的 50 次输入与 210 个状态采集逐字节不变；
+  - 产物差异集合与 8.3a 完全相同。
+- 新增 `hit_test_contract`：形状、填充规则、端点与虚线、绘制顺序、跳过的目标、裁剪链、平面。以下 8 个变异各自都会使它失败：
+  - 矩形改为闭区间；
+  - 忽略裁剪；
+  - 忽略谓词；
+  - 改为先画者优先；
+  - 忽略 even-odd；
+  - 裁剪不用自己的平面；
+  - square 端点当作 butt；
+  - 忽略虚线。
+- `scene_contract` 增加层叠用例：z-index:1 的兄弟盖住后插入的 z-index:auto。去掉 auto 的处理或去掉层叠排序都会使它失败。
+- `ctest --preset windows-release --parallel 6` 99/99，`windows-debug --parallel 6` 99/99（323.9 s；比对辅助函数每帧只建一次命中表，scene gallery、cluster 测试 120、408 s → 82、324 s）。
+- owner CPU（与 8.3a 交替 4 轮）：K 线 P50/P99 4.629/7.779 → 4.670/7.767 ms，散点图 1.949/3.229 → 1.967/3.290 ms，其余持平。
+
 仍未做：
-- 8.3b 一条命中路径；8.3c 一份 paint IR。
+- 8.3c 一份 paint IR。
+- scene 命中仍忽略 border-radius（D2D oracle 也忽略；文档已按圆角命中）。
 - 自动最小尺寸仍用自底向上的固有尺寸估计，百分比的指定尺寸不参与上限。百分比边距或间距、百分比宽或按比例定高的替换盒，只在 flex item 确实需要时报 `WEFT_UNSUPPORTED_INTRINSIC`。
 - scene 文字仍不换行；子项全是行内级的块是单行、顶对齐的近似（不断行，不按基线对齐）；svg 比例只在父高度不确定时生效（沿用 scene 原规则）。
 - 适配器的错误仍是 `WEFT_UNSUPPORTED_*` 字符串异常，尚未迁入 `Diag`。

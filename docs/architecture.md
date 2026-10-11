@@ -276,7 +276,7 @@ JS 源码或 bundle 为基础资产格式，VM bytecode 仅作为绑定引擎版
 
 实际页面探针目前有独立 Flex 与 positioned 格式上下文。后者通过 CaseCheetah 原样 NineSlice 验证矩形图片裁剪、明确尺寸的绝对定位和受限 stylesheet；owner 生成图形 API 无关的值快照，宿主允许列表加载原图，再转换为 quad/UV/coverage 输入。新增自动布局探针已组合受限 block/Flex/absolute、公共 cascade 与固定 CJK intrinsic measurement；完整文档调度器继续扩展格式上下文，不将它们绑定到 D3D11，也不把探针的 per-frame RGBA32F 图片上传作为生产资源策略，见 [workload 边界](casecheetah-workload.md)。
 
-2026-10-11 重构第 8 步：page、positioned、auto 三个页面 profile 已退役，页面只有一个文档格式化器 `layout_document`（block、flex 与 absolute 经 Yoga，inline 文本按 Blink 行盒，canvas/img 替换元素，视口大小的初始包含块）。第 8.2 步起 scene 与文档共用一个 Yoga 适配器 `layout_boxes`（[flex.hpp](../src/layout/flex.hpp)）：同一套 CSS 到 Yoga 的映射、自动最小尺寸、grid 子集、svg 替换盒与 transform 包含块，文字由各自的文字系统测量。paint IR 与命中路径在第 8 步后续部分合并。
+2026-10-11 重构第 8 步：page、positioned、auto 三个页面 profile 已退役，页面只有一个文档格式化器 `layout_document`（block、flex 与 absolute 经 Yoga，inline 文本按 Blink 行盒，canvas/img 替换元素，视口大小的初始包含块）。第 8.2 步起 scene 与文档共用一个 Yoga 适配器 `layout_boxes`（[flex.hpp](../src/layout/flex.hpp)）：同一套 CSS 到 Yoga 的映射、自动最小尺寸、grid 子集、svg 替换盒与 transform 包含块，文字由各自的文字系统测量。第 8.3b 步起两者也共用一条命中路径（[hit_test.hpp](../src/layout/hit_test.hpp)）：绘制顺序的命中区域、逆平面与裁剪链；paint IR 在第 8 步后续部分合并。
 
 先提供可序列化的 DOM、计算样式、布局盒、paint order、clip、资源账目和失效原因。trace 串联输入、JS task、同步 flush、style、layout、paint、upload、submit 与完成 serial。通过 CLI 或简单检查器使用，之后再决定是否实现 Chrome DevTools Protocol 子集。
 

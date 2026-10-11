@@ -4,6 +4,18 @@
 
 ## 本次已实现
 
+重构第 8 步之四：文档与 scene 共用一条命中路径（2026-10-11）。详见 [重构计划](refactoring-plan.md#第-8-步记录2026-10-11)。
+- **结果**：
+  - 文档与 scene 都把绘制过的区域按顺序列成 `HitAreas`（形状、逆平面、裁剪链），由同一个函数判定；
+  - scene 的 fill/stroke 包含判断移入共享模块；
+  - 命中结果与改动前完全相同；
+  - scene 命中现在与绘制一样把 `z-index:auto` 当作 0，以前直接报错。
+- **验证**：
+  - `ctest --preset windows-release --parallel 6` 99/99，`windows-debug --parallel 6` 99/99（323.9 s；比对辅助函数每帧只建一次命中表，scene gallery、cluster 测试 120、408 s → 82、324 s）；
+  - 新增 `hit_test_contract`，8 个变异全部被它发现；
+  - 产物差异集合与 8.3a 相同；owner CPU 持平。
+- **未解决**：scene 命中仍忽略 border-radius。
+
 重构第 8 步之三：scene 只有一个 transform 模型（2026-10-11）。详见 [重构计划](refactoring-plan.md#第-8-步记录2026-10-11)。
 - **结果**：几何与命中、原生绘制、D2D 参考光栅共用一个 transform 文法与求值器，原来的两套文法、一套透视文法与四处矩阵合成删除。顺带修正 SVG 无单位角度被当作弧度的错误：d3_interactive-00 与 Chrome 的平均通道差 0.32 → 0.075。
 - **验证**：
@@ -25,7 +37,7 @@
   - Debug 下 scene gallery、cluster 测试由 89、311 s 变为 121、375 s：共享适配器每次布局都逐属性校验并计算固有尺寸，未优化构建中开销明显。Release 下两者不变（6.56、27.92 s → 6.58、27.77 s）。
 - **未解决**：自动最小尺寸仍是估计（百分比指定尺寸不参与上限）；scene 文字不换行，行内子项按单行近似；适配器的错误尚未迁入 `Diag`。
 
-下一步：第 8.3b 步，一条命中路径；之后 8.3c，一份 paint IR。
+下一步：第 8.3c 步，一份 paint IR。
 
 重构第 8 步之一：统一的文档格式化器（2026-10-11）。page、positioned、auto 三个页面 profile 已删除，页面只剩 `layout_document`（原 flow）。详见 [重构计划](refactoring-plan.md#第-8-步记录2026-10-11)。
 - **结果**：七项旧浏览器对照全部在统一路径上按原阈值通过，最大差与旧 profile 相同；AlertBar 字体基线 0.4416 → 0.0896 px（阈值 0.5）。

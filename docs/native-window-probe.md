@@ -1,5 +1,7 @@
 # 原生 React 窗口与鼠标
 
+> 2026-10-11 重构第 8.3b 步：`hit_page` 改走文档与 scene 共用的命中判定（`HitAreas`），命中结果不变。见 [重构记录](refactoring-plan.md#第-8-步记录2026-10-11)。
+
 > 2026-10-11 重构第 8 步：page adapter 已退役。React 窗口改用 `layout_document`，`MouseRouter` 只接受布局回调。见 [重构记录](refactoring-plan.md#第-8-步记录2026-10-11)。
 
 本文保留早期 Flex-only 主鼠标窗口的范围与历史证据。后续 [flow 输入窗口](flow-input-window-probe.md) 使用原样 CaseCheetah React 和新的 flow hit regions，接入 HWND 滚轮、圆角/inline 裁剪与滚动重绘；可见和隐藏运行命令分别记录。
