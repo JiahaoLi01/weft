@@ -1,6 +1,7 @@
 #pragma once
 
 #include "constants/render.hpp"
+#include "render/atlas_packer.hpp"
 #include "render/frame_packet.hpp"
 #include "render/resource_lifetime.hpp"
 #include "render/scene_pass.hpp"
@@ -9,7 +10,7 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <d3d11.h>
+#include <d3d11_1.h>
 #include <wrl/client.h>
 
 #include <array>
@@ -57,6 +58,9 @@ namespace weft::render::d3d11 {
         ComPtr<ID3D11Texture2D> source;
         ComPtr<ID3D11ShaderResourceView> source_srv;
         ComPtr<ID3D11RenderTargetView> rtv;
+        // A coverage image on a glyph atlas page instead of its own texture: its region there, including the border.
+        // texture and srv are the page's, and upload holds the bordered image.
+        std::optional<AtlasPacker::Region> atlas;
     };
 
     struct ExternalGpuAsset {
@@ -79,7 +83,7 @@ namespace weft::render::d3d11 {
     };
 
     // A structured buffer of per-frame pass data that grows to the largest frame. With command lists the driver records
-    // itself it is written by UpdateSubresource in command order: renaming a buffer mapped with discard stalled the GPU
+    // itself it is written in command order by UpdateSubresource1: renaming a buffer mapped with discard stalled the GPU
     // for milliseconds on an RTX 5090. Where the runtime emulates command lists (WARP) it is mapped with discard.
     struct PassBuffer {
         ComPtr<ID3D11Buffer> buffer;
@@ -91,6 +95,14 @@ namespace weft::render::d3d11 {
     struct ImageView {
         ID3D11ShaderResourceView* view{};
         bool bottom_up{};
+        // The part of the texture that holds the image (an atlas region), normalized origin and extent.
+        std::array<float, 4> region{0, 0, 1, 1};
+    };
+
+    // A glyph atlas page.
+    struct AtlasPage {
+        ComPtr<ID3D11Texture2D> texture;
+        ComPtr<ID3D11ShaderResourceView> srv;
     };
 
     class Backend;
@@ -161,6 +173,15 @@ namespace weft::render::d3d11 {
         std::size_t native_creations{};
         std::size_t cache_resource_limit{weft::constants::render::d3d11::asset_cache_max_resources};
         std::size_t cache_byte_limit{weft::constants::render::d3d11::asset_cache_max_bytes};
+        // Glyph atlas of a caching renderer: small coverage assets share R8 pages, so that consecutive glyphs draw
+        // together. A full atlas leaves an asset its own texture; a page whose regions were all evicted starts empty.
+        AtlasPacker atlas{weft::constants::render::d3d11::atlas_page_size,
+                          weft::constants::render::d3d11::atlas_max_pages};
+        std::vector<AtlasPage> atlas_pages;
+        std::size_t atlas_placements{};
+        // Instanced draws and the records they drew, across all display list passes.
+        std::size_t display_draws{};
+        std::size_t display_instances{};
         std::string adapter;
         D3D_FEATURE_LEVEL level{};
         bool debug_layer{};
@@ -220,5 +241,11 @@ namespace weft::render::d3d11 {
         void check_debug_messages();
         Backend& ensure_backend();
         void complete_backend();
+
+    private:
+        // Places a coverage asset on the glyph atlas and makes upload its bordered image; nothing when it does not fit.
+        std::optional<AtlasPacker::Region> place_on_atlas(const Asset& a, std::vector<std::uint8_t>& upload);
+        // The normalized part of an asset's texture that holds it: an atlas region, or the whole texture.
+        std::array<float, 4> atlas_region(const NativeAsset& a) const;
     };
 } // namespace weft::render::d3d11

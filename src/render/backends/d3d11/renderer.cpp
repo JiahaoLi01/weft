@@ -53,9 +53,19 @@ namespace weft::render::d3d11 {
         // Entries of each srgb_convert.hlsl table: one per byte value.
         constexpr unsigned convert_table_entries = 256;
 
+        // Writes box of resource from data in command order. Where the runtime emulates command lists (WARP), the
+        // original UpdateSubresource misplaces the source of a box with a nonzero origin on a deferred context;
+        // UpdateSubresource1 does not.
+        void update(ID3D11DeviceContext* context, ID3D11Resource* resource, const D3D11_BOX& box, const void* data,
+                    UINT pitch) {
+            ComPtr<ID3D11DeviceContext1> context1;
+            throw_if_failed(context->QueryInterface(IID_PPV_ARGS(&context1)), "ID3D11DeviceContext1");
+            context1->UpdateSubresource1(resource, 0, &box, data, pitch, 0, 0);
+        }
+
         // Writes values into buffer through context, first growing it to hold them. A driver that records command lists
-        // itself takes UpdateSubresource in command order; with command lists the runtime emulates (WARP), those updates
-        // of a large structured buffer left the draws reading zeros, so the buffer is dynamic and mapped with discard.
+        // itself takes the update in command order. Where the runtime emulates command lists (WARP), the draws of a large
+        // list read zeros after either update call, so the buffer is dynamic and mapped with discard there.
         template <class T>
         ID3D11ShaderResourceView* upload(ID3D11Device* device, ID3D11DeviceContext* context, PassBuffer& buffer,
                                          const std::vector<T>& values, bool driver_command_lists, const char* what) {
@@ -80,8 +90,8 @@ namespace weft::render::d3d11 {
                 buffer = std::move(grown);
             }
             if (driver_command_lists) {
-                const D3D11_BOX box{0, 0, 0, UINT(values.size() * sizeof(T)), 1, 1};
-                context->UpdateSubresource(buffer.buffer.Get(), 0, &box, values.data(), 0, 0);
+                update(context, buffer.buffer.Get(), {0, 0, 0, UINT(values.size() * sizeof(T)), 1, 1}, values.data(),
+                       0);
             } else {
                 D3D11_MAPPED_SUBRESOURCE mapped{};
                 throw_if_failed(context->Map(buffer.buffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped), what);
@@ -355,6 +365,9 @@ namespace weft::render::d3d11 {
             }
             ensure(victim != asset_cache.end(), "bounded cache cannot evict resources in current full packet");
             lifetime(tracker.ReleaseResource(victim->second.native.id), "release completed GPU cache lease");
+            if (victim->second.native.atlas) {
+                atlas.release(*victim->second.native.atlas);
+            }
             cached_bytes -= victim->second.bytes;
             asset_cache.erase(victim);
             ++native_releases;
@@ -443,6 +456,7 @@ namespace weft::render::d3d11 {
                     n.texture = cached.native.texture;
                     n.srv = cached.native.srv;
                     n.pitch = cached.native.pitch;
+                    n.atlas = cached.native.atlas;
                     n.cache_copy = true;
                     if (resource_state.phase != ResourcePhase::Ready &&
                         resource_state.phase != ResourcePhase::Submitted) {
@@ -480,7 +494,7 @@ namespace weft::render::d3d11 {
             const bool convert = !r8 && !opaque;
             n.upload = a.bytes;
             n.pitch = r8 ? a.width : a.width * weft::constants::rgba8_bytes_per_pixel;
-            const auto resource_bytes =
+            auto resource_bytes =
                 convert ? static_cast<std::size_t>(a.width) * a.height * sizeof(Color) : n.upload.size();
             // Capacity failure must happen before allocating a tracked resource.
             // All incoming hits are already pinned; a full packet that exceeds
@@ -488,27 +502,40 @@ namespace weft::render::d3d11 {
             if (cache_assets) {
                 evict_assets(resource_bytes);
             }
-            D3D11_TEXTURE2D_DESC d{};
-            d.Width = a.width;
-            d.Height = a.height;
-            d.MipLevels = 1;
-            d.ArraySize = 1;
-            d.SampleDesc.Count = 1;
-            d.Format = r8       ? DXGI_FORMAT_R8_UNORM
-                       : opaque ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
-                                : DXGI_FORMAT_R32G32B32A32_FLOAT;
-            d.BindFlags = D3D11_BIND_SHADER_RESOURCE | (convert ? D3D11_BIND_RENDER_TARGET : 0u);
-            throw_if_failed(device->CreateTexture2D(&d, nullptr, &n.texture), "Create input texture");
-            throw_if_failed(device->CreateShaderResourceView(n.texture.Get(), nullptr, &n.srv), "Create input SRV");
-            if (convert) {
-                throw_if_failed(device->CreateRenderTargetView(n.texture.Get(), nullptr, &n.rtv),
-                                "Create conversion target");
-                auto source = d;
-                source.Format = DXGI_FORMAT_R8G8B8A8_UINT;
-                source.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-                throw_if_failed(device->CreateTexture2D(&source, nullptr, &n.source), "Create conversion source");
-                throw_if_failed(device->CreateShaderResourceView(n.source.Get(), nullptr, &n.source_srv),
-                                "Create conversion source SRV");
+            if (cache_assets && a.encoding == Encoding::Coverage &&
+                a.width <= unsigned(weft::constants::render::d3d11::atlas_max_image) &&
+                a.height <= unsigned(weft::constants::render::d3d11::atlas_max_image)) {
+                n.atlas = place_on_atlas(a, n.upload);
+            }
+            if (n.atlas) {
+                const auto& page = atlas_pages.at(n.atlas->page);
+                n.texture = page.texture;
+                n.srv = page.srv;
+                n.pitch = n.atlas->width;
+                resource_bytes = n.upload.size();
+            } else {
+                D3D11_TEXTURE2D_DESC d{};
+                d.Width = a.width;
+                d.Height = a.height;
+                d.MipLevels = 1;
+                d.ArraySize = 1;
+                d.SampleDesc.Count = 1;
+                d.Format = r8       ? DXGI_FORMAT_R8_UNORM
+                           : opaque ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
+                                    : DXGI_FORMAT_R32G32B32A32_FLOAT;
+                d.BindFlags = D3D11_BIND_SHADER_RESOURCE | (convert ? D3D11_BIND_RENDER_TARGET : 0u);
+                throw_if_failed(device->CreateTexture2D(&d, nullptr, &n.texture), "Create input texture");
+                throw_if_failed(device->CreateShaderResourceView(n.texture.Get(), nullptr, &n.srv), "Create input SRV");
+                if (convert) {
+                    throw_if_failed(device->CreateRenderTargetView(n.texture.Get(), nullptr, &n.rtv),
+                                    "Create conversion target");
+                    auto source = d;
+                    source.Format = DXGI_FORMAT_R8G8B8A8_UINT;
+                    source.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+                    throw_if_failed(device->CreateTexture2D(&source, nullptr, &n.source), "Create conversion source");
+                    throw_if_failed(device->CreateShaderResourceView(n.source.Get(), nullptr, &n.source_srv),
+                                    "Create conversion source SRV");
+                }
             }
             lifetime(tracker.CreateResource({key.first, key.second, resource_bytes, ResourceKind::Texture}, n.id),
                      "CreateResource");
@@ -516,10 +543,14 @@ namespace weft::render::d3d11 {
             if (cache_assets) {
                 const auto bytes = resource_bytes;
                 const auto resource = n.id;
+                const auto region = n.atlas;
                 try {
                     asset_cache.emplace(key, CachedAsset{std::move(n), bytes, ++cache_clock});
                 } catch (...) {
                     lifetime(tracker.ReleaseResource(resource), "failed cache insertion rollback");
+                    if (region) {
+                        atlas.release(*region);
+                    }
                     ++native_releases;
                     throw;
                 }
@@ -534,6 +565,7 @@ namespace weft::render::d3d11 {
                 n.source = cached.native.source;
                 n.source_srv = cached.native.source_srv;
                 n.rtv = cached.native.rtv;
+                n.atlas = cached.native.atlas;
                 n.cache_copy = true;
                 lifetime(tracker.RetainResource(n.id), "new cached frame lease");
             }
@@ -542,6 +574,60 @@ namespace weft::render::d3d11 {
         }
         lifetime(tracker.PrepareFrame(frame.dependencies, frame.id), "PrepareFrame");
         return frame;
+    }
+
+    std::optional<AtlasPacker::Region> Renderer::place_on_atlas(const Asset& a, std::vector<std::uint8_t>& upload) {
+        constexpr auto border = std::uint32_t(weft::constants::render::d3d11::atlas_border);
+        const auto pages = atlas.pages();
+        auto region = atlas.allocate(a.width + 2 * border, a.height + 2 * border);
+        if (!region) {
+            return std::nullopt;
+        }
+        if (atlas.pages() > pages) {
+            AtlasPage page;
+            D3D11_TEXTURE2D_DESC d{};
+            d.Width = d.Height = atlas.page_size();
+            d.MipLevels = 1;
+            d.ArraySize = 1;
+            d.SampleDesc.Count = 1;
+            d.Format = DXGI_FORMAT_R8_UNORM;
+            d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            try {
+                throw_if_failed(device->CreateTexture2D(&d, nullptr, &page.texture), "Create atlas page");
+                throw_if_failed(device->CreateShaderResourceView(page.texture.Get(), nullptr, &page.srv),
+                                "Create atlas page SRV");
+                atlas_pages.push_back(std::move(page));
+            } catch (...) {
+                atlas.release(*region);
+                throw;
+            }
+        }
+        // The bordered image: each border texel repeats its nearest edge texel, so that filtering at the image's
+        // edges reads what a clamped texture of its own would.
+        const auto w = region->width;
+        const auto h = region->height;
+        std::vector<std::uint8_t> bordered(std::size_t(w) * h);
+        for (std::uint32_t y = 0; y < h; ++y) {
+            const auto sy = std::min(std::max(y, border) - border, a.height - 1);
+            for (std::uint32_t x = 0; x < w; ++x) {
+                const auto sx = std::min(std::max(x, border) - border, a.width - 1);
+                bordered[std::size_t(y) * w + x] = a.bytes[std::size_t(sy) * a.width + sx];
+            }
+        }
+        upload = std::move(bordered);
+        ++atlas_placements;
+        return region;
+    }
+
+    std::array<float, 4> Renderer::atlas_region(const NativeAsset& a) const {
+        if (!a.atlas) {
+            return {0, 0, 1, 1};
+        }
+        constexpr auto border = float(weft::constants::render::d3d11::atlas_border);
+        const auto size = float(atlas.page_size());
+        const auto& r = *a.atlas;
+        return {(r.x + border) / size, (r.y + border) / size, (r.width - 2 * border) / size,
+                (r.height - 2 * border) / size};
     }
 
     void Renderer::collect() {
@@ -598,8 +684,14 @@ namespace weft::render::d3d11 {
                 // queue, while an unsubmitted/cancelled upload is not.
                 if (resource_state.phase != ResourcePhase::Ready && resource_state.phase != ResourcePhase::Submitted) {
                     ensure(!a.upload.empty() && (!a.rtv || a.source), "created resource retains retry upload");
-                    deferred->UpdateSubresource(a.source ? a.source.Get() : a.texture.Get(), 0, nullptr,
-                                                a.upload.data(), a.pitch, 0);
+                    if (a.atlas) {
+                        const auto& r = *a.atlas;
+                        update(deferred.Get(), a.texture.Get(), {r.x, r.y, 0, r.x + r.width, r.y + r.height, 1},
+                               a.upload.data(), a.pitch);
+                    } else {
+                        deferred->UpdateSubresource(a.source ? a.source.Get() : a.texture.Get(), 0, nullptr,
+                                                    a.upload.data(), a.pitch, 0);
+                    }
                     ++uploads;
                     if (a.source) {
                         conversions.push_back(&a);
@@ -640,7 +732,7 @@ namespace weft::render::d3d11 {
             std::vector<ImageView> images;
             images.reserve(assets.size() + frame.external.size());
             for (const auto& a : assets) {
-                images.push_back({a.srv.Get()});
+                images.push_back({a.srv.Get(), false, atlas_region(a)});
             }
             for (const auto& e : frame.external) {
                 images.push_back({e.srv.Get(), e.bottom_left});
@@ -674,13 +766,22 @@ namespace weft::render::d3d11 {
 
     void Renderer::record(ID3D11DeviceContext* context, const paint::DisplayList& list, ID3D11RenderTargetView* target,
                           UINT target_width, UINT target_height, const std::vector<ImageView>& images) {
-        auto planned = plan_scene_pass(list, 1, target_width, target_height, std::nullopt, Space::Linear);
+        // Images on one texture (an atlas page) draw together with the boxes between them.
+        std::vector<std::uint64_t> textures;
+        textures.reserve(images.size());
+        for (const auto& image : images) {
+            textures.push_back(std::uint64_t(reinterpret_cast<std::uintptr_t>(image.view)));
+        }
+        auto planned = plan_scene_pass(list, 1, target_width, target_height, std::nullopt, Space::Linear, &textures);
         ensure(bool(planned), "display list pass plan");
         auto& pass = *planned;
         for (std::size_t i = 0; i < list.items.size(); ++i) {
-            if (list.items[i].kind == paint::Item::Kind::Image &&
-                images.at(list.images[list.items[i].payload].asset).bottom_up) {
-                flip_rows(pass.records[i]);
+            if (list.items[i].kind == paint::Item::Kind::Image) {
+                const auto& image = images.at(list.images[list.items[i].payload].asset);
+                place_in(pass.records[i], image.region);
+                if (image.bottom_up) {
+                    flip_rows(pass.records[i]);
+                }
             }
         }
         if (pass.clear != paint::Color{}) {
@@ -719,6 +820,8 @@ namespace weft::render::d3d11 {
             context->UpdateSubresource(display_constants.Get(), 0, nullptr, view.data(), 0, 0);
             context->PSSetShaderResources(1, 1, &image);
             context->DrawInstanced(weft::constants::render::d3d11::quad_vertex_count, count, 0, 0);
+            ++display_draws;
+            display_instances += count;
         };
         // The target, then one layer per open group.
         std::vector<ID3D11RenderTargetView*> targets{target};
@@ -728,7 +831,7 @@ namespace weft::render::d3d11 {
                     draw(batch.first, batch.count, nullptr);
                     break;
                 case ScenePass::Step::Image:
-                    draw(batch.first, 1, images.at(list.images[list.items[batch.first].payload].asset).view);
+                    draw(batch.first, batch.count, images.at(batch.source).view);
                     break;
                 case ScenePass::Step::BeginGroup: {
                     ensure(target_width == width && target_height == height, "groups draw at the renderer's size");

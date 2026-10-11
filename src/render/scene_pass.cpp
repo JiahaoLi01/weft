@@ -133,7 +133,8 @@ namespace weft::render {
     } // namespace
 
     Result<ScenePass> plan_scene_pass(const paint::DisplayList& list, float scale, unsigned width, unsigned height,
-                                      std::optional<paint::ClipRect> crop, Space space) {
+                                      std::optional<paint::ClipRect> crop, Space space,
+                                      const std::vector<std::uint64_t>* textures) {
         ScenePass pass;
         pass.space = space;
         pass.clips.reserve(list.clips.size());
@@ -175,15 +176,38 @@ namespace weft::render {
                     break;
                 case Kind::Text:
                 case Kind::Layer:
-                case Kind::Image:
                     pass.batches.push_back({Step::Image, i++, 1});
                     break;
-                default: {
-                    const auto first = i++;
-                    while (i < list.items.size() && list.items[i].kind == Kind::Box) {
+                case Kind::Image:
+                    if (!textures) {
+                        pass.batches.push_back({Step::Image, i, 1, list.images[list.items[i].payload].asset});
                         ++i;
+                        break;
                     }
-                    pass.batches.push_back({Step::Boxes, first, i - first});
+                    [[fallthrough]];
+                default: {
+                    // Boxes, and with texture names the images among them that sample one texture.
+                    const auto first = i;
+                    std::optional<std::uint64_t> texture;
+                    std::uint32_t source{};
+                    for (; i < list.items.size(); ++i) {
+                        const auto& next = list.items[i];
+                        if (next.kind == Kind::Box) {
+                            continue;
+                        }
+                        if (next.kind != Kind::Image || !textures) {
+                            break;
+                        }
+                        const auto image = list.images[next.payload].asset;
+                        if (texture && *texture != textures->at(image)) {
+                            break;
+                        }
+                        if (!texture) {
+                            texture = textures->at(image);
+                            source = image;
+                        }
+                    }
+                    pass.batches.push_back({texture ? Step::Image : Step::Boxes, first, i - first, source});
                     break;
                 }
             }

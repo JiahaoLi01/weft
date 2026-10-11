@@ -231,6 +231,49 @@ namespace {
         return list;
     }
 
+    // Coverage images of many sizes at fractional positions and scales, interleaved with boxes, over a backdrop: a glyph
+    // run as a page draws it.
+    paint::DisplayList glyph_run() {
+        paint::DisplayList list;
+        std::uint32_t seed = 0x5eed103d;
+        auto next = [&](std::uint32_t range) {
+            seed = seed * 1664525u + 1013904223u;
+            return (seed >> 8) % range;
+        };
+        auto add = [&](paint::Item::Kind kind, float x, float y, float w, float h, std::uint32_t payload) {
+            auto& item = list.items.emplace_back();
+            item.kind = kind;
+            item.transform = {1, 0, 0, 1, x, y};
+            item.width = w;
+            item.height = h;
+            item.clip = {0, 0, 96, 64};
+            item.payload = payload;
+        };
+        list.boxes.emplace_back().background = {.1f, .12f, .15f, 1};
+        add(paint::Item::Kind::Box, 0, 0, 96, 64, 0);
+        for (std::uint32_t i = 0; i < 48; ++i) {
+            const auto w = 1 + next(14);
+            const auto h = 1 + next(14);
+            std::vector<std::uint8_t> coverage(std::size_t(w) * h);
+            for (auto& c : coverage) {
+                c = std::uint8_t(next(256));
+            }
+            list.assets.push_back(std::make_shared<const Asset>(Asset{w, h, Encoding::Coverage, coverage}));
+            auto& image = list.images.emplace_back();
+            image.asset = std::uint32_t(list.assets.size() - 1);
+            image.color = {.9f, .8f - i * .01f, .3f, 1};
+            const float scale = i % 3 == 0 ? 1 : i % 3 == 1 ? 1.5f : .75f;
+            add(paint::Item::Kind::Image, float(next(80)) + next(8) * .125f, float(next(50)) + next(8) * .125f,
+                w * scale, h * scale, std::uint32_t(list.images.size() - 1));
+            if (i % 8 == 7) {
+                list.boxes.emplace_back().background = {.2f, .4f, .9f, .5f};
+                add(paint::Item::Kind::Box, float(next(80)), float(next(50)), 8, 6,
+                    std::uint32_t(list.boxes.size() - 1));
+            }
+        }
+        return list;
+    }
+
     // A 64 x 32 black list with an isolated group of a red box (when red) under an overlapping blue one at half
     // opacity, and a white box in a group at half opacity inside another at half opacity.
     paint::DisplayList groups(bool red) {
@@ -383,6 +426,45 @@ int main(int argc, char** argv) {
             CHECK(close_to(pixels[std::size_t(28) * 64 + 60], encode(black), 0));
         }
         grouped.check_debug_messages();
+
+        // A caching renderer places the glyph images on an atlas page and draws the run in a few draws; the pixels are
+        // those of one texture per image, because each placed image repeats its edge texels around it.
+        Renderer single(!hardware, 96, 64);
+        weft::render::d3d11::render_list(single, glyph_run(), [] {
+        });
+        const auto separate = read_output(single);
+        Renderer cached(!hardware, 96, 64);
+        cached.cache_assets = true;
+        FramePacket run;
+        run.list = std::make_shared<const weft::paint::DisplayList>(glyph_run());
+        for (int frame = 0; frame < 2; ++frame) {
+            const auto draws = cached.display_draws;
+            weft::render::d3d11::render_window(cached, run, [] {
+            });
+            const auto atlas_pixels = read_output(cached);
+            int worst{};
+            std::size_t differing{};
+            for (std::size_t i = 0; i < atlas_pixels.size(); ++i) {
+                int d{};
+                for (unsigned c = 0; c < 4; ++c) {
+                    d = std::max(d, std::abs(int(atlas_pixels[i][c]) - int(separate[i][c])));
+                }
+                worst = std::max(worst, d);
+                differing += d > 0;
+            }
+            std::cout << "atlas vs separate textures: " << differing << " pixels differ, worst " << worst << "; draws "
+                      << cached.display_draws - draws << '\n';
+            // The atlas coordinates of a scaled image round a little differently, and WARP quantizes its filter weights,
+            // so a filtered texel may land one level apart; hardware draws them alike.
+            CHECK(worst <= 1);
+            CHECK(cached.display_draws - draws <= 4);
+        }
+        CHECK(cached.atlas_placements == 48 && cached.atlas.pages() == 1 && cached.atlas.live() == 48 &&
+              cached.cache_hits >= 48 && single.display_draws >= 48);
+        // Draining the cache gives every region back.
+        cached.evict_assets(0, true);
+        CHECK(cached.atlas.live() == 0);
+        cached.check_debug_messages();
         std::cout << "driver command lists: " << renderer.driver_command_lists << '\n';
         std::cout << "PASS D3D11 renderer library on " << renderer.adapter << ": 2 frames, " << renderer.native_releases
                   << " textures retired after completion; " << exact

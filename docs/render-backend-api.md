@@ -63,6 +63,8 @@ destroy 开始 drain，存在 prepared/encoded/submitted handle 时返回 busy�
 
 4K flow 样例现可启用该 adapter 的私有 immutable texture 缓存：相同 asset ID/version 复用 texture/SRV，以及 Ready 或已实际提交的同队列上传，frame 仍传完整有序绘制与资产集合。准备前保护整个输入的已有依赖，避免 LRU 创建较早的 miss 时淘汰较晚的 hit；每帧 lease 和 Prepared/Encoded/Submitted pin 独立于 cache lease。容量为 1,024 资源/128 MiB 纹理有效载荷，只淘汰没有使用 pin 的资源，真实 query completion 前的相关 Submitted pin 阻止淘汰；destroy drain 后释放缓存。Created/Encoded 保留重试字节，取消/录制失败不把它当作 Ready；Submitted 可按同队列顺序读取，真实完成才 Ready。超容量准备失败可 drain/reuse，不遗留 CPU lease。该缓存不扩张 C ABI v1，也不让下一完整包依赖被丢弃的包。
 
+2026-10-12 起缓存渲染器还把不超过 128 px 的覆盖率资产放进共享的 R8 atlas 页面（复制一圈边缘纹素，过滤结果与独立纹理相同），相邻的盒子与同页字形合成一次实例化绘制；放不下时退回独立纹理，淘汰时归还区域，页面清空后才重新装箱。
+
 固定值型 Asset 的身份注册表保留源对象防止地址复用，上限 2,048 项/64 MiB 源像素，清空后身份仍单调不重用。它是本探针的适配策略；通用 SDK 的资源版本、device removal 和跨 API 异步缓存仍待实现。`d3d11_warp_render_cache` 与 `--cache-hardware` 用 seed 0xCE902026 的 48 次源图、字号、圆角、位置和绘制顺序 mutation 对照无缓存全量路径，另验证丢包、容量失败、录制重试及提交后失败的真实完成退休，见 [滚动优化](flow-input-window-probe.md#4k-滚动优化2026-10-09)。
 
 4K 宿主默认使用 [TwoFramePipeline](../src/render/backends/d3d11/two_frame_pipeline.hpp)，adapter 只在此有界 host 下允许 prepare 与先前 Submitted use 重叠；一个 owner 顺序 prepare/encode，两个 GPU 在途 use 的配额沿既有 C ABI v1，未改变 API。两个 slot 各自保存 constant buffer、event query、command list 和拥有值的 host lease；HUD 替换仍保留旧 slot 的 GPU 资源。宿主非阻塞 poll 真实 event，只有两个 slot 都未完成时等待最旧者，截图/resize/关闭则 drain。提交后 host 异常仍保留 slot 并结束 completion query，已执行命令不走 discard。独立 `d3d11_warp_two_frame` / `--pipeline-hardware` 验证两个 Submitted use、同队列上传复用、48 帧像素差分、错误和关闭，详见 [两帧合同与测量](flow-input-window-probe.md#两帧流水线2026-10-09)。这不等于稳定 SDK 或 Vulkan/Metal 已实现。

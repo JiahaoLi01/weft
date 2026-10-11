@@ -1,4 +1,5 @@
 #include "paint/display_list.hpp"
+#include "render/atlas_packer.hpp"
 #include "render/quad_list.hpp"
 #include "render/scene_pass.hpp"
 #include "render/srgb.hpp"
@@ -67,6 +68,69 @@ namespace {
 
     // Runs of boxes share a draw, images and groups get their own steps, and an opaque first box that covers the
     // target becomes the clear color unless crop narrows it.
+    // Shelf packing: regions never overlap, a full page opens the next, the page bound refuses, and a page whose regions
+    // all return starts empty.
+    void packer() {
+        weft::render::AtlasPacker atlas(16, 2);
+        require(!atlas.allocate(0, 4) && !atlas.allocate(17, 4), "empty and oversized regions");
+        const auto a = atlas.allocate(10, 6).value();
+        const auto b = atlas.allocate(6, 6).value();
+        const auto c = atlas.allocate(8, 4).value();
+        require(a.page == 0 && a.x == 0 && a.y == 0 && b.x == 10 && b.y == 0 && c.x == 0 && c.y == 6,
+                "shelves fill left to right, then down");
+        const auto d = atlas.allocate(16, 8).value();
+        require(d.page == 1 && d.x == 0 && d.y == 0 && atlas.pages() == 2, "a full page opens the next");
+        require(atlas.allocate(16, 16) == std::nullopt, "page bound");
+        for (const auto& r : {a, b, c}) {
+            atlas.release(r);
+        }
+        const auto e = atlas.allocate(16, 16).value();
+        require(e.page == 0 && e.x == 0 && e.y == 0 && atlas.live() == 2, "an emptied page starts over");
+        atlas.release(d);
+        bool twice{};
+        try {
+            atlas.release(d);
+        } catch (const std::logic_error&) {
+            twice = true;
+        }
+        require(twice, "a region released twice");
+    }
+
+    // With texture names, consecutive boxes and images that sample one texture are one draw; another texture or a
+    // group ends the run. Without them every image is its own step.
+    void batching() {
+        paint::DisplayList list;
+        list.assets.push_back(std::make_shared<paint::Asset>(paint::Asset{1, 1, paint::Encoding::Coverage, {255}}));
+        list.assets.push_back(std::make_shared<paint::Asset>(paint::Asset{1, 1, paint::Encoding::Coverage, {255}}));
+        list.assets.push_back(std::make_shared<paint::Asset>(paint::Asset{1, 1, paint::Encoding::Coverage, {255}}));
+        list.boxes.emplace_back();
+        list.images.resize(3);
+        list.images[1].asset = 1;
+        list.images[2].asset = 2;
+        list.items = {item(Kind::Box),      item(Kind::Image, 0),   item(Kind::Box),      item(Kind::Image, 1),
+                      item(Kind::Image, 2), item(Kind::BeginGroup), item(Kind::Image, 0), item(Kind::EndGroup)};
+        for (auto& i : list.items) {
+            i.width = i.height = 10;
+            i.clip = {0, 0, 10, 10};
+        }
+        // Assets 0 and 1 share a texture (an atlas page); asset 2 has its own.
+        const std::vector<std::uint64_t> textures{7, 7, 9};
+        const auto merged =
+            weft::render::plan_scene_pass(list, 1, 100, 100, std::nullopt, weft::render::Space::Linear, &textures)
+                .value();
+        using Step = weft::render::ScenePass::Step;
+        const auto& b = merged.batches;
+        require(b.size() == 5 && b[0].step == Step::Image && b[0].first == 0 && b[0].count == 4 && b[0].source == 0 &&
+                    b[1].step == Step::Image && b[1].first == 4 && b[1].count == 1 && b[1].source == 2 &&
+                    b[2].step == Step::BeginGroup && b[3].step == Step::Image && b[3].source == 0 &&
+                    b[4].step == Step::EndGroup,
+                "runs on one texture");
+        const auto single = weft::render::plan_scene_pass(list, 1, 100, 100).value();
+        require(single.batches.size() == 8 && single.batches[1].step == Step::Image && single.batches[1].count == 1 &&
+                    single.batches[3].source == 1,
+                "one step per image without texture names");
+    }
+
     // Instance bounds: an encoded box keeps its antialiasing outset (2 device px), a linear pass's plain box covers
     // pixel centers and its bounds are the box; both stop at the outset past the clip, and a box clipped away covers
     // nothing.
@@ -300,6 +364,8 @@ int main() {
         checks();
         scene_pass();
         bounds();
+        packer();
+        batching();
         quads();
         external_textures();
         append();

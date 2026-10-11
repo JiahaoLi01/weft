@@ -75,6 +75,12 @@ namespace weft::constants::render {
         // LINEAR_RGBA32F bits of weft_render_target_format.
         inline constexpr int features = 31;
         inline constexpr int target_formats = 7;
+        // Glyph atlas of a caching renderer: R8 pages of this many pixels a side, at most this many pages, for coverage
+        // images of at most atlas_max_image pixels a side (each placed with a one-texel border of its edge texels).
+        inline constexpr int atlas_page_size = 2048;
+        inline constexpr int atlas_max_pages = 4;
+        inline constexpr int atlas_max_image = 128;
+        inline constexpr int atlas_border = 1;
         // External texture extension.
         inline constexpr int max_imported_textures = 128;
         inline constexpr int external_texture_capacity = 32;

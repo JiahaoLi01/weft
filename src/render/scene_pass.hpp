@@ -62,7 +62,8 @@ namespace weft::render {
         enum class Step : std::uint8_t {
             // Records [first, first + count) in one instanced draw without an image.
             Boxes,
-            // Record first, sampling the image of its Text, Layer or Image item.
+            // Records [first, first + count) in one instanced draw of the image of source: one Text, Layer or Image
+            // item, or with texture names a run of boxes and images that sample one texture.
             Image,
             // Continue in a cleared group target one level deeper.
             BeginGroup,
@@ -74,6 +75,8 @@ namespace weft::render {
             Step step{};
             std::uint32_t first{};
             std::uint32_t count{};
+            // The image source (DisplayList asset index, past the assets an external texture) an Image step binds.
+            std::uint32_t source{};
         };
 
         // One record per item, in item order: record i belongs to item i.
@@ -87,6 +90,13 @@ namespace weft::render {
         std::size_t group_depth{};
     };
 
+    // Makes an image record sample its image from region (normalized origin and extent) of the bound texture, as an
+    // atlas page holds it.
+    inline void place_in(SceneRecord& record, const std::array<float, 4>& region) {
+        record.uv = {region[0] + record.uv[0] * region[2], region[1] + record.uv[1] * region[3],
+                     record.uv[2] * region[2], record.uv[3] * region[3]};
+    }
+
     // Makes an image record sample its image bottom up, for a texture whose rows start at the bottom.
     inline void flip_rows(SceneRecord& record) {
         record.uv = {record.uv[0], 1 - record.uv[1], record.uv[2], -record.uv[3]};
@@ -95,7 +105,10 @@ namespace weft::render {
     // Plans a list that passed paint::check for a width x height device px target at scale device px per CSS px,
     // with every item clip narrowed to crop when given. A linear pass takes its colors linear and premultiplied from
     // here; rounded clips are normalized. A clip outside the rounded clip bounds, or a chain longer than
-    // max_rounded_clips, is Diag::PaintList.
+    // max_rounded_clips, is Diag::PaintList. textures, when given, names the texture of each image source (equal names
+    // for one texture, such as an atlas page); then a run of consecutive boxes and images that sample one texture is
+    // one draw.
     Result<ScenePass> plan_scene_pass(const paint::DisplayList& list, float scale, unsigned width, unsigned height,
-                                      std::optional<paint::ClipRect> crop = std::nullopt, Space space = Space::Encoded);
+                                      std::optional<paint::ClipRect> crop = std::nullopt, Space space = Space::Encoded,
+                                      const std::vector<std::uint64_t>* textures = nullptr);
 } // namespace weft::render

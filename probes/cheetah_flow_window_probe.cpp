@@ -801,7 +801,11 @@ namespace probes {
                             ",\"gpu_cache_hits\":" + std::to_string(gpu.cache_hits) +
                             ",\"gpu_cache_peak_bytes\":" + std::to_string(gpu.peak_cached_bytes) +
                             ",\"cpu_glyph_cache_bytes\":" + std::to_string(packet_cache.glyphs.bytes) +
-                            ",\"glyph_cache_hits\":" + std::to_string(packet_cache.glyphs.hits) + "}";
+                            ",\"glyph_cache_hits\":" + std::to_string(packet_cache.glyphs.hits) +
+                            ",\"atlas_placements\":" + std::to_string(gpu.atlas_placements) +
+                            ",\"atlas_pages\":" + std::to_string(gpu.atlas.pages()) +
+                            ",\"display_draws\":" + std::to_string(gpu.display_draws) +
+                            ",\"display_instances\":" + std::to_string(gpu.display_instances) + "}";
             write_text(folder / "profile.json", profile_text);
         }
         const auto motion_state = motion ? script.eval("JSON.stringify(__ceMotion.snapshot())") : "null";
