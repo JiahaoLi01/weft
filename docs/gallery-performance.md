@@ -25,7 +25,7 @@ cmake --build --preset windows-release --parallel 8
 
 ## 实现与边界
 
-- 样式表只解析一次。style key 保留节点身份/顺序、namespace、inline style、所有 stylesheet attribute selector 依赖与 SVG presentation 属性，忽略不参与层叠的坐标/文本更新。布局签名只排除已知 paint 属性，保留尺寸、字体、文本、结构与 `transform` 是否创建 containing block；改 viewport、字体或布局属性会重新 layout。静态 scene 仍泵原 timer/rAF，DOM 不变且没有待推进动画时复用 scene。同步 geometry read 继续经过最新布局。
+- 样式表只解析一次。style key 保留节点身份/顺序、namespace、inline style、所有 stylesheet attribute selector 依赖与 SVG presentation 属性，忽略不参与层叠的坐标/文本更新；2026-10-11 起按 DOM 子树版本号原地维护，未变的子树不再重读。布局签名只排除已知 paint 属性，保留尺寸、字体、文本、结构与 `transform` 是否创建 containing block；改 viewport、字体或布局属性会重新 layout。静态 scene 仍泵原 timer/rAF，DOM 不变且没有待推进动画时复用 scene。同步 geometry read 继续经过最新布局。
 - 可见卡片由宿主明确分配 GPU backing，不做自动图层提升。每卡最多三个完整 version，UI 最多两帧在途；重写前验证最后消费 serial 已真实完成并释放旧 caller lease。GPU producer 转换/合成在同一 device/queue，异常中的 producer-only 工作也通过 event query 完成后退休。
 - D2D 写 encoded-premultiplied BGRA8，逐 texel shader 转 linear-premultiplied RGBA16F，然后由已有 renderer 外部纹理接口滤波/合成。半透明纹理不能先滤波再 decode。公开 C ABI 不变，私有 D3D11 probe 外部 registry 从默认 32/64MiB 可显式配置到 128/512MiB；卡片池还持有 BGRA backing 与 D2D 缓存，512MiB 只是 linear import payload 上限。
 - 线性不透明 gradient 走原生 brush，使用 sRGB 插值，其他 gradient 保留软件生成与有界缓存；[D2D gamma 枚举](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ne-d2d1-d2d1_gamma) 区分这两种插值。GPU brush 按参考 RGBA8 premultiplied 精度量化，保持低透明度背景的阈值一致，没有放宽原图 oracle。

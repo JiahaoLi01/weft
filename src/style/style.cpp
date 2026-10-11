@@ -1403,38 +1403,157 @@ namespace weft {
         engine.compute_into(dom, output, nullptr, {});
     }
 
-    DomSnapshot CompiledStyle::input_key(const DomSnapshot& dom) const {
+    bool CompiledStyle::refresh_input(const DomSnapshot& dom, StyleInput& input) const {
+        using Node = StyleInput::Node;
+        const auto& wanted = impl_->attributes;
+        // Copies of one node with the same non-zero revision have equal content, so their inputs are equal too.
+        const auto unchanged = [](const DomSnapshot& n, const Node& k) {
+            return n.revision != 0 && k.revision == n.revision && k.identity == n.identity;
+        };
+        // The input child read from DOM child `child`, the element child at `index`.
+        const auto prior = [](const Node& k, const DomSnapshot& child, std::size_t index) -> const Node* {
+            if (index < k.children.size() && k.children[index].identity == child.identity) {
+                return &k.children[index];
+            }
+            for (const auto& c : k.children) {
+                if (c.identity == child.identity) {
+                    return &c;
+                }
+            }
+            return nullptr;
+        };
+        // First pass, read only: the bounds of a full read, taking unchanged subtrees' node counts from the input. Inputs
+        // match by identity under matching parents, so an unchanged subtree sits at the depth it was read at, which
+        // passed the depth bound then.
         std::size_t nodes{};
-        auto visit = [&](auto&& self, const DomSnapshot& n, unsigned depth) -> DomSnapshot {
-            if (++nodes > constants::max_document_nodes || depth >= constants::max_document_depth) {
+        const auto count = [&](std::size_t subtree_nodes, unsigned depth) {
+            nodes += subtree_nodes;
+            if (nodes > std::size_t(constants::max_document_nodes) ||
+                depth >= unsigned(constants::max_document_depth)) {
                 fail("style input key node/depth bound");
             }
-            DomSnapshot out;
-            out.identity = n.identity;
-            out.type = n.type;
-            out.local_name = n.local_name;
-            out.namespace_uri = n.namespace_uri;
-            for (auto* p : impl_->state_parts) {
-                if (dom::matches(*p, LoneElement{&n, depth == 0 && n.local_name == "html"}, false)) {
-                    out.hovered |= p->hover && n.hovered;
-                    out.active |= p->active && n.active;
-                }
+        };
+        const auto bounds = [&](auto&& self, const DomSnapshot& n, const Node* k, unsigned depth) -> void {
+            if (k && unchanged(n, *k)) {
+                count(k->nodes, depth);
+                return;
             }
-            for (const auto& [key, value] : n.attributes) {
-                if (impl_->attributes.contains(key)) {
-                    out.attributes.emplace(key, value);
-                }
-            }
-            // DomSnapshot's move may throw (std::map), so a reallocation would copy every child key so far.
-            out.children.reserve(n.children.size());
+            count(1, depth);
+            std::size_t index{};
             for (const auto& child : n.children) {
                 if (child.type == constants::element_node_type) {
-                    out.children.push_back(self(self, child, depth + 1));
+                    self(self, child, k ? prior(*k, child, index) : nullptr, depth + 1);
+                    ++index;
                 }
             }
-            return out;
         };
-        return visit(visit, dom, 0);
+        // hover and active where a state selector can see them.
+        const auto state = [&](const DomSnapshot& n, unsigned depth) {
+            std::pair<bool, bool> seen{};
+            if (n.hovered || n.active) {
+                for (const auto* p : impl_->state_parts) {
+                    if (dom::matches(*p, LoneElement{&n, depth == 0 && n.local_name == "html"}, false)) {
+                        seen.first |= p->hover && n.hovered;
+                        seen.second |= p->active && n.active;
+                    }
+                }
+            }
+            return seen;
+        };
+        const auto same_attributes = [&](const DomSnapshot& n, const Node& k) {
+            auto it = k.attributes.begin();
+            for (const auto& [key, value] : n.attributes) {
+                if (wanted.contains(key)) {
+                    if (it == k.attributes.end() || it->first != key || it->second != value) {
+                        return false;
+                    }
+                    ++it;
+                }
+            }
+            return it == k.attributes.end();
+        };
+        // Second pass: brings k up to date with n and returns whether its content changed.
+        const auto read = [&](auto&& self, const DomSnapshot& n, Node& k, unsigned depth) -> bool {
+            if (unchanged(n, k)) {
+                return false;
+            }
+            bool changed{};
+            const auto assign = [&changed](auto& to, const auto& from) {
+                if (to != from) {
+                    to = from;
+                    changed = true;
+                }
+            };
+            assign(k.identity, n.identity);
+            assign(k.type, n.type);
+            assign(k.local_name, n.local_name);
+            assign(k.namespace_uri, n.namespace_uri);
+            const auto [hovered, active] = state(n, depth);
+            assign(k.hovered, hovered);
+            assign(k.active, active);
+            if (!same_attributes(n, k)) {
+                k.attributes.clear();
+                for (const auto& [key, value] : n.attributes) {
+                    if (wanted.contains(key)) {
+                        k.attributes.emplace(key, value);
+                    }
+                }
+                changed = true;
+            }
+            // Children keep their inputs by identity; a node new to this parent is read whole.
+            std::size_t elements{};
+            bool same_children = true;
+            for (const auto& child : n.children) {
+                if (child.type == constants::element_node_type) {
+                    same_children = same_children && elements < k.children.size() &&
+                                    k.children[elements].identity == child.identity;
+                    ++elements;
+                }
+            }
+            if (!same_children || elements != k.children.size()) {
+                std::vector<Node> children;
+                children.reserve(elements);
+                std::size_t index{};
+                for (const auto& child : n.children) {
+                    if (child.type == constants::element_node_type) {
+                        const auto* found = prior(k, child, index++);
+                        if (found) {
+                            auto& source = k.children[std::size_t(found - k.children.data())];
+                            children.push_back(std::move(source));
+                            source.identity = {};
+                        } else {
+                            children.emplace_back();
+                        }
+                    }
+                }
+                k.children = std::move(children);
+                changed = true;
+            }
+            k.nodes = 1;
+            std::size_t index{};
+            for (const auto& child : n.children) {
+                if (child.type == constants::element_node_type) {
+                    auto& c = k.children[index++];
+                    changed |= self(self, child, c, depth + 1);
+                    k.nodes += c.nodes;
+                }
+            }
+            k.revision = n.revision;
+            return changed;
+        };
+        const bool fresh = !input.root_ || input.binding_ != impl_->identity;
+        bounds(bounds, dom, fresh ? nullptr : &*input.root_, 0);
+        try {
+            if (fresh) {
+                input.root_.emplace();
+                input.binding_ = impl_->identity;
+            }
+            return read(read, dom, *input.root_, 0) || fresh;
+        } catch (...) {
+            input.root_.reset();
+            input.binding_.reset();
+            throw;
+        }
     }
 
     void CompiledStyle::normalize_selector_state(DomSnapshot& dom) const {

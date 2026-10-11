@@ -7,9 +7,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cctype>
+#include <functional>
 #include <limits>
 #include <optional>
 #include <sstream>
+#include <stdexcept>
 #include <charconv>
 #include <set>
 #include <thread>
@@ -652,6 +654,11 @@ namespace weft {
         SceneId identity(NodeIdentity n) {
             return {n.view_epoch, n.slot, n.generation};
         }
+
+        // Pairs of a node of the current build and the previous-frame node it was taken from; taken_from needs them
+        // sorted by the first (sort_reused).
+        template <class T>
+        using Reused = std::vector<std::pair<const T*, const T*>>;
     } // namespace
 
     StyleProfile scene_style_profile() {
@@ -762,12 +769,16 @@ namespace weft {
         bool incremental = true;
         bool profiling = true;
         SceneSolver::Work work;
-        std::optional<DomSnapshot> style_input;
+        StyleInput style_input;
         std::optional<ComputedStyle> cascade;
         std::optional<ComputedStyle> computed;
         std::optional<SceneFrame> previous;
         std::optional<DomSnapshot> previous_dom;
         std::optional<ComputedStyle> previous_computed;
+        // What the last build took whole from the previous frame (build_into's static path): each output node and
+        // computed style with the previous one it equals. Layout may since have moved the output's boxes.
+        Reused<SceneNode> reused_nodes;
+        Reused<ComputedStyle> reused_styles;
         float previous_width{};
         float previous_height{};
         Keyframes keyframes;
@@ -817,19 +828,6 @@ namespace weft {
             }
         }
 
-        bool same_computed(const ComputedStyle& a, const ComputedStyle& b) const {
-            if (a.identity != b.identity || a.local_name != b.local_name || a.values != b.values ||
-                a.specified_properties != b.specified_properties || a.children.size() != b.children.size()) {
-                return false;
-            }
-            for (std::size_t n = 0; n < a.children.size(); ++n) {
-                if (!same_computed(a.children[n], b.children[n])) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
         bool static_subtree(const SceneNode& n) const {
             if (n.tag != "#text") {
                 auto it = states.find(identity(n.identity));
@@ -871,7 +869,7 @@ namespace weft {
                         const DomSnapshot* old_dom = nullptr, const ComputedStyle* old_computed = nullptr,
                         const SceneNode* old_node = nullptr, const Style* old_parent = nullptr) {
             if (incremental && old_dom && old_computed && old_node && dom::same_content(d, *old_dom) &&
-                same_inheritance(parent, old_parent) && same_computed(c, *old_computed) && static_subtree(*old_node)) {
+                same_inheritance(parent, old_parent) && c == *old_computed && static_subtree(*old_node)) {
                 keep_live(*old_node);
                 ++work.static_subtree_reuses;
                 if (!scene_paint_source_equal(output, *old_node)) {
@@ -879,6 +877,8 @@ namespace weft {
                     work.paint_changed = true;
                     output = *old_node;
                 }
+                reused_nodes.emplace_back(&output, old_node);
+                reused_styles.emplace_back(&c, old_computed);
                 return;
             }
             // A stable node target may own thousands of repeated property strings.
@@ -1394,6 +1394,110 @@ namespace weft {
                 }
             }
         }
+
+        // Whether the build took `from` whole from `to`.
+        template <class T>
+        bool taken_from(const Reused<T>& reused, const T& from, const T& to) {
+            const auto it = std::lower_bound(reused.begin(), reused.end(), &from, [](const auto& entry, const T* key) {
+                return std::less<const T*>{}(entry.first, key);
+            });
+            return it != reused.end() && it->first == &from && it->second == &to;
+        }
+
+        template <class T>
+        void sort_reused(Reused<T>& reused) {
+            std::sort(reused.begin(), reused.end(), [](const auto& a, const auto& b) {
+                return std::less<const T*>{}(a.first, b.first);
+            });
+        }
+
+        template <class T>
+        void assign_changed(T& to, const T& from) {
+            if (!(to == from)) {
+                to = from;
+            }
+        }
+
+        // Brings to.children in line with from.children. Children match one to one by identity; `follow` brings each
+        // matched child up to date where it is, before any child moves, and a child new to this parent is copied.
+        template <class T, class Follow>
+        void follow_children(T& to, const T& from, const Follow& follow) {
+            const auto count = from.children.size();
+            if (to.children.size() == count &&
+                std::equal(from.children.begin(), from.children.end(), to.children.begin(), [](const T& a, const T& b) {
+                    return a.identity == b.identity;
+                })) {
+                for (std::size_t i = 0; i < count; ++i) {
+                    follow(to.children[i], from.children[i]);
+                }
+                return;
+            }
+            std::vector<bool> taken(to.children.size());
+            std::vector<T*> matched(count);
+            for (std::size_t i = 0; i < count; ++i) {
+                const auto& id = from.children[i].identity;
+                auto j = i;
+                if (j >= to.children.size() || taken[j] || to.children[j].identity != id) {
+                    j = 0;
+                    while (j < to.children.size() && (taken[j] || to.children[j].identity != id)) {
+                        ++j;
+                    }
+                }
+                if (j < to.children.size()) {
+                    taken[j] = true;
+                    matched[i] = &to.children[j];
+                    follow(*matched[i], from.children[i]);
+                }
+            }
+            std::vector<T> children;
+            children.reserve(count);
+            for (std::size_t i = 0; i < count; ++i) {
+                if (matched[i]) {
+                    children.push_back(std::move(*matched[i]));
+                } else {
+                    children.push_back(from.children[i]);
+                }
+            }
+            to.children = std::move(children);
+        }
+
+        // Makes the previous frame's node `to` equal the built node `from`. Where the build took `from` whole from
+        // `to`, only the boxes layout wrote can differ.
+        void follow(SceneNode& to, const SceneNode& from, const Reused<SceneNode>& reused) {
+            if (taken_from(reused, from, to)) {
+                copy_boxes(to, from);
+                return;
+            }
+            to.identity = from.identity;
+            assign_changed(to.tag, from.tag);
+            assign_changed(to.space, from.space);
+            assign_changed(to.text, from.text);
+            assign_changed(to.attributes, from.attributes);
+            assign_changed(to.style, from.style);
+            to.box = from.box;
+            if (bool(to.paint) != bool(from.paint) || (to.paint && to.paint->values != from.paint->values)) {
+                to.paint = from.paint;
+            }
+            follow_children(to, from, [&](SceneNode& a, const SceneNode& b) {
+                follow(a, b, reused);
+            });
+        }
+
+        // Makes the previous computed style `to` equal `from`; where the build took `from` whole, they are equal.
+        void follow(ComputedStyle& to, const ComputedStyle& from, const Reused<ComputedStyle>& reused) {
+            if (taken_from(reused, from, to)) {
+                return;
+            }
+            to.identity = from.identity;
+            assign_changed(to.local_name, from.local_name);
+            assign_changed(to.values, from.values);
+            assign_changed(to.custom_properties, from.custom_properties);
+            assign_changed(to.invalid_at_computed_value, from.invalid_at_computed_value);
+            assign_changed(to.specified_properties, from.specified_properties);
+            follow_children(to, from, [&](ComputedStyle& a, const ComputedStyle& b) {
+                follow(a, b, reused);
+            });
+        }
     } // namespace
 
     SceneSolver::Work SceneSolver::work() const {
@@ -1423,12 +1527,14 @@ namespace weft {
         impl_->states.clear();
         impl_->interpolation = {};
         impl_->paint_cache = {};
-        impl_->style_input.reset();
+        impl_->style_input = {};
         impl_->cascade.reset();
         impl_->computed.reset();
         impl_->previous.reset();
         impl_->previous_dom.reset();
         impl_->previous_computed.reset();
+        impl_->reused_nodes.clear();
+        impl_->reused_styles.clear();
         impl_->work = {};
         impl_->now = -1;
     }
@@ -1457,8 +1563,7 @@ namespace weft {
         i.live.clear();
         i.animated = false;
         i.work.geometry_changed = i.work.paint_changed = false;
-        auto style_key = i.incremental ? i.compiled->input_key(d) : d;
-        if (!i.incremental || !i.style_input || *i.style_input != style_key) {
+        if (!i.incremental || i.compiled->refresh_input(d, i.style_input)) {
             if (i.incremental) {
                 if (!i.cascade) {
                     i.cascade.emplace();
@@ -1476,19 +1581,20 @@ namespace weft {
                 } catch (...) {
                     i.cascade.reset();
                     i.computed.reset();
-                    i.style_input.reset();
+                    i.style_input = {};
                     throw;
                 }
             } else {
                 i.computed = compute_style(d, i.sheet, scene_style_profile());
             }
-            i.style_input = std::move(style_key);
             ++i.work.style_evaluations;
         } else {
             ++i.work.style_reuses;
         }
         const auto build_start = clock();
         i.work.style_ms += ms(profile_start, build_start);
+        i.reused_nodes.clear();
+        i.reused_styles.clear();
         i.build_into(f.root, d, *i.computed, nullptr, i.previous_dom ? &*i.previous_dom : nullptr,
                      i.previous_computed ? &*i.previous_computed : nullptr, i.previous ? &i.previous->root : nullptr);
         f.elements.clear();
@@ -1518,7 +1624,30 @@ namespace weft {
         // not change its boxes/signature, so it needs no deep copy on a reuse.
         // Returned frames remain complete, independently owned values.
         if (!reuse) {
-            i.previous = f;
+            // Only what the build did not take whole from the previous frame is compared and copied.
+            if (i.incremental && i.previous && i.previous_computed) {
+                try {
+                    sort_reused(i.reused_nodes);
+                    sort_reused(i.reused_styles);
+                    follow(i.previous->root, f.root, i.reused_nodes);
+                    i.previous->elements = f.elements;
+                    i.previous->animated = f.animated;
+                    i.previous->time_ms = f.time_ms;
+                    follow(*i.previous_computed, *i.computed, i.reused_styles);
+#ifndef NDEBUG
+                    if (!scene_paint_source_equal(i.previous->root, f.root) || !(*i.previous_computed == *i.computed)) {
+                        throw std::logic_error("WEFT_SCENE_CORRUPTION: previous frame differs from the update");
+                    }
+#endif
+                } catch (...) {
+                    i.previous.reset();
+                    i.previous_computed.reset();
+                    throw;
+                }
+            } else {
+                i.previous = f;
+                i.previous_computed = i.computed;
+            }
             // Only subtrees whose revision moved are copied.
             if (i.previous_dom) {
                 try {
@@ -1530,7 +1659,6 @@ namespace weft {
             } else {
                 i.previous_dom = d;
             }
-            i.previous_computed = i.computed;
         }
         i.previous_width = w;
         i.previous_height = h;

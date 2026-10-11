@@ -6,12 +6,227 @@
 #include "support/check.hpp"
 #include "../probes/gallery_scene_session.hpp"
 #include "constants/scene.hpp"
+#include "dom/tree.hpp"
 #include "test_constants/scene.hpp"
+#include <algorithm>
 #include <iostream>
+#include <string>
+#include <vector>
 #include <thread>
 #include <windows.h>
 
 using weft::testing::require;
+
+namespace {
+    namespace dom = weft::dom;
+    constexpr int element_type = weft::constants::element_node_type;
+
+    // A scene DOM without a script engine: document > div, the scene root.
+    struct NativeScene {
+        dom::Tree tree{1};
+        dom::Node* document{};
+        dom::Node* root{};
+
+        NativeScene() {
+            document = &tree.create(weft::constants::document_node_type, "#document", "", {});
+            root = &html("div");
+            tree.insert(*document, *root, nullptr);
+        }
+
+        dom::Node& html(std::string local) {
+            return tree.create(element_type, std::move(local), weft::constants::xhtml_namespace_uri,
+                               document->identity);
+        }
+
+        dom::Node& svg(std::string local) {
+            return tree.create(element_type, std::move(local), weft::constants::svg_namespace_uri, document->identity);
+        }
+
+        void set(dom::Node& n, const std::string& name, std::string value) {
+            auto it = std::find_if(n.attributes.begin(), n.attributes.end(), [&](const dom::Attribute& a) {
+                return a.name == name;
+            });
+            if (it == n.attributes.end()) {
+                n.attributes.push_back({name, name, "", std::move(value)});
+            } else {
+                it->value = std::move(value);
+            }
+            tree.changed(n);
+        }
+
+        void toggle_class(dom::Node& n, const std::string& name) {
+            auto it = std::find_if(n.attributes.begin(), n.attributes.end(), [](const dom::Attribute& a) {
+                return a.name == "class";
+            });
+            if (it != n.attributes.end() && it->value == name) {
+                n.attributes.erase(it);
+                tree.changed(n);
+            } else {
+                set(n, "class", name);
+            }
+        }
+    };
+
+    bool same_elements(const std::vector<weft::ElementGeometry>& a, const std::vector<weft::ElementGeometry>& b) {
+        if (a.size() != b.size()) {
+            return false;
+        }
+        for (std::size_t i = 0; i < a.size(); ++i) {
+            const auto& x = a[i];
+            const auto& y = b[i];
+            if (x.identity != y.identity || x.rect != y.rect || x.client_rects != y.client_rects ||
+                x.client_width != y.client_width || x.client_height != y.client_height ||
+                x.scroll_width != y.scroll_width || x.scroll_height != y.scroll_height) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Retained solvers, whose style input, previous frame and previous computed styles follow only what changed,
+    // equal a full solve after random mutations: block heights that move unchanged siblings, paint-only changes the
+    // layout reuses, SVG attributes the cascade does not read, selector context changes above unchanged elements,
+    // custom properties nothing reads, hover, moves and viewport changes.
+    void retained_frames_differential(weft::SceneRaster& raster) {
+        NativeScene s;
+        s.set(*s.root, "style", "position:relative;width:180px;height:220px;background-color:#000000");
+        std::vector<dom::Node*> blocks;
+        std::vector<dom::Node*> boxes; // Blocks and the boxes inside them.
+        for (int i = 0; i < 4; ++i) {
+            auto& block = s.html("div");
+            s.set(block, "style", "height:" + std::to_string(10 + i) + "px;background-color:#202020");
+            s.tree.insert(*s.root, block, nullptr);
+            blocks.push_back(&block);
+            boxes.push_back(&block);
+            for (int j = 0; j < 2; ++j) {
+                auto& inner = s.html("div");
+                s.set(inner, "style",
+                      "width:" + std::to_string(20 + 10 * j) + "px;height:4px;background-color:#404040");
+                s.tree.insert(block, inner, nullptr);
+                boxes.push_back(&inner);
+            }
+        }
+        auto& vars = s.html("div");
+        s.set(vars, "style", "--k:0;height:4px");
+        s.tree.insert(*s.root, vars, nullptr);
+        auto& chart = s.svg("svg");
+        s.set(chart, "width", "120");
+        s.set(chart, "height", "80");
+        s.tree.insert(*s.root, chart, nullptr);
+        std::vector<dom::Node*> groups;
+        std::vector<dom::Node*> marks;
+        for (int g = 0; g < 3; ++g) {
+            auto& group = s.svg("g");
+            s.tree.insert(chart, group, nullptr);
+            groups.push_back(&group);
+            for (int m = 0; m < 4; ++m) {
+                auto& mark = s.svg(m == 3 ? "line" : "rect");
+                if (m == 3) {
+                    s.set(mark, "x1", "0");
+                    s.set(mark, "y1", std::to_string(10 * g));
+                    s.set(mark, "x2", "100");
+                    s.set(mark, "y2", std::to_string(10 * g));
+                    s.set(mark, "stroke", "#808080");
+                } else {
+                    s.set(mark, "x", std::to_string(30 * m));
+                    s.set(mark, "y", std::to_string(20 * g));
+                    s.set(mark, "width", "12");
+                    s.set(mark, "height", "8");
+                    s.set(mark, "fill", "#0000ff");
+                }
+                s.tree.insert(group, mark, nullptr);
+                marks.push_back(&mark);
+            }
+        }
+        const std::string sheet =
+            ".on rect{fill:#ff0000}.on line{stroke:#00ff00}.hot{background-color:#336699}div:hover{background-color:#00ff00}.dim{opacity:.5}";
+        const auto measure = [](auto text, const auto& style) {
+            return weft::testing::thread_scene_text().measure(text, style);
+        };
+        weft::SceneSolver retained(sheet, "", measure);
+        weft::SceneSolver owning(sheet, "", measure);
+        weft::SceneSolver reference(sheet, "", measure, false);
+        weft::SceneFrame retained_frame;
+        std::uint32_t seed = 0x3c1;
+        const auto next = [&] {
+            seed = seed * weft::constants::lcg_multiplier + weft::constants::lcg_increment;
+            return seed >> 8;
+        };
+        float width = 200;
+        constexpr int steps = 600;
+        for (int step = 0; step < steps; ++step) {
+            switch (next() % 10) {
+                case 0: {
+                    auto& block = *blocks[next() % blocks.size()];
+                    s.set(block, "style", "height:" + std::to_string(8 + next() % 9) + "px;background-color:#202020");
+                    break;
+                }
+                case 1:
+                    s.toggle_class(*boxes[next() % boxes.size()], "hot");
+                    break;
+                case 2: {
+                    auto& box = *boxes[next() % boxes.size()];
+                    box.hovered = !box.hovered;
+                    s.tree.changed(box);
+                    break;
+                }
+                case 3:
+                    s.set(vars, "style", "--k:" + std::to_string(next() % 4) + ";height:4px");
+                    break;
+                case 4:
+                    s.toggle_class(*groups[next() % groups.size()], "on");
+                    break;
+                case 5: {
+                    auto& mark = *marks[next() % marks.size()];
+                    s.set(mark, mark.local == "line" ? "x2" : "x", std::to_string(next() % 100));
+                    break;
+                }
+                case 6: {
+                    auto& mark = *marks[next() % marks.size()];
+                    s.set(mark, mark.local == "line" ? "stroke" : "fill", next() % 2 ? "#0000ff" : "#ffff00");
+                    break;
+                }
+                case 7:
+                    s.toggle_class(*marks[next() % marks.size()], "dim");
+                    break;
+                case 8:
+                    if (next() % 2) {
+                        s.tree.insert(*groups[next() % groups.size()], *marks[next() % marks.size()], nullptr);
+                    } else {
+                        auto& block = *blocks[next() % blocks.size()];
+                        s.tree.insert(*s.root, block, &s.tree.at(s.root->children[next() % s.root->children.size()]));
+                    }
+                    break;
+                default:
+                    width = next() % 4 ? 200.f : 190.f;
+                    break;
+            }
+            const auto dom = s.tree.snapshot(*s.root);
+            const auto at = " at step " + std::to_string(step);
+            const double time = step * 16;
+            retained.update(dom, retained_frame, width, weft::test_constants::scene::contract_view_size, time);
+            const auto expected = reference.frame(dom, width, weft::test_constants::scene::contract_view_size, time);
+            const auto owned = owning.frame(dom, width, weft::test_constants::scene::contract_view_size, time);
+            require(retained_frame.root == expected.root && same_elements(retained_frame.elements, expected.elements),
+                    "retained frame differs from a full solve" + at);
+            require(weft::scene_paint_source_equal(owned.root, retained_frame.root) &&
+                        same_elements(owned.elements, expected.elements),
+                    "owned frame differs from the retained frame" + at);
+            require(raster.raster(retained_frame).rgba == raster.raster(expected).rgba,
+                    "retained pixels differ from a full solve" + at);
+            // A first frame computes every numeric paint value, which == and the CPU raster leave out, from styles.
+            weft::SceneSolver first(sheet, "", measure);
+            require(weft::scene_paint_source_equal(
+                        first.frame(dom, width, weft::test_constants::scene::contract_view_size, time).root,
+                        retained_frame.root),
+                    "retained paint values differ from a first frame" + at);
+        }
+        const auto work = retained.work();
+        require(work.static_subtree_reuses > steps && work.layout_reuses > steps / 2 &&
+                    work.layout_evaluations > steps / 8 && work.style_reuses > steps / 4,
+                "random mutations did not exercise reuse and its invalidation");
+    }
+} // namespace
 
 int main() {
     try {
@@ -599,6 +814,7 @@ int main() {
                     times.layout_ms == after_times.layout_ms,
                 "disabled profiler still collected phase clocks");
         fixed.unmount();
+        retained_frames_differential(raster);
         std::cout
             << "PASS scene contracts: timer lifecycle, selector diagnostics, cascade inheritance, timeline, transform hit/pixels, detach/reinsert, owner isolation, implicit endpoints, 120 mutation raster/layout differentials\n";
         return 0;

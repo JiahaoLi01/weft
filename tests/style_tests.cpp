@@ -1,4 +1,5 @@
 #include "style/style.hpp"
+#include "dom/tree.hpp"
 #include "script/script_dom.hpp"
 #include "support/check.hpp"
 #include "support/files.hpp"
@@ -6,12 +7,16 @@
 #include "constants/style.hpp"
 #include "test_constants/style_text.hpp"
 #include "layout/document.hpp"
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 using namespace weft;
 
 namespace {
@@ -57,6 +62,334 @@ namespace {
             }
         }
         throw std::out_of_range("style id");
+    }
+
+    constexpr int element_type = weft::constants::element_node_type;
+    constexpr int text_type = weft::constants::text_node_type;
+
+    // A native document with html > body.
+    struct Page {
+        dom::Tree tree{1};
+        dom::Node* document{};
+        dom::Node* html{};
+        dom::Node* body{};
+
+        Page() {
+            document = &tree.create(weft::constants::document_node_type, "#document", "", {});
+            html = &element("html");
+            body = &element("body");
+            tree.insert(*document, *html, nullptr);
+            tree.insert(*html, *body, nullptr);
+        }
+
+        dom::Node& element(std::string local) {
+            return tree.create(element_type, std::move(local), weft::constants::xhtml_namespace_uri,
+                               document->identity);
+        }
+
+        dom::Node& text(std::string data) {
+            auto& n = tree.create(text_type, "#text", "", document->identity);
+            n.data = std::move(data);
+            return n;
+        }
+
+        void set(dom::Node& n, const std::string& name, std::string value) {
+            auto it = std::find_if(n.attributes.begin(), n.attributes.end(), [&](const dom::Attribute& a) {
+                return a.name == name;
+            });
+            if (it == n.attributes.end()) {
+                n.attributes.push_back({name, name, "", std::move(value)});
+            } else {
+                it->value = std::move(value);
+            }
+            tree.changed(n);
+        }
+    };
+
+    // Each input node carries the revision of the DOM node it was read from.
+    bool revisions_match(const StyleInput::Node& input, const DomSnapshot& dom) {
+        if (input.revision != dom.revision) {
+            return false;
+        }
+        std::size_t i{};
+        for (const auto& child : dom.children) {
+            if (child.type == element_type &&
+                (i >= input.children.size() || !revisions_match(input.children[i++], child))) {
+                return false;
+            }
+        }
+        return i == input.children.size();
+    }
+
+    DomSnapshot* find_element(DomSnapshot& n, const std::string& id) {
+        if (const auto it = n.attributes.find("id"); it != n.attributes.end() && it->second == id) {
+            return &n;
+        }
+        for (auto& child : n.children) {
+            if (auto* found = find_element(child, id)) {
+                return found;
+            }
+        }
+        return nullptr;
+    }
+
+    bool rejected_bounds(const CompiledStyle& styles, const DomSnapshot& dom, StyleInput& input) {
+        try {
+            styles.refresh_input(dom, input);
+        } catch (const std::invalid_argument& e) {
+            return std::string_view(e.what()).find("style input key node/depth bound") != std::string_view::npos;
+        }
+        return false;
+    }
+
+    // An input kept by refresh_input equals one read whole after random mutations, reports exactly whether it changed
+    // and carries the nodes' revisions. The mutations include changes the cascade does not read and changes recorded
+    // without a content difference.
+    void style_input_differential() {
+        Page p;
+        // The scene syntax adds state selectors and presentation attributes.
+        const std::string sheet = ".on{color:#ff0000}#key{width:10px}[data-k]{height:2px}";
+        auto scene_profile = document_style_profile();
+        scene_profile.scene_syntax = true;
+        const CompiledStyle document_styles(sheet, document_style_profile());
+        const CompiledStyle presentation_styles(sheet + "div:hover{color:#00ff00}span:active{color:#0000ff}",
+                                                scene_profile);
+        std::vector<dom::Node*> pool;
+        for (int i = 0; i < 24; ++i) {
+            pool.push_back(i % 5 == 4 ? &p.text("t") : &p.element(i % 3 ? "div" : "span"));
+        }
+        std::uint32_t seed = 0x51e;
+        const auto next = [&] {
+            seed = seed * weft::constants::lcg_multiplier + weft::constants::lcg_increment;
+            return seed >> 8;
+        };
+        StyleInput kept_document;
+        StyleInput kept_presentation;
+        std::array<int, 2> reads{}; // Reads that reported no change, a change.
+        constexpr int steps = 4000;
+        for (int step = 0; step < steps; ++step) {
+            auto& n = *pool[next() % pool.size()];
+            switch (next() % 8) {
+                case 0: {
+                    dom::Node* parent = p.body;
+                    if (const auto pick = next() % (pool.size() + 1);
+                        pick < pool.size() && pool[pick]->type == element_type) {
+                        parent = pool[pick];
+                    }
+                    dom::Node* before = parent->children.empty() || next() % 3 == 0
+                                            ? nullptr
+                                            : &p.tree.at(parent->children[next() % parent->children.size()]);
+                    try {
+                        p.tree.insert(*parent, n, before);
+                    } catch (const std::runtime_error&) {
+                        // Cycles and other refusals leave the tree as it was.
+                    }
+                    break;
+                }
+                case 1:
+                    p.tree.detach(n);
+                    break;
+                case 2:
+                case 3:
+                    if (n.type == element_type) {
+                        // Read by a selector or presentation mapping, or by nothing.
+                        static const std::array<const char*, 7> names{"id",   "class", "style",     "data-k",
+                                                                      "fill", "x",     "data-other"};
+                        static const std::array<const char*, 3> values{"key", "on", "a"};
+                        p.set(n, names[next() % names.size()], values[next() % values.size()]);
+                    }
+                    break;
+                case 4:
+                    if (!n.attributes.empty()) {
+                        n.attributes.erase(n.attributes.begin() + std::ptrdiff_t(next() % n.attributes.size()));
+                        p.tree.changed(n);
+                    }
+                    break;
+                case 5: {
+                    bool& flag = next() % 2 ? n.hovered : n.active;
+                    flag = !flag;
+                    p.tree.changed(n);
+                    break;
+                }
+                case 6:
+                    if (n.type == text_type) {
+                        n.data = std::to_string(next() % 3);
+                    }
+                    p.tree.changed(n);
+                    break;
+                default:
+                    // A recorded change with no content difference.
+                    p.tree.changed(n);
+                    break;
+            }
+            if (next() % 3) {
+                continue;
+            }
+            const auto snapshot = p.tree.snapshot(*p.html);
+            const auto at = " at step " + std::to_string(step);
+            for (auto [styles, kept] :
+                 {std::pair{&document_styles, &kept_document}, std::pair{&presentation_styles, &kept_presentation}}) {
+                const auto before = kept->root() ? std::optional(*kept->root()) : std::nullopt;
+                const bool changed = styles->refresh_input(snapshot, *kept);
+                StyleInput whole;
+                require(styles->refresh_input(snapshot, whole), "a first read reported no change" + at);
+                require(*kept->root() == *whole.root(), "refreshed input differs from a whole read" + at);
+                require(changed == (!before || !(*before == *whole.root())), "refresh misreported a change" + at);
+                require(revisions_match(*kept->root(), snapshot) && revisions_match(*whole.root(), snapshot),
+                        "input revisions" + at);
+                require(!styles->refresh_input(snapshot, *kept) && *kept->root() == *whole.root(),
+                        "a second read of the same document changed" + at);
+                ++reads[changed];
+            }
+        }
+        require(reads[0] > 100 && reads[1] > 100, "random reads did not both change and keep the input");
+        // The presentation profile reads fill; the document profile does not.
+        const auto unfilled = p.tree.snapshot(*p.html);
+        p.set(*p.body, "fill", "#123456");
+        const auto filled = p.tree.snapshot(*p.html);
+        require(!document_styles.refresh_input(unfilled, kept_document) &&
+                    !document_styles.refresh_input(filled, kept_document) &&
+                    presentation_styles.refresh_input(filled, kept_presentation),
+                "presentation attributes count only where the profile maps them");
+        // An input read by another compiled style is read whole.
+        StyleInput shared;
+        document_styles.refresh_input(filled, shared);
+        StyleInput whole;
+        presentation_styles.refresh_input(filled, whole);
+        require(presentation_styles.refresh_input(filled, shared) && *shared.root() == *whole.root(),
+                "input of another compiled style reused");
+    }
+
+    // A subtree whose revision the input has seen is not read again; a copy without revisions is read whole.
+    void style_input_revisions() {
+        Page p;
+        const CompiledStyle styles(".on{color:#ff0000}", document_style_profile());
+        auto& list = p.element("ul");
+        auto& item = p.element("li");
+        p.set(item, "id", "item");
+        p.tree.insert(*p.body, list, nullptr);
+        p.tree.insert(list, item, nullptr);
+        StyleInput input;
+        styles.refresh_input(p.tree.snapshot(*p.html), input);
+        // html and body share the revision of the last change below body, but a read of body is not taken for html.
+        require(p.html->subtree_revision == p.body->subtree_revision, "html and body revisions");
+        auto rerooted = input;
+        const auto body = p.tree.snapshot(*p.body);
+        StyleInput whole_body;
+        styles.refresh_input(body, whole_body);
+        require(styles.refresh_input(body, rerooted) && *rerooted.root() == *whole_body.root(),
+                "input of another root");
+        // A first read reports a change even where the document equals an empty input node.
+        StyleInput empty;
+        require(styles.refresh_input(DomSnapshot{}, empty) && *empty.root() == StyleInput::Node{.nodes = 1},
+                "first read of an empty document");
+        // A copy that changes an attribute but keeps the revisions: the input trusts them.
+        auto copy = p.tree.snapshot(*p.html);
+        find_element(copy, "item")->attributes["class"] = "on";
+        const auto seen = *input.root();
+        require(!styles.refresh_input(copy, input) && *input.root() == seen, "unchanged revision read again");
+        // Without revisions the same copy is compared in full.
+        const auto clear = [](auto&& self, DomSnapshot& n) -> void {
+            n.revision = 0;
+            for (auto& child : n.children) {
+                self(self, child);
+            }
+        };
+        clear(clear, copy);
+        require(styles.refresh_input(copy, input) &&
+                    input.root()->children[0].children[0].children[0].attributes.at("class") == "on",
+                "copy without revisions");
+    }
+
+    // hover and active enter the input only where a state selector can see them.
+    void style_input_states() {
+        Page p;
+        auto profile = document_style_profile();
+        profile.scene_syntax = true;
+        const CompiledStyle styles("div:hover{color:#00ff00}span:active{color:#0000ff}", profile);
+        auto& div = p.element("div");
+        auto& span = p.element("span");
+        p.tree.insert(*p.body, div, nullptr);
+        p.tree.insert(*p.body, span, nullptr);
+        StyleInput input;
+        styles.refresh_input(p.tree.snapshot(*p.html), input);
+        const auto toggle = [&](dom::Node& n, bool& flag) {
+            flag = !flag;
+            p.tree.changed(n);
+            return styles.refresh_input(p.tree.snapshot(*p.html), input);
+        };
+        const auto flags = [&] {
+            const auto& body = input.root()->children[0];
+            return std::array{body.children[0].hovered, body.children[0].active, body.children[1].hovered,
+                              body.children[1].active};
+        };
+        require(toggle(div, div.hovered) && flags() == std::array{true, false, false, false}, "hover a selector reads");
+        require(!toggle(div, div.active) && !toggle(span, span.hovered) &&
+                    flags() == std::array{true, false, false, false},
+                "state no selector reads");
+        require(toggle(span, span.active) && flags() == std::array{true, false, false, true},
+                "active a selector reads");
+        require(toggle(div, div.hovered) && flags() == std::array{false, false, false, true}, "hover ended");
+    }
+
+    // A skipped subtree still counts against the node bound, a moved one is read again against the depth bound, and a
+    // document outside the bounds leaves the input as it was.
+    void style_input_bounds() {
+        const CompiledStyle styles("", document_style_profile());
+        {
+            Page p;
+            // body > a > b1 > ... > b40: the deepest element sits at depth 42.
+            auto& a = p.element("div");
+            p.tree.insert(*p.body, a, nullptr);
+            dom::Node* tail = &a;
+            for (int i = 0; i < 40; ++i) {
+                auto& b = p.element("div");
+                p.tree.insert(*tail, b, nullptr);
+                tail = &b;
+            }
+            // body > d1 > ... > d25.
+            dom::Node* d = p.body;
+            for (int i = 0; i < 25; ++i) {
+                auto& next = p.element("div");
+                p.tree.insert(*d, next, nullptr);
+                d = &next;
+            }
+            StyleInput input;
+            styles.refresh_input(p.tree.snapshot(*p.html), input);
+            const auto valid = *input.root();
+            // Under d25, a sits at depth 27 and b40 at 67.
+            p.tree.insert(*d, a, nullptr);
+            const auto deep = p.tree.snapshot(*p.html);
+            require(rejected_bounds(styles, deep, input) && *input.root() == valid, "moved subtree depth");
+            StyleInput whole;
+            require(rejected_bounds(styles, deep, whole) && !whole.root(), "whole read depth");
+            p.tree.insert(*p.body, a, nullptr);
+            require(styles.refresh_input(p.tree.snapshot(*p.html), input) &&
+                        revisions_match(*input.root(), p.tree.snapshot(*p.html)),
+                    "read after a rejected document");
+        }
+        {
+            Page p;
+            // html, body, a container and 2000 items: 2003 of 2048 nodes.
+            auto& container = p.element("div");
+            p.tree.insert(*p.body, container, nullptr);
+            for (int i = 0; i < 2000; ++i) {
+                p.tree.insert(container, p.element("i"), nullptr);
+            }
+            StyleInput input;
+            styles.refresh_input(p.tree.snapshot(*p.html), input);
+            require(input.root()->nodes == 2003, "subtree node count");
+            const auto valid = *input.root();
+            // 46 more nodes outside the container, whose 2001 the input skips.
+            for (int i = 0; i < 46; ++i) {
+                p.tree.insert(*p.body, p.element("b"), nullptr);
+            }
+            require(rejected_bounds(styles, p.tree.snapshot(*p.html), input) && *input.root() == valid,
+                    "skipped subtree node count");
+            p.tree.detach(p.tree.at(p.body->children.back()));
+            require(styles.refresh_input(p.tree.snapshot(*p.html), input) && input.root()->nodes == 2048,
+                    "a document at the node bound");
+        }
     }
 } // namespace
 
@@ -421,8 +754,12 @@ int main(int argc, char** argv) {
             }
             out << "]}";
         }
+        style_input_differential();
+        style_input_revisions();
+        style_input_states();
+        style_input_bounds();
         std::cout
-            << "PASS shared style: token boundaries, inherited resolution, selected-fallback cycles, IACVT, cascade, selectors, snapshot pairing, Flex and resource bounds\n";
+            << "PASS shared style: token boundaries, inherited resolution, selected-fallback cycles, IACVT, cascade, selectors, snapshot pairing, Flex and resource bounds, incremental cascade input\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL " << e.what() << '\n';

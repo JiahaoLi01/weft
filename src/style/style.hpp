@@ -44,6 +44,7 @@ namespace weft {
         std::vector<std::string> invalid_at_computed_value;
         std::vector<ComputedStyle> children;           // Element children, DOM order.
         std::vector<std::string> specified_properties; // Cascade provenance for animated inheritance.
+        friend bool operator==(const ComputedStyle&, const ComputedStyle&) = default;
     };
 
     ComputedStyle compute_style(const DomSnapshot& root, std::string_view author_stylesheet,
@@ -67,6 +68,42 @@ namespace weft {
         friend class CompiledStyle;
     };
 
+    // What a cascade reads from a document: its elements, the attributes some selector or presentation mapping reads,
+    // and hover/active where a selector can see them. CompiledStyle::refresh_input keeps it current. Owner value.
+    class StyleInput {
+    public:
+        struct Node {
+            NodeIdentity identity;
+            int type{};
+            std::string local_name;
+            std::string namespace_uri;
+            AttributeMap attributes;
+            bool hovered{};
+            bool active{};
+            std::vector<Node> children; // Element children, DOM order.
+            // The subtree's nodes, which count against the document's node bound.
+            std::uint32_t nodes{};
+            // The DomSnapshot::revision this node was read from. Bookkeeping, not content: == ignores it.
+            std::uint64_t revision{};
+
+            friend bool operator==(const Node& a, const Node& b) {
+                return a.identity == b.identity && a.type == b.type && a.local_name == b.local_name &&
+                       a.namespace_uri == b.namespace_uri && a.attributes == b.attributes && a.hovered == b.hovered &&
+                       a.active == b.active && a.children == b.children && a.nodes == b.nodes;
+            }
+        };
+
+        // The document as last read; null before the first read and after a failed one.
+        const Node* root() const {
+            return root_ ? &*root_ : nullptr;
+        }
+
+    private:
+        std::optional<Node> root_;
+        std::shared_ptr<const int> binding_; // The CompiledStyle that read it.
+        friend class CompiledStyle;
+    };
+
     class CompiledStyle {
     public:
         CompiledStyle(std::string author_stylesheet, StyleProfile profile);
@@ -83,7 +120,10 @@ namespace weft {
         // Discard both output and changed_nodes on failure.
         void update(const DomSnapshot&, ComputedStyle&, StyleMemo&,
                     std::vector<NodeIdentity>* changed_nodes = nullptr) const;
-        DomSnapshot input_key(const DomSnapshot&) const;
+        // Makes input describe dom as this cascade reads it and returns whether that changed. A subtree whose
+        // revision matches the one input last read is not visited. A document outside the node/depth bounds throws
+        // and leaves input as it was; any other failure leaves it empty, so the next read reports a change.
+        bool refresh_input(const DomSnapshot& dom, StyleInput& input) const;
         // For a host's full layout-cache key: erase only pseudo state which cannot
         // match a supported selector. Text, scroll, attributes and identities stay.
         void normalize_selector_state(DomSnapshot&) const;

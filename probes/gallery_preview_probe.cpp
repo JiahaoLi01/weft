@@ -224,7 +224,7 @@ namespace probes {
         weft::CompiledStyle shell_styles(css, weft::document_style_profile());
         weft::StyleMemo shell_memo;
         std::optional<weft::ComputedStyle> shell_computed;
-        std::optional<weft::DomSnapshot> shell_style_key;
+        weft::StyleInput shell_style_input;
         std::optional<weft::DomSnapshot> layout_input;
         std::optional<weft::DocumentLayout> layout_result;
         std::function<void(const weft::DomSnapshot&)> check_text = [&](const auto& n) {
@@ -249,13 +249,16 @@ namespace probes {
             ++shell_layout_builds;
             const auto begin =
                 render_trace.enabled() ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
-            auto style_key = shell_styles.input_key(key);
-            if (!shell_style_key || *shell_style_key != style_key) {
+            if (shell_styles.refresh_input(key, shell_style_input)) {
                 if (!shell_computed) {
                     shell_computed.emplace();
                 }
-                shell_styles.update(key, *shell_computed, shell_memo);
-                shell_style_key = std::move(style_key);
+                try {
+                    shell_styles.update(key, *shell_computed, shell_memo);
+                } catch (...) {
+                    shell_style_input = {};
+                    throw;
+                }
             }
             auto result = weft::layout_document(dom, *shell_computed, weft::probe_constants::gallery::shell_width,
                                                 weft::probe_constants::gallery::shell_height, fonts);
