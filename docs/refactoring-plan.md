@@ -69,7 +69,7 @@ probes/ tests/ tools/      证据与验证，只依赖 src，不被 src 依赖
 | 6 ✅ | scene 可移植化：拆出纯几何/命中 TU；DirectWrite 量字换成与 flow 相同的 HarfBuzz 测量；D2D 退为 Windows 参考 raster | `scene_probe.hpp`、`scene_d2d_probe.cpp`、`gallery_scene_session.hpp` | 新增 Chrome 文字度量基线；几何与 D2D 差分；见下方第 6 步记录 |
 | 7 ✅ | 类型化样式：PropertyId、长度/颜色/关键字值，去掉字符串往返与正则插值 | `style_probe`、`flow_page`、`auto_page`、`scene_probe` | 级联/动画差分、gallery 像素与几何；见下方第 7 步记录 |
 | 8 ✅（paint IR 推迟到第 10 步） | 统一格式化路径：一个调度器、一个 Yoga 适配器、一个 paint IR、一条命中路径；golden 迁移后删除 page/positioned/auto | `src/layout/*`、`input_probe` | 旧 profile 的浏览器差分全部改跑新路径 |
-| 9（9.1–9.3 ✅） | DOM 与脚本分离：NodeId 原生树、与 style 共用选择器；QuickJS 对象成为包装；Canvas 状态移到旁表 | `script_dom_probe.cpp`、`style_probe.cpp` | DOM 生命周期、GC 压力、D3 / React 原包 |
+| 9（9.1–9.4 ✅） | DOM 与脚本分离：NodeId 原生树、与 style 共用选择器；QuickJS 对象成为包装；Canvas 状态移到旁表 | `script_dom_probe.cpp`、`style_probe.cpp` | DOM 生命周期、GC 压力、D3 / React 原包 |
 | 10（暂缓） | 一份 paint IR 与统一渲染器（第 8 步推迟的部分）；第二个图形后端（Vulkan 或 Metal）与 Android/iOS 平台层，按 concept 接入；主机构建选项 | `src/render/backends`、`src/platform` | 平台验证按“配置/编译/链接/模拟器/真机功能/真机性能”分级记录 |
 
 ## 第 1 步记录（2026-10-10）
@@ -549,7 +549,7 @@ CMake 拆分：
 
 ## 第 9 步记录（2026-10-11）
 
-进行中：DOM 值类型已独立，DOM 查询与样式共用一个选择器引擎，Canvas 状态已移到节点旁表，树边已改用 NodeId，节点上已没有脚本状态，slot 分配不再线性扫描。
+进行中：原生 DOM 树已在 `src/dom`，节点之间的边用 NodeId，QuickJS 对象只做包装；DOM 查询与样式共用一个选择器引擎，Canvas 状态在节点旁表。只剩 9.5 增量快照。
 
 **9.1 DOM 值类型移入 `src/dom`**（`c435dd5`）：
 - `NodeIdentity`、`DomSnapshot`、`DomChanges`（`dom/node.hpp`）与 `ElementGeometry`（`dom/geometry.hpp`）是各层都用的值。style、layout、scene 原来为了它们引用 `script/script_dom.hpp`，连带 Canvas 模型。
@@ -606,8 +606,24 @@ CMake 拆分：
 - 基准（临时程序，MSVC /O2，Ryzen 9 9950X3D）：在全部占用的 slot 表上，每步随机回收一个再取最低空闲 slot。2048 个 slot 时 311 → 15.8 ns/步；32768 个（DOM 节点上限）时 3.48 µs → 19.4 ns/步。两版选出的 slot 序列相同（校验和一致）。源码与结果在 `artifacts/local/step9/slot-churn-9.4c/`。
 - 验证：Release 101/101，Debug 101/101（347.2 s）；1306 个产物逐字节不变。gallery owner 剖面的稳态帧很少新建节点，这一步没有再测。
 
+**9.4d 原生 DOM 树移入 `src/dom`**：
+- `dom::Tree`（[tree.hpp](../src/dom/tree.hpp)）持有节点存储（按 slot 与代际），提供：
+  - 带校验的插入与移除。拒绝时不改动任何东西；成功时返回原父节点，供绑定层调整引用；
+  - textContent、是否连到本树的 Document、变更日志与子树版本号、快照、dump、选择器查询与 `TreeElement`。
+- 树不决定节点寿命：脚本绑定在包装对象被回收时调用 `release()`。
+- 脚本层（script_dom.cpp 约 3050 → 2900 行）只剩包装对象、脚本状态和 GC 所有权。每条树边在邻居包装上持有一个引用。插入时新边先取引用、旧边后放，子节点在中间不会降到零引用。
+- reset 时树保留 slot 代际与累计计数，节点身份和统计照旧跨 reset 延续。DOM 上限（深度 256、变更日志 1024）移到 `constants::dom`。
+- 测试：`dom_contract` 新增 6 组不依赖脚本引擎的树测试：
+  - 插入次序与移动；
+  - 各类拒绝及其原子性，含深度上限；
+  - 变更日志与子树版本号；
+  - 快照与 dump；
+  - 选择器的查询范围；
+  - 释放、slot 复用与 epoch。
+  11 个变异全部被发现；其中去掉环检查后树会成环，遍历不终止，以超时失败。
+- 验证：Release 101/101，Debug 101/101（336.1 s）；1306 个产物逐字节不变；强制 GC 下 6/6（67.0 s）。owner CPU：后台安静时与 9.4b 的二进制以高优先级交替 5 轮：K 线 P50/P99 3.978/6.046 → 3.960/5.859 ms，散点图 1.737/2.520 → 1.723/2.792 ms，anime 两边都是 0.115 ms，各轮范围重叠，记为持平。K 线 P50 与 9.3 时安静条件下的 3.98–4.01 ms 一致，9.4 整体没有可测的回退。数据在 `artifacts/local/step9/owner-cpu-9.4d/`。
+
 第 9 步余下部分：
-- 9.4d 原生节点、树操作、变更日志与快照移入 `src/dom`，脚本层只做包装（GC 所有权仍由包装追踪）；
 - 9.5 增量快照（现在每次全量复制）。
 
 ## 顺序调整（2026-10-10）

@@ -23,10 +23,7 @@ namespace weft::constants::script {
 
     // Native DOM bounds. They are independent of the smaller layout document profile.
     inline constexpr int max_live_nodes = 32768;
-    inline constexpr int max_native_dom_depth = 256;
     inline constexpr int max_listeners_per_node = 1024;
-    // Ring journal of recent mutations; an older cursor requires a full snapshot.
-    inline constexpr int dom_change_journal_capacity = 1024;
     // The last listener exception kept in the stats is truncated to this many bytes.
     inline constexpr int max_listener_error_bytes = 8192;
 

@@ -89,6 +89,11 @@ DOM 是身份与内容的唯一来源；计算样式、LayoutBox 和 PaintItem �
 
 JS wrapper 保持同一原生节点的对象身份。Document、原生 NodeRef、task 和事件路径是显式外部根。节点结构、wrapper、listener 和 expando 的所有强边必须进入同一可追踪所有权图；仅调用 gc_mark 标记 listener 不足以证明跨语言循环可回收。
 
+2026-10-11 重构第 9.4 步后的实现：
+- 原生节点与树边在 `dom::Tree`（src/dom），边按 NodeId，树本身不决定寿命；
+- 脚本层每个节点有一个包装对象，每条树边在邻居包装上持有一个引用并由 gc_mark 报告，所以存活仍由 QuickJS 收集器判定，内部循环可以回收；
+- expando、listener 按 slot 放在绑定表，Canvas 状态放在按 NodeId 索引的旁表。
+
 M0 的优先候选是把节点图映射到 QuickJS custom class graph：真正拥有的 JSValue 边由 gc_mark 报告，原生外部引用登记为 VM roots，arena identity index 与 dirty queue 仅保存弱身份。不得同时保留 collector 看不见的 shared_ptr 循环。这个 bridge 在循环、原生根与销毁探针通过前不视为已确定实现。
 
 finalizer 只释放 owner 上的资源，不派发事件、加载资源或执行布局。禁止把游戏对象裸指针直接交给 JS；用宿主可撤销身份，访问时验证有效性。

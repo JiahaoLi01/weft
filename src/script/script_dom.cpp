@@ -1,12 +1,12 @@
 #include "script/script_dom.hpp"
 #include "base/diagnostic.hpp"
-#include "base/generational_slots.hpp"
 #include "base/owner_thread.hpp"
 #include "constants/dom.hpp"
 #include "constants/script.hpp"
 #include "dom/attributes.hpp"
 #include "dom/node_table.hpp"
 #include "dom/selector.hpp"
+#include "dom/tree.hpp"
 
 #include <quickjs.h>
 
@@ -77,24 +77,6 @@ namespace weft {
                    JS_VALUE_GET_PTR(left) == JS_VALUE_GET_PTR(right);
         }
 
-        std::string json_string(std::string_view input) {
-            std::string output = "\"";
-            constexpr char hex[] = "0123456789abcdef";
-            for (const unsigned char c : input) {
-                if (c == '"' || c == '\\') {
-                    output += '\\';
-                    output += static_cast<char>(c);
-                } else if (c < 0x20) {
-                    output += "\\u00";
-                    output += hex[c >> 4];
-                    output += hex[c & 15];
-                } else {
-                    output += static_cast<char>(c);
-                }
-            }
-            return output + '"';
-        }
-
         std::string lower_ascii(std::string input) {
             for (char& c : input) {
                 if (c >= 'A' && c <= 'Z') {
@@ -106,12 +88,8 @@ namespace weft {
     } // namespace
 
     struct ScriptDom::Impl {
-        struct Attribute {
-            std::string name;
-            std::string local;
-            std::string space;
-            std::string value;
-        };
+        using Attribute = dom::Attribute;
+        using Node = dom::Node;
 
         struct Listener {
             std::uint64_t id{};
@@ -121,26 +99,6 @@ namespace weft {
             bool once{};
             bool handler{};
             bool passive{};
-        };
-
-        // A node's DOM data. Its script state is a Binding.
-        struct Node {
-            NodeIdentity identity;
-            int type{};
-            std::string local;
-            std::string space;
-            std::string data;
-            bool hovered{};
-            bool active{};
-            std::vector<Attribute> attributes;
-            // Tree edges by identity; a null identity (generation 0) is no node. Each edge owns one reference on the
-            // neighbor's wrapper, which mark() reports, so the collector still decides which nodes live.
-            NodeIdentity parent;
-            NodeIdentity document;
-            std::vector<NodeIdentity> children;
-            double scroll_left{};
-            double scroll_top{};
-            std::uint64_t subtree_revision{1};
         };
 
         // A node's script state. Each owning value is duplicated exactly once and is reported by the node's mark().
@@ -195,23 +153,20 @@ namespace weft {
         IntegerFormatHost integer_format_host;
         bool layout_running{};
 
-        // Node identities: slot index + generation; a finalized node's identity never resolves again.
-        GenerationalSlots<Node*> slots;
-        // Script state by node slot, never shorter than slots. A deque keeps entries in place while it grows, so a
-        // Binding reference survives script that creates nodes.
+        // The native DOM. Each tree edge owns one reference on the neighbor's wrapper, which mark() reports, so the
+        // collector decides which nodes live; a finalized node's identity never resolves again.
+        dom::Tree tree{1};
+        // Script state by node slot, never shorter than the tree's slot table. A deque keeps entries in place while it
+        // grows, so a Binding reference survives script that creates nodes.
         std::deque<Binding> bindings;
 
         // The node an edge names; edges name live nodes outside finalizers.
         Node& node_at(NodeIdentity id) const {
-            const auto* slot = slots.find(id.slot, id.generation);
-            if (!slot || !*slot) {
-                throw std::logic_error("WEFT_TREE_CORRUPTION: dangling node edge");
-            }
-            return **slot;
+            return tree.at(id);
         }
 
         Node* parent_of(const Node& n) const {
-            return n.parent.generation ? &node_at(n.parent) : nullptr;
+            return tree.parent_of(n);
         }
 
         Binding& binding(const Node& n) {
@@ -239,16 +194,6 @@ namespace weft {
         std::uint64_t next_root{1};
         std::uint64_t next_listener{1};
         ScriptStats counters;
-        std::uint64_t mutation_revision{1};
-
-        struct Change {
-            std::uint64_t revision{};
-            NodeIdentity identity;
-        };
-
-        std::array<Change, constants::script::dom_change_journal_capacity> changes{};
-        std::size_t change_head{};
-        std::size_t change_count{};
 
         struct HostBinding {
             JSValue object{JS_UNDEFINED};
@@ -294,17 +239,14 @@ namespace weft {
         }
 
         void changed(Node& n) noexcept {
-            if (mutation_revision == UINT64_MAX) {
+            tree.changed(n);
+            check_journal();
+        }
+
+        // An exhausted revision counter faults the View.
+        void check_journal() noexcept {
+            if (tree.exhausted()) {
                 faulted = true;
-                return;
-            }
-            const auto revision = ++mutation_revision;
-            ++counters.dom_mutations;
-            changes[change_head] = {revision, n.identity};
-            change_head = (change_head + 1) % changes.size();
-            change_count = std::min(change_count + 1, changes.size());
-            for (auto* p = &n; p; p = p->parent.generation ? slots[p->parent.slot] : nullptr) {
-                p->subtree_revision = revision;
             }
         }
 
@@ -494,8 +436,8 @@ namespace weft {
                 return;
             }
             JS_SetOpaque(value, nullptr);
-            owner->slots[n->identity.slot] = nullptr;
-            owner->slots.vacate(n->identity.slot);
+            // Out of the tree first, so nothing resolves the node while its references go; destroyed on return.
+            const auto node = owner->tree.release(n->identity);
             ++owner->counters.finalized_nodes;
             --owner->counters.live_nodes;
             // No script, layout, or other Node dereference is allowed in finalizers.
@@ -519,7 +461,6 @@ namespace weft {
                 JS_FreeValueRT(rt, canvas->context);
                 owner->canvases.erase(n->identity);
             }
-            delete n;
         }
 
         // Expandos live in an ordinary JS object, owned by the native wrapper graph.
@@ -882,11 +823,11 @@ namespace weft {
             if (execution_active || !factory || !JS_IsUndefined(canvas_prototype)) {
                 throw std::logic_error("WEFT_CANVAS_INSTALL: owner factory installed once before app");
             }
-            for (std::size_t i = 0; i < slots.size(); ++i) {
-                if (slots.occupied(i) && slots[i]->local == "canvas") {
+            tree.for_each([](const Node& n) {
+                if (n.local == "canvas") {
                     throw std::logic_error("WEFT_CANVAS_INSTALL: existing canvas node");
                 }
-            }
+            });
             JS_NewClassID(runtime, &canvas_class);
             JSClassDef definition{};
             definition.class_name = "CanvasRenderingContext2D";
@@ -937,116 +878,58 @@ namespace weft {
                 faulted = true;
                 throw std::runtime_error("native wrapper allocation failed");
             }
-            auto n = std::make_unique<Node>();
-            n->type = type;
-            n->local = std::move(local);
-            n->space = std::move(space);
             Value expando(context, JS_NewObjectProto(context, JS_NULL));
             if (JS_IsException(expando.value)) {
                 faulted = true;
                 throw std::runtime_error("expando allocation failed");
             }
-            const auto index = slots.first_free();
-            if (index == slots.size()) {
-                if (bindings.size() == slots.size()) {
-                    bindings.emplace_back();
-                }
-                slots.append();
+            // The binding table grows first: the new node takes a free slot or the next one.
+            if (bindings.size() <= tree.slot_count()) {
+                bindings.emplace_back();
             }
-            const auto generation = slots.occupy(index);
-            n->identity = {static_cast<std::uint32_t>(index), generation, view_epoch};
-            n->document = document;
+            Node& n = tree.create(type, std::move(local), std::move(space), document);
             if (document.generation) {
                 JS_DupValue(context, edge_wrapper(document));
             }
-            auto& binding = bindings[index];
+            auto& binding = bindings[n.identity.slot];
             binding.wrapper = object.value;
             binding.expando = expando.value;
             expando.value = JS_UNDEFINED;
-            slots[index] = n.get();
-            JS_SetOpaque(object.value, n.release());
+            JS_SetOpaque(object.value, &n);
             ++counters.created_nodes;
             ++counters.live_nodes;
             return JS_DupValue(context, object.value);
         }
 
-        // Removes child from its parent; the caller holds child. The edge pair's references go last, once the tree
-        // is consistent, because releasing them may finalize nodes.
+        // Removes child from its parent; the caller holds child. The edge pair's references go once the tree is
+        // consistent, because releasing them may finalize nodes.
         void detach(Node& child) {
-            Node* parent_node = parent_of(child);
-            if (!parent_node) {
-                return;
+            const auto former = tree.detach(child);
+            check_journal();
+            if (former.generation) {
+                JS_FreeValue(context, edge_wrapper(former));
+                JS_FreeValue(context, wrapper(child));
             }
-            auto it = std::find(parent_node->children.begin(), parent_node->children.end(), child.identity);
-            assert(it != parent_node->children.end());
-            parent_node->children.erase(it);
-            changed(*parent_node);
-            changed(child);
-            child.parent = {};
-            JS_FreeValue(context, edge_wrapper(parent_node->identity));
-            JS_FreeValue(context, wrapper(child));
         }
 
-        void insert(Node& parent_node, Node& child, Node* before) {
-            if (parent_node.type != constants::element_node_type && parent_node.type != constants::document_node_type) {
-                throw std::runtime_error("WEFT_HIERARCHY: parent cannot contain children");
-            }
-            if (child.type == constants::document_node_type) {
-                throw std::runtime_error("WEFT_HIERARCHY: cannot insert Document");
-            }
-            if (parent_node.document != child.document && parent_node.type != constants::document_node_type) {
-                throw std::runtime_error("WEFT_UNSUPPORTED_DOM: cross-document adoption");
-            }
-            std::size_t ancestors{};
-            for (Node* p = &parent_node; p; p = parent_of(*p)) {
-                if (p == &child) {
-                    throw std::runtime_error("WEFT_HIERARCHY: insertion creates a cycle");
-                }
-                if (++ancestors > constants::script::max_native_dom_depth) {
-                    throw std::runtime_error("WEFT_DOM_DEPTH_LIMIT: M0 native DOM depth limit exceeded");
-                }
-            }
-            // Moving a tall detached subtree must not bypass the native recursion bound.
-            std::vector<std::pair<Node*, std::size_t>> pending{{&child, ancestors + 1}};
-            while (!pending.empty()) {
-                const auto [current, depth] = pending.back();
-                pending.pop_back();
-                if (depth > constants::script::max_native_dom_depth) {
-                    throw std::runtime_error("WEFT_DOM_DEPTH_LIMIT: M0 native DOM depth limit exceeded");
-                }
-                for (const auto& id : current->children) {
-                    pending.emplace_back(&node_at(id), depth + 1);
-                }
-            }
-            if (before && before->parent != parent_node.identity) {
-                throw std::runtime_error("WEFT_NOT_FOUND: reference child is not in parent");
-            }
-            if (before == &child) {
+        // Moves child into parent before `before` (last when null). The new edge pair takes its references before the
+        // former pair releases its own, so child never drops to zero references in between.
+        void insert(Node& parent, Node& child, Node* before) {
+            const auto move = tree.insert(parent, child, before);
+            check_journal();
+            if (!move.moved) {
                 return;
             }
-            // Reserve before changing tree edges, so C++ allocation cannot split mutation.
-            parent_node.children.reserve(parent_node.children.size() + 1);
-            Value child_hold(context, JS_DupValue(context, wrapper(child)));
-            detach(child);
-            auto position = before
-                                ? std::find(parent_node.children.begin(), parent_node.children.end(), before->identity)
-                                : parent_node.children.end();
-            parent_node.children.insert(position, child.identity);
-            child.parent = parent_node.identity;
             JS_DupValue(context, wrapper(child));
-            JS_DupValue(context, wrapper(parent_node));
-            changed(child);
+            JS_DupValue(context, wrapper(parent));
+            if (move.former_parent.generation) {
+                JS_FreeValue(context, edge_wrapper(move.former_parent));
+                JS_FreeValue(context, wrapper(child));
+            }
         }
 
         std::string text(const Node& n) const {
-            if (n.type == constants::text_node_type) {
-                return n.data;
-            }
-            std::string result;
-            for (const auto& id : n.children) {
-                result += text(node_at(id));
-            }
-            return result;
+            return tree.text(n);
         }
 
         void set_text(Node& n, std::string input) {
@@ -1084,51 +967,6 @@ namespace weft {
             return it == n.attributes.end() ? "" : it->value;
         }
 
-        // A live element for the shared selector engine. Ancestors continue past a query's root up to the document
-        // element, as DOM selector matching scopes them.
-        struct LiveElement {
-            const Impl* owner{};
-            const Node* n{};
-
-            std::string_view local_name() const {
-                return n->local;
-            }
-
-            bool html() const {
-                return n->space == constants::xhtml_namespace_uri;
-            }
-
-            const std::string* attribute(std::string_view name) const {
-                for (const auto& a : n->attributes) {
-                    if (a.name == name) {
-                        return &a.value;
-                    }
-                }
-                return nullptr;
-            }
-
-            bool hovered() const {
-                return n->hovered;
-            }
-
-            bool active() const {
-                return n->active;
-            }
-
-            bool document_root() const {
-                const Node* p = owner->parent_of(*n);
-                return p && p->type == constants::document_node_type;
-            }
-
-            std::optional<LiveElement> parent() const {
-                const Node* p = owner->parent_of(*n);
-                if (!p || p->type != constants::element_node_type) {
-                    return std::nullopt;
-                }
-                return LiveElement{owner, p};
-            }
-        };
-
         // Selector lists of DOM queries: the shared grammar with escapes and :hover/:active.
         static std::vector<dom::Selector> selectors(std::string_view text) {
             static const dom::SelectorGrammar grammar{true, true, Diag::DomSelector, Diag::DomUnsupportedSelector};
@@ -1140,29 +978,12 @@ namespace weft {
         }
 
         bool matches(const Node& n, std::string_view selector) const {
-            const auto list = selectors(selector);
-            return n.type == constants::element_node_type && dom::matches(list, LiveElement{this, &n});
-        }
-
-        void query(Node& n, const std::vector<dom::Selector>& list, std::vector<Node*>& result, bool first) const {
-            for (const auto& id : n.children) {
-                Node& child = node_at(id);
-                if (child.type == constants::element_node_type && dom::matches(list, LiveElement{this, &child})) {
-                    result.push_back(&child);
-                    if (first) {
-                        return;
-                    }
-                }
-                query(child, list, result, first);
-                if (first && !result.empty()) {
-                    return;
-                }
-            }
+            return tree.matches(n, selectors(selector));
         }
 
         // Compiles the list once, so an unsupported selector fails even when nothing would be matched.
         void query(Node& n, std::string_view selector, std::vector<Node*>& result, bool first) const {
-            query(n, selectors(selector), result, first);
+            tree.query(n, selectors(selector), result, first);
         }
 
         enum Property {
@@ -1526,7 +1347,7 @@ namespace weft {
                 throw std::runtime_error("WEFT_EVENT_ACTIVE: Event already dispatching");
             }
             std::vector<JSValue> path;
-            path.reserve(constants::script::max_native_dom_depth);
+            path.reserve(constants::dom::max_depth);
             for (Node* p = &target; p; p = parent_of(*p)) {
                 path.push_back(JS_DupValue(context, wrapper(*p)));
             }
@@ -1999,6 +1820,7 @@ namespace weft {
                 throw std::runtime_error("QuickJS context allocation failed");
             }
             JS_SetContextOpaque(context, this);
+            tree.reset(view_epoch);
             try {
                 JS_NewClassID(runtime, &node_class);
                 static JSClassExoticMethods exotic = [] {
@@ -2155,8 +1977,6 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
                 JS_FreeValue(context, binding.object);
                 binding = {};
             }
-            change_head = change_count = 0;
-            mutation_revision = 1;
             JS_FreeValue(context, mouse_prototype);
             mouse_prototype = JS_UNDEFINED;
             JS_FreeValue(context, wheel_prototype);
@@ -2430,10 +2250,10 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
 
                 epoch = layout_epoch_host();
             }
-            if (epoch != read_epoch || mutation_revision != read_revision) {
+            if (epoch != read_epoch || tree.revision() != read_revision) {
                 clear_host_reads();
                 read_epoch = epoch;
-                read_revision = mutation_revision;
+                read_revision = tree.revision();
             }
             return true;
         }
@@ -2598,63 +2418,19 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         }
 
         bool connected(const Node& target) const {
-            const Node* p = &target;
-            while (p && p->type != constants::document_node_type) {
-                p = parent_of(*p);
-            }
-            return p && equal_value(wrapper(*p), document_root);
+            return tree.connected(target);
         }
 
         Node* resolve(NodeIdentity id) const {
-            if (id.view_epoch != view_epoch) {
-                return nullptr;
-            }
-            const auto* slot = slots.find(id.slot, id.generation);
-            return slot ? *slot : nullptr;
+            return tree.find(id);
         }
 
         std::string dump(const Node& n) const {
-            std::string output = "{\"nodeType\":" + std::to_string(n.type) + ",\"localName\":" + json_string(n.local) +
-                                 ",\"namespaceURI\":" + json_string(n.space) +
-                                 ",\"textContent\":" + json_string(text(n)) + ",\"attributes\":{";
-            bool comma{};
-            for (const Attribute& a : n.attributes) {
-                if (comma) {
-                    output += ',';
-                }
-                comma = true;
-                output += json_string(a.name) + ':' + json_string(a.value);
-            }
-            output += "},\"children\":[";
-            comma = false;
-            for (const auto& id : n.children) {
-                if (comma) {
-                    output += ',';
-                }
-                comma = true;
-                output += dump(node_at(id));
-            }
-            return output + "]}";
+            return tree.dump(n);
         }
 
-        DomSnapshot snapshot(const Node& n) {
-            ++counters.snapshot_nodes;
-            DomSnapshot result{n.identity, n.type, n.local, n.space, n.data, {}, {}};
-            result.scroll_left = n.scroll_left;
-            result.scroll_top = n.scroll_top;
-            result.hovered = n.hovered;
-            result.active = n.active;
-            for (const auto& a : n.attributes) {
-                if (!a.space.empty()) {
-                    throw std::runtime_error("WEFT_PAGE_PROFILE: namespaced attributes require SVG adapter");
-                }
-                result.attributes.emplace(a.name, a.value);
-            }
-            result.children.reserve(n.children.size());
-            for (const auto& id : n.children) {
-                result.children.push_back(snapshot(node_at(id)));
-            }
-            return result;
+        DomSnapshot snapshot(const Node& n) const {
+            return tree.snapshot(n);
         }
     };
 
@@ -2994,6 +2770,8 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         impl_->check_owner();
         auto result = impl_->counters;
         result.native_roots = impl_->native_roots.size() + (impl_->context ? 1 : 0);
+        result.dom_mutations = impl_->tree.mutations();
+        result.snapshot_nodes = impl_->tree.snapshot_nodes();
         result.vm_allocated_bytes = impl_->vm_bytes;
         result.canvas_contexts = impl_->canvas_budget->contexts;
         result.canvas_backing_bytes = impl_->canvas_budget->bytes;
@@ -3124,22 +2902,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
 
     DomChanges ScriptDom::changes_since(std::uint64_t revision) const {
         impl_->require_runtime();
-        DomChanges result{impl_->view_epoch, impl_->mutation_revision};
-        if (revision > result.revision) {
-            throw std::invalid_argument("WEFT_DOM_REVISION: future revision");
-        }
-        const auto start = (impl_->change_head + impl_->changes.size() - impl_->change_count) % impl_->changes.size();
-        result.full_required = revision == 0 || (impl_->change_count && revision < impl_->changes[start].revision - 1);
-        if (!result.full_required) {
-            for (std::size_t k = 0; k < impl_->change_count; ++k) {
-                const auto& entry = impl_->changes[(start + k) % impl_->changes.size()];
-                if (entry.revision > revision && impl_->resolve(entry.identity) &&
-                    std::find(result.nodes.begin(), result.nodes.end(), entry.identity) == result.nodes.end()) {
-                    result.nodes.push_back(entry.identity);
-                }
-            }
-        }
-        return result;
+        return impl_->tree.changes_since(revision);
     }
 
 } // namespace weft
