@@ -22,8 +22,9 @@ namespace weft::dom {
         bool escapes{};
         // :hover and :active.
         bool states{};
-        // Diagnostics outside the grammar.
-        Diag code{Diag::StyleProfile};
+        // Diagnostics for text that is not a selector, and for a valid selector outside this grammar.
+        Diag syntax{Diag::StyleProfile};
+        Diag unsupported{Diag::StyleProfile};
     };
 
     struct AttributeSelector {
@@ -42,7 +43,7 @@ namespace weft::dom {
             Substring
         };
 
-        // As written, and its ASCII lower case, which HTML elements match.
+        // As written, and its ASCII lower case, which HTML elements compare exactly.
         std::string name;
         std::string lower_name;
         Operator op{};
@@ -50,8 +51,9 @@ namespace weft::dom {
     };
 
     struct Compound {
-        // Empty for none, "*" for any; matched ASCII case-insensitively on HTML elements.
+        // Empty for none, "*" for any. As written, and its ASCII lower case, which HTML elements compare exactly.
         std::string tag;
+        std::string lower_tag;
         std::vector<std::string> ids;
         std::vector<std::string> classes;
         std::vector<AttributeSelector> attributes;
@@ -76,19 +78,32 @@ namespace weft::dom {
 
     // Whether a class attribute lists name among its ASCII-whitespace-separated classes.
     bool has_class(std::string_view list, std::string_view name);
-    bool ascii_iequals(std::string_view a, std::string_view b);
     bool attribute_matches(const AttributeSelector& selector, std::string_view value);
 
     // What matching reads from an element. parent() is the parent element, nullopt above the topmost element.
     template <class E>
     concept SelectorElement = requires(const E& e, std::string_view name) {
-        { e.local_name() } -> std::convertible_to<std::string_view>;
-        { e.html() } -> std::convertible_to<bool>;
-        { e.attribute(name) } -> std::convertible_to<const std::string*>;
-        { e.hovered() } -> std::convertible_to<bool>;
-        { e.active() } -> std::convertible_to<bool>;
-        { e.document_root() } -> std::convertible_to<bool>;
-        { e.parent() } -> std::same_as<std::optional<E>>;
+        {
+            e.local_name()
+        } -> std::convertible_to<std::string_view>;
+        {
+            e.html()
+        } -> std::convertible_to<bool>;
+        {
+            e.attribute(name)
+        } -> std::convertible_to<const std::string*>;
+        {
+            e.hovered()
+        } -> std::convertible_to<bool>;
+        {
+            e.active()
+        } -> std::convertible_to<bool>;
+        {
+            e.document_root()
+        } -> std::convertible_to<bool>;
+        {
+            e.parent()
+        } -> std::same_as<std::optional<E>>;
     };
 
     // A compound on one element; state = false ignores :hover and :active.
@@ -98,8 +113,7 @@ namespace weft::dom {
         if (c.root && !e.document_root()) {
             return false;
         }
-        if (!c.tag.empty() && c.tag != "*" &&
-            !(html ? ascii_iequals(c.tag, e.local_name()) : std::string_view(c.tag) == e.local_name())) {
+        if (!c.tag.empty() && c.tag != "*" && std::string_view(html ? c.lower_tag : c.tag) != e.local_name()) {
             return false;
         }
         if (state && ((c.hover && !e.hovered()) || (c.active && !e.active()))) {

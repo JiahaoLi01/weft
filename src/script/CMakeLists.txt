@@ -14,6 +14,6 @@ endforeach()
 
 weft_add_library(script
     SOURCES script_dom.cpp script_platform.cpp ${embedded_js}
-    PUBLIC weft::canvas
+    PUBLIC weft::canvas weft::dom
     PRIVATE qjs)
 target_include_directories(weft_script PRIVATE "${CMAKE_BINARY_DIR}/generated")

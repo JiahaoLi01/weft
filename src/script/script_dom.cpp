@@ -2,7 +2,9 @@
 #include "base/diagnostic.hpp"
 #include "base/generational_slots.hpp"
 #include "base/owner_thread.hpp"
+#include "constants/dom.hpp"
 #include "constants/script.hpp"
+#include "dom/selector.hpp"
 
 #include <quickjs.h>
 
@@ -1001,134 +1003,87 @@ namespace weft {
             return it == n.attributes.end() ? "" : it->value;
         }
 
-        static bool matches_compound(const Node& n, std::string_view selector) {
-            if (n.type != constants::element_node_type) {
-                return false;
+        // A live element for the shared selector engine. Ancestors continue past a query's root up to the document
+        // element, as DOM selector matching scopes them.
+        struct LiveElement {
+            JSContext* context{};
+            const Node* n{};
+
+            std::string_view local_name() const {
+                return n->local;
             }
-            if (selector.empty()) {
-                throw std::runtime_error("WEFT_SELECTOR_SYNTAX: empty selector");
+
+            bool html() const {
+                return n->space == constants::xhtml_namespace_uri;
             }
-            std::size_t pos{};
-            auto identifier = [&](std::size_t& p) {
-                const auto start = p;
-                while (p < selector.size()) {
-                    unsigned char c = static_cast<unsigned char>(selector[p]);
-                    if (!(std::isalnum(c) || c == '_' || c == '-' || c >= 128)) {
-                        break;
+
+            const std::string* attribute(std::string_view name) const {
+                for (const auto& a : n->attributes) {
+                    if (a.name == name) {
+                        return &a.value;
                     }
-                    ++p;
                 }
-                if (p == start) {
-                    throw std::runtime_error("WEFT_UNSUPPORTED_SELECTOR: identifier expected");
-                }
-                return std::string(selector.substr(start, p - start));
-            };
-            bool result = true;
-            if (selector[pos] == '*') {
-                ++pos;
-            } else if (selector[pos] != '#' && selector[pos] != '.') {
-                std::string name = identifier(pos);
-                result = n.local == (n.space == constants::xhtml_namespace_uri ? lower_ascii(name) : name);
+                return nullptr;
             }
-            while (pos < selector.size()) {
-                const char prefix = selector[pos++];
-                if (prefix != '#' && prefix != '.') {
-                    throw std::runtime_error("WEFT_UNSUPPORTED_SELECTOR: only tag, id, class compounds in M0");
-                }
-                const std::string token = identifier(pos);
-                if (prefix == '#') {
-                    result = result && attr(n, "id") == token;
-                } else {
-                    std::string classes = " " + attr(n, "class") + " ";
-                    for (char& c : classes) {
-                        if (c == '\t' || c == '\r' || c == '\n' || c == '\f') {
-                            c = ' ';
-                        }
-                    }
-                    result = result && classes.find(" " + token + " ") != std::string::npos;
-                }
+
+            bool hovered() const {
+                return n->hovered;
             }
-            return result;
+
+            bool active() const {
+                return n->active;
+            }
+
+            bool document_root() const {
+                return !JS_IsNull(n->parent) && node(context, n->parent).type == constants::document_node_type;
+            }
+
+            std::optional<LiveElement> parent() const {
+                if (JS_IsNull(n->parent)) {
+                    return std::nullopt;
+                }
+                const Node& p = node(context, n->parent);
+                if (p.type != constants::element_node_type) {
+                    return std::nullopt;
+                }
+                return LiveElement{context, &p};
+            }
+        };
+
+        // Selector lists of DOM queries: the shared grammar with escapes and :hover/:active.
+        static std::vector<dom::Selector> selectors(std::string_view text) {
+            static const dom::SelectorGrammar grammar{true, true, Diag::DomSelector, Diag::DomUnsupportedSelector};
+            auto list = dom::parse_selector_list(text, grammar, constants::dom::max_selector_list_items);
+            if (!list) {
+                throw std::runtime_error(list.error().message);
+            }
+            return std::move(*list);
         }
 
         bool matches(const Node& n, std::string_view selector) const {
-            if (selector.find(',') != selector.npos) {
-                bool result{};
-                std::size_t p{};
-                unsigned count{};
-                do {
-                    const auto end = selector.find(',', p);
-                    if (++count > constants::script::max_selector_list_items) {
-                        throw std::runtime_error("WEFT_SELECTOR_SYNTAX: list bound");
-                    }
-                    result = matches(n, selector.substr(p, end == selector.npos ? end : end - p)) || result;
-                    if (end == selector.npos) {
-                        break;
-                    }
-                    p = end + 1;
-                } while (true);
-                return result;
-            }
-            // Bounded descendant chains used by original d3-axis selections. Parse
-            // every compound before matching, including an empty query subtree.
-            std::vector<std::string_view> parts;
-            std::size_t p{};
-            while (p < selector.size()) {
-                while (p < selector.size() && std::isspace(static_cast<unsigned char>(selector[p]))) {
-                    ++p;
-                }
-                const auto start = p;
-                while (p < selector.size() && !std::isspace(static_cast<unsigned char>(selector[p]))) {
-                    ++p;
-                }
-                if (p > start) {
-                    parts.push_back(selector.substr(start, p - start));
-                }
-            }
-            if (parts.empty() || parts.size() > constants::max_selector_compounds) {
-                throw std::runtime_error("WEFT_SELECTOR_SYNTAX: descendant chain bound");
-            }
-            Node dummy;
-            dummy.type = constants::element_node_type;
-            dummy.local = "validation";
-            for (const auto part : parts) {
-                (void)matches_compound(dummy, part);
-            }
-            if (!matches_compound(n, parts.back())) {
-                return false;
-            }
-            const Node* current = &n;
-            for (std::size_t i = parts.size() - 1; i > 0;) {
-                if (JS_IsNull(current->parent)) {
-                    return false;
-                }
-                current = &node(context, current->parent);
-                if (matches_compound(*current, parts[i - 1])) {
-                    --i;
-                }
-            }
-            return true;
+            const auto list = selectors(selector);
+            return n.type == constants::element_node_type && dom::matches(list, LiveElement{context, &n});
         }
 
-        void query(Node& n, std::string_view selector, std::vector<Node*>& result, bool first) const {
-            // Parse even when no descendants exist, so unsupported selectors never silently pass.
-            Node dummy;
-            dummy.type = constants::element_node_type;
-            dummy.local = "validation";
-            (void)matches(dummy, selector);
+        void query(Node& n, const std::vector<dom::Selector>& list, std::vector<Node*>& result, bool first) const {
             for (JSValue v : n.children) {
                 Node& child = node(context, v);
-                if (matches(child, selector)) {
+                if (child.type == constants::element_node_type && dom::matches(list, LiveElement{context, &child})) {
                     result.push_back(&child);
                     if (first) {
                         return;
                     }
                 }
-                query(child, selector, result, first);
+                query(child, list, result, first);
                 if (first && !result.empty()) {
                     return;
                 }
             }
+        }
+
+        // Compiles the list once, so an unsupported selector fails even when nothing would be matched.
+        void query(Node& n, std::string_view selector, std::vector<Node*>& result, bool first) const {
+            query(n, selectors(selector), result, first);
         }
 
         enum Property {

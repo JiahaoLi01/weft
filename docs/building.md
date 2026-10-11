@@ -135,6 +135,7 @@ ScriptConfig 可配置受限执行预算，默认仍为 2 秒。只有 QJS_ENABL
 | --- | --- |
 | style_fixture_integrity | 固定原始主题/展开规则、组件 bundle、资产副本和 browser provenance；需要 Python |
 | style_cascade_contract / style_browser_diff | token var、selected-fallback cycles/IACVT、CSS-wide、cascade/selector、边界与 192 个 browser 颜色分量 |
+| selector_contract | DOM 查询与样式共用的选择器引擎：名称大小写、标识符开头、属性运算符、class 空白、需要回溯的后代匹配、伪类、specificity、列表、两种文法与两类诊断 |
 | d3d11_warp_cheetah_style / cheetah_style_browser_diff | 原始主题/展开 CSS 的八帧实际 GPU、资源退休；2,672 颜色分量和 1,336 几何字段 |
 | dependency_integrity | 固定源码与许可文件未改变；需要 Python |
 | flex_fixture_integrity | C++/browser 输入来自同一 JSON/hash，生成文件没有过期；需要 Python |

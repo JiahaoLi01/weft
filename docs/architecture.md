@@ -124,7 +124,7 @@ DOM mutation 在 owner 上立即可见，样式和几何延迟计算。getBoundi
 
 首版实现 UA、作者样式、inline、important、选择器 specificity 和 source order。不支持 cascade layers 等能力时由构建工具诊断。自定义属性和 var 的实现放在基础层叠稳定之后，需覆盖继承、fallback、循环和 computed-value 阶段失效，不能只做字符串替换。规范依据见 [CSS Cascade](https://www.w3.org/TR/css-cascade-5/)。
 
-当前 M0 已抽出纯值 `weft::style`，供文档格式化器与 scene 共用有界 cascade/selector/var 求值（2026-10-11 起页面只有一个样式 profile `document_style_profile`）。主题/属性更新走全量重算，输出与 DOM 快照配对；稀疏值表还不是完整 computed-style/property-registry API，也没有 revision、失效缓存或 JS getComputedStyle。循环按当前 substitution-context 的选中分支规则处理，token 复制/继承/展开有预算，实际范围与浏览器证据见 [公共样式探针](style-cascade-probe.md)。
+当前 M0 已抽出纯值 `weft::style`，供文档格式化器与 scene 共用有界 cascade/selector/var 求值（2026-10-11 起页面只有一个样式 profile `document_style_profile`）。选择器引擎在 `weft::dom`（`dom/selector`），样式层叠与 JS 的 querySelector/matches 共用同一文法与匹配，经元素访问器 concept 分别读取快照和活 DOM。主题/属性更新走全量重算，输出与 DOM 快照配对；稀疏值表还不是完整 computed-style/property-registry API，也没有 revision、失效缓存或 JS getComputedStyle。循环按当前 substitution-context 的选中分支规则处理，token 复制/继承/展开有预算，实际范围与浏览器证据见 [公共样式探针](style-cascade-probe.md)。
 
 规则索引按 tag、class、id 等简单特征筛选，最终仍执行完整选择器匹配。祖先 class、id 或继承属性变化，保守检查相关后代。首版不支持 has、复杂 sibling 和 positional selector，避免在未具备依赖记录时承诺其增量正确性。
 

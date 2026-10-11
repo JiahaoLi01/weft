@@ -19,6 +19,9 @@ namespace weft {
         InlineProfile,
         SceneProfile,
         SceneRaster,
+        // DOM query selectors: text that is not a selector, and a valid selector outside the supported grammar.
+        DomSelector,
+        DomUnsupportedSelector,
         // Canvas 2D model.
         CanvasColorLimit,
         CanvasColorProfile,

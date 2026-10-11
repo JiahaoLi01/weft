@@ -16,8 +16,6 @@ namespace weft::constants::style {
     inline constexpr int max_resolved_tokens = 4096;
     inline constexpr int max_resolved_value_bytes = 8192;
     inline constexpr int max_declaration_bytes = 8192;
-    // CSS escapes take at most six hex digits.
-    inline constexpr int max_escape_hex_digits = 6;
     // Rules per stylesheet, counting each selector of a selector list.
     inline constexpr int max_rules = 256;
     // "#rrggbb", the only hex color form in the profile.

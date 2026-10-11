@@ -4,6 +4,20 @@
 
 ## 本次已实现
 
+重构第 9 步之一、之二：DOM 值类型独立，一个选择器引擎（2026-10-11）。详见 [重构计划](refactoring-plan.md#第-9-步记录2026-10-11)。
+- **结果**：
+  - 节点身份、快照与几何值移入 `src/dom`，style、layout、scene 不再经 script 的头文件取得它们；
+  - DOM 查询与样式层叠共用 `dom/selector`。DOM 新增 `>`、属性运算符、转义与 `:root`/`:hover`/`:active`，样式新增 `~= |= ^= $= *=`；
+  - 名称大小写按 HTML 规范：HTML 元素用转成小写的选择器名比较，SVG 按原样，样式中的 SVG 驼峰名（`linearGradient`、`[viewBox]`）现在能匹配；
+  - DOM 查询遇到合法但未支持的选择器报 `WEFT_UNSUPPORTED_SELECTOR`，语法错误报 `WEFT_SELECTOR_SYNTAX`；
+  - 以数字开头的未转义标识符（如 `[x=1]`、`.1a`）与浏览器一样被拒绝。
+- **验证**：
+  - `ctest --preset windows-release --parallel 6` 100/100，`windows-debug --parallel 6` 100/100（278.3 s）；
+  - 新增 `selector_contract`，20 个变异全部被它发现；
+  - 1306 个产物与改动前逐字节相同；
+  - owner CPU：与第 8 步结束时交替 4 轮，K 线 P50/P99 4.556/6.995 → 3.991/6.772 ms，散点图 1.981/3.289 → 1.704/2.571 ms，每轮 P50 都更快；anime、framer、spring 持平。
+- **下一步**：9.3，Canvas 状态移到按 NodeId 索引的旁表。
+
 重构第 8 步完成（2026-10-11）。8.1–8.3b 见下方各条；收尾两件事：
 - **scene 命中按圆角**：盒子区域和圆角 overflow 裁剪都按画出来的圆角判定，与文档一致，D2D oracle 同步更新。`scene_contract` 增加反例。`ctest --preset windows-release --parallel 6` 99/99，`windows-debug --parallel 6` 99/99（309.9 s）；owner CPU 无回退（K 线 6 轮 P50/P99 4.292/6.928 → 4.254/6.671 ms）。
 - **paint IR 推迟**：按你的决定，一份 paint IR 与统一渲染器一起做，放在第 10 步渲染工作的开头。两个渲染器的文字、图层与裁剪模型不同，现在只合并类型没有收益。详见 [重构计划](refactoring-plan.md#第-8-步记录2026-10-11)。

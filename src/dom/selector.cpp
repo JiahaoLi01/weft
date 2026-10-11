@@ -30,11 +30,21 @@ namespace weft::dom {
             std::size_t p{};
             std::optional<Diagnostic> error;
 
-            bool fail(std::string_view detail) {
+            bool fail(Diag code, std::string_view detail) {
                 if (!error) {
-                    error = make_diagnostic(grammar.code, detail);
+                    error = make_diagnostic(code, detail);
                 }
                 return false;
+            }
+
+            // Text that is not a selector.
+            bool syntax(std::string_view detail) {
+                return fail(grammar.syntax, detail);
+            }
+
+            // A valid selector this grammar does not support.
+            bool unsupported(std::string_view detail) {
+                return fail(grammar.unsupported, detail);
             }
 
             void spaces() {
@@ -43,15 +53,22 @@ namespace weft::dom {
                 }
             }
 
+            // A CSS identifier: an unescaped digit, or a hyphen and a digit, cannot begin one.
             bool name(std::string& out) {
                 out.clear();
+                const auto digit = [&](std::size_t i) {
+                    return i < text.size() && std::isdigit(static_cast<unsigned char>(text[i]));
+                };
+                if (digit(p) || (p < text.size() && text[p] == '-' && digit(p + 1))) {
+                    return syntax("selector identifier");
+                }
                 while (p < text.size()) {
                     if (name_char(text[p])) {
                         out += text[p++];
                     } else if (grammar.escapes && text[p] == '\\') {
                         ++p;
                         if (p == text.size()) {
-                            return fail("incomplete selector escape");
+                            return syntax("incomplete selector escape");
                         }
                         if (std::isxdigit(static_cast<unsigned char>(text[p]))) {
                             unsigned value{};
@@ -66,7 +83,7 @@ namespace weft::dom {
                                 ++p;
                             }
                             if (value == 0 || value >= unsigned(constants::dom::ascii_end)) {
-                                return fail("selector escape outside ASCII scene subset");
+                                return unsupported("selector escape outside ASCII");
                             }
                             out += char(value);
                         } else {
@@ -76,7 +93,7 @@ namespace weft::dom {
                         break;
                     }
                 }
-                return !out.empty() || fail("selector identifier");
+                return !out.empty() || syntax("selector identifier");
             }
 
             bool attribute(Compound& c) {
@@ -102,11 +119,11 @@ namespace weft::dom {
                                               : Op::Substring;
                         p += 2;
                     } else {
-                        return fail("attribute operator/flags outside profile");
+                        return syntax("attribute operator");
                     }
                     spaces();
                     if (p == text.size()) {
-                        return fail("attribute value");
+                        return syntax("attribute value");
                     }
                     if (text[p] == '\'' || text[p] == '"') {
                         const auto quote = text[p++];
@@ -115,7 +132,7 @@ namespace weft::dom {
                             ++p;
                         }
                         if (p == text.size()) {
-                            return fail("attribute string");
+                            return syntax("attribute string");
                         }
                         a.value = std::string(text.substr(start, p - start));
                         ++p;
@@ -124,8 +141,11 @@ namespace weft::dom {
                     }
                     spaces();
                 }
+                if (p < text.size() && a.op != Op::Exists && std::isalpha(static_cast<unsigned char>(text[p]))) {
+                    return unsupported("attribute flags outside profile");
+                }
                 if (p == text.size() || text[p++] != ']') {
-                    return fail("attribute operator/flags outside profile");
+                    return syntax("unterminated attribute selector");
                 }
                 c.attributes.push_back(std::move(a));
                 return true;
@@ -135,7 +155,7 @@ namespace weft::dom {
                 while (p < text.size() && !space(text[p]) && text[p] != '>') {
                     const char prefix = text[p];
                     if (prefix == '+' || prefix == '~') {
-                        return fail("sibling combinator outside profile");
+                        return unsupported("sibling combinator outside profile");
                     }
                     if (prefix == '.' || prefix == '#') {
                         ++p;
@@ -147,6 +167,9 @@ namespace weft::dom {
                         ++s.specificity[prefix == '#' ? 0 : 1];
                     } else if (prefix == ':') {
                         ++p;
+                        if (p < text.size() && text[p] == ':') {
+                            return unsupported("pseudo-element outside profile");
+                        }
                         std::string pseudo;
                         if (!name(pseudo)) {
                             return false;
@@ -158,7 +181,7 @@ namespace weft::dom {
                         } else if (grammar.states && pseudo == "active" && !c.active) {
                             c.active = true;
                         } else {
-                            return fail("pseudo-class outside profile");
+                            return unsupported("pseudo-class outside profile");
                         }
                         ++s.specificity[1];
                     } else if (prefix == '[') {
@@ -168,9 +191,9 @@ namespace weft::dom {
                         }
                         ++s.specificity[1];
                     } else {
-                        if (!c.tag.empty() || !c.ids.empty() || !c.classes.empty() || !c.attributes.empty() ||
-                            c.root || c.hover || c.active) {
-                            return fail("type selector must begin compound");
+                        if (!c.tag.empty() || !c.ids.empty() || !c.classes.empty() || !c.attributes.empty() || c.root ||
+                            c.hover || c.active) {
+                            return syntax("type selector must begin compound");
                         }
                         if (prefix == '*') {
                             c.tag = "*";
@@ -179,13 +202,14 @@ namespace weft::dom {
                             if (!name(c.tag)) {
                                 return false;
                             }
+                            c.lower_tag = lower(c.tag);
                             ++s.specificity[2];
                         }
                     }
                 }
                 if (c.tag.empty() && c.ids.empty() && c.classes.empty() && c.attributes.empty() && !c.root &&
                     !c.hover && !c.active) {
-                    return fail("empty selector compound");
+                    return syntax("empty selector compound");
                 }
                 return true;
             }
@@ -199,7 +223,7 @@ namespace weft::dom {
                     }
                     s.parts.push_back(std::move(c));
                     if (s.parts.size() > std::size_t(constants::max_selector_compounds)) {
-                        return fail("selector depth bound");
+                        return unsupported("selector depth bound");
                     }
                     spaces();
                     if (p < text.size()) {
@@ -209,13 +233,13 @@ namespace weft::dom {
                             ++p;
                             spaces();
                         } else if (text[p] == '+' || text[p] == '~') {
-                            return fail("sibling combinator outside profile");
+                            return unsupported("sibling combinator outside profile");
                         }
                         s.relations.push_back(relation);
                     }
                 }
                 if (s.parts.empty() || s.parts.size() != s.relations.size() + 1) {
-                    return fail("selector chain");
+                    return syntax("selector chain");
                 }
                 return true;
             }
@@ -249,7 +273,7 @@ namespace weft::dom {
             }
             if (i == text.size() || text[i] == ',') {
                 if (out.size() >= max_items) {
-                    return make_diagnostic(grammar.code, "selector list bound");
+                    return make_diagnostic(grammar.unsupported, "selector list bound");
                 }
                 auto item = parse_selector(text.substr(start, i - start), grammar);
                 if (!item) {
@@ -283,18 +307,6 @@ namespace weft::dom {
         return false;
     }
 
-    bool ascii_iequals(std::string_view a, std::string_view b) {
-        if (a.size() != b.size()) {
-            return false;
-        }
-        for (std::size_t i = 0; i < a.size(); ++i) {
-            if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i]))) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     bool attribute_matches(const AttributeSelector& a, std::string_view value) {
         using Op = AttributeSelector::Operator;
         switch (a.op) {
@@ -306,8 +318,8 @@ namespace weft::dom {
                 return !a.value.empty() && a.value.find_first_of(" \t\n\f\r") == std::string::npos &&
                        has_class(value, a.value);
             case Op::DashMatch:
-                return value == a.value || (value.size() > a.value.size() && value.starts_with(a.value) &&
-                                            value[a.value.size()] == '-');
+                return value == a.value ||
+                       (value.size() > a.value.size() && value.starts_with(a.value) && value[a.value.size()] == '-');
             case Op::Prefix:
                 return !a.value.empty() && value.starts_with(a.value);
             case Op::Suffix:

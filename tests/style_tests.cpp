@@ -177,10 +177,20 @@ int main(int argc, char** argv) {
         near(parse_css_color("rgba(160,154,130,.22)")[3], .22f);
         near(parse_css_color("rgb(300,-10,0)")[0], 1);
         near(parse_css_color("rgb(300,-10,0)")[1], 0);
+        // The shared selector engine's attribute operators; flags and sibling combinators stay outside it.
+        root.attributes["data-tone"] = "gold-bright";
+        require(compute_style(root,
+                              "#root[data-tone^=gold][data-tone$=bright][data-tone*=d-b][data-tone|=gold]"
+                              "{background-color:#ffffff}",
+                              profile)
+                        .values.at("background-color") == "#ffffff",
+                "attribute selector operators");
+        root.attributes.erase("data-tone");
         for (const auto* css :
              {"#root:hover{color:#ffffff}", " > #root{color:#ffffff}", ".root*{color:#ffffff}",
               "@media screen{#root{color:#ffffff}}", "#root{opacity:.5}", "#root{--a:var(foo)}",
-              "#root{--a:var(--a)} trailing", "#root{color:rgba(1,2,3,.5}", "#root[foo^=a]{color:#ffffff}"}) {
+              "#root{--a:var(--a)} trailing", "#root{color:rgba(1,2,3,.5}", "#root[foo^=a i]{color:#ffffff}",
+              "#root + #root{color:#ffffff}", "#root ~ #root{color:#ffffff}"}) {
             rejects([&] {
                 compute_style(root, css, profile);
             });

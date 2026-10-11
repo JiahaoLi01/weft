@@ -35,7 +35,7 @@ GPU 后端已有可注册的实验 C ABI 与实际 D3D11 reference/window 接入
 
 2026-10-11 重构第 8 步：positioned、auto 与 page profile 已退役。原样 NineSlice、AlertBar（四种 CSS）、React 页面与 Canvas gallery 都由统一的文档格式化器运行，各自的浏览器对照按原阈值通过。下文按 profile 记录的范围是各自当时的证据；统一路径支持这些子集的并集，另加 flex item 的 margin、静态根元素（视口初始包含块）与 canvas 替换元素。p、button 的 UA 默认 margin/padding/border 尚未建模，作者需显式设置；ul 未显式设置会诊断。
 
-CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后代/子代选择器、层叠、明确尺寸的绝对定位、px/%/受限 calc、矩形图片裁剪及孤立层叠。它是独立 positioned profile，尚未与 Flex/inline 或一般文档/CSSOM 合并；JS 原生 DOM 现支持 tag/id/class compound 和最多 16 段的后代链（D3 axis `.tick line` / `.tick text` 已验证）；逗号分隔的选择器列表也支持；子代和 attribute query 仍显式 WEFT_UNSUPPORTED_SELECTOR，不能从 C++ stylesheet matcher 推断其他 DOM selector 支持。完整原游戏、滚动和通用 positioned hit-test 未验收，见 [实际样本合同](casecheetah-workload.md)。
+CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后代/子代选择器、层叠、明确尺寸的绝对定位、px/%/受限 calc、矩形图片裁剪及孤立层叠。它是独立 positioned profile，尚未与 Flex/inline 或一般文档/CSSOM 合并；JS 原生 DOM 的 querySelector/All 与 matches 和样式层叠共用一个选择器引擎，支持范围见下方“样式和布局”的第 9.2 步说明（D3 axis `.tick line` / `.tick text` 已验证）。完整原游戏、滚动和通用 positioned hit-test 未验收，见 [实际样本合同](casecheetah-workload.md)。
 
 已验证固定 Roboto/Noto CJK 的有界 LTR 中英回退和灰度页面，原样 AlertBar/Zustand/store/双向 UE 桥在作者预览 CSS 下运行。span/b/ul/li 仅限显式 block/positioned、normal/400、零边距和 list-style:none；已独立接原始主题块与展开规则；尚不支持整个 operations.css、一般 inline、段落换行/bidi 或 IME。浏览器状态/几何/四项字体度量与 GPU 证据见 [中文 workload](cjk-alert-probe.md)。
 
@@ -56,7 +56,7 @@ CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后�
 构建工具和运行时 DOM fragment parser 必须使用同一套可接受语法规则。动态 innerHTML 不能因为绕过构建工具而得到另一套解释。解析失败保留旧子树，禁止部分替换。
 
 
-公共样式已抽到独立 value evaluator，支持有界 author/inline important、:root、属性存在/精确值 selector、继承、token var、选中分支循环、CSS-wide 和 rgba。positioned/Flex 共用求值但仍是独立 formatting profile；没有 JS getComputedStyle，也没有同步扩展 DOM querySelector。16-case 浏览器语义、原始 theme/expanded rule 与八帧 DX11 的实际范围见 [公共样式合同](style-cascade-probe.md)。
+公共样式已抽到独立 value evaluator，支持有界 author/inline important、:root、属性 selector（存在、`=`、`~=`、`|=`、`^=`、`$=`、`*=`）、继承、token var、选中分支循环、CSS-wide 和 rgba。positioned/Flex 共用求值但仍是独立 formatting profile；没有 JS getComputedStyle；DOM querySelector 与它共用选择器引擎。16-case 浏览器语义、原始 theme/expanded rule 与八帧 DX11 的实际范围见 [公共样式合同](style-cascade-probe.md)。
 
 
 新自动页面 profile 已在固定 AlertBar 和 48 个 mutation 场景验证受限 block/Flex/absolute、内容高度和中英固有宽度；零 margin/border、px padding、leaf text，以及受限百分比尺寸是硬边界。仅 ASCII 空格换行，未实现一般 inline/Unicode 换行；旧 positioned API 范围不扩大。见 [自动布局实际合同](automatic-layout-probe.md)。
@@ -66,6 +66,13 @@ CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后�
 后续 flow 输入阶段已实现逻辑树/paint-order 分片区域、圆角/滚动裁剪命中、完整像素 WheelEvent metadata 和 HWND mouse/wheel owner 队列。原样固定 React 长列表在隐藏窗口完成实际滚动/选中/resize，3,150 点独立 Chromium 命中中 3,130 精确、20 点在显式 2 CSS px 每轴边界容差内。该范围不扩张旧 auto/positioned API；实体设备、触摸/惯性、完整 focus/keyboard/IME/PointerEvent 和移动仍未验收。见 [实际输入合同](flow-input-window-probe.md)。
 
 ## 样式和布局
+
+2026-10-11 重构第 9.2 步：DOM 查询与样式层叠共用一个选择器引擎（`src/dom/selector`）。
+- JS 的 querySelector/querySelectorAll/matches 新增：子代组合子 `>`；属性选择器（存在、`=`、`~=`、`|=`、`^=`、`$=`、`*=`，值可以加引号）；ASCII 范围的 CSS 转义；`:root`、`:hover`、`:active`。逗号列表按引号外的逗号切分。
+- 样式随之接受上述全部属性运算符；非 scene 的样式仍不接受转义和 `:hover`/`:active`。
+- 大小写按 HTML 规范：与 HTML 元素比较时，选择器里的类型名和属性名先转成小写再精确比较；SVG 等其他命名空间按原样比较。样式里的 `linearGradient`、`[viewBox]` 这类驼峰名此前被转成小写，永远匹配不上，现在能匹配。class 按 HTML 的 ASCII 空白切分（样式此前还把垂直制表符当分隔符）。
+- 标识符按 CSS 规则：未转义的数字或“连字符加数字”不能开头。`[x=1]`、`.1a` 与浏览器一样被拒绝（DOM 查询报 `WEFT_SELECTOR_SYNTAX`，样式报 `WEFT_STYLE_PROFILE`），属性值要写成 `[x="1"]`；两套旧解析器此前都接受。
+- 仍不支持：兄弟组合子 `+`/`~`、其他伪类（含 `:focus-visible`、`:not()`、`:nth-child()`）、伪元素、属性大小写标志 `i`/`s`、非 ASCII 转义、超过 16 段的链，以及 DOM 查询中超过 32 项的列表。DOM 查询遇到这些合法但未支持的选择器报 `WEFT_UNSUPPORTED_SELECTOR`，遇到不是选择器的文本报 `WEFT_SELECTOR_SYNTAX`；样式中两类都报 `WEFT_STYLE_PROFILE`（不变）。
 
 2026-10-11 重构第 8.3a 步：scene 的 transform 只有一个文法。SVG transform 属性里无单位的角度按规范当作度（此前当作弧度，gallery 的 D3 径向标签因此画错）；SVG 列表可以用逗号分隔函数，rotate 可带中心；perspective(px) rotateY() 平面也接受函数间不留空格等 CSS 合法写法。CSS transform 中无单位的角度仍按弧度接受（CSS 规定只有 0 合法）。
 

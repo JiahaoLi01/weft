@@ -69,7 +69,7 @@ probes/ tests/ tools/      证据与验证，只依赖 src，不被 src 依赖
 | 6 ✅ | scene 可移植化：拆出纯几何/命中 TU；DirectWrite 量字换成与 flow 相同的 HarfBuzz 测量；D2D 退为 Windows 参考 raster | `scene_probe.hpp`、`scene_d2d_probe.cpp`、`gallery_scene_session.hpp` | 新增 Chrome 文字度量基线；几何与 D2D 差分；见下方第 6 步记录 |
 | 7 ✅ | 类型化样式：PropertyId、长度/颜色/关键字值，去掉字符串往返与正则插值 | `style_probe`、`flow_page`、`auto_page`、`scene_probe` | 级联/动画差分、gallery 像素与几何；见下方第 7 步记录 |
 | 8 ✅（paint IR 推迟到第 10 步） | 统一格式化路径：一个调度器、一个 Yoga 适配器、一个 paint IR、一条命中路径；golden 迁移后删除 page/positioned/auto | `src/layout/*`、`input_probe` | 旧 profile 的浏览器差分全部改跑新路径 |
-| 9 | DOM 与脚本分离：NodeId 原生树、与 style 共用选择器；QuickJS 对象成为包装；Canvas 状态移到旁表 | `script_dom_probe.cpp`、`style_probe.cpp` | DOM 生命周期、GC 压力、D3 / React 原包 |
+| 9（9.1–9.2 ✅） | DOM 与脚本分离：NodeId 原生树、与 style 共用选择器；QuickJS 对象成为包装；Canvas 状态移到旁表 | `script_dom_probe.cpp`、`style_probe.cpp` | DOM 生命周期、GC 压力、D3 / React 原包 |
 | 10（暂缓） | 一份 paint IR 与统一渲染器（第 8 步推迟的部分）；第二个图形后端（Vulkan 或 Metal）与 Android/iOS 平台层，按 concept 接入；主机构建选项 | `src/render/backends`、`src/platform` | 平台验证按“配置/编译/链接/模拟器/真机功能/真机性能”分级记录 |
 
 ## 第 1 步记录（2026-10-10）
@@ -546,6 +546,34 @@ CMake 拆分：
 - 文档路径是已塑形字形、CPU 圆角裁剪链和轴对齐四边形，没有变换。
 
 只合并数据类型，代码不会减少，收益要等统一渲染器（字形图集、可移植彩色字形、裁剪栈、图层）落地才兑现。第 8 步就此完成，下一步是第 9 步。
+
+## 第 9 步记录（2026-10-11）
+
+进行中：DOM 值类型已独立，DOM 查询与样式共用一个选择器引擎。
+
+**9.1 DOM 值类型移入 `src/dom`**（`c435dd5`）：
+- `NodeIdentity`、`DomSnapshot`、`DomChanges`（`dom/node.hpp`）与 `ElementGeometry`（`dom/geometry.hpp`）是各层都用的值。style、layout、scene 原来为了它们引用 `script/script_dom.hpp`，连带 Canvas 模型。
+- 现在 style、layout、scene、render、text、canvas、base 的头文件都不再引用 `script/`；用到 `ScriptDom` 的文件自己引用。
+- 该提交顺带收入了 9.2 尚未接入构建的 `dom/selector.{hpp,cpp}` 与 `constants/dom.hpp`。
+
+**9.2 一个选择器引擎**：
+- `dom/selector`：选择器只编译一次，匹配从右向左，经 `SelectorElement` concept 读取元素（模板，静态分发）。三个访问器：
+  - 样式的快照祖先路径 `PathElement`；
+  - 单个快照元素 `LoneElement`，供 hover/active 状态键使用；
+  - JS 活 DOM `LiveElement`。
+- 删除 script 的字符串匹配器（每个节点重新解析一次选择器），以及 style 自己的选择器类型与解析器。`SelectorGrammar` 保留两处原有差异：非 scene 样式不接受转义与 `:hover`/`:active`；两边的诊断码不同。
+- 统一后的语义变化见 [兼容范围](compatibility.md#样式和布局)：
+  - DOM 新增 `>`、属性运算符、转义、`:root`/`:hover`/`:active`；样式新增 `~= |= ^= $= *=`；
+  - HTML 元素按小写后的选择器名精确比较，SVG 名称按原样；
+  - 标识符不能以未转义的数字或“连字符加数字”开头（与浏览器一致，旧解析器都接受）；
+  - DOM 查询把合法但未支持的选择器（`WEFT_UNSUPPORTED_SELECTOR`）与语法错误（`WEFT_SELECTOR_SYNTAX`）分开诊断。
+- 新增 `selector_contract`，覆盖：大小写、标识符开头、属性运算符、class 空白、需要回溯的后代匹配、伪类、specificity、列表、两种文法与两类诊断。20 个旧行为或错误行为的变异全部被它发现。`scene_contract` 的 DOM 选择器检查与 `style_cascade_contract` 的反例随范围更新。
+- 验证：Release 100/100，Debug 100/100（278.3 s）；1306 个产物与改动前逐字节相同。owner CPU：与第 8 步结束时的二进制交替 4 轮，每轮交换先后（RTX 5090 / Ryzen 9 9950X3D / Windows 11 26200 / MSVC Release，默认优先级与 affinity，固定 60 Hz 时钟，每例 240 帧、16 帧预热；只计 owner CPU，不含 GPU 与内存；测量期间无并发编译或测试）。warm tick 各轮中位数 P50/P99/max：K 线 4.556/6.995/9.680 → 3.991/6.772/8.889 ms，散点图 1.981/3.289/4.525 → 1.704/2.571/4.132 ms，两例每轮 P50 都更快；K 线 P99 各轮范围重叠（候选有一轮 9.86 ms）。anime 14 例合并中位数 0.117/0.507 → 0.109/0.440 ms，framer、spring 持平。收益来自样式匹配：旧实现每匹配一个复合选择器，都用 istringstream 把 class 拆进一个 std::set。原始数据在 `artifacts/local/step9/owner-cpu-9.2/comparison.json`。
+
+第 9 步余下部分：
+- 9.3 Canvas 状态移到按 NodeId 索引的旁表，合并两份 canvas 尺寸解析；
+- 9.4 节点数据改为原生、边用 NodeId，QuickJS 对象只做包装（GC 所有权仍由包装追踪）；
+- 9.5 增量快照（现在每次全量复制）。
 
 ## 顺序调整（2026-10-10）
 

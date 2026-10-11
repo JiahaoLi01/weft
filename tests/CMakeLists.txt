@@ -159,6 +159,8 @@ weft_add_executable(weft_sdf_font_tests SOURCES sdf_font_tests.cpp LINK weft::te
 weft_add_test(NAME sdf_font_contract COMMAND weft_sdf_font_tests)
 
 # Style and layout, each with a Chrome reference diff.
+weft_add_executable(weft_selector_tests SOURCES selector_tests.cpp LINK weft::dom)
+weft_add_test(NAME selector_contract COMMAND weft_selector_tests)
 weft_add_executable(weft_style_values_tests SOURCES style_values_tests.cpp LINK weft::scene)
 weft_add_test(NAME style_values_contract COMMAND weft_style_values_tests)
 weft_add_executable(weft_grammar_differential_tests SOURCES grammar_differential_tests.cpp LINK weft::scene)

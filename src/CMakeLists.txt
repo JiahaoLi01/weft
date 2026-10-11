@@ -1,6 +1,7 @@
 # One static library per module, aliased weft::<module>. Windows reference rasters are separate *_d2d targets.
 # constants/ is header-only and reached through the shared src/ include root.
 add_subdirectory(base)
+add_subdirectory(dom)
 add_subdirectory(core)
 add_subdirectory(render)
 add_subdirectory(canvas)

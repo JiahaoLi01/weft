@@ -27,8 +27,6 @@ namespace weft::constants::script {
     inline constexpr int max_listeners_per_node = 1024;
     // Ring journal of recent mutations; an older cursor requires a full snapshot.
     inline constexpr int dom_change_journal_capacity = 1024;
-    // Selector lists and descendant chains accepted by the M0 selector subset.
-    inline constexpr int max_selector_list_items = 32;
     // The last listener exception kept in the stats is truncated to this many bytes.
     inline constexpr int max_listener_error_bytes = 8192;
 

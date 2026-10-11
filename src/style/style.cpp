@@ -3,13 +3,13 @@
 #include "base/owner_thread.hpp"
 #include "constants/common.hpp"
 #include "constants/style.hpp"
+#include "dom/selector.hpp"
 #include <thread>
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <functional>
 #include <set>
-#include <sstream>
 #include <stdexcept>
 
 namespace weft {
@@ -437,220 +437,92 @@ namespace weft {
             return result;
         }
 
-        struct Attribute {
-            std::string name;
-            std::optional<std::string> value;
+        // A cascade path element: the snapshot root has no parent, and :root is its html element.
+        struct PathElement {
+            const std::vector<const DomSnapshot*>* path{};
+            std::size_t index{};
+
+            const DomSnapshot& node() const {
+                return *(*path)[index];
+            }
+
+            std::string_view local_name() const {
+                return node().local_name;
+            }
+
+            bool html() const {
+                return node().namespace_uri == constants::xhtml_namespace_uri;
+            }
+
+            const std::string* attribute(std::string_view name) const {
+                const auto it = node().attributes.find(std::string(name));
+                return it == node().attributes.end() ? nullptr : &it->second;
+            }
+
+            bool hovered() const {
+                return node().hovered;
+            }
+
+            bool active() const {
+                return node().active;
+            }
+
+            bool document_root() const {
+                return index == 0 && node().local_name == "html";
+            }
+
+            std::optional<PathElement> parent() const {
+                return index ? std::optional(PathElement{path, index - 1}) : std::nullopt;
+            }
         };
 
-        struct Compound {
-            std::string tag;
-            std::vector<std::string> ids;
-            std::vector<std::string> classes;
-            std::vector<Attribute> attributes;
+        // One snapshot element on its own, for compound state keys.
+        struct LoneElement {
+            const DomSnapshot* n{};
             bool root{};
-            bool hover{};
-            bool active{};
 
-            bool matches(const DomSnapshot& n, bool document_root, bool state = true) const {
-                if ((root && !document_root) || (!tag.empty() && tag != "*" && tag != n.local_name)) {
-                    return false;
-                }
-                if (state && ((hover && !n.hovered) || (active && !n.active))) {
-                    return false;
-                }
-                for (const auto& id : ids) {
-                    if (!n.attributes.contains("id") || n.attributes.at("id") != id) {
-                        return false;
-                    }
-                }
-                std::set<std::string> tokens;
-                std::istringstream input(n.attributes.contains("class") ? n.attributes.at("class") : "");
-                std::string token;
-                while (input >> token) {
-                    tokens.insert(token);
-                }
-                for (const auto& c : classes) {
-                    if (!tokens.contains(c)) {
-                        return false;
-                    }
-                }
-                for (const auto& a : attributes) {
-                    if (!n.attributes.contains(a.name) || (a.value && n.attributes.at(a.name) != *a.value)) {
-                        return false;
-                    }
-                }
-                return true;
+            std::string_view local_name() const {
+                return n->local_name;
+            }
+
+            bool html() const {
+                return n->namespace_uri == constants::xhtml_namespace_uri;
+            }
+
+            const std::string* attribute(std::string_view name) const {
+                const auto it = n->attributes.find(std::string(name));
+                return it == n->attributes.end() ? nullptr : &it->second;
+            }
+
+            bool hovered() const {
+                return n->hovered;
+            }
+
+            bool active() const {
+                return n->active;
+            }
+
+            bool document_root() const {
+                return root;
+            }
+
+            std::optional<LoneElement> parent() const {
+                return std::nullopt;
             }
         };
 
         struct Rule {
-            std::vector<Compound> parts;
-            std::vector<char> relations;
-            std::array<unsigned, 3> specificity{};
+            dom::Selector selector;
             std::vector<Declaration> declarations;
 
             bool matches(const std::vector<const DomSnapshot*>& path) const {
-                auto match = [&](auto&& self, std::size_t k, std::size_t p) -> bool {
-                    if (!parts[k].matches(*path[p], p == 0 && path[0]->local_name == "html")) {
-                        return false;
-                    }
-                    if (!k) {
-                        return true;
-                    }
-                    if (!p) {
-                        return false;
-                    }
-                    if (relations[k - 1] == '>') {
-                        return self(self, k - 1, p - 1);
-                    }
-                    while (p) {
-                        --p;
-                        if (self(self, k - 1, p)) {
-                            return true;
-                        }
-                    }
-                    return false;
-                };
-                return match(match, parts.size() - 1, path.size() - 1);
+                return dom::matches(selector, PathElement{&path, path.size() - 1});
             }
         };
 
         Rule selector(std::string text, std::vector<Declaration> decl, bool scene) {
-            Rule rule;
-            rule.declarations = std::move(decl);
-            std::size_t p{};
-            auto space = [&] {
-                while (p < text.size() && std::isspace(static_cast<unsigned char>(text[p]))) {
-                    ++p;
-                }
-            };
-            auto name = [&] {
-                std::string out;
-                while (p < text.size()) {
-                    if (ident_char(text[p])) {
-                        out += text[p++];
-                    } else if (scene && text[p] == '\\') {
-                        ++p;
-                        if (p == text.size()) {
-                            fail("incomplete selector escape");
-                        }
-                        if (std::isxdigit(static_cast<unsigned char>(text[p]))) {
-                            unsigned value{};
-                            unsigned digits{};
-                            while (p < text.size() && digits < constants::style::max_escape_hex_digits &&
-                                   std::isxdigit(static_cast<unsigned char>(text[p]))) {
-                                const auto c = std::tolower(static_cast<unsigned char>(text[p++]));
-                                value = value * 16 + (c <= '9' ? c - '0' : c - 'a' + 10);
-                                ++digits;
-                            }
-                            if (p < text.size() && std::isspace(static_cast<unsigned char>(text[p]))) {
-                                ++p;
-                            }
-                            if (value == 0 || value >= constants::style::ascii_end) {
-                                fail("selector escape outside ASCII scene subset");
-                            }
-                            out += char(value);
-                        } else {
-                            out += text[p++];
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                if (out.empty()) {
-                    fail("selector identifier");
-                }
-                return out;
-            };
-            space();
-            while (p < text.size()) {
-                Compound c;
-                while (p < text.size() && !std::isspace(static_cast<unsigned char>(text[p])) && text[p] != '>') {
-                    const char prefix = text[p];
-                    if (prefix == '.' || prefix == '#') {
-                        ++p;
-                        (prefix == '.' ? c.classes : c.ids).push_back(name());
-                        ++rule.specificity[prefix == '#' ? 0 : 1];
-                    } else if (prefix == ':') {
-                        ++p;
-                        auto pseudo = name();
-                        if (pseudo == "root" && !c.root) {
-                            c.root = true;
-                        } else if (scene && pseudo == "hover" && !c.hover) {
-                            c.hover = true;
-                        } else if (scene && pseudo == "active" && !c.active) {
-                            c.active = true;
-                        } else {
-                            fail("pseudo-class outside profile");
-                        }
-                        ++rule.specificity[1];
-                    } else if (prefix == '[') {
-                        ++p;
-                        space();
-                        Attribute a{lower(name()), std::nullopt};
-                        space();
-                        if (p < text.size() && text[p] == '=') {
-                            ++p;
-                            space();
-                            if (p == text.size()) {
-                                fail("attribute value");
-                            }
-                            if (text[p] == '\'' || text[p] == '"') {
-                                const auto quote = text[p++];
-                                const auto start = p;
-                                while (p < text.size() && text[p] != quote) {
-                                    ++p;
-                                }
-                                if (p == text.size()) {
-                                    fail("attribute string");
-                                }
-                                a.value = text.substr(start, p - start);
-                                ++p;
-                            } else {
-                                a.value = name();
-                            }
-                            space();
-                        }
-                        if (p == text.size() || text[p++] != ']') {
-                            fail("attribute operator/flags outside profile");
-                        }
-                        c.attributes.push_back(std::move(a));
-                        ++rule.specificity[1];
-                    } else {
-                        if (!c.tag.empty() || !c.ids.empty() || !c.classes.empty() || !c.attributes.empty() || c.root) {
-                            fail("type selector must begin compound");
-                        }
-                        if (prefix == '*') {
-                            c.tag = "*";
-                            ++p;
-                        } else {
-                            c.tag = lower(name());
-                            ++rule.specificity[2];
-                        }
-                    }
-                }
-                if (c.tag.empty() && c.ids.empty() && c.classes.empty() && c.attributes.empty() && !c.root) {
-                    fail("empty selector compound");
-                }
-                rule.parts.push_back(std::move(c));
-                if (rule.parts.size() > constants::max_selector_compounds) {
-                    fail("selector depth bound");
-                }
-                space();
-                if (p < text.size()) {
-                    char rel = ' ';
-                    if (text[p] == '>') {
-                        rel = '>';
-                        ++p;
-                        space();
-                    }
-                    rule.relations.push_back(rel);
-                }
-            }
-            if (rule.parts.empty() || rule.parts.size() != rule.relations.size() + 1) {
-                fail("selector chain");
-            }
-            return rule;
+            const dom::SelectorGrammar grammar{scene, scene, Diag::StyleProfile, Diag::StyleProfile};
+            return {dom::parse_selector(text, grammar).value(), std::move(decl)};
         }
 
         std::vector<Rule> rules(std::string text, const StyleProfile& profile) {
@@ -847,7 +719,7 @@ namespace weft {
             bool uses_active{};
             bool parent_all{};
             std::set<std::string> memo_attributes{"id", "class"};
-            std::vector<const Compound*> state_parts;
+            std::vector<const dom::Compound*> state_parts;
             std::string selector_path;
             std::vector<std::size_t> selector_lengths;
 
@@ -872,7 +744,7 @@ namespace weft {
                 changed_nodes = changed;
                 for (const auto* list : {&ua, &author}) {
                     for (const auto& rule : *list) {
-                        for (const auto& part : rule.parts) {
+                        for (const auto& part : rule.selector.parts) {
                             uses_hover |= part.hover;
                             uses_active |= part.active;
                             if (part.hover || part.active) {
@@ -880,6 +752,7 @@ namespace weft {
                             }
                             for (const auto& attribute : part.attributes) {
                                 memo_attributes.insert(attribute.name);
+                                memo_attributes.insert(attribute.lower_name);
                             }
                         }
                         for (const auto& d : rule.declarations) {
@@ -901,7 +774,7 @@ namespace weft {
                 bool h{};
                 bool a{};
                 for (auto* p : state_parts) {
-                    if (p->matches(*n, n == path.front() && n->local_name == "html", false)) {
+                    if (dom::matches(*p, LoneElement{n, n == path.front() && n->local_name == "html"}, false)) {
                         h |= p->hover;
                         a |= p->active;
                     }
@@ -1127,8 +1000,9 @@ namespace weft {
                     for (const auto& r : list) {
                         if (r.matches(path)) {
                             for (const auto& d : r.declarations) {
+                                const auto& specificity = r.selector.specificity;
                                 apply(d, {d.important ? 1u : 0u, d.important && origin == 0 ? 2u : origin, 0,
-                                          r.specificity[0], r.specificity[1], r.specificity[2], 0});
+                                          specificity[0], specificity[1], specificity[2], 0});
                             }
                         }
                     }
@@ -1442,7 +1316,7 @@ namespace weft {
         std::vector<Rule> ua;
         std::vector<Rule> author;
         std::set<std::string> attributes{"id", "class", "style"};
-        std::vector<const Compound*> state_parts;
+        std::vector<const dom::Compound*> state_parts;
 
         Impl(std::string sheet, StyleProfile p) : profile(std::move(p)) {
             if (profile.properties.size() > constants::style::max_registered_properties) {
@@ -1453,12 +1327,13 @@ namespace weft {
             author = rules(std::move(sheet), profile);
             for (const auto* list : {&ua, &author}) {
                 for (const auto& rule : *list) {
-                    for (const auto& part : rule.parts) {
+                    for (const auto& part : rule.selector.parts) {
                         if (part.hover || part.active) {
                             state_parts.push_back(&part);
                         }
                         for (const auto& attribute : part.attributes) {
                             attributes.insert(attribute.name);
+                            attributes.insert(attribute.lower_name);
                         }
                     }
                 }
@@ -1523,7 +1398,7 @@ namespace weft {
             out.local_name = n.local_name;
             out.namespace_uri = n.namespace_uri;
             for (auto* p : impl_->state_parts) {
-                if (p->matches(n, depth == 0 && n.local_name == "html", false)) {
+                if (dom::matches(*p, LoneElement{&n, depth == 0 && n.local_name == "html"}, false)) {
                     out.hovered |= p->hover && n.hovered;
                     out.active |= p->active && n.active;
                 }
@@ -1554,7 +1429,7 @@ namespace weft {
             bool h{};
             bool a{};
             for (auto* p : impl_->state_parts) {
-                if (p->matches(n, depth == 0 && n.local_name == "html", false)) {
+                if (dom::matches(*p, LoneElement{&n, depth == 0 && n.local_name == "html"}, false)) {
                     h |= p->hover;
                     a |= p->active;
                 }
