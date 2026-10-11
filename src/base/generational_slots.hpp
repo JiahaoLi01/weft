@@ -1,7 +1,9 @@
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <vector>
 
@@ -12,6 +14,11 @@ namespace weft {
     // handle {index, generation} resolves only while that slot is occupied with that generation.
     // A slot whose generation reaches the maximum is retired and never handed out again, so a stale
     // handle can never alias a later occupant.
+    //
+    // Free slots wait in a min-heap, so first_free() finds the lowest one in logarithmic time. Occupying
+    // a slot leaves its heap entry in place; first_free() drops such entries when they reach the top.
+    // Each slot has at most one entry and the heap keeps capacity for every slot, so vacate() never
+    // allocates.
     template <class T, class Generation = std::uint32_t>
     class GenerationalSlots {
     public:
@@ -20,6 +27,10 @@ namespace weft {
         GenerationalSlots() = default;
 
         explicit GenerationalSlots(std::size_t size) : slots_(size) {
+            free_.reserve(size);
+            for (std::size_t i = 0; i < size; ++i) {
+                queue(i);
+            }
         }
 
         std::size_t size() const noexcept {
@@ -27,13 +38,13 @@ namespace weft {
         }
 
         // Lowest slot that is neither occupied nor retired, or size() when there is none.
-        std::size_t first_free() const noexcept {
-            for (std::size_t i = 0; i < slots_.size(); ++i) {
-                if (reusable(i)) {
-                    return i;
-                }
+        std::size_t first_free() noexcept {
+            while (!free_.empty() && !reusable(free_.front())) {
+                slots_[free_.front()].queued = false;
+                std::pop_heap(free_.begin(), free_.end(), std::greater<>{});
+                free_.pop_back();
             }
-            return slots_.size();
+            return free_.empty() ? slots_.size() : free_.front();
         }
 
         bool reusable(std::size_t index) const noexcept {
@@ -42,7 +53,11 @@ namespace weft {
 
         // Appends a never-occupied slot and returns its index.
         std::size_t append() {
+            if (free_.capacity() <= slots_.size()) {
+                free_.reserve(std::max(slots_.size() + 1, free_.capacity() * 2));
+            }
             slots_.emplace_back();
+            queue(slots_.size() - 1);
             return slots_.size() - 1;
         }
 
@@ -57,6 +72,9 @@ namespace weft {
         // Ends the current occupancy; handles to it become stale. The value is left as is.
         void vacate(std::size_t index) noexcept {
             slots_[index].occupied = false;
+            if (reusable(index)) {
+                queue(index);
+            }
         }
 
         bool occupied(std::size_t index) const noexcept {
@@ -92,8 +110,21 @@ namespace weft {
             T value{};
             Generation generation = 0;
             bool occupied = false;
+            // The slot has an entry in free_.
+            bool queued = false;
         };
 
+        // Adds a slot's heap entry unless it has one; capacity is reserved for every slot.
+        void queue(std::size_t index) noexcept {
+            if (!slots_[index].queued) {
+                slots_[index].queued = true;
+                free_.push_back(index);
+                std::push_heap(free_.begin(), free_.end(), std::greater<>{});
+            }
+        }
+
         std::vector<Slot> slots_;
+        // Min-heap of slot indices; entries of slots occupied since they were queued are dropped lazily.
+        std::vector<std::size_t> free_;
     };
 } // namespace weft

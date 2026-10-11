@@ -549,7 +549,7 @@ CMake 拆分：
 
 ## 第 9 步记录（2026-10-11）
 
-进行中：DOM 值类型已独立，DOM 查询与样式共用一个选择器引擎，Canvas 状态已移到节点旁表，树边已改用 NodeId，节点上已没有脚本状态。
+进行中：DOM 值类型已独立，DOM 查询与样式共用一个选择器引擎，Canvas 状态已移到节点旁表，树边已改用 NodeId，节点上已没有脚本状态，slot 分配不再线性扫描。
 
 **9.1 DOM 值类型移入 `src/dom`**（`c435dd5`）：
 - `NodeIdentity`、`DomSnapshot`、`DomChanges`（`dom/node.hpp`）与 `ElementGeometry`（`dom/geometry.hpp`）是各层都用的值。style、layout、scene 原来为了它们引用 `script/script_dom.hpp`，连带 Canvas 模型。
@@ -599,8 +599,14 @@ CMake 拆分：
   - 3 个变异全部被发现：finalizer 不清监听器，新节点沿用 slot 里的旧 expando，绑定表改用 vector（后者崩溃）。
 - 验证：Release 101/101，Debug 101/101（323.1 s）；1306 个产物逐字节不变；强制 GC 下 5/5（71.9 s）。owner CPU：测不出变化。本机这段时间负载重（IDE、浏览器等在后台运行，K 线 P99 从平时约 6–7 ms 升到 8–15 ms），交替对照的方向互相矛盾。默认优先级下 9.4a→9.4b 测 4 轮，互有快慢。对照工具新增 `--high-priority`（两个版本都以 Windows 高优先级运行），再测三组，每组 5 轮：9.3→9.4b 每轮都是候选更慢（P50 中位 4.817 → 5.252 ms）；9.3→9.4a 与 9.4a→9.4b 却都是候选在 5 轮中 4 轮更快（4.135 → 3.987、4.746 → 4.238 ms）。候选在纯几何的命中测试上也同幅快慢，可见差异来自运行环境，不是 DOM 代码。数据在 `artifacts/local/step9/owner-cpu-9.4b/`。
 
+**9.4c slot 表改用空闲堆**：
+- `GenerationalSlots::first_free()` 原来从 slot 0 线性扫描，新建一个节点的代价与存活 slot 数成正比。现在空闲 slot 进最小堆，仍返回最低的可用 slot：节点、视图与渲染资源分到的 slot 与原来完全相同，只是查找降为对数时间。
+- 占用一个 slot 时不删它的堆条目，`first_free()` 在这类条目到达堆顶时丢弃。每个 slot 至多一个条目，堆为每个 slot 预留了容量，所以 noexcept 的 `vacate()` 不会分配内存。
+- base 测试新增随机差分：20 万步占用、回收与追加，逐步与线性扫描的参考实现比较；代际用 8 位，slot 会在运行中退役。5 个变异全部被发现。
+- 基准（临时程序，MSVC /O2，Ryzen 9 9950X3D）：在全部占用的 slot 表上，每步随机回收一个再取最低空闲 slot。2048 个 slot 时 311 → 15.8 ns/步；32768 个（DOM 节点上限）时 3.48 µs → 19.4 ns/步。两版选出的 slot 序列相同（校验和一致）。源码与结果在 `artifacts/local/step9/slot-churn-9.4c/`。
+- 验证：Release 101/101，Debug 101/101（347.2 s）；1306 个产物逐字节不变。gallery owner 剖面的稳态帧很少新建节点，这一步没有再测。
+
 第 9 步余下部分：
-- 9.4c slot 表改用空闲堆，新建节点不再线性扫描；
 - 9.4d 原生节点、树操作、变更日志与快照移入 `src/dom`，脚本层只做包装（GC 所有权仍由包装追踪）；
 - 9.5 增量快照（现在每次全量复制）。
 

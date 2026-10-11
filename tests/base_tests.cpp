@@ -314,6 +314,63 @@ namespace {
         require(!small.reusable(0) && small.first_free() == small.size(), "exhausted slot is retired");
     }
 
+    // The free-slot heap against a linear scan: first_free() is always the lowest slot that is neither occupied
+    // nor retired. Small generations make slots retire within the run.
+    void generational_slots_differential() {
+        struct Reference {
+            std::uint8_t generation{};
+            bool occupied{};
+        };
+
+        Random random;
+        GenerationalSlots<int, std::uint8_t> slots;
+        std::vector<Reference> reference;
+        const auto lowest = [&] {
+            for (std::size_t i = 0; i < reference.size(); ++i) {
+                if (!reference[i].occupied &&
+                    reference[i].generation != GenerationalSlots<int, std::uint8_t>::max_generation) {
+                    return i;
+                }
+            }
+            return reference.size();
+        };
+        constexpr int steps = 200000;
+        constexpr std::size_t max_slots = 4096;
+        for (int step = 0; step < steps; ++step) {
+            const auto choice = random.next() % 8;
+            if (choice < 4) {
+                const auto index = slots.first_free();
+                require(index == lowest(), "first_free is not the lowest reusable slot");
+                if (index == slots.size()) {
+                    if (slots.size() == max_slots) {
+                        continue;
+                    }
+                    require(slots.append() == index, "append index");
+                    reference.push_back({});
+                }
+                require(slots.occupy(index) == ++reference[index].generation, "occupancy generation");
+                reference[index].occupied = true;
+            } else if (choice < 7) {
+                if (!reference.empty()) {
+                    const auto index = random.next() % reference.size();
+                    if (reference[index].occupied) {
+                        slots.vacate(index);
+                        reference[index].occupied = false;
+                    }
+                }
+            } else if (slots.size() < max_slots) {
+                require(slots.append() == reference.size(), "append without occupying");
+                reference.push_back({});
+            }
+            if (!reference.empty()) {
+                const auto index = random.next() % reference.size();
+                require(slots.occupied(index) == reference[index].occupied &&
+                            slots.generation(index) == reference[index].generation,
+                        "slot state differs from the reference");
+            }
+        }
+    }
+
     void owner_thread() {
         OwnerThread owner;
         owner.require(Diag::SceneOwner);
@@ -340,6 +397,7 @@ int main() {
         split_differential();
         number_differential();
         generational_slots();
+        generational_slots_differential();
         owner_thread();
         std::cout << "PASS base diagnostics, Result, scalar parsing differential, slots and owner thread\n";
         return 0;
