@@ -1,6 +1,7 @@
 #pragma once
 
 #include "layout/flex.hpp"
+#include "layout/hit_test.hpp"
 #include "render/rounded_clip.hpp"
 #include "script/script_dom.hpp"
 #include "text/font.hpp"
@@ -47,16 +48,10 @@ namespace weft {
         std::vector<PagePaint> paints;
         std::vector<Hit> hits; // Logical identities/parents; legacy profile also orders these by paint.
 
-        struct HitRegion {
-            std::size_t hit; // Index in the logical identity/parent tree above.
-            std::array<float, 4> rect{};
-            std::array<float, 4> clip{};
-            std::vector<RoundedClip> rounded_clips;
-        };
-
-        // Optional explicit paint-order regions. Inline fragments are separate;
-        // their logical parent indices remain stable when stacking reorders paint.
-        std::vector<HitRegion> hit_regions;
+        // Paint-order hit areas (layout/hit_test.hpp); each target is an index in hits. Inline fragments are separate
+        // areas; their logical parent indices remain stable when stacking reorders paint. Without areas, hits are
+        // tested as boxes in order.
+        HitAreas hit_areas;
     };
 
     // One paint item with its clip chain and replaced-content source.

@@ -63,10 +63,6 @@ namespace weft {
 
         using Plane = ScenePlane;
 
-        Plane affine_plane(const SceneAffine& a) {
-            return ScenePlane::affine(a);
-        }
-
         // An SVG element's transform attribute, or its transform property, in user units.
         SceneAffine svg_affine(const SceneNode& n) {
             const auto text =
@@ -96,15 +92,8 @@ namespace weft {
         };
 
         // A flattened SVG shape: closed polygons for fill, polylines for stroke, exact (unflattened) bounds.
-        struct Shape {
-            struct Figure {
-                std::vector<Point> points;
-                bool closed{};
-            };
-
-            std::vector<Figure> figures;
+        struct Shape : HitOutline {
             Bounds bounds;
-            bool evenodd{};
         };
 
         // Points of an elliptical arc in center form, endpoints excluded; SVG implementation notes F.6.5.
@@ -393,141 +382,6 @@ namespace weft {
             shape.bounds.add(cx - rx, cy - ry);
             shape.bounds.add(cx + rx, cy + ry);
         }
-
-        bool fill_contains(const Shape& shape, Point p) {
-            int winding{};
-            int crossings{};
-            for (const auto& f : shape.figures) {
-                const auto& v = f.points;
-                for (std::size_t i = 0; i < v.size(); ++i) {
-                    const auto& a = v[i];
-                    const auto& b = v[(i + 1) % v.size()];
-                    if ((a[1] <= p[1]) != (b[1] <= p[1])) {
-                        const double x = a[0] + (p[1] - a[1]) * (b[0] - a[0]) / (b[1] - a[1]);
-                        if (x > p[0]) {
-                            ++crossings;
-                            winding += b[1] > a[1] ? 1 : -1;
-                        }
-                    }
-                }
-            }
-            return shape.evenodd ? (crossings % 2) != 0 : winding != 0;
-        }
-
-        double segment_distance(Point p, Point a, Point b) {
-            const double dx = b[0] - a[0];
-            const double dy = b[1] - a[1];
-            const double length2 = dx * dx + dy * dy;
-            const double t =
-                length2 > 0 ? std::clamp(((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / length2, 0.0, 1.0) : 0;
-            return std::hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
-        }
-
-        struct Stroke {
-            double width{1};
-            std::string cap{"butt"};
-            std::vector<double> dashes;
-            double offset{};
-        };
-
-        // Stroke containment on the flattened figures: segments within half the width, round joins, butt/square/
-        // round caps at open ends and dash ends, dashes walked along each figure.
-        bool stroke_contains(const Shape& shape, const Stroke& stroke, Point p) {
-            const double half = stroke.width / 2;
-            auto cap_hit = [&](Point end, Point direction) {
-                if (stroke.cap == "round") {
-                    return std::hypot(p[0] - end[0], p[1] - end[1]) <= half;
-                }
-                if (stroke.cap == "square") {
-                    const double length = std::hypot(direction[0], direction[1]);
-                    if (length <= 0) {
-                        return false;
-                    }
-                    const double ux = direction[0] / length;
-                    const double uy = direction[1] / length;
-                    const double along = (p[0] - end[0]) * ux + (p[1] - end[1]) * uy;
-                    const double across = -(p[0] - end[0]) * uy + (p[1] - end[1]) * ux;
-                    return along >= 0 && along <= half && std::abs(across) <= half;
-                }
-                return false;
-            };
-            auto segment_hit = [&](Point a, Point b) {
-                const double dx = b[0] - a[0];
-                const double dy = b[1] - a[1];
-                const double length2 = dx * dx + dy * dy;
-                if (length2 <= 0) {
-                    return false;
-                }
-                const double t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / length2;
-                return t >= 0 && t <= 1 && segment_distance(p, a, b) <= half;
-            };
-            for (const auto& f : shape.figures) {
-                std::vector<Point> v = f.points;
-                if (f.closed && !v.empty()) {
-                    v.push_back(v.front());
-                }
-                if (v.size() < 2) {
-                    continue;
-                }
-                if (stroke.dashes.empty()) {
-                    for (std::size_t i = 0; i + 1 < v.size(); ++i) {
-                        if (segment_hit(v[i], v[i + 1])) {
-                            return true;
-                        }
-                        // Joins between segments (round).
-                        if (i > 0 && std::hypot(p[0] - v[i][0], p[1] - v[i][1]) <= half) {
-                            return true;
-                        }
-                    }
-                    if (f.closed && std::hypot(p[0] - v.front()[0], p[1] - v.front()[1]) <= half) {
-                        return true;
-                    }
-                    if (!f.closed &&
-                        (cap_hit(v.front(), {v.front()[0] - v[1][0], v.front()[1] - v[1][1]}) ||
-                         cap_hit(v.back(), {v.back()[0] - v[v.size() - 2][0], v.back()[1] - v[v.size() - 2][1]}))) {
-                        return true;
-                    }
-                    continue;
-                }
-                double total{};
-                for (auto d : stroke.dashes) {
-                    total += d;
-                }
-                double phase = std::fmod(stroke.offset, total);
-                if (phase < 0) {
-                    phase += total;
-                }
-                std::size_t dash{};
-                while (phase >= stroke.dashes[dash]) {
-                    phase -= stroke.dashes[dash];
-                    dash = (dash + 1) % stroke.dashes.size();
-                }
-                double left = stroke.dashes[dash] - phase;
-                for (std::size_t i = 0; i + 1 < v.size(); ++i) {
-                    Point a = v[i];
-                    const Point b = v[i + 1];
-                    double remaining = std::hypot(b[0] - a[0], b[1] - a[1]);
-                    const Point direction{b[0] - a[0], b[1] - a[1]};
-                    while (remaining > 0) {
-                        const double take = std::min(left, remaining);
-                        const double t = take / remaining;
-                        const Point c{a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t};
-                        if (dash % 2 == 0 && (segment_hit(a, c) || cap_hit(a, {-direction[0], -direction[1]}) ||
-                                              cap_hit(c, direction))) {
-                            return true;
-                        }
-                        remaining -= take;
-                        left -= take;
-                        a = c;
-                        if (left <= 0) {
-                            dash = (dash + 1) % stroke.dashes.size();
-                            left = stroke.dashes[dash];
-                        }
-                    }
-                }
-            }
-            return false;
-        }
     } // namespace
 
     SceneViewport scene_svg_viewport(const SceneNode& n) {
@@ -782,13 +636,13 @@ namespace weft {
             return out;
         }
 
-        Stroke stroke(const SceneNode& n) {
-            Stroke s;
+        HitStroke stroke(const SceneNode& n) {
+            HitStroke s;
             s.width = len(get(n.style, PropertyId::StrokeWidth, "1"));
-            s.cap = get(n.style, PropertyId::StrokeLinecap, "butt");
-            if (s.cap.empty()) {
-                s.cap = "butt";
-            }
+            const auto cap = get(n.style, PropertyId::StrokeLinecap, "butt");
+            s.cap = cap == "round"    ? HitStroke::Cap::Round
+                    : cap == "square" ? HitStroke::Cap::Square
+                                      : HitStroke::Cap::Butt;
             auto d = get(n.style, PropertyId::StrokeDasharray, "none");
             if (d != "none" && !d.empty()) {
                 for (auto value : parse_scene_numbers(d)) {
@@ -853,10 +707,23 @@ namespace weft {
         return {m.m11, m.m12, m.m21, m.m22, m.dx, m.dy};
     }
 
-    NodeIdentity SceneGeometry::hit_test(const SceneFrame& f, float x, float y) {
+    NodeIdentity SceneGeometry::HitMap::hit(float x, float y) const {
+        const auto target = hit_areas(areas, x, y);
+        return target ? targets[*target] : NodeIdentity{};
+    }
+
+    // Areas in the order the scene paints: children by z-index, SVG content after its svg box. A box clips its
+    // descendants when its overflow is hidden or auto, as an svg element does; a clip-path clips its element too.
+    SceneGeometry::HitMap SceneGeometry::hit_map(const SceneFrame& f) {
         impl_->require_owner();
-        NodeIdentity result{};
-        auto svg_visit = [&](auto&& self, const SceneNode& n, Plane parent, const SceneNode& root) -> void {
+        HitMap out;
+        const auto area = [&](const SceneNode& n, const Plane& inverse, std::vector<HitShape> shapes,
+                              std::size_t clip) {
+            out.targets.push_back(n.identity);
+            out.areas.areas.push_back({out.targets.size() - 1, inverse, std::move(shapes), clip});
+        };
+        auto svg_visit = [&](auto&& self, const SceneNode& n, Plane parent, const SceneNode& root,
+                             std::size_t clip) -> void {
             if (get(n.style, PropertyId::Display) == "none" || n.tag == "defs" || n.tag == "clipPath") {
                 return;
             }
@@ -865,13 +732,14 @@ namespace weft {
             if (!m.inverse(inverse)) {
                 return;
             }
-            auto p = inverse.point(x, y);
-            if (auto clip = impl_->clip(n, root); clip && !fill_contains(*clip, p)) {
-                return;
+            if (auto path = impl_->clip(n, root)) {
+                HitShape shape;
+                shape.kind = HitShape::Kind::Fill;
+                shape.outline = std::shared_ptr<const HitOutline>(path, path.get());
+                clip = out.areas.add_clip(inverse, std::move(shape), clip);
             }
-            auto shape = impl_->shape(n);
-            if (shape && get(n.style, PropertyId::PointerEvents) != "none") {
-                const auto pointer = get(n.style, PropertyId::PointerEvents, "visiblePainted");
+            const auto pointer = get(n.style, PropertyId::PointerEvents, "visiblePainted");
+            if (auto shape = impl_->shape(n); shape && pointer != "none") {
                 const bool painted = pointer == "auto" || pointer == "painted" || pointer == "visiblePainted";
                 const bool fill = pointer == "all" || pointer == "fill" || pointer == "visibleFill" ||
                                   pointer == "visible" ||
@@ -879,15 +747,26 @@ namespace weft {
                 const bool stroke = pointer == "all" || pointer == "stroke" || pointer == "visibleStroke" ||
                                     pointer == "visible" ||
                                     (painted && get(n.style, PropertyId::Stroke, "none") != "none");
-                bool inside = fill && n.tag != "line" && fill_contains(*shape, p);
-                if (!inside && stroke) {
-                    inside = stroke_contains(*shape, impl_->stroke(n), p);
+                std::vector<HitShape> shapes;
+                const std::shared_ptr<const HitOutline> outline(shape, shape.get());
+                if (fill && n.tag != "line") {
+                    HitShape s;
+                    s.kind = HitShape::Kind::Fill;
+                    s.outline = outline;
+                    shapes.push_back(std::move(s));
                 }
-                if (inside) {
-                    result = n.identity;
+                if (stroke) {
+                    HitShape s;
+                    s.kind = HitShape::Kind::Stroke;
+                    s.outline = outline;
+                    s.stroke = impl_->stroke(n);
+                    shapes.push_back(std::move(s));
+                }
+                if (!shapes.empty()) {
+                    area(n, inverse, std::move(shapes), clip);
                 }
             }
-            if (n.tag == "text" && get(n.style, PropertyId::PointerEvents) != "none") {
+            if (n.tag == "text" && pointer != "none") {
                 auto metrics = impl_->text.measure(n.text, n.style);
                 float tx = n.attributes.contains("x") ? len(n.attributes.at("x")) : 0;
                 float ty = n.attributes.contains("y") ? len(n.attributes.at("y")) : 0;
@@ -899,53 +778,58 @@ namespace weft {
                     tx -= metrics.width;
                 }
                 ty -= metrics.baseline;
-                if (p[0] >= tx && p[0] <= tx + metrics.width && p[1] >= ty && p[1] <= ty + metrics.height) {
-                    result = n.identity;
-                }
+                area(n, inverse, {HitShape::bounds(tx, ty, metrics.width, metrics.height)}, clip);
             }
             for (const auto& c : n.children) {
-                self(self, c, m, root);
+                self(self, c, m, root, clip);
             }
         };
-        auto visit = [&](auto&& self, const SceneNode& n, Plane parent) -> void {
+        auto visit = [&](auto&& self, const SceneNode& n, Plane parent, std::size_t clip) -> void {
             if (get(n.style, PropertyId::Display) == "none") {
                 return;
             }
-            auto m = parent * scene_plane(n);
+            const auto m = parent * scene_plane(n);
             Plane inverse;
             if (!m.inverse(inverse)) {
                 return;
             }
-            auto p = inverse.point(x, y);
-            const bool inside = p[0] >= 0 && p[0] < n.box[2] && p[1] >= 0 && p[1] < n.box[3];
-            if (!inside &&
-                ((get(n.style, PropertyId::Overflow) == "hidden" || get(n.style, PropertyId::Overflow) == "auto") ||
-                 n.tag == "svg")) {
-                return;
+            const auto box = HitShape::box(0, 0, n.box[2], n.box[3]);
+            if (n.tag != "#text" && get(n.style, PropertyId::PointerEvents) != "none") {
+                area(n, inverse, {box}, clip);
             }
-            if (inside && n.tag != "#text" && get(n.style, PropertyId::PointerEvents) != "none") {
-                result = n.identity;
+            const auto overflow = get(n.style, PropertyId::Overflow);
+            if (overflow == "hidden" || overflow == "auto" || n.tag == "svg") {
+                clip = out.areas.add_clip(inverse, box, clip);
             }
             if (n.space == constants::svg_namespace_uri) {
-                auto viewport = m * affine_plane(viewport_affine(n));
+                const auto viewport = m * affine_plane(viewport_affine(n));
                 for (const auto& c : n.children) {
-                    svg_visit(svg_visit, c, viewport, n);
+                    svg_visit(svg_visit, c, viewport, n, clip);
                 }
                 return;
             }
+            // Stacking order among siblings, as painted; auto stacks at 0.
+            const auto z = [](const SceneNode& c) {
+                const auto v = get(c.style, PropertyId::ZIndex, "0");
+                return v == "auto" ? 0.f : len(v);
+            };
             std::vector<const SceneNode*> order;
             for (const auto& c : n.children) {
                 order.push_back(&c);
             }
-            std::stable_sort(order.begin(), order.end(), [](auto a, auto b) {
-                return len(get(a->style, PropertyId::ZIndex, "0")) < len(get(b->style, PropertyId::ZIndex, "0"));
+            std::stable_sort(order.begin(), order.end(), [&](auto a, auto b) {
+                return z(*a) < z(*b);
             });
             for (auto c : order) {
-                self(self, *c, m);
+                self(self, *c, m, clip);
             }
         };
-        visit(visit, f.root, Plane{});
-        return result;
+        visit(visit, f.root, Plane{}, HitAreas::none);
+        return out;
+    }
+
+    NodeIdentity SceneGeometry::hit_test(const SceneFrame& f, float x, float y) {
+        return hit_map(f).hit(x, y);
     }
 
     std::vector<ElementGeometry> SceneGeometry::geometry(const SceneFrame& f, bool svg_descendants) {

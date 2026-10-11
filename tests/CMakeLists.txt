@@ -179,6 +179,8 @@ weft_add_executable(weft_flex_tests SOURCES flex_tests.cpp LINK weft::layout SOU
 weft_add_test(NAME flex_adapter_contract COMMAND weft_flex_tests)
 weft_add_executable(weft_box_layout_tests SOURCES box_layout_tests.cpp LINK weft::layout)
 weft_add_test(NAME box_layout_contract COMMAND weft_box_layout_tests)
+weft_add_executable(weft_hit_test_tests SOURCES hit_test_tests.cpp LINK weft::layout)
+weft_add_test(NAME hit_test_contract COMMAND weft_hit_test_tests)
 
 weft_add_executable(weft_page_tests
     SOURCES page_tests.cpp

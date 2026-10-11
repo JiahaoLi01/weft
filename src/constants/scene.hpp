@@ -160,10 +160,6 @@ namespace weft::constants::scene {
     inline constexpr double projective_denominator_epsilon = 1e-6;
     // Seed of the projected corner bounds; exceeds every accepted coordinate.
     inline constexpr double projective_bounds_seed = 1e7;
-    // Homogeneous w and determinants below this are treated as singular.
-    inline constexpr double plane_singular_epsilon = 1e-10;
-    // Image of a point that projects to infinity.
-    inline constexpr double plane_far_point = 1e10;
     // Seed of the running min/max bounds in geometry().
     inline constexpr double geometry_bounds_seed = 1e10;
 

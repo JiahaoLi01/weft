@@ -45,10 +45,12 @@ inline void compare_scene_geometry(weft::SceneRaster& reference, weft::SceneGeom
     total.elements += expected.size();
     ++total.frames;
     const float slack = weft::test_constants::scene::geometry_hit_boundary_px;
+    // One hit map serves every point of the frame.
+    const auto map = hits ? portable.hit_map(frame) : weft::SceneGeometry::HitMap{};
     for (float y = step / 2; hits && y < height; y += step) {
         for (float x = step / 2; x < width; x += step) {
             const auto r = reference.hit_test(frame, x, y);
-            const auto p = portable.hit_test(frame, x, y);
+            const auto p = map.hit(x, y);
             ++total.hits;
             if (r == p) {
                 continue;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "layout/hit_test.hpp"
 #include "scene/scene.hpp"
 #include "scene/scene_transform.hpp"
 
@@ -54,7 +55,18 @@ namespace weft {
         SceneGeometry(const SceneGeometry&) = delete;
         SceneGeometry& operator=(const SceneGeometry&) = delete;
 
+        // A frame's hit areas in paint order (layout/hit_test.hpp), each target an index in targets.
+        struct HitMap {
+            HitAreas areas;
+            std::vector<NodeIdentity> targets;
+
+            // The topmost node at (x, y); a default identity for none.
+            NodeIdentity hit(float x, float y) const;
+        };
+
         std::vector<ElementGeometry> geometry(const SceneFrame& frame, bool svg_descendants = false);
+        // For many points of one frame, build its hit map once.
+        HitMap hit_map(const SceneFrame& frame);
         NodeIdentity hit_test(const SceneFrame& frame, float x, float y);
         // The node's CSS transform as {m11, m12, m21, m22, dx, dy}, without transform-origin.
         std::array<double, 6> transform_matrix(const SceneNode& node) const;

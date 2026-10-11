@@ -41,6 +41,10 @@ namespace weft::constants {
     inline constexpr int max_selector_compounds = 16;
     // Bound on any logical CSS pixel magnitude: coordinates, lengths, extents and wheel deltas.
     inline constexpr int max_logical_px_magnitude = 100000;
+    // Projective planes: homogeneous w and determinants below this are singular; a point that projects to infinity
+    // maps this far away.
+    inline constexpr double plane_singular_epsilon = 1e-10;
+    inline constexpr double plane_far_point = 1e10;
     // Largest viewport edge accepted by the layout and scene profiles.
     inline constexpr int max_viewport_dimension_px = 4096;
     // HTML canvas element default size in CSS pixels.

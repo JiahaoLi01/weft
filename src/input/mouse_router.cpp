@@ -33,31 +33,14 @@ namespace weft {
         if (page.hits.empty() || !std::isfinite(x) || !std::isfinite(y)) {
             return {};
         }
-        if (!page.hit_regions.empty()) {
-            auto inside = [&](const std::array<float, 4>& r) {
-                return r[2] > 0 && r[3] > 0 && x >= r[0] && y >= r[1] && x < double(r[0]) + r[2] &&
-                       y < double(r[1]) + r[3];
-            };
-            for (auto i = page.hit_regions.size(); i-- > 0;) {
-                const auto& r = page.hit_regions[i];
-                if (r.hit >= page.hits.size()) {
+        if (!page.hit_areas.areas.empty()) {
+            const auto enabled = [&](std::size_t target) {
+                if (target >= page.hits.size()) {
                     throw std::invalid_argument("WEFT_HIT_PROFILE: region identity index");
                 }
-                if (!page.hits[r.hit].enabled || !inside(r.rect) || !inside(r.clip)) {
-                    continue;
-                }
-                bool covered = true;
-                for (const auto& c : r.rounded_clips) {
-                    if (!contains_rounded(c, float(x), float(y))) {
-                        covered = false;
-                        break;
-                    }
-                }
-                if (covered) {
-                    return r.hit;
-                }
-            }
-            return {};
+                return page.hits[target].enabled;
+            };
+            return hit_areas(page.hit_areas, x, y, enabled);
         }
         const auto inside = [&](const Page::Hit& h) {
             return h.width > 0 && h.height > 0 && x >= h.x && y >= h.y && x < h.x + h.width && y < h.y + h.height;

@@ -24,41 +24,6 @@ namespace weft {
         return {c, s, -s, c, cx - cx * c + cy * s, cy - cx * s - cy * c};
     }
 
-    ScenePlane ScenePlane::operator*(const ScenePlane& b) const {
-        ScenePlane out;
-        out.m.fill(0);
-        for (unsigned y = 0; y < 3; ++y) {
-            for (unsigned x = 0; x < 3; ++x) {
-                for (unsigned k = 0; k < 3; ++k) {
-                    out.m[y * 3 + x] += m[y * 3 + k] * b.m[k * 3 + x];
-                }
-            }
-        }
-        return out;
-    }
-
-    std::array<double, 2> ScenePlane::point(double x, double y) const {
-        const double z = m[6] * x + m[7] * y + m[8];
-        if (std::abs(z) < constants::scene::plane_singular_epsilon) {
-            return {constants::scene::plane_far_point, constants::scene::plane_far_point};
-        }
-        return {(m[0] * x + m[1] * y + m[2]) / z, (m[3] * x + m[4] * y + m[5]) / z};
-    }
-
-    bool ScenePlane::inverse(ScenePlane& out) const {
-        const auto& a = m;
-        const double det = a[0] * (a[4] * a[8] - a[5] * a[7]) - a[1] * (a[3] * a[8] - a[5] * a[6]) +
-                           a[2] * (a[3] * a[7] - a[4] * a[6]);
-        if (std::abs(det) < constants::scene::plane_singular_epsilon) {
-            return false;
-        }
-        out.m = {
-            (a[4] * a[8] - a[5] * a[7]) / det, (a[2] * a[7] - a[1] * a[8]) / det, (a[1] * a[5] - a[2] * a[4]) / det,
-            (a[5] * a[6] - a[3] * a[8]) / det, (a[0] * a[8] - a[2] * a[6]) / det, (a[2] * a[3] - a[0] * a[5]) / det,
-            (a[3] * a[7] - a[4] * a[6]) / det, (a[1] * a[6] - a[0] * a[7]) / det, (a[0] * a[4] - a[1] * a[3]) / det};
-        return true;
-    }
-
     SceneAffine scene_affine(std::span<const PaintOperation> operations, float w, float h) {
         SceneAffine m;
         for (const auto& op : operations) {
@@ -135,7 +100,7 @@ namespace weft {
         if (const auto p = scene_perspective(operations)) {
             local.m = {std::cos(p->radians), 0, 0, 0, 1, 0, std::sin(p->radians) / p->distance, 0, 1};
         } else {
-            local = ScenePlane::affine(scene_affine(operations, n.box[2], n.box[3]));
+            local = affine_plane(scene_affine(operations, n.box[2], n.box[3]));
         }
         return ScenePlane::translation(o[0] + n.box[0], o[1] + n.box[1]) * local *
                ScenePlane::translation(-o[0], -o[1]);

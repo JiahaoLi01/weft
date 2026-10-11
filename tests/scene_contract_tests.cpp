@@ -115,6 +115,19 @@ int main() {
                 R"JS((()=>{let rejected=0;for(const value of [1n,Symbol('delay')]){try{setTimeout(()=>{},value)}catch(e){rejected++}try{clearInterval(value)}catch(e){rejected++}}let value=0;const id=setTimeout(()=>value++,2.9);__ceHost.pump(1);const before=value;__ceHost.pump(2);clearInterval(id);return rejected===4&&before===0&&value===1})())JS") ==
                 "true",
             "timer WebIDL coercion / fractional delay");
+        // Hit testing stacks siblings as paint does: z-index auto at 0, under a later sibling's positive z-index.
+        vm.reset_document();
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
+        vm.eval(
+            "const s=document.getElementById('root');s.setAttribute('style','position:relative');const raised=document.createElement('div');raised.setAttribute('style','position:absolute;left:0;top:0;width:20px;height:20px;z-index:1');const flat=document.createElement('div');flat.setAttribute('style','position:absolute;left:0;top:0;width:20px;height:20px;z-index:auto');s.appendChild(raised);s.appendChild(flat)");
+        weft::SceneSolver stacking("", "", [&](auto t, const auto& st) {
+            return weft::testing::thread_scene_text().measure(t, st);
+        });
+        const auto stacked =
+            stacking.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
+                           weft::test_constants::scene::contract_view_size, 0);
+        require(geometry.hit_test(stacked, 10, 10) == stacked.root.children[0].identity,
+                "hit testing ignored z-index or refused z-index auto");
         vm.reset_document();
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(

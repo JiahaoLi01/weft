@@ -617,6 +617,20 @@ namespace weft {
                 return normalize_rounded(c);
             }
 
+            // A hit area of `target`: its box, inside the overflow clip and the rounded clips.
+            static void hit_area(Page& page, std::size_t target, const Rect& r, const Rect& clip,
+                                 const std::vector<RoundedClip>& masks) {
+                auto& areas = page.hit_areas;
+                auto chain = areas.add_clip({}, HitShape::box(clip.x, clip.y, clip.w, clip.h), HitAreas::none);
+                for (const auto& mask : masks) {
+                    HitShape rounded;
+                    rounded.kind = HitShape::Kind::Rounded;
+                    rounded.rounded = mask;
+                    chain = areas.add_clip({}, std::move(rounded), chain);
+                }
+                areas.areas.push_back({target, {}, {HitShape::box(r.x, r.y, r.w, r.h)}, chain});
+            }
+
             void quad(PositionedPage& out, const Node& n, Rect r, Rect clip, const std::vector<RoundedClip>& masks,
                       const std::array<float, 4>& color, const std::string& image = {},
                       std::optional<NodeIdentity> canvas = {}) {
@@ -656,7 +670,7 @@ namespace weft {
                 if (own.size() > constants::layout::max_rounded_clip_depth) {
                     fail("rounded clip depth bound");
                 }
-                out.page.geometry.hit_regions.push_back({index, r.array(), clip.array(), own});
+                hit_area(out.page.geometry, index, r, clip, own);
                 quad(out.page, n, r, clip, own, parse_css_color(get(n.style, "background-color", "transparent")));
                 if (!n.image.empty()) {
                     quad(out.page, n, r, clip, own, {1, 1, 1, 1}, n.image);
@@ -687,7 +701,7 @@ namespace weft {
                                 fonts.inline_metrics(0, px(get(span.style, "font-size", constants::default_font_size)));
                             Rect fr{p.box.x + f.x - dx, p.box.y + f.baseline - m.ascent - dy, f.width,
                                     m.ascent + m.descent};
-                            out.page.geometry.hit_regions.push_back({ids.at(id), fr.array(), clip.array(), masks});
+                            hit_area(out.page.geometry, ids.at(id), fr, clip, masks);
                             quad(out.page, span, fr, clip, masks,
                                  parse_css_color(get(span.style, "background-color", "transparent")));
                         }

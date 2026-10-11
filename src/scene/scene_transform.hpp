@@ -1,5 +1,6 @@
 #pragma once
 
+#include "base/plane.hpp"
 #include "scene/scene.hpp"
 #include "scene/scene_paint.hpp"
 
@@ -42,24 +43,11 @@ namespace weft {
         }
     };
 
-    // Projective plane in column-vector layout: m = [a b c; d e f; g h i].
-    struct ScenePlane {
-        std::array<double, 9> m{1, 0, 0, 0, 1, 0, 0, 0, 1};
+    using ScenePlane = geometry::Plane;
 
-        ScenePlane operator*(const ScenePlane& b) const;
-        // A point mapped through the plane; far away when it maps to infinity.
-        std::array<double, 2> point(double x, double y) const;
-        // False for a singular plane.
-        bool inverse(ScenePlane& out) const;
-
-        static ScenePlane translation(double x, double y) {
-            return {{1, 0, x, 0, 1, y, 0, 0, 1}};
-        }
-
-        static ScenePlane affine(const SceneAffine& a) {
-            return {{a.m11, a.m21, a.dx, a.m12, a.m22, a.dy, 0, 0, 1}};
-        }
-    };
+    inline ScenePlane affine_plane(const SceneAffine& a) {
+        return {{a.m11, a.m21, a.dx, a.m12, a.m22, a.dy, 0, 0, 1}};
+    }
 
     // The functions composed in list order, percentages resolving against a w x h box. Projective functions are
     // a diagnostic (Diag::SceneRaster): they need the plane of scene_perspective.
