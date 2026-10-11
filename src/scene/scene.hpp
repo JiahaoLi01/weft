@@ -1,5 +1,6 @@
 #pragma once
 #include "style/style.hpp"
+#include "dom/geometry.hpp"
 #include "scene/scene_paint.hpp"
 #include "scene/scene_text.hpp"
 #include <functional>

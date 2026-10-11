@@ -2,6 +2,7 @@
 #define NOMINMAX
 #include "gallery_scene_manifest.hpp"
 #include "script/script_platform.hpp"
+#include "script/script_dom.hpp"
 #include "gallery_constants.hpp"
 #include "scene/scene.hpp"
 #include "scene/scene_geometry.hpp"

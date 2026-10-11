@@ -1,5 +1,6 @@
 #pragma once
 #include "layout/output.hpp"
+#include "script/script_dom.hpp"
 #include "constants/common.hpp"
 #include <optional>
 

@@ -1,5 +1,5 @@
 #pragma once
-#include "script/script_dom.hpp"
+#include "dom/node.hpp"
 #include "style/values.hpp"
 #include <array>
 #include <optional>

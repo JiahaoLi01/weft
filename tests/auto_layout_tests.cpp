@@ -1,5 +1,6 @@
 #include "layout/document.hpp"
 #include "script/script_platform.hpp"
+#include "script/script_dom.hpp"
 #include "support/check.hpp"
 #include "support/files.hpp"
 #include "constants/layout.hpp"

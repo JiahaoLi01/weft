@@ -114,7 +114,7 @@ python tools/compare_d3_reports.py artifacts/local/d3-reference/report.json arti
 下面的构建启用 QuickJS 上游的“每次分配前完整 GC”，用于放大遗漏的 root/mark 边界：
 
 ```powershell
-cmake -S . -B build/windows-gc-stress -G "Visual Studio 17 2022" -A x64 -DCE_BUILD_TESTS=ON -DCE_BUILD_PROBES=ON -DQJS_ENABLE_GC_STRESS=ON
+cmake -S . -B build/windows-gc-stress -G "Visual Studio 17 2022" -A x64 -DWEFT_BUILD_TESTS=ON -DWEFT_BUILD_PROBES=ON -DQJS_ENABLE_GC_STRESS=ON
 cmake --build build/windows-gc-stress --config Debug --parallel 4
 ctest --test-dir build/windows-gc-stress -C Debug --output-on-failure
 ```

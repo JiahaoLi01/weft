@@ -1,4 +1,5 @@
 #include "style/style.hpp"
+#include "script/script_dom.hpp"
 #include "support/check.hpp"
 #include "support/files.hpp"
 #include "constants/common.hpp"

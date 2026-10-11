@@ -35,7 +35,7 @@ GPU 后端已有可注册的实验 C ABI 与实际 D3D11 reference/window 接入
 
 2026-10-11 重构第 8 步：positioned、auto 与 page profile 已退役。原样 NineSlice、AlertBar（四种 CSS）、React 页面与 Canvas gallery 都由统一的文档格式化器运行，各自的浏览器对照按原阈值通过。下文按 profile 记录的范围是各自当时的证据；统一路径支持这些子集的并集，另加 flex item 的 margin、静态根元素（视口初始包含块）与 canvas 替换元素。p、button 的 UA 默认 margin/padding/border 尚未建模，作者需显式设置；ul 未显式设置会诊断。
 
-CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后代/子代选择器、层叠、明确尺寸的绝对定位、px/%/受限 calc、矩形图片裁剪及孤立层叠。它是独立 positioned profile，尚未与 Flex/inline 或一般文档/CSSOM 合并；JS 原生 DOM 现支持 tag/id/class compound 和最多 16 段的后代链（D3 axis `.tick line` / `.tick text` 已验证）；子代、列表和 attribute query 仍显式 WEFT_UNSUPPORTED_SELECTOR，不能从 C++ stylesheet matcher 推断其他 DOM selector 支持。完整原游戏、滚动和通用 positioned hit-test 未验收，见 [实际样本合同](casecheetah-workload.md)。
+CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后代/子代选择器、层叠、明确尺寸的绝对定位、px/%/受限 calc、矩形图片裁剪及孤立层叠。它是独立 positioned profile，尚未与 Flex/inline 或一般文档/CSSOM 合并；JS 原生 DOM 现支持 tag/id/class compound 和最多 16 段的后代链（D3 axis `.tick line` / `.tick text` 已验证）；逗号分隔的选择器列表也支持；子代和 attribute query 仍显式 WEFT_UNSUPPORTED_SELECTOR，不能从 C++ stylesheet matcher 推断其他 DOM selector 支持。完整原游戏、滚动和通用 positioned hit-test 未验收，见 [实际样本合同](casecheetah-workload.md)。
 
 已验证固定 Roboto/Noto CJK 的有界 LTR 中英回退和灰度页面，原样 AlertBar/Zustand/store/双向 UE 桥在作者预览 CSS 下运行。span/b/ul/li 仅限显式 block/positioned、normal/400、零边距和 list-style:none；已独立接原始主题块与展开规则；尚不支持整个 operations.css、一般 inline、段落换行/bidi 或 IME。浏览器状态/几何/四项字体度量与 GPU 证据见 [中文 workload](cjk-alert-probe.md)。
 

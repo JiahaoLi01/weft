@@ -11,17 +11,12 @@
 #include <functional>
 #include "canvas/canvas.hpp"
 #include "constants/script.hpp"
+#include "dom/geometry.hpp"
+#include "dom/node.hpp"
 
 namespace weft {
-
-    // M0 evidence API, not a stable public runtime or C ABI.
-    struct NodeIdentity {
-        std::uint32_t slot{};
-        std::uint32_t generation{};
-        std::uint64_t view_epoch{};
-        friend bool operator==(const NodeIdentity&, const NodeIdentity&) = default;
-    };
-
+    // M0 evidence API, not a stable public runtime or C ABI. The DOM value types are in dom/node.hpp and
+    // dom/geometry.hpp.
     struct ScriptStats {
         std::size_t live_nodes{};
         std::size_t created_nodes{};
@@ -41,41 +36,6 @@ namespace weft {
         std::size_t snapshot_nodes{};
         std::size_t script_evaluations{};
         std::size_t host_calls{};
-    };
-
-    // Owner-produced value copy. Contains no Node pointer or JSValue.
-    struct DomSnapshot {
-        NodeIdentity identity;
-        int type{};
-        std::string local_name;
-        std::string namespace_uri;
-        std::string data;
-        std::map<std::string, std::string> attributes;
-        std::vector<DomSnapshot> children;
-        double scroll_left{};
-        double scroll_top{};
-        bool hovered{};
-        bool active{};
-        friend bool operator==(const DomSnapshot&, const DomSnapshot&) = default;
-    };
-
-    struct ElementGeometry {
-        NodeIdentity identity;
-        std::array<double, 4> rect{};
-        std::vector<std::array<double, 4>> client_rects;
-        double client_width{};
-        double client_height{};
-        double scroll_width{};
-        double scroll_height{};
-        double scroll_left{};
-        double scroll_top{};
-        bool scroll_x{};
-        bool scroll_y{};
-        bool wheel_x{};
-        bool wheel_y{};
-        std::array<double, 4> offset{};                 // Untransformed border box relative to offset parent.
-        std::array<double, 6> matrix{1, 0, 0, 1, 0, 0}; // SVG/local coordinates to logical viewport.
-        NodeIdentity offset_parent{};
     };
 
     using LayoutHost = std::function<std::vector<ElementGeometry>(const DomSnapshot&)>;
@@ -100,13 +60,6 @@ namespace weft {
     struct TaskResult {
         std::size_t callbacks{};
         std::size_t ready{};
-    };
-
-    struct DomChanges {
-        std::uint64_t epoch{};
-        std::uint64_t revision{};
-        bool full_required{};
-        std::vector<NodeIdentity> nodes; // Weak identities; no extra GC roots.
     };
 
     struct CanvasSnapshot {

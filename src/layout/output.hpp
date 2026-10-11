@@ -3,7 +3,8 @@
 #include "layout/flex.hpp"
 #include "layout/hit_test.hpp"
 #include "render/rounded_clip.hpp"
-#include "script/script_dom.hpp"
+#include "dom/geometry.hpp"
+#include "dom/node.hpp"
 #include "text/font.hpp"
 
 #include <array>
