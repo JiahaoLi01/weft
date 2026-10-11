@@ -66,19 +66,6 @@ namespace weft {
 
         using Plane = ScenePlane;
 
-        // An SVG element's transform attribute, or its transform property, in user units.
-        // An SVG element's transform attribute, else its CSS transform; most elements have neither.
-        SceneAffine svg_affine(const SceneNode& n) {
-            static const auto identity = scene_affine({}, 0, 0);
-            const auto it = n.attributes.find("transform");
-            const std::string_view text =
-                it != n.attributes.end() ? std::string_view(it->second) : view(n.style, PropertyId::Transform);
-            if (text.empty() || text == "none") {
-                return identity;
-            }
-            return scene_affine(parse_scene_transform(text, true).value(), 0, 0);
-        }
-
         SceneAffine viewport_affine(const SceneNode& n) {
             const auto v = scene_svg_viewport(n);
             return {v.sx, 0, 0, v.sy, v.tx, v.ty};
@@ -103,6 +90,58 @@ namespace weft {
         // A flattened SVG shape: closed polygons for fill, polylines for stroke, exact (unflattened) bounds.
         struct Shape : HitOutline {
             Bounds bounds;
+        };
+
+        // The attributes an SVG shape is built from, sorted.
+        constexpr std::array<std::string_view, 15> geometry_attributes{
+            "cx", "cy", "d", "height", "points", "r", "rx", "ry", "width", "x", "x1", "x2", "y", "y1", "y2"};
+
+        // The index of a geometry attribute in geometry_attributes; its size for any other name.
+        std::size_t geometry_attribute(std::string_view name) {
+            // Paint, style and class names mostly start with other letters.
+            switch (name.empty() ? '\0' : name[0]) {
+                case 'c':
+                case 'd':
+                case 'h':
+                case 'p':
+                case 'r':
+                case 'w':
+                case 'x':
+                case 'y':
+                    break;
+                default:
+                    return geometry_attributes.size();
+            }
+            const auto it = std::lower_bound(geometry_attributes.begin(), geometry_attributes.end(), name);
+            return it != geometry_attributes.end() && *it == name ? std::size_t(it - geometry_attributes.begin())
+                                                                  : geometry_attributes.size();
+        }
+
+        // A node's shape with what it was built from. While those still match, the node reuses the shape without
+        // building or hashing a key.
+        struct NodeShape {
+            std::string tag;
+            std::string fill_rule;
+            // Geometry attributes by index, in name order, with their values.
+            std::vector<std::pair<std::size_t, std::string>> attributes;
+            std::shared_ptr<const Shape> shape;
+            std::size_t bytes{};
+
+            bool built_from(const SceneNode& n, std::string_view rule) const {
+                if (tag != n.tag || fill_rule != rule) {
+                    return false;
+                }
+                auto it = attributes.begin();
+                for (const auto& [name, value] : n.attributes) {
+                    if (const auto index = geometry_attribute(name); index < geometry_attributes.size()) {
+                        if (it == attributes.end() || it->first != index || it->second != value) {
+                            return false;
+                        }
+                        ++it;
+                    }
+                }
+                return it == attributes.end();
+            }
         };
 
         // Points of an elliptical arc in center form, endpoints excluded; SVG implementation notes F.6.5.
@@ -566,6 +605,12 @@ namespace weft {
         std::size_t shape_bytes{};
         // Reused to build shape keys without allocating.
         std::string key_buffer;
+        std::map<std::array<std::uint64_t, 3>, NodeShape> node_shapes;
+        std::size_t node_shape_bytes{};
+        // The last shape too large to keep per node, so shape() can return a reference.
+        std::shared_ptr<const Shape> unkept;
+        std::map<std::string, SceneAffine, std::less<>> transforms;
+        std::size_t transform_bytes{};
 
         explicit Impl(SceneText& t) : text(t) {
         }
@@ -574,15 +619,74 @@ namespace weft {
             owner.require(Diag::SceneRasterOwner);
         }
 
-        // Fill and stroke geometry of an SVG element in its user space; empty for groups, text and definitions.
-        std::shared_ptr<const Shape> shape(const SceneNode& n) {
-            const auto& a = n.attributes;
-            if (n.tag == "text" || n.tag == "g" || n.tag == "svg" || n.tag == "defs" || n.tag == "clipPath") {
-                return {};
+        // An SVG element's transform attribute, else its CSS transform, in user units; most elements have neither.
+        SceneAffine affine(const SceneNode& n) {
+            static const auto identity = scene_affine({}, 0, 0);
+            const auto it = n.attributes.find("transform");
+            const std::string_view source =
+                it != n.attributes.end() ? std::string_view(it->second) : view(n.style, PropertyId::Transform);
+            if (source.empty() || source == "none") {
+                return identity;
             }
+            if (const auto known = transforms.find(source); known != transforms.end()) {
+                return known->second;
+            }
+            const auto result = scene_affine(parse_scene_transform(source, true).value(), 0, 0);
+            if (source.size() <= constants::scene::transform_cache_max_bytes) {
+                if (transforms.size() >= constants::scene::transform_cache_max_entries ||
+                    transform_bytes + source.size() > constants::scene::transform_cache_max_bytes) {
+                    transforms.clear();
+                    transform_bytes = 0;
+                }
+                transform_bytes += source.size();
+                transforms.emplace(source, result);
+            }
+            return result;
+        }
+
+        // Fill and stroke geometry of an SVG element in its user space; empty for groups, text and definitions. The
+        // reference holds until the next call.
+        const std::shared_ptr<const Shape>& shape(const SceneNode& n) {
+            static const std::shared_ptr<const Shape> none;
+            if (n.tag == "text" || n.tag == "g" || n.tag == "svg" || n.tag == "defs" || n.tag == "clipPath") {
+                return none;
+            }
+            const auto fill_rule = view(n.style, PropertyId::FillRule);
+            const std::array<std::uint64_t, 3> id{n.identity.view_epoch, n.identity.slot, n.identity.generation};
+            const auto known = node_shapes.find(id);
+            if (known != node_shapes.end() && known->second.built_from(n, fill_rule)) {
+                return known->second.shape;
+            }
+            auto out = keyed_shape(n, fill_rule);
+            NodeShape entry{n.tag, std::string(fill_rule), {}, out};
+            entry.bytes = entry.tag.size() + entry.fill_rule.size();
+            for (const auto& [name, value] : n.attributes) {
+                if (const auto index = geometry_attribute(name); index < geometry_attributes.size()) {
+                    entry.attributes.emplace_back(index, value);
+                    entry.bytes += value.size();
+                }
+            }
+            if (known != node_shapes.end()) {
+                node_shape_bytes -= known->second.bytes;
+                node_shapes.erase(known);
+            }
+            if (entry.bytes <= constants::scene::node_shape_cache_max_bytes) {
+                if (node_shapes.size() >= constants::scene::node_shape_cache_max_entries ||
+                    node_shape_bytes + entry.bytes > constants::scene::node_shape_cache_max_bytes) {
+                    node_shapes.clear();
+                    node_shape_bytes = 0;
+                }
+                node_shape_bytes += entry.bytes;
+                return node_shapes.emplace(id, std::move(entry)).first->second.shape;
+            }
+            unkept = std::move(out);
+            return unkept;
+        }
+
+        // The shape of an element with this tag, fill rule and geometry attributes, shared by every such element.
+        std::shared_ptr<const Shape> keyed_shape(const SceneNode& n, std::string_view fill_rule) {
+            const auto& a = n.attributes;
             // The key: tag, fill rule and the geometry attributes, each value with its length.
-            static constexpr std::array<std::string_view, 15> geometry_attributes{
-                "cx", "cy", "d", "height", "points", "r", "rx", "ry", "width", "x", "x1", "x2", "y", "y1", "y2"};
             auto& key = key_buffer;
             key.assign(n.tag);
             const auto add = [&](std::string_view v) {
@@ -591,10 +695,9 @@ namespace weft {
                 key += ':';
                 key.append(v);
             };
-            const auto fill_rule = view(n.style, PropertyId::FillRule);
             add(fill_rule);
             for (const auto& [name, value] : a) {
-                if (std::binary_search(geometry_attributes.begin(), geometry_attributes.end(), name)) {
+                if (geometry_attribute(name) < geometry_attributes.size()) {
                     add(name);
                     add(value);
                 }
@@ -746,7 +849,7 @@ namespace weft {
             if (view(n.style, PropertyId::Display) == "none" || n.tag == "defs" || n.tag == "clipPath") {
                 return;
             }
-            const auto m = parent * affine_plane(svg_affine(n));
+            const auto m = parent * affine_plane(impl_->affine(n));
             Plane inverse;
             if (!m.inverse(inverse)) {
                 return;
@@ -868,15 +971,22 @@ namespace weft {
     std::vector<ElementGeometry> SceneGeometry::geometry(const SceneFrame& f, bool svg_descendants) {
         impl_->require_owner();
         std::vector<ElementGeometry> out;
-        // A group may be queried by several ancestors and then by the flat walk.
-        // Memoize local bounds only inside this solve; no scene pointer survives.
-        std::unordered_map<const SceneNode*, Bounds> local_bounds;
-        auto bounds = [&](auto&& self, const SceneNode& n) -> Bounds {
-            if (auto it = local_bounds.find(&n); it != local_bounds.end()) {
-                return it->second;
-            }
+
+        // The local bounds and transform of each element below one child of an svg element, in tree order. A group's
+        // bounds take its children's, so a subtree is measured before it is listed.
+        struct Local {
+            Bounds bounds;
+            SceneAffine affine;
+        };
+
+        std::vector<Local> locals;
+        // Measures n's subtree into locals, n's slot first, and returns that slot. As a parent's bounds take them,
+        // each child is measured before its transform is read.
+        auto measure_subtree = [&](auto&& self, const SceneNode& n) -> std::size_t {
+            const auto slot = locals.size();
+            locals.emplace_back();
             Bounds r;
-            if (auto shape = impl_->shape(n)) {
+            if (const auto& shape = impl_->shape(n)) {
                 r = shape->bounds;
             }
             if (n.tag == "text") {
@@ -899,8 +1009,10 @@ namespace weft {
             }
             for (const auto& c : n.children) {
                 if (c.tag != "defs" && c.tag != "clipPath") {
-                    auto q = self(self, c);
-                    auto t = svg_affine(c);
+                    const auto child = self(self, c);
+                    const auto t = impl_->affine(c);
+                    locals[child].affine = t;
+                    const auto q = locals[child].bounds;
                     if (q.right >= q.left) {
                         for (auto p : std::array<Point, 4>{
                                  {{q.left, q.top}, {q.right, q.top}, {q.right, q.bottom}, {q.left, q.bottom}}}) {
@@ -910,8 +1022,8 @@ namespace weft {
                     }
                 }
             }
-            local_bounds.emplace(&n, r);
-            return r;
+            locals[slot].bounds = r;
+            return slot;
         };
         auto append = [&](const SceneNode& n, Plane m, std::array<double, 4> local, NodeIdentity offset_parent) {
             Bounds b;
@@ -922,10 +1034,10 @@ namespace weft {
                 auto q = m.point(p[0], p[1]);
                 b.add(q[0], q[1]);
             }
-            ElementGeometry e;
+            auto& e = out.emplace_back();
             e.identity = n.identity;
             e.rect = {b.left, b.top, b.right - b.left, b.bottom - b.top};
-            e.client_rects = {e.rect};
+            e.client_rects.assign(1, e.rect);
             e.client_width = std::max(0.f, n.box[2] - len(view(n.style, PropertyId::BorderLeftWidth, "0")) -
                                                len(view(n.style, PropertyId::BorderRightWidth, "0")));
             e.client_height = std::max(0.f, n.box[3] - len(view(n.style, PropertyId::BorderTopWidth, "0")) -
@@ -935,19 +1047,20 @@ namespace weft {
             e.offset = {n.box[0], n.box[1], n.box[2], n.box[3]};
             e.offset_parent = offset_parent;
             e.matrix = {m.m[0], m.m[3], m.m[1], m.m[4], m.m[2], m.m[5]};
-            out.push_back(e);
         };
-        auto svg_visit = [&](auto&& self, const SceneNode& n, Plane parent) -> void {
+        // Lists a measured subtree in tree order; next is the slot of n.
+        auto svg_visit = [&](auto&& self, const SceneNode& n, Plane parent, std::size_t& next) -> void {
             if (n.tag == "defs" || n.tag == "clipPath") {
                 return;
             }
-            auto m = parent * affine_plane(svg_affine(n));
-            auto b = bounds(bounds, n);
+            const auto local = locals[next++];
+            const auto m = parent * affine_plane(local.affine);
+            const auto& b = local.bounds;
             if (b.right >= b.left) {
                 append(n, m, {b.left, b.top, b.right - b.left, b.bottom - b.top}, {});
             }
             for (const auto& c : n.children) {
-                self(self, c, m);
+                self(self, c, m, next);
             }
         };
         auto visit = [&](auto&& self, const SceneNode& n, Plane parent, NodeIdentity offset_parent, double ox,
@@ -964,7 +1077,16 @@ namespace weft {
                     out.back().matrix = {viewport.m[0], viewport.m[3], viewport.m[1],
                                          viewport.m[4], viewport.m[2], viewport.m[5]};
                     for (const auto& c : n.children) {
-                        svg_visit(svg_visit, c, viewport);
+                        if (c.tag == "defs" || c.tag == "clipPath") {
+                            continue;
+                        }
+                        // The child's own transform is read before its subtree is measured.
+                        const auto t = impl_->affine(c);
+                        locals.clear();
+                        measure_subtree(measure_subtree, c);
+                        locals.front().affine = t;
+                        std::size_t next{};
+                        svg_visit(svg_visit, c, viewport, next);
                     }
                 }
                 return;

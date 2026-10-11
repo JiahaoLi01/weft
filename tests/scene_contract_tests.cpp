@@ -226,6 +226,179 @@ namespace {
                     work.layout_evaluations > steps / 8 && work.style_reuses > steps / 4,
                 "random mutations did not exercise reuse and its invalidation");
     }
+
+    bool same_geometry(const std::vector<weft::ElementGeometry>& a, const std::vector<weft::ElementGeometry>& b) {
+        if (a.size() != b.size()) {
+            return false;
+        }
+        for (std::size_t i = 0; i < a.size(); ++i) {
+            const auto& x = a[i];
+            const auto& y = b[i];
+            if (x.identity != y.identity || x.rect != y.rect || x.client_rects != y.client_rects ||
+                x.client_width != y.client_width || x.client_height != y.client_height ||
+                x.scroll_width != y.scroll_width || x.scroll_height != y.scroll_height || x.offset != y.offset ||
+                x.matrix != y.matrix || x.offset_parent != y.offset_parent) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Hits of both maps agree on a grid over the frame.
+    bool same_hits(const weft::SceneGeometry::HitMap& a, const weft::SceneGeometry::HitMap& b, float width,
+                   float height) {
+        constexpr float step = 5;
+        for (float y = 0; y < height; y += step) {
+            for (float x = 0; x < width; x += step) {
+                if (a.hit(x, y) != b.hit(x, y)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    // A long-lived SceneGeometry, which keeps each node's shape with the attributes it was built from and parsed
+    // transforms by text, measures and hits a frame as a fresh one does after random changes of geometry attributes,
+    // tags, fill rules, transforms, identities and parents.
+    void geometry_cache_differential() {
+        constexpr float width = 200;
+        constexpr float height = 160;
+        weft::SceneFrame frame;
+        frame.root.identity = {1, 1, 1};
+        frame.root.tag = "div";
+        frame.root.space = weft::constants::xhtml_namespace_uri;
+        frame.root.box = {0, 0, width, height};
+        weft::SceneNode chart;
+        chart.identity = {2, 1, 1};
+        chart.tag = "svg";
+        chart.space = weft::constants::svg_namespace_uri;
+        chart.box = {10, 10, 180, 140};
+        chart.attributes = {{"width", "180"}, {"height", "140"}};
+        std::uint32_t slot = 3;
+        for (int g = 0; g < 2; ++g) {
+            weft::SceneNode group;
+            group.identity = {slot++, 1, 1};
+            group.tag = "g";
+            group.space = chart.space;
+            for (int m = 0; m < 6; ++m) {
+                weft::SceneNode mark;
+                mark.identity = {slot++, 1, 1};
+                mark.tag = "rect";
+                mark.space = chart.space;
+                mark.attributes = {
+                    {"x", std::to_string(25 * m)}, {"y", std::to_string(40 * g)}, {"width", "20"}, {"height", "12"}};
+                mark.style["stroke"] = "#ffffff";
+                group.children.push_back(std::move(mark));
+            }
+            chart.children.push_back(std::move(group));
+        }
+        frame.root.children.push_back(std::move(chart));
+        auto& groups = frame.root.children[0].children;
+        static const std::array<const char*, 7> tags{"rect", "circle",  "ellipse", "line",
+                                                     "path", "polygon", "polyline"};
+        static const std::array<const char*, 13> numbers{"x",  "y",  "width", "height", "r",  "cx", "cy",
+                                                         "rx", "ry", "x1",    "y1",     "x2", "y2"};
+        static const std::array<const char*, 3> paths{"M0 0 L30 0 L30 20 Z", "M5 5 C20 0 40 30 10 25",
+                                                      "M0 0 A10 10 0 0 1 20 20"};
+        // The last is a pentagram, whose center the fill rule decides.
+        static const std::array<const char*, 3> points{"0,0 30,0 15,25", "0,0 20,10 0,20 10,30",
+                                                       "50,0 79,90 2,35 98,35 21,90"};
+        static const std::array<const char*, 4> transforms{"translate(10,5)", "scale(1.5)", "rotate(30 20 20)",
+                                                           "translate(3,4) scale(0.5)"};
+        std::uint32_t seed = 0x6e0;
+        const auto next = [&] {
+            seed = seed * weft::constants::lcg_multiplier + weft::constants::lcg_increment;
+            return seed >> 8;
+        };
+        weft::SceneGeometry cached{weft::testing::thread_scene_text()};
+        constexpr int steps = 300;
+        for (int step = 0; step < steps; ++step) {
+            auto& group = groups[next() % groups.size()];
+            if (group.children.empty()) {
+                continue;
+            }
+            auto& mark = group.children[next() % group.children.size()];
+            switch (next() % 9) {
+                case 0:
+                case 1:
+                    mark.attributes[numbers[next() % numbers.size()]] = std::to_string(next() % 60);
+                    break;
+                case 2:
+                    mark.attributes["d"] = paths[next() % paths.size()];
+                    mark.attributes["points"] = points[next() % points.size()];
+                    break;
+                case 3:
+                    if (!mark.attributes.empty()) {
+                        auto it = mark.attributes.begin();
+                        std::advance(it, next() % mark.attributes.size());
+                        mark.attributes.erase(it);
+                    }
+                    break;
+                case 4:
+                    mark.tag = tags[next() % tags.size()];
+                    break;
+                case 5:
+                    if (next() % 2) {
+                        mark.style["fill-rule"] = "evenodd";
+                    } else {
+                        mark.style.erase(weft::PropertyId::FillRule);
+                    }
+                    break;
+                case 6: {
+                    auto& target = next() % 2 ? group : mark;
+                    if (next() % 3) {
+                        target.attributes["transform"] = transforms[next() % transforms.size()];
+                    } else {
+                        target.attributes.erase("transform");
+                    }
+                    break;
+                }
+                case 7: {
+                    // Two nodes trade identities, as a reused slot would give a node another's.
+                    auto& other = groups[next() % groups.size()];
+                    if (!other.children.empty()) {
+                        std::swap(mark.identity, other.children[next() % other.children.size()].identity);
+                    }
+                    break;
+                }
+                default: {
+                    auto moved = mark;
+                    group.children.erase(group.children.begin() + (&mark - group.children.data()));
+                    groups[next() % groups.size()].children.push_back(std::move(moved));
+                    break;
+                }
+            }
+            const auto at = " at step " + std::to_string(step);
+            weft::SceneGeometry fresh{weft::testing::thread_scene_text()};
+            require(same_geometry(cached.geometry(frame, true), fresh.geometry(frame, true)),
+                    "kept shapes measured differently" + at);
+            require(same_hits(cached.hit_map(frame), fresh.hit_map(frame), width, height),
+                    "kept shapes hit differently" + at);
+        }
+        // The fill rule decides a pentagram's center: kept shapes follow it.
+        auto kept = groups[0].children.empty() ? groups[1].children[0] : groups[0].children[0];
+        for (auto& group : groups) {
+            group.attributes.erase("transform");
+            group.children.clear();
+        }
+        kept.tag = "polygon";
+        kept.attributes = {{"points", points[2]}};
+        groups[0].children.push_back(std::move(kept));
+        auto& star = groups[0].children[0];
+        const auto& base = frame.root.children[0].box;
+        const float cx = base[0] + 50;
+        const float cy = base[1] + 50;
+        std::array<weft::NodeIdentity, 2> center{};
+        for (const auto rule : {"evenodd", "nonzero"}) {
+            star.style["fill-rule"] = rule;
+            weft::SceneGeometry fresh{weft::testing::thread_scene_text()};
+            const auto expected = fresh.hit_map(frame).hit(cx, cy);
+            require(cached.hit_map(frame).hit(cx, cy) == expected, std::string("pentagram center under ") + rule);
+            center[rule[0] == 'n'] = expected;
+        }
+        require(center[0] != center[1] && center[1] == star.identity, "fill rule changed no hit");
+    }
 } // namespace
 
 int main() {
@@ -815,6 +988,7 @@ int main() {
                 "disabled profiler still collected phase clocks");
         fixed.unmount();
         retained_frames_differential(raster);
+        geometry_cache_differential();
         std::cout
             << "PASS scene contracts: timer lifecycle, selector diagnostics, cascade inheritance, timeline, transform hit/pixels, detach/reinsert, owner isolation, implicit endpoints, 120 mutation raster/layout differentials\n";
         return 0;
