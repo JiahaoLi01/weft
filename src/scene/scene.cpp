@@ -2,12 +2,13 @@
 #include "base/css_scalar.hpp"
 #include "base/owner_thread.hpp"
 #include "constants/scene.hpp"
-#include "scene/scene_grammar.hpp"
+#include "layout/flex.hpp"
 #include <chrono>
-#include <yoga/Yoga.h>
 #include <algorithm>
 #include <cmath>
 #include <cctype>
+#include <limits>
+#include <optional>
 #include <sstream>
 #include <charconv>
 #include <set>
@@ -755,16 +756,6 @@ namespace weft {
 
     struct SceneSolver::Impl {
         const OwnerThread owner;
-        YGConfigRef config = YGConfigNew();
-
-        Impl() {
-            YGConfigSetPointScaleFactor(config, 0);
-        }
-
-        ~Impl() {
-            YGConfigFree(config);
-        }
-
         std::string sheet;
         std::unique_ptr<CompiledStyle> compiled;
         StyleMemo style_memo;
@@ -1155,7 +1146,6 @@ namespace weft {
                     text.style.erase(PropertyId::Width);
                     text.style.erase(PropertyId::Height);
                     text.style[PropertyId::BackgroundColor] = "transparent";
-                    text.style[PropertyId::BorderWidth] = "0";
                     for (std::size_t side = 0; side < padding_edges.size(); ++side) {
                         text.style[padding_edges[side]] = "0";
                         text.style[border_width_edges[side]] = "0";
@@ -1184,417 +1174,120 @@ namespace weft {
             output = std::move(out);
         }
 
-        struct Layout {
-            SceneNode* scene{};
-            YGNodeRef yoga{};
-            Impl* owner{};
-            std::vector<std::unique_ptr<Layout>> children;
-            unsigned columns{};
-            std::vector<std::array<float, 2>> positions;
-
-            ~Layout() {
-                if (yoga) {
-                    YGNodeFree(yoga);
-                }
+        // viewBox width over height; NaN when the viewBox is not four numbers with a positive size.
+        static float view_box_ratio(std::string view) {
+            std::replace(view.begin(), view.end(), ',', ' ');
+            float x{};
+            float top{};
+            float w{};
+            float h{};
+            std::istringstream values(view);
+            if (!(values >> x >> top >> w >> h) || !std::isfinite(w) || !std::isfinite(h) || w <= 0 || h <= 0) {
+                return std::numeric_limits<float>::quiet_NaN();
             }
-        };
-
-        float grid(Layout& l, float width, float height = -1) {
-            const auto& s = l.scene->style;
-            auto edge = [&](const char* v) {
-                return float(length(get(s, v, "0")));
-            };
-            const float left = edge("padding-left") + edge("border-left-width");
-            const float right = edge("padding-right") + edge("border-right-width");
-            const float top = edge("padding-top") + edge("border-top-width");
-            const float bottom = edge("padding-bottom") + edge("border-bottom-width");
-            const float gap = float(length(get(s, PropertyId::Gap, "0")));
-            if (!std::isfinite(width) || width < left + right) {
-                fail("grid definite width required");
-            }
-            const float cell = std::max(0.f, (width - left - right - gap * (l.columns - 1)) / l.columns);
-            const auto rows = (l.children.size() + l.columns - 1) / l.columns;
-            std::vector<float> heights(rows);
-            l.positions.resize(l.children.size());
-            for (std::size_t i = 0; i < l.children.size(); ++i) {
-                auto& c = *l.children[i];
-                auto explicit_width = get(c.scene->style, PropertyId::Width);
-                if (explicit_width.empty() || explicit_width == "auto") {
-                    YGNodeStyleSetWidth(c.yoga, cell);
-                }
-                YGNodeCalculateLayout(c.yoga, cell, YGUndefined, YGDirectionLTR);
-                heights[i / l.columns] = std::max(heights[i / l.columns], YGNodeLayoutGetHeight(c.yoga));
-            }
-            float content{};
-            for (auto h : heights) {
-                content += h;
-            }
-            if (rows) {
-                content += gap * float(rows - 1);
-            }
-            float y = top;
-            if (height >= 0 && get(s, PropertyId::AlignContent) == "center") {
-                y += std::max(0.f, (height - top - bottom - content) / 2);
-            }
-            if (height >= 0 && rows &&
-                (get(s, PropertyId::AlignContent).empty() || get(s, PropertyId::AlignContent) == "normal" ||
-                 get(s, PropertyId::AlignContent) == "stretch")) {
-                const float extra = std::max(0.f, (height - top - bottom - content) / float(rows));
-                for (auto& h : heights) {
-                    h += extra;
-                }
-                content += extra * float(rows);
-            }
-            for (std::size_t row = 0; row < rows; ++row) {
-                for (unsigned col = 0; col < l.columns; ++col) {
-                    auto index = row * l.columns + col;
-                    if (index >= l.children.size()) {
-                        break;
-                    }
-                    auto& c = *l.children[index];
-                    float x = left + col * (cell + gap);
-                    float dy{};
-                    if (get(s, PropertyId::PlaceItems) == "center" || get(s, PropertyId::JustifyItems) == "center") {
-                        x += (cell - YGNodeLayoutGetWidth(c.yoga)) / 2;
-                    }
-                    if (get(s, PropertyId::PlaceItems) == "center" || get(s, PropertyId::AlignItems) == "center") {
-                        dy = (heights[row] - YGNodeLayoutGetHeight(c.yoga)) / 2;
-                    }
-                    l.positions[index] = {x, y + dy};
-                }
-                y += heights[row] + gap;
-            }
-            return content + top + bottom;
+            return w / h;
         }
 
-        static YGSize grid_measured(YGNodeConstRef node, float width, YGMeasureMode, float, YGMeasureMode) {
-            auto& l = *static_cast<Layout*>(YGNodeGetContext(node));
-            const auto& s = l.scene->style;
-            auto edge = [&](PropertyId key) {
-                return float(length(get(s, key, "0")));
-            };
-            const auto horizontal = edge(PropertyId::PaddingLeft) + edge(PropertyId::PaddingRight) +
-                                    edge(PropertyId::BorderLeftWidth) + edge(PropertyId::BorderRightWidth);
-            const auto vertical = edge(PropertyId::PaddingTop) + edge(PropertyId::PaddingBottom) +
-                                  edge(PropertyId::BorderTopWidth) + edge(PropertyId::BorderBottomWidth);
-            return {width, l.owner->grid(l, width + horizontal) - vertical};
-        }
-
-        static YGSize measured(YGNodeConstRef node, float width, YGMeasureMode, float, YGMeasureMode) {
-            auto& l = *static_cast<Layout*>(YGNodeGetContext(node));
-            auto m = l.owner->measure(l.scene->text, l.scene->style);
-            return {std::isfinite(width) ? std::min(width, m.width) : m.width, m.height};
-        }
-
-        std::unique_ptr<Layout> layout(SceneNode& n, bool parent_height_definite = true, bool root = true) {
-            auto l = std::make_unique<Layout>();
-            l->scene = &n;
-            l->owner = this;
-            l->yoga = YGNodeNewWithConfig(config);
-            auto y = l->yoga;
-            YGNodeSetContext(y, l.get());
-            YGNodeStyleSetBoxSizing(y, YGBoxSizingBorderBox);
-            // In name order, as the diagnostics have always reported the first unsupported one.
-            static const std::vector<std::pair<PropertyId, std::vector<std::string>>> allowed_values = {
-                {PropertyId::AlignItems, {"stretch", "center", "flex-start", "flex-end"}},
-                {PropertyId::BoxSizing, {"border-box"}},
-                {PropertyId::Display, {"block", "inline", "inline-block", "flex", "grid", "none"}},
-                {PropertyId::FlexDirection, {"row", "column", "row-reverse", "column-reverse"}},
-                {PropertyId::JustifyContent, {"normal", "center", "flex-start", "flex-end"}},
-                {PropertyId::Overflow, {"visible", "hidden", "auto"}},
-                {PropertyId::Position, {"static", "relative", "absolute"}}};
-            for (const auto& [key, allowed] : allowed_values) {
-                if (const auto* value = n.style.find(key);
-                    value && std::find(allowed.begin(), allowed.end(), value->text()) == allowed.end()) {
-                    fail("unsupported scene value " + std::string(property_name(key)) + ":" + value->text());
-                }
-            }
+        // The boxes of the shared Yoga adapter: each HTML element and anonymous text run. An svg element is a
+        // replaced box; the scene draws its content in its own coordinates.
+        static void collect_boxes(SceneNode& n, std::size_t parent, std::vector<LayoutBox>& boxes,
+                                  std::vector<SceneNode*>& targets) {
             for (const auto k : border_style_edges) {
                 if (n.style.text(k, "solid") != "solid") {
                     fail("scene border requires solid style");
                 }
             }
-            const auto& s = n.style;
-            const bool flex = get(s, PropertyId::Display) == "flex";
-            YGNodeStyleSetFlexDirection(y, flex && get(s, PropertyId::FlexDirection, "row") == "row"
-                                               ? YGFlexDirectionRow
-                                               : YGFlexDirectionColumn);
-            YGNodeStyleSetFlexShrink(y, flex ? 1.f : 0.f);
-            YGNodeStyleSetAlignItems(y, flex && get(s, PropertyId::AlignItems) == "center"     ? YGAlignCenter
-                                        : flex && get(s, PropertyId::AlignItems) == "flex-end" ? YGAlignFlexEnd
-                                                                                               : YGAlignStretch);
-            const bool inline_flow =
-                !flex && !n.children.empty() && std::all_of(n.children.begin(), n.children.end(), [](const auto& c) {
-                    auto display = get(c.style, PropertyId::Display, "inline");
-                    return display == "inline" || display == "inline-block";
-                });
-            if (inline_flow) {
-                YGNodeStyleSetFlexDirection(y, YGFlexDirectionRow);
-                YGNodeStyleSetAlignItems(y, YGAlignFlexStart);
+            // The scene scrolls only boxes whose content fits (checked after layout).
+            const auto overflow = n.style.text(PropertyId::Overflow, "visible");
+            if (overflow != "visible" && overflow != "hidden" && overflow != "auto") {
+                fail("unsupported scene value overflow:" + std::string(overflow));
             }
-            if (flex) {
-                const auto d = get(s, PropertyId::FlexDirection, "row");
-                YGNodeStyleSetFlexDirection(y, d == "row"              ? YGFlexDirectionRow
-                                               : d == "row-reverse"    ? YGFlexDirectionRowReverse
-                                               : d == "column-reverse" ? YGFlexDirectionColumnReverse
-                                                                       : YGFlexDirectionColumn);
-                if (get(s, PropertyId::FlexWrap) == "wrap") {
-                    YGNodeStyleSetFlexWrap(y, YGWrapWrap);
-                } else if (!get(s, PropertyId::FlexWrap).empty() && get(s, PropertyId::FlexWrap) != "nowrap") {
-                    fail("flex-wrap profile");
+            const auto index = boxes.size();
+            LayoutBox box;
+            box.style = &n.style;
+            box.parent = parent;
+            const bool svg = n.space == constants::svg_namespace_uri;
+            if (svg) {
+                box.replaced = true;
+                if (const auto it = n.attributes.find("width"); it != n.attributes.end()) {
+                    box.replaced_width = it->second;
                 }
-                if (get(s, PropertyId::AlignItems) == "flex-start") {
-                    YGNodeStyleSetAlignItems(y, YGAlignFlexStart);
+                if (const auto it = n.attributes.find("height"); it != n.attributes.end()) {
+                    box.replaced_height = it->second;
                 }
-            }
-            if (s.contains(PropertyId::FlexGrow)) {
-                YGNodeStyleSetFlexGrow(y, float(length(s.at(PropertyId::FlexGrow))));
-            }
-            if (s.contains(PropertyId::FlexShrink)) {
-                YGNodeStyleSetFlexShrink(y, float(length(s.at(PropertyId::FlexShrink))));
-            }
-            if (s.contains(PropertyId::FlexBasis) && s.at(PropertyId::FlexBasis) != "auto") {
-                auto v = s.at(PropertyId::FlexBasis);
-                if (v.ends_with('%')) {
-                    YGNodeStyleSetFlexBasisPercent(y, float(length(v, constants::percent_scale)));
-                } else {
-                    YGNodeStyleSetFlexBasis(y, float(length(v)));
+                if (const auto it = n.attributes.find("viewBox"); n.tag == "svg" && it != n.attributes.end()) {
+                    box.ratio = view_box_ratio(it->second);
                 }
-            }
-            if (get(s, PropertyId::AlignSelf) == "center") {
-                YGNodeStyleSetAlignSelf(y, YGAlignCenter);
-            }
-            if (get(s, PropertyId::AlignContent) == "flex-start") {
-                YGNodeStyleSetAlignContent(y, YGAlignFlexStart);
-            }
-            if (get(s, PropertyId::AlignContent) == "center") {
-                YGNodeStyleSetAlignContent(y, YGAlignCenter);
-            }
-            if (flex && get(s, PropertyId::FlexWrap) == "wrap" && get(s, PropertyId::AlignContent).empty()) {
-                YGNodeStyleSetAlignContent(y, YGAlignStretch);
-            }
-            if (get(s, PropertyId::JustifyContent) == "center") {
-                YGNodeStyleSetJustifyContent(y, YGJustifyCenter);
-            }
-            if (get(s, PropertyId::JustifyContent) == "flex-end") {
-                YGNodeStyleSetJustifyContent(y, YGJustifyFlexEnd);
-            }
-            for (const auto key :
-                 {PropertyId::MinWidth, PropertyId::MinHeight, PropertyId::MaxWidth, PropertyId::MaxHeight}) {
-                if (s.contains(key)) {
-                    const auto& raw = s.at(key);
-                    const bool percent = raw.ends_with('%');
-                    auto v = float(length(raw, percent ? constants::percent_scale : 1));
-                    if (key == PropertyId::MinWidth) {
-                        if (percent) {
-                            YGNodeStyleSetMinWidthPercent(y, v);
-                        } else {
-                            YGNodeStyleSetMinWidth(y, v);
-                        }
-                    }
-                    if (key == PropertyId::MinHeight) {
-                        if (percent) {
-                            YGNodeStyleSetMinHeightPercent(y, v);
-                        } else {
-                            YGNodeStyleSetMinHeight(y, v);
-                        }
-                    }
-                    if (key == PropertyId::MaxWidth) {
-                        if (percent) {
-                            YGNodeStyleSetMaxWidthPercent(y, v);
-                        } else {
-                            YGNodeStyleSetMaxWidth(y, v);
-                        }
-                    }
-                    if (key == PropertyId::MaxHeight) {
-                        if (percent) {
-                            YGNodeStyleSetMaxHeightPercent(y, v);
-                        } else {
-                            YGNodeStyleSetMaxHeight(y, v);
-                        }
-                    }
-                }
-            }
-            YGNodeSetAlwaysFormsContainingBlock(y, get(s, PropertyId::Transform, "none") != "none");
-            if (get(s, PropertyId::Position) == "absolute") {
-                YGNodeStyleSetPositionType(y, YGPositionTypeAbsolute);
-            } else if (get(s, PropertyId::Position) == "relative") {
-                YGNodeStyleSetPositionType(y, YGPositionTypeRelative);
             } else {
-                YGNodeStyleSetPositionType(y, YGPositionTypeStatic);
-            }
-            if (get(s, PropertyId::Display) == "none") {
-                YGNodeStyleSetDisplay(y, YGDisplayNone);
-            }
-            if (s.contains(PropertyId::Gap)) {
-                YGNodeStyleSetGap(y, YGGutterAll, float(length(s.at(PropertyId::Gap))));
-            }
-            for (const auto& [key, is_width] :
-                 std::vector<std::pair<std::string, bool>>{{"width", true}, {"height", false}}) {
-                auto v = get(s, key);
-                if (v.empty() && n.space == constants::svg_namespace_uri) {
-                    v = n.attributes.contains(key) ? n.attributes.at(key)
-                        : is_width                 ? constants::scene::default_object_width
-                                                   : constants::scene::default_object_height;
+                if (!n.text.empty() && !n.children.empty()) {
+                    fail("mixed inline content outside scene formatting profile");
                 }
-                if (v.empty() || v == "auto") {
-                    continue;
-                }
-                if (v.ends_with('%')) {
-                    auto num = float(length(v, constants::percent_scale));
-                    if (is_width) {
-                        YGNodeStyleSetWidthPercent(y, num);
-                    } else {
-                        YGNodeStyleSetHeightPercent(y, num);
-                    }
-                } else {
-                    auto num = float(length(v));
-                    if (is_width) {
-                        YGNodeStyleSetWidth(y, num);
-                    } else {
-                        YGNodeStyleSetHeight(y, num);
-                    }
+                box.text = n.children.empty() && !n.text.empty();
+            }
+            boxes.push_back(box);
+            targets.push_back(&n);
+            if (!svg) {
+                for (auto& c : n.children) {
+                    collect_boxes(c, index, boxes, targets);
                 }
             }
-            if (n.tag == "svg" && n.attributes.contains("viewBox") && !parent_height_definite) {
-                const auto height = get(s, PropertyId::Height, get(n.attributes, "height").c_str());
-                if (height.empty() || height == "auto" || height.ends_with('%')) {
-                    auto view = n.attributes.at("viewBox");
-                    std::replace(view.begin(), view.end(), ',', ' ');
-                    float x{};
-                    float top{};
-                    float w{};
-                    float h{};
-                    std::istringstream values(view);
-                    if (!(values >> x >> top >> w >> h) || !std::isfinite(w) || !std::isfinite(h) || w <= 0 || h <= 0) {
-                        fail("SVG intrinsic ratio");
-                    }
-                    YGNodeStyleSetHeightAuto(y);
-                    YGNodeStyleSetAspectRatio(y, w / h);
-                }
-            }
-            const auto own_height = get(s, PropertyId::Height);
-            const bool height_definite = root || (!own_height.empty() && own_height != "auto" &&
-                                                  (!own_height.ends_with('%') || parent_height_definite));
-            enum class Box {
-                Margin,
-                Padding,
-                Border,
-                Inset
-            };
-            for (std::size_t side = 0; side < margin_edges.size(); ++side) {
-                static constexpr YGEdge edges[]{YGEdgeTop, YGEdgeRight, YGEdgeBottom, YGEdgeLeft};
-                const auto edge = edges[side];
-                for (const auto& [box, key] :
-                     {std::pair{Box::Margin, margin_edges[side]}, std::pair{Box::Padding, padding_edges[side]},
-                      std::pair{Box::Border, border_width_edges[side]}, std::pair{Box::Inset, inset_edges[side]}}) {
-                    auto v = get(s, key);
-                    if (v.empty()) {
-                        continue;
-                    }
-                    if (v == "auto") {
-                        if (box == Box::Margin) {
-                            YGNodeStyleSetMarginAuto(y, edge);
-                        }
-                        continue;
-                    }
-                    auto num = float(length(v, v.ends_with('%') ? constants::percent_scale : 1));
-                    if (box == Box::Border) {
-                        YGNodeStyleSetBorder(y, edge, num);
-                    } else if (box == Box::Padding) {
-                        if (v.ends_with('%')) {
-                            YGNodeStyleSetPaddingPercent(y, edge, num);
-                        } else {
-                            YGNodeStyleSetPadding(y, edge, num);
-                        }
-                    } else if (box == Box::Margin) {
-                        if (v.ends_with('%')) {
-                            YGNodeStyleSetMarginPercent(y, edge, num);
-                        } else {
-                            YGNodeStyleSetMargin(y, edge, num);
-                        }
-                    } else {
-                        if (v.ends_with('%')) {
-                            YGNodeStyleSetPositionPercent(y, edge, num);
-                        } else {
-                            YGNodeStyleSetPosition(y, edge, num);
-                        }
-                    }
-                }
-            }
-            if (n.space != constants::svg_namespace_uri) {
-                if (get(s, PropertyId::Display) == "grid") {
-                    auto columns = get(s, PropertyId::GridTemplateColumns);
-                    if (const auto repeat = scene_grammar::grid_repeat(columns)) {
-                        l->columns = *repeat;
-                    } else {
-                        auto tracks = split(columns);
-                        if (tracks.empty() || tracks.size() > constants::scene::max_grid_columns ||
-                            !std::all_of(tracks.begin(), tracks.end(), [](const auto& t) {
-                                return t == "1fr";
-                            })) {
-                            fail("grid supports 1-8 equal minmax(0,1fr) tracks");
-                        }
-                        l->columns = unsigned(tracks.size());
-                    }
-                    for (auto& c : n.children) {
-                        if (get(c.style, PropertyId::Position) == "absolute") {
-                            fail("absolute grid child profile");
-                        }
-                        l->children.push_back(layout(c, height_definite, false));
-                    }
-                    YGNodeSetMeasureFunc(y, grid_measured);
-                    return l;
-                }
-                if (n.children.empty() && !n.text.empty()) {
-                    YGNodeSetMeasureFunc(y, measured);
-                } else {
-                    if (!n.text.empty()) {
-                        fail("mixed inline content outside scene formatting profile");
-                    }
-                    for (auto& c : n.children) {
-                        l->children.push_back(layout(c, height_definite, false));
-                        YGNodeInsertChild(y, l->children.back()->yoga, YGNodeGetChildCount(y));
-                    }
-                }
-            }
-            return l;
         }
 
-        void boxes(Layout& l, float x, float y, SceneFrame& f,
-                   std::optional<std::array<float, 2>> position = std::nullopt) {
-            auto& n = *l.scene;
-            auto node = l.yoga;
-            n.box = {position ? (*position)[0] : YGNodeLayoutGetLeft(node),
-                     position ? (*position)[1] : YGNodeLayoutGetTop(node), YGNodeLayoutGetWidth(node),
-                     YGNodeLayoutGetHeight(node)};
-            x += n.box[0];
-            y += n.box[1];
-            ElementGeometry e;
-            e.identity = n.identity;
-            e.rect = {x, y, n.box[2], n.box[3]};
-            e.client_rects = {e.rect};
-            e.client_width = n.box[2];
-            e.client_height = n.box[3];
-            e.scroll_width = e.client_width;
-            e.scroll_height = e.client_height;
-            if (n.tag != "#text") {
+        // Lays out the frame's boxes in the viewport: parent-local boxes on the scene nodes and element geometry
+        // in tree order.
+        void layout_frame(SceneFrame& f, float w, float h) {
+            std::vector<LayoutBox> boxes;
+            std::vector<SceneNode*> targets;
+            collect_boxes(f.root, LayoutBox::root, boxes, targets);
+            // Scene text is one line at its natural width: it does not wrap.
+            std::vector<std::optional<SceneTextMetrics>> metrics(boxes.size());
+            const auto natural = [&](std::size_t i) -> const SceneTextMetrics& {
+                if (!metrics[i]) {
+                    metrics[i] = measure(targets[i]->text, targets[i]->style);
+                }
+                return *metrics[i];
+            };
+            const auto lines = [&](std::size_t i, float) {
+                const auto& m = natural(i);
+                return TextMetrics{m.width, m.height, m.baseline, 1};
+            };
+            const auto min_content = [&](std::size_t i) {
+                return natural(i).width;
+            };
+            const auto wraps = [](std::size_t) {
+                return false;
+            };
+            LayoutOptions options;
+            options.viewport = std::array{w, h};
+            const auto geometry = layout_boxes(boxes, {lines, min_content, wraps}, options);
+            for (std::size_t i = 0; i < boxes.size(); ++i) {
+                auto& n = *targets[i];
+                const auto& g = geometry[i];
+                n.box = {g.left, g.top, g.width, g.height};
+                if (n.tag == "#text") {
+                    continue;
+                }
+                ElementGeometry e;
+                e.identity = n.identity;
+                e.rect = {g.x, g.y, g.width, g.height};
+                e.client_rects = {e.rect};
+                e.client_width = g.width;
+                e.client_height = g.height;
+                e.scroll_width = e.client_width;
+                e.scroll_height = e.client_height;
                 f.elements.push_back(e);
             }
-            if (l.columns) {
-                grid(l, n.box[2], n.box[3]);
-            }
-            for (std::size_t i = 0; i < l.children.size(); ++i) {
-                boxes(*l.children[i], x, y, f, l.columns ? std::optional(l.positions[i]) : std::nullopt);
-            }
-            if (get(n.style, PropertyId::Overflow) == "auto") {
-                for (const auto& child : n.children) {
-                    if (child.box[0] < -constants::scene::overflow_tolerance_px ||
-                        child.box[1] < -constants::scene::overflow_tolerance_px ||
-                        child.box[0] + child.box[2] > n.box[2] + constants::scene::overflow_tolerance_px ||
-                        child.box[1] + child.box[3] > n.box[3] + constants::scene::overflow_tolerance_px) {
-                        fail("scene scrolling outside supported non-overflowing auto profile");
-                    }
+            for (std::size_t i = 1; i < boxes.size(); ++i) {
+                const auto& parent = *targets[boxes[i].parent];
+                if (get(parent.style, PropertyId::Overflow) != "auto") {
+                    continue;
+                }
+                const auto& child = *targets[i];
+                if (child.box[0] < -constants::scene::overflow_tolerance_px ||
+                    child.box[1] < -constants::scene::overflow_tolerance_px ||
+                    child.box[0] + child.box[2] > parent.box[2] + constants::scene::overflow_tolerance_px ||
+                    child.box[1] + child.box[3] > parent.box[3] + constants::scene::overflow_tolerance_px) {
+                    fail("scene scrolling outside supported non-overflowing auto profile");
                 }
             }
         }
@@ -1818,11 +1511,7 @@ namespace weft {
             ++i.work.layout_reuses;
         } else {
             i.work.geometry_changed = i.work.paint_changed = true;
-            auto l = i.layout(f.root);
-            YGNodeStyleSetWidth(l->yoga, w);
-            YGNodeStyleSetHeight(l->yoga, h);
-            YGNodeCalculateLayout(l->yoga, w, h, YGDirectionLTR);
-            i.boxes(*l, 0, 0, f);
+            i.layout_frame(f, w, h);
             ++i.work.layout_evaluations;
         }
         // The retained frame is a layout reference only. Paint-only animation does

@@ -79,10 +79,10 @@ int main() {
         nested.children[0].children[0].style["white-space"] = "normal";
         bad(nested, "WEFT_UNSUPPORTED_INTRINSIC");
         auto root = input(cases, "web-row-default");
-        root.style["display"] = "block";
+        root.style["display"] = "table";
         bad(root, "WEFT_UNSUPPORTED_FORMAT");
-        // A name outside the property registry has no typed value; a registered property the adapter does not map
-        // is an explicit diagnostic.
+        // A name outside the property registry has no typed value; a registered property that affects boxes but
+        // has no mapping is an explicit diagnostic.
         bool unregistered{};
         try {
             root.style["padding-magic"] = "10px";
@@ -91,7 +91,7 @@ int main() {
         }
         require(unregistered, "unregistered property entered the typed adapter input");
         root = input(cases, "web-row-default");
-        root.style["color"] = "red";
+        root.style["overflow-x"] = "hidden";
         bad(root, "WEFT_UNSUPPORTED_PROPERTY");
         root = input(cases, "web-row-default");
         root.children[0].style["flex"] = "1";

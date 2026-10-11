@@ -25,6 +25,11 @@ namespace weft::constants::layout {
     inline constexpr int max_flex_number_magnitude = 1000000;
     // Largest single style value, in bytes, accepted by the flex adapter.
     inline constexpr int max_style_value_bytes = 128;
+    // Most equal 1fr tracks in grid-template-columns.
+    inline constexpr int max_grid_columns = 8;
+    // CSS default object size of a replaced element without a width or height (an svg root).
+    inline constexpr float default_object_width_px = 300;
+    inline constexpr float default_object_height_px = 150;
 
     // Text budgets. Aggregate text bounds a whole tree; work bounds repeated shaping.
     inline constexpr int max_aggregate_text_bytes = constants::bytes_per_mib;

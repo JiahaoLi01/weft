@@ -5,9 +5,11 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <exception>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -16,6 +18,8 @@ namespace weft {
     namespace {
         using Style = StyleValues;
         using P = PropertyId;
+        constexpr float unbounded = std::numeric_limits<float>::infinity();
+        constexpr std::size_t none = LayoutBox::root;
 
         float number(std::string_view input) {
             return css::parse_number<float>(std::string(input),
@@ -78,6 +82,18 @@ namespace weft {
             return length(v->text());
         }
 
+        // An svg width or height attribute: a length whose unitless numbers are px.
+        Length presentation(std::string_view input) {
+            const auto text = css::trim(input);
+            if (text.empty() || text == "auto") {
+                return {0, false, true};
+            }
+            if (text.ends_with('%')) {
+                return {number(std::string_view(text).substr(0, text.size() - 1)), true};
+            }
+            return {number(text.ends_with("px") ? std::string_view(text).substr(0, text.size() - 2) : text)};
+        }
+
         float px(const Style& style, PropertyId key, float fallback = 0) {
             const auto* v = style.find(key);
             if (!v) {
@@ -91,15 +107,60 @@ namespace weft {
             return n.value;
         }
 
-        bool row(const Style& style) {
-            return style.text(P::Display) != "block" && style.text(P::FlexDirection, "row").starts_with("row");
+        // px() for intrinsic sizes, which resolve no percentage or auto: those make the size unknown. `unknown`
+        // keeps the first such diagnostic, raised only if an automatic minimum needs the size.
+        float intrinsic_px(const Style& style, PropertyId key, float fallback, std::string& unknown) {
+            const auto* v = style.find(key);
+            if (!v) {
+                return fallback;
+            }
+            const auto n = length(v);
+            if (n.automatic || n.percent) {
+                if (unknown.empty()) {
+                    unknown = "WEFT_UNSUPPORTED_INTRINSIC: " + std::string(property_name(key)) +
+                              " requires px in probe intrinsic sizing";
+                }
+                return 0;
+            }
+            return n.value;
         }
 
+        float horizontal(const Style& s) {
+            return px(s, P::PaddingLeft, px(s, P::Padding)) + px(s, P::PaddingRight, px(s, P::Padding)) +
+                   px(s, P::BorderLeftWidth, px(s, P::BorderWidth)) + px(s, P::BorderRightWidth, px(s, P::BorderWidth));
+        }
+
+        float vertical(const Style& s) {
+            return px(s, P::PaddingTop, px(s, P::Padding)) + px(s, P::PaddingBottom, px(s, P::Padding)) +
+                   px(s, P::BorderTopWidth, px(s, P::BorderWidth)) + px(s, P::BorderBottomWidth, px(s, P::BorderWidth));
+        }
+
+        float intrinsic_horizontal(const Style& s, std::string& unknown) {
+            const auto edge = [&](PropertyId key, PropertyId shorthand) {
+                return intrinsic_px(s, key, intrinsic_px(s, shorthand, 0, unknown), unknown);
+            };
+            return edge(P::PaddingLeft, P::Padding) + edge(P::PaddingRight, P::Padding) +
+                   edge(P::BorderLeftWidth, P::BorderWidth) + edge(P::BorderRightWidth, P::BorderWidth);
+        }
+
+        float intrinsic_vertical(const Style& s, std::string& unknown) {
+            const auto edge = [&](PropertyId key, PropertyId shorthand) {
+                return intrinsic_px(s, key, intrinsic_px(s, shorthand, 0, unknown), unknown);
+            };
+            return edge(P::PaddingTop, P::Padding) + edge(P::PaddingBottom, P::Padding) +
+                   edge(P::BorderTopWidth, P::BorderWidth) + edge(P::BorderBottomWidth, P::BorderWidth);
+        }
+
+        bool row_direction(const Style& style) {
+            return style.text(P::FlexDirection, "row").starts_with("row");
+        }
+
+        // normal is the initial value: stretch for the align properties of flex boxes.
         YGAlign align(std::string_view v) {
             if (v == "auto") {
                 return YGAlignAuto;
             }
-            if (v == "stretch") {
+            if (v == "stretch" || v == "normal") {
                 return YGAlignStretch;
             }
             if (v == "flex-start") {
@@ -126,45 +187,132 @@ namespace weft {
             throw std::invalid_argument("WEFT_UNSUPPORTED_ALIGN: " + std::string(v));
         }
 
-        struct TextLayout {
-            float width{};
-            float height{};
-            float baseline{};
-            std::size_t lines{};
+        // What each registered property is to the box mapping.
+        enum class Role : std::uint8_t {
+            // Paint, stacking and interaction: no effect on boxes.
+            Ignored,
+            // Mapped to Yoga or read by the grid and containing block rules.
+            Box,
+            // Read by the formatter's text system.
+            Text,
+            // Affects boxes but has no mapping: a diagnostic.
+            Unsupported,
         };
+
+        constexpr auto roles = [] {
+            std::array<Role, property_count> out{};
+            for (const auto id : {P::AlignContent,
+                                  P::AlignItems,
+                                  P::AlignSelf,
+                                  P::BorderBottomWidth,
+                                  P::BorderLeftWidth,
+                                  P::BorderRightWidth,
+                                  P::BorderTopWidth,
+                                  P::BorderWidth,
+                                  P::Bottom,
+                                  P::BoxSizing,
+                                  P::ColumnGap,
+                                  P::Display,
+                                  P::Flex,
+                                  P::FlexBasis,
+                                  P::FlexDirection,
+                                  P::FlexGrow,
+                                  P::FlexShrink,
+                                  P::FlexWrap,
+                                  P::Gap,
+                                  P::GridTemplateColumns,
+                                  P::Height,
+                                  P::JustifyContent,
+                                  P::JustifyItems,
+                                  P::Left,
+                                  P::Margin,
+                                  P::MarginBottom,
+                                  P::MarginLeft,
+                                  P::MarginRight,
+                                  P::MarginTop,
+                                  P::MaxHeight,
+                                  P::MaxWidth,
+                                  P::MinHeight,
+                                  P::MinWidth,
+                                  P::Overflow,
+                                  P::Padding,
+                                  P::PaddingBottom,
+                                  P::PaddingLeft,
+                                  P::PaddingRight,
+                                  P::PaddingTop,
+                                  P::PlaceItems,
+                                  P::Position,
+                                  P::Right,
+                                  P::RowGap,
+                                  P::Top,
+                                  P::Transform,
+                                  P::Width}) {
+                out[std::size_t(id)] = Role::Box;
+            }
+            for (const auto id : {P::FontFamily, P::FontSize, P::FontStyle, P::FontWeight, P::LetterSpacing,
+                                  P::LineHeight, P::TextAlign, P::WhiteSpace}) {
+                out[std::size_t(id)] = Role::Text;
+            }
+            for (const auto id : {P::Border, P::ListStyle, P::OverflowX, P::OverflowY}) {
+                out[std::size_t(id)] = Role::Unsupported;
+            }
+            return out;
+        }();
+
+        // How a box lays out its children.
+        enum class Formatting : std::uint8_t {
+            Flex,
+            // block, and inline-level boxes with box children: a column whose children do not flex.
+            Block,
+            // A block whose children are all inline-level, approximated as one top-aligned line without breaks.
+            InlineRow,
+            // Equal minmax(0, 1fr) columns, rows sized to content.
+            Grid,
+            None,
+        };
+
+        bool inline_level(std::string_view display) {
+            return display == "inline" || display == "inline-block";
+        }
+
         struct Engine;
 
         struct Node {
             Engine* engine{};
-            const FlexNode* input{};
+            std::size_t index{};
+            const LayoutBox* box{};
+            const Style* style{};
             YGNodeRef yoga{};
-            std::vector<std::unique_ptr<Node>> children;
-            float font_size{constants::layout::flex_default_font_size_px};
-            float line_height{constants::layout::flex_default_line_height_px};
+            Formatting formatting{Formatting::Block};
+            std::size_t depth{};
+            std::size_t first_child{none};
+            std::size_t next_sibling{none};
+            std::size_t last_child{none};
+            std::size_t children{};
+            bool definite_height{};
+            unsigned columns{};
+            // Grid cell origins of the children, in child order.
+            std::vector<std::array<float, 2>> positions;
+            // Intrinsic border-box sizes for automatic minimum sizes, and why one is unknown.
             float min_width{};
             float max_width{};
             float intrinsic_height{};
             float auto_min_height{};
+            std::string unknown_width;
+            std::string unknown_height;
             std::size_t measure_calls{};
-
-            ~Node() {
-                if (yoga) {
-                    YGNodeFree(yoga);
-                }
-            }
         };
 
         struct Engine {
-            Font& font;
-            FontSet* fonts{};
-            FlexMode mode;
+            std::span<const LayoutBox> boxes;
+            const TextMeasurer& text;
+            LayoutOptions options;
             YGConfigRef config{YGConfigNew()};
+            std::vector<Node> nodes;
             std::exception_ptr callback_error;
-            std::size_t node_count{};
-            std::size_t text_bytes{};
-            std::set<std::string> identities;
 
-            Engine(Font& f, FlexMode m, FontSet* fs = nullptr) : font(f), fonts(fs), mode(m) {
+            Engine(std::span<const LayoutBox> b, const TextMeasurer& t, const LayoutOptions& o)
+                : boxes(b), text(t), options(o) {
                 if (!config) {
                     throw std::bad_alloc();
                 }
@@ -173,171 +321,124 @@ namespace weft {
                 YGConfigSetErrata(config, YGErrataNone);
             }
 
+            Engine(const Engine&) = delete;
+            Engine& operator=(const Engine&) = delete;
+
             ~Engine() {
+                // Children before parents, so that no freed node is still attached.
+                for (auto i = nodes.size(); i-- > 0;) {
+                    if (nodes[i].yoga) {
+                        YGNodeFree(nodes[i].yoga);
+                    }
+                }
                 YGConfigFree(config);
             }
 
-            float horizontal(const Style& s) const {
-                return px(s, P::PaddingLeft, px(s, P::Padding)) + px(s, P::PaddingRight, px(s, P::Padding)) +
-                       px(s, P::BorderLeftWidth, px(s, P::BorderWidth)) +
-                       px(s, P::BorderRightWidth, px(s, P::BorderWidth));
+            bool css() const {
+                return options.mode == FlexMode::CssAdapter;
             }
 
-            float vertical(const Style& s) const {
-                return px(s, P::PaddingTop, px(s, P::Padding)) + px(s, P::PaddingBottom, px(s, P::Padding)) +
-                       px(s, P::BorderTopWidth, px(s, P::BorderWidth)) +
-                       px(s, P::BorderBottomWidth, px(s, P::BorderWidth));
-            }
-
-            TextLayout text(const Node& n, float available = std::numeric_limits<float>::infinity()) const {
-                if (n.input->inline_content) {
-                    if (!fonts) {
-                        throw std::invalid_argument("WEFT_INLINE_PROFILE: font set required");
-                    }
-                    auto result = layout_inline(*n.input->inline_content, available, *fonts);
-                    return {result.width, result.height, result.baseline, result.lines};
-                }
-                if (n.input->text.empty()) {
-                    return {};
-                }
-                if (mode == FlexMode::RestrictedBlockAdapter || fonts) {
-                    const auto lines =
-                        layout_text(n.input->text, n.font_size, available,
-                                    n.input->style.text(P::WhiteSpace, "normal") == "nowrap", font, fonts);
-                    float widest{};
-                    for (const auto& line : lines) {
-                        widest = std::max(widest, line.shaped.advance);
-                    }
-                    const auto m = font.metrics(n.font_size);
-                    return {widest, lines.size() * n.line_height, (n.line_height - m.ascent - m.descent) / 2 + m.ascent,
-                            lines.size()};
-                }
-                for (unsigned char c : n.input->text) {
-                    if ((c < constants::layout::codepoint_space && c != ' ') ||
-                        c >= constants::layout::codepoint_delete) {
-                        throw std::invalid_argument(
-                            "WEFT_UNSUPPORTED_TEXT_BREAK: M0 layout fixtures require printable ASCII");
-                    }
-                }
-                const bool nowrap = n.input->style.text(P::WhiteSpace, "normal") == "nowrap";
-                const float space = font.shape(" ", n.font_size).advance;
-                std::istringstream words(n.input->text);
-                std::string word;
-                float line{};
-                float widest{};
-                std::size_t lines = 0;
-                while (words >> word) {
-                    const float width = font.shape(word, n.font_size).advance;
-                    if (!lines) {
-                        lines = 1;
-                    }
-                    if (!nowrap && line > 0 && line + space + width > available + constants::layout::line_fit_epsilon) {
-                        widest = std::max(widest, line);
-                        ++lines;
-                        line = 0;
-                    }
-                    if (line > 0) {
-                        line += space;
-                    }
-                    line += width;
-                }
-                const auto metrics = font.metrics(n.font_size);
-                const float baseline = (n.line_height - metrics.ascent - metrics.descent) / 2 + metrics.ascent;
-                return {std::max(widest, line), lines * n.line_height, baseline, lines};
-            }
-
-            static YGSize measure(YGNodeConstRef y, float width, YGMeasureMode wm, float height,
-                                  YGMeasureMode hm) noexcept {
-                auto& n = *static_cast<Node*>(YGNodeGetContext(y));
-                try {
-                    ++n.measure_calls;
-                    const auto measured = n.engine->text(
-                        n, wm == YGMeasureModeUndefined ? std::numeric_limits<float>::infinity() : width);
-                    const float natural_width = n.engine->text(n).width;
-                    return {wm == YGMeasureModeExactly  ? width
-                            : wm == YGMeasureModeAtMost ? std::min(width, natural_width)
-                                                        : measured.width,
-                            hm == YGMeasureModeExactly  ? height
-                            : hm == YGMeasureModeAtMost ? std::min(height, measured.height)
-                                                        : measured.height};
-                } catch (...) {
-                    n.engine->callback_error = std::current_exception();
-                    return {};
+            template <class F>
+            void each_child(const Node& n, F&& f) {
+                for (auto c = n.first_child; c != none; c = nodes[c].next_sibling) {
+                    f(nodes[c]);
                 }
             }
 
-            static float baseline(YGNodeConstRef y, float, float) noexcept {
-                auto& n = *static_cast<Node*>(YGNodeGetContext(y));
-                try {
-                    return n.engine->text(n).baseline +
-                           px(n.input->style, P::PaddingTop, px(n.input->style, P::Padding)) +
-                           px(n.input->style, P::BorderTopWidth, px(n.input->style, P::BorderWidth));
-                } catch (...) {
-                    n.engine->callback_error = std::current_exception();
-                    return 0;
+            void link() {
+                if (boxes.empty() || boxes[0].parent != none) {
+                    throw std::invalid_argument("WEFT_LAYOUT_TREE: the first box is the only root");
+                }
+                if (boxes.size() > std::size_t(constants::max_document_nodes)) {
+                    throw std::invalid_argument("WEFT_LAYOUT_LIMIT: probe tree bounds");
+                }
+                nodes.resize(boxes.size());
+                for (std::size_t i = 0; i < boxes.size(); ++i) {
+                    auto& n = nodes[i];
+                    n.engine = this;
+                    n.index = i;
+                    n.box = &boxes[i];
+                    n.style = boxes[i].style;
+                    if (!n.style) {
+                        throw std::invalid_argument("WEFT_LAYOUT_TREE: box without style");
+                    }
+                    if (!i) {
+                        continue;
+                    }
+                    const auto p = boxes[i].parent;
+                    if (p >= i) {
+                        throw std::invalid_argument("WEFT_LAYOUT_TREE: boxes out of tree order");
+                    }
+                    auto& parent = nodes[p];
+                    n.depth = parent.depth + 1;
+                    if (n.depth > std::size_t(constants::max_document_depth)) {
+                        throw std::invalid_argument("WEFT_LAYOUT_LIMIT: probe tree bounds");
+                    }
+                    (parent.last_child == none ? parent.first_child : nodes[parent.last_child].next_sibling) = i;
+                    parent.last_child = i;
+                    ++parent.children;
                 }
             }
 
-            // The properties the adapter maps, or reads for text.
-            static constexpr std::array supported_properties{P::AlignContent,
-                                                             P::AlignItems,
-                                                             P::AlignSelf,
-                                                             P::BorderBottomWidth,
-                                                             P::BorderLeftWidth,
-                                                             P::BorderRightWidth,
-                                                             P::BorderTopWidth,
-                                                             P::BorderWidth,
-                                                             P::Bottom,
-                                                             P::BoxSizing,
-                                                             P::ColumnGap,
-                                                             P::Display,
-                                                             P::Flex,
-                                                             P::FlexBasis,
-                                                             P::FlexDirection,
-                                                             P::FlexGrow,
-                                                             P::FlexShrink,
-                                                             P::FlexWrap,
-                                                             P::FontSize,
-                                                             P::Gap,
-                                                             P::Height,
-                                                             P::JustifyContent,
-                                                             P::Left,
-                                                             P::LineHeight,
-                                                             P::Margin,
-                                                             P::MarginBottom,
-                                                             P::MarginLeft,
-                                                             P::MarginRight,
-                                                             P::MarginTop,
-                                                             P::MaxHeight,
-                                                             P::MaxWidth,
-                                                             P::MinHeight,
-                                                             P::MinWidth,
-                                                             P::Overflow,
-                                                             P::Padding,
-                                                             P::PaddingBottom,
-                                                             P::PaddingLeft,
-                                                             P::PaddingRight,
-                                                             P::PaddingTop,
-                                                             P::Position,
-                                                             P::Right,
-                                                             P::RowGap,
-                                                             P::Top,
-                                                             P::WhiteSpace,
-                                                             P::Width};
-
-            void apply(Node& n) {
-                static const auto supported = [] {
-                    std::array<bool, property_count> out{};
-                    for (const auto id : supported_properties) {
-                        out[std::size_t(id)] = true;
+            void classify() {
+                for (auto& n : nodes) {
+                    const auto display = n.style->text(P::Display);
+                    if (n.box->text && n.children) {
+                        throw std::invalid_argument("WEFT_UNSUPPORTED_FORMAT: mixed text/flex children");
                     }
-                    return out;
-                }();
-                auto y = n.yoga;
-                const auto& s = n.input->style;
-                if (s.size() > supported_properties.size()) {
-                    throw std::invalid_argument("WEFT_LAYOUT_LIMIT: excessive styles");
+                    if (!css()) {
+                        if ((n.children || !n.index) && display != "flex" && display != "inline-flex") {
+                            throw std::invalid_argument("WEFT_UNSUPPORTED_FORMAT: container must explicitly be flex");
+                        }
+                        n.formatting = display == "none" ? Formatting::None : Formatting::Flex;
+                        continue;
+                    }
+                    if (display == "none") {
+                        n.formatting = Formatting::None;
+                    } else if (display == "flex" || display == "inline-flex") {
+                        n.formatting = Formatting::Flex;
+                    } else if (display == "grid" && !n.box->replaced && !n.box->text) {
+                        n.formatting = Formatting::Grid;
+                    } else {
+                        n.formatting = Formatting::Block;
+                    }
                 }
+                for (auto& n : nodes) {
+                    if (n.formatting == Formatting::Block && n.children) {
+                        bool all_inline = true;
+                        each_child(n, [&](const Node& c) {
+                            all_inline &= inline_level(c.style->text(P::Display, "inline"));
+                        });
+                        if (all_inline) {
+                            n.formatting = Formatting::InlineRow;
+                        }
+                    }
+                    if (n.formatting == Formatting::Grid) {
+                        const auto columns = n.style->text(P::GridTemplateColumns);
+                        if (const auto repeat = css::grid_repeat(columns)) {
+                            n.columns = *repeat;
+                        } else {
+                            const auto tracks = css::split(columns, ' ').parts;
+                            if (tracks.empty() || tracks.size() > std::size_t(constants::layout::max_grid_columns) ||
+                                !std::all_of(tracks.begin(), tracks.end(), [](const auto& t) {
+                                    return t == "1fr";
+                                })) {
+                                throw std::invalid_argument(
+                                    "WEFT_UNSUPPORTED_FORMAT: grid supports 1-8 equal minmax(0,1fr) tracks");
+                            }
+                            n.columns = unsigned(tracks.size());
+                        }
+                        each_child(n, [&](const Node& c) {
+                            if (c.style->text(P::Position) == "absolute") {
+                                throw std::invalid_argument("WEFT_UNSUPPORTED_FORMAT: absolute grid child");
+                            }
+                        });
+                        n.positions.resize(n.children);
+                    }
+                }
+            }
+
+            void validate(const Style& s) const {
                 if ((s.contains(P::Flex) &&
                      (s.contains(P::FlexGrow) || s.contains(P::FlexShrink) || s.contains(P::FlexBasis))) ||
                     (s.contains(P::Gap) && (s.contains(P::RowGap) || s.contains(P::ColumnGap)))) {
@@ -351,16 +452,22 @@ namespace weft {
                     const std::string prefix =
                         shorthand == P::BorderWidth ? "border-" : std::string(property_name(shorthand)) + '-';
                     for (const auto& entry : s) {
-                        if (entry.first != shorthand && property_name(entry.first).starts_with(prefix)) {
+                        if (entry.first != shorthand && roles[std::size_t(entry.first)] == Role::Box &&
+                            property_name(entry.first).starts_with(prefix)) {
                             throw std::invalid_argument(
                                 "WEFT_UNSUPPORTED_STYLE_CONFLICT: resolve edge declarations before adapter");
                         }
                     }
                 }
                 for (const auto& [id, v] : s) {
+                    const auto role = roles[std::size_t(id)];
                     const auto key = property_name(id);
-                    if (!supported[std::size_t(id)]) {
+                    if (role == Role::Unsupported) {
                         throw std::invalid_argument("WEFT_UNSUPPORTED_PROPERTY: " + std::string(key));
+                    }
+                    // A transform only decides whether the box is a containing block.
+                    if (role != Role::Box || id == P::Transform) {
+                        continue;
                     }
                     if (v.text().size() > constants::layout::max_style_value_bytes) {
                         throw std::invalid_argument("WEFT_LAYOUT_LIMIT: excessive style value");
@@ -370,18 +477,27 @@ namespace weft {
                             throw std::invalid_argument("WEFT_CSS_VALUE: negative flex factor");
                         }
                     } else if (key.ends_with("width") || key.ends_with("height") || key.starts_with("padding") ||
-                               key.ends_with("gap") || id == P::FontSize || id == P::FlexBasis) {
+                               key.ends_with("gap") || id == P::FlexBasis) {
                         const auto l = length(&v);
                         if (!l.automatic && l.value < 0) {
                             throw std::invalid_argument("WEFT_CSS_VALUE: negative dimension");
                         }
                     }
                 }
-                if (mode != FlexMode::RawYoga) {
+            }
+
+            void apply(Node& n) {
+                auto y = n.yoga;
+                const auto& s = *n.style;
+                validate(s);
+                if (css()) {
                     YGNodeStyleSetPositionType(y, YGPositionTypeStatic);
                     YGNodeStyleSetBoxSizing(y, YGBoxSizingContentBox);
                 }
                 for (const auto& [id, value] : s) {
+                    if (roles[std::size_t(id)] != Role::Box) {
+                        continue;
+                    }
                     const auto key = property_name(id);
                     const auto& v = value.text();
                     const auto dim = [&](auto points, auto percent, void (*automatic)(YGNodeRef) = nullptr) {
@@ -399,8 +515,8 @@ namespace weft {
                         }
                     };
                     if (id == P::Display) {
-                        if (v != "flex" && v != "inline-flex" && v != "none" &&
-                            !(mode == FlexMode::RestrictedBlockAdapter && v == "block")) {
+                        const bool flex = v == "flex" || v == "inline-flex" || v == "none";
+                        if (!flex && (!css() || (v != "block" && !inline_level(v) && v != "grid"))) {
                             throw std::invalid_argument("WEFT_UNSUPPORTED_FORMAT: " + v);
                         }
                         YGNodeStyleSetDisplay(y, v == "none" ? YGDisplayNone : YGDisplayFlex);
@@ -408,10 +524,14 @@ namespace weft {
                         dim(YGNodeStyleSetWidth, YGNodeStyleSetWidthPercent, YGNodeStyleSetWidthAuto);
                     } else if (id == P::Height) {
                         dim(YGNodeStyleSetHeight, YGNodeStyleSetHeightPercent, YGNodeStyleSetHeightAuto);
-                    } else if (id == P::MinWidth && v != "auto") {
-                        dim(YGNodeStyleSetMinWidth, YGNodeStyleSetMinWidthPercent);
-                    } else if (id == P::MinHeight && v != "auto") {
-                        dim(YGNodeStyleSetMinHeight, YGNodeStyleSetMinHeightPercent);
+                    } else if (id == P::MinWidth) {
+                        if (v != "auto") {
+                            dim(YGNodeStyleSetMinWidth, YGNodeStyleSetMinWidthPercent);
+                        }
+                    } else if (id == P::MinHeight) {
+                        if (v != "auto") {
+                            dim(YGNodeStyleSetMinHeight, YGNodeStyleSetMinHeightPercent);
+                        }
                     } else if (id == P::MaxWidth) {
                         dim(YGNodeStyleSetMaxWidth, YGNodeStyleSetMaxWidthPercent);
                     } else if (id == P::MaxHeight) {
@@ -501,7 +621,7 @@ namespace weft {
                         YGNodeStyleSetAlignSelf(y, align(v));
                     } else if (id == P::JustifyContent) {
                         YGJustify j;
-                        if (v == "flex-start") {
+                        if (v == "flex-start" || v == "normal") {
                             j = YGJustifyFlexStart;
                         } else if (v == "flex-end") {
                             j = YGJustifyFlexEnd;
@@ -553,10 +673,11 @@ namespace weft {
                         } else {
                             YGNodeStyleSetGap(y, gutter, l.value);
                         }
-                    } else if (key == "padding" || key == "margin" || key == "border-width" ||
-                               key.starts_with("padding-") || key.starts_with("margin-") ||
-                               key.starts_with("border-") || key == "top" || key == "left" || key == "right" ||
-                               key == "bottom") {
+                    } else if (id == P::Transform || id == P::GridTemplateColumns || id == P::JustifyItems ||
+                               id == P::PlaceItems) {
+                        // Read by the containing block and grid rules.
+                    } else {
+                        // Padding, margin, border widths and insets.
                         YGEdge edge = YGEdgeAll;
                         if (key.find("left") != key.npos) {
                             edge = YGEdgeLeft;
@@ -590,41 +711,580 @@ namespace weft {
                                 throw std::invalid_argument("WEFT_UNSUPPORTED_BORDER");
                             }
                             YGNodeStyleSetBorder(y, edge, l.value);
+                        } else if (l.automatic) {
+                            YGNodeStyleSetPositionAuto(y, edge);
+                        } else if (l.percent) {
+                            YGNodeStyleSetPositionPercent(y, edge, l.value);
                         } else {
-                            if (l.automatic) {
-                                YGNodeStyleSetPositionAuto(y, edge);
-                            } else if (l.percent) {
-                                YGNodeStyleSetPositionPercent(y, edge, l.value);
-                            } else {
-                                YGNodeStyleSetPosition(y, edge, l.value);
-                            }
+                            YGNodeStyleSetPosition(y, edge, l.value);
                         }
-                    } else if (id == P::FontSize || id == P::LineHeight || id == P::WhiteSpace ||
-                               (v == "auto" && (id == P::MinWidth || id == P::MinHeight))) {
-                        if (id == P::WhiteSpace && v != "normal" && v != "nowrap" &&
-                            !(n.input->inline_content && v == "pre-line")) {
-                            throw std::invalid_argument("WEFT_UNSUPPORTED_WHITE_SPACE");
-                        }
-                    } else {
-                        throw std::invalid_argument("WEFT_UNSUPPORTED_PROPERTY: " + std::string(key));
                     }
                 }
-                if (mode == FlexMode::RestrictedBlockAdapter && s.text(P::Display) == "block") {
-                    YGNodeStyleSetFlexDirection(y, YGFlexDirectionColumn);
-                    YGNodeStyleSetAlignItems(y, YGAlignStretch);
+                if (!css()) {
+                    return;
+                }
+                if (n.formatting == Formatting::Block || n.formatting == Formatting::InlineRow) {
+                    const bool line = n.formatting == Formatting::InlineRow;
+                    YGNodeStyleSetFlexDirection(y, line ? YGFlexDirectionRow : YGFlexDirectionColumn);
+                    YGNodeStyleSetAlignItems(y, line ? YGAlignFlexStart : YGAlignStretch);
                     YGNodeStyleSetJustifyContent(y, YGJustifyFlexStart);
+                }
+                // A transformed box contains its absolute descendants.
+                if (s.text(P::Transform, "none") != "none") {
+                    YGNodeSetAlwaysFormsContainingBlock(y, true);
                 }
             }
 
-            std::unique_ptr<Node> build(const FlexNode& input, const Node* parent, std::size_t depth = 0) {
-                if (++node_count > constants::max_document_nodes || depth > constants::max_document_depth) {
+            // An svg's width and height attributes stand in for absent properties. With an intrinsic ratio and an
+            // auto or percentage height in a parent of indefinite height, the height follows the width.
+            void replace(Node& n) {
+                const auto& box = *n.box;
+                const auto& s = *n.style;
+                for (const bool width : {true, false}) {
+                    if (s.contains(width ? P::Width : P::Height)) {
+                        continue;
+                    }
+                    const auto attribute = width ? box.replaced_width : box.replaced_height;
+                    const auto l = attribute.empty() ? Length{width ? constants::layout::default_object_width_px
+                                                                    : constants::layout::default_object_height_px}
+                                                     : presentation(attribute);
+                    if (l.automatic) {
+                        continue;
+                    }
+                    if (l.percent) {
+                        (width ? YGNodeStyleSetWidthPercent : YGNodeStyleSetHeightPercent)(n.yoga, l.value);
+                    } else {
+                        (width ? YGNodeStyleSetWidth : YGNodeStyleSetHeight)(n.yoga, l.value);
+                    }
+                }
+                if (box.ratio == 0 || !n.index || nodes[box.parent].definite_height) {
+                    return;
+                }
+                const auto height = s.contains(P::Height) ? s.text(P::Height) : box.replaced_height;
+                if (!height.empty() && height != "auto" && !height.ends_with('%')) {
+                    return;
+                }
+                if (!std::isfinite(box.ratio) || box.ratio <= 0) {
+                    throw std::invalid_argument("WEFT_UNSUPPORTED_FORMAT: SVG intrinsic ratio");
+                }
+                YGNodeStyleSetHeightAuto(n.yoga);
+                YGNodeStyleSetAspectRatio(n.yoga, box.ratio);
+            }
+
+            void create() {
+                for (auto& n : nodes) {
+                    n.yoga = YGNodeNewWithConfig(config);
+                    if (!n.yoga) {
+                        throw std::bad_alloc();
+                    }
+                    YGNodeSetContext(n.yoga, &n);
+                    apply(n);
+                    const auto height = n.style->text(P::Height);
+                    n.definite_height = !n.index || (!height.empty() && height != "auto" &&
+                                                     (!height.ends_with('%') || nodes[n.box->parent].definite_height));
+                    if (n.index) {
+                        const auto& parent = nodes[n.box->parent];
+                        if (parent.formatting != Formatting::Grid) {
+                            YGNodeInsertChild(parent.yoga, n.yoga, YGNodeGetChildCount(parent.yoga));
+                        }
+                        // Block and inline layout do not flex their children.
+                        if (css() &&
+                            (parent.formatting == Formatting::Block || parent.formatting == Formatting::InlineRow)) {
+                            YGNodeStyleSetFlexGrow(n.yoga, 0);
+                            YGNodeStyleSetFlexShrink(n.yoga, 0);
+                            YGNodeStyleSetFlexBasisAuto(n.yoga);
+                            YGNodeStyleSetAlignSelf(n.yoga, parent.formatting == Formatting::Block ? YGAlignStretch
+                                                                                                   : YGAlignAuto);
+                        }
+                    }
+                    if (n.box->replaced) {
+                        replace(n);
+                    }
+                    if (n.box->text) {
+                        YGNodeSetMeasureFunc(n.yoga, measure);
+                        YGNodeSetBaselineFunc(n.yoga, baseline);
+                    } else if (n.formatting == Formatting::Grid) {
+                        YGNodeSetMeasureFunc(n.yoga, grid_measured);
+                    }
+                }
+            }
+
+            // Border-box intrinsic sizes, children first: max-content width, min-content width and the height at
+            // the max-content width, as automatic minimum sizes need them.
+            void intrinsic(Node& n) {
+                const auto& s = *n.style;
+                auto& unknown_w = n.unknown_width;
+                auto& unknown_h = n.unknown_height;
+                const float edges = intrinsic_horizontal(s, unknown_w);
+                const float edges_v = intrinsic_vertical(s, unknown_h);
+                const bool content_box = s.text(P::BoxSizing, "content-box") == "content-box";
+                if (n.box->text) {
+                    const auto natural = text.layout(n.index, unbounded);
+                    n.max_width = natural.width + edges;
+                    n.intrinsic_height = natural.height + edges_v;
+                    n.min_width = text.min_content(n.index) + edges;
+                } else if (n.box->replaced) {
+                    const auto size = [&](bool width) {
+                        const auto* v = s.find(width ? P::Width : P::Height);
+                        const auto attribute = width ? n.box->replaced_width : n.box->replaced_height;
+                        const auto l = v                   ? length(v)
+                                       : attribute.empty() ? Length{width ? constants::layout::default_object_width_px
+                                                                          : constants::layout::default_object_height_px}
+                                                           : presentation(attribute);
+                        return l;
+                    };
+                    const auto w = size(true);
+                    const auto h = size(false);
+                    if (w.automatic || w.percent) {
+                        unknown_w = "WEFT_UNSUPPORTED_INTRINSIC: replaced box without a px width";
+                    }
+                    if (h.automatic || h.percent || YGNodeStyleGetAspectRatio(n.yoga) > 0) {
+                        unknown_h = "WEFT_UNSUPPORTED_INTRINSIC: replaced box without a px height";
+                    }
+                    n.min_width = n.max_width = w.value + (content_box ? edges : 0);
+                    n.intrinsic_height = h.value + (content_box ? edges_v : 0);
+                } else if (n.formatting == Formatting::Grid) {
+                    const float column_gap =
+                        intrinsic_px(s, P::ColumnGap, intrinsic_px(s, P::Gap, 0, unknown_w), unknown_w);
+                    const float row_gap = intrinsic_px(s, P::RowGap, intrinsic_px(s, P::Gap, 0, unknown_h), unknown_h);
+                    std::vector<float> rows;
+                    float widest{};
+                    std::size_t placed{};
+                    each_child(n, [&](const Node& c) {
+                        if (c.formatting == Formatting::None) {
+                            return;
+                        }
+                        const auto row = placed++ / n.columns;
+                        rows.resize(row + 1);
+                        rows[row] = std::max(rows[row], c.intrinsic_height);
+                        widest = std::max(widest, c.max_width);
+                        if (unknown_w.empty()) {
+                            unknown_w = c.unknown_width;
+                        }
+                        if (unknown_h.empty()) {
+                            unknown_h = c.unknown_height;
+                        }
+                    });
+                    const float gaps = column_gap * float(n.columns - 1);
+                    n.min_width = gaps + edges;
+                    n.max_width = widest * float(n.columns) + gaps + edges;
+                    for (const auto r : rows) {
+                        n.intrinsic_height += r;
+                    }
+                    if (!rows.empty()) {
+                        n.intrinsic_height += row_gap * float(rows.size() - 1);
+                    }
+                    n.intrinsic_height += edges_v;
+                } else {
+                    const bool line = n.formatting == Formatting::InlineRow;
+                    const bool row = line || ((n.formatting == Formatting::Flex || n.formatting == Formatting::None) &&
+                                              row_direction(s));
+                    const bool nowrap = line || s.text(P::FlexWrap, "nowrap") == "nowrap";
+                    std::size_t flow_count{};
+                    each_child(n, [&](const Node& c) {
+                        if (c.style->text(P::Position) == "absolute" || c.style->text(P::Display) == "none") {
+                            return;
+                        }
+                        ++flow_count;
+                        if (row && nowrap) {
+                            n.min_width += c.min_width;
+                        } else {
+                            n.min_width = std::max(n.min_width, c.min_width);
+                        }
+                        if (row) {
+                            n.max_width += c.max_width;
+                            n.intrinsic_height = std::max(n.intrinsic_height, c.intrinsic_height);
+                        } else {
+                            n.max_width = std::max(n.max_width, c.max_width);
+                            n.intrinsic_height += c.intrinsic_height;
+                        }
+                        if (unknown_w.empty()) {
+                            unknown_w = c.unknown_width;
+                        }
+                        if (unknown_h.empty()) {
+                            unknown_h = c.unknown_height;
+                        }
+                    });
+                    if (flow_count > 1) {
+                        auto& unknown = row ? unknown_w : unknown_h;
+                        const float gap = intrinsic_px(s, row ? P::ColumnGap : P::RowGap,
+                                                       intrinsic_px(s, P::Gap, 0, unknown), unknown);
+                        if (row) {
+                            n.max_width += float(flow_count - 1) * gap;
+                            if (nowrap) {
+                                n.min_width += float(flow_count - 1) * gap;
+                            }
+                        } else {
+                            n.intrinsic_height += float(flow_count - 1) * gap;
+                        }
+                    }
+                    n.min_width += edges;
+                    n.max_width += edges;
+                    n.intrinsic_height += edges_v;
+                }
+                const auto specified = length(s.find(P::Width));
+                if (!specified.automatic && !specified.percent) {
+                    const float border = specified.value + (content_box ? edges : 0);
+                    n.min_width = std::min(n.min_width, border);
+                    n.max_width = std::max(n.min_width, border);
+                }
+                const auto specified_height = length(s.find(P::Height));
+                n.auto_min_height = n.intrinsic_height;
+                if (!specified_height.automatic && !specified_height.percent) {
+                    n.intrinsic_height = specified_height.value + (content_box ? edges_v : 0);
+                }
+            }
+
+            // CSS automatic minimum size of a flex item in its parent's main axis: its content size, capped by a
+            // definite specified or maximum size.
+            void automatic_minimum(Node& n) {
+                const auto& s = *n.style;
+                const auto& parent = nodes[n.box->parent];
+                if (parent.formatting != Formatting::Flex || s.text(P::Position) == "absolute" ||
+                    s.text(P::Overflow, "visible") != "visible") {
+                    return;
+                }
+                const bool main_row = row_direction(*parent.style);
+                if (s.text(main_row ? P::MinWidth : P::MinHeight, "auto") != "auto") {
+                    return;
+                }
+                const auto& unknown = main_row ? n.unknown_width : n.unknown_height;
+                const bool content_box = s.text(P::BoxSizing, "content-box") == "content-box";
+                const auto specified = length(s.find(P::Width));
+                const auto specified_height = length(s.find(P::Height));
+                float minimum = main_row ? n.min_width : n.auto_min_height;
+                // A nowrap line has width-independent intrinsic height. Only wrapping text requires a definite
+                // cross-axis constraint.
+                if (!main_row && n.box->text && text.wraps(n.index)) {
+                    const float edges = horizontal(s);
+                    float content_width;
+                    if (!specified.automatic && !specified.percent) {
+                        content_width = specified.value - (content_box ? 0 : edges);
+                    } else {
+                        const auto parent_width = length(parent.style->find(P::Width));
+                        if (parent_width.automatic || parent_width.percent) {
+                            throw std::invalid_argument(
+                                "WEFT_UNSUPPORTED_INTRINSIC: auto min-height needs definite cross constraint in M0");
+                        }
+                        content_width =
+                            parent_width.value - (parent.style->text(P::BoxSizing, "content-box") == "border-box"
+                                                      ? horizontal(*parent.style)
+                                                      : 0);
+                        if (specified.percent) {
+                            content_width *= specified.value / constants::percent_scale;
+                        }
+                        content_width -= edges;
+                    }
+                    const auto max_width = length(s.find(P::MaxWidth));
+                    if (!max_width.automatic && !max_width.percent) {
+                        content_width = std::min(content_width, max_width.value - (content_box ? 0 : edges));
+                    }
+                    minimum = text.layout(n.index, std::max(0.0f, content_width)).height + vertical(s);
+                } else if (!unknown.empty()) {
+                    throw std::invalid_argument(unknown);
+                }
+                if (!main_row && !specified_height.automatic && !specified_height.percent) {
+                    minimum = std::min(minimum, n.intrinsic_height);
+                }
+                const auto maximum = length(s.find(main_row ? P::MaxWidth : P::MaxHeight));
+                if (!maximum.automatic && !maximum.percent) {
+                    const float max_border =
+                        maximum.value + (content_box ? (main_row ? horizontal(s) : vertical(s)) : 0);
+                    minimum = std::min(minimum, max_border);
+                }
+                // Yoga accepts a content-box min size when configured content-box.
+                if (content_box) {
+                    minimum -= main_row ? horizontal(s) : vertical(s);
+                }
+                minimum = std::max(0.0f, minimum);
+                if (main_row) {
+                    YGNodeStyleSetMinWidth(n.yoga, minimum);
+                } else {
+                    YGNodeStyleSetMinHeight(n.yoga, minimum);
+                }
+            }
+
+            // Places a grid's children in rows of equal columns at the given border-box width (and final height, when
+            // known), and returns the border-box height.
+            float grid(Node& g, float width, float height = -1) {
+                const auto& s = *g.style;
+                const float left =
+                    px(s, P::PaddingLeft, px(s, P::Padding)) + px(s, P::BorderLeftWidth, px(s, P::BorderWidth));
+                const float right =
+                    px(s, P::PaddingRight, px(s, P::Padding)) + px(s, P::BorderRightWidth, px(s, P::BorderWidth));
+                const float top =
+                    px(s, P::PaddingTop, px(s, P::Padding)) + px(s, P::BorderTopWidth, px(s, P::BorderWidth));
+                const float bottom =
+                    px(s, P::PaddingBottom, px(s, P::Padding)) + px(s, P::BorderBottomWidth, px(s, P::BorderWidth));
+                const float column_gap = px(s, P::ColumnGap, px(s, P::Gap));
+                const float row_gap = px(s, P::RowGap, px(s, P::Gap));
+                if (!std::isfinite(width) || width < left + right) {
+                    throw std::invalid_argument("WEFT_UNSUPPORTED_FORMAT: grid needs a definite width");
+                }
+                const float cell =
+                    std::max(0.f, (width - left - right - column_gap * float(g.columns - 1)) / float(g.columns));
+                std::vector<Node*> placed;
+                each_child(g, [&](Node& c) {
+                    if (c.formatting != Formatting::None) {
+                        placed.push_back(&c);
+                    }
+                });
+                const auto rows = (placed.size() + g.columns - 1) / g.columns;
+                std::vector<float> heights(rows);
+                for (std::size_t i = 0; i < placed.size(); ++i) {
+                    auto& c = *placed[i];
+                    if (length(c.style->find(P::Width)).automatic) {
+                        YGNodeStyleSetWidth(c.yoga, cell);
+                    }
+                    YGNodeCalculateLayout(c.yoga, cell, YGUndefined, YGDirectionLTR);
+                    heights[i / g.columns] = std::max(heights[i / g.columns], YGNodeLayoutGetHeight(c.yoga));
+                }
+                float content{};
+                for (const auto h : heights) {
+                    content += h;
+                }
+                if (rows) {
+                    content += row_gap * float(rows - 1);
+                }
+                const auto align_content = s.text(P::AlignContent);
+                float y = top;
+                if (height >= 0 && align_content == "center") {
+                    y += std::max(0.f, (height - top - bottom - content) / 2);
+                }
+                if (height >= 0 && rows &&
+                    (align_content.empty() || align_content == "normal" || align_content == "stretch")) {
+                    const float extra = std::max(0.f, (height - top - bottom - content) / float(rows));
+                    for (auto& h : heights) {
+                        h += extra;
+                    }
+                    content += extra * float(rows);
+                }
+                const bool center_x = s.text(P::PlaceItems) == "center" || s.text(P::JustifyItems) == "center";
+                const bool center_y = s.text(P::PlaceItems) == "center" || s.text(P::AlignItems) == "center";
+                std::vector<float> row_tops(rows);
+                for (std::size_t row = 0; row < rows; ++row) {
+                    row_tops[row] = y;
+                    y += heights[row] + row_gap;
+                }
+                std::fill(g.positions.begin(), g.positions.end(), std::array<float, 2>{});
+                std::size_t cell_index{};
+                std::size_t ordinal{};
+                each_child(g, [&](Node& c) {
+                    const auto k = ordinal++;
+                    if (c.formatting == Formatting::None) {
+                        return;
+                    }
+                    const auto row = cell_index / g.columns;
+                    const auto column = cell_index % g.columns;
+                    ++cell_index;
+                    float x = left + float(column) * (cell + column_gap);
+                    float dy{};
+                    if (center_x) {
+                        x += (cell - YGNodeLayoutGetWidth(c.yoga)) / 2;
+                    }
+                    if (center_y) {
+                        dy = (heights[row] - YGNodeLayoutGetHeight(c.yoga)) / 2;
+                    }
+                    g.positions[k] = {x, row_tops[row] + dy};
+                });
+                return content + top + bottom;
+            }
+
+            static YGSize measure(YGNodeConstRef y, float width, YGMeasureMode wm, float height,
+                                  YGMeasureMode hm) noexcept {
+                auto& n = *static_cast<Node*>(YGNodeGetContext(y));
+                try {
+                    ++n.measure_calls;
+                    const auto& text = n.engine->text;
+                    const auto measured = text.layout(n.index, wm == YGMeasureModeUndefined ? unbounded : width);
+                    const float natural_width = text.layout(n.index, unbounded).width;
+                    // A text box is as tall as its lines; it overflows a smaller available height.
+                    return {wm == YGMeasureModeExactly  ? width
+                            : wm == YGMeasureModeAtMost ? std::min(width, natural_width)
+                                                        : measured.width,
+                            hm == YGMeasureModeExactly ? height : measured.height};
+                } catch (...) {
+                    n.engine->callback_error = std::current_exception();
+                    return {};
+                }
+            }
+
+            static float baseline(YGNodeConstRef y, float, float) noexcept {
+                auto& n = *static_cast<Node*>(YGNodeGetContext(y));
+                try {
+                    const auto& s = *n.style;
+                    return n.engine->text.layout(n.index, unbounded).baseline +
+                           px(s, P::PaddingTop, px(s, P::Padding)) + px(s, P::BorderTopWidth, px(s, P::BorderWidth));
+                } catch (...) {
+                    n.engine->callback_error = std::current_exception();
+                    return 0;
+                }
+            }
+
+            static YGSize grid_measured(YGNodeConstRef y, float width, YGMeasureMode, float, YGMeasureMode) noexcept {
+                auto& n = *static_cast<Node*>(YGNodeGetContext(y));
+                try {
+                    return {width, n.engine->grid(n, width + horizontal(*n.style)) - vertical(*n.style)};
+                } catch (...) {
+                    n.engine->callback_error = std::current_exception();
+                    return {};
+                }
+            }
+
+            std::vector<BoxGeometry> run() {
+                link();
+                classify();
+                create();
+                if (css()) {
+                    for (auto i = nodes.size(); i-- > 0;) {
+                        intrinsic(nodes[i]);
+                    }
+                    for (std::size_t i = 1; i < nodes.size(); ++i) {
+                        automatic_minimum(nodes[i]);
+                    }
+                }
+                const auto root = nodes[0].yoga;
+                if (options.viewport) {
+                    const auto [w, h] = *options.viewport;
+                    YGNodeStyleSetWidth(root, w);
+                    YGNodeStyleSetHeight(root, h);
+                    YGNodeCalculateLayout(root, w, h, YGDirectionLTR);
+                } else {
+                    YGNodeCalculateLayout(root, YGUndefined, YGUndefined, YGDirectionLTR);
+                }
+                if (callback_error) {
+                    std::rethrow_exception(callback_error);
+                }
+                std::vector<BoxGeometry> out(nodes.size());
+                // Origin of each box's children: a hidden box places its subtree at the layout origin.
+                std::vector<std::array<float, 2>> origin(nodes.size());
+                // Each box's position among its parent's children, and each parent's count so far.
+                std::vector<std::size_t> ordinal(nodes.size());
+                std::vector<std::size_t> counted(nodes.size());
+                for (auto& n : nodes) {
+                    auto& g = out[n.index];
+                    const auto p = n.box->parent;
+                    if (p != none) {
+                        ordinal[n.index] = counted[p]++;
+                    }
+                    if (css() && n.formatting == Formatting::None) {
+                        continue;
+                    }
+                    const auto y = n.yoga;
+                    const bool in_grid = p != none && nodes[p].formatting == Formatting::Grid;
+                    g.left = in_grid ? nodes[p].positions[ordinal[n.index]][0] : YGNodeLayoutGetLeft(y);
+                    g.top = in_grid ? nodes[p].positions[ordinal[n.index]][1] : YGNodeLayoutGetTop(y);
+                    g.width = YGNodeLayoutGetWidth(y);
+                    g.height = YGNodeLayoutGetHeight(y);
+                    g.x = (p == none ? 0 : origin[p][0]) + g.left;
+                    g.y = (p == none ? 0 : origin[p][1]) + g.top;
+                    origin[n.index] = {g.x, g.y};
+                    g.measure_calls = n.measure_calls;
+                    if (n.formatting == Formatting::Grid) {
+                        grid(n, g.width, g.height);
+                        if (callback_error) {
+                            std::rethrow_exception(callback_error);
+                        }
+                    }
+                    if (options.final_text && n.box->text) {
+                        // Final text is independently laid out even when Yoga skipped measure.
+                        const float content_width = std::max(0.0f, g.width - YGNodeLayoutGetPadding(y, YGEdgeLeft) -
+                                                                       YGNodeLayoutGetPadding(y, YGEdgeRight) -
+                                                                       YGNodeLayoutGetBorder(y, YGEdgeLeft) -
+                                                                       YGNodeLayoutGetBorder(y, YGEdgeRight));
+                        g.text = text.layout(n.index, content_width);
+                    }
+                }
+                return out;
+            }
+        };
+    } // namespace
+
+    std::vector<BoxGeometry> layout_boxes(std::span<const LayoutBox> boxes, const TextMeasurer& text,
+                                          const LayoutOptions& options) {
+        Engine engine(boxes, text, options);
+        return engine.run();
+    }
+
+    namespace {
+        // The document text system for FlexNode trees: plain text shaped and broken at spaces, or an inline
+        // formatting context.
+        struct DocumentText {
+            Font& font;
+            FontSet* fonts{};
+            std::vector<const FlexNode*> nodes;
+            std::vector<float> font_size;
+            std::vector<float> line_height;
+
+            bool nowrap(std::size_t i) const {
+                return nodes[i]->style.text(P::WhiteSpace, "normal") == "nowrap";
+            }
+
+            TextMetrics layout(std::size_t i, float available) const {
+                const auto& n = *nodes[i];
+                if (n.inline_content) {
+                    if (!fonts) {
+                        throw std::invalid_argument("WEFT_INLINE_PROFILE: font set required");
+                    }
+                    auto result = layout_inline(*n.inline_content, available, *fonts);
+                    return {result.width, result.height, result.baseline, result.lines};
+                }
+                if (n.text.empty()) {
+                    return {};
+                }
+                const auto lines = layout_text(n.text, font_size[i], available, nowrap(i), font, fonts);
+                float widest{};
+                for (const auto& line : lines) {
+                    widest = std::max(widest, line.shaped.advance);
+                }
+                const auto m = font.metrics(font_size[i]);
+                return {widest, float(lines.size()) * line_height[i],
+                        (line_height[i] - m.ascent - m.descent) / 2 + m.ascent, lines.size()};
+            }
+
+            float min_content(std::size_t i) const {
+                const auto& n = *nodes[i];
+                if (n.inline_content) {
+                    if (!fonts) {
+                        throw std::invalid_argument("WEFT_INLINE_PROFILE: font set required");
+                    }
+                    return layout_inline(*n.inline_content, unbounded, *fonts).min_content;
+                }
+                if (nowrap(i)) {
+                    return layout(i, unbounded).width;
+                }
+                float widest{};
+                std::istringstream tokens(n.text);
+                std::string word;
+                while (tokens >> word) {
+                    widest = std::max(widest, fonts ? fonts->shape(word, font_size[i]).shaped.advance
+                                                    : font.shape(word, font_size[i]).advance);
+                }
+                return widest;
+            }
+
+            bool wraps(std::size_t i) const {
+                return !nowrap(i);
+            }
+        };
+
+        // Flattens a FlexNode tree into layout boxes, checking the tree's identity, text and font bounds and
+        // inheriting font size and line height.
+        struct Flattener {
+            DocumentText& text;
+            std::vector<LayoutBox>& boxes;
+            std::set<std::string> identities;
+            std::size_t text_bytes{};
+
+            void add(const FlexNode& input, std::size_t parent, std::size_t depth) {
+                if (boxes.size() >= std::size_t(constants::max_document_nodes) ||
+                    depth > std::size_t(constants::max_document_depth)) {
                     throw std::invalid_argument("WEFT_LAYOUT_LIMIT: probe tree bounds");
                 }
                 if (input.text.size() > constants::max_text_bytes) {
                     throw std::invalid_argument("WEFT_LAYOUT_LIMIT: probe text exceeds 64 KiB");
                 }
-                if ((mode == FlexMode::RestrictedBlockAdapter || fonts) &&
-                    (text_bytes += input.text.size()) > constants::layout::max_aggregate_text_bytes) {
+                if ((text_bytes += input.text.size()) > constants::layout::max_aggregate_text_bytes) {
                     throw std::invalid_argument("WEFT_LAYOUT_LIMIT: aggregate text bytes");
                 }
                 if (input.id.empty() || !identities.insert(input.id).second) {
@@ -637,222 +1297,62 @@ namespace weft {
                         }
                     }
                 }
-                if (!input.children.empty() && (!input.text.empty() || input.inline_content)) {
-                    throw std::invalid_argument("WEFT_UNSUPPORTED_FORMAT: mixed text/flex children");
+                const auto& s = input.style;
+                const auto whitespace = s.text(P::WhiteSpace, "normal");
+                if (s.contains(P::WhiteSpace) && whitespace != "normal" && whitespace != "nowrap" &&
+                    !(input.inline_content && whitespace == "pre-line")) {
+                    throw std::invalid_argument("WEFT_UNSUPPORTED_WHITE_SPACE");
                 }
-                const auto display = input.style.text(P::Display);
-                if ((!input.children.empty() || !parent) && display != "flex" && display != "inline-flex" &&
-                    !(mode == FlexMode::RestrictedBlockAdapter && (display == "block" || display == "none"))) {
-                    throw std::invalid_argument("WEFT_UNSUPPORTED_FORMAT: container must explicitly be flex");
+                const auto index = boxes.size();
+                const bool root = parent == LayoutBox::root;
+                const float size =
+                    px(s, P::FontSize, root ? constants::layout::flex_default_font_size_px : text.font_size[parent]);
+                const float line = px(s, P::LineHeight,
+                                      root ? constants::layout::flex_default_line_height_px : text.line_height[parent]);
+                if (size < 0 || line < 0) {
+                    throw std::invalid_argument("WEFT_CSS_VALUE: negative dimension");
                 }
-                auto n = std::make_unique<Node>();
-                n->engine = this;
-                n->input = &input;
-                n->font_size = px(input.style, P::FontSize,
-                                  parent ? parent->font_size : constants::layout::flex_default_font_size_px);
-                n->line_height = px(input.style, P::LineHeight,
-                                    parent ? parent->line_height : constants::layout::flex_default_line_height_px);
-                n->yoga = YGNodeNewWithConfig(config);
-                if (!n->yoga) {
-                    throw std::bad_alloc();
-                }
-                YGNodeSetContext(n->yoga, n.get());
-                apply(*n);
-                // In the explicitly bounded zero-margin block subset, column packing
-                // is equivalent only when normal-flow children never flex/shrink.
-                if (mode == FlexMode::RestrictedBlockAdapter && parent &&
-                    parent->input->style.text(P::Display) == "block") {
-                    YGNodeStyleSetFlexGrow(n->yoga, 0);
-                    YGNodeStyleSetFlexShrink(n->yoga, 0);
-                    YGNodeStyleSetFlexBasisAuto(n->yoga);
-                    YGNodeStyleSetAlignSelf(n->yoga, YGAlignStretch);
-                }
-                const float edges = horizontal(input.style);
-                if (!input.text.empty() || input.inline_content) {
-                    const auto natural = text(*n);
-                    n->max_width = natural.width + edges;
-                    n->intrinsic_height = natural.height + vertical(input.style);
-                    std::istringstream tokens(input.text);
-                    std::string word;
-                    while (tokens >> word) {
-                        n->min_width = std::max(n->min_width, fonts ? fonts->shape(word, n->font_size).shaped.advance
-                                                                    : font.shape(word, n->font_size).advance);
-                    }
-                    if (input.style.text(P::WhiteSpace, "normal") == "nowrap") {
-                        n->min_width = natural.width;
-                    }
-                    if (input.inline_content) {
-                        n->min_width =
-                            layout_inline(*input.inline_content, std::numeric_limits<float>::infinity(), *fonts)
-                                .min_content;
-                    }
-                    n->min_width += edges;
-                    YGNodeSetMeasureFunc(n->yoga, measure);
-                    YGNodeSetBaselineFunc(n->yoga, baseline);
-                } else {
-                    std::size_t flow_count{};
-                    for (const auto& child : input.children) {
-                        auto c = build(child, n.get(), depth + 1);
-                        YGNodeInsertChild(n->yoga, c->yoga, static_cast<std::uint32_t>(n->children.size()));
-                        if (child.style.text(P::Position) != "absolute" && child.style.text(P::Display) != "none") {
-                            ++flow_count;
-                            if (row(input.style) && input.style.text(P::FlexWrap, "nowrap") == "nowrap") {
-                                n->min_width += c->min_width;
-                            } else {
-                                n->min_width = std::max(n->min_width, c->min_width);
-                            }
-                            if (row(input.style)) {
-                                n->max_width += c->max_width;
-                                n->intrinsic_height = std::max(n->intrinsic_height, c->intrinsic_height);
-                            } else {
-                                n->max_width = std::max(n->max_width, c->max_width);
-                                n->intrinsic_height += c->intrinsic_height;
-                            }
-                        }
-                        n->children.push_back(std::move(c));
-                    }
-                    if (flow_count > 1) {
-                        const float gap =
-                            px(input.style, row(input.style) ? P::ColumnGap : P::RowGap, px(input.style, P::Gap));
-                        if (row(input.style)) {
-                            n->max_width += (flow_count - 1) * gap;
-                            if (input.style.text(P::FlexWrap, "nowrap") == "nowrap") {
-                                n->min_width += (flow_count - 1) * gap;
-                            }
-                        } else {
-                            n->intrinsic_height += (flow_count - 1) * gap;
-                        }
-                    }
-                    n->min_width += edges;
-                    n->max_width += edges;
-                    n->intrinsic_height += vertical(input.style);
-                }
-                const bool content_box = input.style.text(P::BoxSizing, "content-box") == "content-box";
-                const auto specified = length(input.style.find(P::Width));
-                if (!specified.automatic && !specified.percent) {
-                    const float border = specified.value + (content_box ? edges : 0);
-                    n->min_width = std::min(n->min_width, border);
-                    n->max_width = std::max(n->min_width, border);
-                }
-                const auto specified_height = length(input.style.find(P::Height));
-                n->auto_min_height = n->intrinsic_height;
-                if (!specified_height.automatic && !specified_height.percent) {
-                    n->intrinsic_height = specified_height.value + (content_box ? vertical(input.style) : 0);
-                }
-                if (mode != FlexMode::RawYoga && parent && parent->input->style.text(P::Display) != "block" &&
-                    input.style.text(P::Position) != "absolute" &&
-                    input.style.text(P::Overflow, "visible") == "visible") {
-                    const bool main_row = row(parent->input->style);
-                    if (input.style.text(main_row ? P::MinWidth : P::MinHeight, "auto") == "auto") {
-                        float minimum = main_row ? n->min_width : n->auto_min_height;
-                        // A nowrap line has width-independent intrinsic height. Only
-                        // wrapping text requires a definite cross-axis constraint.
-                        if (!main_row && (!input.text.empty() || input.inline_content) &&
-                            input.style.text(P::WhiteSpace, "normal") != "nowrap") {
-                            float content_width;
-                            if (!specified.automatic && !specified.percent) {
-                                content_width =
-                                    specified.value -
-                                    (input.style.text(P::BoxSizing, "content-box") == "border-box" ? edges : 0);
-                            } else {
-                                const auto parent_width = length(parent->input->style.find(P::Width));
-                                if (parent_width.automatic || parent_width.percent) {
-                                    throw std::invalid_argument(
-                                        "WEFT_UNSUPPORTED_INTRINSIC: auto min-height needs definite cross constraint in M0");
-                                }
-                                content_width = parent_width.value -
-                                                (parent->input->style.text(P::BoxSizing, "content-box") == "border-box"
-                                                     ? horizontal(parent->input->style)
-                                                     : 0);
-                                if (specified.percent) {
-                                    content_width *= specified.value / constants::percent_scale;
-                                }
-                                content_width -= edges;
-                            }
-                            const auto max_width = length(input.style.find(P::MaxWidth));
-                            if (!max_width.automatic && !max_width.percent) {
-                                content_width = std::min(
-                                    content_width,
-                                    max_width.value -
-                                        (input.style.text(P::BoxSizing, "content-box") == "border-box" ? edges : 0));
-                            }
-                            minimum = text(*n, std::max(0.0f, content_width)).height + vertical(input.style);
-                        }
-                        if (!main_row && !specified_height.automatic && !specified_height.percent) {
-                            minimum = std::min(minimum, n->intrinsic_height);
-                        }
-                        const auto maximum = length(input.style.find(main_row ? P::MaxWidth : P::MaxHeight));
-                        if (!maximum.automatic && !maximum.percent) {
-                            const float max_border =
-                                maximum.value + (content_box ? (main_row ? edges : vertical(input.style)) : 0);
-                            minimum = std::min(minimum, max_border);
-                        }
-                        // Yoga accepts a content-box min size when configured content-box.
-                        if (content_box) {
-                            minimum -= main_row ? edges : vertical(input.style);
-                        }
-                        minimum = std::max(0.0f, minimum);
-                        if (main_row) {
-                            YGNodeStyleSetMinWidth(n->yoga, minimum);
-                        } else {
-                            YGNodeStyleSetMinHeight(n->yoga, minimum);
-                        }
-                    }
-                }
-                return n;
-            }
-
-            void collect(Node& n, float x, float y, std::vector<FlexBox>& output) {
-                if (mode == FlexMode::RestrictedBlockAdapter && n.input->style.text(P::Display) == "none") {
-                    output.push_back({n.input->id});
-                    for (auto& c : n.children) {
-                        collect(*c, 0, 0, output);
-                    }
-                    return;
-                }
-                x += YGNodeLayoutGetLeft(n.yoga);
-                y += YGNodeLayoutGetTop(n.yoga);
-                const float width = YGNodeLayoutGetWidth(n.yoga);
-                const float height = YGNodeLayoutGetHeight(n.yoga);
-                const float content_width = std::max(0.0f, width - YGNodeLayoutGetPadding(n.yoga, YGEdgeLeft) -
-                                                               YGNodeLayoutGetPadding(n.yoga, YGEdgeRight) -
-                                                               YGNodeLayoutGetBorder(n.yoga, YGEdgeLeft) -
-                                                               YGNodeLayoutGetBorder(n.yoga, YGEdgeRight));
-                // Final text is independently laid out even when Yoga skipped measure.
-                const auto final = text(n, content_width);
-                output.push_back({n.input->id, x, y, width, height, final.width, final.height, final.baseline,
-                                  final.lines, n.measure_calls});
-                for (auto& child : n.children) {
-                    collect(*child, x, y, output);
+                boxes.push_back({&s, parent, !input.text.empty() || input.inline_content != nullptr});
+                text.nodes.push_back(&input);
+                text.font_size.push_back(size);
+                text.line_height.push_back(line);
+                for (const auto& child : input.children) {
+                    add(child, index, depth + 1);
                 }
             }
         };
+
+        std::vector<FlexBox> flex(const FlexNode& root, Font& font, FontSet* fonts, FlexMode mode) {
+            DocumentText text{font, fonts};
+            std::vector<LayoutBox> boxes;
+            Flattener{text, boxes}.add(root, LayoutBox::root, 0);
+            const auto layout = [&](std::size_t box, float available) {
+                return text.layout(box, available);
+            };
+            const auto min_content = [&](std::size_t box) {
+                return text.min_content(box);
+            };
+            const auto wraps = [&](std::size_t box) {
+                return text.wraps(box);
+            };
+            const auto geometry = layout_boxes(boxes, {layout, min_content, wraps}, {mode, std::nullopt, true});
+            std::vector<FlexBox> out;
+            out.reserve(geometry.size());
+            for (std::size_t i = 0; i < geometry.size(); ++i) {
+                const auto& g = geometry[i];
+                out.push_back({text.nodes[i]->id, g.x, g.y, g.width, g.height, g.text.width, g.text.height,
+                               g.text.baseline, g.text.lines, g.measure_calls});
+            }
+            return out;
+        }
     } // namespace
 
     std::vector<FlexBox> run_flex(const FlexNode& root, Font& font, FlexMode mode) {
-        Engine engine(font, mode);
-        auto tree = engine.build(root, nullptr);
-        YGNodeCalculateLayout(tree->yoga, YGUndefined, YGUndefined, YGDirectionLTR);
-        if (engine.callback_error) {
-            std::rethrow_exception(engine.callback_error);
-        }
-        std::vector<FlexBox> output;
-        output.reserve(engine.node_count);
-        engine.collect(*tree, 0, 0, output);
-        return output;
+        return flex(root, font, nullptr, mode);
     }
 
     std::vector<FlexBox> run_flex(const FlexNode& root, FontSet& fonts, FlexMode mode) {
-        Engine engine(fonts.primary(), mode, &fonts);
-        auto tree = engine.build(root, nullptr);
-        YGNodeCalculateLayout(tree->yoga, YGUndefined, YGUndefined, YGDirectionLTR);
-        if (engine.callback_error) {
-            std::rethrow_exception(engine.callback_error);
-        }
-        std::vector<FlexBox> out;
-        out.reserve(engine.node_count);
-        engine.collect(*tree, 0, 0, out);
-        return out;
+        return flex(root, fonts.primary(), &fonts, mode);
     }
 
     std::vector<TextLine> layout_text(std::string_view input, float size, float available, bool nowrap, Font& font,

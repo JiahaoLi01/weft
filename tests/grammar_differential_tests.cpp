@@ -149,7 +149,7 @@ namespace {
             const auto text = random_text(random, pieces, limits::grid_repeat_max_pieces);
             std::smatch m;
             const bool expected = std::regex_match(text, m, repeat);
-            const auto actual = weft::scene_grammar::grid_repeat(text);
+            const auto actual = weft::css::grid_repeat(text);
             require(expected == actual.has_value(), "grid repeat of '" + text + "'");
             if (expected) {
                 require(*actual == unsigned(std::stoul(m[1].str())), "grid repeat count of '" + text + "'");

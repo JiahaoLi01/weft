@@ -1,11 +1,95 @@
 #pragma once
-#include "text/font.hpp"
+#include "base/function_ref.hpp"
+#include "constants/common.hpp"
 #include "layout/inline_layout.hpp"
 #include "style/values.hpp"
+#include "text/font.hpp"
+#include <array>
+#include <cstddef>
+#include <limits>
+#include <optional>
+#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
+// The Yoga adapter, shared by the document formatter and the scene: one mapping from computed CSS to boxes.
+// Block, flex, absolute and an equal-column grid subset go through Yoga; text is measured by the formatter's
+// text system. Pure input and output: no DOM, script values or Yoga nodes cross this boundary. Unsupported
+// formatting contexts, properties and units fail explicitly.
 namespace weft {
+    // A text leaf as the formatter's text system lays it out.
+    struct TextMetrics {
+        float width{};
+        float height{};
+        // Distance from the top of the first line box to its baseline.
+        float baseline{};
+        std::size_t lines{};
+    };
+
+    // The formatter's text system, for the boxes marked as text. A box is named by its index.
+    struct TextMeasurer {
+        // The text in lines at most `available` wide; infinity lays out unconstrained lines.
+        FunctionRef<TextMetrics(std::size_t box, float available)> layout;
+        // The narrowest width the text takes without overflowing: its widest unbreakable run.
+        FunctionRef<float(std::size_t box)> min_content;
+        // Whether a narrower width breaks the text into more lines, so that its height depends on its width.
+        FunctionRef<bool(std::size_t box)> wraps;
+    };
+
+    // One box of the formatting tree. Boxes are in tree order: a parent precedes its children, which follow in
+    // order. The formatter owns the styles and texts for the duration of the call.
+    struct LayoutBox {
+        static constexpr std::size_t root = std::numeric_limits<std::size_t>::max();
+
+        const StyleValues* style{};
+        std::size_t parent{root};
+        // A leaf whose content the TextMeasurer lays out.
+        bool text{};
+        // A replaced element (an outer svg element). Its width and height attributes stand in for absent width
+        // and height properties, with unitless numbers in px. ratio is the intrinsic aspect ratio (viewBox width
+        // over height): 0 for none, NaN for an invalid viewBox, which is a diagnostic only when the ratio is used.
+        bool replaced{};
+        std::string_view replaced_width;
+        std::string_view replaced_height;
+        float ratio{};
+    };
+
+    struct BoxGeometry {
+        // Border box relative to the parent's border box; the root's is relative to the layout origin.
+        float left{};
+        float top{};
+        float width{};
+        float height{};
+        // Border box relative to the layout origin.
+        float x{};
+        float y{};
+        // The text laid out at the final content width (LayoutOptions::final_text).
+        TextMetrics text;
+        std::size_t measure_calls{};
+    };
+
+    enum class FlexMode {
+        // Yoga with web defaults, for comparison: flex containers only, no static position, content-box or
+        // automatic minimum mapping.
+        RawYoga,
+        CssAdapter,
+    };
+
+    struct LayoutOptions {
+        FlexMode mode = FlexMode::CssAdapter;
+        // The root's border-box size as a viewport gives it (the scene root); unset, the root sizes itself.
+        std::optional<std::array<float, 2>> viewport;
+        // Lay out each text box again at its final content width (BoxGeometry::text).
+        bool final_text{};
+    };
+
+    // One geometry per box, in input order.
+    std::vector<BoxGeometry> layout_boxes(std::span<const LayoutBox> boxes, const TextMeasurer& text,
+                                          const LayoutOptions& options = {});
+
+    // A box tree that owns its styles and text, laid out with the document text system: the flex fixtures, the
+    // probes and the document formatter. Font size and line height (px) are inherited down the tree.
     struct FlexNode {
         std::string id;
         StyleValues style;
@@ -26,16 +110,10 @@ namespace weft {
         std::size_t text_lines{};
         std::size_t measure_calls{};
     };
-    enum class FlexMode {
-        RawYoga,
-        CssAdapter,
-        RestrictedBlockAdapter
-    };
-    // Pure M0 input/output: no DOM, VM values, or Yoga nodes escape this boundary.
-    // Unsupported formatting contexts/properties/units fail explicitly.
+
+    // Boxes in tree order.
     std::vector<FlexBox> run_flex(const FlexNode& root, Font& font, FlexMode mode = FlexMode::CssAdapter);
-    std::vector<FlexBox> run_flex(const FlexNode& root, FontSet& fonts,
-                                  FlexMode mode = FlexMode::RestrictedBlockAdapter);
+    std::vector<FlexBox> run_flex(const FlexNode& root, FontSet& fonts, FlexMode mode = FlexMode::CssAdapter);
 
     struct TextLine {
         std::string text;

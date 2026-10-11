@@ -41,6 +41,11 @@ namespace weft::test_constants::layout {
         {{{395.969, 122}, {362.164, 147.5}, {362.164, 147.5}}},
         {{{395.969, 122}, {362.164, 147.5}, {362.164, 147.5}}},
     }};
+    // The box layout contract's text system: every character is this wide, on one line this tall.
+    inline constexpr float box_text_char_width_px = 10;
+    inline constexpr float box_text_line_height_px = 20;
+    inline constexpr float box_text_baseline_px = 15;
+
     // Deterministic scroll/z-order mutations of the flow-input oracle.
     inline constexpr unsigned flow_input_seed = 0xCE802026u;
     inline constexpr int flow_input_mutations = 64;

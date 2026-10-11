@@ -175,6 +175,8 @@ weft_add_python_test(NAME style_browser_diff
 
 weft_add_executable(weft_flex_tests SOURCES flex_tests.cpp LINK weft::layout SOURCE_DIR)
 weft_add_test(NAME flex_adapter_contract COMMAND weft_flex_tests)
+weft_add_executable(weft_box_layout_tests SOURCES box_layout_tests.cpp LINK weft::layout)
+weft_add_test(NAME box_layout_contract COMMAND weft_box_layout_tests)
 
 weft_add_executable(weft_page_tests
     SOURCES page_tests.cpp

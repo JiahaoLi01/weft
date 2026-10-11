@@ -2,7 +2,7 @@
 weft_add_library(scene
     SOURCES scene.cpp scene_paint.cpp scene_damage.cpp scene_native.cpp scene_text.cpp scene_text_image.cpp scene_geometry.cpp
     PUBLIC weft::style weft::text
-    PRIVATE yogacore)
+    PRIVATE weft::layout)
 
 if(WIN32)
     # Direct2D/DirectWrite reference raster for scenes.

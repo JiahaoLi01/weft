@@ -17,15 +17,10 @@ namespace weft::constants::scene {
     inline constexpr int numeric_output_precision = 12;
     // Largest viewport edge accepted by the scene solver.
     inline constexpr int max_viewport_dimension = constants::max_viewport_dimension_px;
-    // Most equal 1fr tracks in grid-template-columns.
-    inline constexpr int max_grid_columns = 8;
     // Children of an overflow:auto box may overhang it by this much without needing scrolling.
     inline constexpr float overflow_tolerance_px = .03f;
 
     // CSS defaults.
-    // Default object size of an SVG root without width/height.
-    inline constexpr const char* default_object_width = "300";
-    inline constexpr const char* default_object_height = "150";
     // UA font-weight of b and strong.
     inline constexpr const char* bold_font_weight = "700";
     // Numeric weights of the normal and bold font-weight keywords.
