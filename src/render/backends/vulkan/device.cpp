@@ -100,6 +100,7 @@ namespace weft::render::vulkan {
 
         std::vector<const char*> layers;
         std::vector<const char*> extensions;
+        bool synchronization{};
         if (options.validation) {
             std::uint32_t count{};
             check(enumerate_layers(&count, nullptr), "vkEnumerateInstanceLayerProperties");
@@ -119,6 +120,11 @@ namespace weft::render::vulkan {
                 ensure(has_extension(provided, VK_EXT_DEBUG_UTILS_EXTENSION_NAME),
                        "the validation layer provides no debug utils messenger");
                 extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+                synchronization =
+                    options.synchronization && has_extension(provided, VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
+                if (synchronization) {
+                    extensions.push_back(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
+                }
             }
         }
 
@@ -136,9 +142,15 @@ namespace weft::render::vulkan {
             VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
         messenger.pfnUserCallback = report;
         messenger.pUserData = d.get();
+        const VkValidationFeatureEnableEXT enabled[]{VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT};
+        VkValidationFeaturesEXT features{};
+        features.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
+        features.enabledValidationFeatureCount = std::uint32_t(std::size(enabled));
+        features.pEnabledValidationFeatures = enabled;
+        features.pNext = &messenger;
         VkInstanceCreateInfo instance{};
         instance.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-        instance.pNext = layers.empty() ? nullptr : &messenger;
+        instance.pNext = synchronization ? static_cast<const void*>(&features) : layers.empty() ? nullptr : &messenger;
         instance.pApplicationInfo = &application;
         instance.enabledLayerCount = std::uint32_t(layers.size());
         instance.ppEnabledLayerNames = layers.data();
@@ -151,6 +163,7 @@ namespace weft::render::vulkan {
         }
         check(created, "vkCreateInstance");
         d->validation = !layers.empty();
+        d->synchronization = synchronization;
 
 #define WEFT_VULKAN_LOAD(name)                                                                                         \
     d->vki.name = reinterpret_cast<PFN_##name>(get(d->instance, #name));                                               \
@@ -263,6 +276,115 @@ namespace weft::render::vulkan {
     void Device::wait(VkFence fence) const {
         check(vkd.vkWaitForFences(device, 1, &fence, VK_TRUE, weft::constants::render::vulkan::fence_timeout_ns),
               "vkWaitForFences");
+    }
+
+    Image Device::image(VkFormat format, std::uint32_t w, std::uint32_t h, VkImageUsageFlags usage) const {
+        Image out;
+        out.format = format;
+        out.width = w;
+        out.height = h;
+        VkImageCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        info.imageType = VK_IMAGE_TYPE_2D;
+        info.format = format;
+        info.extent = {w, h, 1};
+        info.mipLevels = 1;
+        info.arrayLayers = 1;
+        info.samples = VK_SAMPLE_COUNT_1_BIT;
+        info.tiling = VK_IMAGE_TILING_OPTIMAL;
+        info.usage = usage;
+        info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        try {
+            check(vkd.vkCreateImage(device, &info, nullptr, &out.image), "vkCreateImage");
+            VkMemoryRequirements needs{};
+            vkd.vkGetImageMemoryRequirements(device, out.image, &needs);
+            VkMemoryAllocateInfo allocate{};
+            allocate.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            allocate.allocationSize = needs.size;
+            allocate.memoryTypeIndex = memory_type(needs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            check(vkd.vkAllocateMemory(device, &allocate, nullptr, &out.memory), "vkAllocateMemory image");
+            check(vkd.vkBindImageMemory(device, out.image, out.memory, 0), "vkBindImageMemory");
+            VkImageViewCreateInfo view{};
+            view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            view.image = out.image;
+            view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            view.format = format;
+            view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            check(vkd.vkCreateImageView(device, &view, nullptr, &out.view), "vkCreateImageView");
+        } catch (...) {
+            destroy(out);
+            throw;
+        }
+        return out;
+    }
+
+    Buffer Device::buffer(VkDeviceSize size, VkBufferUsageFlags usage, bool mapped) const {
+        Buffer out;
+        out.size = size;
+        VkBufferCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        info.size = size;
+        info.usage = usage;
+        info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        try {
+            check(vkd.vkCreateBuffer(device, &info, nullptr, &out.buffer), "vkCreateBuffer");
+            VkMemoryRequirements needs{};
+            vkd.vkGetBufferMemoryRequirements(device, out.buffer, &needs);
+            VkMemoryAllocateInfo allocate{};
+            allocate.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            allocate.allocationSize = needs.size;
+            allocate.memoryTypeIndex =
+                memory_type(needs.memoryTypeBits,
+                            mapped ? VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+                                   : VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            check(vkd.vkAllocateMemory(device, &allocate, nullptr, &out.memory), "vkAllocateMemory buffer");
+            check(vkd.vkBindBufferMemory(device, out.buffer, out.memory, 0), "vkBindBufferMemory");
+            if (mapped) {
+                check(vkd.vkMapMemory(device, out.memory, 0, VK_WHOLE_SIZE, 0, &out.mapped), "vkMapMemory");
+            }
+        } catch (...) {
+            destroy(out);
+            throw;
+        }
+        return out;
+    }
+
+    void Device::destroy(Image& image) const noexcept {
+        if (image.framebuffer) {
+            vkd.vkDestroyFramebuffer(device, image.framebuffer, nullptr);
+        }
+        if (image.view) {
+            vkd.vkDestroyImageView(device, image.view, nullptr);
+        }
+        if (image.image) {
+            vkd.vkDestroyImage(device, image.image, nullptr);
+        }
+        if (image.memory) {
+            vkd.vkFreeMemory(device, image.memory, nullptr);
+        }
+        image = {};
+    }
+
+    void Device::destroy(Buffer& buffer) const noexcept {
+        if (buffer.mapped) {
+            vkd.vkUnmapMemory(device, buffer.memory);
+        }
+        if (buffer.buffer) {
+            vkd.vkDestroyBuffer(device, buffer.buffer, nullptr);
+        }
+        if (buffer.memory) {
+            vkd.vkFreeMemory(device, buffer.memory, nullptr);
+        }
+        buffer = {};
+    }
+
+    bool Device::blends(VkFormat format) const {
+        VkFormatProperties properties{};
+        vki.vkGetPhysicalDeviceFormatProperties(physical, format, &properties);
+        constexpr VkFormatFeatureFlags needed =
+            VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT;
+        return (properties.optimalTilingFeatures & needed) == needed;
     }
 
     VKAPI_ATTR VkBool32 VKAPI_CALL Device::report(VkDebugUtilsMessageSeverityFlagBitsEXT,

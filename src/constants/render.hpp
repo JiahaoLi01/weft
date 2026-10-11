@@ -122,6 +122,16 @@ namespace weft::constants::render {
         inline constexpr unsigned long long fence_timeout_ns = 10'000'000'000ull;
         // Render targets are at most this many pixels wide and high.
         inline constexpr int max_surface_dimension = 4096;
+        // The C ABI adapter: the device epoch and queue it reports, its one prepared frame's handle, frames recorded or
+        // in flight at once, the features of WEFT_RENDER_FEATURE_* it draws (solid, image, coverage, SDF, display
+        // lists) and the CPU input bytes one quad frame may carry.
+        inline constexpr int device_epoch = 1;
+        inline constexpr int queue = 1;
+        inline constexpr int prepared_frame_handle = 1;
+        inline constexpr int max_prepared_frames = 1;
+        inline constexpr int frames_in_flight = 2;
+        inline constexpr int features = 31;
+        inline constexpr unsigned max_frame_asset_bytes = 32u * constants::bytes_per_mib;
     } // namespace vulkan
 
     // Scene passes (scene_pass.hpp and its backends). The shader-mirrored values match the static consts at the

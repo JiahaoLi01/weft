@@ -15,6 +15,28 @@ namespace weft::render::vulkan {
         std::string adapter;
         // Enables VK_LAYER_KHRONOS_validation, which reports through validation_messages, when it is installed.
         bool validation = true;
+        // With the validation layer, also checks hazards between the device's accesses (synchronization validation).
+        bool synchronization = true;
+    };
+
+    // A device-local 2D image of one mip level and layer, with its memory and a view of it. A framebuffer only for the
+    // renderer's own targets.
+    struct Image {
+        VkImage image{};
+        VkDeviceMemory memory{};
+        VkImageView view{};
+        VkFramebuffer framebuffer{};
+        VkFormat format{};
+        std::uint32_t width{};
+        std::uint32_t height{};
+    };
+
+    // A buffer with its memory; a mapped one is host visible and coherent and stays mapped.
+    struct Buffer {
+        VkBuffer buffer{};
+        VkDeviceMemory memory{};
+        void* mapped{};
+        VkDeviceSize size{};
     };
 
     class Device {
@@ -30,6 +52,14 @@ namespace weft::render::vulkan {
         std::uint32_t memory_type(std::uint32_t bits, VkMemoryPropertyFlags flags) const;
         // Waits (bounded) for fence.
         void wait(VkFence fence) const;
+        // A new image or buffer; a failure throws and leaves nothing behind.
+        Image image(VkFormat format, std::uint32_t width, std::uint32_t height, VkImageUsageFlags usage) const;
+        Buffer buffer(VkDeviceSize size, VkBufferUsageFlags usage, bool mapped) const;
+        // Destroys what exists of image or buffer and empties it. The device must no longer use it.
+        void destroy(Image& image) const noexcept;
+        void destroy(Buffer& buffer) const noexcept;
+        // Whether images of format can be color attachments that blend.
+        bool blends(VkFormat format) const;
 
         InstanceFunctions vki;
         DeviceFunctions vkd;
@@ -43,8 +73,9 @@ namespace weft::render::vulkan {
         std::uint32_t api_version{};
         std::uint32_t driver_version{};
         bool discrete{};
-        // The validation layer is enabled.
+        // The validation layer is enabled, and with it synchronization validation.
         bool validation{};
+        bool synchronization{};
         // Validation warnings and errors so far, and the first of them.
         std::size_t validation_messages{};
         std::string first_validation_message;

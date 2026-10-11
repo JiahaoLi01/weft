@@ -33,6 +33,7 @@
     F(vkDestroyCommandPool)                                                                                            \
     F(vkAllocateCommandBuffers)                                                                                        \
     F(vkFreeCommandBuffers)                                                                                            \
+    F(vkResetCommandBuffer)                                                                                            \
     F(vkBeginCommandBuffer)                                                                                            \
     F(vkEndCommandBuffer)                                                                                              \
     F(vkCreateFence)                                                                                                   \
@@ -74,6 +75,7 @@
     F(vkCmdPipelineBarrier)                                                                                            \
     F(vkCmdCopyBufferToImage)                                                                                          \
     F(vkCmdCopyImageToBuffer)                                                                                          \
+    F(vkCmdClearColorImage)                                                                                            \
     F(vkCmdBeginRenderPass)                                                                                            \
     F(vkCmdEndRenderPass)                                                                                              \
     F(vkCmdBindPipeline)                                                                                               \

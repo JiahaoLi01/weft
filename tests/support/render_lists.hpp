@@ -228,6 +228,18 @@ namespace weft::testing {
         return list;
     }
 
+    // A box of one straight sRGB color over a width x height target.
+    inline paint::DisplayList fill(float width, float height, const paint::Color& color) {
+        paint::DisplayList list;
+        list.boxes.emplace_back().background = color;
+        auto& item = list.items.emplace_back();
+        item.kind = paint::Item::Kind::Box;
+        item.width = width;
+        item.height = height;
+        item.clip = {0, 0, width, height};
+        return list;
+    }
+
     // A 64 x 32 black list with an isolated group of a red box (when red) under an overlapping blue one at half
     // opacity, and a white box in a group at half opacity inside another at half opacity.
     inline paint::DisplayList groups(bool red) {

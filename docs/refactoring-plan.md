@@ -844,6 +844,30 @@ CMake 拆分：
 - `render_vulkan_contract` 在 RTX 5090（Vulkan 1.4.341）上：页面列表的各部分符合 CPU 期望，两帧隔离组正确，与 D3D11 WARP 对照页面列表最差 1 级、隔离组 0、字形 2 级，验证层零告警；`--adapter AMD` 在 AMD Radeon 核显（1.4.315）上同样通过，最差 1 级；
 - 变异检查 4 个（直通混合、组图层不转为着色器读、实例都从记录 0 开始、距离边缘宽度为零）全部被发现：前三个由 `render_vulkan_contract`，第四个由 `paint_contract`；组图层不转换时验证层是否也报告，未单独确认。
 
+**10.4b：Vulkan 的 C ABI 适配器**：
+- 公共头文件 `include/weft/render_backend_vulkan.h`：payload `weft_render_vulkan_pass` 带设备、命令缓冲与目标视图三个句柄，按 uint64 传递，核心 C ABI 不依赖 Vulkan 头文件；C 冒烟测试固定它的布局（56 字节）。
+- 录制合同：宿主开始的 primary command buffer，在 render pass 之外交给 encode；适配器只录命令，不结束、不提交、不等待。目标执行时处于 `COLOR_ATTACHMENT_OPTIMAL`，命令结束时仍是该布局，默认保留内容。
+- encode 失败时什么都没录：暂存、记录、裁剪、描述符集、帧缓冲、组图层与新目标格式的管线都在录制前建好，录制阶段是一段 `noexcept` 的纯命令序列，所以错误总是 native_use=0，与 D3D11 一样完整回滚。
+- `vulkan::Renderer` 拆成 prepare、encode 与 collect：
+  - prepare 为列表每个资产建纹理，在 `ResourceLifetime` 登记租约与帧，失败时销毁已建的；
+  - encode 上传 Created 与 Encoded 的纹理（与跟踪器的规则相同），录制整个 pass；每次录制的暂存、记录、裁剪、描述符池与帧缓冲属于该 use，丢弃时立即销毁，提交后在完成时销毁；
+  - collect 销毁退休的纹理，丢弃已提交上传的 CPU 纹素；`draw()` 是同一序列在渲染器自己的命令缓冲上，读回前加 host barrier。
+- `vulkan::Backend` 经 `make_c_backend` 生成函数表：显示列表帧与四边形帧（经可移植的 `render::frame_packet` 与 `quad_list`；`frame_packet` 由 D3D11 适配器共用），一个 prepared 帧、两个在途 use，目标格式 sRGB RGBA8、sRGB BGRA8 与线性 RGBA16F（Vulkan 要求这三种都能混合）。还没有外部纹理扩展、纹理缓存与字形 atlas。
+- 验证层默认同时开启同步验证（`VK_EXT_validation_features`）。
+
+验证：
+- `ctest --preset windows-release --parallel 6` 104/104（新增 `render_vulkan_backend_contract`），`windows-debug --parallel 6` 104/104（235.5 s）；
+- `render_vulkan_backend_contract` 在 RTX 5090 与 AMD Radeon 核显上通过，同步验证零告警：
+  - 12 种被拒的 payload 与注入的录制失败都不录命令、不留资源；
+  - 丢弃的录制立即释放，下一次重新上传；两个未提交的录制丢弃其一，另一个完整；
+  - 两帧在途各按自己的 serial 退休，完成前不释放任何资源；同一帧录到两个目标只上传一次；完成 serial 可越过 UI 的提交；
+  - 宿主红色上的半透明绿色在 sRGB、BGRA 与 RGBA16F（精确的 0.5）目标上保留，清除时 alpha 正确；
+  - 四边形帧、页面列表、隔离组与字形串经 ABI 的像素与渲染器自身路径逐字节相同；
+  - destroy 在帧在途时返回 BUSY 并拒绝新帧；宿主确认设备丢失后 abandon 立即退休。
+- `render_vulkan_contract` 现在断言 Vulkan 与 D3D11 WARP 没有超过 2 级的像素；
+- 变异检查 8 个全部被发现：提交时就释放帧资源、未提交的录制当作已上传、完成不退休 use、完成退休所有 use、录制之后才失败、不保留宿主内容、上传的布局转换不等待拷贝、abandon 不释放 use。其中上传那一个只有同步验证能发现：关闭同步验证（`--no-synchronization`）时测试通过；
+- D3D11 产物与 10.4a 逐字节相同（计时套件除外）。
+
 ## 顺序调整（2026-10-10）
 
 用户决定先完成第 7–9 步，第 10 步（第二个图形后端与移动平台）暂缓。跨平台仍是硬性需求：

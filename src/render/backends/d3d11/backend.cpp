@@ -1,5 +1,7 @@
 #include "render/backends/d3d11/backend.hpp"
 
+#include "render/frame_input.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <exception>
@@ -178,35 +180,14 @@ namespace weft::render::d3d11 {
                                               std::uint64_t& out) {
         const auto external_count = std::uint32_t(external.size());
         return prepare_with(std::move(external), out, [&] {
-            const auto* input = &frame;
-            FramePacket packet;
-            packet.assets.reserve(input->asset_count);
-            packet.draws.reserve(input->draw_count);
             std::vector<std::pair<std::uint64_t, std::uint64_t>> keys;
-            keys.reserve(input->asset_count);
-            for (uint32_t i = 0; i < input->asset_count; ++i) {
-                const auto& a = input->assets[i];
-                auto asset = std::make_shared<Asset>(
-                    Asset{a.width, a.height, static_cast<Encoding>(a.encoding), {}, a.sdf_spread});
-                const auto key = std::pair{a.asset_id, a.asset_version};
-                keys.push_back(key);
-                if (!gpu.cache_assets || !gpu.asset_cache.contains(key)) {
-                    asset->bytes.assign(a.bytes, a.bytes + static_cast<size_t>(a.byte_count));
-                }
-                packet.assets.push_back(std::move(asset));
+            keys.reserve(frame.asset_count);
+            for (uint32_t i = 0; i < frame.asset_count; ++i) {
+                keys.emplace_back(frame.assets[i].asset_id, frame.assets[i].asset_version);
             }
-            for (uint32_t i = 0; i < input->draw_count; ++i) {
-                const auto& a = input->draws[i];
-                Draw d;
-                d.rect = {a.x, a.y, a.width, a.height};
-                std::copy_n(a.srgb, 4, d.srgb.begin());
-                d.asset = a.asset_index == WEFT_RENDER_SOLID_ASSET ? -1 : int(a.asset_index);
-                d.opacity = a.opacity;
-                std::copy_n(a.uv, 4, d.uv.begin());
-                d.stroke = a.sdf_stroke;
-                std::copy_n(a.outline_srgb, 4, d.outline.begin());
-                packet.draws.push_back(d);
-            }
+            auto packet = frame_packet(frame, [&](std::uint32_t i) {
+                return !gpu.cache_assets || !gpu.asset_cache.contains(keys[i]);
+            });
             return gpu.prepare(std::move(packet), keys, external_count);
         });
     }

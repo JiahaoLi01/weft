@@ -151,6 +151,7 @@ int main(int argc, char** argv) {
         report("groups", group_difference);
         const auto glyph_difference = difference(glyphs, d3d11(glyph_run(), 96, 64), 2, 96);
         report("glyph run", glyph_difference);
+        CHECK(!page_difference.over && !group_difference.over && !glyph_difference.over);
 #endif
         if (device->validation_messages) {
             std::cerr << device->validation_messages

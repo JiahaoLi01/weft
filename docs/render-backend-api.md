@@ -1,6 +1,6 @@
 # 可扩展渲染后端 API
 
-2026-10-07：已实现独立 `render/render_backend` 模块（属 `weft::render`）和实验 v1 C ABI。实际 D3D11 参考适配器、React 原生窗口经过此接口。2026-10-12 起有 Vulkan 渲染器（`weft::render_vulkan`，直接绘制显示列表并回读），它的 C ABI 适配器尚未实现；原生 Metal 和 MoltenVK 适配器尚未实现；接口测试中的模拟 Metal/custom 后端只验证合同，不代表平台 GPU 验收。
+2026-10-07：已实现独立 `render/render_backend` 模块（属 `weft::render`）和实验 v1 C ABI。实际 D3D11 参考适配器、React 原生窗口经过此接口。2026-10-12 起有 Vulkan 渲染器与它的 C ABI 适配器（`weft::render_vulkan`，见下文 Vulkan payload 与实现）；原生 Metal 和 MoltenVK 适配器尚未实现；接口测试中的模拟 Metal/custom 后端只验证合同，不代表平台 GPU 验收。
 
 ## 三层边界
 
@@ -30,7 +30,7 @@ Weft 运行时产出的帧是不可变显示列表（`paint::DisplayList`：盒�
 
 D3D11 参考适配器只有一条绘制路径：四边形帧在适配器里先由可移植的 `render::quad_list()` 转成显示列表（纯色四边形成为盒子，带纹理的成为图片条目），与显示列表帧走同一个线性 pass（`scene.hlsl` 的 `SPACE_LINEAR` 变体）。逐四边形绘制的 `quad.hlsl`、CPU 圆角遮罩与 `lower_to_quads` 已删除；隔离组在渲染器尺寸的线性 float 图层里合成，rtt 合成与线性 alpha 检查也是一条只含一个条目的列表。
 
-所有后端遵守 linear-sRGB premultiplied 合成；coverage/distance 不经过 sRGB transfer。通用 target 类型包括 sRGB/linear RGBA8、BGRA8、linear RGBA16F/RGBA32F，由 backend capability 位选择。类型存在不等于适配器支持；当前 D3D11 reference 宣告 RGBA8 与 RGBA32F，单采样。
+所有后端遵守 linear-sRGB premultiplied 合成；coverage/distance 不经过 sRGB transfer。通用 target 类型包括 sRGB/linear RGBA8、BGRA8、linear RGBA16F/RGBA32F，由 backend capability 位选择。类型存在不等于适配器支持；当前 D3D11 reference 宣告 RGBA8 与 RGBA32F，Vulkan 宣告 sRGB RGBA8、sRGB BGRA8 与线性 RGBA16F（设备能混合时），都是单采样。
 
 2026-10-09 增加可选 [external texture lease v1 扩展](external-texture-lease.md)：原 v1 结构保持不变，独立 import/prepare 入口管理有界 generational lease 与 prepared/use pins。D3D11 同 device/queue、linear-premultiplied RGBA8/16F/32F、origin/alias/实际完成已验证；encoded sRGB、ANGLE 和移动尚未接入。
 
@@ -40,7 +40,9 @@ D3D11 参考适配器只有一条绘制路径：四边形帧在适配器里先�
 
 [D3D11 payload](../include/weft/render_backend_d3d11.h) 借用新建的 exclusive deferred context 和同 device RTV，返回一份由宿主持有的 command list COM 引用。默认保留目标内容；显式 clear 可用于独立样例。适配器只录制/关闭这份专用 list，不 Execute、Present 或等待。示例支持固定 reference canvas 尺寸，不宣称任意 target geometry 已验收。
 
-未来 Vulkan payload 可以声明 VkCommandBuffer、目标 image/view、render-pass/dynamic-rendering 范围、layout/barrier 的入出状态与责任；Metal payload 可声明 device、command buffer 和已打开的 render encoder 及 attachment/load/store 合同。这些 native scope schema 分别定义，不能强迫 Metal encoder 遵循 D3D11 deferred-context 模型。通用层不会隐式 begin/end 宿主的 pass；具体 scope 开始、结束和失败取消方式由对应 schema 写明。shader 的 HLSL/SPIR-V/MSL 工具链也由适配器选择。
+[Vulkan payload](../include/weft/render_backend_vulkan.h)（2026-10-12）带设备、命令缓冲与目标视图三个句柄，按 uint64 传递：可分派句柄与 64 位平台上的不可分派句柄是指针值，32 位平台上不可分派句柄本身就是 uint64，所以核心 C ABI 不依赖 Vulkan 头文件。宿主在后端设备的图形队列族上开始一个 primary command buffer，在 render pass 之外交给 encode；适配器录入上传、各 render pass 与隔离组，不结束、不提交、不 present、不等待，之后绑定的管线、描述符、viewport 与 scissor 未定义。目标是渲染器尺寸的单采样二维颜色图像的视图（一层一级 mip），执行时处于 `COLOR_ATTACHMENT_OPTIMAL`、宿主之前的写入已对颜色附件访问可用；命令结束时仍是该布局，写入在 `COLOR_ATTACHMENT_OUTPUT` 阶段完成，宿主读、采样、拷贝或 present 前自己加 barrier。默认保留目标内容。encode 失败时什么也没录：所有资源在录制前建好，录制阶段只发命令、不会失败，所以 Vulkan 适配器的错误总是 native_use=0。
+
+Metal payload 可声明 device、command buffer 和已打开的 render encoder 及 attachment/load/store 合同。这些 native scope schema 分别定义，不能强迫 Metal encoder 遵循 D3D11 deferred-context 模型。通用层不会隐式 begin/end 宿主的 pass；具体 scope 开始、结束和失败取消方式由对应 schema 写明。shader 的 HLSL/SPIR-V/MSL 工具链也由适配器选择。
 
 新增 adapter 需要实现 prepare、release_prepared、encode、discard_encoded、submitted、completed、abandon、shutdown，并选择能力；报告 `WEFT_RENDER_FEATURE_DISPLAY_LIST` 时还要实现 prepare_list（C++ 后端满足 `DisplayListBackend` concept，由 `make_c_backend` 生成）。无需修改 DOM、布局、输入或通用提交状态机。它必须以真实资源和同步实现下面的合同，只有注册一个 API ID 不算后端完成。
 
@@ -60,6 +62,8 @@ destroy 开始 drain，存在 prepared/encoded/submitted handle 时返回 busy�
 ## 实际实现与复现
 
 [D3D11 reference adapter](../src/render/backends/d3d11/backend.cpp)（`weft::render_d3d11`，经 `RenderBackend` concept 与 `make_c_backend` 生成函数表）使用原有资源状态机与真实 COM/query。它是参考实现，还没有稳定 SDK factory、通用资源 broker、多线程队列或宿主引擎插件。React 三帧离屏 runner 保留旧路径作参考；[可点击窗口](native-window-probe.md) 已走新 API。
+
+[Vulkan adapter](../src/render/backends/vulkan/backend.cpp)（2026-10-12）同样经 `make_c_backend` 生成函数表：显示列表帧，以及经可移植的 `render::frame_packet` 与 `quad_list` 转成显示列表的四边形帧（`frame_packet` 与 D3D11 适配器共用）；一个 prepared 帧、两个在途 use；没有外部纹理扩展。`vulkan::Renderer` 的 prepare 为列表每个资产建纹理并在 `ResourceLifetime` 登记租约与帧；encode 把还没有已提交上传的纹理的上传与整个 pass 录进宿主的命令缓冲。上传规则与跟踪器一致：Created 与 Encoded 的纹理每次录制都上传，所以两个都未提交的录制丢弃其一不影响另一个；同一帧的第二次录制复用已提交的上传。每次录制的暂存、记录、裁剪、描述符池与帧缓冲属于该 use：丢弃时立即销毁，提交后在宿主报告完成时销毁；纹理在没有 prepared 帧与 use 引用后销毁，宿主确认设备丢失后的 abandon 立即退休所有 use。还没有纹理缓存与字形 atlas，每帧重新创建、上传资产。`render_vulkan_backend_contract` 以宿主身份驱动它（自己的命令缓冲、目标、fence 与 serial），验证层同时开启同步验证。
 
 4K flow 样例现可启用该 adapter 的私有 immutable texture 缓存：相同 asset ID/version 复用 texture/SRV，以及 Ready 或已实际提交的同队列上传，frame 仍传完整有序绘制与资产集合。准备前保护整个输入的已有依赖，避免 LRU 创建较早的 miss 时淘汰较晚的 hit；每帧 lease 和 Prepared/Encoded/Submitted pin 独立于 cache lease。容量为 1,024 资源/128 MiB 纹理有效载荷，只淘汰没有使用 pin 的资源，真实 query completion 前的相关 Submitted pin 阻止淘汰；destroy drain 后释放缓存。Created/Encoded 保留重试字节，取消/录制失败不把它当作 Ready；Submitted 可按同队列顺序读取，真实完成才 Ready。超容量准备失败可 drain/reuse，不遗留 CPU lease。该缓存不扩张 C ABI v1，也不让下一完整包依赖被丢弃的包。
 

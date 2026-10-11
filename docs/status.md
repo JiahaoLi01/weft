@@ -4,6 +4,18 @@
 
 ## 本次已实现
 
+重构第 10 步之四（b）：Vulkan 的 C ABI 适配器（2026-10-12）。详见 [重构计划](refactoring-plan.md#第-10-步记录2026-10-11)。
+- **结果**：
+  - 新 payload `weft_render_vulkan_pass`：宿主交出命令缓冲与目标视图，自己提交并报告完成 serial；
+  - 渲染器拆成 prepare/encode/collect，纹理与每次录制的资源按 `ResourceLifetime` 只在完成后退休，失败时什么都不录；
+  - 两帧在途；目标格式 sRGB RGBA8/BGRA8 与线性 RGBA16F；验证层加开同步验证。
+- **验证**：
+  - `ctest --preset windows-release --parallel 6` 104/104，`windows-debug --parallel 6` 104/104（235.5 s）；
+  - RTX 5090 与 AMD Radeon 核显上宿主驱动的合同测试通过，同步验证零告警；
+  - 8 个变异全部被发现，其中一个只有同步验证能发现。
+- **未验证**：Vulkan 的外部纹理、纹理缓存与字形 atlas、交换链窗口与性能、Android 与 iOS。
+- **下一步**：10.4c，Vulkan 的纹理缓存与字形 atlas（与 D3D11 共用可移植部分）和 Windows 交换链窗口，并测性能；之后 10.5、10.6。
+
 重构第 10 步之四（a）：Vulkan 渲染器直接绘制显示列表（2026-10-12）。详见 [重构计划](refactoring-plan.md#第-10-步记录2026-10-11)。
 - **结果**：
   - Vulkan-Headers 固定版本 vendored，DXC 把共享着色器编成 SPIR-V；

@@ -64,6 +64,11 @@ if(WEFT_RENDER_VULKAN)
     weft_add_executable(weft_render_vulkan_tests SOURCES render_vulkan_tests.cpp LINK ${vulkan_test_links})
     weft_add_test(NAME render_vulkan_contract COMMAND weft_render_vulkan_tests TIMEOUT 120)
     set_tests_properties(render_vulkan_contract PROPERTIES SKIP_RETURN_CODE 77)
+    # The Vulkan adapter of the renderer C ABI, driven as a host drives it.
+    weft_add_executable(weft_render_vulkan_backend_tests SOURCES render_vulkan_backend_tests.cpp
+        LINK weft::render_vulkan)
+    weft_add_test(NAME render_vulkan_backend_contract COMMAND weft_render_vulkan_backend_tests TIMEOUT 120)
+    set_tests_properties(render_vulkan_backend_contract PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 
 add_executable(weft_render_backend_c_smoke render_backend_c_smoke.c)

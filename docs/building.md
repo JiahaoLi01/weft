@@ -64,7 +64,7 @@ python tools/compare_gpu_reports.py tests/fixtures/gpu_color_browser_reference.j
 
 ## 可扩展 GPU 后端 API
 
-`render/render_backend`（属 `weft::render`）不链接图形 API、窗口、字体或脚本库。它实现 v1 C ABI facade，由 host 注册 adapter function table、传具体 native pass、实际提交与完成。D3D11 reference 和 React window 已接入；Vulkan/原生 Metal adapter 尚未实现。运行 `weft_d3d11_probe.exe --backend-hardware artifacts/local/backend-debug/api-hardware` 可验证宿主 context/target、保留已有内容、颜色/SDF 对照、float alpha、取消/失败与真实 query 退休；软件入口为 --backend-warp。接口与限制见 [后端 API](render-backend-api.md)。
+`render/render_backend`（属 `weft::render`）不链接图形 API、窗口、字体或脚本库。它实现 v1 C ABI facade，由 host 注册 adapter function table、传具体 native pass、实际提交与完成。D3D11 reference、React window 与 Vulkan adapter（2026-10-12，`render_vulkan_backend_contract` 以宿主身份驱动它）已接入；原生 Metal adapter 尚未实现。运行 `weft_d3d11_probe.exe --backend-hardware artifacts/local/backend-debug/api-hardware` 可验证宿主 context/target、保留已有内容、颜色/SDF 对照、float alpha、取消/失败与真实 query 退休；软件入口为 --backend-warp。接口与限制见 [后端 API](render-backend-api.md)。
 
 ## SDF 字体
 
