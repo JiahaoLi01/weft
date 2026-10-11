@@ -11,6 +11,7 @@
 #include <iostream>
 #include <thread>
 #include <limits>
+#include <string>
 
 namespace {
     using weft::testing::require;
@@ -190,6 +191,52 @@ int main() {
             vm.eval("a=b=ac=bc=null");
             vm.collect_garbage();
             require(vm.stats().canvas_backing_bytes == 0, "large detached cycles leaked");
+            // The canvas element alone keeps its context wrapper and state, which live beside the DOM.
+            vm.reset_document();
+            vm.install_canvas_host(weft::make_d2d_canvas_factory());
+            vm.eval(
+                "globalThis.k=document.createElement('canvas');k.id='kept';k.width=4;k.height=4;document.body.appendChild(k);(()=>{const x=k.getContext('2d');x.marker=7;x.fillStyle='#123456'})()");
+            vm.collect_garbage();
+            require(vm.eval("k.getContext('2d').marker===7 && k.getContext('2d').fillStyle==='#123456'") == "true" &&
+                        vm.stats().canvas_contexts == 1,
+                    "canvas element did not keep its context");
+            // Reading getContext options runs script, which may create the context first: one context results.
+            require(
+                vm.eval(
+                    "(()=>{const r=document.createElement('canvas');let inner;const outer=r.getContext('2d',{get alpha(){inner=r.getContext('2d');return false}});return outer===inner})()") ==
+                    "true",
+                "re-entrant getContext made a second context");
+            vm.collect_garbage();
+            require(vm.stats().canvas_contexts == 1, "re-entrant getContext leaked a context");
+            // A collected canvas's slot goes to the next node created, which starts without a context.
+            const auto kept = vm.node_identity("#kept");
+            vm.eval("document.body.removeChild(k);k=null");
+            vm.collect_garbage();
+            require(vm.stats().canvas_contexts == 0 && vm.stats().canvas_backing_bytes == 0,
+                    "collected canvas kept its context");
+            vm.eval(
+                "for(let i=0;i<8;i++){const n=document.createElement('canvas');n.id='reuse'+i;document.body.appendChild(n)}");
+            int reused = -1;
+            weft::NodeIdentity reused_identity{};
+            for (int i = 0; i < 8; ++i) {
+                const auto candidate = vm.node_identity("#reuse" + std::to_string(i));
+                if (candidate.slot == kept.slot) {
+                    reused = i;
+                    reused_identity = candidate;
+                }
+            }
+            require(reused >= 0 && reused_identity.generation != kept.generation, "collected canvas slot not reused");
+            bool missing = false;
+            try {
+                vm.canvas_snapshot(reused_identity);
+            } catch (const std::runtime_error&) {
+                missing = true;
+            }
+            require(missing &&
+                        vm.eval("document.querySelector('#reuse" + std::to_string(reused) +
+                                "').getContext('2d').fillStyle==='#000000'") == "true" &&
+                        vm.stats().canvas_contexts == 1,
+                    "the next occupant of a canvas slot inherited its context");
             vm.reset_document();
             vm.install_canvas_host(weft::make_d2d_canvas_factory());
             vm.eval(

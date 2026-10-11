@@ -30,9 +30,6 @@ namespace weft::constants::script {
     // The last listener exception kept in the stats is truncated to this many bytes.
     inline constexpr int max_listener_error_bytes = 8192;
 
-    // HTML canvas backing size used when the width/height attribute is missing or invalid.
-    inline constexpr unsigned default_canvas_width = static_cast<unsigned>(constants::default_canvas_width);
-    inline constexpr unsigned default_canvas_height = static_cast<unsigned>(constants::default_canvas_height);
     // Significant digits of a translucent fillStyle alpha in its rgba() serialization.
     inline constexpr int canvas_alpha_serialization_digits = 6;
 

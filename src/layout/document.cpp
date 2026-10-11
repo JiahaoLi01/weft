@@ -2,6 +2,7 @@
 #include "base/css_scalar.hpp"
 #include "base/rect.hpp"
 #include "constants/layout.hpp"
+#include "dom/attributes.hpp"
 #include <algorithm>
 #include <cmath>
 #include <string_view>
@@ -53,31 +54,15 @@ namespace weft {
         // Key of the initial containing block's box; no element uses the "box-" or "flow-" key space for it.
         constexpr std::string_view initial_containing_block = "initial-containing-block";
 
-        // An HTML canvas width/height attribute: a non-negative integer, or fallback when absent or invalid.
-        float canvas_dimension(const DomSnapshot& dom, const char* name, int fallback) {
-            const auto attribute = dom.attributes.find(name);
-            if (attribute == dom.attributes.end()) {
-                return float(fallback);
+        // A canvas element's bitmap side, which is also its intrinsic size.
+        float canvas_dimension(const DomSnapshot& element, weft::dom::CanvasSide side) {
+            const auto attribute = element.attributes.find(side == weft::dom::CanvasSide::Width ? "width" : "height");
+            const auto value =
+                weft::dom::canvas_dimension(attribute == element.attributes.end() ? nullptr : &attribute->second, side);
+            if (!value) {
+                fail("canvas backing size");
             }
-            const auto& text = attribute->second;
-            auto p = text.find_first_not_of(" \t\r\n\f");
-            if (p == text.npos) {
-                return float(fallback);
-            }
-            if (text[p] == '+') {
-                ++p;
-            }
-            if (p == text.size() || !std::isdigit(static_cast<unsigned char>(text[p]))) {
-                return float(fallback);
-            }
-            float n = 0;
-            while (p < text.size() && std::isdigit(static_cast<unsigned char>(text[p]))) {
-                n = n * 10 + float(text[p++] - '0');
-                if (n > constants::max_canvas_dimension) {
-                    fail("canvas backing size");
-                }
-            }
-            return n;
+            return float(*value);
         }
 
         Rect shifted(Rect r, float x, float y) {
@@ -301,8 +286,8 @@ namespace weft {
                         fail("blockified canvas without fallback content");
                     }
                     n.canvas = true;
-                    n.canvas_width = canvas_dimension(dom, "width", constants::default_canvas_width);
-                    n.canvas_height = canvas_dimension(dom, "height", constants::default_canvas_height);
+                    n.canvas_width = canvas_dimension(dom, weft::dom::CanvasSide::Width);
+                    n.canvas_height = canvas_dimension(dom, weft::dom::CanvasSide::Height);
                 }
                 if (!inlined && position != "absolute" && parent != absent && get(s, "height").ends_with('%') &&
                     get(nodes[parent].style, "height", "auto") == "auto") {

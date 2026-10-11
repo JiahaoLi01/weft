@@ -148,6 +148,10 @@ Gallery/rAF Foundation 历史记录：可选 rAF module 已通过 owner 批次/�
 
 ## 当前 Canvas 探针范围（2026-10-09）
 
+2026-10-11 重构第 9.3 步：
+- canvas 的 width/height 属性在脚本 DOM 与文档布局中由同一个函数解析（HTML 的非负整数规则）。`-0`、`-00` 现在与浏览器一样得到 0，此前回到默认的 300×150；其他负数仍用默认值。
+- getContext 读取 options 时会运行脚本。若这段脚本已经为同一 canvas 创建了 context，现在返回那一个；此前会再建一个，并泄漏先建的那个。
+
 可选 native Canvas2D、alpha/sRGB、width/height 同值重置、fillStyle/globalAlpha、fillRect/整数 clearRect、单个完整圆形的 beginPath/arc/fill，与 canvas onclick/onmousemove 已验证。支持 148 named colors、hex 与 legacy comma RGB/HSL；partial/multi path、stroke、transform、save/restore、渐变、图片/文字、JS ImageData、offscreen/worker 与 context loss 未实现。currentColor/现代空格颜色/其他色彩空间拒绝；负半径仅提供 IndexSizeError name，没有完整 DOMException 类。8 contexts、单轴 2048、32 MiB backing（含 resize 重叠）、65,536 pending commands 是明确 probe 限制，不是完整 Canvas 承诺或 RSS 上限。
 
 只有 Windows D2D 软件 adapter 已执行验证。positioned profile 支持显式 block 的 canvas 固有尺寸/比例与同步几何值，CSS 尺寸不改 backing；通用 positioned hit-test 未开放。公共样式新增纯色 background 到 background-color 的展开，保留 important/var/层叠，图片/图层/位置组合拒绝。精确支持值、诊断、视觉误差和平台未验证项见 [Canvas 合同](gallery-canvas.md)。

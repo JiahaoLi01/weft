@@ -69,7 +69,7 @@ probes/ tests/ tools/      证据与验证，只依赖 src，不被 src 依赖
 | 6 ✅ | scene 可移植化：拆出纯几何/命中 TU；DirectWrite 量字换成与 flow 相同的 HarfBuzz 测量；D2D 退为 Windows 参考 raster | `scene_probe.hpp`、`scene_d2d_probe.cpp`、`gallery_scene_session.hpp` | 新增 Chrome 文字度量基线；几何与 D2D 差分；见下方第 6 步记录 |
 | 7 ✅ | 类型化样式：PropertyId、长度/颜色/关键字值，去掉字符串往返与正则插值 | `style_probe`、`flow_page`、`auto_page`、`scene_probe` | 级联/动画差分、gallery 像素与几何；见下方第 7 步记录 |
 | 8 ✅（paint IR 推迟到第 10 步） | 统一格式化路径：一个调度器、一个 Yoga 适配器、一个 paint IR、一条命中路径；golden 迁移后删除 page/positioned/auto | `src/layout/*`、`input_probe` | 旧 profile 的浏览器差分全部改跑新路径 |
-| 9（9.1–9.2 ✅） | DOM 与脚本分离：NodeId 原生树、与 style 共用选择器；QuickJS 对象成为包装；Canvas 状态移到旁表 | `script_dom_probe.cpp`、`style_probe.cpp` | DOM 生命周期、GC 压力、D3 / React 原包 |
+| 9（9.1–9.3 ✅） | DOM 与脚本分离：NodeId 原生树、与 style 共用选择器；QuickJS 对象成为包装；Canvas 状态移到旁表 | `script_dom_probe.cpp`、`style_probe.cpp` | DOM 生命周期、GC 压力、D3 / React 原包 |
 | 10（暂缓） | 一份 paint IR 与统一渲染器（第 8 步推迟的部分）；第二个图形后端（Vulkan 或 Metal）与 Android/iOS 平台层，按 concept 接入；主机构建选项 | `src/render/backends`、`src/platform` | 平台验证按“配置/编译/链接/模拟器/真机功能/真机性能”分级记录 |
 
 ## 第 1 步记录（2026-10-10）
@@ -549,7 +549,7 @@ CMake 拆分：
 
 ## 第 9 步记录（2026-10-11）
 
-进行中：DOM 值类型已独立，DOM 查询与样式共用一个选择器引擎。
+进行中：DOM 值类型已独立，DOM 查询与样式共用一个选择器引擎，Canvas 状态已移到节点旁表。
 
 **9.1 DOM 值类型移入 `src/dom`**（`c435dd5`）：
 - `NodeIdentity`、`DomSnapshot`、`DomChanges`（`dom/node.hpp`）与 `ElementGeometry`（`dom/geometry.hpp`）是各层都用的值。style、layout、scene 原来为了它们引用 `script/script_dom.hpp`，连带 Canvas 模型。
@@ -570,8 +570,20 @@ CMake 拆分：
 - 新增 `selector_contract`，覆盖：大小写、标识符开头、属性运算符、class 空白、需要回溯的后代匹配、伪类、specificity、列表、两种文法与两类诊断。20 个旧行为或错误行为的变异全部被它发现。`scene_contract` 的 DOM 选择器检查与 `style_cascade_contract` 的反例随范围更新。
 - 验证：Release 100/100，Debug 100/100（278.3 s）；1306 个产物与改动前逐字节相同。owner CPU：与第 8 步结束时的二进制交替 4 轮，每轮交换先后（RTX 5090 / Ryzen 9 9950X3D / Windows 11 26200 / MSVC Release，默认优先级与 affinity，固定 60 Hz 时钟，每例 240 帧、16 帧预热；只计 owner CPU，不含 GPU 与内存；测量期间无并发编译或测试）。warm tick 各轮中位数 P50/P99/max：K 线 4.556/6.995/9.680 → 3.991/6.772/8.889 ms，散点图 1.981/3.289/4.525 → 1.704/2.571/4.132 ms，两例每轮 P50 都更快；K 线 P99 各轮范围重叠（候选有一轮 9.86 ms）。anime 14 例合并中位数 0.117/0.507 → 0.109/0.440 ms，framer、spring 持平。收益来自样式匹配：旧实现每匹配一个复合选择器，都用 istringstream 把 class 拆进一个 std::set。原始数据在 `artifacts/local/step9/owner-cpu-9.2/comparison.json`。
 
+**9.3 Canvas 状态移到旁表**：
+- 节点不再有 Canvas 成员。CanvasState 与 CanvasRenderingContext2D 包装放在 `dom::NodeTable`（[node_table.hpp](../src/dom/node_table.hpp)）里，按节点 slot 索引、按代际校验。
+- 条目随元素存亡：元素的 `mark()` 报告 context 包装这条边，元素的 finalizer 释放条目。slot 被新节点复用时，新节点没有旧条目。
+- 两份 canvas 尺寸解析（脚本 DOM 与文档布局）合并为 `dom::canvas_dimension`（[attributes.hpp](../src/dom/attributes.hpp)）。默认 300×150 只在 `constants::dom` 定义一次。两处原来的错误码不变：脚本报 `WEFT_CANVAS_SIZE_LIMIT`，布局报 `WEFT_DOCUMENT_PROFILE`。
+- 行为变化（见 [兼容范围](compatibility.md#当前-canvas-探针范围2026-10-09)）：
+  - `-0` 按 HTML 规则得到 0；
+  - getContext 的 options 脚本若已创建 context，返回那一个，修掉了原来的引用泄漏。
+- 测试：
+  - 新增 `dom_contract`：旁表的查找、删除与 slot 复用，canvas 尺寸的逐例解析与上限；
+  - `canvas_2d_contract` 增加三个反例：只由元素保活的 context 在 GC 后仍是同一个对象，options 重入只得到一个 context，回收后复用同一 slot 的新 canvas 没有 context。
+  - 9 个变异全部被发现：漏报 mark 边、finalizer 不清条目、getContext 不复查、resize 找不到条目、旁表忽略代际（查找、删除各一）、`-0`、前导空白、上限差一。
+- 验证：Release 101/101，Debug 101/101（323.8 s）；1306 个产物逐字节不变。强制 GC 配置（`build/windows-gc-stress`，每次分配前完整 GC）下 canvas_2d_contract、script_dom_lifecycle、animation_frame_contract、page_react_contract、dom_contract 5/5（53.0 s，日志 `artifacts/local/step9/gc-stress-9.3.log`）。owner CPU：与第 9.2 步结束时的二进制交替 3 轮，条件同 9.2：K 线 P50/P99 4.131/6.890 → 4.038/6.798 ms，散点图 1.669/2.781 → 1.666/2.949 ms，anime 0.109/0.348 → 0.110/0.409 ms，各轮范围重叠，记为持平。改动在热路径上只多了 GC 标记时每个节点一次越界判断（没有 canvas 时旁表为空）。原始数据在 `artifacts/local/step9/owner-cpu-9.3/comparison.json`。
+
 第 9 步余下部分：
-- 9.3 Canvas 状态移到按 NodeId 索引的旁表，合并两份 canvas 尺寸解析；
 - 9.4 节点数据改为原生、边用 NodeId，QuickJS 对象只做包装（GC 所有权仍由包装追踪）；
 - 9.5 增量快照（现在每次全量复制）。
 

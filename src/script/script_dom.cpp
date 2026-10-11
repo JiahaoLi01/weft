@@ -4,6 +4,8 @@
 #include "base/owner_thread.hpp"
 #include "constants/dom.hpp"
 #include "constants/script.hpp"
+#include "dom/attributes.hpp"
+#include "dom/node_table.hpp"
 #include "dom/selector.hpp"
 
 #include <quickjs.h>
@@ -135,8 +137,6 @@ namespace weft {
             JSValue parent{JS_NULL};
             JSValue document{JS_NULL};
             JSValue expando{JS_UNDEFINED};
-            JSValue canvas_context{JS_UNDEFINED};
-            std::unique_ptr<CanvasState> canvas;
             std::vector<JSValue> children;
             std::vector<Listener> listeners;
             // Borrowed wrapper identity: this is NOT an extra, hidden GC root.
@@ -160,6 +160,16 @@ namespace weft {
         JSValue canvas_prototype{JS_UNDEFINED};
         CanvasFactory canvas_factory;
         std::shared_ptr<CanvasBudget> canvas_budget = std::make_shared<CanvasBudget>();
+
+        // A canvas element's 2D state, kept beside the DOM. The entry lives as long as its element: the element's
+        // mark() reports the context wrapper and its finalizer releases the entry.
+        struct CanvasEntry {
+            // The CanvasRenderingContext2D wrapper, an owning edge of the element.
+            JSValue context{JS_UNDEFINED};
+            std::unique_ptr<CanvasState> canvas;
+        };
+
+        dom::NodeTable<CanvasEntry> canvases;
         JSValue document_root{JS_UNDEFINED};
         JSValue mouse_prototype{JS_UNDEFINED};
         JSValue wheel_prototype{JS_UNDEFINED};
@@ -419,7 +429,9 @@ namespace weft {
             JS_MarkValue(rt, n->parent, mark_function);
             JS_MarkValue(rt, n->document, mark_function);
             JS_MarkValue(rt, n->expando, mark_function);
-            JS_MarkValue(rt, n->canvas_context, mark_function);
+            if (const auto* canvas = owner->canvases.find(n->identity)) {
+                JS_MarkValue(rt, canvas->context, mark_function);
+            }
             for (JSValue child : n->children) {
                 JS_MarkValue(rt, child, mark_function);
             }
@@ -443,7 +455,10 @@ namespace weft {
             JS_FreeValueRT(rt, n->parent);
             JS_FreeValueRT(rt, n->document);
             JS_FreeValueRT(rt, n->expando);
-            JS_FreeValueRT(rt, n->canvas_context);
+            if (auto* canvas = owner->canvases.find(n->identity)) {
+                JS_FreeValueRT(rt, canvas->context);
+                owner->canvases.erase(n->identity);
+            }
             for (JSValue child : n->children) {
                 JS_FreeValueRT(rt, child);
             }
@@ -508,41 +523,42 @@ namespace weft {
             return node(c, self);
         }
 
-        static Node& context_node(JSContext* c, JSValueConst self) {
+        // The canvas element behind a CanvasRenderingContext2D wrapper, and its 2D state.
+        struct ContextTarget {
+            Node& element;
+            CanvasState& canvas;
+        };
+
+        static ContextTarget context_target(JSContext* c, JSValueConst self) {
             auto* p = static_cast<CanvasHandle*>(JS_GetOpaque(self, state(c).canvas_class));
             if (!p) {
                 JS_ThrowTypeError(c, "WEFT_CANVAS_CONTEXT_TYPE: native 2d context required");
                 throw PendingJsException{};
             }
             auto& n = canvas_node(c, p->canvas);
-            if (!n.canvas) {
+            auto* entry = state(c).canvases.find(n.identity);
+            if (!entry) {
                 throw std::runtime_error("WEFT_CANVAS_CONTEXT_STATE");
             }
-            return n;
+            return {n, *entry->canvas};
         }
 
-        std::uint32_t canvas_dimension(Node& n, const char* key, const std::string* replacement = nullptr) const {
-            const auto fallback = std::string_view(key) == "width" ? constants::script::default_canvas_width
-                                                                   : constants::script::default_canvas_height;
-            const auto value = replacement ? *replacement : attr(n, key);
-            std::size_t i = value.find_first_not_of(" \t\r\n\f");
-            if (i == value.npos) {
-                return fallback;
+        // A side of a canvas element's bitmap; replacement stands for the attribute while it is being set.
+        static std::uint32_t canvas_dimension(const Node& n, dom::CanvasSide side,
+                                              const std::string* replacement = nullptr) {
+            const std::string* attribute = replacement;
+            if (!attribute) {
+                const std::string_view name = side == dom::CanvasSide::Width ? "width" : "height";
+                const auto it = std::find_if(n.attributes.begin(), n.attributes.end(), [&](const Attribute& a) {
+                    return a.name == name;
+                });
+                attribute = it == n.attributes.end() ? nullptr : &it->value;
             }
-            if (value[i] == '+') {
-                ++i;
+            auto value = dom::canvas_dimension(attribute, side);
+            if (!value) {
+                throw DiagnosticError(value.error());
             }
-            if (i == value.size() || value[i] < '0' || value[i] > '9') {
-                return fallback;
-            }
-            std::uint64_t result = 0;
-            while (i < value.size() && value[i] >= '0' && value[i] <= '9') {
-                result = result * 10 + unsigned(value[i++] - '0');
-                if (result > constants::max_canvas_dimension) {
-                    throw std::invalid_argument("WEFT_CANVAS_SIZE_LIMIT: backing dimensions <=2048");
-                }
-            }
-            return std::uint32_t(result);
+            return *value;
         }
 
         void resize_canvas_attribute(Node& n, const std::string& name, const std::string& value) {
@@ -550,12 +566,12 @@ namespace weft {
                 (name != "width" && name != "height")) {
                 return;
             }
-            const auto w = canvas_dimension(n, "width", name == "width" ? &value : nullptr);
-            const auto h = canvas_dimension(n, "height", name == "height" ? &value : nullptr);
+            const auto w = canvas_dimension(n, dom::CanvasSide::Width, name == "width" ? &value : nullptr);
+            const auto h = canvas_dimension(n, dom::CanvasSide::Height, name == "height" ? &value : nullptr);
             CanvasState::validate_size(w, h);
-            if (n.canvas) {
+            if (auto* entry = canvases.find(n.identity)) {
                 try {
-                    n.canvas->resize(w, h);
+                    entry->canvas->resize(w, h);
                 } catch (const CanvasBackendError&) {
                     faulted = true;
                     throw;
@@ -568,7 +584,8 @@ namespace weft {
                 auto& n = canvas_node(c, self);
                 auto& owner = state(c);
                 if (magic < 2) {
-                    return JS_NewUint32(c, owner.canvas_dimension(n, magic == 0 ? "width" : "height"));
+                    return JS_NewUint32(
+                        c, owner.canvas_dimension(n, magic == 0 ? dom::CanvasSide::Width : dom::CanvasSide::Height));
                 }
                 const auto type = magic == 2 ? "click" : "mousemove";
                 for (const auto& l : n.listeners) {
@@ -638,14 +655,14 @@ namespace weft {
 
         static JSValue canvas_context_get(JSContext* c, JSValueConst self, int magic) {
             try {
-                auto& n = context_node(c, self);
+                const auto target = context_target(c, self);
                 if (magic == 0) {
-                    return JS_DupValue(c, n.self);
+                    return JS_DupValue(c, target.element.self);
                 }
                 if (magic == 1) {
-                    return JS_NewString(c, n.canvas->fill_style.c_str());
+                    return JS_NewString(c, target.canvas.fill_style.c_str());
                 }
-                return JS_NewFloat64(c, n.canvas->global_alpha);
+                return JS_NewFloat64(c, target.canvas.global_alpha);
             } catch (const PendingJsException&) {
                 return JS_EXCEPTION;
             } catch (const std::exception& e) {
@@ -655,7 +672,7 @@ namespace weft {
 
         static JSValue canvas_context_set(JSContext* c, JSValueConst self, JSValueConst value, int magic) {
             try {
-                auto& n = context_node(c, self);
+                auto& canvas = context_target(c, self).canvas;
                 if (magic == 1) {
                     auto text = string_value(c, value);
                     if (auto color = parse_canvas_color(text)) {
@@ -673,8 +690,8 @@ namespace weft {
                               << std::setprecision(constants::script::canvas_alpha_serialization_digits) << (*color)[3]
                               << ')';
                         }
-                        n.canvas->color = *color;
-                        n.canvas->fill_style = s.str();
+                        canvas.color = *color;
+                        canvas.fill_style = s.str();
                     }
                 } else {
                     double alpha{};
@@ -682,7 +699,7 @@ namespace weft {
                         throw PendingJsException{};
                     }
                     if (std::isfinite(alpha) && alpha >= 0 && alpha <= 1) {
-                        n.canvas->global_alpha = alpha;
+                        canvas.global_alpha = alpha;
                     }
                 }
                 return JS_UNDEFINED;
@@ -698,7 +715,7 @@ namespace weft {
 
         static JSValue canvas_draw(JSContext* c, JSValueConst self, int argc, JSValueConst* argv, int magic) {
             try {
-                auto& canvas = *context_node(c, self).canvas;
+                auto& canvas = context_target(c, self).canvas;
                 if (magic == 0) {
                     canvas.begin_path();
                     return JS_UNDEFINED;
@@ -758,8 +775,8 @@ namespace weft {
                 if (string_value(c, argv[0]) != "2d") {
                     return JS_NULL;
                 }
-                if (!JS_IsUndefined(n.canvas_context)) {
-                    return JS_DupValue(c, n.canvas_context);
+                if (const auto* entry = owner.canvases.find(n.identity)) {
+                    return JS_DupValue(c, entry->context);
                 }
                 bool alpha = true;
                 if (argc > 1 && !JS_IsNull(argv[1]) && !JS_IsUndefined(argv[1])) {
@@ -775,15 +792,22 @@ namespace weft {
                         throw std::invalid_argument("WEFT_CANVAS_COLOR_SPACE: only srgb");
                     }
                 }
-                auto data = std::make_unique<CanvasState>(owner.canvas_factory, owner.canvas_budget,
-                                                          owner.canvas_dimension(n, "width"),
-                                                          owner.canvas_dimension(n, "height"), alpha);
+                // Reading the options runs script, which may have created the context meanwhile.
+                if (const auto* entry = owner.canvases.find(n.identity)) {
+                    return JS_DupValue(c, entry->context);
+                }
+                auto canvas = std::make_unique<CanvasState>(owner.canvas_factory, owner.canvas_budget,
+                                                            canvas_dimension(n, dom::CanvasSide::Width),
+                                                            canvas_dimension(n, dom::CanvasSide::Height), alpha);
                 Value object(c, JS_NewObjectClass(c, owner.canvas_class));
+                if (JS_IsException(object.value)) {
+                    throw PendingJsException{};
+                }
                 auto handle = std::make_unique<CanvasHandle>();
                 handle->canvas = JS_DupValue(c, self);
                 JS_SetOpaque(object.value, handle.release());
-                n.canvas = std::move(data);
-                n.canvas_context = JS_DupValue(c, object.value);
+                auto& entry = owner.canvases.emplace(n.identity, CanvasEntry{JS_UNDEFINED, std::move(canvas)});
+                entry.context = JS_DupValue(c, object.value);
                 return JS_DupValue(c, object.value);
             } catch (const CanvasBackendError& e) {
                 state(c).faulted = true;
@@ -2090,7 +2114,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             JS_FreeRuntime(runtime);
             canvas_factory = {};
             canvas_class = 0;
-            assert(canvas_budget->bytes == 0 && canvas_budget->contexts == 0);
+            assert(canvases.size() == 0 && canvas_budget->bytes == 0 && canvas_budget->contexts == 0);
             runtime = nullptr;
             node_class = 0;
             assert(counters.live_nodes == 0);
@@ -2882,11 +2906,12 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
     CanvasSnapshot ScriptDom::canvas_snapshot(NodeIdentity identity) {
         impl_->require_runtime();
         auto* n = impl_->resolve(identity);
-        if (!n || !n->canvas) {
+        auto* entry = n ? impl_->canvases.find(n->identity) : nullptr;
+        if (!entry) {
             throw std::runtime_error("WEFT_CANVAS_SNAPSHOT: stale node or missing 2d context");
         }
         try {
-            auto& s = *n->canvas;
+            auto& s = *entry->canvas;
             return {n->identity, s.width, s.height, s.version, s.commands, s.fills, s.alpha, s.pixels()};
         } catch (...) {
             impl_->faulted = true;

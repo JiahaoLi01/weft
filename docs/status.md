@@ -4,6 +4,19 @@
 
 ## 本次已实现
 
+重构第 9 步之三：Canvas 状态移到节点旁表，一份 canvas 尺寸解析（2026-10-11）。详见 [重构计划](refactoring-plan.md#第-9-步记录2026-10-11)。
+- **结果**：
+  - 节点不再持有 Canvas 状态。CanvasState 与 context 包装放在按 slot 与代际索引的 `dom::NodeTable`，由元素的 mark/finalizer 负责这条边与释放；
+  - 脚本 DOM 与文档布局共用 `dom::canvas_dimension`；`-0` 现在按 HTML 规则得到 0；
+  - getContext 的 options 脚本若已创建 context，现在返回那一个，修掉了原来的引用泄漏。
+- **验证**：
+  - `ctest --preset windows-release --parallel 6` 101/101，`windows-debug --parallel 6` 101/101（323.8 s）；
+  - 新增 `dom_contract`，`canvas_2d_contract` 增加 3 个反例；9 个变异全部被发现；
+  - 1306 个产物与改动前逐字节相同；
+  - 强制 GC 配置（`build/windows-gc-stress`，每次分配前完整 GC）下 canvas_2d_contract、script_dom_lifecycle、animation_frame_contract、page_react_contract、dom_contract 5/5（53.0 s，日志 `artifacts/local/step9/gc-stress-9.3.log`）；
+  - owner CPU：与 9.2 结束时交替 3 轮持平（K 线 P50/P99 4.131/6.890 → 4.038/6.798 ms，散点图 1.669/2.781 → 1.666/2.949 ms）。
+- **下一步**：9.4，节点数据改为原生、边用 NodeId，QuickJS 对象只做包装。
+
 重构第 9 步之一、之二：DOM 值类型独立，一个选择器引擎（2026-10-11）。详见 [重构计划](refactoring-plan.md#第-9-步记录2026-10-11)。
 - **结果**：
   - 节点身份、快照与几何值移入 `src/dom`，style、layout、scene 不再经 script 的头文件取得它们；

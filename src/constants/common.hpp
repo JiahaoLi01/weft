@@ -47,9 +47,6 @@ namespace weft::constants {
     inline constexpr double plane_far_point = 1e10;
     // Largest viewport edge accepted by the layout and scene profiles.
     inline constexpr int max_viewport_dimension_px = 4096;
-    // HTML canvas element default size in CSS pixels.
-    inline constexpr int default_canvas_width = 300;
-    inline constexpr int default_canvas_height = 150;
     inline constexpr int rgba8_bytes_per_pixel = 4;
 
     // XML namespaces used by the native DOM.
