@@ -665,10 +665,11 @@ CMake 拆分：
 | 段 | 内容 | 验证 |
 | --- | --- | --- |
 | 10.1 | `src/paint`：`DisplayList` 与 scene 生产者，替换 `NativeScene`；`SceneRenderer` 改读 `DisplayList` | scene-native、cluster GPU 产物逐字节不变 |
-| 10.2 | 文档生产者 `PositionedPage → DisplayList`；统一渲染器补齐圆角裁剪链（着色器内距离场）、字形 atlas、图片与线性合成；退役每四边形一次调用的旧路径和 CPU 圆角遮罩 | 文档类浏览器差分全部通过；像素变化逐套说明 |
-| 10.3 | 可移植文字与路径：FreeType 彩色字形；SVG 填充与描边的 CPU 三角化（带抗锯齿）；scene 不再回退 D2D 绘制 | D2D oracle 与 Chrome 对照；回退计数降为 0 或逐项列出 |
+| 10.2 | 可移植的 scene pass 规划（记录、批次、清屏色、分组深度）与 D3D11 执行分开，Vulkan 只需实现执行 | 产物逐字节不变 |
+| 10.3 | 文档生产者 `PositionedPage → DisplayList`；统一渲染器补齐圆角裁剪链（着色器内距离场）、字形 atlas、图片与线性合成；退役每四边形一次调用的旧路径和 CPU 圆角遮罩 | 文档类浏览器差分全部通过；像素变化逐套说明 |
 | 10.4 | Vulkan 后端：同一渲染器核心与同一 HLSL；宿主 encode/submit/完成 serial 合同；WARP/D3D11 对照 | Vulkan 与 D3D11 像素差分、完成与退休、validation layer 零告警 |
-| 10.5 | `src/platform` concept；Android（NDK）与 iOS 平台层；主机构建选项 | 按“配置/编译/链接/模拟器/真机功能/真机性能”分级记录，未执行的标为未验证 |
+| 10.5 | 可移植文字与路径：FreeType 彩色字形；SVG 填充与描边的 CPU 三角化（带抗锯齿）；scene 不再回退 D2D 绘制 | D2D oracle 与 Chrome 对照；回退计数降为 0 或逐项列出 |
+| 10.6 | `src/platform` concept；Android（NDK）与 iOS 平台层；主机构建选项 | 按“配置/编译/链接/模拟器/真机功能/真机性能”分级记录，未执行的标为未验证 |
 
 依赖与工具（需要用户确认下载）：
 - Vulkan 官方头文件（Khronos Vulkan-Headers，Apache-2.0），按固定 tag vendored 进 `third_party`，记录 SHA-256。运行时经驱动自带的 `vulkan-1.dll` 加载，不依赖 Vulkan SDK。
@@ -685,12 +686,22 @@ CMake 拆分：
   - `check()` 校验负载下标与种类、光栅源、分组配对与深度上限，失败返回 `Diag::PaintList`（`WEFT_PAINT_LIST`）；渲染器绘制前调用，校验失败计为一次带原因的回退。
 - scene 生产者 `scene_display_list()`（原 `compile_native_scene`，文件改名为 `scene_display_list.*`）产出 `DisplayList`；`NativeScene`、`NativePaint` 与 `constants::scene::gradient_*` 删除，渐变种类改用 `paint::GradientKind`（数值与 `scene.hlsl` 一致）。
 - `d3d11::SceneRenderer` 改读条目与负载表；记录里只有着色器不读的字段（文字、图层条目的盒子字段）不再填写。
-- 过渡：scene 文字与显式图层的光栅源仍是 scene 节点（`paint` 头文件里前向声明），10.3 换成字形串与嵌套列表后去掉。
+- 过渡：scene 文字与显式图层的光栅源仍是 scene 节点（`paint` 头文件里前向声明），10.5 换成字形串与嵌套列表后去掉。
 
 验证：
 - `ctest --preset windows-release --parallel 6` 102/102，`windows-debug --parallel 6` 102/102（228.3 s）；
 - 1306 个产物与改动前逐字节相同（scene-native、cluster GPU 的像素与回退计数都不变）；
 - 新增 `paint_contract`：合法嵌套列表与空列表通过；越界的盒子与光栅负载、无源光栅、多余的组结束、未闭合的组、超出深度和未知种类各自报出对应原因。
+
+**10.2：可移植的 scene pass 规划**：
+- 段落调整：Vulkan 只依赖 scene pass 的规划与执行接口，不依赖文档路径并入，所以把规划拆分放在前面；可移植文字与路径排到 Vulkan 之后（10.5），平台层改为 10.6。
+- `render::plan_scene_pass()`（`src/render/scene_pass.*`）把显示列表变成共享着色器的实例记录 `SceneRecord` 与绘制步骤：连续的盒子合成一次实例化绘制，文字与图层图像、组开始、组结束各占一步；第一个盒子若不透明且（含 crop 在内）正好覆盖目标，就作为清屏色。
+- `d3d11::SceneRenderer` 只负责图像构建、资源与执行这些步骤。scene pass 常量从 `constants::render::d3d11::scene` 移到可移植的 `constants::render::scene`。
+
+验证：
+- `ctest --preset windows-release --parallel 6` 102/102，`windows-debug --parallel 6` 102/102（227.3 s）；
+- 1306 个产物逐字节相同；
+- `paint_contract` 增加规划检查：步骤切分与盒子连续段、渐变与遮罩着色记录、组合成记录覆盖整个目标、crop 使第一个盒子不再作为清屏色、尺寸不足时不清屏。
 
 ## 顺序调整（2026-10-10）
 

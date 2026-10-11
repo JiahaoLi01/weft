@@ -1,7 +1,7 @@
-# GPU resource retirement, the C render backend table and rounded-rect clip geometry.
+# GPU resource retirement, the C render backend table, rounded-rect clip geometry and portable scene pass plans.
 weft_add_library(render
-    SOURCES resource_lifetime.cpp render_backend.cpp rounded_clip.cpp
-    PUBLIC weft::base)
+    SOURCES resource_lifetime.cpp render_backend.cpp rounded_clip.cpp scene_pass.cpp
+    PUBLIC weft::base weft::paint)
 
 if(WIN32)
     add_subdirectory(backends/d3d11)

@@ -2,6 +2,7 @@
 
 #include "constants/render.hpp"
 #include "render/backends/d3d11/renderer.hpp"
+#include "render/scene_pass.hpp"
 #include "scene/scene.hpp"
 #include "scene/scene_geometry.hpp"
 #include "scene/scene_display_list.hpp"
@@ -37,7 +38,7 @@ namespace weft::render::d3d11 {
             ComPtr<ID3D11Buffer> records;
             ComPtr<ID3D11Buffer> constants;
             ComPtr<ID3D11ShaderResourceView> view;
-            std::array<Surface, constants::render::d3d11::scene::max_group_depth> groups;
+            std::array<Surface, constants::render::scene::max_group_depth> groups;
             std::vector<std::shared_ptr<const Image>> leases;
             unsigned width{};
             unsigned height{};

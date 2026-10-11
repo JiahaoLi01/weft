@@ -12,28 +12,11 @@
 
 namespace weft::render::d3d11 {
     namespace {
-        namespace limits = constants::render::d3d11::scene;
+        namespace limits = constants::render::scene;
         using Kind = paint::Item::Kind;
         using Color = std::array<float, 4>;
-
-        // One Paint of scene.hlsl.
-        struct Record {
-            Color bounds;
-            Color inv_x;
-            Color inv_y;
-            Color size;
-            Color clip;
-            Color radii;
-            Color widths;
-            Color background;
-            std::array<Color, 4> edges;
-            Color tile;
-            Color extra;
-            std::array<Color, limits::max_gradient_stops> stops;
-            std::array<Color, limits::gradient_offset_vectors> offsets;
-        };
-
-        static_assert(sizeof(Record) == limits::record_bytes);
+        using Record = SceneRecord;
+        using Step = ScenePass::Step;
 
         Surface group_target(ID3D11Device* device, unsigned w, unsigned h) {
             Surface s;
@@ -48,65 +31,6 @@ namespace weft::render::d3d11 {
             throw_if_failed(device->CreateRenderTargetView(s.texture.Get(), nullptr, &s.rtv), "native group RTV");
             throw_if_failed(device->CreateShaderResourceView(s.texture.Get(), nullptr, &s.srv), "native group SRV");
             return s;
-        }
-
-        Record record(const paint::DisplayList& list, const paint::Item& item, float scale, unsigned w, unsigned h) {
-            auto m = item.transform;
-            const bool image = item.kind == Kind::Text || item.kind == Kind::Layer;
-            Record r{};
-            r.size = {item.width, item.height, 0, 0};
-            r.clip = item.clip;
-            r.extra = {0, item.opacity, image ? limits::flag_enabled : limits::flag_disabled, limits::flag_disabled};
-            if (item.kind == Kind::Box) {
-                const auto& box = list.boxes[item.payload];
-                const auto& g = box.gradient;
-                r.size[2] = float(static_cast<int>(g.kind));
-                r.size[3] = float(g.stops.size());
-                r.radii = box.radii;
-                r.widths = box.widths;
-                r.background = box.background;
-                r.edges = box.edges;
-                r.tile = g.tile;
-                r.extra[0] = g.angle;
-                for (unsigned i = 0; i < g.stops.size(); ++i) {
-                    r.stops[i] = g.stops[i].color;
-                    r.offsets[i / limits::stops_per_offset_vector][i % limits::stops_per_offset_vector] =
-                        g.stops[i].offset;
-                }
-            } else if (image && list.rasters[item.payload].mask) {
-                r.background = list.rasters[item.payload].tint;
-                r.extra[3] = limits::flag_enabled;
-            }
-            if (item.kind == Kind::EndGroup) {
-                m = paint::identity;
-                r.size = {float(w) / scale, float(h) / scale, 0, 0};
-                r.extra = {0, item.opacity, limits::flag_enabled, limits::flag_disabled};
-            } else if (image) {
-                m[4] -= limits::image_margin * (m[0] + m[2]);
-                m[5] -= limits::image_margin * (m[1] + m[3]);
-                r.size[0] += limits::image_margins;
-                r.size[1] += limits::image_margins;
-            }
-            float det = m[0] * m[3] - m[1] * m[2];
-            r.inv_x = {m[3] / det, -m[2] / det, (m[2] * m[5] - m[3] * m[4]) / det, 0};
-            r.inv_y = {-m[1] / det, m[0] / det, (m[1] * m[4] - m[0] * m[5]) / det, 0};
-            float left = limits::record_bounds_sentinel;
-            float top = limits::record_bounds_sentinel;
-            float right = -limits::record_bounds_sentinel;
-            float bottom = -limits::record_bounds_sentinel;
-            for (auto point : std::array<std::array<float, 2>, 4>{
-                     {{0, 0}, {r.size[0], 0}, {0, r.size[1]}, {r.size[0], r.size[1]}}}) {
-                float x = m[0] * point[0] + m[2] * point[1] + m[4];
-                float y = m[1] * point[0] + m[3] * point[1] + m[5];
-                left = std::min(left, x);
-                top = std::min(top, y);
-                right = std::max(right, x);
-                bottom = std::max(bottom, y);
-            }
-            r.bounds = {left - limits::record_bounds_outset / scale, top - limits::record_bounds_outset / scale,
-                        right - left + limits::record_bounds_outsets / scale,
-                        bottom - top + limits::record_bounds_outsets / scale};
-            return r;
         }
     } // namespace
 
@@ -282,16 +206,12 @@ namespace weft::render::d3d11 {
             ++reasons[valid.error().message];
             return false;
         }
-        std::vector<Record> records;
+        auto pass = plan_scene_pass(list, scale, target_width, target_height, crop);
+        const auto& records = pass.records;
         std::vector<std::shared_ptr<const Image>> images(list.items.size());
         try {
             for (std::size_t i = 0; i < list.items.size(); ++i) {
-                auto& item = list.items[i];
-                if (crop) {
-                    item.clip = {std::max(item.clip[0], (*crop)[0]), std::max(item.clip[1], (*crop)[1]),
-                                 std::min(item.clip[2], (*crop)[2]), std::min(item.clip[3], (*crop)[3])};
-                }
-                records.push_back(record(list, item, scale, target_width, target_height));
+                const auto& item = list.items[i];
                 if (item.kind == Kind::Text || item.kind == Kind::Layer) {
                     images[i] = image(item, list.rasters[item.payload], scale, view_index);
                 }
@@ -303,7 +223,7 @@ namespace weft::render::d3d11 {
         }
         // The caller has confirmed this slot's prior real submission complete. Immutable image leases survive cache
         // eviction and the entire next submission; buffers and group targets are never rewritten in flight.
-        const auto depth_needed = paint::group_depth(list);
+        const auto depth_needed = pass.group_depth;
         const auto desired_bytes = std::size_t(target_width) * target_height * 4 * depth_needed;
         if (scratch_bytes_ - slot.group_bytes + desired_bytes > limits::scratch_budget_bytes) {
             ++fallbacks;
@@ -371,28 +291,7 @@ namespace weft::render::d3d11 {
         auto* sampler = gpu_.sampler.Get();
         ctx->PSSetSamplers(0, 1, &sampler);
         Color clear{};
-        Color initial{};
-        unsigned first{};
-        if (!list.items.empty() && list.items.front().kind == Kind::Box) {
-            // An opaque full-target first rectangle is the clear color.
-            const auto& p = list.items.front();
-            const auto& box = list.boxes[p.payload];
-            if (p.transform == paint::identity && p.width * scale == target_width &&
-                p.height * scale == target_height && p.clip[0] <= 0 && p.clip[1] <= 0 && p.clip[2] >= p.width &&
-                p.clip[3] >= p.height && p.opacity == 1 && box.background[3] == 1 &&
-                box.gradient.kind == paint::GradientKind::None &&
-                std::all_of(box.radii.begin(), box.radii.end(),
-                            [](float v) {
-                                return v == 0;
-                            }) &&
-                std::all_of(box.widths.begin(), box.widths.end(), [](float v) {
-                    return v == 0;
-                })) {
-                initial = box.background;
-                first = 1;
-            }
-        }
-        ctx->ClearRenderTargetView(destination, initial.data());
+        ctx->ClearRenderTargetView(destination, pass.clear.data());
         ctx->OMSetRenderTargets(1, &destination, nullptr);
         unsigned depth{};
         std::vector<ID3D11RenderTargetView*> stack{destination};
@@ -405,33 +304,33 @@ namespace weft::render::d3d11 {
             ID3D11ShaderResourceView* empty = nullptr;
             ctx->PSSetShaderResources(1, 1, &empty);
         };
-        for (unsigned i = first; i < list.items.size();) {
-            const auto& p = list.items[i];
-            if (p.kind == Kind::BeginGroup) {
-                auto& s = slot.groups.at(depth++);
-                if (!s.texture) {
-                    s = group_target(gpu_.device.Get(), target_width, target_height);
+        for (const auto& batch : pass.batches) {
+            switch (batch.step) {
+                case Step::BeginGroup: {
+                    auto& s = slot.groups.at(depth++);
+                    if (!s.texture) {
+                        s = group_target(gpu_.device.Get(), target_width, target_height);
+                    }
+                    ctx->ClearRenderTargetView(s.rtv.Get(), clear.data());
+                    auto* rtv = s.rtv.Get();
+                    ctx->OMSetRenderTargets(1, &rtv, nullptr);
+                    stack.push_back(rtv);
+                    break;
                 }
-                ctx->ClearRenderTargetView(s.rtv.Get(), clear.data());
-                auto* rtv = s.rtv.Get();
-                ctx->OMSetRenderTargets(1, &rtv, nullptr);
-                stack.push_back(rtv);
-                ++i;
-            } else if (p.kind == Kind::EndGroup) {
-                auto& s = slot.groups.at(--depth);
-                stack.pop_back();
-                auto* rtv = stack.back();
-                ctx->OMSetRenderTargets(1, &rtv, nullptr);
-                draw(i++, 1, s.srv.Get());
-            } else if (p.kind == Kind::Text || p.kind == Kind::Layer) {
-                draw(i, 1, images[i]->view.Get());
-                ++i;
-            } else {
-                auto start = i++;
-                while (i < list.items.size() && list.items[i].kind == Kind::Box) {
-                    ++i;
+                case Step::EndGroup: {
+                    auto& s = slot.groups.at(--depth);
+                    stack.pop_back();
+                    auto* rtv = stack.back();
+                    ctx->OMSetRenderTargets(1, &rtv, nullptr);
+                    draw(batch.first, 1, s.srv.Get());
+                    break;
                 }
-                draw(start, i - start, nullptr);
+                case Step::Image:
+                    draw(batch.first, 1, images[batch.first]->view.Get());
+                    break;
+                case Step::Boxes:
+                    draw(batch.first, batch.count, nullptr);
+                    break;
             }
         }
         ctx->ClearState();

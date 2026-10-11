@@ -161,7 +161,7 @@ weft_add_test(NAME sdf_font_contract COMMAND weft_sdf_font_tests)
 # Style and layout, each with a Chrome reference diff.
 weft_add_executable(weft_selector_tests SOURCES selector_tests.cpp LINK weft::dom)
 weft_add_test(NAME selector_contract COMMAND weft_selector_tests)
-weft_add_executable(weft_paint_tests SOURCES paint_tests.cpp LINK weft::paint weft::scene)
+weft_add_executable(weft_paint_tests SOURCES paint_tests.cpp LINK weft::paint weft::render weft::scene)
 weft_add_test(NAME paint_contract COMMAND weft_paint_tests)
 weft_add_executable(weft_dom_tests SOURCES dom_tests.cpp LINK weft::dom)
 weft_add_test(NAME dom_contract COMMAND weft_dom_tests)

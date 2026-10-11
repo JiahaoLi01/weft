@@ -4,6 +4,11 @@
 
 ## 本次已实现
 
+重构第 10 步之二：可移植的 scene pass 规划（2026-10-11）。详见 [重构计划](refactoring-plan.md#第-10-步记录2026-10-11)。
+- **结果**：scene pass 的实例记录与绘制步骤由可移植代码规划，D3D11 只执行；Vulkan 后端将复用同一规划。像素与产物不变。
+- **验证**：`ctest --preset windows-release --parallel 6` 102/102，`windows-debug --parallel 6` 102/102（227.3 s）；1306 个产物逐字节相同；`paint_contract` 增加规划检查。
+- **下一步**：10.3，文档版面产出 `DisplayList`，先经可移植的四边形降级保持旧输出不变，再让统一渲染器直接绘制。
+
 重构第 10 步之一：`src/paint` 与 scene 显示列表（2026-10-11）。详见 [重构计划](refactoring-plan.md#第-10-步记录2026-10-11)。
 - **结果**：
   - 新模块 `src/paint`：可移植的绘制 IR `DisplayList` 及其结构校验；
