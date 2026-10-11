@@ -9,10 +9,19 @@ namespace weft::paint {
         for (std::size_t i = 0; i < list.items.size(); ++i) {
             const auto& item = list.items[i];
             const auto at = " at item " + std::to_string(i);
+            if (item.clips_begin > list.clips.size() || item.clips_count > list.clips.size() - item.clips_begin) {
+                return make_diagnostic(Diag::PaintList, "rounded clips out of range" + at);
+            }
             switch (item.kind) {
                 case Item::Kind::Box:
                     if (item.payload >= list.boxes.size()) {
                         return make_diagnostic(Diag::PaintList, "box payload out of range" + at);
+                    }
+                    break;
+                case Item::Kind::Image:
+                    if (item.payload >= list.images.size() || list.images[item.payload].asset >= list.assets.size() ||
+                        !list.assets[list.images[item.payload].asset]) {
+                        return make_diagnostic(Diag::PaintList, "image payload or asset out of range" + at);
                     }
                     break;
                 case Item::Kind::Text:

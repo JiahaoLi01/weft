@@ -1,6 +1,7 @@
 #pragma once
 
 #include "base/rect.hpp"
+#include "paint/display_list.hpp"
 
 #include <array>
 #include <cstdint>
@@ -10,21 +11,8 @@
 // GPU-free frame input of the renderers: ordered quads and the immutable assets they sample. A packet
 // owns complete inputs and no device handles, so it can cross from the UI owner thread to a renderer.
 namespace weft::render {
-    // Asset texel encodings. The values equal weft_render_encoding.
-    enum class Encoding {
-        SrgbStraight,
-        Coverage,
-        SignedDistance
-    };
-
-    struct Asset {
-        std::uint32_t width{};
-        std::uint32_t height{};
-        Encoding encoding{};
-        std::vector<std::uint8_t> bytes;
-        // Distance range in source texels of a SignedDistance asset.
-        float spread{};
-    };
+    using Encoding = paint::Encoding;
+    using Asset = paint::Asset;
 
     struct Draw {
         geometry::Rect rect;

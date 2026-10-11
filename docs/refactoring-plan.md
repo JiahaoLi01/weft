@@ -703,6 +703,23 @@ CMake 拆分：
 - 1306 个产物逐字节相同；
 - `paint_contract` 增加规划检查：步骤切分与盒子连续段、渐变与遮罩着色记录、组合成记录覆盖整个目标、crop 使第一个盒子不再作为清屏色、尺寸不足时不清屏。
 
+**10.3a：文档版面产出 `DisplayList`，经可移植的四边形降级保持旧输出**：
+- IR 增加：
+  - 资产 `paint::Asset`/`paint::Encoding`（原 `render::Asset`，`render` 保留同名别名）；
+  - 图片条目 `Item::Kind::Image` 与负载 `paint::Image`（资产下标、uv、着色、SDF 描边宽度与颜色）；
+  - 圆角裁剪：`DisplayList::clips` 与条目上的连续区间（外层在前）；`RoundedClip` 类型移到 `paint/rounded_clip.hpp`，几何与覆盖率函数仍在 `render`；
+  - `check()` 同时校验图片负载与资产、圆角裁剪区间。
+- 生产者 `page_display_list()`（`src/layout/page_display_list.hpp`，按字体类型静态多态）：矩形成为盒子，图片与字形成为图片条目（字形以文字颜色着色）；同一段绘制的条目共享裁剪与圆角裁剪区间。字形图像缓存 `GlyphImages` 带条目与字节上限（常量移到 `constants::layout`）。
+- 降级 `render::lower_to_quads()`（`src/render/quad_lowering.*`）：每个条目按裁剪矩形裁切并移动 uv；圆角裁剪切到条目时在 CPU 上准备覆盖率遮罩（每像素 16×16 采样），可跨包保留在 `QuadMasks` 里。资产按首次使用排序，与原探针一致。
+- 探针 `cheetah_packet()` 改为“生产者 + 降级”的组合，原来约 200 行的四边形构建与遮罩代码离开探针。
+- scene pass 只画盒子、光栅与分组，遇到图片条目或圆角裁剪返回 `Diag::PaintList`（渲染器计为回退）。
+- IR 的裁剪矩形存 `{left, top, right, bottom}`，`right` 只在生产端按 `x + width` 算一次，降级时直接使用，与原来的 `clip[0] + clip[2]` 是同一个浮点值，所以裁切结果逐位不变。
+
+验证：
+- `ctest --preset windows-release --parallel 6` 102/102，`windows-debug --parallel 6` 102/102（334.1 s）；
+- 1306 个产物逐字节相同，其中文档路径的 cheetah、cheetah-alert/auto/style/flow、flow、react、render-cache、render-stages、complex-css 各套件都在内；
+- `paint_contract` 增加：图片裁切后的 uv、完全在圆角内的盒子不建遮罩、被圆角切到的盒子用覆盖率遮罩、保留的遮罩在下一包命中、旋转条目与圆角盒子被拒绝；scene pass 拒绝图片条目与圆角裁剪。
+
 ## 顺序调整（2026-10-10）
 
 用户决定先完成第 7–9 步，第 10 步（第二个图形后端与移动平台）暂缓。跨平台仍是硬性需求：

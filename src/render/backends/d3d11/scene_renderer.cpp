@@ -206,7 +206,13 @@ namespace weft::render::d3d11 {
             ++reasons[valid.error().message];
             return false;
         }
-        auto pass = plan_scene_pass(list, scale, target_width, target_height, crop);
+        auto planned = plan_scene_pass(list, scale, target_width, target_height, crop);
+        if (!planned) {
+            ++fallbacks;
+            ++reasons[planned.error().message];
+            return false;
+        }
+        const auto& pass = *planned;
         const auto& records = pass.records;
         std::vector<std::shared_ptr<const Image>> images(list.items.size());
         try {

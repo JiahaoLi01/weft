@@ -48,13 +48,6 @@ namespace weft::probe_constants {
     inline constexpr int completion_poll_ms = constants::render::d3d11::completion_poll_ms;
     inline constexpr int asset_identity_prune_threshold = constants::render::d3d11::asset_identity_prune_threshold;
     inline constexpr int max_asset_identities = constants::render::d3d11::max_asset_identities;
-    // CheetahPacketCache budgets; a cache is cleared when a bound would be exceeded.
-    inline constexpr int glyph_cache_max_entries = 2048;
-    inline constexpr int glyph_cache_max_bytes = 16 * constants::bytes_per_mib;
-    inline constexpr int mask_cache_max_entries = 1024;
-    inline constexpr int mask_cache_max_bytes = 32 * constants::bytes_per_mib;
-    // Rounded-clip mask bytes prepared for one packet.
-    inline constexpr int packet_mask_max_bytes = 32 * constants::bytes_per_mib;
     // Diagnostic HUD overlay of the window presenter.
     inline constexpr int overlay_max_draws = 4096;
     inline constexpr int overlay_max_bytes = 16 * constants::bytes_per_mib;

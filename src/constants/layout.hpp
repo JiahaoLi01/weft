@@ -31,6 +31,11 @@ namespace weft::constants::layout {
     inline constexpr float default_object_width_px = 300;
     inline constexpr float default_object_height_px = 150;
 
+    // Glyph images kept across page display lists (page_display_list.hpp); a bound that would be exceeded clears
+    // them.
+    inline constexpr int glyph_image_cache_max_entries = 2048;
+    inline constexpr int glyph_image_cache_max_bytes = 16 * constants::bytes_per_mib;
+
     // Text budgets. Aggregate text bounds a whole tree; work bounds repeated shaping.
     inline constexpr int max_aggregate_text_bytes = constants::bytes_per_mib;
     inline constexpr int max_line_measure_work_bytes = constants::bytes_per_mib;

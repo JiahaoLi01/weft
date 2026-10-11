@@ -2,6 +2,8 @@
 
 #include "probe_common.hpp"
 #include "probe_constants.hpp"
+#include "layout/page_display_list.hpp"
+#include "render/quad_lowering.hpp"
 
 namespace probes {
     // Real captured TSX -> native DOM -> positioned CSS values -> backend C ABI.
@@ -40,242 +42,24 @@ namespace probes {
         draw.rect = {x, y, w, h};
     }
 
+    // Glyph images and rounded-clip masks kept across packets of one font.
     struct CheetahPacketCache {
-        using GlyphKey = std::tuple<std::uint32_t, std::uint32_t, float>;
-
-        struct Glyph {
-            weft::GlyphBitmap bitmap;
-            std::shared_ptr<const Asset> asset;
-        };
-
-        struct MaskKey {
-            std::shared_ptr<const Asset> input;
-            std::vector<float> coordinates;
-
-            bool operator<(const MaskKey& other) const {
-                const std::less<const Asset*> less;
-                if (less(input.get(), other.input.get())) {
-                    return true;
-                }
-                if (less(other.input.get(), input.get())) {
-                    return false;
-                }
-                return coordinates < other.coordinates;
-            }
-        };
-
-        const void* font_scope{};
-        std::map<GlyphKey, Glyph> glyphs;
-        std::map<MaskKey, std::shared_ptr<const Asset>> masks;
-        std::size_t glyph_bytes{};
-        std::size_t mask_bytes{};
-        std::size_t glyph_hits{};
-        std::size_t mask_hits{};
-        std::size_t glyph_misses{};
-        std::size_t mask_misses{};
-
-        void bind(const void* font) {
-            if (font_scope && font_scope != font) {
-                glyphs.clear();
-                masks.clear();
-                glyph_bytes = mask_bytes = 0;
-            }
-            font_scope = font;
-        }
+        weft::GlyphImages glyphs;
+        weft::render::QuadMasks masks;
     };
 
+    // The page's display list as quads (src/layout/page_display_list.hpp, src/render/quad_lowering.hpp).
     template <class FontT>
     FramePacket cheetah_packet(const weft::PositionedPage& page, FontT& font,
                                const std::map<std::string, std::shared_ptr<const Asset>>& images,
                                CheetahPacketCache* persistent = nullptr) {
-        FramePacket packet;
-        std::map<std::string, int> image_indices;
-        CheetahPacketCache local;
-        auto& cache = persistent ? *persistent : local;
-        cache.bind(&font);
-        std::map<const Asset*, int> asset_indices;
-        auto add_asset = [&](const std::shared_ptr<const Asset>& asset) {
-            const auto [i, inserted] = asset_indices.emplace(asset.get(), int(packet.assets.size()));
-            if (inserted) {
-                packet.assets.push_back(asset);
-            }
-            return i->second;
-        };
-        std::size_t mask_bytes{};
-        auto append = [&](Draw d, const std::array<float, 4>& clip, const std::vector<weft::RoundedClip>& masks) {
-            crop_draw(d, clip);
-            if (d.rect.w <= 0 || d.rect.h <= 0) {
-                return;
-            }
-            bool full = true;
-            for (const auto& c : masks) {
-                if (!weft::contains_rounded(c, d.rect.x, d.rect.y) ||
-                    !weft::contains_rounded(c, d.rect.x + d.rect.w, d.rect.y) ||
-                    !weft::contains_rounded(c, d.rect.x, d.rect.y + d.rect.h) ||
-                    !weft::contains_rounded(c, d.rect.x + d.rect.w, d.rect.y + d.rect.h)) {
-                    full = false;
-                    break;
-                }
-            }
-            if (!full) {
-                require(d.rect.w <= weft::constants::render::rounded_mask_max_dimension &&
-                            d.rect.h <= weft::constants::render::rounded_mask_max_dimension,
-                        "rounded quad size bound");
-                const auto w = UINT(std::ceil(d.rect.w));
-                const auto h = UINT(std::ceil(d.rect.h));
-                CheetahPacketCache::MaskKey key;
-                if (persistent) {
-                    if (d.asset >= 0) {
-                        key.input = packet.assets[d.asset];
-                    }
-                    key.coordinates = {d.rect.x, d.rect.y, d.rect.w, d.rect.h};
-                    key.coordinates.insert(key.coordinates.end(), d.uv.begin(), d.uv.end());
-                    for (const auto& c : masks) {
-                        key.coordinates.insert(key.coordinates.end(), c.rect.begin(), c.rect.end());
-                        key.coordinates.insert(key.coordinates.end(), c.radius_x.begin(), c.radius_x.end());
-                        key.coordinates.insert(key.coordinates.end(), c.radius_y.begin(), c.radius_y.end());
-                    }
-                    if (const auto i = cache.masks.find(key); i != cache.masks.end()) {
-                        ++cache.mask_hits;
-                        d.asset = add_asset(i->second);
-                        d.uv = {0, 0, 1, 1};
-                        packet.draws.push_back(d);
-                        return;
-                    }
-                    ++cache.mask_misses;
-                }
-                auto coverage = weft::rounded_coverage(masks, {d.rect.x, d.rect.y, d.rect.w, d.rect.h}, w, h);
-                const Asset* old = d.asset < 0 ? nullptr : packet.assets[d.asset].get();
-                const bool image = old && old->encoding == Encoding::SrgbStraight;
-                require(!old || old->encoding != Encoding::SignedDistance, "rounded SDF preparation pending");
-                const auto bytes = std::size_t(w) * h * (image ? weft::constants::rgba8_bytes_per_pixel : 1);
-                require(bytes <= weft::probe_constants::packet_mask_max_bytes - mask_bytes,
-                        "rounded preparation byte bound");
-                mask_bytes += bytes;
-                auto combined = std::make_shared<Asset>(
-                    Asset{w, h, image ? Encoding::SrgbStraight : Encoding::Coverage, std::vector<std::uint8_t>(bytes)});
-                for (UINT y = 0; y < h; ++y) {
-                    for (UINT x = 0; x < w; ++x) {
-                        auto index = std::size_t(y) * w + x;
-                        float alpha = coverage[index] / weft::probe_constants::color_channel_max_float;
-                        if (!old) {
-                            combined->bytes[index] = coverage[index];
-                            continue;
-                        }
-                        const float tx = (d.uv[0] + (x + .5f) / w * d.uv[2]) * old->width - .5f;
-                        const float ty = (d.uv[1] + (y + .5f) / h * d.uv[3]) * old->height - .5f;
-                        const int ix = int(std::floor(tx));
-                        const int iy = int(std::floor(ty));
-                        const float fx = tx - ix;
-                        const float fy = ty - iy;
-                        Color sampled{};
-                        for (int yy = 0; yy < 2; ++yy) {
-                            for (int xx = 0; xx < 2; ++xx) {
-                                const auto px = std::clamp(ix + xx, 0, int(old->width) - 1);
-                                const auto py = std::clamp(iy + yy, 0, int(old->height) - 1);
-                                const auto j = std::size_t(py) * old->width + px;
-                                float weight = (xx ? fx : 1 - fx) * (yy ? fy : 1 - fy);
-                                if (!image) {
-                                    sampled[3] +=
-                                        old->bytes[j] / weft::probe_constants::color_channel_max_float * weight;
-                                } else {
-                                    float a = old->bytes[j * 4 + 3] / weft::probe_constants::color_channel_max_float;
-                                    for (int c = 0; c < 3; ++c) {
-                                        sampled[c] += decode(old->bytes[j * 4 + c] /
-                                                             weft::probe_constants::color_channel_max_float) *
-                                                      a * weight;
-                                    }
-                                    sampled[3] += a * weight;
-                                }
-                            }
-                        }
-                        if (!image) {
-                            combined->bytes[index] =
-                                std::uint8_t(std::lround(alpha * sampled[3] * weft::constants::color_channel_max));
-                        } else {
-                            for (int c = 0; c < 3; ++c) {
-                                float linear = sampled[3] > 0 ? std::clamp(sampled[c] / sampled[3], 0.f, 1.f) : 0;
-                                float srgb = linear <= weft::probe_constants::srgb_encode_threshold
-                                                 ? linear * weft::probe_constants::srgb_linear_slope
-                                                 : weft::probe_constants::srgb_scale *
-                                                           std::pow(linear, 1 / weft::probe_constants::srgb_gamma) -
-                                                       weft::probe_constants::srgb_offset;
-                                combined->bytes[index * 4 + c] =
-                                    std::uint8_t(std::lround(srgb * weft::constants::color_channel_max));
-                            }
-                            combined->bytes[index * 4 + 3] =
-                                std::uint8_t(std::lround(sampled[3] * alpha * weft::constants::color_channel_max));
-                        }
-                    }
-                }
-                if (persistent && bytes <= weft::probe_constants::mask_cache_max_bytes) {
-                    if (cache.masks.size() >= weft::probe_constants::mask_cache_max_entries ||
-                        bytes > weft::probe_constants::mask_cache_max_bytes - cache.mask_bytes) {
-                        cache.masks.clear();
-                        cache.mask_bytes = 0;
-                    }
-                    cache.mask_bytes += bytes;
-                    cache.masks.emplace(std::move(key), combined);
-                }
-                d.asset = add_asset(combined);
-                d.uv = {0, 0, 1, 1};
-            }
-            packet.draws.push_back(d);
-        };
-        for (const auto& item : page.paints) {
-            const auto& p = item.paint;
-            if (!item.image_source.empty()) {
-                require(images.contains(item.image_source),
-                        "WEFT_RESOURCE_PROFILE: image not in fixture host allowlist");
-                if (!image_indices.contains(item.image_source)) {
-                    image_indices[item.image_source] = add_asset(images.at(item.image_source));
-                }
-                Draw d{{p.x, p.y, p.width, p.height}, {1, 1, 1, 1}, image_indices.at(item.image_source)};
-                d.uv = item.uv;
-                append(d, item.clip, item.rounded_clips);
-            } else if (p.kind == weft::PaintKind::Rectangle) {
-                append({{p.x, p.y, p.width, p.height}, p.srgb}, item.clip, item.rounded_clips);
-            } else {
-                float pen_x = p.x;
-                float pen_y = p.y;
-                for (const auto& glyph : p.shaped.glyphs) {
-                    const auto key = std::tuple{glyph.font_id, glyph.glyph_id, p.font_size};
-                    if (!cache.glyphs.contains(key)) {
-                        ++cache.glyph_misses;
-                        CheetahPacketCache::Glyph cached;
-                        cached.bitmap = font.rasterize(glyph, p.font_size);
-                        auto& b = cached.bitmap;
-                        const auto bytes = b.coverage.size();
-                        require(!persistent || bytes <= weft::probe_constants::glyph_cache_max_bytes,
-                                "glyph preparation cache byte bound");
-                        if (persistent && (cache.glyphs.size() >= weft::probe_constants::glyph_cache_max_entries ||
-                                           bytes > weft::probe_constants::glyph_cache_max_bytes - cache.glyph_bytes)) {
-                            cache.glyphs.clear();
-                            cache.glyph_bytes = 0;
-                        }
-                        if (b.width && b.height) {
-                            cache.glyph_bytes += bytes;
-                            cached.asset = std::make_shared<const Asset>(
-                                Asset{b.width, b.height, Encoding::Coverage, std::move(b.coverage)});
-                        }
-                        cache.glyphs.emplace(key, std::move(cached));
-                    } else {
-                        ++cache.glyph_hits;
-                    }
-                    const auto& cached = cache.glyphs.at(key);
-                    const auto& b = cached.bitmap;
-                    if (cached.asset) {
-                        append({{pen_x + glyph.offset_x + b.left, pen_y - glyph.offset_y - b.top, float(b.width),
-                                 float(b.height)},
-                                p.srgb,
-                                add_asset(cached.asset)},
-                               item.clip, item.rounded_clips);
-                    }
-                    pen_x += glyph.advance_x;
-                    pen_y -= glyph.advance_y;
-                }
-            }
+        // Masks combine the previous font's glyph images; another font starts both over.
+        if (persistent && persistent->glyphs.bind(&font)) {
+            persistent->masks.masks.clear();
+            persistent->masks.bytes = 0;
         }
+        const auto list = weft::page_display_list(page, font, images, persistent ? &persistent->glyphs : nullptr);
+        auto packet = weft::render::lower_to_quads(list, persistent ? &persistent->masks : nullptr);
         require(packet.assets.size() < weft::probe_constants::max_frame_assets,
                 "bounded game image/glyph/mask resources");
         return packet;

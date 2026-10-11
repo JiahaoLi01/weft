@@ -157,4 +157,9 @@ namespace weft::constants::render {
     inline constexpr int rounded_mask_max_pixels = 8 * 1024 * 1024;
     // Supersampling grid per axis for partially covered mask pixels.
     inline constexpr unsigned rounded_mask_samples_per_axis = 16;
+    // Quad lowering (quad_lowering.hpp): rounded-clip mask bytes prepared for one packet, and the masks kept across
+    // packets; a kept-mask bound that would be exceeded clears them.
+    inline constexpr int quad_mask_packet_max_bytes = 32 * constants::bytes_per_mib;
+    inline constexpr int quad_mask_cache_max_entries = 1024;
+    inline constexpr int quad_mask_cache_max_bytes = 32 * constants::bytes_per_mib;
 } // namespace weft::constants::render

@@ -62,7 +62,8 @@ namespace weft::render {
     };
 
     // Plans a list that passed paint::check for a width x height device px target at scale device px per CSS px,
-    // with every item clip narrowed to crop when given.
-    ScenePass plan_scene_pass(const paint::DisplayList& list, float scale, unsigned width, unsigned height,
-                              std::optional<paint::ClipRect> crop = std::nullopt);
+    // with every item clip narrowed to crop when given. The pass draws boxes, rasters and groups without rounded
+    // clips; a list with other items is Diag::PaintList.
+    Result<ScenePass> plan_scene_pass(const paint::DisplayList& list, float scale, unsigned width, unsigned height,
+                                      std::optional<paint::ClipRect> crop = std::nullopt);
 } // namespace weft::render

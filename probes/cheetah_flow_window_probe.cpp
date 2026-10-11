@@ -805,10 +805,10 @@ namespace probes {
                             ",\"native_uploads\":" + std::to_string(gpu.uploads) +
                             ",\"gpu_cache_hits\":" + std::to_string(gpu.cache_hits) +
                             ",\"gpu_cache_peak_bytes\":" + std::to_string(gpu.peak_cached_bytes) +
-                            ",\"cpu_glyph_cache_bytes\":" + std::to_string(packet_cache.glyph_bytes) +
-                            ",\"cpu_mask_cache_bytes\":" + std::to_string(packet_cache.mask_bytes) +
-                            ",\"glyph_cache_hits\":" + std::to_string(packet_cache.glyph_hits) +
-                            ",\"mask_cache_hits\":" + std::to_string(packet_cache.mask_hits) + "}";
+                            ",\"cpu_glyph_cache_bytes\":" + std::to_string(packet_cache.glyphs.bytes) +
+                            ",\"cpu_mask_cache_bytes\":" + std::to_string(packet_cache.masks.bytes) +
+                            ",\"glyph_cache_hits\":" + std::to_string(packet_cache.glyphs.hits) +
+                            ",\"mask_cache_hits\":" + std::to_string(packet_cache.masks.hits) + "}";
             write_text(folder / "profile.json", profile_text);
         }
         const auto motion_state = motion ? script.eval("JSON.stringify(__ceMotion.snapshot())") : "null";
@@ -846,7 +846,8 @@ namespace probes {
             << presenter.overlay_updates << ",\"native_texture_creations\":" << gpu.native_creations
             << ",\"native_uploads\":" << gpu.uploads << ",\"gpu_cache_hits\":" << gpu.cache_hits
             << ",\"gpu_cache_peak_bytes\":" << gpu.peak_cached_bytes
-            << ",\"glyph_cache_hits\":" << packet_cache.glyph_hits << ",\"mask_cache_hits\":" << packet_cache.mask_hits
+            << ",\"glyph_cache_hits\":" << packet_cache.glyphs.hits
+            << ",\"mask_cache_hits\":" << packet_cache.masks.hits
             << ",\"motion_enabled\":" << (motion ? "true" : "false") << ",\"motion\":" << motion_state
             << ",\"pipeline_depth\":" << (pipeline ? weft::probe_constants::frames_in_flight : 1)
             << ",\"peak_in_flight\":" << (pipeline ? pipeline->peak_in_flight : 1)

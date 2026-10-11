@@ -4,6 +4,13 @@
 
 ## 本次已实现
 
+重构第 10 步之三（a）：文档版面产出 `DisplayList`（2026-10-11）。详见 [重构计划](refactoring-plan.md#第-10-步记录2026-10-11)。
+- **结果**：
+  - IR 增加图片条目、资产与圆角裁剪区间；
+  - 文档版面经 `page_display_list()` 产出显示列表，再由可移植的 `lower_to_quads()` 降成原来的四边形包（CPU 圆角遮罩从探针移入 `src/render`）。像素与产物不变。
+- **验证**：`ctest --preset windows-release --parallel 6` 102/102，`windows-debug --parallel 6` 102/102（334.1 s）；1306 个产物逐字节相同（含全部文档路径套件）；`paint_contract` 增加降级检查。
+- **下一步**：10.3b，统一渲染器直接绘制文档显示列表：着色器内的圆角裁剪链、图片条目与线性合成。
+
 重构第 10 步之二：可移植的 scene pass 规划（2026-10-11）。详见 [重构计划](refactoring-plan.md#第-10-步记录2026-10-11)。
 - **结果**：scene pass 的实例记录与绘制步骤由可移植代码规划，D3D11 只执行；Vulkan 后端将复用同一规划。像素与产物不变。
 - **验证**：`ctest --preset windows-release --parallel 6` 102/102，`windows-debug --parallel 6` 102/102（227.3 s）；1306 个产物逐字节相同；`paint_contract` 增加规划检查。

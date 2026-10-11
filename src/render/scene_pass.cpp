@@ -1,6 +1,7 @@
 #include "render/scene_pass.hpp"
 
 #include <algorithm>
+#include <string>
 
 namespace weft::render {
     namespace {
@@ -87,8 +88,15 @@ namespace weft::render {
         }
     } // namespace
 
-    ScenePass plan_scene_pass(const paint::DisplayList& list, float scale, unsigned width, unsigned height,
-                              std::optional<paint::ClipRect> crop) {
+    Result<ScenePass> plan_scene_pass(const paint::DisplayList& list, float scale, unsigned width, unsigned height,
+                                      std::optional<paint::ClipRect> crop) {
+        for (std::size_t i = 0; i < list.items.size(); ++i) {
+            if (list.items[i].kind == Kind::Image || list.items[i].clips_count) {
+                return make_diagnostic(Diag::PaintList,
+                                       "scene pass draws boxes, rasters and groups without rounded clips; item " +
+                                           std::to_string(i));
+            }
+        }
         ScenePass pass;
         pass.records.reserve(list.items.size());
         for (const auto& item : list.items) {
