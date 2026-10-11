@@ -70,7 +70,7 @@ probes/ tests/ tools/      证据与验证，只依赖 src，不被 src 依赖
 | 7 ✅ | 类型化样式：PropertyId、长度/颜色/关键字值，去掉字符串往返与正则插值 | `style_probe`、`flow_page`、`auto_page`、`scene_probe` | 级联/动画差分、gallery 像素与几何；见下方第 7 步记录 |
 | 8 ✅（paint IR 推迟到第 10 步） | 统一格式化路径：一个调度器、一个 Yoga 适配器、一个 paint IR、一条命中路径；golden 迁移后删除 page/positioned/auto | `src/layout/*`、`input_probe` | 旧 profile 的浏览器差分全部改跑新路径 |
 | 9 ✅ | DOM 与脚本分离：NodeId 原生树、与 style 共用选择器；QuickJS 对象成为包装；Canvas 状态移到旁表 | `script_dom_probe.cpp`、`style_probe.cpp` | DOM 生命周期、GC 压力、D3 / React 原包 |
-| 10（暂缓） | 一份 paint IR 与统一渲染器（第 8 步推迟的部分）；第二个图形后端（Vulkan 或 Metal）与 Android/iOS 平台层，按 concept 接入；主机构建选项 | `src/render/backends`、`src/platform` | 平台验证按“配置/编译/链接/模拟器/真机功能/真机性能”分级记录 |
+| 10（进行中，见下方计划） | 一份 paint IR 与统一渲染器（第 8 步推迟的部分）；第二个图形后端（Vulkan 或 Metal）与 Android/iOS 平台层，按 concept 接入；主机构建选项 | `src/render/backends`、`src/platform` | 平台验证按“配置/编译/链接/模拟器/真机功能/真机性能”分级记录 |
 
 ## 第 1 步记录（2026-10-10）
 
@@ -643,6 +643,38 @@ CMake 拆分：
   - 数据在 `artifacts/local/step9/owner-cpu-9.5a/`、`owner-cpu-9.5b/`。
 
 第 9 步就此完成。求解器里还有不随版本号的整份工作：样式输入键每帧重建、上一帧 SceneNode 与计算样式的整份拷贝。它们不属于快照，留待后续（后由 owner CPU 第五轮第 3 步完成，见 [交互性能](gallery-interaction-profile.md#重构之后继续压-owner-cpu2026-10-11第五轮)）。
+
+## 第 10 步计划（2026-10-11）
+
+**用户决定（2026-10-11）**：第 9 步完成后开始第 10 步。先统一 paint IR 与渲染器，再接第二个图形后端和移动平台。开发机是 Windows PC，第二个后端选 Vulkan。
+
+现状（只读调研）：
+- 两份绘制 IR，两个 D3D11 渲染器：
+  - 文档：版面输出 `PositionedPage`（矩形、文字、图片，带裁剪矩形和圆角裁剪链）在探针里转成 `render::FramePacket` 的轴对齐四边形。圆角裁剪在 CPU 上栅格成遮罩资产，字形也由 owner 栅格成资产。`d3d11::Renderer` 每个四边形一次绘制调用，按线性预乘混合。
+  - scene：`compile_native_scene` 产出 `NativeScene`（带矩阵的圆角盒、边框、渐变、文字与图层图像、隔离组）。`d3d11::SceneRenderer` 用 `scene.hlsl` 实例化绘制，按与 D2D/Chrome 相同的编码空间预乘混合。SVG、投影变换、阴影等整帧回退 D2D；含彩色字形的文字和显式图层也由 D2D 栅格。
+- 对外 C ABI v1（`weft_render_frame`）是四边形加资产，属实验接口。
+
+目标（架构合同“FramePacket 与 GPU 生命周期”“绘制顺序与后端”两节）：
+- 一份可移植的 `paint::DisplayList`：值型绘制项、逻辑坐标、变换、裁剪链、分组顺序，以及字体与图片的不可变 lease；不含 atlas UV、设备对象或 Node 指针。
+- 一个渲染器：可移植部分（准备、批处理、字形 atlas、分组、裁剪）写一次；后端只实现设备、资源、管线和 pass。D3D11 与 Vulkan 共用同一份 HLSL 源码（Vulkan 经 glslang 编成 SPIR-V）。
+- 合成空间是 pass 的属性：文档 pass 用线性预乘（架构决定），scene pass 保持编码空间预乘（Chrome 对照基线）。
+- D2D 只作 Windows 参考 oracle，不再是任何平台的绘制路径。
+
+分段（每段单独验证、提交）：
+
+| 段 | 内容 | 验证 |
+| --- | --- | --- |
+| 10.1 | `src/paint`：`DisplayList` 与 scene 生产者，替换 `NativeScene`；`SceneRenderer` 改读 `DisplayList` | scene-native、cluster GPU 产物逐字节不变 |
+| 10.2 | 文档生产者 `PositionedPage → DisplayList`；统一渲染器补齐圆角裁剪链（着色器内距离场）、字形 atlas、图片与线性合成；退役每四边形一次调用的旧路径和 CPU 圆角遮罩 | 文档类浏览器差分全部通过；像素变化逐套说明 |
+| 10.3 | 可移植文字与路径：FreeType 彩色字形；SVG 填充与描边的 CPU 三角化（带抗锯齿）；scene 不再回退 D2D 绘制 | D2D oracle 与 Chrome 对照；回退计数降为 0 或逐项列出 |
+| 10.4 | Vulkan 后端：同一渲染器核心与同一 HLSL；宿主 encode/submit/完成 serial 合同；WARP/D3D11 对照 | Vulkan 与 D3D11 像素差分、完成与退休、validation layer 零告警 |
+| 10.5 | `src/platform` concept；Android（NDK）与 iOS 平台层；主机构建选项 | 按“配置/编译/链接/模拟器/真机功能/真机性能”分级记录，未执行的标为未验证 |
+
+依赖与工具（需要用户确认下载）：
+- Vulkan 官方头文件（Khronos Vulkan-Headers，Apache-2.0），按固定 tag vendored 进 `third_party`，记录 SHA-256。运行时经驱动自带的 `vulkan-1.dll` 加载，不依赖 Vulkan SDK。
+- SPIR-V 编译：本机 Windows SDK 的 dxc 没有 SPIR-V 后端；RenderDoc 自带 glslang 16.2.0 可把现有 HLSL 编成 SPIR-V，但不是可复现的构建依赖。候选：vendored glslang 源码在构建期编译，或要求安装固定版本的 Vulkan SDK。
+- validation layer 需要 Vulkan SDK 或单独的 layer 包。
+- Android NDK 用于编译与链接验证；iOS 需要 macOS 与 Xcode，本机只能做到“代码与配置”，编译及以上全部标为未验证。
 
 ## 顺序调整（2026-10-10）
 
