@@ -9,7 +9,7 @@
 #include <vector>
 
 // The portable plan of a scene pass: a display list as instance records of the shared scene shader
-// (src/render/backends/d3d11/scene.hlsl) and the steps that draw them. A backend uploads the records and runs the
+// (src/render/shaders/scene.hlsl) and the steps that draw them. A backend uploads the records and runs the
 // steps with its own targets, images and draw calls.
 namespace weft::render {
     namespace scene_limits = constants::render::scene;
@@ -33,7 +33,8 @@ namespace weft::render {
         std::array<Vector, scene_limits::gradient_offset_vectors> offsets;
         // Image origin and extent in its asset.
         Vector uv{0, 0, 1, 1};
-        // Image mode, then distance spread and stroke in source texels.
+        // Image mode, then distance spread and stroke in source texels, and the texels one device pixel spans for the
+        // antialiasing of a linear pass's distance edges.
         Vector mode;
         Vector outline;
         // First rounded clip and count in ScenePass::clips.

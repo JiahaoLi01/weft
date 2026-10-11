@@ -4,6 +4,18 @@
 
 ## 本次已实现
 
+重构第 10 步之四（a）：Vulkan 渲染器直接绘制显示列表（2026-10-12）。详见 [重构计划](refactoring-plan.md#第-10-步记录2026-10-11)。
+- **结果**：
+  - Vulkan-Headers 固定版本 vendored，DXC 把共享着色器编成 SPIR-V；
+  - `weft::render_vulkan` 运行时加载驱动，绘制显示列表与隔离组并回读；
+  - 线性变体改用细导数和按映射计算的距离边缘宽度，使后端之间一致。
+- **验证**：
+  - `ctest --preset windows-release --parallel 6` 103/103，`windows-debug --parallel 6` 103/103（293.5 s）；
+  - RTX 5090 与 AMD Radeon 核显上 Vulkan 与 D3D11 WARP 最多差 2 级，验证层零告警；
+  - D3D11 的 SDF 夹具像素变化，见计划；4 个变异全部被发现。
+- **未验证**：Vulkan 的 C ABI 适配器、两帧在途、交换链窗口、Android 与 iOS。
+- **下一步**：10.4b，Vulkan 的 C ABI 适配器与宿主提交、完成合同。
+
 重构第 10 步之三（d）：字形 atlas 与按纹理合批（2026-10-12）。详见 [重构计划](refactoring-plan.md#第-10-步记录2026-10-11)。
 - **结果**：缓存渲染器把小覆盖率资产放进共享的 R8 atlas 页面，相邻的盒子与同页字形合成一次绘制；4K 文档页每帧约 23 次绘制。
 - **验证**：`ctest --preset windows-release --parallel 6` 102/102，`windows-debug --parallel 6` 102/102（310.2 s）；产物与 10.3c 逐字节相同；RTX 5090 硬件探针通过；6 个变异全部被发现。

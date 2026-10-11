@@ -7,3 +7,6 @@ weft_add_library(render
 if(WIN32)
     add_subdirectory(backends/d3d11)
 endif()
+if(WEFT_RENDER_VULKAN)
+    add_subdirectory(backends/vulkan)
+endif()

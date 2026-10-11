@@ -132,8 +132,8 @@ namespace {
     }
 
     // Instance bounds: an encoded box keeps its antialiasing outset (2 device px), a linear pass's plain box covers
-    // pixel centers and its bounds are the box; both stop at the outset past the clip, and a box clipped away covers
-    // nothing.
+    // pixel centers and its bounds reach half a pixel past it; both stop at the outset past the clip, and a box clipped
+    // away covers nothing.
     void bounds() {
         paint::DisplayList list;
         list.boxes.emplace_back().background = {1, 0, 0, 1};
@@ -149,7 +149,7 @@ namespace {
         require(encoded.records[1].bounds[2] == 0 && encoded.records[1].bounds[3] == 0, "clipped box bounds");
         const auto linear =
             weft::render::plan_scene_pass(list, 2, 400, 400, std::nullopt, weft::render::Space::Linear).value();
-        require(linear.records[0].bounds == std::array<float, 4>{10.5f, 20.25f, 30, 29.75f}, "linear box bounds");
+        require(linear.records[0].bounds == std::array<float, 4>{10.25f, 20, 30.5f, 30.25f}, "linear box bounds");
         list.boxes[0].radii = {4, 4, 4, 4};
         const auto rounded =
             weft::render::plan_scene_pass(list, 2, 400, 400, std::nullopt, weft::render::Space::Linear).value();
@@ -225,6 +225,7 @@ namespace {
         images.images.push_back(distance);
         images.items[1] = item(Kind::Image);
         images.items[4] = item(Kind::Image, 1);
+        images.items[4].width = images.items[4].height = 4;
         require(bool(paint::check(images, 1)), "image list is well formed");
         const auto encoded = weft::render::plan_scene_pass(images, 2, 100, 80).value();
         const auto& m = encoded.records[1];
@@ -232,7 +233,9 @@ namespace {
                     m.mode[0] == 1 && m.uv == mask.uv && m.background == mask.color,
                 "coverage image record");
         const auto& d = encoded.records[4];
-        require(d.mode == std::array<float, 4>{2, 6, 2, 0} && d.outline == distance.outline, "distance image record");
+        // One texel over 4 CSS px at 2 device px per CSS px: an eighth of a texel per device pixel.
+        require(d.mode == std::array<float, 4>{2, 6, 2, .125f} && d.outline == distance.outline,
+                "distance image record");
         const auto linear =
             weft::render::plan_scene_pass(images, 2, 100, 80, std::nullopt, weft::render::Space::Linear).value();
         require(linear.space == weft::render::Space::Linear &&

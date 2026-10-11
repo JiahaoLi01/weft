@@ -44,7 +44,7 @@ struct Paint {
     float4 offsets[2];
     // Image origin and extent in its asset.
     float4 uv;
-    // x: image mode, y: distance spread and z: stroke, in source texels.
+    // x: image mode, y: distance spread and z: stroke, in source texels; w: source texels per device pixel.
     float4 mode;
     float4 outline;
     // x: first rounded clip, y: rounded clip count.
@@ -155,6 +155,16 @@ float clipChain(Paint p, float2 world) {
     return coverage;
 }
 
+// How fast v changes across a pixel. A linear pass takes fine derivatives, which every backend computes alike: Vulkan
+// leaves fwidth coarse or fine, and an RTX 5090 widened distance edges by up to 18 levels against WARP.
+float pixelWidth(float v) {
+#if SPACE_LINEAR
+    return abs(ddx_fine(v)) + abs(ddy_fine(v));
+#else
+    return fwidth(v);
+#endif
+}
+
 float4 over(float4 a, float4 b) {
     return a + b * (1 - a.a);
 }
@@ -237,7 +247,14 @@ float4 ps_main(Vertex v) : SV_Target {
         if (p.mode.x == ImageModeSignedDistance) {
             // Distance is linear data; no sRGB transfer, no coverage interpretation.
             float d = (image.SampleLevel(linearClamp, uv, 0).r * SdfByteMax - SdfZeroByte) * p.mode.y / SdfZeroByte;
-            float aa = max(fwidth(d), MinimumAntialiasWidth);
+#if SPACE_LINEAR
+            // The distance changes one source texel per texel, so its edge spans the texels of one device pixel (mode.w,
+            // from the item's mapping): the same on every backend, unlike derivatives of sampled distances, which jump
+            // across the plateaus of 8-bit distances.
+            float aa = max(p.mode.w, MinimumAntialiasWidth);
+#else
+            float aa = max(pixelWidth(d), MinimumAntialiasWidth);
+#endif
             float fill = saturate(.5 + d / aa);
             float outer = saturate(.5 + (d + p.mode.z) / aa);
             return (premult(p.background) * fill + premult(p.outline) * (outer - fill)) * p.extra.y * coverage;
@@ -251,7 +268,7 @@ float4 ps_main(Vertex v) : SV_Target {
                p.extra.y * coverage;
     }
     float sd = distanceRound(position, p.size.xy, p.radii);
-    float aa = max(fwidth(sd), MinimumAntialiasWidth);
+    float aa = max(pixelWidth(sd), MinimumAntialiasWidth);
     float outer = saturate(.5 - sd / aa);
 #if SPACE_LINEAR
     // A document box without corners or rotation covers the pixels whose centers it contains, as the rasterizer

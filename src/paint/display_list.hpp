@@ -42,7 +42,7 @@ namespace weft::paint {
         float spread{};
     };
 
-    // Values equal the gradient codes of the shared shaders (src/render/backends/d3d11/scene.hlsl).
+    // Values equal the gradient codes of the shared shaders (src/render/shaders/scene.hlsl).
     enum class GradientKind : std::uint8_t {
         None,
         Linear,

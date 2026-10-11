@@ -4,6 +4,7 @@
 #include "render/srgb.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 #include <string>
 
@@ -81,6 +82,16 @@ namespace weft::render {
             float det = m[0] * m[3] - m[1] * m[2];
             r.inv_x = {m[3] / det, -m[2] / det, (m[2] * m[5] - m[3] * m[4]) / det, 0};
             r.inv_y = {-m[1] / det, m[0] / det, (m[1] * m[4] - m[0] * m[5]) / det, 0};
+            if (item.kind == Kind::Image && r.mode[0] == scene_limits::image_mode_signed_distance && r.size[0] > 0 &&
+                r.size[1] > 0) {
+                // A distance field changes one source texel per texel, so its edges antialias over the texels that one
+                // device pixel spans (the mean of both axes), from the item's mapping.
+                const auto& a = *list.assets[list.images[item.payload].asset];
+                const float tx = a.width * r.uv[2] / r.size[0] / scale;
+                const float ty = a.height * r.uv[3] / r.size[1] / scale;
+                r.mode[3] =
+                    (std::hypot(tx * r.inv_x[0], ty * r.inv_y[0]) + std::hypot(tx * r.inv_x[1], ty * r.inv_y[1])) / 2;
+            }
             float left = scene_limits::record_bounds_sentinel;
             float top = scene_limits::record_bounds_sentinel;
             float right = -scene_limits::record_bounds_sentinel;
@@ -96,15 +107,15 @@ namespace weft::render {
             }
             // Bounds reach past the item by the antialiasing outset, and at most that far past its clip: the shader draws
             // nothing outside the clip, so an item clipped away covers no pixels. A linear pass's axis-aligned images
-            // and boxes without corners cover the pixels whose centers they contain, as the rasterizer covers their
-            // bounds, so they need no outset.
+            // and boxes without corners cover the pixels whose centers they contain and need only half a pixel.
             const bool pixel_centers =
                 space == Space::Linear && m[1] == 0 && m[2] == 0 &&
                 (item.kind == Kind::Image ||
                  (item.kind == Kind::Box && std::all_of(r.radii.begin(), r.radii.end(), [](float v) {
                       return v == 0;
                   })));
-            const float outset = pixel_centers ? 0 : scene_limits::record_bounds_outset / scale;
+            const float outset =
+                (pixel_centers ? scene_limits::pixel_center_outset : scene_limits::record_bounds_outset) / scale;
             const float x0 = std::max(left - outset, clip[0] - outset);
             const float y0 = std::max(top - outset, clip[1] - outset);
             const float x1 = std::min(right + outset, clip[2] + outset);

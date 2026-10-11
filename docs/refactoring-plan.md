@@ -822,6 +822,28 @@ CMake 拆分：
 - `paint_contract` 增加装箱（货架顺序、开新页、页数上限、清空后重来、重复归还）与按纹理合批的检查；`render_d3d11_contract` 增加缓存渲染器经 atlas 绘制 48 个缩放覆盖率图，与单独纹理对照，每帧不超过 4 次绘制，第二帧全部命中，清空缓存后区域全部归还；
 - 变异检查 6 个（不复制边缘、不映射页内区域、合批不比较纹理、淘汰不归还区域、上传写到页面原点、批次绑错纹理）全部被发现。
 
+**10.4a：Vulkan 渲染器直接绘制显示列表**：
+- 依赖（用户 2026-10-11 批准下载）：
+  - Vulkan-Headers 按 tag vulkan-sdk-1.4.363.0（commit 6802bb47）vendored 进 `third_party/vulkan-headers`，只取 C 头文件与许可，逐文件锁 hash；
+  - Vulkan SDK 1.4.363.0（LunarG 签名，SHA-256 与 winget 清单一致）提供验证层和 DXC 1.9.0.5512；`cmake/WeftSpirv.cmake` 核对 DXC 版本，没有它时 Vulkan 后端不构建。
+- 共享着色器移到 `src/render/shaders/scene.hlsl`。DXC 把线性变体编成 SPIR-V（Vulkan 1.1，VS 翻转 y），寄存器按位移放进一个描述符集：b0→0，t0/t1/t2→10/11/12，s0→20（`constants::render::vulkan` 同名常量）。
+- `weft::render_vulkan`：
+  - `Device`：运行时打开驱动的加载器（Windows `vulkan-1.dll`，其他平台 `libvulkan.so.1`），不链接导入库；装了验证层就启用，并统计 warning/error；选指定名字、否则第一块独显的设备；
+  - `Renderer`：资产经暂存缓冲上传（半透明 sRGB 图像在 CPU 上按与 D3D11 GPU 转换逐位相同的算法转成线性预乘浮点）；用可移植规划绘制，同一资产的相邻图片合批；Vulkan 的实例号已含 firstInstance，所以每批用 firstInstance 定位、View 常量里的 base 为 0；隔离组在浮点图层里合成（R32G32B32A32 不支持混合时用 16 位浮点）；用传统渲染通道，兼顾只有 Vulkan 1.1 的 Android 设备；这一版每帧等待完成，C ABI 与两帧在途留到 10.4b；
+  - 组图层在录制前按规划的嵌套深度一次建好。最初在 BeginGroup 时按需追加，嵌套组让图层数组扩容，目标栈里指向旧图层的指针随之失效：Debug 下 `render_vulkan_contract` 崩溃，Release 碰巧通过。D3D11 按下标取图层，没有这个问题。
+- 测试：D3D11 与 Vulkan 共用的显示列表和 CPU 期望移到 `tests/support/render_lists.hpp`；`render_vulkan_contract` 用同一份列表对照 CPU 期望和 D3D11 WARP 的像素。
+- 跨后端一致性：
+  - Vulkan 允许 `fwidth` 取粗导数或细导数，RTX 5090 上距离场边缘与 WARP 差到 18 级；线性变体改用显式细导数（`ddx_fine`/`ddy_fine`，Vulkan 1.0 必须支持）；
+  - 距离场边缘的宽度不再对采样值求导：距离每个纹素变化一个纹素，宽度就是一个设备像素覆盖的纹素数，由规划器按条目映射算出放进记录（`mode.w`）。对采样值求导会在 8 位距离的平台上骤变；
+  - 能覆盖像素中心的条目，范围外扩半个像素：Vulkan 对恰好落在边上的像素中心，取舍规则由实现决定；
+  - 编码变体（scene）的代码不变。
+- 像素：D3D11 的 SDF 夹具（`sdf`、`backend` 的 sdf.png）每张 1006 个像素变化，最差 143 级，都在缩放拉丁字形的边缘；方块直边与描边的误差指标（0.0633、0.0343）前后相同，大差值是旧算法在采样距离上求导时的孤立毛刺。其余产物与 10.3d 逐字节相同（计时套件除外，Release 与 Debug 都比较了）。
+
+验证：
+- `ctest --preset windows-release --parallel 6` 103/103（新增 `render_vulkan_contract`，没有 Vulkan 时以 77 跳过），`windows-debug --parallel 6` 103/103（293.5 s）；
+- `render_vulkan_contract` 在 RTX 5090（Vulkan 1.4.341）上：页面列表的各部分符合 CPU 期望，两帧隔离组正确，与 D3D11 WARP 对照页面列表最差 1 级、隔离组 0、字形 2 级，验证层零告警；`--adapter AMD` 在 AMD Radeon 核显（1.4.315）上同样通过，最差 1 级；
+- 变异检查 4 个（直通混合、组图层不转为着色器读、实例都从记录 0 开始、距离边缘宽度为零）全部被发现：前三个由 `render_vulkan_contract`，第四个由 `paint_contract`；组图层不转换时验证层是否也报告，未单独确认。
+
 ## 顺序调整（2026-10-10）
 
 用户决定先完成第 7–9 步，第 10 步（第二个图形后端与移动平台）暂缓。跨平台仍是硬性需求：

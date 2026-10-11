@@ -23,6 +23,11 @@ if(MSVC)
     endforeach()
 endif()
 
+# Vulkan C headers only; the Vulkan backend opens the system loader at run time.
+add_library(weft_vulkan_headers INTERFACE)
+target_include_directories(weft_vulkan_headers SYSTEM INTERFACE
+    "${PROJECT_SOURCE_DIR}/third_party/vulkan-headers/source/include")
+
 # libunibreak ships no CMake project; build its line, grapheme and word break sources directly.
 set(WEFT_UNIBREAK_SRC "${PROJECT_SOURCE_DIR}/third_party/libunibreak/source/src")
 add_library(weft_unibreak STATIC

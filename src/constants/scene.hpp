@@ -67,7 +67,7 @@ namespace weft::constants::scene {
     inline constexpr float damage_full_repaint_ratio = .65f;
 
     // Scene display lists (scene_display_list.hpp).
-    // Mirrors MaxGradientStops in src/render/backends/d3d11/scene.hlsl.
+    // Mirrors MaxGradientStops in src/render/shaders/scene.hlsl.
     inline constexpr int max_gradient_stops = 8;
     inline constexpr int max_display_list_items = 2048;
     // Deepest nesting of isolated opacity groups.

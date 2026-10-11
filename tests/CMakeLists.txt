@@ -54,6 +54,18 @@ if(WIN32)
     weft_add_test(NAME render_d3d11_contract COMMAND weft_render_d3d11_tests TIMEOUT 60)
 endif()
 
+# The Vulkan renderer on this machine's Vulkan device, against CPU expectations and on Windows against the D3D11
+# renderer on WARP; skipped (exit 77) without a Vulkan loader or device.
+if(WEFT_RENDER_VULKAN)
+    set(vulkan_test_links weft::render_vulkan)
+    if(WIN32)
+        list(APPEND vulkan_test_links weft::render_d3d11)
+    endif()
+    weft_add_executable(weft_render_vulkan_tests SOURCES render_vulkan_tests.cpp LINK ${vulkan_test_links})
+    weft_add_test(NAME render_vulkan_contract COMMAND weft_render_vulkan_tests TIMEOUT 120)
+    set_tests_properties(render_vulkan_contract PROPERTIES SKIP_RETURN_CODE 77)
+endif()
+
 add_executable(weft_render_backend_c_smoke render_backend_c_smoke.c)
 target_include_directories(weft_render_backend_c_smoke PRIVATE "${PROJECT_SOURCE_DIR}/include")
 set_target_properties(weft_render_backend_c_smoke PROPERTIES LINKER_LANGUAGE CXX)

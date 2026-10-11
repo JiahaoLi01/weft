@@ -1,6 +1,6 @@
 # 可扩展渲染后端 API
 
-2026-10-07：已实现独立 `render/render_backend` 模块（属 `weft::render`）和实验 v1 C ABI。实际 D3D11 参考适配器、React 原生窗口经过此接口。Vulkan、原生 Metal 和 MoltenVK 适配器尚未实现；接口测试中的模拟 Metal/custom 后端只验证合同，不代表平台 GPU 验收。
+2026-10-07：已实现独立 `render/render_backend` 模块（属 `weft::render`）和实验 v1 C ABI。实际 D3D11 参考适配器、React 原生窗口经过此接口。2026-10-12 起有 Vulkan 渲染器（`weft::render_vulkan`，直接绘制显示列表并回读），它的 C ABI 适配器尚未实现；原生 Metal 和 MoltenVK 适配器尚未实现；接口测试中的模拟 Metal/custom 后端只验证合同，不代表平台 GPU 验收。
 
 ## 三层边界
 

@@ -4,7 +4,7 @@
 
 ## Windows x64
 
-需要 CMake 3.25 以上、Visual Studio 2022 C++ 工具链与 Windows SDK。当前验证版本见 [status](status.md)。Python 3 用于离线依赖校验、fixture 完整性、浏览器几何差分和 GPU 颜色合同比较；缺少 Python 时 CMake 不注册相应 Python 测试，必须另行执行，不能把少量测试通过当作完整验证。C++ 源要求 C++20；QuickJS 与 C 调用 smoke test 使用 C11。
+需要 CMake 3.25 以上、Visual Studio 2022 C++ 工具链与 Windows SDK。Vulkan 后端（`weft::render_vulkan`，`WEFT_RENDER_VULKAN`）另需 Vulkan SDK 1.4.363.0：构建时用它的 DXC 1.9.0.5512 把共享着色器编成 SPIR-V（`cmake/WeftSpirv.cmake` 核对版本），测试时用它的验证层；没有这个 DXC 时该后端自动不构建。头文件是固定版本的 vendored Vulkan-Headers，运行时打开驱动自带的加载器，不链接 SDK 的库。当前验证版本见 [status](status.md)。Python 3 用于离线依赖校验、fixture 完整性、浏览器几何差分和 GPU 颜色合同比较；缺少 Python 时 CMake 不注册相应 Python 测试，必须另行执行，不能把少量测试通过当作完整验证。C++ 源要求 C++20；QuickJS 与 C 调用 smoke test 使用 C11。
 
 在项目根目录执行：
 
@@ -60,7 +60,7 @@ Windows 的 `weft_d3d11_probe` 链接系统 D3D11、DXGI、D3DCompiler 与诊断
 python tools/compare_gpu_reports.py tests/fixtures/gpu_color_browser_reference.json artifacts/local/gpu-debug/hardware/report.json --output artifacts/local/gpu-debug/hardware/browser-comparison.json
 ```
 
-输出 report.json、direct.png、rtt.png，编译模式来自对应目录。固定 SM5 shader（`src/render/backends/d3d11/quad.hlsl`）在构建时由 Windows SDK 的 fxc 编译并内嵌（`cmake/WeftShaders.cmake`），运行时不读源码，也不需要 D3DCompiler。本机硬件与 WARP 都实际启用调试层，没有 warning/error。十个颜色检查与独立 browser PNG 的数值边界、透明 alpha、资源退休和等待职责见 [GPU 探针](gpu-probe.md)。
+输出 report.json、direct.png、rtt.png，编译模式来自对应目录。固定 SM5 shader（2026-10-11 起是共享的 `src/render/shaders/scene.hlsl` 线性变体）在构建时由 Windows SDK 的 fxc 编译并内嵌（`cmake/WeftShaders.cmake`），运行时不读源码，也不需要 D3DCompiler。本机硬件与 WARP 都实际启用调试层，没有 warning/error。十个颜色检查与独立 browser PNG 的数值边界、透明 alpha、资源退休和等待职责见 [GPU 探针](gpu-probe.md)。
 
 ## 可扩展 GPU 后端 API
 

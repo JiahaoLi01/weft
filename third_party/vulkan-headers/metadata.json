@@ -1,0 +1,18 @@
+{
+  "name": "vulkan-headers",
+  "version": "1.4.363 (VK_HEADER_VERSION 363)",
+  "tag": "vulkan-sdk-1.4.363.0",
+  "commit": "6802bb4733b63ed5efd3adb308a6c885ef180ea1",
+  "upstream": "https://github.com/KhronosGroup/Vulkan-Headers",
+  "archive_url": "https://github.com/KhronosGroup/Vulkan-Headers/archive/6802bb4733b63ed5efd3adb308a6c885ef180ea1.zip",
+  "archive_sha256": "3760505ffbd3589de77e1b9f5ba11eaac13d3c86869588e19f3df3e0fac7e69c",
+  "license_file": "source/LICENSE.md",
+  "license": "Apache-2.0 OR MIT",
+  "modified_files": [],
+  "subset": "C headers only: include/vulkan/*.h and include/vk_video/*.h, with LICENSE.md, LICENSES and README.md; the C++ bindings (*.hpp, *.cppm), the registry and the tests are not vendored",
+  "retrieved_date": "2026-10-11",
+  "build_options": {
+    "target": "weft_vulkan_headers (INTERFACE, SYSTEM include)",
+    "loader": "none, vulkan-1 is loaded at run time"
+  }
+}

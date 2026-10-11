@@ -105,6 +105,25 @@ namespace weft::constants::render {
 
     } // namespace d3d11
 
+    // The Vulkan backend (src/render/backends/vulkan).
+    namespace vulkan {
+        // Descriptor bindings of the shared scene shader's SPIR-V, after the register shifts of cmake/WeftSpirv.cmake:
+        // the View constants b0, the records t0, the image t1, the rounded clips t2 and the sampler s0.
+        inline constexpr int binding_view = 0;
+        inline constexpr int binding_records = 10;
+        inline constexpr int binding_image = 11;
+        inline constexpr int binding_clips = 12;
+        inline constexpr int binding_sampler = 20;
+        // Each instance draws two triangles.
+        inline constexpr int quad_vertex_count = 6;
+        // Descriptor sets one pass may allocate: one per batch.
+        inline constexpr int max_pass_descriptor_sets = 4096;
+        // Waits on a fence give up after this many nanoseconds.
+        inline constexpr unsigned long long fence_timeout_ns = 10'000'000'000ull;
+        // Render targets are at most this many pixels wide and high.
+        inline constexpr int max_surface_dimension = 4096;
+    } // namespace vulkan
+
     // Scene passes (scene_pass.hpp and its backends). The shader-mirrored values match the static consts at the
     // top of scene.hlsl.
     namespace scene {
@@ -136,6 +155,9 @@ namespace weft::constants::render {
         inline constexpr int image_margins = 2 * image_margin;
         // Instance bounds grow by this many device pixels on each side for antialiasing, and stop as far past the clip.
         inline constexpr int record_bounds_outset = 2;
+        // Items that cover pixel centers need no antialiasing, but their bounds reach this far past them, in device
+        // pixels: a rasterizer may drop a pixel whose center lies exactly on an edge (Vulkan leaves the tie open).
+        inline constexpr float pixel_center_outset = .5f;
         // Initial extent of the bounds accumulation.
         inline constexpr float record_bounds_sentinel = 1e10f;
         // Overflow tolerances for text metrics and for layer descendants, in CSS pixels.
