@@ -15,6 +15,8 @@ namespace weft {
                 return "WEFT_SCENE_PROFILE";
             case Diag::SceneRaster:
                 return "WEFT_SCENE_RASTER";
+            case Diag::PaintList:
+                return "WEFT_PAINT_LIST";
             case Diag::DomSelector:
                 return "WEFT_SELECTOR_SYNTAX";
             case Diag::DomUnsupportedSelector:

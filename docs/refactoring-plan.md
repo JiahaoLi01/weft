@@ -676,6 +676,22 @@ CMake 拆分：
 - validation layer 需要 Vulkan SDK 或单独的 layer 包。
 - Android NDK 用于编译与链接验证；iOS 需要 macOS 与 Xcode，本机只能做到“代码与配置”，编译及以上全部标为未验证。
 
+## 第 10 步记录（2026-10-11）
+
+**10.1：`src/paint` 与 scene 显示列表**（详见上方计划）：
+- 新模块 `src/paint`（`weft::paint`）：
+  - `DisplayList` 是可移植的绘制 IR：条目（种类、仿射变换、轴对齐裁剪、尺寸、不透明度、负载下标）按绘制顺序排列，盒子与光栅源放在各自的表里，条目保持小而连续；
+  - `Box` 是带渐变与实线边框的圆角盒；`Raster` 是渲染器按设备缩放栅格的内容；`BeginGroup`/`EndGroup` 是隔离的不透明度组；
+  - `check()` 校验负载下标与种类、光栅源、分组配对与深度上限，失败返回 `Diag::PaintList`（`WEFT_PAINT_LIST`）；渲染器绘制前调用，校验失败计为一次带原因的回退。
+- scene 生产者 `scene_display_list()`（原 `compile_native_scene`，文件改名为 `scene_display_list.*`）产出 `DisplayList`；`NativeScene`、`NativePaint` 与 `constants::scene::gradient_*` 删除，渐变种类改用 `paint::GradientKind`（数值与 `scene.hlsl` 一致）。
+- `d3d11::SceneRenderer` 改读条目与负载表；记录里只有着色器不读的字段（文字、图层条目的盒子字段）不再填写。
+- 过渡：scene 文字与显式图层的光栅源仍是 scene 节点（`paint` 头文件里前向声明），10.3 换成字形串与嵌套列表后去掉。
+
+验证：
+- `ctest --preset windows-release --parallel 6` 102/102，`windows-debug --parallel 6` 102/102（228.3 s）；
+- 1306 个产物与改动前逐字节相同（scene-native、cluster GPU 的像素与回退计数都不变）；
+- 新增 `paint_contract`：合法嵌套列表与空列表通过；越界的盒子与光栅负载、无源光栅、多余的组结束、未闭合的组、超出深度和未知种类各自报出对应原因。
+
 ## 顺序调整（2026-10-10）
 
 用户决定先完成第 7–9 步，第 10 步（第二个图形后端与移动平台）暂缓。跨平台仍是硬性需求：

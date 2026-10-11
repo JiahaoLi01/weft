@@ -4,7 +4,7 @@
 #include "render/backends/d3d11/renderer.hpp"
 #include "scene/scene.hpp"
 #include "scene/scene_geometry.hpp"
-#include "scene/scene_native.hpp"
+#include "scene/scene_display_list.hpp"
 
 #include <array>
 #include <cstddef>
@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-// Native D3D11 pass of a compiled scene (compile_native_scene): instanced shape records drawn by scene.hlsl,
+// Native D3D11 pass of a scene display list (scene_display_list): instanced box records drawn by scene.hlsl,
 // transparent groups in scratch targets, and text/layer images. Text without color glyphs is a portable FreeType
 // image (scene_text_image); text with color glyphs and explicit layers come from the D2D reference raster. The
 // destination holds encoded premultiplied BGRA, like the D2D scene targets.
@@ -88,6 +88,7 @@ namespace weft::render::d3d11 {
         std::size_t image_bytes_{};
         std::size_t scratch_bytes_{};
 
-        std::shared_ptr<const Image> image(const NativePaint& p, float scale, unsigned view_index);
+        std::shared_ptr<const Image> image(const paint::Item& item, const paint::Raster& raster, float scale,
+                                           unsigned view_index);
     };
 } // namespace weft::render::d3d11

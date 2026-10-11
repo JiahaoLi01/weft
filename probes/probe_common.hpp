@@ -8,7 +8,7 @@
 #include "layout/document.hpp"
 #include "scene/scene.hpp"
 #include "scene/scene_geometry.hpp"
-#include "scene/scene_native.hpp"
+#include "scene/scene_display_list.hpp"
 #include "core/owner_executor.hpp"
 #include "render/resource_lifetime.hpp"
 #include "text/font.hpp"

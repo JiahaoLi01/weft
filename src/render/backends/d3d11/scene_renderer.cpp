@@ -13,7 +13,7 @@
 namespace weft::render::d3d11 {
     namespace {
         namespace limits = constants::render::d3d11::scene;
-        using Paint = NativePaint;
+        using Kind = paint::Item::Kind;
         using Color = std::array<float, 4>;
 
         // One Paint of scene.hlsl.
@@ -50,28 +50,38 @@ namespace weft::render::d3d11 {
             return s;
         }
 
-        Record record(const Paint& p, float scale, unsigned w, unsigned h) {
-            auto m = p.matrix;
+        Record record(const paint::DisplayList& list, const paint::Item& item, float scale, unsigned w, unsigned h) {
+            auto m = item.transform;
+            const bool image = item.kind == Kind::Text || item.kind == Kind::Layer;
             Record r{};
-            r.size = {p.width, p.height, float(p.gradient), float(p.stops.size())};
-            r.clip = p.clip;
-            r.radii = p.radii;
-            r.widths = p.widths;
-            r.background = p.background;
-            r.edges = p.edges;
-            r.tile = {p.tile_width, p.tile_height, p.offset_x, p.offset_y};
-            r.extra = {p.angle, p.opacity,
-                       (p.kind == Paint::Text || p.kind == Paint::Layer) ? limits::flag_enabled : limits::flag_disabled,
-                       p.text_mask ? limits::flag_enabled : limits::flag_disabled};
-            for (unsigned i = 0; i < p.stops.size(); ++i) {
-                r.stops[i] = p.stops[i].color;
-                r.offsets[i / limits::stops_per_offset_vector][i % limits::stops_per_offset_vector] = p.stops[i].offset;
+            r.size = {item.width, item.height, 0, 0};
+            r.clip = item.clip;
+            r.extra = {0, item.opacity, image ? limits::flag_enabled : limits::flag_disabled, limits::flag_disabled};
+            if (item.kind == Kind::Box) {
+                const auto& box = list.boxes[item.payload];
+                const auto& g = box.gradient;
+                r.size[2] = float(static_cast<int>(g.kind));
+                r.size[3] = float(g.stops.size());
+                r.radii = box.radii;
+                r.widths = box.widths;
+                r.background = box.background;
+                r.edges = box.edges;
+                r.tile = g.tile;
+                r.extra[0] = g.angle;
+                for (unsigned i = 0; i < g.stops.size(); ++i) {
+                    r.stops[i] = g.stops[i].color;
+                    r.offsets[i / limits::stops_per_offset_vector][i % limits::stops_per_offset_vector] =
+                        g.stops[i].offset;
+                }
+            } else if (image && list.rasters[item.payload].mask) {
+                r.background = list.rasters[item.payload].tint;
+                r.extra[3] = limits::flag_enabled;
             }
-            if (p.kind == Paint::EndGroup) {
-                m = {1, 0, 0, 1, 0, 0};
+            if (item.kind == Kind::EndGroup) {
+                m = paint::identity;
                 r.size = {float(w) / scale, float(h) / scale, 0, 0};
-                r.extra = {0, p.opacity, limits::flag_enabled, limits::flag_disabled};
-            } else if (p.kind == Paint::Text || p.kind == Paint::Layer) {
+                r.extra = {0, item.opacity, limits::flag_enabled, limits::flag_disabled};
+            } else if (image) {
                 m[4] -= limits::image_margin * (m[0] + m[2]);
                 m[5] -= limits::image_margin * (m[1] + m[3]);
                 r.size[0] += limits::image_margins;
@@ -125,19 +135,20 @@ namespace weft::render::d3d11 {
         slot = Slot{};
     }
 
-    std::shared_ptr<const SceneRenderer::Image> SceneRenderer::image(const Paint& p, float scale, unsigned view_index) {
-        const auto& n = *p.text;
+    std::shared_ptr<const SceneRenderer::Image>
+    SceneRenderer::image(const paint::Item& item, const paint::Raster& raster, float scale, unsigned view_index) {
+        const auto& n = *raster.source;
         std::array<std::uint64_t, 4> id{view_index, n.identity.view_epoch, n.identity.slot, n.identity.generation};
         auto it = images_.find(id);
         if (it != images_.end() && scene_paint_source_equal(it->second->key, n) && it->second->scale == scale) {
-            if (p.kind == Paint::Layer) {
+            if (item.kind == Kind::Layer) {
                 ++layer_reuses;
             } else {
                 ++text_reuses;
             }
             return it->second;
         }
-        if (p.kind == Paint::Layer) {
+        if (item.kind == Kind::Layer) {
             bool supported = true;
             auto inspect = [&](auto&& self, const SceneNode& node) -> void {
                 if (!node.space.empty() && node.space != constants::xhtml_namespace_uri) {
@@ -177,7 +188,7 @@ namespace weft::render::d3d11 {
         }
         auto metrics = text_.measure(n.text, n.style);
         const auto* overflow = n.style.find(PropertyId::Overflow);
-        if (p.kind == Paint::Text && (!overflow || overflow->text() != "hidden") &&
+        if (item.kind == Kind::Text && (!overflow || overflow->text() != "hidden") &&
             (metrics.width > n.box[2] + limits::text_fit_tolerance ||
              metrics.height > n.box[3] + limits::text_fit_tolerance)) {
             throw std::invalid_argument("text overflow reference");
@@ -186,7 +197,7 @@ namespace weft::render::d3d11 {
         // raster.
         SceneBitmap bitmap;
         bool portable = false;
-        if (p.kind == Paint::Text) {
+        if (item.kind == Kind::Text) {
             auto text = scene_text_image(text_, n, scale, limits::image_margin);
             if (!text.color_glyphs) {
                 bitmap = std::move(text.bitmap);
@@ -235,7 +246,7 @@ namespace weft::render::d3d11 {
         throw_if_failed(gpu_.device->CreateTexture2D(&desc, &data, &texture), "native text source");
         throw_if_failed(gpu_.device->CreateShaderResourceView(texture.Get(), nullptr, &result->view),
                         "native text view");
-        if (p.kind == Paint::Layer) {
+        if (item.kind == Kind::Layer) {
             ++layer_builds;
         } else {
             ++text_builds;
@@ -259,24 +270,30 @@ namespace weft::render::d3d11 {
     bool SceneRenderer::paint(Slot& slot, const SceneFrame& frame, ID3D11RenderTargetView* destination, float scale,
                               unsigned target_width, unsigned target_height, std::optional<std::array<float, 4>> crop,
                               unsigned view_index, const std::vector<NodeIdentity>& layers) {
-        auto plan = compile_native_scene(frame, layers);
-        if (!plan.fallback.empty()) {
+        auto compiled = scene_display_list(frame, layers);
+        if (!compiled.fallback.empty()) {
             ++fallbacks;
-            ++reasons[plan.fallback];
+            ++reasons[compiled.fallback];
+            return false;
+        }
+        auto& list = compiled.list;
+        if (const auto valid = paint::check(list, limits::max_group_depth); !valid) {
+            ++fallbacks;
+            ++reasons[valid.error().message];
             return false;
         }
         std::vector<Record> records;
-        std::vector<std::shared_ptr<const Image>> images(plan.paints.size());
+        std::vector<std::shared_ptr<const Image>> images(list.items.size());
         try {
-            for (std::size_t i = 0; i < plan.paints.size(); ++i) {
-                auto& p = plan.paints[i];
+            for (std::size_t i = 0; i < list.items.size(); ++i) {
+                auto& item = list.items[i];
                 if (crop) {
-                    p.clip = {std::max(p.clip[0], (*crop)[0]), std::max(p.clip[1], (*crop)[1]),
-                              std::min(p.clip[2], (*crop)[2]), std::min(p.clip[3], (*crop)[3])};
+                    item.clip = {std::max(item.clip[0], (*crop)[0]), std::max(item.clip[1], (*crop)[1]),
+                                 std::min(item.clip[2], (*crop)[2]), std::min(item.clip[3], (*crop)[3])};
                 }
-                records.push_back(record(p, scale, target_width, target_height));
-                if (p.kind == Paint::Text || p.kind == Paint::Layer) {
-                    images[i] = image(p, scale, view_index);
+                records.push_back(record(list, item, scale, target_width, target_height));
+                if (item.kind == Kind::Text || item.kind == Kind::Layer) {
+                    images[i] = image(item, list.rasters[item.payload], scale, view_index);
                 }
             }
         } catch (const std::invalid_argument& e) {
@@ -286,16 +303,7 @@ namespace weft::render::d3d11 {
         }
         // The caller has confirmed this slot's prior real submission complete. Immutable image leases survive cache
         // eviction and the entire next submission; buffers and group targets are never rewritten in flight.
-        unsigned depth_needed{};
-        unsigned depth_now{};
-        for (const auto& p : plan.paints) {
-            if (p.kind == Paint::BeginGroup) {
-                depth_needed = std::max(depth_needed, ++depth_now);
-            }
-            if (p.kind == Paint::EndGroup) {
-                --depth_now;
-            }
-        }
+        const auto depth_needed = paint::group_depth(list);
         const auto desired_bytes = std::size_t(target_width) * target_height * 4 * depth_needed;
         if (scratch_bytes_ - slot.group_bytes + desired_bytes > limits::scratch_budget_bytes) {
             ++fallbacks;
@@ -365,21 +373,22 @@ namespace weft::render::d3d11 {
         Color clear{};
         Color initial{};
         unsigned first{};
-        if (!plan.paints.empty()) {
+        if (!list.items.empty() && list.items.front().kind == Kind::Box) {
             // An opaque full-target first rectangle is the clear color.
-            const auto& p = plan.paints.front();
-            if (p.kind == Paint::Shape && p.matrix == std::array<float, 6>{1, 0, 0, 1, 0, 0} &&
-                p.width * scale == target_width && p.height * scale == target_height && p.clip[0] <= 0 &&
-                p.clip[1] <= 0 && p.clip[2] >= p.width && p.clip[3] >= p.height && p.opacity == 1 &&
-                p.background[3] == 1 && !p.gradient &&
-                std::all_of(p.radii.begin(), p.radii.end(),
+            const auto& p = list.items.front();
+            const auto& box = list.boxes[p.payload];
+            if (p.transform == paint::identity && p.width * scale == target_width &&
+                p.height * scale == target_height && p.clip[0] <= 0 && p.clip[1] <= 0 && p.clip[2] >= p.width &&
+                p.clip[3] >= p.height && p.opacity == 1 && box.background[3] == 1 &&
+                box.gradient.kind == paint::GradientKind::None &&
+                std::all_of(box.radii.begin(), box.radii.end(),
                             [](float v) {
                                 return v == 0;
                             }) &&
-                std::all_of(p.widths.begin(), p.widths.end(), [](float v) {
+                std::all_of(box.widths.begin(), box.widths.end(), [](float v) {
                     return v == 0;
                 })) {
-                initial = p.background;
+                initial = box.background;
                 first = 1;
             }
         }
@@ -396,9 +405,9 @@ namespace weft::render::d3d11 {
             ID3D11ShaderResourceView* empty = nullptr;
             ctx->PSSetShaderResources(1, 1, &empty);
         };
-        for (unsigned i = first; i < plan.paints.size();) {
-            const auto& p = plan.paints[i];
-            if (p.kind == Paint::BeginGroup) {
+        for (unsigned i = first; i < list.items.size();) {
+            const auto& p = list.items[i];
+            if (p.kind == Kind::BeginGroup) {
                 auto& s = slot.groups.at(depth++);
                 if (!s.texture) {
                     s = group_target(gpu_.device.Get(), target_width, target_height);
@@ -408,18 +417,18 @@ namespace weft::render::d3d11 {
                 ctx->OMSetRenderTargets(1, &rtv, nullptr);
                 stack.push_back(rtv);
                 ++i;
-            } else if (p.kind == Paint::EndGroup) {
+            } else if (p.kind == Kind::EndGroup) {
                 auto& s = slot.groups.at(--depth);
                 stack.pop_back();
                 auto* rtv = stack.back();
                 ctx->OMSetRenderTargets(1, &rtv, nullptr);
                 draw(i++, 1, s.srv.Get());
-            } else if (p.kind == Paint::Text || p.kind == Paint::Layer) {
+            } else if (p.kind == Kind::Text || p.kind == Kind::Layer) {
                 draw(i, 1, images[i]->view.Get());
                 ++i;
             } else {
                 auto start = i++;
-                while (i < plan.paints.size() && plan.paints[i].kind == Paint::Shape) {
+                while (i < list.items.size() && list.items[i].kind == Kind::Box) {
                     ++i;
                 }
                 draw(start, i - start, nullptr);

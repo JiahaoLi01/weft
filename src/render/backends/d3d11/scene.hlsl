@@ -1,7 +1,7 @@
 // Encoded premultiplied intermediate matches the existing D2D/Chrome scene
 // contract; the shared conversion pass produces the engine's linear target.
 
-// NativePaint::gradient values (src/scene/scene_native.hpp).
+// paint::GradientKind values (src/paint/display_list.hpp).
 static const float GradientLinear = 1;
 static const float GradientRadial = 2;
 // Paint::extra.z / extra.w flags written by scene_renderer.cpp.

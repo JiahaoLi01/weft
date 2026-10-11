@@ -19,6 +19,8 @@ namespace weft {
         InlineProfile,
         SceneProfile,
         SceneRaster,
+        // A display list that is not well formed (paint/display_list.hpp).
+        PaintList,
         // DOM query selectors: text that is not a selector, and a valid selector outside the supported grammar.
         DomSelector,
         DomUnsupportedSelector,

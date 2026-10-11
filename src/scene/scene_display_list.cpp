@@ -1,4 +1,4 @@
-#include "scene/scene_native.hpp"
+#include "scene/scene_display_list.hpp"
 #include "scene/scene_transform.hpp"
 #include "scene/scene_values.hpp"
 #include "base/css_scalar.hpp"
@@ -91,7 +91,7 @@ namespace weft {
             return {float(m.m11), float(m.m12), float(m.m21), float(m.m22), float(m.dx), float(m.dy)};
         }
 
-        void gradient(NativePaint& p, const Style& s) {
+        void gradient(paint::Gradient& g, float width, float height, const Style& s) {
             auto image = get(s, PropertyId::BackgroundImage, "none");
             if (image == "none") {
                 return;
@@ -102,29 +102,29 @@ namespace weft {
                 throw std::invalid_argument("gradient grammar");
             }
             auto kind = image.substr(0, b);
-            p.gradient = kind == "linear-gradient"   ? constants::scene::gradient_linear
-                         : kind == "radial-gradient" ? constants::scene::gradient_radial
-                         : kind == "conic-gradient"  ? constants::scene::gradient_conic
-                                                     : constants::scene::gradient_none;
-            if (!p.gradient) {
+            g.kind = kind == "linear-gradient"   ? paint::GradientKind::Linear
+                     : kind == "radial-gradient" ? paint::GradientKind::Radial
+                     : kind == "conic-gradient"  ? paint::GradientKind::Conic
+                                                 : paint::GradientKind::None;
+            if (g.kind == paint::GradientKind::None) {
                 throw std::invalid_argument("background image");
             }
             auto a = split(image.substr(b + 1, e - b - 1), ',');
             if (a.empty()) {
                 throw std::invalid_argument("gradient args");
             }
-            p.angle = p.gradient == constants::scene::gradient_linear
+            g.angle = g.kind == paint::GradientKind::Linear
                           ? static_cast<float>(constants::scene::default_linear_gradient_angle)
                           : 0.f;
-            if (p.gradient == constants::scene::gradient_linear && a[0].ends_with("deg")) {
-                p.angle = number(a[0].substr(0, a[0].size() - 3));
+            if (g.kind == paint::GradientKind::Linear && a[0].ends_with("deg")) {
+                g.angle = number(a[0].substr(0, a[0].size() - 3));
                 a.erase(a.begin());
             }
-            if (p.gradient == constants::scene::gradient_radial && a[0] == "circle") {
+            if (g.kind == paint::GradientKind::Radial && a[0] == "circle") {
                 a.erase(a.begin());
             }
-            if (p.gradient == constants::scene::gradient_conic && a[0].starts_with("from ")) {
-                p.angle = number(a[0].substr(5, a[0].size() - 8));
+            if (g.kind == paint::GradientKind::Conic && a[0].starts_with("from ")) {
+                g.angle = number(a[0].substr(5, a[0].size() - 8));
                 a.erase(a.begin());
             }
             std::vector<bool> specified;
@@ -132,36 +132,36 @@ namespace weft {
                 auto v = split(text);
                 auto c = color(v.at(0), s);
                 if (v.size() == 1) {
-                    p.stops.push_back({0, c});
+                    g.stops.push_back({0, c});
                     specified.push_back(false);
                 } else {
                     for (std::size_t i = 1; i < v.size(); ++i) {
                         if (v[i].ends_with("px")) {
                             throw std::invalid_argument("absolute gradient stop reference");
                         }
-                        p.stops.push_back({len(v[i]), c});
+                        g.stops.push_back({len(v[i]), c});
                         specified.push_back(true);
                     }
                 }
             }
-            if (p.stops.size() < 2 || p.stops.size() > constants::scene::max_gradient_stops) {
+            if (g.stops.size() < 2 || g.stops.size() > constants::scene::max_gradient_stops) {
                 throw std::invalid_argument("gradient stop bound");
             }
             if (!specified[0]) {
-                p.stops[0].offset = 0;
+                g.stops[0].offset = 0;
             }
             if (!specified.back()) {
-                p.stops.back().offset = 1;
+                g.stops.back().offset = 1;
             }
             specified[0] = specified.back() = true;
-            float last = p.stops[0].offset;
-            for (std::size_t i = 0; i < p.stops.size(); ++i) {
+            float last = g.stops[0].offset;
+            for (std::size_t i = 0; i < g.stops.size(); ++i) {
                 if (specified[i]) {
-                    p.stops[i].offset = std::max(last, p.stops[i].offset);
-                    last = p.stops[i].offset;
+                    g.stops[i].offset = std::max(last, g.stops[i].offset);
+                    last = g.stops[i].offset;
                 }
             }
-            for (std::size_t i = 1; i < p.stops.size() - 1;) {
+            for (std::size_t i = 1; i < g.stops.size() - 1;) {
                 if (specified[i]) {
                     ++i;
                     continue;
@@ -171,40 +171,55 @@ namespace weft {
                     ++j;
                 }
                 for (auto k = i; k < j; ++k) {
-                    p.stops[k].offset = p.stops[i - 1].offset + (p.stops[j].offset - p.stops[i - 1].offset) *
+                    g.stops[k].offset = g.stops[i - 1].offset + (g.stops[j].offset - g.stops[i - 1].offset) *
                                                                     float(k - i + 1) / float(j - i + 1);
                 }
                 i = j;
             }
-            p.tile_width = p.width;
-            p.tile_height = p.height;
+            auto& tile = g.tile;
+            tile[0] = width;
+            tile[1] = height;
             auto size = split(get(s, PropertyId::BackgroundSize, "100% 100%"));
             if (size.size() == 2) {
-                p.tile_width = len(size[0], p.width);
-                p.tile_height = len(size[1], p.height);
+                tile[0] = len(size[0], width);
+                tile[1] = len(size[1], height);
             }
-            if (p.tile_width <= 0 || p.tile_height <= 0) {
+            if (tile[0] <= 0 || tile[1] <= 0) {
                 throw std::invalid_argument("gradient tile");
             }
             auto pos = split(get(s, PropertyId::BackgroundPosition, "0% 0%"));
             if (!pos.empty()) {
-                p.offset_x = len(pos[0], p.width - p.tile_width);
+                tile[2] = len(pos[0], width - tile[0]);
             }
             if (pos.size() > 1) {
-                p.offset_y = len(pos[1], p.height - p.tile_height);
+                tile[3] = len(pos[1], height - tile[1]);
             }
         }
     } // namespace
 
-    NativeScene compile_native_scene(const SceneFrame& f, const std::vector<NodeIdentity>& layers) {
-        NativeScene out;
+    SceneDisplayList scene_display_list(const SceneFrame& f, const std::vector<NodeIdentity>& layers) {
+        SceneDisplayList out;
+        auto& list = out.list;
+        // A node's own values as a raster source, without its subtree.
+        const auto own = [](const SceneNode& n) {
+            auto source = std::make_shared<SceneNode>();
+            source->identity = n.identity;
+            source->tag = n.tag;
+            source->space = n.space;
+            source->text = n.text;
+            source->attributes = n.attributes;
+            source->style = n.style;
+            source->box = n.box;
+            source->paint = n.paint;
+            return source;
+        };
         try {
             unsigned groups{};
             auto visit = [&](auto&& self, const SceneNode& n, Matrix parent, std::array<float, 4> clip) -> void {
                 if (get(n.style, PropertyId::Display) == "none" || n.box[2] <= 0 || n.box[3] <= 0) {
                     return;
                 }
-                if (out.paints.size() > constants::scene::max_native_paint_commands) {
+                if (list.items.size() > constants::scene::max_display_list_items) {
                     throw std::invalid_argument("native command bound");
                 }
                 if ((!n.space.empty() && n.space != constants::xhtml_namespace_uri)) {
@@ -213,20 +228,21 @@ namespace weft {
                 if (!get(n.style, PropertyId::BoxShadow).empty() && get(n.style, PropertyId::BoxShadow) != "none") {
                     throw std::invalid_argument("shadow reference");
                 }
-                NativePaint p;
-                p.matrix = multiply(parent, matrix(n));
-                p.clip = clip;
-                p.width = n.box[2];
-                p.height = n.box[3];
-                float determinant = p.matrix[0] * p.matrix[3] - p.matrix[1] * p.matrix[2];
+                paint::Item item;
+                item.transform = multiply(parent, matrix(n));
+                item.clip = clip;
+                item.width = n.box[2];
+                item.height = n.box[3];
+                const auto& m = item.transform;
+                float determinant = m[0] * m[3] - m[1] * m[2];
                 if (std::abs(determinant) < constants::scene::singular_determinant_epsilon) {
                     return;
                 }
-                if (std::hypot(p.matrix[0], p.matrix[1]) + std::hypot(p.matrix[2], p.matrix[3]) >
-                    constants::scene::max_geometry_transform_scale) {
+                if (std::hypot(m[0], m[1]) + std::hypot(m[2], m[3]) > constants::scene::max_geometry_transform_scale) {
                     throw std::invalid_argument("transform scale bound");
                 }
-                p.radii = scene_values::corner_radii(n.style, p.width, p.height);
+                paint::Box box;
+                box.radii = scene_values::corner_radii(n.style, item.width, item.height);
                 unsigned k{};
                 auto paint_color = [&](unsigned i, const char* key, const char* def) {
                     if (n.paint && n.paint->values[i] && n.paint->values[i]->kind == PaintValue::Color) {
@@ -238,9 +254,9 @@ namespace weft {
                     }
                     return color(get(n.style, key, def), n.style);
                 };
-                p.background =
+                box.background =
                     paint_color(constants::scene::paint_slot_background_color, "background-color", "transparent");
-                gradient(p, n.style);
+                gradient(box.gradient, item.width, item.height, n.style);
                 k = 0;
                 for (const auto* edge : {"top", "right", "bottom", "left"}) {
                     auto prefix = std::string("border-") + edge;
@@ -248,9 +264,9 @@ namespace weft {
                         len(get(n.style, (prefix + "-width").c_str(), "0")) > 0) {
                         throw std::invalid_argument("border style");
                     }
-                    p.widths[k] = len(get(n.style, (prefix + "-width").c_str(), "0"));
-                    p.edges[k] = paint_color(constants::scene::paint_slot_border_color + k, (prefix + "-color").c_str(),
-                                             "currentcolor");
+                    box.widths[k] = len(get(n.style, (prefix + "-width").c_str(), "0"));
+                    box.edges[k] = paint_color(constants::scene::paint_slot_border_color + k,
+                                               (prefix + "-color").c_str(), "currentcolor");
                     ++k;
                 }
                 float opacity = std::clamp(len(get(n.style, PropertyId::Opacity, "1")), 0.f, 1.f);
@@ -260,90 +276,94 @@ namespace weft {
                                          0.f, 1.f);
                 }
                 if (std::find(layers.begin(), layers.end(), n.identity) != layers.end()) {
-                    auto source = n;
-                    source.box[0] = source.box[1] = 0;
-                    source.style.erase(PropertyId::Transform);
-                    source.style.erase(PropertyId::Opacity);
-                    source.attributes.erase("style");
-                    source.paint.reset();
-                    p.kind = NativePaint::Layer;
-                    p.opacity = opacity;
-                    p.text = std::move(source);
-                    out.paints.push_back(std::move(p));
+                    auto source = std::make_shared<SceneNode>(n);
+                    source->box[0] = source->box[1] = 0;
+                    source->style.erase(PropertyId::Transform);
+                    source->style.erase(PropertyId::Opacity);
+                    source->attributes.erase("style");
+                    source->paint.reset();
+                    item.kind = paint::Item::Kind::Layer;
+                    item.opacity = opacity;
+                    item.payload = std::uint32_t(list.rasters.size());
+                    list.rasters.push_back({std::move(source)});
+                    list.items.push_back(item);
                     return;
                 }
-                const bool isolated =
-                    opacity < 1 && (!n.children.empty() || (!n.text.empty() && (p.background[3] > 0 || p.gradient ||
-                                                                                std::any_of(
-                                                                                    p.widths.begin(), p.widths.end(),
-                                                                                    [](float w) {
-                                                                                        return w > 0;
-                                                                                    }))));
+                const bool painted = box.background[3] > 0 || box.gradient.kind != paint::GradientKind::None ||
+                                     std::any_of(box.widths.begin(), box.widths.end(), [](float w) {
+                                         return w > 0;
+                                     });
+                const bool isolated = opacity < 1 && (!n.children.empty() || (!n.text.empty() && painted));
                 if (!isolated) {
-                    p.opacity = opacity;
+                    item.opacity = opacity;
                 }
                 if (isolated) {
                     if (++groups > constants::scene::max_opacity_group_depth) {
                         throw std::invalid_argument("opacity depth bound");
                     }
-                    NativePaint g;
-                    g.kind = NativePaint::BeginGroup;
+                    paint::Item g;
+                    g.kind = paint::Item::Kind::BeginGroup;
                     g.opacity = opacity;
                     g.clip = clip;
-                    out.paints.push_back(g);
+                    list.items.push_back(g);
                 }
-                if (p.background[3] > 0 || p.gradient || std::any_of(p.widths.begin(), p.widths.end(), [](float w) {
-                        return w > 0;
-                    })) {
-                    out.paints.push_back(p);
+                if (painted) {
+                    auto shape = item;
+                    shape.kind = paint::Item::Kind::Box;
+                    shape.payload = std::uint32_t(list.boxes.size());
+                    list.boxes.push_back(box);
+                    list.items.push_back(shape);
                 }
                 if (get(n.style, PropertyId::Overflow) == "hidden" || get(n.style, PropertyId::Overflow) == "auto") {
-                    if (std::any_of(p.radii.begin(), p.radii.end(),
+                    if (std::any_of(box.radii.begin(), box.radii.end(),
                                     [](float r) {
                                         return r > 0;
                                     }) ||
-                        std::abs(p.matrix[1]) > constants::scene::axis_aligned_epsilon ||
-                        std::abs(p.matrix[2]) > constants::scene::axis_aligned_epsilon) {
+                        std::abs(m[1]) > constants::scene::axis_aligned_epsilon ||
+                        std::abs(m[2]) > constants::scene::axis_aligned_epsilon) {
                         throw std::invalid_argument("rounded/transformed clip reference");
                     }
-                    auto a = point(p.matrix, 0, 0);
-                    auto b = point(p.matrix, p.width, p.height);
+                    auto a = point(m, 0, 0);
+                    auto b = point(m, item.width, item.height);
                     clip = {std::max(clip[0], std::min(a[0], b[0])), std::max(clip[1], std::min(a[1], b[1])),
                             std::min(clip[2], std::max(a[0], b[0])), std::min(clip[3], std::max(a[1], b[1]))};
                 }
                 if (!n.text.empty()) {
-                    auto t = p;
-                    t.kind = NativePaint::Text;
+                    auto t = item;
+                    t.kind = paint::Item::Kind::Text;
                     t.clip = clip;
-                    t.text = n;
-                    t.text->children.clear();
-                    t.text->box[0] = t.text->box[1] = 0;
-                    t.text->style.erase(PropertyId::Transform);
-                    t.text->style.erase(PropertyId::Opacity);
+                    auto source = own(n);
+                    source->box[0] = source->box[1] = 0;
+                    source->style.erase(PropertyId::Transform);
+                    source->style.erase(PropertyId::Opacity);
                     // Computed source values below are authoritative. Authored style
                     // still contains composited transform/opacity; retaining it in the
                     // image key rerasterizes static Unicode/emoji on every motion tick.
-                    t.text->attributes.erase("style");
-                    t.text->style[PropertyId::BackgroundColor] = "transparent";
-                    t.text->style[PropertyId::BackgroundImage] = "none";
+                    source->attributes.erase("style");
+                    source->style[PropertyId::BackgroundColor] = "transparent";
+                    source->style[PropertyId::BackgroundImage] = "none";
                     for (const auto* edge : {"top", "right", "bottom", "left"}) {
-                        t.text->style[std::string("border-") + edge + "-color"] = "transparent";
+                        source->style[std::string("border-") + edge + "-color"] = "transparent";
                     }
-                    t.text->paint.reset();
-                    t.text_mask = std::all_of(n.text.begin(), n.text.end(), [](unsigned char c) {
+                    source->paint.reset();
+                    paint::Raster raster;
+                    raster.mask = std::all_of(n.text.begin(), n.text.end(), [](unsigned char c) {
                         return c >= constants::scene::printable_ascii_first &&
                                c < constants::scene::printable_ascii_end;
                     });
-                    if (t.text_mask) {
-                        t.background =
+                    if (raster.mask) {
+                        raster.tint =
                             paint_color(constants::scene::paint_slot_color, "color", constants::default_color);
-                        t.text->style[PropertyId::Color] = "#ffffff";
+                        source->style[PropertyId::Color] = "#ffffff";
                     } else if (n.paint) {
-                        t.text->paint.emplace();
-                        t.text->paint->values[constants::scene::paint_slot_color] =
+                        source->paint.emplace();
+                        source->paint->values[constants::scene::paint_slot_color] =
                             n.paint->values[constants::scene::paint_slot_color];
                     }
-                    out.paints.push_back(std::move(t));
+                    raster.source = std::move(source);
+                    t.payload = std::uint32_t(list.rasters.size());
+                    list.rasters.push_back(std::move(raster));
+                    list.items.push_back(t);
                 }
                 std::vector<std::size_t> order;
                 for (std::size_t i = 0; i < n.children.size(); ++i) {
@@ -357,26 +377,26 @@ namespace weft {
                     return z(a) < z(b);
                 });
                 for (auto i : order) {
-                    self(self, n.children[i], p.matrix, clip);
+                    self(self, n.children[i], item.transform, clip);
                 }
                 if (isolated) {
-                    NativePaint g;
-                    g.kind = NativePaint::EndGroup;
+                    paint::Item g;
+                    g.kind = paint::Item::Kind::EndGroup;
                     g.opacity = opacity;
-                    g.clip = p.clip;
-                    out.paints.push_back(g);
+                    g.clip = item.clip;
+                    list.items.push_back(g);
                     --groups;
                 }
             };
             visit(visit, f.root, {1, 0, 0, 1, 0, 0}, {0, 0, f.root.box[2], f.root.box[3]});
-            if (out.paints.size() > constants::scene::max_native_paint_commands) {
+            if (list.items.size() > constants::scene::max_display_list_items) {
                 throw std::invalid_argument("native command bound");
             }
         } catch (const std::invalid_argument& e) {
-            out.paints.clear();
+            list = {};
             out.fallback = e.what();
         } catch (const std::out_of_range& e) {
-            out.paints.clear();
+            list = {};
             out.fallback = e.what();
         }
         return out;

@@ -5,7 +5,7 @@
 #include "support/host_time.hpp"
 #include "scene_test_image.hpp"
 #include "cluster_visual_compare.hpp"
-#include "scene/scene_native.hpp"
+#include "scene/scene_display_list.hpp"
 #include "test_constants/scene.hpp"
 #include <thread>
 #include <cstring>
@@ -37,30 +37,30 @@ int main() {
                 {"font-size", "24px"}, {"color", "#d4a843"}, {"transform", "translateY(20px)"}, {"opacity", "0.2"}};
             n.attributes["style"] = "transform:translateY(20px);opacity:0.2";
             auto source = [&] {
-                auto plan = weft::compile_native_scene(frame);
-                require(plan.fallback.empty() && plan.paints.size() == 1 &&
-                            plan.paints[0].kind == weft::NativePaint::Text,
+                auto plan = weft::scene_display_list(frame);
+                require(plan.fallback.empty() && plan.list.items.size() == 1 &&
+                            plan.list.items[0].kind == weft::paint::Item::Kind::Text,
                         "Unicode source primitive");
-                return plan.paints[0];
+                return std::pair{plan.list.items[0], plan.list.rasters[plan.list.items[0].payload].source};
             };
             const auto first = source();
             n.style["transform"] = "translateY(3px)";
             n.style["opacity"] = "0.8";
             n.attributes["style"] = "transform:translateY(3px);opacity:0.8";
             const auto moved = source();
-            require(weft::scene_paint_source_equal(*first.text, *moved.text) && first.matrix != moved.matrix &&
-                        first.opacity != moved.opacity,
+            require(weft::scene_paint_source_equal(*first.second, *moved.second) &&
+                        first.first.transform != moved.first.transform && first.first.opacity != moved.first.opacity,
                     "Unicode motion must reuse source while changing composite");
             n.style["color"] = "#ff0000";
-            require(!weft::scene_paint_source_equal(*first.text, *source().text),
+            require(!weft::scene_paint_source_equal(*first.second, *source().second),
                     "Unicode color must invalidate source");
             n.style["color"] = "#d4a843";
             n.style["font-size"] = "28px";
-            require(!weft::scene_paint_source_equal(*first.text, *source().text),
+            require(!weft::scene_paint_source_equal(*first.second, *source().second),
                     "Unicode font must invalidate source");
             n.style["font-size"] = "24px";
             n.text = "⭐";
-            require(!weft::scene_paint_source_equal(*first.text, *source().text),
+            require(!weft::scene_paint_source_equal(*first.second, *source().second),
                     "Unicode content must invalidate source");
         }
         {
@@ -255,7 +255,7 @@ int main() {
             "document.getElementById('root').innerHTML='<div id=\"shadow\" style=\"position:absolute;left:40px;top:40px;width:40px;height:40px;background:#ff0000;border-radius:5px;box-shadow:0px 8px 12px 0px rgba(0,0,0,0.8)\"></div>';document.getElementById('root').style.backgroundColor='#ffffff'");
         s.step(1700);
         const auto with = s.bitmap(weft::test_constants::scene::gallery_raster_scale);
-        require(!weft::compile_native_scene(s.current).fallback.empty(), "shadow silently dropped by native subset");
+        require(!weft::scene_display_list(s.current).fallback.empty(), "shadow silently dropped by native subset");
         s.vm.eval("document.getElementById('shadow').style.boxShadow='none'");
         s.step(1701);
         const auto without = s.bitmap(weft::test_constants::scene::gallery_raster_scale);

@@ -4,6 +4,15 @@
 
 ## 本次已实现
 
+重构第 10 步之一：`src/paint` 与 scene 显示列表（2026-10-11）。详见 [重构计划](refactoring-plan.md#第-10-步记录2026-10-11)。
+- **结果**：
+  - 新模块 `src/paint`：可移植的绘制 IR `DisplayList` 及其结构校验；
+  - scene 改为产出 `DisplayList`，原生 D3D11 scene pass 改读它。像素与产物不变。
+- **验证**：
+  - `ctest --preset windows-release --parallel 6` 102/102，`windows-debug --parallel 6` 102/102（228.3 s）；
+  - 1306 个产物逐字节相同；新增 `paint_contract`。
+- **下一步**：10.2，文档版面也产出 `DisplayList`，统一渲染器补齐圆角裁剪链、字形 atlas、图片与线性合成，退役逐四边形绘制与 CPU 圆角遮罩。Vulkan 头文件、SPIR-V 编译器与 Android NDK 的下载待用户确认。
+
 继续压 owner CPU，第 4 步：SVG 形状按节点保留，几何遍历不再逐节点建表（2026-10-11）。详见 [交互性能](gallery-interaction-profile.md#重构之后继续压-owner-cpu2026-10-11第五轮)。
 - **结果**：
   - 几何与命中图里，属性没变的 SVG 元素直接复用自己的形状，解析过的变换按文本复用；

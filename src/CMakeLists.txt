@@ -3,6 +3,7 @@
 add_subdirectory(base)
 add_subdirectory(dom)
 add_subdirectory(core)
+add_subdirectory(paint)
 add_subdirectory(render)
 add_subdirectory(canvas)
 add_subdirectory(script)
