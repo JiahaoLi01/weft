@@ -124,7 +124,7 @@ DOM mutation 在 owner 上立即可见，样式和几何延迟计算。getBoundi
 
 首版实现 UA、作者样式、inline、important、选择器 specificity 和 source order。不支持 cascade layers 等能力时由构建工具诊断。自定义属性和 var 的实现放在基础层叠稳定之后，需覆盖继承、fallback、循环和 computed-value 阶段失效，不能只做字符串替换。规范依据见 [CSS Cascade](https://www.w3.org/TR/css-cascade-5/)。
 
-当前 M0 已抽出纯值 `weft::style`，供 Flex 与 positioned adapter 共用有界 cascade/selector/var 求值。主题/属性更新走全量重算，输出与 DOM 快照配对；稀疏值表还不是完整 computed-style/property-registry API，也没有 revision、失效缓存或 JS getComputedStyle。循环按当前 substitution-context 的选中分支规则处理，token 复制/继承/展开有预算，实际范围与浏览器证据见 [公共样式探针](style-cascade-probe.md)。
+当前 M0 已抽出纯值 `weft::style`，供文档格式化器与 scene 共用有界 cascade/selector/var 求值（2026-10-11 起页面只有一个样式 profile `document_style_profile`）。主题/属性更新走全量重算，输出与 DOM 快照配对；稀疏值表还不是完整 computed-style/property-registry API，也没有 revision、失效缓存或 JS getComputedStyle。循环按当前 substitution-context 的选中分支规则处理，token 复制/继承/展开有预算，实际范围与浏览器证据见 [公共样式探针](style-cascade-probe.md)。
 
 规则索引按 tag、class、id 等简单特征筛选，最终仍执行完整选择器匹配。祖先 class、id 或继承属性变化，保守检查相关后代。首版不支持 has、复杂 sibling 和 positional selector，避免在未具备依赖记录时承诺其增量正确性。
 
@@ -275,6 +275,8 @@ JS 源码或 bundle 为基础资产格式，VM bytecode 仅作为绑定引擎版
 ## 调试和证据
 
 实际页面探针目前有独立 Flex 与 positioned 格式上下文。后者通过 CaseCheetah 原样 NineSlice 验证矩形图片裁剪、明确尺寸的绝对定位和受限 stylesheet；owner 生成图形 API 无关的值快照，宿主允许列表加载原图，再转换为 quad/UV/coverage 输入。新增自动布局探针已组合受限 block/Flex/absolute、公共 cascade 与固定 CJK intrinsic measurement；完整文档调度器继续扩展格式上下文，不将它们绑定到 D3D11，也不把探针的 per-frame RGBA32F 图片上传作为生产资源策略，见 [workload 边界](casecheetah-workload.md)。
+
+2026-10-11 重构第 8 步：page、positioned、auto 三个页面 profile 已退役，页面只有一个文档格式化器 `layout_document`（block、flex 与 absolute 经 Yoga，inline 文本按 Blink 行盒，canvas/img 替换元素，视口大小的初始包含块）。scene 仍是独立的格式化路径，第 8 步后续部分合并 Yoga 适配器、paint IR 与命中路径。
 
 先提供可序列化的 DOM、计算样式、布局盒、paint order、clip、资源账目和失效原因。trace 串联输入、JS task、同步 flush、style、layout、paint、upload、submit 与完成 serial。通过 CLI 或简单检查器使用，之后再决定是否实现 Chrome DevTools Protocol 子集。
 

@@ -1,5 +1,7 @@
 # Flow 命中与 Windows 滚轮
 
+> 2026-10-11 重构第 8 步：命中 oracle 的 #outer/#inner 片段中心改用采集时的坐标（不再由原生几何推导），命中结果不变（3,130/3,150 精确）；格式化器改名为 `layout_document`。见 [重构记录](refactoring-plan.md#第-8-步记录2026-10-11)。
+
 2026-10-08 的 M0 小阶段，接续 [inline/滚动/圆角](flow-layout-probe.md)。C++20 实验值接口和 D3D11 样例已接通实际 HWND 消息、最新 flow 几何与原样固定 React AlertBar。尚非完整浏览器事件、稳定 SDK 或游戏集成。
 
 ## 实际合同

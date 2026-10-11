@@ -1,5 +1,7 @@
 # 原样 Gallery Canvas 阶段
 
+> 2026-10-11 重构第 8 步：positioned Canvas adapter 已退役。canvas 现为文档格式化器的替换元素（属性给出固有尺寸，单边指定时按固有比例），Chrome 位图对照不变。见 [重构记录](refactoring-plan.md#第-8-步记录2026-10-11)。
+
 2026-10-09。两例原始 `Canvas2DParticles` / `Canvas2DFireworks` 已运行在自己的 QuickJS、原生 DOM/context、positioned 布局和 D3D11 中；原始函数与第三方包未修改。只读固定的 CRPG gallery 仍为 72 例，此次仅增加这两例的执行、限定视觉与交互验收，其余 70 例未增加像素验收。该 Canvas 阶段未实现 WebGL2/ANGLE、公共外部纹理、宿主 viewport 和移动；后续 external lease 首版已验证，见 [新合同](external-texture-lease.md)。
 
 ## 运行

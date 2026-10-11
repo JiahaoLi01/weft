@@ -1,5 +1,7 @@
 # 中文回退与原样 AlertBar
 
+> 2026-10-11 重构第 8 步：positioned profile 已退役，AlertBar 的四种 CSS 变体（作者预览、原始主题、自动、flow）都由统一的文档格式化器 `layout_document` 运行：几何最大 0.1511（阈值 0.2），字体基线 0.4416 → 0.0896（阈值 0.5，改用 Blink 的半行距规则）。下文是该 profile 当时的证据，见 [重构记录](refactoring-plan.md#第-8-步记录2026-10-11)。
+
 后续已独立增加 [公共样式与原始主题阶段](style-cascade-probe.md)，保持本页的 bundle/golden 和历史证据不变。新 workload 接原始 theme/expanded rule，完整 operations.css 仍待实现。
 
 2026-10-07：沿用固定 CaseCheetah 样本，增加 C++20 字体集合和中文灰度绘制，原样 AlertBar 与 Zustand/store/UE 桥在自己的 DOM 和 D3D11 backend API 上运行。原游戏工程保持只读；本轮没有再次捕获或改写样本。

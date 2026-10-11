@@ -1,5 +1,7 @@
 # Inline、Unicode、滚动与圆角探针
 
+> 2026-10-11 重构第 8 步：flow profile 成为统一的文档格式化器（`layout_document`、`document_style_profile`、`WEFT_DOCUMENT_PROFILE`）。行盒改用 Blink 的半行距规则后，本 fixture 的几何平均差 0.044 → 0.018 px，片段 0.116 → 0.037 px，没有字段变远。见 [重构记录](refactoring-plan.md#第-8-步记录2026-10-11)。
+
 2026-10-08 的 M0 阶段交付。新的 `layout/flow_page`（属 `weft::layout`）组合 block/Flex/absolute 与普通 inline 文本；旧 auto/positioned profile 和旧浏览器参考保持各自的边界。公开入口是实验 C++ 值接口，尚非稳定 SDK、一般 HTML loader 或完整 CSS 引擎。
 
 ## 实际输入与排版

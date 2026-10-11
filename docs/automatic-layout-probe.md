@@ -1,5 +1,7 @@
 # 自动布局实际合同
 
+> 2026-10-11 重构第 8 步：auto profile（`build_auto_page`）已退役，本文的 fixture 现由统一的文档格式化器 `layout_document`（[src/layout/document.cpp](../src/layout/document.cpp)）运行。48 场景浏览器对照阈值不变（0.3 px，最大 0.184），AlertBar 自动布局变体 0.258。下文是该 profile 当时的实现与证据，见 [重构记录](refactoring-plan.md#第-8-步记录2026-10-11)。
+
 这是 M0 的受限页面探针。新增 `layout/auto_page`（属 `weft::layout`）和 `build_auto_page`，接收配对的 DOM/computed-style 值树、逻辑 viewport 和固定字体集合，输出自己的 box/paint 值。旧 positioned、Flex 页面接口及旧证据继续保留。
 
 ## 已实现

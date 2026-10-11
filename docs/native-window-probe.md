@@ -1,5 +1,7 @@
 # 原生 React 窗口与鼠标
 
+> 2026-10-11 重构第 8 步：page adapter 已退役。React 窗口改用 `layout_document`，`MouseRouter` 只接受布局回调。见 [重构记录](refactoring-plan.md#第-8-步记录2026-10-11)。
+
 本文保留早期 Flex-only 主鼠标窗口的范围与历史证据。后续 [flow 输入窗口](flow-input-window-probe.md) 使用原样 CaseCheetah React 和新的 flow hit regions，接入 HWND 滚轮、圆角/inline 裁剪与滚动重绘；可见和隐藏运行命令分别记录。
 
 2026-10-07，React/Vite 页面已接入 Windows HWND、D3D11 flip swapchain 和主鼠标消息。Add one 更新实际 React state，Reverse list 重排原生节点并重新绘制。应用 JSX 和原版 React bundle 不变，exe 不依赖浏览器或 Vite server。
@@ -18,7 +20,7 @@
 
 [Win32 宿主](../probes/react_window_host.hpp) 的 WindowProc 只排队输入值与窗口元数据，不执行 JS、layout 或 GPU。队列最多 1,024 条，连续 move 可合并；overflow 停止样例。关闭请求延后到 owner 安全点，避免 Present 重入时销毁 HWND。
 
-[page adapter](../src/layout/page.cpp) 输出自有布局、paint 与 hit 列表。命中项仅含弱代际身份、parent 索引和逻辑盒，不含 Node/JSValue。当前限定静态 Flex，无 positioned stacking、z-index、clip；不支持的声明报错。透明 box 也可命中，按已支持 paint 顺序逆向选择，边界为半开区间。
+当时的 page adapter（现为 [document.cpp](../src/layout/document.cpp)） 输出自有布局、paint 与 hit 列表。命中项仅含弱代际身份、parent 索引和逻辑盒，不含 Node/JSValue。当前限定静态 Flex，无 positioned stacking、z-index、clip；不支持的声明报错。透明 box 也可命中，按已支持 paint 顺序逆向选择，边界为半开区间。
 
 [mouse router](../src/input/mouse_router.cpp) 每次命中前 flush 当前布局。mousedown 保存弱身份；mouseup 派发后重读当前树，再以 down/up 最近共同祖先为 click 目标。disabled 禁止激活；display:none 排除子树；pointer-events 支持 auto/none 的继承与后代覆盖。移除节点或 View reset 不向旧目标派发 click。[鼠标序列参考](https://www.w3.org/TR/2015/WD-uievents-20151215/#events-mouseevent-event-order)
 

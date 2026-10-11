@@ -168,7 +168,7 @@ ScriptConfig 可配置受限执行预算，默认仍为 2 秒。只有 QJS_ENABL
 
 resource_lifetime 测试模拟生命周期；独立 d3d11_warp_color_lifetime 实际执行 GPU API、shader、query 与 readback。`weft_view_record_tick` 仍仅记录 host 时间，没有运行脚本或渲染。全部测试通过也不能宣称完整页面、SVG、移动平台或性能预算通过。完整退出条件见 [实现计划](implementation-plan.md)。
 
-自动布局追加 `layout/auto_page`、`weft_auto_page_tests`、fixture integrity 与两类 browser diff。`--cheetah-auto-hardware` / `--cheetah-auto-warp` 复用固定原版 bundle，内部使用自动尺寸。浏览器准备、离线测试和 sealed evidence 见 [自动布局合同](automatic-layout-probe.md)。
+自动布局追加 `layout/auto_page`（第 8 步并入 `layout/document`）、`weft_auto_page_tests`（现为 `weft_auto_layout_tests`）、fixture integrity 与两类 browser diff。`--cheetah-auto-hardware` / `--cheetah-auto-warp` 复用固定原版 bundle，内部使用自动尺寸。浏览器准备、离线测试和 sealed evidence 见 [自动布局合同](automatic-layout-probe.md)。
 
 可见 flow 窗口的 `--cheetah-flow-window-hardware/warp` 默认使用 4K 离屏目标、最大化窗口和 FPS HUD；新 hidden 4K 场景为 `--cheetah-flow-window-test-4k-hardware/warp`。旧 hidden 640×420 入口不变；实际 client、logical/raster 区别与 FPS 定义见 [flow 窗口](flow-input-window-probe.md#4k-与-fps2026-10-08)。
 

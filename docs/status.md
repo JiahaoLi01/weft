@@ -4,6 +4,17 @@
 
 ## 本次已实现
 
+重构第 8 步之一：统一的文档格式化器（2026-10-11）。page、positioned、auto 三个页面 profile 已删除，页面只剩 `layout_document`（原 flow）。详见 [重构计划](refactoring-plan.md#第-8-步记录2026-10-11)。
+- **结果**：七项旧浏览器对照全部在统一路径上按原阈值通过，最大差与旧 profile 相同；AlertBar 字体基线 0.4416 → 0.0896 px（阈值 0.5）。
+- **关键改动**：
+  - 行盒改用 Blink 的半行距规则，与 scene 共用；flow-layout fixture 的片段平均差 0.116 → 0.037 px，没有字段变远；
+  - 补齐 CSS 语义：视口初始包含块、flex item margin、canvas 替换元素、匿名盒继承 white-space；
+  - React 页面改走共享 packet 构建器；三个样式 profile 合并为一张表（逐项相同）。
+- **验证**：`ctest --preset windows-release --parallel 6` 96/96，`windows-debug --parallel 6` 96/96（319.75 s）；除迁移的 7 组套件外产物逐字节不变。
+- **未解决**：p、button 的 UA 默认边距未建模（ul 已诊断）；文档字体仍是固定探针 FontSet。
+
+下一步：第 8.2 步，文档与 scene 共用一个类型化的 Yoga 适配器。
+
 垂直同步开关（2026-10-11）。画廊窗口在 240 Hz 显示器上一直锁在 240 FPS，现在可以关掉垂直同步看实际帧率。详见 [交互性能](gallery-interaction-profile.md#关闭垂直同步2026-10-11)。
 - **用法**：
   - 任一窗口模式加 `--no-vsync`；

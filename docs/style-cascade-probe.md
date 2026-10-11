@@ -1,5 +1,7 @@
 # 公共样式求值与原始主题 CSS 探针
 
+> 2026-10-11 重构第 8 步：positioned、flex-page、auto 三个样式 profile 已合并为 `document_style_profile()`，属性表、UA 样式表与标志逐项相同；样式 fixture 的 192 个颜色分量对照不变。见 [重构记录](refactoring-plan.md#第-8-步记录2026-10-11)。
+
 本阶段把 positioned 和 Flex 页面中的重复样式逻辑抽到 `weft::style`。固定 AlertBar 使用原样 React/Zustand/store/UE bundle、`operations.css` 的原始 `:root` 块和原始展开状态选择器，输出八帧中文 D3D11 像素。几何与字体仍使用作者适配；没有执行整个 `operations.css`，没有修改实时 CaseCheetah 工程。
 
 ## 模块合同

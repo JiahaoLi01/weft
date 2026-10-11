@@ -1,5 +1,7 @@
 # CaseCheetah 真实界面样本
 
+> 2026-10-11 重构第 8 步：positioned profile 已退役，原样 NineSlice 现由统一的文档格式化器 `layout_document` 运行，浏览器几何对照阈值不变（0.2 px，最大 0.1238）。下文是该 profile 当时的实现与证据，见 [重构记录](refactoring-plan.md#第-8-步记录2026-10-11)。
+
 2026-10-07：后续研发以 `F:\Projects\CaseCheetah\UI` 的实际组件为参考，继续使用 D3D11。图形 API function table 保留，Vulkan/原生 Metal 是后续平台后端。
 
 后续 [公共样式阶段](style-cascade-probe.md) 已接入原始 operations.css theme/expanded rule，并保持本页 NineSlice 的 fixture/golden 和历史产物。完整游戏格式化仍未交付。
@@ -22,7 +24,7 @@
 
 ## 新增的格式上下文
 
-[positioned_page_probe.hpp](../src/layout/positioned_page.hpp) 与已有 Flex profile 分开；未来文档格式上下文调度器负责组合。它支持有界 author rule、type/id/class compound、后代/子代选择器、specificity/source order、inline 优先、继承的字体/颜色/pointer-events，以及 definite width/height、absolute/relative、单值 inset、px/%、`calc(percent +/- px)`、矩形 overflow hidden 和受限隔离层叠。
+当时的 positioned profile（已并入 [document.hpp](../src/layout/document.hpp)） 与已有 Flex profile 分开；未来文档格式上下文调度器负责组合。它支持有界 author rule、type/id/class compound、后代/子代选择器、specificity/source order、inline 优先、继承的字体/颜色/pointer-events，以及 definite width/height、absolute/relative、单值 inset、px/%、`calc(percent +/- px)`、矩形 overflow hidden 和受限隔离层叠。
 
 绝对定位使用最近的 positioned ancestor，static 中间容器不会偷偷成为 containing block；同层负 z-index 留在 isolated 父背景上方、正文下方。非 auto z-index 限于直接 isolated positioned parent，其他层叠明确报错。边框、padding/margin 限零；普通流限具有明确高度的 block。非 absolute 的 inline/replaced 标签需要显式 block，混合 inline 和斜体未实现。后续已加入固定字体集合的中英回退与有限 span/b/ul/li，见 [中文组件](cjk-alert-probe.md)。[CSS positioned containing blocks](https://www.w3.org/TR/css-position-3/#def-cb)、[CSS visual formatting](https://www.w3.org/TR/CSS22/visuren.html)
 

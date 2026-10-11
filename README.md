@@ -28,6 +28,8 @@ Windows 构建：`cmake --preset windows-msvc` → `cmake --build --preset windo
 
 新增 flow profile：嵌套 inline/span 与匿名行盒、Unicode 断行、同步 DOM 几何与程序/wheel 滚动、椭圆圆角及嵌套裁剪。固定 libunibreak，27 个 mutation 场景和原样 React 长列表的八帧浏览器对照通过；同样内容已由自己的 DX11 输出像素。当前仍有字重/bidi、跨源 ligature、inline-block、实体滚轮/触摸、完整 scrollbar 和移动缺口，实际范围和可运行场景见 [flow 合同](docs/flow-layout-probe.md)。
 
+2026-10-11：上述 page、positioned、auto profile 已并入 flow，成为唯一的文档格式化器 `layout_document`；各自原有的浏览器对照都在统一路径上按原阈值通过，见 [重构计划](docs/refactoring-plan.md)。
+
 flow 命中与 HWND 滚轮已接入：命中复用真实绘制顺序、inline 分片和圆角链；原样 React 长列表在自己的消息队列中完成滚动、选中及窗口缩放。3,150 个浏览器命中点中 3,130 个完全一致，20 个边界点显式限定在每轴 2 CSS px；隐藏窗口和细分/取消滚轮已自动验证，实体设备与触摸仍未验收。可见样例、运行命令和证据见 [flow 输入与窗口](docs/flow-input-window-probe.md)。
 
 可见 flow 窗口现默认最大化，使用 3840×2160 离屏目标与按设备字号重新生成的中英字形；右上角和标题栏显示每秒更新的真实 Present FPS。逻辑布局与两级 letterbox 输入映射保持一致。4K 原样 React 场景、idle 合成和实际 query 退休已有自动验证，见 [4K/FPS 范围与运行](docs/flow-input-window-probe.md#4k-与-fps2026-10-08)。

@@ -68,7 +68,7 @@ probes/ tests/ tools/      证据与验证，只依赖 src，不被 src 依赖
 | 5 ✅ | D3D11 渲染器、FramePacket、两帧流水线移入 `src/render`，经 `RenderBackend` concept 接 C ABI；探针头改为独立 TU；shader 构建期编译内嵌 | `probes/d3d11_probe.cpp`、`probe_render_backend.hpp`、`two_frame_pipeline.hpp` | WARP/硬件产物逐字节对照、两帧退休、debug layer 零告警；见下方第 5 步记录 |
 | 6 ✅ | scene 可移植化：拆出纯几何/命中 TU；DirectWrite 量字换成与 flow 相同的 HarfBuzz 测量；D2D 退为 Windows 参考 raster | `scene_probe.hpp`、`scene_d2d_probe.cpp`、`gallery_scene_session.hpp` | 新增 Chrome 文字度量基线；几何与 D2D 差分；见下方第 6 步记录 |
 | 7 ✅ | 类型化样式：PropertyId、长度/颜色/关键字值，去掉字符串往返与正则插值 | `style_probe`、`flow_page`、`auto_page`、`scene_probe` | 级联/动画差分、gallery 像素与几何；见下方第 7 步记录 |
-| 8 | 统一格式化路径：一个调度器、一个 Yoga 适配器、一个 paint IR、一条命中路径；golden 迁移后删除 page/positioned/auto | `src/layout/*`、`input_probe` | 旧 profile 的浏览器差分全部改跑新路径 |
+| 8（8.1 ✅） | 统一格式化路径：一个调度器、一个 Yoga 适配器、一个 paint IR、一条命中路径；golden 迁移后删除 page/positioned/auto | `src/layout/*`、`input_probe` | 旧 profile 的浏览器差分全部改跑新路径 |
 | 9 | DOM 与脚本分离：NodeId 原生树、与 style 共用选择器；QuickJS 对象成为包装；Canvas 状态移到旁表 | `script_dom_probe.cpp`、`style_probe.cpp` | DOM 生命周期、GC 压力、D3 / React 原包 |
 | 10（暂缓） | 第二个图形后端（Vulkan 或 Metal）与 Android/iOS 平台层，按 concept 接入；主机构建选项 | `src/render/backends`、`src/platform` | 平台验证按“配置/编译/链接/模拟器/真机功能/真机性能”分级记录 |
 
@@ -377,6 +377,52 @@ CMake 拆分：
   - scene 保留上一帧 `SceneFrame`、DOM 与计算样式的整份复制，约 15%；
   - 选择器匹配约 7%，几何 shape 约 8%。
   - 前两项对应第 9 步原生 DOM，后两项对应第 8、9 步的统一命中路径与共用选择器。
+
+## 第 8 步记录（2026-10-11）
+
+进行中。8.1 已完成：页面只剩一个文档格式化器。
+
+**8.1a 行盒规则**（`009a11d`）：
+- 文档 inline 布局改用 Blink 的半行距拆分：上方 floor(leading / 2) 整像素，其余 LayoutUnit 行距在下方。与 scene 文字共用 `split_leading()`（scene 产物逐字节不变）。
+- flow-layout fixture 对 Chrome：几何平均差 0.0442 → 0.0176 px，p99 0.79 → 0.31；片段平均 0.116 → 0.037，最大 0.850 → 0.792。250 个字段变近，没有变远的。
+- flow-input 命中 oracle 原来从原生片段几何推导 #outer/#inner 的采样点，行盒一变采样点就偏离采集时的坐标。现改用采集时的坐标（successor hash 已登记），命中结果不变（3,130/3,150 精确）。
+
+**8.1b 统一的文档格式化器**（`dca1716`、`12e460c`）：
+- flow profile 改名为文档格式化器：`layout_document`、`DocumentLayout`、`document_style_profile`、`WEFT_DOCUMENT_PROFILE`。输出类型移到 `layout/output.hpp`。
+- 先用实验补丁让旧对照跑在 flow 上。几何结果与旧 profile 逐值相同（auto fixture 1,984 个字段、React 300 个字段零差异），只有 AlertBar 字体基线超阈值（0.59），由 8.1a 解决。
+- 补齐其他 profile 的 fixture 所需能力，都是 CSS 语义：
+  - 视口大小的初始包含块：根元素可为 static，没有定位祖先的 absolute 盒相对视口；
+  - flex item 的 px/auto margin（block flow 仍要求 0，因为还没有 margin 合并）；
+  - 只写 `ProbeRoboto` 的字体列表；
+  - 匿名盒继承 white-space；会被折叠掉的空白不生成匿名盒（CSS 2.1 9.2.2.1）；
+  - canvas 替换元素：属性给出固有尺寸，单边指定时按固有比例，两边都指定时（px 或 %）交给 Yoga；
+  - 延续 positioned 的规则：ul 必须显式设置 margin 与 padding（UA 缩进未建模）。
+- 所有调用方改用 `layout_document`：
+  - React 页面与窗口，经共享的 packet 构建器（`prepare_page_glyphs` 和 `MouseRouter` 的 build_page 构造函数删除）；
+  - NineSlice、AlertBar 四种 CSS 及字体测量、Canvas gallery；
+  - 测试：positioned 与 auto 的单元用例移到 `document_cases_tests.cpp`；变成合法 CSS 的旧拒绝用例（`:hover`、根元素 padding、`overflow:auto`、只写宽度的 absolute、CJK 换行、混合 inline）删去，仍适用的诊断保留。
+
+**8.1c 删除旧代码**（`d51277c`）：page/positioned/auto 的实现、三个样式 profile、两个诊断码和只被它们使用的常量。`document_style_profile()` 改为一张表，与原链式结果逐项相同（导出两边比较）。
+
+验证：
+
+| 浏览器对照 | 旧 profile 最大 | 统一路径最大 | 阈值 |
+| --- | --- | --- | --- |
+| React | 0.0759 | 0.0759 | 0.1 |
+| NineSlice | 0.1238 | 0.1238 | 0.2 |
+| AlertBar 几何 / 字体基线 | 0.1511 / 0.4416 | 0.1511 / 0.0896 | 0.2 / 0.5 |
+| cheetah-style 几何 / 颜色 | 0.1511 / 3.9e-7 | 0.1511 / 3.9e-7 | 0.2 / 1e-5 |
+| cheetah-auto | 0.2581 | 0.2581 | 0.3 |
+| auto fixture（48 场景） | 0.1841 | 0.1841 | 0.3 |
+| Canvas gallery 位图 | 通过 | 通过 | 原阈值 |
+
+- `ctest --preset windows-release --parallel 6` 96/96，`windows-debug --parallel 6` 96/96（319.75 s）。
+- 产物：除迁移的 7 组套件外与 8.1a 后逐字节相同。迁移套件的变化来自绘制列表（透明背景不再发出绘制项，文字按 Blink 行盒）和字体测量；React 退休纹理仍为 522。
+
+仍未做：
+- 8.2 一个 Yoga 适配器：文档与 scene 共用，类型化输入，去掉 `string_map()`。
+- 8.3 一个 paint IR、一条命中路径与一个 transform 解析器。
+- p、button 的 UA 默认 margin/padding/border 未建模（ul 已显式诊断）；文档字体仍是固定的探针 FontSet，按 FontCatalog 匹配只在 scene 中实现。
 
 ## 顺序调整（2026-10-10）
 

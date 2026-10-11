@@ -1,5 +1,7 @@
 # React / Vite 原生页面探针
 
+> 2026-10-11 重构第 8 步：page profile（`build_page`）已退役。React 页面现由统一的文档格式化器 `layout_document` 布局，并经共享的 packet 构建器绘制：浏览器几何最大 0.0759（阈值 0.1），退休纹理仍为 522。见 [重构记录](refactoring-plan.md#第-8-步记录2026-10-11)。
+
 2026-10-07，固定 React 19.3.0、react-dom 19.3.0、scheduler 0.28.0 和 Vite 8.3.3，真实 JSX 应用已通过自己的 QuickJS、C++ DOM、行内样式、Yoga、HarfBuzz/FreeType 和 D3D11 输出像素。Windows 硬件与 WARP 的初始、计数更新、keyed 列表重排共三帧通过。没有修改 React runtime 源码，没有将浏览器截图输入 native renderer。
 
 这是明确受限的离屏页面实验，M0 仍未全部退出。随后已增加 [原生 HWND/swapchain 主鼠标窗口](native-window-probe.md)；下文三帧离屏 runner 仍使用直接事件派发，窗口证据单独记录。一般 HTML/CSS、移动和任意 React 应用兼容仍未交付。
@@ -19,7 +21,7 @@ Vite 是构建工具。native 没有 ESM loader、dev client、HMR 或开发服�
 
 1. [平台 bootstrap](../src/script/js/web_host_bootstrap.js)（构建时内嵌进脚本库） 补充受限的 CSSStyleDeclaration、宿主时间和任务接口；节点、属性、树操作和事件传播仍由 C++ native DOM 提供。
 2. React 挂载后，owner 执行有限批次的任务与微任务；实际 native `Event` 冒泡触发 React 事件系统。计数变为 1，反转列表时 Ember 保持原生节点身份。
-3. [snapshot_subtree](../src/script/script_dom.hpp) 复制自己的 native 节点树；[page adapter](../src/layout/page.cpp) 读取行内声明、有限继承，生成已有 Flex adapter 的输入。
+3. [snapshot_subtree](../src/script/script_dom.hpp) 复制自己的 native 节点树；当时的 page adapter（现为 [document.cpp](../src/layout/document.cpp)） 读取行内声明、有限继承，生成已有 Flex adapter 的输入。
 4. Yoga 输出唯一盒几何，HarfBuzz 生成逻辑 glyph/advance，FreeType 产生灰度 coverage；背景矩形与文字组成值类型 `Page`。
 5. [GPU runner](../probes/d3d11_probe.cpp) 准备 R8 glyph 纹理，实际宿主执行 command list；query 确认完成后退休资源，staging readback 保存 PNG。
 
