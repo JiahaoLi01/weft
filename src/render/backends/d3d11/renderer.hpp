@@ -192,9 +192,10 @@ namespace weft::render::d3d11 {
         std::size_t gpu_conversions{};
         std::size_t native_releases{};
 
-        // A hardware renderer uses the adapter with the most dedicated memory; warp selects WARP. The
-        // debug layer is enabled when the SDK layers are installed.
-        Renderer(bool warp, UINT w, UINT h);
+        // A hardware renderer uses the adapter with the most dedicated memory; warp selects WARP. With with_debug_layer
+        // the device takes the D3D11 debug layer where the SDK layers are installed (debug_layer tells whether it did);
+        // without, never, as a shipped host runs it.
+        Renderer(bool warp, UINT w, UINT h, bool with_debug_layer = true);
         ~Renderer();
         Renderer(const Renderer&) = delete;
         Renderer& operator=(const Renderer&) = delete;

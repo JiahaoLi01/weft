@@ -29,12 +29,15 @@ namespace weft {
     }
 
     ScenePreparer::ScenePreparer(SceneText& text, SceneNativeWork& work, std::uint32_t max_image_dimension,
-                                 Reference reference)
+                                 Reference reference, SceneCacheBounds bounds)
         : text_(text),
           work_(work),
           max_image_dimension_(max_image_dimension),
           reference_(std::move(reference)),
-          geometry_(text) {
+          geometry_(text),
+          images_(bounds.entries, bounds.bytes),
+          shadows_(bounds.entries, bounds.bytes),
+          paths_(bounds.entries, bounds.bytes) {
     }
 
     std::unique_ptr<ScenePrepared> ScenePreparer::prepare(const SceneFrame& frame, float scale, unsigned width,
@@ -46,6 +49,10 @@ namespace weft {
             ++work_.reasons[reason];
             return nullptr;
         };
+        // What this pass uses stays in the caches until the next pass.
+        images_.begin_pass();
+        shadows_.begin_pass();
+        paths_.begin_pass();
         auto compiled = scene_display_list(frame, layers, &text_);
         if (!compiled.fallback.empty()) {
             return fallback(compiled.fallback);
@@ -54,7 +61,34 @@ namespace weft {
             return fallback(valid.error().message);
         }
         try {
-            return prepare(compiled.list, scale, width, height, crop, view_index);
+            auto prepared = prepare(compiled.list, scale, width, height, crop, view_index);
+            // The pass's working set: each image once.
+            std::map<std::uint64_t, std::size_t> images;
+            const auto count = [&](auto&& self, const ScenePrepared& p) -> void {
+                for (const auto& image : p.images) {
+                    if (image) {
+                        images.emplace(image->id, image->bgra.size());
+                    }
+                }
+                for (const auto& plane : p.planes) {
+                    if (plane) {
+                        self(self, *plane);
+                    }
+                }
+                for (const auto& layer : p.layers) {
+                    if (layer && layer->content) {
+                        self(self, *layer->content);
+                    }
+                }
+            };
+            count(count, *prepared);
+            std::size_t bytes{};
+            for (const auto& [id, size] : images) {
+                bytes += size;
+            }
+            work_.peak_pass_images = std::max(work_.peak_pass_images, images.size());
+            work_.peak_pass_image_bytes = std::max(work_.peak_pass_image_bytes, bytes);
+            return prepared;
         } catch (const std::invalid_argument& e) {
             return fallback(e.what());
         }
@@ -64,14 +98,14 @@ namespace weft {
                                               unsigned view_index) {
         const auto& n = *raster.source;
         std::array<std::uint64_t, 4> id{view_index, n.identity.view_epoch, n.identity.slot, n.identity.generation};
-        auto it = images_.find(id);
-        if (it != images_.end() && scene_paint_source_equal(it->second.key, n) && it->second.scale == scale) {
+        if (const auto* cached = images_.find(id);
+            cached && scene_paint_source_equal(cached->key, n) && cached->scale == scale) {
             if (item.kind == Kind::Layer) {
                 ++work_.layer_reuses;
             } else {
                 ++work_.text_reuses;
             }
-            return {it->second.text, it->second.layer};
+            return {cached->text, cached->layer};
         }
         if (item.kind == Kind::Layer) {
             bool supported = true;
@@ -140,8 +174,7 @@ namespace weft {
             const auto w = unsigned(std::ceil(frame.root.box[2] * scale));
             const auto h = unsigned(std::ceil(frame.root.box[3] * scale));
             entry.bytes = std::size_t(w) * h * constants::rgba8_bytes_per_pixel;
-            if (w > max_image_dimension_ || h > max_image_dimension_ ||
-                entry.bytes > limits::image_cache_budget_bytes) {
+            if (w > max_image_dimension_ || h > max_image_dimension_ || entry.bytes > limits::image_max_bytes) {
                 throw std::invalid_argument("layer image byte bound");
             }
             const auto listed = scene_display_list(frame, {}, &text_);
@@ -171,7 +204,7 @@ namespace weft {
                 throw std::invalid_argument("color glyph image reference");
             }
             entry.bytes = bitmap.rgba.size();
-            if (entry.bytes > limits::image_cache_budget_bytes) {
+            if (entry.bytes > limits::image_max_bytes) {
                 throw std::invalid_argument("text source byte bound");
             }
             // Straight RGBA to premultiplied BGRA.
@@ -192,20 +225,10 @@ namespace weft {
             ++work_.text_builds;
         }
         const auto bytes = entry.bytes;
-        if (images_.size() >= limits::image_cache_max_entries ||
-            image_bytes_ + bytes > limits::image_cache_budget_bytes) {
-            images_.clear();
-            image_bytes_ = 0;
-            ++work_.image_evictions;
-        }
-        it = images_.find(id);
-        if (it != images_.end()) {
-            image_bytes_ -= it->second.bytes;
-            images_.erase(it);
-        }
-        image_bytes_ += bytes;
         Built built{entry.text, entry.layer};
-        images_.emplace(id, std::move(entry));
+        const auto evictions = images_.evictions();
+        images_.put(id, std::move(entry), bytes);
+        work_.image_evictions += images_.evictions() - evictions;
         return built;
     }
 
@@ -214,9 +237,9 @@ namespace weft {
         const std::array<float, 15> key{s.x,        s.y,        s.blur,     s.spread,    s.color[0],
                                         s.color[1], s.color[2], s.color[3], s.radii[0],  s.radii[1],
                                         s.radii[2], s.radii[3], item.width, item.height, scale};
-        if (auto it = shadows_.find(key); it != shadows_.end()) {
+        if (const auto* cached = shadows_.find(key)) {
             ++work_.shadow_reuses;
-            return it->second;
+            return *cached;
         }
         auto image = render::shadow_image(s, item.width, item.height, scale);
         if (!image) {
@@ -228,7 +251,7 @@ namespace weft {
             std::swap(pixels[i], pixels[i + 2]);
         }
         const auto bytes = pixels.size();
-        if (bytes > limits::image_cache_budget_bytes) {
+        if (bytes > limits::image_max_bytes) {
             throw std::invalid_argument("shadow image byte bound");
         }
         auto result = std::make_shared<SceneImage>();
@@ -237,14 +260,9 @@ namespace weft {
         result->height = image->geometry.height;
         result->bgra = std::move(pixels);
         ++work_.shadow_builds;
-        if (shadows_.size() >= limits::image_cache_max_entries ||
-            shadow_bytes_ + bytes > limits::image_cache_budget_bytes) {
-            shadows_.clear();
-            shadow_bytes_ = 0;
-            ++work_.image_evictions;
-        }
-        shadow_bytes_ += bytes;
-        shadows_.emplace(key, result);
+        const auto evictions = shadows_.evictions();
+        shadows_.put(key, result, bytes);
+        work_.image_evictions += shadows_.evictions() - evictions;
         return result;
     }
 
@@ -278,9 +296,9 @@ namespace weft {
             add(&s.dash_offset, sizeof s.dash_offset);
             add(s.dashes.data(), s.dashes.size() * sizeof(s.dashes[0]));
         }
-        if (auto it = paths_.find(key); it != paths_.end()) {
+        if (const auto* cached = paths_.find(key)) {
             ++work_.path_reuses;
-            return it->second;
+            return *cached;
         }
         auto coverage = vector_.rasterize(p, device, mask);
         if (!coverage) {
@@ -292,7 +310,7 @@ namespace weft {
             std::fill_n(pixels.data() + i * 4, 4, coverage->coverage[i]);
         }
         const auto bytes = pixels.size();
-        if (bytes > limits::image_cache_budget_bytes) {
+        if (bytes > limits::image_max_bytes) {
             throw std::invalid_argument("path image byte bound");
         }
         auto result = std::make_shared<SceneImage>();
@@ -301,14 +319,9 @@ namespace weft {
         result->height = coverage->height;
         result->bgra = std::move(pixels);
         ++work_.path_builds;
-        if (paths_.size() >= limits::image_cache_max_entries ||
-            path_bytes_ + bytes > limits::image_cache_budget_bytes) {
-            paths_.clear();
-            path_bytes_ = 0;
-            ++work_.image_evictions;
-        }
-        path_bytes_ += bytes;
-        paths_.emplace(std::move(key), result);
+        const auto evictions = paths_.evictions();
+        paths_.put(key, result, bytes);
+        work_.image_evictions += paths_.evictions() - evictions;
         return result;
     }
 

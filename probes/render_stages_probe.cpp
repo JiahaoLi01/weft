@@ -14,7 +14,11 @@ namespace probes {
                        weft::probe_constants::gallery::render_stages_surface_height);
         gpu.cache_assets = true;
         TwoFramePipeline pipeline(gpu);
-        SceneGpuSurfaces surfaces(gpu, pipeline);
+        // The image caches' bounds before 2026-10-13, which the explicit layers here overflow: images leave the caches
+        // while frames that sample them are still in flight.
+        SceneGpuSurfaces surfaces(gpu, pipeline,
+                                  {std::size_t(weft::probe_constants::gallery::render_stages_cache_entries),
+                                   std::size_t(weft::probe_constants::gallery::render_stages_cache_bytes)});
         surfaces.retain_paint = true;
         weft::SceneRaster reference{weft::testing::thread_scene_text()};
         weft::SceneGeometry geometry{weft::testing::thread_scene_text()};

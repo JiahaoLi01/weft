@@ -126,7 +126,30 @@ int main() {
         require(!preparer.prepare(behind, 2, 400, 200, std::nullopt, 0, {}) && work.fallbacks == 1 &&
                     work.reasons.at("plane behind the viewer") == 1,
                 "fallback reason");
-        std::cout << "PASS scene native preparation: images, planes, layers, scratch, caches, ids, fallbacks\n";
+        // A pass with more images than a cache's entry bound keeps them all for the next pass, which reuses every
+        // one; a pass of other images then evicts the earlier pass's, oldest first, down to the bound.
+        weft::SceneNativeWork bounded_work;
+        weft::ScenePreparer bounded(text, bounded_work, 4096, {}, weft::SceneCacheBounds{4, std::size_t(1) << 30});
+        const auto labels = [&](std::uint32_t first) {
+            weft::SceneFrame f;
+            f.root = node(first, {0, 0, 200, 200}, {{"background-color", "#ffffff"}});
+            for (std::uint32_t i = 1; i <= 6; ++i) {
+                f.root.children.push_back(node(first + i, {4, float(i) * 24, 80, 20},
+                                               {{"font-size", "12px"}, {"color", "#202020"}},
+                                               "Label " + std::to_string(i)));
+            }
+            return f;
+        };
+        const auto many = labels(200);
+        require(bool(bounded.prepare(many, 1, 200, 200, std::nullopt, 0, {})) &&
+                    bool(bounded.prepare(many, 1, 200, 200, std::nullopt, 0, {})) && bounded_work.text_builds == 6 &&
+                    bounded_work.text_reuses == 6 && !bounded_work.image_evictions,
+                "a pass over the entry bound keeps its images");
+        require(bool(bounded.prepare(labels(300), 1, 200, 200, std::nullopt, 0, {})) &&
+                    bounded_work.text_builds == 12 && bounded_work.image_evictions == 6,
+                "a later pass evicts the earlier pass's images");
+        std::cout << "PASS scene native preparation: images, planes, layers, scratch, caches, cache bounds, ids, "
+                     "fallbacks\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

@@ -217,8 +217,8 @@ namespace probes {
         Color transparent_sample{};
 
         explicit Experiment(bool warp, UINT w = weft::probe_constants::color_fixture_width,
-                            UINT h = weft::probe_constants::color_fixture_height)
-            : Renderer(warp, w, h) {
+                            UINT h = weft::probe_constants::color_fixture_height, bool debug_layer = true)
+            : Renderer(warp, w, h, debug_layer) {
             pending_completion = weft::probe_constants::fixture_host_serial;
         }
 

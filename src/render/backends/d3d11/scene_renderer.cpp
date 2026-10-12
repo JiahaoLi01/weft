@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <climits>
 #include <cstdint>
+#include <cstring>
 #include <stdexcept>
 #include <utility>
 
@@ -31,13 +32,15 @@ namespace weft::render::d3d11 {
         }
     } // namespace
 
-    SceneRenderer::SceneRenderer(Renderer& gpu, SceneText& text)
+    SceneRenderer::SceneRenderer(Renderer& gpu, SceneText& text, SceneCacheBounds bounds)
         : gpu_(gpu),
           reference_(text),
-          preparer_(text, *this, std::uint32_t(constants::render::d3d11::max_surface_dimension),
-                    [this](const SceneFrame& frame, float scale) {
-                        return reference_.raster(frame, scale);
-                    }) {
+          preparer_(
+              text, *this, std::uint32_t(constants::render::d3d11::max_surface_dimension),
+              [this](const SceneFrame& frame, float scale) {
+                  return reference_.raster(frame, scale);
+              },
+              bounds) {
         // Compiled at build time from scene.hlsl, always /O3 (cmake/WeftShaders.cmake).
         static constexpr unsigned char vs[] = {
 #include "shaders/scene_native.vs.inc"
@@ -53,6 +56,12 @@ namespace weft::render::d3d11 {
         raster.ScissorEnable = TRUE;
         raster.DepthClipEnable = TRUE;
         throw_if_failed(gpu.device->CreateRasterizerState(&raster, &raster_), "native scene raster state");
+        D3D11_FEATURE_DATA_D3D11_OPTIONS options{};
+        offsets_supported_ =
+            SUCCEEDED(gpu.immediate.As(&context1_)) &&
+            SUCCEEDED(gpu.device->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS, &options, sizeof(options))) &&
+            options.ConstantBufferOffsetting;
+        constant_offsets = offsets_supported_;
     }
 
     void SceneRenderer::retire(Slot& slot) {
@@ -244,14 +253,65 @@ namespace weft::render::d3d11 {
         ctx->OMSetRenderTargets(1, &destination, nullptr);
         unsigned depth{};
         std::vector<ID3D11RenderTargetView*> stack{destination};
+        // The first record of each draw, in draw order: its view constants go to the GPU a chunk of draws at a time,
+        // bound by offset, rather than in an update per draw.
+        std::vector<unsigned> starts;
+        const bool offsets = constant_offsets && offsets_supported_;
+        if (offsets) {
+            for (const auto& batch : pass.batches) {
+                if (batch.step == Step::Boxes || batch.step == Step::EndGroup ||
+                    (batch.step == Step::Image && views[batch.first])) {
+                    starts.push_back(batch.first);
+                }
+            }
+            if (!starts.empty() && !slot.draw_constants) {
+                D3D11_BUFFER_DESC d{};
+                d.ByteWidth = constants::render::d3d11::max_constant_buffer_bytes;
+                d.Usage = D3D11_USAGE_DYNAMIC;
+                d.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+                d.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+                throw_if_failed(gpu_.device->CreateBuffer(&d, nullptr, &slot.draw_constants), "native draw constants");
+            }
+        }
+        constexpr unsigned stride = constants::render::d3d11::constant_buffer_offset_bytes;
+        constexpr unsigned per_chunk = constants::render::d3d11::max_constant_buffer_bytes / stride;
+        std::size_t next_draw{};
         auto instances = [&](unsigned start, unsigned count, ID3D11ShaderResourceView* image) {
-            view[3] = float(start);
-            ctx->UpdateSubresource(slot.constants.Get(), 0, nullptr, view.data(), 0, 0);
+            if (offsets) {
+                const auto at = unsigned(next_draw % per_chunk);
+                if (!at) {
+                    // A new chunk: discarding renames the buffer, so the chunk's draws keep the values they bound.
+                    D3D11_MAPPED_SUBRESOURCE mapped{};
+                    throw_if_failed(ctx->Map(slot.draw_constants.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped),
+                                    "native draw constants map");
+                    const auto end = std::min(starts.size(), next_draw + per_chunk);
+                    for (auto i = next_draw; i < end; ++i) {
+                        view[3] = float(starts[i]);
+                        std::memcpy(static_cast<std::uint8_t*>(mapped.pData) + (i - next_draw) * stride, view.data(),
+                                    sizeof(view));
+                    }
+                    ctx->Unmap(slot.draw_constants.Get(), 0);
+                }
+                ensure(starts.at(next_draw) == start, "native draw constants in draw order");
+                const UINT first = at * stride / constants::render::scene::view_constants_bytes;
+                const UINT count_constants = stride / constants::render::scene::view_constants_bytes;
+                auto* constants_buffer = slot.draw_constants.Get();
+                context1_->VSSetConstantBuffers1(0, 1, &constants_buffer, &first, &count_constants);
+                context1_->PSSetConstantBuffers1(0, 1, &constants_buffer, &first, &count_constants);
+                ++next_draw;
+            } else {
+                view[3] = float(start);
+                ctx->UpdateSubresource(slot.constants.Get(), 0, nullptr, view.data(), 0, 0);
+            }
             ctx->PSSetShaderResources(1, 1, &image);
             ctx->DrawInstanced(constants::render::d3d11::quad_vertex_count, count, 0, 0);
             ++draws;
+        };
+        // A target bound for output samples nothing: the image last drawn goes before the target changes.
+        auto target = [&](ID3D11RenderTargetView* rtv) {
             ID3D11ShaderResourceView* empty = nullptr;
             ctx->PSSetShaderResources(1, 1, &empty);
+            ctx->OMSetRenderTargets(1, &rtv, nullptr);
         };
         for (const auto& batch : pass.batches) {
             switch (batch.step) {
@@ -260,17 +320,15 @@ namespace weft::render::d3d11 {
                     if (!s.texture) {
                         s = group_target(gpu_.device.Get(), target_width, target_height);
                     }
+                    target(s.rtv.Get());
                     ctx->ClearRenderTargetView(s.rtv.Get(), clear.data());
-                    auto* rtv = s.rtv.Get();
-                    ctx->OMSetRenderTargets(1, &rtv, nullptr);
-                    stack.push_back(rtv);
+                    stack.push_back(s.rtv.Get());
                     break;
                 }
                 case Step::EndGroup: {
                     auto& s = slot.groups.at(--depth);
                     stack.pop_back();
-                    auto* rtv = stack.back();
-                    ctx->OMSetRenderTargets(1, &rtv, nullptr);
+                    target(stack.back());
                     instances(batch.first, 1, s.srv.Get());
                     break;
                 }

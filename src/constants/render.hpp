@@ -98,6 +98,11 @@ namespace weft::constants::render {
         inline constexpr int external_texture_capacity = 32;
         inline constexpr unsigned external_texture_max_bytes = 64u * constants::bytes_per_mib;
 
+        // Constant buffer ranges bind at this granularity (16 constants), and a bound range holds at most
+        // max_constant_buffer_bytes (D3D11.1 constant buffer offsetting).
+        inline constexpr int constant_buffer_offset_bytes = 256;
+        inline constexpr int max_constant_buffer_bytes = 65536;
+
         // Device epoch and queue of the single D3D11 immediate context.
         inline constexpr int device_epoch = 1;
         inline constexpr int immediate_queue = 1;
@@ -202,9 +207,12 @@ namespace weft::constants::render {
         // Overflow tolerances for text metrics and for layer descendants, in CSS pixels.
         inline constexpr float text_fit_tolerance = .01f;
         inline constexpr double layer_bounds_tolerance = .01;
-        // Text/layer image cache: entry cap and byte budget. A single image must fit in the budget.
-        inline constexpr int image_cache_max_entries = 128;
-        inline constexpr int image_cache_budget_bytes = 16 * constants::bytes_per_mib;
+        // Each image cache of a scene preparer (text and layers, shadows, paths): the entries and bytes past which the
+        // least recently used images of earlier passes go (SceneCacheBounds).
+        inline constexpr int image_cache_max_entries = 1024;
+        inline constexpr int image_cache_budget_bytes = 32 * constants::bytes_per_mib;
+        // The bytes of one text, layer, shadow or path image.
+        inline constexpr int image_max_bytes = 16 * constants::bytes_per_mib;
         // Transparent-group scratch targets across all slots.
         inline constexpr int scratch_budget_bytes = 128 * constants::bytes_per_mib;
     } // namespace scene

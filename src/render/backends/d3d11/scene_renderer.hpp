@@ -28,6 +28,8 @@ namespace weft::render::d3d11 {
         struct Slot {
             ComPtr<ID3D11Buffer> records;
             ComPtr<ID3D11Buffer> constants;
+            // Each draw's view constants, one per constant_buffer_offset_bytes, rewritten a chunk at a time.
+            ComPtr<ID3D11Buffer> draw_constants;
             ComPtr<ID3D11ShaderResourceView> view;
             // The pass's rounded clips (t2), grown to the largest pass.
             ComPtr<ID3D11Buffer> clips;
@@ -47,8 +49,13 @@ namespace weft::render::d3d11 {
             std::vector<std::unique_ptr<Slot>> planes;
         };
 
-        SceneRenderer(Renderer& gpu, SceneText& text);
+        // bounds are the preparer's image caches' (SceneCacheBounds).
+        SceneRenderer(Renderer& gpu, SceneText& text, SceneCacheBounds bounds = {});
         SceneRenderer(const SceneRenderer&) = delete;
+
+        // A pass writes its draws' view constants once per chunk of draws and binds each by offset (D3D11.1), where the
+        // device can; otherwise, or turned off, each draw updates them.
+        bool constant_offsets{};
         SceneRenderer& operator=(const SceneRenderer&) = delete;
 
         std::size_t scratch_bytes() const {
@@ -73,6 +80,9 @@ namespace weft::render::d3d11 {
         };
 
         Renderer& gpu_;
+        ComPtr<ID3D11DeviceContext1> context1_;
+        // Whether the device binds constant buffer ranges by offset.
+        bool offsets_supported_{};
         ComPtr<ID3D11VertexShader> vs_;
         ComPtr<ID3D11PixelShader> ps_;
         ComPtr<ID3D11RasterizerState> raster_;

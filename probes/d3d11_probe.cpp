@@ -392,8 +392,8 @@ namespace probes {
 
 int main(int argc, char** argv) {
     using namespace probes;
-    // --no-vsync anywhere turns vertical sync off for the windows this process opens, --no-validation the Vulkan
-    // validation layer of its Vulkan windows; the modes see the rest.
+    // --no-vsync anywhere turns vertical sync off for the windows this process opens, --no-validation the API
+    // validation of its windows (window_present_settings); the modes see the rest.
     std::vector<char*> arguments(argv, argv + argc);
     if (std::erase_if(arguments, [](const char* argument) {
             return std::string_view(argument) == "--no-vsync";

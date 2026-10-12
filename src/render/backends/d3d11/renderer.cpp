@@ -160,7 +160,7 @@ namespace weft::render::d3d11 {
         }
     }
 
-    Renderer::Renderer(bool warp, UINT w, UINT h) : width(w), height(h) {
+    Renderer::Renderer(bool warp, UINT w, UINT h, bool with_debug_layer) : width(w), height(h) {
         ensure(w && h && w <= weft::constants::render::d3d11::max_surface_dimension &&
                    h <= weft::constants::render::d3d11::max_surface_dimension,
                "bounded probe surface");
@@ -191,10 +191,10 @@ namespace weft::render::d3d11 {
                                      flags | D3D11_CREATE_DEVICE_BGRA_SUPPORT, levels, 1, D3D11_SDK_VERSION, &device,
                                      &level, &immediate);
         };
-        auto hr = create(D3D11_CREATE_DEVICE_DEBUG);
-        if (hr == DXGI_ERROR_SDK_COMPONENT_MISSING) {
+        auto hr = with_debug_layer ? create(D3D11_CREATE_DEVICE_DEBUG) : create(0);
+        if (with_debug_layer && hr == DXGI_ERROR_SDK_COMPONENT_MISSING) {
             hr = create(0);
-        } else if (SUCCEEDED(hr)) {
+        } else if (with_debug_layer && SUCCEEDED(hr)) {
             debug_layer = true;
         }
         throw_if_failed(hr, "D3D11CreateDevice");

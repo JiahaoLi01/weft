@@ -72,6 +72,28 @@ namespace probes {
                                  actual.height);
                         require(diff.passes(), "GPU original scene outside unchanged Chromium tolerances");
                         ++captures;
+                        // The native pass updating each draw's view constants itself draws the same pixels as the
+                        // pass binding them by offset.
+                        if (optimized && frame == weft::probe_constants::gallery::scene_reference_last_frame) {
+                            auto& native = surfaces.native_renderer();
+                            const bool offsets = native.constant_offsets;
+                            native.constant_offsets = false;
+                            auto& again =
+                                surfaces.paint_owned(slot, std::make_shared<const weft::SceneFrame>(scene.current),
+                                                     weft::probe_constants::gallery::scene_raster_scale, std::nullopt,
+                                                     gallery_layer_manifest(slot, scene.current, true));
+                            native.constant_offsets = offsets;
+                            surfaces.publish();
+                            FramePacket repeat;
+                            repeat.draws.push_back({{0, 0, float(again.width), float(again.height)}, {1, 1, 1, 1}, 0});
+                            surfaces.submitted(pipeline.submit(std::move(repeat),
+                                                               [] {
+                                                               },
+                                                               {}, {again.handle}),
+                                               visible);
+                            require(surfaces.read(slot).rgba == actual.rgba,
+                                    "native pass with per-draw constant updates");
+                        }
                     }
                 }
                 scene.unmount();

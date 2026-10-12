@@ -105,6 +105,9 @@ namespace weft::probe_constants::gallery {
     // --- Inspection window ---
 
     // Authored inspection shell (examples/crpg-gallery/preview.css), shown at 2x on the 4K surface.
+    // Image cache bounds of the render stages probe's native pass (SceneCacheBounds), which its layers overflow.
+    inline constexpr int render_stages_cache_entries = 128;
+    inline constexpr int render_stages_cache_bytes = 16 * weft::constants::bytes_per_mib;
     inline constexpr int shell_width = 1920;
     inline constexpr int shell_height = 1080;
     inline constexpr int shell_device_scale = 2;

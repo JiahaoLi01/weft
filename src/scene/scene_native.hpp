@@ -1,9 +1,11 @@
 #pragma once
 
+#include "constants/render.hpp"
 #include "render/scene_pass.hpp"
 #include "scene/scene.hpp"
 #include "scene/scene_display_list.hpp"
 #include "scene/scene_geometry.hpp"
+#include "scene/scene_image_cache.hpp"
 #include "vector/path_raster.hpp"
 
 #include <array>
@@ -14,7 +16,6 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 // The backend-neutral half of a native scene pass: a frame's display list (scene_display_list), its plan
@@ -44,7 +45,12 @@ namespace weft {
         std::size_t path_reuses{};
         // Plane contents drawn by nested passes into their images.
         std::size_t plane_passes{};
+        // Cached images evicted for the caches' bounds (SceneCacheBounds).
         std::size_t image_evictions{};
+        // The most text, shadow and path images one pass sampled, and the most bytes, its planes' and layers' passes
+        // included: the working set the caches' bounds must hold.
+        std::size_t peak_pass_images{};
+        std::size_t peak_pass_image_bytes{};
         // Fallback counts by reason.
         std::map<std::string, std::size_t> reasons;
     };
@@ -85,6 +91,13 @@ namespace weft {
     // its image too.
     std::size_t scene_scratch_bytes(const ScenePrepared& prepared, bool plane = false);
 
+    // Bounds of each of a preparer's image caches (text and layers, shadows, paths). Past them the least recently used
+    // images of earlier passes go; what the current pass uses stays (scene_image_cache.hpp).
+    struct SceneCacheBounds {
+        std::size_t entries = std::size_t(constants::render::scene::image_cache_max_entries);
+        std::size_t bytes = std::size_t(constants::render::scene::image_cache_budget_bytes);
+    };
+
     class ScenePreparer {
     public:
         // Draws a frame as the reference raster draws it, for text whose color glyphs are images; without one such
@@ -93,7 +106,7 @@ namespace weft {
 
         // Plane and layer images are at most max_image_dimension device px wide and high.
         ScenePreparer(SceneText& text, SceneNativeWork& work, std::uint32_t max_image_dimension,
-                      Reference reference = {});
+                      Reference reference = {}, SceneCacheBounds bounds = {});
         ScenePreparer(const ScenePreparer&) = delete;
         ScenePreparer& operator=(const ScenePreparer&) = delete;
 
@@ -121,14 +134,12 @@ namespace weft {
         SceneGeometry geometry_;
         vector::Rasterizer vector_;
         std::uint64_t next_id_{};
-        std::map<std::array<std::uint64_t, 4>, Entry> images_;
-        std::size_t image_bytes_{};
+        // Text and layer images by view and node identity.
+        SceneImageCache<std::array<std::uint64_t, 4>, Entry> images_;
         // Shadow images by value: offset, blur, spread, color, radii, box size and scale.
-        std::map<std::array<float, 15>, std::shared_ptr<const SceneImage>> shadows_;
-        std::size_t shadow_bytes_{};
+        SceneImageCache<std::array<float, 15>, std::shared_ptr<const SceneImage>> shadows_;
         // Path coverage images by value: the path, its stroke, the device map and the mask's pixels.
-        std::unordered_map<std::string, std::shared_ptr<const SceneImage>> paths_;
-        std::size_t path_bytes_{};
+        SceneImageCache<std::string, std::shared_ptr<const SceneImage>> paths_;
 
         // Plans list and builds the images it samples, its planes' and layers' contents included; throws
         // std::invalid_argument with the reason for a list a native pass cannot draw.

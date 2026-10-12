@@ -147,11 +147,15 @@ namespace probes {
             return native_;
         }
 
-        SceneGpuSurfaces(Experiment& gpu, TwoFramePipeline& pipeline)
+        SceneRenderer& native_renderer() {
+            return native_;
+        }
+
+        SceneGpuSurfaces(Experiment& gpu, TwoFramePipeline& pipeline, weft::SceneCacheBounds bounds = {})
             : gpu_(gpu),
               pipeline_(pipeline),
               api_(gpu.ensure_backend()),
-              native_(gpu, weft::testing::thread_scene_text()) {
+              native_(gpu, weft::testing::thread_scene_text(), bounds) {
             api_.enable_external(weft::probe_constants::gallery::external_texture_limit,
                                  weft::probe_constants::gallery::external_import_budget_bytes);
             ComPtr<IDXGIDevice> device;
@@ -290,15 +294,14 @@ namespace probes {
             peak_live_slots = std::max(peak_live_slots, live_slots());
             producer_pending = true;
             s.painter.set_layers(layers);
-            auto damage = weft::SceneDamage{true, true, {0, 0, frame.root.box[2], frame.root.box[3]}};
-            if (retain_paint && s.retained_frame && s.clip == clip) {
-                damage = weft::scene_damage(*s.retained_frame, frame, scale);
-            }
             full_pixels += double(w) * h;
             const bool native =
                 native_paint && native_.paint(s.native, frame, s.encoded_rtv.Get(), scale, w, h, clip, index, layers);
-            if (s.last_native && !native) {
-                damage.full = true;
+            // A native pass draws the whole frame; the reference raster repaints what changed since the frame it
+            // painted last into this slot.
+            auto damage = weft::SceneDamage{true, true, {0, 0, frame.root.box[2], frame.root.box[3]}};
+            if (!native && !s.last_native && retain_paint && s.retained_frame && s.clip == clip) {
+                damage = weft::scene_damage(*s.retained_frame, frame, scale);
             }
             s.last_native = native;
             if (native) {

@@ -30,6 +30,9 @@ weft_add_python_test(NAME gallery_runtime_integrity SCRIPT tools/verify_gallery_
 weft_add_executable(weft_base_tests SOURCES base_tests.cpp LINK weft::base)
 weft_add_test(NAME base_contract COMMAND weft_base_tests)
 
+weft_add_executable(weft_scene_image_cache_tests SOURCES scene_image_cache_tests.cpp LINK weft::base)
+weft_add_test(NAME scene_image_cache_contract COMMAND weft_scene_image_cache_tests)
+
 weft_add_executable(weft_core_tests SOURCES core_tests.cpp LINK weft::core)
 weft_add_test(NAME core_contract COMMAND weft_core_tests)
 

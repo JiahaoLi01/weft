@@ -11,6 +11,7 @@
 #include "gallery_live_profiler.hpp"
 #include "../tests/cluster_visual_compare.hpp"
 #include "probe_modes.hpp"
+#include "sampling_profiler.hpp"
 
 #include <numbers>
 
@@ -76,8 +77,10 @@ namespace probes {
                                                            std::chrono::duration<double>(drag_begin));
                 tracked_scene = scenario == "anime-drag" || scenario == "anime"
                                     ? weft::probe_constants::gallery::anime_drag_scene
-                                : scenario == "scatter-drag" ? weft::probe_constants::gallery::scatter_scene
-                                                             : -1;
+                                : scenario == "scatter-drag"   ? weft::probe_constants::gallery::scatter_scene
+                                : scenario == "sunburst-sweep" ? weft::probe_constants::gallery::sunburst_scene
+                                : scenario == "kline-sweep"    ? weft::probe_constants::gallery::kline_scene
+                                                               : -1;
             }
 
             bool measuring(double now) const {
@@ -161,7 +164,16 @@ namespace probes {
         // Live benchmarks run like the interactive window (wall clock, latest owner frame without waiting) and
         // drive a drag with one queued move per render frame, as a real mouse's coalesced WM_MOUSEMOVE.
         const bool live = benchmark.starts_with("live-");
-        const auto scenario = input_benchmark ? benchmark.substr(6) : live ? benchmark.substr(5) : benchmark;
+        // A live scenario with the -sampled suffix also samples the render thread's scene paints in the measured span
+        // (render-samples.txt; names need the windows-profile build's PDBs). Sampling slows the paints it samples.
+        const bool sample_render = live && benchmark.ends_with("-sampled");
+        const auto scenario = input_benchmark ? benchmark.substr(6)
+                              : live          ? benchmark.substr(5, benchmark.size() - 5 - (sample_render ? 8 : 0))
+                                              : benchmark;
+        std::optional<SamplingProfiler> render_sampler;
+        if (sample_render) {
+            render_sampler.emplace(std::chrono::microseconds(weft::probe_constants::gallery::owner_sample_period_us));
+        }
         std::filesystem::create_directories(folder);
         const auto startup = std::chrono::steady_clock::now();
         std::cout << "Observing 72 fixed original cases (isolated, 12 opportunities; no full CSS/pixel pass)...\n";
@@ -186,7 +198,8 @@ namespace probes {
         NativeReactWindow window(!self_test && (benchmark.empty() || live), true);
         window.state.logical_width = weft::probe_constants::gallery::shell_width;
         window.state.logical_height = weft::probe_constants::gallery::shell_height;
-        Experiment gpu(warp, weft::constants::uhd_width, weft::constants::uhd_height);
+        Experiment gpu(warp, weft::constants::uhd_width, weft::constants::uhd_height,
+                       window_present_settings().validation);
         gpu.cache_assets = true;
         gpu.cache.byte_limit = weft::probe_constants::gallery::asset_cache_budget_bytes;
         gpu.enable_timing();
@@ -470,8 +483,9 @@ namespace probes {
         };
         if (!benchmark.empty()) {
             const std::map<std::string, unsigned> cluster_groups{
-                {"d3-interactive", 2}, {"scatter", 2}, {"kline", 3}, {"webgl", 4},      {"framer", 5},
-                {"spring", 6},         {"icons", 7},   {"anime", 8}, {"anime-drag", 8}, {"scatter-drag", 2}};
+                {"d3-interactive", 2}, {"scatter", 2},      {"kline", 3},          {"webgl", 4},
+                {"framer", 5},         {"spring", 6},       {"icons", 7},          {"anime", 8},
+                {"anime-drag", 8},     {"scatter-drag", 2}, {"sunburst-sweep", 2}, {"kline-sweep", 3}};
             require(scenario == "css-top" || scenario == "css-middle" || scenario == "css-end" || scenario == "d3" ||
                         cluster_groups.contains(scenario),
                     "benchmark scenario");
@@ -922,8 +936,14 @@ namespace probes {
                                                                           : std::chrono::steady_clock::time_point{};
                     const auto paint_start = phase_seconds();
                     auto snapshot = owner ? owner_frame->scenes[i] : std::make_shared<const weft::SceneFrame>(frame);
+                    if (render_sampler) {
+                        render_sampler->active(live_window.measuring(seconds()));
+                    }
                     scene_gpu.paint_owned(i, std::move(snapshot), weft::probe_constants::gallery::scene_raster_scale,
                                           crop, gallery_layer_manifest(i, frame, true));
+                    if (render_sampler) {
+                        render_sampler->active(false);
+                    }
                     const auto paint_ms = (phase_seconds() - paint_start) * weft::constants::milliseconds_per_second;
                     raster_ms += paint_ms;
                     if (render_trace.enabled()) {
@@ -1661,7 +1681,29 @@ namespace probes {
                             "live queued native mouse");
                 };
                 const double t = seconds() - live_window.t0;
-                if (!live_window.pressed && !live_window.released && t >= GalleryLiveWindow::drag_begin) {
+                const bool sweep = scenario == "sunburst-sweep" || scenario == "kline-sweep";
+                if (sweep && !live_window.released && t >= GalleryLiveWindow::drag_begin) {
+                    // A fast hover sweep without a button, as a mouse swept back and forth over the chart: a Lissajous
+                    // path of about 2000 card px/s across the sunburst's rings or the K-line's candles, inside the
+                    // card's visible part, then away from every card.
+                    const auto r = scene_rect(index);
+                    const double top = std::max(0.0, -double(r[1]));
+                    const double bottom = std::min(double(r[3]), weft::probe_constants::gallery::shell_height - r[1]);
+                    const double u = t - GalleryLiveWindow::drag_begin;
+                    const double cx = scenario == "kline-sweep" ? 800 : 798;
+                    const double ax = scenario == "kline-sweep" ? 560 : 520;
+                    const double cy = (top + bottom) / 2;
+                    const double ay = std::max(0.0, (bottom - top) / 2 - 40);
+                    if (t < GalleryLiveWindow::drag_end) {
+                        post(cx + ax * std::sin(u * 2 * std::numbers::pi * 2),
+                             cy + ay * std::sin(u * 2 * std::numbers::pi * 3 + std::numbers::pi / 4), WM_MOUSEMOVE, 0);
+                    } else {
+                        post(weft::probe_constants::gallery::offscreen_pointer - r[0],
+                             weft::probe_constants::gallery::offscreen_pointer - r[1], WM_MOUSEMOVE, 0);
+                        live_window.released = true;
+                    }
+                } else if (!sweep && !live_window.pressed && !live_window.released &&
+                           t >= GalleryLiveWindow::drag_begin) {
                     if (scenario == "anime-drag") {
                         const auto center = gallery_class_center(*owner_frame->scenes[index], "drag-item");
                         require(center.has_value(), "live anime drag item geometry");
@@ -1732,7 +1774,12 @@ namespace probes {
                 std::to_string(native.fallbacks) + ",\"native_draw_batches\":" + std::to_string(native.draws) +
                 ",\"text_builds\":" + std::to_string(native.text_builds) + ",\"text_portable_builds\":" +
                 std::to_string(native.text_portable_builds) + ",\"text_reuses\":" + std::to_string(native.text_reuses) +
-                ",\"reference_builds\":" + std::to_string(native.reference_builds) +
+                ",\"reference_builds\":" + std::to_string(native.reference_builds) + ",\"path_builds\":" +
+                std::to_string(native.path_builds) + ",\"path_reuses\":" + std::to_string(native.path_reuses) +
+                ",\"shadow_builds\":" + std::to_string(native.shadow_builds) +
+                ",\"image_evictions\":" + std::to_string(native.image_evictions) +
+                ",\"peak_pass_images\":" + std::to_string(native.peak_pass_images) +
+                ",\"peak_pass_image_bytes\":" + std::to_string(native.peak_pass_image_bytes) +
                 ",\"native_layer_builds\":" + std::to_string(native.layer_builds) + ",\"native_layer_reuses\":" +
                 std::to_string(native.layer_reuses) + ",\"layer_builds\":" + std::to_string(raster_stats.layer_builds) +
                 ",\"layer_reuses\":" + std::to_string(raster_stats.layer_reuses) +
@@ -1754,6 +1801,10 @@ namespace probes {
                 ",\"typed_draws\":" + std::to_string(commands.typed_draws) + "}");
         if (live) {
             write_text(folder / "live.json", live_window.json(scenario, presenter.vsync));
+            if (render_sampler) {
+                std::cout << render_sampler->write(folder / "render-samples.txt")
+                          << " render thread samples of scene paints / render-samples.txt\n";
+            }
         }
         if (!benchmark.empty() && !live) {
             std::string data = "{";

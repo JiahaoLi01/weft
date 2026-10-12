@@ -305,7 +305,8 @@ namespace probes {
     };
 
     // Presentation choice for every window this probe process opens; --no-vsync on the command line turns vertical
-    // sync off, and --no-validation the Vulkan validation layer of the Vulkan windows.
+    // sync off, and --no-validation the API validation of the windows: the Vulkan validation layer, and the D3D11 debug
+    // layer of the gallery window, as a shipped host runs them.
     struct WindowPresentSettings {
         bool vsync = true;
         bool validation = true;
