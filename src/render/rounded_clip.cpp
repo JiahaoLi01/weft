@@ -14,6 +14,14 @@ namespace weft {
         if (c.rect[2] < 0 || c.rect[3] < 0) {
             throw std::invalid_argument("WEFT_ROUNDED_LIMIT: negative size");
         }
+        const auto& m = c.to_local;
+        if (!std::all_of(m.begin(), m.end(),
+                         [](float v) {
+                             return std::isfinite(v);
+                         }) ||
+            !std::isnormal(m[0] * m[3] - m[1] * m[2])) {
+            throw std::invalid_argument("WEFT_ROUNDED_LIMIT: clip map");
+        }
         for (float v : c.radius_x) {
             if (!std::isfinite(v) || v < 0 || v > constants::render::rounded_clip_max_magnitude) {
                 throw std::invalid_argument("WEFT_ROUNDED_LIMIT: radius");
@@ -44,6 +52,13 @@ namespace weft {
     }
 
     bool contains_rounded(const RoundedClip& c, float x, float y) {
+        if (c.to_local != identity_clip_map) {
+            const auto& m = c.to_local;
+            const float lx = x * m[0] + y * m[2] + m[4];
+            const float ly = x * m[1] + y * m[3] + m[5];
+            x = lx;
+            y = ly;
+        }
         const float l = c.rect[0];
         const float t = c.rect[1];
         const float r = l + c.rect[2];

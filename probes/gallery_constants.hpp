@@ -151,8 +151,11 @@ namespace weft::probe_constants::gallery {
     // whose alpha lands on half a level quantizes up on the GPU, as Chromium does, and down in the CPU reference.
     inline constexpr double max_vector_oracle_mean = 1.0;
     inline constexpr int max_vector_oracle_solid = 1;
-    // Pixels that may differ by more than vector_outlier_level: edge antialiasing differs by less.
-    inline constexpr unsigned max_vector_oracle_outliers = 8;
+    // Pixels that may differ by more than vector_outlier_level: edge antialiasing differs by less, except at a few
+    // high-contrast edges of rotated boxes (the encoded pass widens their ramp by the derivative's L1 norm).
+    inline constexpr unsigned max_vector_oracle_outliers = 16;
+    // The stroke (#0a0806) fills a stroked rectangle's corner pixel: channels at most this level.
+    inline constexpr int corner_stroke_level = 24;
     inline constexpr int vector_outlier_level = 64;
     inline constexpr int solid_region_tolerance = 2;
     // The SVG drawing inks at least this many pixels: some channel below ink_level on white.

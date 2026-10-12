@@ -12,9 +12,9 @@ namespace weft {
     // A scene frame as a display list, or why it has none.
     struct SceneDisplayList {
         paint::DisplayList list;
-        // Empty unless the frame needs what the list cannot express yet (overflow and clip-path clips of rotated or
-        // skewed boxes, SVG text without a text engine, projective transforms, unsupported values): the list is then
-        // empty, and the whole frame is drawn another way, so no partly accepted list changes stacking.
+        // Empty unless the frame needs what the list cannot express yet (SVG text without a text engine, projective
+        // transforms, unsupported values): the list is then empty, and the whole frame is drawn another way, so no
+        // partly accepted list changes stacking.
         std::string fallback;
     };
 

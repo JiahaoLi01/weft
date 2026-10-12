@@ -156,8 +156,8 @@ namespace weft::constants::render {
         inline constexpr int gradient_offset_vectors = max_gradient_stops / stops_per_offset_vector;
         // Size of the shader Paint record (28 float4 registers).
         inline constexpr int record_bytes = 448;
-        // Size of the shader Clip record (3 float4 registers).
-        inline constexpr int clip_bytes = 48;
+        // Size of the shader Clip record (5 float4 registers).
+        inline constexpr int clip_bytes = 80;
         // Size of the View constant buffer (one float4).
         inline constexpr int view_constants_bytes = 16;
         // Paint::mode.x of image items: ImageModeCoverage and ImageModeSignedDistance (other images are 0).

@@ -190,7 +190,10 @@ namespace weft::render {
         for (const auto& c : list.clips) {
             try {
                 const auto n = normalize_rounded(c);
-                pass.clips.push_back({n.rect, n.radius_x, n.radius_y});
+                const auto& m = n.to_local;
+                // Target px per unit of the clip's space: one over the square root of the map's area scale.
+                const float span = 1 / std::sqrt(std::abs(m[0] * m[3] - m[1] * m[2]));
+                pass.clips.push_back({n.rect, n.radius_x, n.radius_y, {m[0], m[2], m[4], span}, {m[1], m[3], m[5], 0}});
             } catch (const std::invalid_argument& e) {
                 return make_diagnostic(Diag::PaintList, e.what());
             }

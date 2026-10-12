@@ -56,6 +56,9 @@ struct Clip {
     float4 rect;
     float4 radiusX;
     float4 radiusY;
+    // Rows of the map from target px into the clip's space; invX.w is target px per unit of that space.
+    float4 invX;
+    float4 invY;
 };
 
 StructuredBuffer<Paint> paints : register(t0);
@@ -118,9 +121,10 @@ float4 premult(float4 c) {
 #endif
 }
 
-// Coverage of world (CSS px) by one rounded clip, antialiased across a device pixel: the distance to the rectangle,
-// or inside a corner's box the first-order distance to its ellipse.
-float clipCoverage(Clip c, float2 world) {
+// Coverage of target (CSS px) by one rounded clip, antialiased across a device pixel: in the clip's own space, the
+// distance to the rectangle, or inside a corner's box the first-order distance to its ellipse.
+float clipCoverage(Clip c, float2 target) {
+    float2 world = float2(dot(c.invX.xyz, float3(target, 1)), dot(c.invY.xyz, float3(target, 1)));
     float2 lo = c.rect.xy;
     float2 hi = c.rect.xy + c.rect.zw;
     float2 q = max(lo - world, world - hi);
@@ -146,7 +150,7 @@ float clipCoverage(Clip c, float2 world) {
         float gradient = length((world - center) / (radius * radius)) / max(k, MinimumRadius);
         d = max(d, (k - 1) / max(gradient, MinimumRadius));
     }
-    return saturate(.5 - d * scale);
+    return saturate(.5 - d * c.invX.w * scale);
 }
 
 float clipChain(Paint p, float2 world) {

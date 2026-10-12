@@ -219,8 +219,60 @@ int main() {
                     "unknown SVG element");
             auto rotated = frame;
             rotated.root.children[0].children[4].attributes["transform"] = "rotate(10)";
-            require(weft::scene_display_list(rotated, {}, &text).fallback == "rotated SVG clip reference",
-                    "rotated clip-path");
+            // Under a rotation the clip-path rectangle clips in the element's own space: its map from target px is
+            // the inverse of the element's transform.
+            const auto turned = weft::scene_display_list(rotated, {}, &text);
+            const auto& clipped = turned.list.items[6];
+            require(turned.fallback.empty() && clipped.kind == Kind::Path && clipped.clips_count == 2,
+                    "rotated clip-path keeps the viewport clip and adds its own");
+            const auto& local = turned.list.clips[clipped.clips_begin + 1];
+            const auto& m = clipped.transform;
+            const auto& map = local.to_local;
+            const float tx = 4 * m[0] + 3 * m[2] + m[4];
+            const float ty = 4 * m[1] + 3 * m[3] + m[5];
+            require(local.rect == std::array<float, 4>{2, 2, 6, 6} &&
+                        std::abs(tx * map[0] + ty * map[2] + map[4] - 4) < 1e-3f &&
+                        std::abs(tx * map[1] + ty * map[3] + map[5] - 3) < 1e-3f,
+                    "rotated clip-path in its own space");
+        }
+        {
+            // A rotated box with overflow hidden clips its content to its padding box with inner corners, in its own
+            // space.
+            weft::SceneFrame frame;
+            frame.root.identity = {1, 1, 170};
+            frame.root.tag = "div";
+            frame.root.box = {0, 0, 200, 200};
+            weft::SceneNode box;
+            box.identity = {1, 1, 171};
+            box.tag = "div";
+            box.box = {50, 50, 80, 60};
+            box.style = {{"overflow", "hidden"},
+                         {"transform", "rotate(30deg)"},
+                         {"border-top-left-radius", "12px"},
+                         {"border-top-width", "2px"},
+                         {"border-left-width", "4px"}};
+            weft::SceneNode child;
+            child.identity = {1, 1, 172};
+            child.tag = "div";
+            child.box = {0, 0, 80, 60};
+            child.style = {{"background-color", "#ff0000"}};
+            box.children = {child};
+            frame.root.children = {box};
+            const auto plan = weft::scene_display_list(frame);
+            // The box (its borders) and its child; only the child is inside the clip.
+            require(plan.fallback.empty() && plan.list.items.size() == 2 && plan.list.items[0].clips_count == 0 &&
+                        plan.list.items[1].clips_count == 1,
+                    "rotated overflow clip");
+            const auto& c = plan.list.clips[plan.list.items[1].clips_begin];
+            require(c.rect == std::array<float, 4>{4, 2, 76, 58} && c.radius_x[0] == 8 && c.radius_y[0] == 10 &&
+                        c.to_local != weft::identity_clip_map,
+                    "rotated overflow clips its padding box in its own space");
+            // The local origin of the box maps back from where the box's transform puts it.
+            const auto& m = plan.list.items[1].transform;
+            const auto& map = c.to_local;
+            require(std::abs(m[4] * map[0] + m[5] * map[2] + map[4]) < 1e-3f &&
+                        std::abs(m[4] * map[1] + m[5] * map[3] + map[5]) < 1e-3f,
+                    "rotated overflow clip map");
         }
         {
             // Short hex colors expand as the reference raster expands them: background, border and text tint.
@@ -324,8 +376,14 @@ int main() {
             require(items[4].clip == std::array<float, 4>{0, 10, 170, 90}, "rounded clip's axis-aligned bounds");
             inner.style["transform"] = "rotate(10deg)";
             outer.children = {inner};
-            require(weft::scene_display_list(frame).fallback == "rounded/transformed clip reference",
-                    "rotated overflow clip must stay a visible fallback");
+            // Rotated, the inner clip lies in the box's own space: the outer clip, then the inner one, unscaled.
+            const auto rotated = weft::scene_display_list(frame);
+            const auto& turned = rotated.list.items[4];
+            require(rotated.fallback.empty() && turned.clips_count == 2 &&
+                        rotated.list.clips[turned.clips_begin + 1].rect == std::array<float, 4>{0, 0, 100, 80} &&
+                        rotated.list.clips[turned.clips_begin + 1].radius_x == std::array<float, 4>{4, 16, 0, 0} &&
+                        rotated.list.clips[turned.clips_begin + 1].to_local != weft::identity_clip_map,
+                    "rotated overflow clips in its own space");
         }
         {
             // An overflow clip is the padding box. Each inner radius is the outer one less the adjacent border width:

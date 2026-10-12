@@ -1,6 +1,7 @@
 #include "paint/display_list.hpp"
 #include "render/atlas_packer.hpp"
 #include "render/quad_list.hpp"
+#include "render/rounded_clip.hpp"
 #include "render/scene_pass.hpp"
 #include "render/shadow_image.hpp"
 #include "render/srgb.hpp"
@@ -399,6 +400,24 @@ namespace {
         require(!chain && chain.error().code == weft::Diag::PaintList &&
                     chain.error().message.find("rounded clip chain bound") != std::string::npos,
                 "rounded clip chain bound");
+        // A clip in its own space records the rows of its map from target px and how many target px its unit spans;
+        // an identity map records the identity and 1. A singular map refuses the plan and the list.
+        auto turned = clipped;
+        turned.clips[0] = {{0, 0, 10, 10}, {}, {}, {0, -.5f, .5f, 0, 0, 10}};
+        const auto local = weft::render::plan_scene_pass(turned, 2, 100, 80).value();
+        require(local.clips[0].inv_x == std::array<float, 4>{0, .5f, 0, 2} &&
+                    local.clips[0].inv_y == std::array<float, 4>{-.5f, 0, 10, 0} &&
+                    planned.clips[0].inv_x == std::array<float, 4>{1, 0, 0, 1} &&
+                    planned.clips[0].inv_y == std::array<float, 4>{0, 1, 0, 0},
+                "clip map record");
+        turned.clips[0].to_local = {1, 2, 2, 4, 0, 0};
+        const auto singular = weft::render::plan_scene_pass(turned, 2, 100, 80);
+        require(!singular && singular.error().code == weft::Diag::PaintList, "singular clip map");
+        require(rejected(turned, 1, "rounded clip map at item 4"), "singular clip map in the list");
+        // A rotated clip contains what lies inside it in its own space: a quarter turn about the origin.
+        const weft::RoundedClip quarter{{0, 0, 10, 4}, {}, {}, {0, 1, -1, 0, 0, 0}};
+        require(weft::contains_rounded(quarter, 2, -5) && !weft::contains_rounded(quarter, 5, 2),
+                "a rotated clip contains in its own space");
     }
 
     // Quads become items in order: boxes, tinted images and external textures; the group diagnostic is an isolated
@@ -496,6 +515,28 @@ namespace {
                 "payloads renumber");
         const auto status = paint::append(into, from, {1, 1, 0, 1, 0, 0});
         require(!status && status.error().code == weft::Diag::PaintList, "skewed append");
+        // A clip in its own space keeps its rectangle; its map composes with the transform's inverse, so a point
+        // that moves with the transform lands where it did.
+        paint::DisplayList turning;
+        turning.boxes.emplace_back();
+        turning.clips.push_back({{0, 0, 10, 4}, {}, {}, {0, 1, -1, 0, 3, 7}});
+        auto inside = item(Kind::Box, 0);
+        inside.clips_count = 1;
+        turning.items = {inside};
+        paint::DisplayList moved_into;
+        require(bool(paint::append(moved_into, turning, {2, 0, 0, 3, 100, 200})), "append a clip in its own space");
+        const auto& before = turning.clips[0].to_local;
+        const auto& after = moved_into.clips[0].to_local;
+        const float px = 4;
+        const float py = -1;
+        const float qx = 2 * px + 100;
+        const float qy = 3 * py + 200;
+        require(moved_into.clips[0].rect == turning.clips[0].rect &&
+                    std::abs(qx * after[0] + qy * after[2] + after[4] - (px * before[0] + py * before[2] + before[4])) <
+                        1e-4f &&
+                    std::abs(qx * after[1] + qy * after[3] + after[5] - (px * before[1] + py * before[3] + before[5])) <
+                        1e-4f,
+                "appended clip map composes with the transform");
         // Shadows renumber after the destination's and keep their item-px values.
         paint::DisplayList shaded;
         shaded.shadows.push_back({{0, 0, 0, 1}, 1, 1, 0, 0, {}});

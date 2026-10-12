@@ -43,11 +43,15 @@ namespace weft::render {
 
     static_assert(sizeof(SceneRecord) == scene_limits::record_bytes);
 
-    // The shader's Clip record: a normalized rounded clip.
+    // The shader's Clip record: a normalized rounded clip, and the rows of its map from target px into its space
+    // ({a, c, e} and {b, d, f} of RoundedClip::to_local). inv_x[3] is how many target px one unit of the clip's
+    // space spans (1 for target px): its antialiasing scale.
     struct SceneClip {
         std::array<float, 4> rect;
         std::array<float, 4> radius_x;
         std::array<float, 4> radius_y;
+        std::array<float, 4> inv_x;
+        std::array<float, 4> inv_y;
     };
 
     static_assert(sizeof(SceneClip) == scene_limits::clip_bytes);

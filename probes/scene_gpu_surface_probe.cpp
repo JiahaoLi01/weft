@@ -295,7 +295,47 @@ namespace probes {
                     {{"cx", "30"}, {"cy", "8"}, {"rx", "6"}, {"ry", "3"}, {"transform", "scale(1 1.2)"}},
                     {{"fill", "none"}, {"stroke", "#806000"}, {"stroke-width", "0.8"}, {"stroke-linejoin", "bevel"}}),
                 group};
+            // A clip-path rectangle under a rotation clips in the element's own space.
+            auto defs = element("defs", 923, {}, {});
+            auto clip_path = element("clipPath", 924, {{"id", "turned"}}, {});
+            clip_path.children = {
+                element("rect", 925, {{"x", "16"}, {"y", "16"}, {"width", "10"}, {"height", "8"}, {"rx", "2"}}, {})};
+            defs.children = {clip_path};
+            svg.children.insert(svg.children.begin(), defs);
+            svg.children.push_back(element("rect", 926,
+                                           {{"x", "12"},
+                                            {"y", "12"},
+                                            {"width", "18"},
+                                            {"height", "16"},
+                                            {"clip-path", "url(#turned)"},
+                                            {"transform", "rotate(25 21 20)"}},
+                                           {{"fill", "#20a0a0"}}));
             drawing.root.children.push_back(svg);
+            // A rotated box with overflow hidden clips its larger child to its rounded padding box.
+            weft::SceneNode turned;
+            turned.identity = {1, 1, 927};
+            turned.tag = "div";
+            turned.box = {44, 44, 30, 24};
+            turned.style = {{"overflow", "hidden"},
+                            {"transform", "rotate(25deg)"},
+                            {"border-top-left-radius", "8px"},
+                            {"border-bottom-right-radius", "6px"},
+                            {"border-top-width", "2px"},
+                            {"border-right-width", "2px"},
+                            {"border-bottom-width", "2px"},
+                            {"border-left-width", "2px"},
+                            {"border-top-color", "#000000"},
+                            {"border-right-color", "#000000"},
+                            {"border-bottom-color", "#000000"},
+                            {"border-left-color", "#000000"},
+                            {"background-color", "#f0e0a0"}};
+            weft::SceneNode spill;
+            spill.identity = {1, 1, 928};
+            spill.tag = "div";
+            spill.box = {-10, -10, 60, 50};
+            spill.style = {{"background-color", "#2060c0"}};
+            turned.children = {spill};
+            drawing.root.children.push_back(turned);
             const auto scale = weft::probe_constants::gallery::scene_raster_scale;
             const auto reference = software.raster(drawing, float(scale));
             const auto paths_before = surfaces.native_work().path_builds;
@@ -311,6 +351,14 @@ namespace probes {
             surfaces.submitted(serial, visible);
             const auto drawn = surfaces.read(0);
             require(drawn.width == reference.width && drawn.height == reference.height, "GPU SVG surface size");
+            // A stroked rectangle ends its stroke square at the corners in both (Chromium's miter); the pixel inside
+            // the outer corner of the stroke is the stroke's color.
+            for (const auto* corner : {drawn.rgba.data() + (std::size_t(54) * drawn.width + 157) * 4,
+                                       reference.rgba.data() + (std::size_t(54) * reference.width + 157) * 4}) {
+                require(corner[0] <= weft::probe_constants::gallery::corner_stroke_level &&
+                            corner[1] <= weft::probe_constants::gallery::corner_stroke_level,
+                        "stroked rectangle corner");
+            }
             // The translucent rectangle (#64c2a6 at fill-opacity .7, on white) quantizes as Chromium's colors do,
             // halves up: alpha .7 * 255 = 178.5 becomes 179.
             {

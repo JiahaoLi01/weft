@@ -639,12 +639,20 @@ namespace weft {
             };
             ComPtr<ID2D1Geometry> g;
             if (n.tag == "rect") {
-                ComPtr<ID2D1RoundedRectangleGeometry> r;
                 float rx = v("rx");
                 float ry = v("ry", rx);
-                check(factory->CreateRoundedRectangleGeometry(
-                    D2D1::RoundedRect({v("x"), v("y"), v("x") + v("width"), v("y") + v("height")}, rx, ry), &r));
-                g = r;
+                const D2D1_RECT_F rect{v("x"), v("y"), v("x") + v("width"), v("y") + v("height")};
+                // A rectangle without rounding keeps sharp corners: a rounded rectangle of zero radius strokes them
+                // round.
+                if (rx > 0 && ry > 0) {
+                    ComPtr<ID2D1RoundedRectangleGeometry> r;
+                    check(factory->CreateRoundedRectangleGeometry(D2D1::RoundedRect(rect, rx, ry), &r));
+                    g = r;
+                } else {
+                    ComPtr<ID2D1RectangleGeometry> r;
+                    check(factory->CreateRectangleGeometry(rect, &r));
+                    g = r;
+                }
             } else if (n.tag == "circle") {
                 ComPtr<ID2D1EllipseGeometry> e;
                 check(factory->CreateEllipseGeometry(D2D1::Ellipse({v("cx"), v("cy")}, v("r"), v("r")), &e));

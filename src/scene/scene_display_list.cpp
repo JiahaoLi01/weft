@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <numbers>
 #include <stdexcept>
 
@@ -269,6 +270,48 @@ namespace weft {
                 return std::abs(m[1]) <= constants::scene::axis_aligned_epsilon &&
                        std::abs(m[2]) <= constants::scene::axis_aligned_epsilon;
             };
+            // A chain with one more rounded clip in a box's own space under m (local rect and radii): its map from
+            // target px is the inverse of m. Used where m rotates or skews, so no target-space rectangle can hold it.
+            const auto add_local = [&](Chain chain, const Matrix& m, const std::array<float, 4>& rect,
+                                       const std::array<float, 4>& radius_x, const std::array<float, 4>& radius_y) {
+                RoundedClip local;
+                local.rect = rect;
+                local.radius_x = radius_x;
+                local.radius_y = radius_y;
+                const float det = m[0] * m[3] - m[1] * m[2];
+                local.to_local = {m[3] / det,
+                                  -m[1] / det,
+                                  -m[2] / det,
+                                  m[0] / det,
+                                  (m[2] * m[5] - m[3] * m[4]) / det,
+                                  (m[1] * m[4] - m[0] * m[5]) / det};
+                const std::vector<RoundedClip> enclosing(list.clips.begin() + chain.begin,
+                                                         list.clips.begin() + chain.begin + chain.count);
+                const Chain out{std::uint32_t(list.clips.size()), chain.count + 1};
+                list.clips.insert(list.clips.end(), enclosing.begin(), enclosing.end());
+                list.clips.push_back(local);
+                return out;
+            };
+            // The target-space bounding rectangle of a local rectangle under m, cut to clip.
+            const auto bound = [](std::array<float, 4> clip, const Matrix& m, const std::array<float, 4>& rect) {
+                float left = std::numeric_limits<float>::infinity();
+                float top = left;
+                float right = -left;
+                float bottom = -left;
+                for (const auto& [x, y] :
+                     std::array<std::array<float, 2>, 4>{{{rect[0], rect[1]},
+                                                          {rect[0] + rect[2], rect[1]},
+                                                          {rect[0], rect[1] + rect[3]},
+                                                          {rect[0] + rect[2], rect[1] + rect[3]}}}) {
+                    const auto p = point(m, x, y);
+                    left = std::min(left, p[0]);
+                    top = std::min(top, p[1]);
+                    right = std::max(right, p[0]);
+                    bottom = std::max(bottom, p[1]);
+                }
+                return std::array<float, 4>{std::max(clip[0], left), std::max(clip[1], top), std::min(clip[2], right),
+                                            std::min(clip[3], bottom)};
+            };
             const auto intersect = [](std::array<float, 4> clip, std::array<float, 2> a, std::array<float, 2> b) {
                 return std::array<float, 4>{
                     std::max(clip[0], std::min(a[0], b[0])), std::max(clip[1], std::min(a[1], b[1])),
@@ -326,9 +369,6 @@ namespace weft {
                             "userSpaceOnUse") {
                         throw std::invalid_argument("clipPath requires one user-space rect");
                     }
-                    if (!axis_aligned(m)) {
-                        throw std::invalid_argument("rotated SVG clip reference");
-                    }
                     const auto& r = definition->children[0].attributes;
                     const auto v_of = [&](const char* k, float def = 0) {
                         const auto i = r.find(k);
@@ -338,14 +378,23 @@ namespace weft {
                     const float y = v_of("y");
                     const float w = v_of("width");
                     const float h = v_of("height");
-                    const auto a = point(m, x, y);
-                    const auto b = point(m, x + w, y + h);
-                    inner_clip = intersect(clip, a, b);
                     // Corner radii as the reference's rounded rectangle takes them: one for both, at most half a side.
                     const float rx = std::clamp(v_of("rx"), 0.f, std::max(w, 0.f) / 2);
                     const float ry = std::clamp(v_of("ry", v_of("rx")), 0.f, std::max(h, 0.f) / 2);
-                    if (rx > 0 && ry > 0) {
-                        inner_chain = add_rounded(chain, m, a, b, {rx, rx, rx, rx}, {ry, ry, ry, ry});
+                    const std::array<float, 4> radius_x{rx, rx, rx, rx};
+                    const std::array<float, 4> radius_y{ry, ry, ry, ry};
+                    if (axis_aligned(m)) {
+                        const auto a = point(m, x, y);
+                        const auto b = point(m, x + w, y + h);
+                        inner_clip = intersect(clip, a, b);
+                        if (rx > 0 && ry > 0) {
+                            inner_chain = add_rounded(chain, m, a, b, radius_x, radius_y);
+                        }
+                    } else {
+                        inner_clip = bound(clip, m, {x, y, std::max(w, 0.f), std::max(h, 0.f)});
+                        inner_chain = add_local(chain, m, {x, y, std::max(w, 0.f), std::max(h, 0.f)},
+                                                rx > 0 && ry > 0 ? radius_x : std::array<float, 4>{},
+                                                rx > 0 && ry > 0 ? radius_y : std::array<float, 4>{});
                     }
                 }
                 std::vector<paint::Item> own;
@@ -600,31 +649,37 @@ namespace weft {
                     list.items.push_back(shape);
                 }
                 if (svg_root) {
-                    // An svg viewport clips to the rounded border box, as the reference raster clips it.
-                    if (!axis_aligned(m)) {
-                        throw std::invalid_argument("rounded/transformed clip reference");
-                    }
-                    const auto a = point(m, 0, 0);
-                    const auto b = point(m, item.width, item.height);
-                    clip = intersect(clip, a, b);
-                    if (std::any_of(box.radii.begin(), box.radii.end(), [](float r) {
-                            return r > 0;
-                        })) {
-                        chain = add_rounded(chain, m, a, b, box.radii, box.radii);
+                    // An svg viewport clips to the rounded border box, as the reference raster clips it; under a
+                    // rotation or skew, in the box's own space.
+                    const bool rounded = std::any_of(box.radii.begin(), box.radii.end(), [](float r) {
+                        return r > 0;
+                    });
+                    if (axis_aligned(m)) {
+                        const auto a = point(m, 0, 0);
+                        const auto b = point(m, item.width, item.height);
+                        clip = intersect(clip, a, b);
+                        if (rounded) {
+                            chain = add_rounded(chain, m, a, b, box.radii, box.radii);
+                        }
+                    } else {
+                        clip = bound(clip, m, {0, 0, item.width, item.height});
+                        chain = add_local(chain, m, {0, 0, item.width, item.height}, box.radii, box.radii);
                     }
                 } else if (get(n.style, PropertyId::Overflow) == "hidden" ||
                            get(n.style, PropertyId::Overflow) == "auto") {
-                    // Content clips to the padding box with its inner corners. A rotated or skewed box has no
-                    // axis-aligned clip.
-                    if (!axis_aligned(m)) {
-                        throw std::invalid_argument("rounded/transformed clip reference");
-                    }
+                    // Content clips to the padding box with its inner corners; under a rotation or skew, in the box's
+                    // own space, and the target-space clip keeps only its bounding rectangle.
                     const auto padding = scene_values::padding_box(n.style, item.width, item.height);
-                    const auto a = point(m, padding.rect[0], padding.rect[1]);
-                    const auto b = point(m, padding.rect[0] + padding.rect[2], padding.rect[1] + padding.rect[3]);
-                    clip = intersect(clip, a, b);
-                    if (scene_values::is_rounded(padding)) {
-                        chain = add_rounded(chain, m, a, b, padding.radius_x, padding.radius_y);
+                    if (axis_aligned(m)) {
+                        const auto a = point(m, padding.rect[0], padding.rect[1]);
+                        const auto b = point(m, padding.rect[0] + padding.rect[2], padding.rect[1] + padding.rect[3]);
+                        clip = intersect(clip, a, b);
+                        if (scene_values::is_rounded(padding)) {
+                            chain = add_rounded(chain, m, a, b, padding.radius_x, padding.radius_y);
+                        }
+                    } else {
+                        clip = bound(clip, m, padding.rect);
+                        chain = add_local(chain, m, padding.rect, padding.radius_x, padding.radius_y);
                     }
                 }
                 if (!n.text.empty()) {

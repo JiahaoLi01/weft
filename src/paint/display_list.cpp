@@ -58,6 +58,12 @@ namespace weft::paint {
             if (item.clips_begin > list.clips.size() || item.clips_count > list.clips.size() - item.clips_begin) {
                 return make_diagnostic(Diag::PaintList, "rounded clips out of range" + at);
             }
+            for (auto c = item.clips_begin; c < item.clips_begin + item.clips_count; ++c) {
+                const auto& m = list.clips[c].to_local;
+                if (!std::all_of(m.begin(), m.end(), finite_value) || !std::isnormal(m[0] * m[3] - m[1] * m[2])) {
+                    return make_diagnostic(Diag::PaintList, "rounded clip map" + at);
+                }
+            }
             switch (item.kind) {
                 case Item::Kind::Box:
                     if (item.payload >= list.boxes.size()) {
@@ -160,6 +166,19 @@ namespace weft::paint {
         into.assets.insert(into.assets.end(), from.assets.begin(), from.assets.end());
         into.external_textures += from.external_textures;
         for (auto clip : from.clips) {
+            if (clip.to_local != identity_clip_map) {
+                // A clip in its own space keeps its rectangle; its map takes into's target px back through the
+                // transform first.
+                const auto& m = clip.to_local;
+                clip.to_local = {m[0] / t[0],
+                                 m[1] / t[0],
+                                 m[2] / t[3],
+                                 m[3] / t[3],
+                                 m[4] - (t[4] / t[0]) * m[0] - (t[5] / t[3]) * m[2],
+                                 m[5] - (t[4] / t[0]) * m[1] - (t[5] / t[3]) * m[3]};
+                into.clips.push_back(clip);
+                continue;
+            }
             clip.rect = {t[0] * clip.rect[0] + t[4], t[3] * clip.rect[1] + t[5], t[0] * clip.rect[2],
                          t[3] * clip.rect[3]};
             for (auto& r : clip.radius_x) {
