@@ -1,0 +1,17 @@
+{
+  "format": "crpg-gallery-assets-readonly-v1",
+  "source_root": "F:\\Projects\\CRPGFramework-5.6.1\\CRPGFramework-5.6.1\\UI",
+  "captured_utc": "2026-10-12T14:03:21.432251+00:00",
+  "consistency": "all bytes reread before publishing",
+  "files": {
+    "public/cloud.png": {
+      "sha256": "b6031ead400db2c1548122d1740bb862332f38bf328bd5adecca8d28b99ab21a",
+      "bytes": 6350188
+    },
+    "public/tiling-noise.png": {
+      "sha256": "f55ca12070760bf5e0155ab9518edb6ba3c4a3c5e92588599a1d75c0d405fcf4",
+      "bytes": 1782558
+    }
+  },
+  "note": "Original bitmaps, unmodified, as the captured UI source loads them."
+}

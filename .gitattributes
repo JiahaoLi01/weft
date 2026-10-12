@@ -12,3 +12,5 @@
 *.cmd text eol=crlf
 # Preserve reviewed dependency bytes across Git checkouts.
 third_party/** -text
+# Captured bitmaps keep the bytes their sha256 manifest records.
+tests/fixtures/crpg-gallery-assets/UI/** -text

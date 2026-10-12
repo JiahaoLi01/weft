@@ -22,6 +22,14 @@ for case in cases:
     data = source.read_bytes()[case['utf8_start']:case['utf8_end']]
     if hashlib.sha256(data).hexdigest() != case['case_source_sha256']:
         raise SystemExit('Gallery case drift: ' + case['id'])
+# The bitmaps the captured source loads (capture_gallery_assets.py).
+assets = root / 'tests/fixtures/crpg-gallery-assets'
+asset_manifest = json.loads((assets / 'manifest.json').read_text(encoding='utf-8'))
+for name, record in asset_manifest['files'].items():
+    path = assets / 'UI' / name
+    data = path.read_bytes() if path.is_file() else b''
+    if len(data) != record['bytes'] or hashlib.sha256(data).hexdigest() != record['sha256']:
+        raise SystemExit('Gallery asset drift: ' + name)
 metadata = root / 'examples/crpg-gallery/native/metadata.json'
 if metadata.exists():
     build = json.loads(metadata.read_text(encoding='utf-8'))
@@ -29,4 +37,4 @@ if metadata.exists():
         for name, digest in build[category].items():
             if hashlib.sha256((root / name).read_bytes()).hexdigest() != digest:
                 raise SystemExit('Gallery bundle drift: ' + name)
-print(f'PASS immutable gallery source and {len(cases)} original case records')
+print(f'PASS immutable gallery source, {len(asset_manifest["files"])} bitmaps and {len(cases)} original case records')
