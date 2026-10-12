@@ -1,8 +1,19 @@
 # Weft 当前状态
 
-更新日期：2026 年 10 月 11 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG、键盘/IME 与移动尚未实现，仍未达到 M0 全部退出条件。
+更新日期：2026 年 10 月 12 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG、键盘/IME 与移动尚未实现，仍未达到 M0 全部退出条件。
 
 ## 本次已实现
+
+重构第 10 步之五（a）：scene 的圆角溢出裁剪（2026-10-12）。详见 [重构计划](refactoring-plan.md#第-10-步记录2026-10-11)。
+- **结果**：带圆角的 `overflow: hidden/auto` 不再让 scene 整帧回退 Direct2D。显示列表给内容带上圆角裁剪链，D3D11 scene 渲染器上传裁剪缓冲，由共享着色器裁剪。回退次数：gallery 预览 210 → 47，scene-native 1452 → 1089，cluster GPU 252 → 231。
+- **验证**：
+  - `ctest` Release 105/105、Debug 105/105（233.1 s）；
+  - 新合同覆盖嵌套链、镜像与缩放的圆角、组与文字取哪条链、旋转回退；8 个变异全部被发现；
+  - 与 Chromium 参考的误差基本不变。spring-02 的均差 0.153 → 0.246，全部来自最右的半像素列：原生按像素中心裁剪，与 Chrome 对齐到像素的裁剪一致。
+- **限制**：
+  - scene 的溢出裁剪按边框盒，CSS 要求内边距盒与内圆角，带边框时不同，原有实现与 D2D 参考也是如此，10.5b 修正；
+  - 旋转或斜切盒子的溢出裁剪仍整帧回退；Vulkan 还没有 scene（编码空间）pass。
+- **下一步**：10.5b 按 CSS 修正溢出裁剪；之后依次处理阴影、颜色串、投影变换、SVG 路径与彩色字形的回退。
 
 重构第 10 步之六（a）：Android arm64 交叉编译（2026-10-12）。详见 [重构计划](refactoring-plan.md#第-10-步记录2026-10-11)。
 - **结果**：

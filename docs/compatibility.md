@@ -165,7 +165,7 @@ Gallery/rAF Foundation 历史记录：可选 rAF module 已通过 owner 批次/�
 CSS 中段 filled-border/scene-copy 优化不扩大支持范围。Windows 既有 scene 子集的软件全量参考与 184 个 GPU/透明重叠/越界/非均匀 scale 反例通过；相同 affinity 性能不能替代默认可见窗口或移动实机性能，完整条件见 [本轮记录](css-middle-performance.md)。
 
 
-2026-10-09 3/4/5 优化不扩大 HTML/CSS/SVG/WebGL 功能表：现有 scene 子集增加显式源图、D2D damage、API-neutral owned native paint 与 Windows D3D11 shader adapter。unsupported 圆角/变换 clip、SVG/projective 等整 scene 回退既有 reference，`render-work.json` 报告原因。文字复用 Windows glyph pixels，页面 SDF/一般 font atlas、Metal/Vulkan/mobile 未接入。内部 owner executor 与独立 async host 已有输入/epoch/GC/实际 retirement 验证；公开 C ABI、完整页面调度器和实际用户游戏接入仍待实现。详见 [3/4/5 实际边界](render-stages-performance.md)。
+2026-10-09 3/4/5 优化不扩大 HTML/CSS/SVG/WebGL 功能表：现有 scene 子集增加显式源图、D2D damage、API-neutral owned native paint 与 Windows D3D11 shader adapter。unsupported 圆角/变换 clip、SVG/projective 等整 scene 回退既有 reference，`render-work.json` 报告原因。2026-10-12 起，轴对齐盒子（含镜像与缩放）的圆角溢出裁剪改由显示列表的圆角裁剪链在 D3D11 原生绘制，只有旋转或斜切盒子的溢出裁剪仍整帧回退。scene 的溢出裁剪目前按边框盒，CSS 规定内边距盒与内圆角，带边框的盒子结果不同；原生绘制、D2D 参考与命中都是如此，计划在 10.5b 修正。文字复用 Windows glyph pixels，页面 SDF/一般 font atlas、Metal/Vulkan/mobile 未接入。内部 owner executor 与独立 async host 已有输入/epoch/GC/实际 retirement 验证；公开 C ABI、完整页面调度器和实际用户游戏接入仍待实现。详见 [3/4/5 实际边界](render-stages-performance.md)。
 
 
 ## 当前共享簇探针（2026-10-10）

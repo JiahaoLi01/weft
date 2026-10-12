@@ -213,9 +213,17 @@ namespace weft {
             source->paint = n.paint;
             return source;
         };
+
+        // The rounded clips of a subtree: a run of list.clips, outermost first.
+        struct Chain {
+            std::uint32_t begin{};
+            std::uint32_t count{};
+        };
+
         try {
             unsigned groups{};
-            auto visit = [&](auto&& self, const SceneNode& n, Matrix parent, std::array<float, 4> clip) -> void {
+            auto visit = [&](auto&& self, const SceneNode& n, Matrix parent, std::array<float, 4> clip,
+                             Chain chain) -> void {
                 if (get(n.style, PropertyId::Display) == "none" || n.box[2] <= 0 || n.box[3] <= 0) {
                     return;
                 }
@@ -231,6 +239,8 @@ namespace weft {
                 paint::Item item;
                 item.transform = multiply(parent, matrix(n));
                 item.clip = clip;
+                item.clips_begin = chain.begin;
+                item.clips_count = chain.count;
                 item.width = n.box[2];
                 item.height = n.box[3];
                 const auto& m = item.transform;
@@ -305,6 +315,8 @@ namespace weft {
                     g.kind = paint::Item::Kind::BeginGroup;
                     g.opacity = opacity;
                     g.clip = clip;
+                    g.clips_begin = chain.begin;
+                    g.clips_count = chain.count;
                     list.items.push_back(g);
                 }
                 if (painted) {
@@ -315,11 +327,9 @@ namespace weft {
                     list.items.push_back(shape);
                 }
                 if (get(n.style, PropertyId::Overflow) == "hidden" || get(n.style, PropertyId::Overflow) == "auto") {
-                    if (std::any_of(box.radii.begin(), box.radii.end(),
-                                    [](float r) {
-                                        return r > 0;
-                                    }) ||
-                        std::abs(m[1]) > constants::scene::axis_aligned_epsilon ||
+                    // Content clips to the border box, with its corners rounded as the reference raster rounds them.
+                    // A rotated or skewed box has no axis-aligned clip.
+                    if (std::abs(m[1]) > constants::scene::axis_aligned_epsilon ||
                         std::abs(m[2]) > constants::scene::axis_aligned_epsilon) {
                         throw std::invalid_argument("rounded/transformed clip reference");
                     }
@@ -327,11 +337,38 @@ namespace weft {
                     auto b = point(m, item.width, item.height);
                     clip = {std::max(clip[0], std::min(a[0], b[0])), std::max(clip[1], std::min(a[1], b[1])),
                             std::min(clip[2], std::max(a[0], b[0])), std::min(clip[3], std::max(a[1], b[1]))};
+                    if (std::any_of(box.radii.begin(), box.radii.end(), [](float r) {
+                            return r > 0;
+                        })) {
+                        RoundedClip rounded;
+                        rounded.rect = {std::min(a[0], b[0]), std::min(a[1], b[1]), std::abs(b[0] - a[0]),
+                                        std::abs(b[1] - a[1])};
+                        // Corners TL, TR, BR, BL of the box land where a mirroring transform puts them.
+                        const bool mirror_x = m[0] < 0;
+                        const bool mirror_y = m[3] < 0;
+                        for (unsigned corner = 0; corner < 4; ++corner) {
+                            const bool right = corner == 1 || corner == 2;
+                            const bool bottom = corner >= 2;
+                            const bool world_right = right != mirror_x;
+                            const bool world_bottom = bottom != mirror_y;
+                            const unsigned world = world_bottom ? (world_right ? 2u : 3u) : (world_right ? 1u : 0u);
+                            rounded.radius_x[world] = box.radii[corner] * std::abs(m[0]);
+                            rounded.radius_y[world] = box.radii[corner] * std::abs(m[3]);
+                        }
+                        // The subtree's chain: the enclosing clips, then this one, as one run.
+                        const std::vector<RoundedClip> enclosing(list.clips.begin() + chain.begin,
+                                                                 list.clips.begin() + chain.begin + chain.count);
+                        chain = {std::uint32_t(list.clips.size()), chain.count + 1};
+                        list.clips.insert(list.clips.end(), enclosing.begin(), enclosing.end());
+                        list.clips.push_back(rounded);
+                    }
                 }
                 if (!n.text.empty()) {
                     auto t = item;
                     t.kind = paint::Item::Kind::Text;
                     t.clip = clip;
+                    t.clips_begin = chain.begin;
+                    t.clips_count = chain.count;
                     auto source = own(n);
                     source->box[0] = source->box[1] = 0;
                     source->style.erase(PropertyId::Transform);
@@ -377,18 +414,20 @@ namespace weft {
                     return z(a) < z(b);
                 });
                 for (auto i : order) {
-                    self(self, n.children[i], item.transform, clip);
+                    self(self, n.children[i], item.transform, clip, chain);
                 }
                 if (isolated) {
                     paint::Item g;
                     g.kind = paint::Item::Kind::EndGroup;
                     g.opacity = opacity;
                     g.clip = item.clip;
+                    g.clips_begin = item.clips_begin;
+                    g.clips_count = item.clips_count;
                     list.items.push_back(g);
                     --groups;
                 }
             };
-            visit(visit, f.root, {1, 0, 0, 1, 0, 0}, {0, 0, f.root.box[2], f.root.box[3]});
+            visit(visit, f.root, {1, 0, 0, 1, 0, 0}, {0, 0, f.root.box[2], f.root.box[3]}, Chain{});
             if (list.items.size() > constants::scene::max_display_list_items) {
                 throw std::invalid_argument("native command bound");
             }

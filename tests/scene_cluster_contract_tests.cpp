@@ -64,6 +64,63 @@ int main() {
                     "Unicode content must invalidate source");
         }
         {
+            // Rounded overflow clips become clip chains, outermost first. A box's own background and its opacity
+            // group take the parent's chain; its text and children add its clip. A mirroring scale moves each
+            // corner's radii to where the corner lands and scales them per axis.
+            weft::SceneFrame frame;
+            auto& outer = frame.root;
+            outer.identity = {1, 1, 100};
+            outer.tag = "div";
+            outer.box = {0, 0, 200, 120};
+            outer.style = {{"overflow", "hidden"}, {"border-top-left-radius", "12px"}, {"background-color", "#202020"}};
+            weft::SceneNode inner;
+            inner.identity = {1, 1, 101};
+            inner.tag = "div";
+            inner.text = "clip";
+            inner.box = {20, 10, 100, 80};
+            inner.style = {{"overflow", "hidden"},
+                           {"border-top-left-radius", "4px"},
+                           {"opacity", "0.5"},
+                           {"border-top-right-radius", "16px"},
+                           {"font-size", "12px"},
+                           {"transform", "scale(-2, 1)"},
+                           {"background-color", "#ff0000"}};
+            weft::SceneNode leaf;
+            leaf.identity = {1, 1, 102};
+            leaf.tag = "div";
+            leaf.box = {0, 0, 10, 10};
+            leaf.style = {{"background-color", "#00ff00"}};
+            inner.children.push_back(leaf);
+            outer.children.push_back(inner);
+            using Kind = weft::paint::Item::Kind;
+            const auto plan = weft::scene_display_list(frame);
+            const auto& items = plan.list.items;
+            const auto chain = [&](std::size_t i, std::uint32_t begin, std::uint32_t count) {
+                return items[i].clips_begin == begin && items[i].clips_count == count;
+            };
+            require(plan.fallback.empty() && items.size() == 6 && items[0].kind == Kind::Box &&
+                        items[1].kind == Kind::BeginGroup && items[2].kind == Kind::Box &&
+                        items[3].kind == Kind::Text && items[4].kind == Kind::Box && items[5].kind == Kind::EndGroup,
+                    "rounded overflow clip items");
+            require(chain(0, 0, 0) && chain(1, 0, 1) && chain(2, 0, 1) && chain(5, 0, 1),
+                    "own background and opacity group take the parent's rounded clip chain");
+            require(chain(3, 1, 2) && chain(4, 1, 2), "text and children take the box's rounded clip chain");
+            const auto& clips = plan.list.clips;
+            const weft::RoundedClip outer_clip{{0, 0, 200, 120}, {12, 0, 0, 0}, {12, 0, 0, 0}};
+            const auto same = [](const weft::RoundedClip& a, const weft::RoundedClip& b) {
+                return a.rect == b.rect && a.radius_x == b.radius_x && a.radius_y == b.radius_y;
+            };
+            require(clips.size() == 3 && same(clips[0], outer_clip) && same(clips[1], outer_clip),
+                    "a nested chain repeats the enclosing clips");
+            require(same(clips[2], {{-30, 10, 200, 80}, {32, 8, 0, 0}, {16, 4, 0, 0}}),
+                    "mirrored and scaled rounded clip corners");
+            require(items[4].clip == std::array<float, 4>{0, 10, 170, 90}, "rounded clip's axis-aligned bounds");
+            inner.style["transform"] = "rotate(10deg)";
+            outer.children = {inner};
+            require(weft::scene_display_list(frame).fallback == "rounded/transformed clip reference",
+                    "rotated overflow clip must stay a visible fallback");
+        }
+        {
             weft::ScriptDom cached;
             cached.eval(
                 "globalThis.box=document.createElement('div');box.id='cachebox';box.setAttribute('data-width','10');document.appendChild(box)");

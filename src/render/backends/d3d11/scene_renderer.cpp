@@ -206,12 +206,12 @@ namespace weft::render::d3d11 {
             ++reasons[valid.error().message];
             return false;
         }
-        // Scene slots hold no asset textures or clip buffer.
-        if (!list.clips.empty() || std::any_of(list.items.begin(), list.items.end(), [](const paint::Item& item) {
+        // Scene slots hold no asset textures.
+        if (std::any_of(list.items.begin(), list.items.end(), [](const paint::Item& item) {
                 return item.kind == Kind::Image;
             })) {
             ++fallbacks;
-            ++reasons["scene renderer draws no image items or rounded clips"];
+            ++reasons["scene renderer draws no image items"];
             return false;
         }
         auto planned = plan_scene_pass(list, scale, target_width, target_height, crop);
@@ -278,11 +278,41 @@ namespace weft::render::d3d11 {
             d.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
             throw_if_failed(gpu_.device->CreateBuffer(&d, nullptr, &slot.constants), "native view constants");
         }
+        if (!pass.clips.empty() && slot.clip_capacity < pass.clips.size()) {
+            unsigned capacity = limits::record_initial_capacity;
+            while (capacity < pass.clips.size()) {
+                capacity *= 2;
+            }
+            ComPtr<ID3D11Buffer> clips;
+            ComPtr<ID3D11ShaderResourceView> clip_view;
+            D3D11_BUFFER_DESC d{};
+            d.ByteWidth = capacity * sizeof(SceneClip);
+            d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            d.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+            d.StructureByteStride = sizeof(SceneClip);
+            throw_if_failed(gpu_.device->CreateBuffer(&d, nullptr, &clips), "native rounded clip buffer");
+            D3D11_SHADER_RESOURCE_VIEW_DESC v{};
+            v.Format = DXGI_FORMAT_UNKNOWN;
+            v.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+            v.Buffer.NumElements = capacity;
+            throw_if_failed(gpu_.device->CreateShaderResourceView(clips.Get(), &v, &clip_view),
+                            "native rounded clip view");
+            slot.clips = std::move(clips);
+            slot.clip_view = std::move(clip_view);
+            slot.clip_capacity = capacity;
+        }
         auto* ctx = gpu_.immediate.Get();
         ctx->ClearState();
         if (!records.empty()) {
             D3D11_BOX box{0, 0, 0, UINT(records.size() * sizeof(Record)), 1, 1};
             ctx->UpdateSubresource(slot.records.Get(), 0, &box, records.data(), 0, 0);
+        }
+        if (!pass.clips.empty()) {
+            D3D11_BOX box{0, 0, 0, UINT(pass.clips.size() * sizeof(SceneClip)), 1, 1};
+            ctx->UpdateSubresource(slot.clips.Get(), 0, &box, pass.clips.data(), 0, 0);
+            auto* clip_values = slot.clip_view.Get();
+            ctx->VSSetShaderResources(2, 1, &clip_values);
+            ctx->PSSetShaderResources(2, 1, &clip_values);
         }
         Color view{float(target_width), float(target_height), scale, 0};
         ctx->UpdateSubresource(slot.constants.Get(), 0, nullptr, view.data(), 0, 0);

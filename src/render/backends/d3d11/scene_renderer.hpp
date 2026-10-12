@@ -38,6 +38,10 @@ namespace weft::render::d3d11 {
             ComPtr<ID3D11Buffer> records;
             ComPtr<ID3D11Buffer> constants;
             ComPtr<ID3D11ShaderResourceView> view;
+            // The pass's rounded clips (t2), grown to the largest pass.
+            ComPtr<ID3D11Buffer> clips;
+            ComPtr<ID3D11ShaderResourceView> clip_view;
+            unsigned clip_capacity{};
             std::array<Surface, constants::render::scene::max_group_depth> groups;
             std::vector<std::shared_ptr<const Image>> leases;
             unsigned width{};
