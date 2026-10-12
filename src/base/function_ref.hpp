@@ -21,7 +21,14 @@ namespace weft {
         FunctionRef(F&& f) noexcept // NOLINT(google-explicit-constructor): binds like a function parameter.
             : object_(const_cast<void*>(static_cast<const void*>(std::addressof(f)))),
               call_([](void* object, Args... args) -> R {
-                  return std::invoke(*static_cast<std::remove_reference_t<F>*>(object), std::forward<Args>(args)...);
+                  auto& callable = *static_cast<std::remove_reference_t<F>*>(object);
+                  // A void signature discards the result, as INVOKE<void> (std::is_invocable_r above) does: the
+                  // callable may return a value, even a [[nodiscard]] one.
+                  if constexpr (std::is_void_v<R>) {
+                      static_cast<void>(std::invoke(callable, std::forward<Args>(args)...));
+                  } else {
+                      return std::invoke(callable, std::forward<Args>(args)...);
+                  }
               }) {
         }
 

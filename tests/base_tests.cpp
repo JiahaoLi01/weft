@@ -1,6 +1,7 @@
 #include "base/css_scalar.hpp"
 #include "support/check.hpp"
 #include "base/diagnostic.hpp"
+#include "base/function_ref.hpp"
 #include "base/generational_slots.hpp"
 #include "base/owner_thread.hpp"
 #include "base/rect.hpp"
@@ -13,6 +14,7 @@
 #include <cstdint>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -371,6 +373,46 @@ namespace {
         }
     }
 
+    // FunctionRef calls the object it references with its arguments forwarded. A void signature discards the
+    // callable's result, [[nodiscard]] ones included, as INVOKE<void> does; a value signature converts it; a callable
+    // whose result does not convert is rejected by the constraint.
+    void function_refs() {
+        int seen{};
+        const auto doubled = [&](int v) {
+            seen = v;
+            return v * 2;
+        };
+        FunctionRef<void(int)> discard = doubled;
+        discard(21);
+        require(seen == 21, "a void signature calls a callable that returns a value");
+        const auto checked = [&] {
+            ++seen;
+            return Status{};
+        };
+        FunctionRef<void()> discard_status = checked;
+        discard_status();
+        require(seen == 22, "a void signature discards a [[nodiscard]] result");
+        FunctionRef<long long(int)> widened = doubled;
+        require(widened(4) == 8 && seen == 4, "a value signature converts the result");
+
+        struct Counter {
+            int calls{};
+
+            int operator()(int& total, std::unique_ptr<int> step) {
+                total += *step;
+                return ++calls;
+            }
+        } counter;
+
+        FunctionRef<int(int&, std::unique_ptr<int>)> count = counter;
+        int total{};
+        require(count(total, std::make_unique<int>(3)) == 1 && count(total, std::make_unique<int>(4)) == 2 &&
+                    total == 7 && counter.calls == 2,
+                "the referenced object is called, references and move-only values forwarded");
+        static_assert(!std::is_constructible_v<FunctionRef<int()>, void (*)()>,
+                      "a callable whose result does not convert is rejected by the constraint");
+    }
+
     void owner_thread() {
         OwnerThread owner;
         owner.require(Diag::SceneOwner);
@@ -398,8 +440,10 @@ int main() {
         number_differential();
         generational_slots();
         generational_slots_differential();
+        function_refs();
         owner_thread();
-        std::cout << "PASS base diagnostics, Result, scalar parsing differential, slots and owner thread\n";
+        std::cout
+            << "PASS base diagnostics, Result, scalar parsing differential, slots, FunctionRef and owner thread\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL " << e.what() << '\n';
