@@ -102,7 +102,7 @@ if(WIN32)
 
     weft_add_executable(weft_scene_contract_tests
         SOURCES scene_contract_tests.cpp
-        LINK weft::scene_d2d weft::platform_win32 weft::script ole32
+        LINK weft::scene_d2d weft::platform_win32 weft::script d2d1 windowscodecs ole32
         SOURCE_DIR LARGE_STACK)
     weft_add_test(NAME scene_contract COMMAND weft_scene_contract_tests)
 

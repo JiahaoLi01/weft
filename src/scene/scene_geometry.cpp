@@ -928,11 +928,23 @@ namespace weft {
             }
             const auto overflow = view(n.style, PropertyId::Overflow);
             const bool clipping = overflow == "hidden" || overflow == "auto";
-            if (clipping || n.tag == "svg") {
+            if (n.tag == "svg") {
+                // An svg viewport clips at the border box, as the reference raster clips it.
                 clip = out.areas.add_clip(inverse, box, clip);
-            }
-            if (clipping && corners) {
-                clip = out.areas.add_clip(inverse, *corners, clip);
+                if (clipping && corners) {
+                    clip = out.areas.add_clip(inverse, *corners, clip);
+                }
+            } else if (clipping) {
+                // Content clips to the padding box with its inner corners, as painted.
+                const auto padding = scene_values::padding_box(n.style, n.box[2], n.box[3]);
+                clip = out.areas.add_clip(
+                    inverse, HitShape::box(padding.rect[0], padding.rect[1], padding.rect[2], padding.rect[3]), clip);
+                if (scene_values::is_rounded(padding)) {
+                    HitShape inner;
+                    inner.kind = HitShape::Kind::Rounded;
+                    inner.rounded = padding;
+                    clip = out.areas.add_clip(inverse, inner, clip);
+                }
             }
             if (n.space == constants::svg_namespace_uri) {
                 const auto viewport = m * affine_plane(viewport_affine(n));

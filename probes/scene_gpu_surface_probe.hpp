@@ -7,6 +7,18 @@
 #include "../tests/scene_visual_compare.hpp"
 
 namespace probes {
+    // A native renderer's fallback reasons as a JSON object: reason to pass count.
+    inline std::string fallback_reasons_json(const weft::render::d3d11::SceneRenderer& native) {
+        std::string out = "{";
+        for (const auto& [name, count] : native.reasons) {
+            if (out.size() > 1) {
+                out += ",";
+            }
+            out += json_string(name) + ":" + std::to_string(count);
+        }
+        return out + "}";
+    }
+
     // Explicit host-owned card surfaces. Three bounded versions allow two UI
     // submissions in flight. A version is never rewritten before its real query
     // completion and external caller lease retirement. No DOM or VM crosses here.

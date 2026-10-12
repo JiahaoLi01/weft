@@ -424,6 +424,61 @@ namespace weft {
             return g;
         }
 
+        std::map<std::array<float, 12>, ComPtr<ID2D1PathGeometry>> rounded_rects;
+
+        // A rectangle with an elliptical radius pair per corner (TL, TR, BR, BL; a zero pair is square): an overflow
+        // clip.
+        ComPtr<ID2D1PathGeometry> rounded_rect(const RoundedClip& c) {
+            const std::array<float, 12> key{c.rect[0],     c.rect[1],     c.rect[2],     c.rect[3],
+                                            c.radius_x[0], c.radius_x[1], c.radius_x[2], c.radius_x[3],
+                                            c.radius_y[0], c.radius_y[1], c.radius_y[2], c.radius_y[3]};
+            if (auto i = rounded_rects.find(key); i != rounded_rects.end()) {
+                return i->second;
+            }
+            ComPtr<ID2D1PathGeometry> g;
+            check(factory->CreatePathGeometry(&g));
+            ComPtr<ID2D1GeometrySink> s;
+            check(g->Open(&s));
+            const float l = c.rect[0];
+            const float t = c.rect[1];
+            const float r = l + c.rect[2];
+            const float b = t + c.rect[3];
+            const auto& x = c.radius_x;
+            const auto& y = c.radius_y;
+            auto arc = [&](D2D1_POINT_2F end, float rx, float ry) {
+                if (rx > 0 && ry > 0) {
+                    s->AddArc(D2D1::ArcSegment(end, {rx, ry}, 0, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+                } else {
+                    s->AddLine(end);
+                }
+            };
+            s->BeginFigure({l + x[0], t}, D2D1_FIGURE_BEGIN_FILLED);
+            s->AddLine({r - x[1], t});
+            arc({r, t + y[1]}, x[1], y[1]);
+            s->AddLine({r, b - y[2]});
+            arc({r - x[2], b}, x[2], y[2]);
+            s->AddLine({l + x[3], b});
+            arc({l, b - y[3]}, x[3], y[3]);
+            s->AddLine({l, t + y[0]});
+            arc({l + x[0], t}, x[0], y[0]);
+            s->EndFigure(D2D1_FIGURE_END_CLOSED);
+            check(s->Close());
+            if (rounded_rects.size() >= constants::scene::round_box_cache_max_entries) {
+                rounded_rects.clear();
+            }
+            rounded_rects.emplace(key, g);
+            return g;
+        }
+
+        // What an element clips its content to: an svg viewport its rounded border box, an overflow clip the padding
+        // box with its inner corners.
+        ComPtr<ID2D1PathGeometry> clip_geometry(const SceneNode& n, const ComPtr<ID2D1PathGeometry>& shape) {
+            if (n.tag == "svg") {
+                return shape;
+            }
+            return rounded_rect(scene_values::padding_box(n.style, n.box[2], n.box[3]));
+        }
+
         std::map<std::array<float, 7>, ComPtr<ID2D1PathGeometry>> border_wedges;
         // Factory-owned geometry, with no scene/node references. Widen the same
         // stroke as the reference, then intersect its masks once instead of
@@ -1485,6 +1540,8 @@ namespace weft {
             std::array<bool, 4> solid_edges{};
             ComPtr<ID2D1PathGeometry> shape;
             bool clipped{};
+            // What clipped content is clipped to.
+            ComPtr<ID2D1PathGeometry> content_clip;
             bool has_border{};
             std::size_t bytes{};
         };
@@ -1569,6 +1626,9 @@ namespace weft {
                 ++i;
             }
             p->shape = round_box(n.box[2], n.box[3], p->radii);
+            if (p->clipped) {
+                p->content_clip = clip_geometry(n, p->shape);
+            }
             std::vector<float> z;
             for (const auto& c : n.children) {
                 auto v = get(c.style, PropertyId::ZIndex, "0");
@@ -1867,8 +1927,9 @@ namespace weft {
                                           n.tag == "svg";
             ComPtr<ID2D1Layer> clip;
             if (clipped) {
+                const auto clip_shape = commands ? commands->content_clip : clip_geometry(n, shape);
                 clip = layer();
-                target->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), shape.Get()), clip.Get());
+                target->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), clip_shape.Get()), clip.Get());
             }
             if (n.space == constants::svg_namespace_uri) {
                 target->SetTransform(svg_viewport(n) * matrix());
@@ -2003,6 +2064,7 @@ namespace weft {
                 i.paint_programs.clear();
                 i.paint_program_bytes = 0;
                 i.round_cache.clear();
+                i.rounded_rects.clear();
                 i.border_wedges.clear();
                 i.border_fills.clear();
                 i.path_cache.clear();
@@ -2187,11 +2249,17 @@ namespace weft {
             const auto rounded = scene_values::rounded_box(n.style, n.box[2], n.box[3]);
             const bool inside = in_box && (!rounded || contains_rounded(*rounded, float(p[0]), float(p[1])));
             const auto overflow = get(n.style, PropertyId::Overflow);
-            if ((!inside && (overflow == "hidden" || overflow == "auto")) || (!in_box && n.tag == "svg")) {
+            const bool clipping = overflow == "hidden" || overflow == "auto";
+            if ((!in_box && n.tag == "svg") || (clipping && n.tag == "svg" && !inside)) {
                 return;
             }
             if (inside && n.tag != "#text" && get(n.style, PropertyId::PointerEvents) != "none") {
                 result = n.identity;
+            }
+            // Content clips to the padding box with its inner corners.
+            if (clipping && n.tag != "svg" &&
+                !contains_rounded(scene_values::padding_box(n.style, n.box[2], n.box[3]), float(p[0]), float(p[1]))) {
+                return;
             }
             if (n.space == constants::svg_namespace_uri) {
                 auto viewport = m * affine_plane(svg_viewport(n));

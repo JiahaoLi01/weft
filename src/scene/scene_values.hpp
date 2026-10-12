@@ -90,6 +90,38 @@ namespace weft::scene_values {
         return r;
     }
 
+    // The overflow clip of a w x h box in its own coordinates: its padding box, with the inner corner radii. A
+    // corner's horizontal radius loses the adjacent left or right border width and its vertical radius the top or
+    // bottom one, so unequal widths give an elliptical corner; a corner with either radius at zero is square
+    // (CSS Backgrounds 3, 5.3). Scene borders are solid, so every width is used.
+    inline RoundedClip padding_box(const Style& s, float w, float h) {
+        std::array<float, 4> b{};
+        unsigned k{};
+        for (const auto id : {PropertyId::BorderTopWidth, PropertyId::BorderRightWidth, PropertyId::BorderBottomWidth,
+                              PropertyId::BorderLeftWidth}) {
+            b[k++] = std::max(0.f, len(get(s, id, "0")));
+        }
+        const auto r = corner_radii(s, w, h);
+        const std::array<float, 4> horizontal{b[3], b[1], b[1], b[3]};
+        const std::array<float, 4> vertical{b[0], b[0], b[2], b[2]};
+        RoundedClip c;
+        c.rect = {b[3], b[0], std::max(0.f, w - b[1] - b[3]), std::max(0.f, h - b[0] - b[2])};
+        for (unsigned i = 0; i < 4; ++i) {
+            c.radius_x[i] = std::max(0.f, r[i] - horizontal[i]);
+            c.radius_y[i] = std::max(0.f, r[i] - vertical[i]);
+            if (c.radius_x[i] <= 0 || c.radius_y[i] <= 0) {
+                c.radius_x[i] = c.radius_y[i] = 0;
+            }
+        }
+        return normalize_rounded(c);
+    }
+
+    inline bool is_rounded(const RoundedClip& c) {
+        return std::any_of(c.radius_x.begin(), c.radius_x.end(), [](float r) {
+            return r > 0;
+        });
+    }
+
     // The rounded border box of a w x h box in its own coordinates, when a corner is rounded.
     inline std::optional<RoundedClip> rounded_box(const Style& s, float w, float h) {
         const auto r = corner_radii(s, w, h);

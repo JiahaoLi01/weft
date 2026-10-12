@@ -1690,14 +1690,6 @@ namespace probes {
         }
         const auto& native = scene_gpu.native_work();
         const auto raster_stats = scene_gpu.raster_work();
-        std::string reasons = "{";
-        for (const auto& [name, count] : native.reasons) {
-            if (reasons.size() > 1) {
-                reasons += ",";
-            }
-            reasons += json_string(name) + ":" + std::to_string(count);
-        }
-        reasons += "}";
         write_text(
             folder / "render-work.json",
             "{\"native_passes\":" + std::to_string(native.passes) + ",\"native_fallbacks\":" +
@@ -1710,7 +1702,7 @@ namespace probes {
                 ",\"layer_evictions\":" + std::to_string(raster_stats.layer_evictions) + ",\"partial_paints\":" +
                 std::to_string(scene_gpu.partial_paints) + ",\"full_paints\":" + std::to_string(scene_gpu.full_paints) +
                 ",\"damaged_pixel_ratio\":" + format_host_time(scene_gpu.damaged_pixels / scene_gpu.full_pixels) +
-                ",\"fallback_reasons\":" + reasons + "}");
+                ",\"fallback_reasons\":" + fallback_reasons_json(native) + "}");
         const auto commands = scene_gpu.raster_work();
         write_text(
             folder / "owner-work.json",

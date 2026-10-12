@@ -327,19 +327,18 @@ namespace weft {
                     list.items.push_back(shape);
                 }
                 if (get(n.style, PropertyId::Overflow) == "hidden" || get(n.style, PropertyId::Overflow) == "auto") {
-                    // Content clips to the border box, with its corners rounded as the reference raster rounds them.
-                    // A rotated or skewed box has no axis-aligned clip.
+                    // Content clips to the padding box with its inner corners. A rotated or skewed box has no
+                    // axis-aligned clip.
                     if (std::abs(m[1]) > constants::scene::axis_aligned_epsilon ||
                         std::abs(m[2]) > constants::scene::axis_aligned_epsilon) {
                         throw std::invalid_argument("rounded/transformed clip reference");
                     }
-                    auto a = point(m, 0, 0);
-                    auto b = point(m, item.width, item.height);
+                    const auto padding = scene_values::padding_box(n.style, item.width, item.height);
+                    auto a = point(m, padding.rect[0], padding.rect[1]);
+                    auto b = point(m, padding.rect[0] + padding.rect[2], padding.rect[1] + padding.rect[3]);
                     clip = {std::max(clip[0], std::min(a[0], b[0])), std::max(clip[1], std::min(a[1], b[1])),
                             std::min(clip[2], std::max(a[0], b[0])), std::min(clip[3], std::max(a[1], b[1]))};
-                    if (std::any_of(box.radii.begin(), box.radii.end(), [](float r) {
-                            return r > 0;
-                        })) {
+                    if (scene_values::is_rounded(padding)) {
                         RoundedClip rounded;
                         rounded.rect = {std::min(a[0], b[0]), std::min(a[1], b[1]), std::abs(b[0] - a[0]),
                                         std::abs(b[1] - a[1])};
@@ -352,8 +351,8 @@ namespace weft {
                             const bool world_right = right != mirror_x;
                             const bool world_bottom = bottom != mirror_y;
                             const unsigned world = world_bottom ? (world_right ? 2u : 3u) : (world_right ? 1u : 0u);
-                            rounded.radius_x[world] = box.radii[corner] * std::abs(m[0]);
-                            rounded.radius_y[world] = box.radii[corner] * std::abs(m[3]);
+                            rounded.radius_x[world] = padding.radius_x[corner] * std::abs(m[0]);
+                            rounded.radius_y[world] = padding.radius_y[corner] * std::abs(m[3]);
                         }
                         // The subtree's chain: the enclosing clips, then this one, as one run.
                         const std::vector<RoundedClip> enclosing(list.clips.begin() + chain.begin,

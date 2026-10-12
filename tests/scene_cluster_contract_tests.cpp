@@ -121,6 +121,45 @@ int main() {
                     "rotated overflow clip must stay a visible fallback");
         }
         {
+            // An overflow clip is the padding box. Each inner radius is the outer one less the adjacent border width:
+            // unequal widths make the corner elliptical, and a corner with either radius at zero is square.
+            weft::SceneFrame frame;
+            auto& n = frame.root;
+            n.identity = {1, 1, 110};
+            n.tag = "div";
+            n.box = {0, 0, 100, 60};
+            n.style = {{"overflow", "hidden"},
+                       {"border-top-left-radius", "20px"},
+                       {"border-top-right-radius", "6px"},
+                       {"border-top-width", "4px"},
+                       {"border-right-width", "8px"},
+                       {"border-bottom-width", "2px"},
+                       {"border-left-width", "10px"},
+                       {"color", "#ffffff"}};
+            weft::SceneNode child;
+            child.identity = {1, 1, 111};
+            child.tag = "div";
+            child.box = {0, 0, 100, 60};
+            child.style = {{"background-color", "#ff0000"}};
+            n.children.push_back(child);
+            const auto plan = weft::scene_display_list(frame);
+            const auto& items = plan.list.items;
+            const auto& clips = plan.list.clips;
+            require(plan.fallback.empty() && items.size() == 2 && clips.size() == 1 && items[1].clips_begin == 0 &&
+                        items[1].clips_count == 1,
+                    "padding box overflow clip items");
+            require(clips[0].rect == std::array<float, 4>{10, 4, 82, 54} &&
+                        clips[0].radius_x == std::array<float, 4>{10, 0, 0, 0} &&
+                        clips[0].radius_y == std::array<float, 4>{16, 0, 0, 0},
+                    "overflow clip is the padding box with inner radii");
+            require(items[1].clip == std::array<float, 4>{10, 4, 92, 58}, "overflow clip bounds are the padding box");
+            n.style["border-top-left-radius"] = "4px";
+            const auto square = weft::scene_display_list(frame);
+            require(square.fallback.empty() && square.list.clips.empty() &&
+                        square.list.items[1].clip == std::array<float, 4>{10, 4, 92, 58},
+                    "radii inside the borders leave a square padding box clip");
+        }
+        {
             weft::ScriptDom cached;
             cached.eval(
                 "globalThis.box=document.createElement('div');box.id='cachebox';box.setAttribute('data-width','10');document.appendChild(box)");

@@ -190,6 +190,7 @@ namespace probes {
         report << "],\"optimized\":" << (optimized ? "true" : "false")
                << ",\"native_passes\":" << surfaces.native_work().passes
                << ",\"native_fallbacks\":" << surfaces.native_work().fallbacks
+               << ",\"fallback_reasons\":" << fallback_reasons_json(surfaces.native_work())
                << ",\"native_layer_builds\":" << surfaces.native_work().layer_builds
                << ",\"native_layer_reuses\":" << surfaces.native_work().layer_reuses << ",\"captures\":" << captures
                << ",\"frames\":" << pipeline.submissions << ",\"worst_channel_mean\":" << worst_mean

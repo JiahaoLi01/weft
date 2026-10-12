@@ -14,12 +14,39 @@
 #include <vector>
 #include <thread>
 #include <windows.h>
+#include <d2d1.h>
+#include <wincodec.h>
+#include <wrl/client.h>
 
 using weft::testing::require;
 
 namespace {
     namespace dom = weft::dom;
     constexpr int element_type = weft::constants::element_node_type;
+
+    // The reference painter's GPU-target mode, which paints through retained paint programs, on a size x size CPU
+    // bitmap: straight RGBA, valid for opaque pixels.
+    std::vector<std::uint8_t> paint_target(weft::SceneRaster& raster, const weft::SceneFrame& frame, unsigned size) {
+        using Microsoft::WRL::ComPtr;
+        ComPtr<IWICImagingFactory> wic;
+        ComPtr<IWICBitmap> bitmap;
+        ComPtr<ID2D1Factory> factory;
+        ComPtr<ID2D1RenderTarget> target;
+        require(
+            SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic))) &&
+                SUCCEEDED(
+                    wic->CreateBitmap(size, size, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &bitmap)) &&
+                SUCCEEDED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, factory.GetAddressOf())) &&
+                SUCCEEDED(factory->CreateWicBitmapRenderTarget(bitmap.Get(), D2D1::RenderTargetProperties(), &target)),
+            "WIC render target");
+        raster.paint_d2d(frame, target.Get(), 1);
+        std::vector<std::uint8_t> out(std::size_t(size) * size * 4);
+        require(SUCCEEDED(bitmap->CopyPixels(nullptr, size * 4, UINT(out.size()), out.data())), "WIC readback");
+        for (std::size_t i = 0; i < out.size(); i += 4) {
+            std::swap(out[i], out[i + 2]);
+        }
+        return out;
+    }
 
     // A scene DOM without a script engine: document > div, the scene root.
     struct NativeScene {
@@ -534,6 +561,38 @@ int main() {
         require(geometry.hit_test(corners, 70, 20) == fill && geometry.hit_test(corners, 52, 2) != fill &&
                     geometry.hit_test(corners, 52, 2) != corners.root.children[1].identity,
                 "hit outside a rounded overflow clip");
+        // An overflow clip is the padding box: a child covering its parent's border box shows and hits only inside
+        // the borders, and the inner corner follows the inner radius.
+        vm.reset_document();
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
+        vm.eval(
+            "const o=document.getElementById('root');o.setAttribute('style','position:relative;background-color:#000000');const frame=document.createElement('div');frame.setAttribute('style','position:absolute;left:10px;top:10px;width:60px;height:60px;border:8px solid #ffffff;border-radius:16px;overflow:hidden');const cover=document.createElement('div');cover.setAttribute('style','position:absolute;left:-20px;top:-20px;width:100px;height:100px;background-color:#ff0000');frame.appendChild(cover);o.appendChild(frame)");
+        weft::SceneSolver bordered("", "", [&](auto t, const auto& st) {
+            return weft::testing::thread_scene_text().measure(t, st);
+        });
+        const auto padded =
+            bordered.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
+                           weft::test_constants::scene::contract_view_size, 0);
+        const auto border_owner = padded.root.children[0].identity;
+        const auto cover = padded.root.children[0].children[0].identity;
+        // (40, 13) is in the top border, (13, 40) in the left one, (40, 40) inside; (19, 19) is inside the outer
+        // corner but outside the inner one (radius 8 around (26, 26)).
+        for (const auto [x, y] : std::array<std::array<float, 2>, 3>{{{40, 13}, {13, 40}, {19, 19}}}) {
+            require(geometry.hit_test(padded, x, y) == border_owner && raster.hit_test(padded, x, y) == border_owner,
+                    "overflow clip hit outside the padding box");
+        }
+        require(geometry.hit_test(padded, 40, 40) == cover && raster.hit_test(padded, 40, 40) == cover,
+                "hit inside the padding box");
+        const auto view = weft::test_constants::scene::contract_view_size;
+        // The CPU raster, and the GPU-target mode that paints through retained paint programs.
+        for (const auto& pixels : {raster.raster(padded).rgba, paint_target(raster, padded, view)}) {
+            const auto red = [&](unsigned x, unsigned y) {
+                const auto* p = pixels.data() + (std::size_t(y) * view + x) * 4;
+                return p[0] > 200 && p[1] < 60 && p[2] < 60;
+            };
+            require(!red(40, 13) && !red(13, 40) && !red(19, 19) && red(40, 40) && red(27, 27),
+                    "overflow clip paints outside the padding box");
+        }
         vm.reset_document();
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(

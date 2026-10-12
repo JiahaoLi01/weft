@@ -88,6 +88,7 @@ namespace probes {
                << ",\"submissions\":" << pipeline.submissions << ",\"completions\":" << pipeline.completions
                << ",\"native_passes\":" << surfaces.native_work().passes
                << ",\"fallback_passes\":" << surfaces.native_work().fallbacks
+               << ",\"fallback_reasons\":" << fallback_reasons_json(surfaces.native_work())
                << ",\"debug_warning_error_count\":" << (gpu.debug_layer ? "0" : "null") << '}';
         write_text(folder / "report.json", report.str());
         std::cout << "PASS " << cases << " cases / " << captures << " browser images / " << pipeline.completions
