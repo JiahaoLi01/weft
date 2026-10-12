@@ -217,7 +217,7 @@ int main(int argc, char** argv) {
             CHECK(cached.display_draws - draws <= 4);
         }
         CHECK(cached.atlas_placements == 48 && cached.atlas.pages() == 1 && cached.atlas.live() == 48 &&
-              cached.cache_hits >= 48 && single.display_draws >= 48);
+              cached.cache.hits >= 48 && single.display_draws >= 48);
         // Draining the cache gives every region back.
         cached.evict_assets(0, true);
         CHECK(cached.atlas.live() == 0);

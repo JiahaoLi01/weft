@@ -186,10 +186,9 @@ namespace weft::testing {
     }
 
     // Coverage images of many sizes at fractional positions and scales, interleaved with boxes, over a backdrop: a glyph
-    // run as a page draws it.
-    inline paint::DisplayList glyph_run() {
+    // run as a page draws it. Another seed makes other glyphs.
+    inline paint::DisplayList glyph_run(std::uint32_t seed = 0x5eed103d) {
         paint::DisplayList list;
-        std::uint32_t seed = 0x5eed103d;
         auto next = [&](std::uint32_t range) {
             seed = seed * 1664525u + 1013904223u;
             return (seed >> 8) % range;

@@ -1,7 +1,8 @@
-# GPU resource retirement, the C render backend table, rounded-rect clip geometry, portable scene pass plans and
-# the display lists of quad frames.
+# GPU resource retirement, the C render backend table, rounded-rect clip geometry, portable scene pass plans, the
+# display lists of quad frames, and the texture cache and glyph atlas policy every renderer shares.
 weft_add_library(render
     SOURCES resource_lifetime.cpp render_backend.cpp rounded_clip.cpp scene_pass.cpp quad_list.cpp atlas_packer.cpp
+        texture_cache.cpp
     PUBLIC weft::base weft::paint)
 
 if(WIN32)

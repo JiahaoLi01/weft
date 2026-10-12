@@ -12,6 +12,10 @@
  * queue family and passes it recording, outside a render pass. The adapter
  * records the frame's uploads, render passes and isolated groups into it; it
  * does not end, submit, present or wait. A failed encode records nothing.
+ * Encode returns WEFT_RENDER_BUSY while another recording that is not
+ * submitted yet first writes a glyph atlas page that this frame samples
+ * (that first write discards the page): submit or discard that recording,
+ * then encode again.
  * Bound pipeline, descriptor sets, viewport and scissor are undefined after
  * the commands; the host's other state is untouched.
  *

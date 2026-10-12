@@ -56,7 +56,7 @@ Chrome 文件版本为 154.0.8037.98。参考由独立 CSS/Canvas/Ahem 页面实
 
 ## 复现与产物
 
-正常构建/CTest 不联网，无需重新运行 Chrome。固定 [HLSL](../src/render/backends/d3d11/quad.hlsl) 在构建时由 Windows SDK 的 fxc 编译并内嵌，运行时不再调用 D3DCompiler；WIC 只处理诊断 PNG。发布包的后端封装仍待定。
+正常构建/CTest 不联网，无需重新运行 Chrome。固定 [HLSL](../src/render/shaders/scene.hlsl)（2026-10-11 起是共享的场景着色器，原 `quad.hlsl` 已删除）在构建时由 Windows SDK 的 fxc 编译并内嵌，运行时不再调用 D3DCompiler；WIC 只处理诊断 PNG。发布包的后端封装仍待定。
 
 ```powershell
 cmake --preset windows-msvc

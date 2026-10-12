@@ -8,7 +8,7 @@ namespace probes {
         Experiment gpu(warp, weft::probe_constants::small_target_size, weft::probe_constants::small_target_size);
         Experiment reference(warp, weft::probe_constants::small_target_size, weft::probe_constants::small_target_size);
         gpu.cache_assets = true;
-        gpu.cache_resource_limit = weft::probe_constants::pipeline_cache_max_resources;
+        gpu.cache.resource_limit = weft::probe_constants::pipeline_cache_max_resources;
         auto coverage = std::make_shared<const Asset>(
             Asset{4, 4, Encoding::Coverage, {0, 64, 128, 255, 255, 128, 64, 0, 0, 128, 255, 64, 255, 64, 128, 0}});
         auto packet = [&](unsigned state) {
@@ -87,7 +87,7 @@ namespace probes {
                         gpu.uploads == uploads + 1,
                     "same-queue uploaded asset not reusable in next frame");
             ResourceInfo info;
-            lifetime(gpu.tracker.InspectResource(gpu.asset_cache.at({shared_id, 1}).native.id, info),
+            lifetime(gpu.tracker.InspectResource(gpu.cache.entries.at({shared_id, 1}).native.id, info),
                      "two-frame shared resource pins");
             require(info.phase == ResourcePhase::Submitted &&
                         info.submitted_pins == weft::probe_constants::frames_in_flight && !old_lease.expired(),

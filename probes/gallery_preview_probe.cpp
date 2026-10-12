@@ -188,7 +188,7 @@ namespace probes {
         window.state.logical_height = weft::probe_constants::gallery::shell_height;
         Experiment gpu(warp, weft::constants::uhd_width, weft::constants::uhd_height);
         gpu.cache_assets = true;
-        gpu.cache_byte_limit = weft::probe_constants::gallery::asset_cache_budget_bytes;
+        gpu.cache.byte_limit = weft::probe_constants::gallery::asset_cache_budget_bytes;
         gpu.enable_timing();
         // The interactive window and live benchmarks start each frame when the swapchain takes one and take the
         // owner's early input frames; deterministic tests keep the two-frame pipeline pacing and one frame per tick.
@@ -1811,7 +1811,7 @@ namespace probes {
                 ",\"gpu_producer_and_ui_elapsed_ms\":" + GalleryPreviewSamples::json(samples.gpu) +
                 ",\"present_interval_ms\":" + GalleryPreviewSamples::json(samples.interval) +
                 ",\"startup_including_72_observations_ms\":" + format_host_time(startup_ms) +
-                ",\"gpu_cached_peak_bytes\":" + std::to_string(gpu.peak_cached_bytes) +
+                ",\"gpu_cached_peak_bytes\":" + std::to_string(gpu.cache.peak_bytes) +
                 ",\"gpu_cache_budget_bytes\":536870912,\"retired_textures\":" + std::to_string(gpu.native_releases) +
                 ",\"actual_completed_submissions\":" + std::to_string(pipeline.completions) +
                 ",\"peak_in_flight\":" + std::to_string(pipeline.peak_in_flight) + ",\"native_canvas_input_events\":" +

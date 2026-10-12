@@ -43,7 +43,7 @@ namespace weft::constants::render {
     inline constexpr int rgba16f_bytes_per_pixel = 8;
     inline constexpr int rgba32f_bytes_per_pixel = 16;
 
-    // sRGB transfer function of IEC 61966-2-1, as in src/render/backends/d3d11/quad.hlsl.
+    // sRGB transfer function of IEC 61966-2-1, as in src/render/backends/d3d11/srgb_convert.hlsl.
     inline constexpr float srgb_decode_threshold = 0.04045f;
     inline constexpr float srgb_encode_threshold = 0.0031308f;
     inline constexpr float srgb_linear_slope = 12.92f;
@@ -53,10 +53,24 @@ namespace weft::constants::render {
     // constants::color_channel_max as float, for byte <-> [0, 1] conversions.
     inline constexpr float color_channel_max_float = 255.0f;
 
+    // The texture cache every renderer shares (render/texture_cache.hpp).
+    namespace texture_cache {
+        // Bounds of a renderer's cache: textures and their bytes.
+        inline constexpr int max_resources = 1024;
+        inline constexpr int max_bytes = 128 * constants::bytes_per_mib;
+        // Asset identities: expired entries are pruned from this size; live entries are bounded.
+        inline constexpr int identity_prune_threshold = 1024;
+        inline constexpr int max_identities = 2048;
+        // Glyph atlas: R8 pages of this many pixels a side, at most this many pages, for coverage images of at most
+        // atlas_max_image pixels a side, each placed with a border of this many texels that repeat its edge texels.
+        inline constexpr int atlas_page_size = 2048;
+        inline constexpr int atlas_max_pages = 4;
+        inline constexpr int atlas_max_image = 128;
+        inline constexpr int atlas_border = 1;
+    } // namespace texture_cache
+
     // D3D11 reference renderer and its C ABI adapter (src/render/backends/d3d11).
     namespace d3d11 {
-        // Material ids of quad.hlsl. They mirror the Material* constants at the top of the shader, which
-        // declares the ids its pixel shader branches on.
         // The vertex shader draws each instance as two triangles from SV_VertexID.
         inline constexpr int quad_vertex_count = 6;
         // Render targets are at most this many pixels wide and high; the backend reports the same
@@ -75,12 +89,6 @@ namespace weft::constants::render {
         // LINEAR_RGBA32F bits of weft_render_target_format.
         inline constexpr int features = 31;
         inline constexpr int target_formats = 7;
-        // Glyph atlas of a caching renderer: R8 pages of this many pixels a side, at most this many pages, for coverage
-        // images of at most atlas_max_image pixels a side (each placed with a one-texel border of its edge texels).
-        inline constexpr int atlas_page_size = 2048;
-        inline constexpr int atlas_max_pages = 4;
-        inline constexpr int atlas_max_image = 128;
-        inline constexpr int atlas_border = 1;
         // External texture extension.
         inline constexpr int max_imported_textures = 128;
         inline constexpr int external_texture_capacity = 32;
@@ -95,13 +103,6 @@ namespace weft::constants::render {
         // Bounded wait for an actual GPU completion query.
         inline constexpr int completion_timeout_seconds = 5;
         inline constexpr int completion_poll_ms = 1;
-
-        // GPU asset cache defaults.
-        inline constexpr int asset_cache_max_resources = 1024;
-        inline constexpr int asset_cache_max_bytes = 128 * constants::bytes_per_mib;
-        // Asset identity metadata: expired entries are pruned from this size; live entries are bounded.
-        inline constexpr int asset_identity_prune_threshold = 1024;
-        inline constexpr int max_asset_identities = 2048;
 
     } // namespace d3d11
 

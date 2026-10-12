@@ -4,6 +4,16 @@
 
 ## 本次已实现
 
+重构第 10 步之四（c）：可移植的纹理缓存与 Vulkan 字形 atlas（2026-10-12）。详见 [重构计划](refactoring-plan.md#第-10-步记录2026-10-11)。
+- **结果**：
+  - 缓存策略（资产身份、LRU 纹理索引与淘汰规则、atlas 放置）移到 `render/texture_cache.hpp`，D3D11 与 Vulkan 共用；
+  - Vulkan 缓存渲染器把字形放进 atlas 页面，字形串一次绘制；页面的首次写入不与另一个未提交的录制重叠（返回 BUSY）。
+- **验证**：
+  - `ctest --preset windows-release --parallel 6` 104/104，`windows-debug --parallel 6` 104/104（290.6 s）；产物与 10.4b 逐字节相同；
+  - Vulkan atlas 与独立纹理逐像素相同；淘汰不取在途纹理，区域复用后像素正确；同步验证零告警。
+- **未验证**：Vulkan 的外部纹理、交换链窗口与性能、Android 与 iOS。
+- **下一步**：10.4d，Windows 上的 Vulkan 交换链窗口，跑真实工作负载并与 D3D11 对比性能；之后 10.5、10.6。
+
 重构第 10 步之四（b）：Vulkan 的 C ABI 适配器（2026-10-12）。详见 [重构计划](refactoring-plan.md#第-10-步记录2026-10-11)。
 - **结果**：
   - 新 payload `weft_render_vulkan_pass`：宿主交出命令缓冲与目标视图，自己提交并报告完成 serial；

@@ -327,51 +327,18 @@ namespace weft::render::d3d11 {
     }
 
     std::uint64_t Renderer::asset_identity(const std::shared_ptr<const Asset>& source) {
-        if (const auto i = asset_identities.find(source.get()); i != asset_identities.end()) {
-            if (auto previous = i->second.first.lock(); previous && previous == source) {
-                return i->second.second;
-            }
-            asset_identities.erase(i); // Address reuse cannot alias an old version.
-        }
-        // Weak metadata retains no CPU bitmap and keeps all live identities stable.
-        if (asset_identities.size() >= weft::constants::render::d3d11::asset_identity_prune_threshold) {
-            std::erase_if(asset_identities, [](const auto& entry) {
-                return entry.second.first.expired();
-            });
-        }
-        ensure(asset_identities.size() < weft::constants::render::d3d11::max_asset_identities,
-               "live asset identity metadata bound");
-        ensure(next_asset_identity != UINT64_MAX, "asset identity generation bound");
-        const auto id = next_asset_identity++;
-        asset_identities.emplace(source.get(), std::pair{std::weak_ptr<const Asset>(source), id});
-        return id;
+        return asset_identities.identify(source);
     }
 
     void Renderer::evict_assets(std::size_t required, bool all) {
         ensure(!submitted || acknowledged, "GPU cache retirement requires actual completion");
         ensure(!all || !async_in_flight, "GPU cache drain requires all asynchronous host completions");
-        ensure(required <= cache_byte_limit, "GPU cache resource byte bound");
-        while (!asset_cache.empty() &&
-               (all || asset_cache.size() >= cache_resource_limit || required > cache_byte_limit - cached_bytes)) {
-            auto victim = asset_cache.end();
-            for (auto i = asset_cache.begin(); i != asset_cache.end(); ++i) {
-                ResourceInfo resource_state;
-                lifetime(tracker.InspectResource(i->second.native.id, resource_state), "inspect cache eviction");
-                if (resource_state.cpu_leases == 1 && !resource_state.prepared_pins && !resource_state.encoded_pins &&
-                    !resource_state.submitted_pins &&
-                    (victim == asset_cache.end() || i->second.touched < victim->second.touched)) {
-                    victim = i;
-                }
+        cache.evict(tracker, required, all, [&](const TextureCache<NativeAsset>::Entry& evicted) {
+            if (evicted.native.atlas) {
+                atlas.release(*evicted.native.atlas);
             }
-            ensure(victim != asset_cache.end(), "bounded cache cannot evict resources in current full packet");
-            lifetime(tracker.ReleaseResource(victim->second.native.id), "release completed GPU cache lease");
-            if (victim->second.native.atlas) {
-                atlas.release(*victim->second.native.atlas);
-            }
-            cached_bytes -= victim->second.bytes;
-            asset_cache.erase(victim);
             ++native_releases;
-        }
+        });
         if (all) {
             collect();
             assets.clear();
@@ -434,7 +401,7 @@ namespace weft::render::d3d11 {
         // LRU cannot evict a later draw's hit while processing an earlier miss.
         if (cache_assets) {
             for (std::size_t i = 0; i < keys.size(); ++i) {
-                if (const auto found = asset_cache.find(keys[i]); found != asset_cache.end()) {
+                if (const auto found = cache.entries.find(keys[i]); found != cache.entries.end()) {
                     lifetime(tracker.RetainResource(found->second.native.id), "pin all incoming cached dependencies");
                     existing.values[i] = found->second.native.id;
                 }
@@ -447,8 +414,8 @@ namespace weft::render::d3d11 {
             const auto key =
                 cache_assets ? keys.at(i) : std::pair<std::uint64_t, std::uint64_t>{i + 1, window_serial + 1};
             if (cache_assets) {
-                if (auto found = asset_cache.find(key); found != asset_cache.end()) {
-                    auto& cached = found->second;
+                if (auto* found = cache.use(key)) {
+                    auto& cached = *found;
                     ResourceInfo resource_state;
                     lifetime(tracker.InspectResource(cached.native.id, resource_state),
                              "inspect cached immutable asset");
@@ -466,8 +433,6 @@ namespace weft::render::d3d11 {
                         n.rtv = cached.native.rtv;
                     }
                     ensure(existing.values[i] && *existing.values[i] == n.id, "complete cached dependency lease");
-                    cached.touched = ++cache_clock;
-                    ++cache_hits;
                     frame.dependencies.push_back(n.id);
                     assets.push_back(std::move(n));
                     existing.values[i].reset();
@@ -502,9 +467,7 @@ namespace weft::render::d3d11 {
             if (cache_assets) {
                 evict_assets(resource_bytes);
             }
-            if (cache_assets && a.encoding == Encoding::Coverage &&
-                a.width <= unsigned(weft::constants::render::d3d11::atlas_max_image) &&
-                a.height <= unsigned(weft::constants::render::d3d11::atlas_max_image)) {
+            if (cache_assets && atlas_candidate(a)) {
                 n.atlas = place_on_atlas(a, n.upload);
             }
             if (n.atlas) {
@@ -545,7 +508,7 @@ namespace weft::render::d3d11 {
                 const auto resource = n.id;
                 const auto region = n.atlas;
                 try {
-                    asset_cache.emplace(key, CachedAsset{std::move(n), bytes, ++cache_clock});
+                    cache.add(key, std::move(n), bytes);
                 } catch (...) {
                     lifetime(tracker.ReleaseResource(resource), "failed cache insertion rollback");
                     if (region) {
@@ -554,9 +517,7 @@ namespace weft::render::d3d11 {
                     ++native_releases;
                     throw;
                 }
-                auto& cached = asset_cache.at(key);
-                cached_bytes += bytes;
-                peak_cached_bytes = std::max(peak_cached_bytes, cached_bytes);
+                auto& cached = cache.entries.at(key);
                 n.id = cached.native.id;
                 n.texture = cached.native.texture;
                 n.srv = cached.native.srv;
@@ -577,7 +538,7 @@ namespace weft::render::d3d11 {
     }
 
     std::optional<AtlasPacker::Region> Renderer::place_on_atlas(const Asset& a, std::vector<std::uint8_t>& upload) {
-        constexpr auto border = std::uint32_t(weft::constants::render::d3d11::atlas_border);
+        constexpr auto border = std::uint32_t(weft::constants::render::texture_cache::atlas_border);
         const auto pages = atlas.pages();
         auto region = atlas.allocate(a.width + 2 * border, a.height + 2 * border);
         if (!region) {
@@ -602,32 +563,13 @@ namespace weft::render::d3d11 {
                 throw;
             }
         }
-        // The bordered image: each border texel repeats its nearest edge texel, so that filtering at the image's
-        // edges reads what a clamped texture of its own would.
-        const auto w = region->width;
-        const auto h = region->height;
-        std::vector<std::uint8_t> bordered(std::size_t(w) * h);
-        for (std::uint32_t y = 0; y < h; ++y) {
-            const auto sy = std::min(std::max(y, border) - border, a.height - 1);
-            for (std::uint32_t x = 0; x < w; ++x) {
-                const auto sx = std::min(std::max(x, border) - border, a.width - 1);
-                bordered[std::size_t(y) * w + x] = a.bytes[std::size_t(sy) * a.width + sx];
-            }
-        }
-        upload = std::move(bordered);
+        upload = bordered(a);
         ++atlas_placements;
         return region;
     }
 
     std::array<float, 4> Renderer::atlas_region(const NativeAsset& a) const {
-        if (!a.atlas) {
-            return {0, 0, 1, 1};
-        }
-        constexpr auto border = float(weft::constants::render::d3d11::atlas_border);
-        const auto size = float(atlas.page_size());
-        const auto& r = *a.atlas;
-        return {(r.x + border) / size, (r.y + border) / size, (r.width - 2 * border) / size,
-                (r.height - 2 * border) / size};
+        return a.atlas ? region_uv(*a.atlas) : std::array<float, 4>{0, 0, 1, 1};
     }
 
     void Renderer::collect() {
@@ -645,7 +587,7 @@ namespace weft::render::d3d11 {
                 }
             }
         }
-        for (auto& [key, cached] : asset_cache) {
+        for (auto& [key, cached] : cache.entries) {
             ResourceInfo resource_state;
             if (tracker.InspectResource(cached.native.id, resource_state) == LifetimeResult::Ok &&
                 resource_state.phase == ResourcePhase::Ready && !cached.native.upload.empty()) {

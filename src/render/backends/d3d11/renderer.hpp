@@ -5,6 +5,7 @@
 #include "render/frame_packet.hpp"
 #include "render/resource_lifetime.hpp"
 #include "render/scene_pass.hpp"
+#include "render/texture_cache.hpp"
 
 // windows.h must not define min/max macros over std::min/std::max.
 #ifndef NOMINMAX
@@ -157,26 +158,16 @@ namespace weft::render::d3d11 {
         bool pipeline_enabled{};
         std::size_t async_in_flight{};
 
-        struct CachedAsset {
-            NativeAsset native;
-            std::size_t bytes{};
-            std::uint64_t touched{};
-        };
-
-        std::map<std::pair<std::uint64_t, std::uint64_t>, CachedAsset> asset_cache;
-        std::map<const Asset*, std::pair<std::weak_ptr<const Asset>, std::uint64_t>> asset_identities;
-        std::uint64_t next_asset_identity{1};
-        std::uint64_t cache_clock{};
-        std::size_t cached_bytes{};
-        std::size_t peak_cached_bytes{};
-        std::size_t cache_hits{};
+        // The texture cache of a caching renderer (render/texture_cache.hpp) and the identities of the shared assets of
+        // display lists, its keys.
+        TextureCache<NativeAsset> cache{weft::constants::render::texture_cache::max_resources,
+                                        weft::constants::render::texture_cache::max_bytes};
+        AssetIdentities asset_identities;
         std::size_t native_creations{};
-        std::size_t cache_resource_limit{weft::constants::render::d3d11::asset_cache_max_resources};
-        std::size_t cache_byte_limit{weft::constants::render::d3d11::asset_cache_max_bytes};
         // Glyph atlas of a caching renderer: small coverage assets share R8 pages, so that consecutive glyphs draw
         // together. A full atlas leaves an asset its own texture; a page whose regions were all evicted starts empty.
-        AtlasPacker atlas{weft::constants::render::d3d11::atlas_page_size,
-                          weft::constants::render::d3d11::atlas_max_pages};
+        AtlasPacker atlas{weft::constants::render::texture_cache::atlas_page_size,
+                          weft::constants::render::texture_cache::atlas_max_pages};
         std::vector<AtlasPage> atlas_pages;
         std::size_t atlas_placements{};
         // Instanced draws and the records they drew, across all display list passes.

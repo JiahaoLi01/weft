@@ -190,6 +190,9 @@ namespace weft::render::vulkan {
                     uses[i] =
                         gpu.encode(*prepared, native_handle<VkCommandBuffer>(p.command_buffer),
                                    {native_handle<VkImageView>(p.target_view), format}, p.clear_target != 0, clear);
+                } catch (const Busy&) {
+                    // Another recording first writes an atlas page of the frame; nothing was recorded.
+                    return WEFT_RENDER_BUSY;
                 } catch (...) {
                     // Renderer::encode recorded nothing and discarded its use.
                     log_failure("encode");
@@ -255,6 +258,12 @@ namespace weft::render::vulkan {
     }
 
     weft_render_result Backend::shutdown() {
+        try {
+            gpu.drain();
+        } catch (...) {
+            log_failure("shutdown");
+            return WEFT_RENDER_BACKEND_ERROR;
+        }
         const auto result = gpu.tracker.Shutdown();
         return result == LifetimeResult::Ok     ? WEFT_RENDER_OK
                : result == LifetimeResult::Busy ? WEFT_RENDER_BUSY

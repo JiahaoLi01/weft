@@ -7,7 +7,9 @@
 #endif
 #include <vulkan/vulkan_core.h>
 
+#include <cstdint>
 #include <string_view>
+#include <type_traits>
 
 // The instance, debug and device functions the backend calls. Each list expands F(name) once per function.
 #define WEFT_VULKAN_INSTANCE_FUNCTIONS(F)                                                                              \
@@ -103,4 +105,24 @@ namespace weft::render::vulkan {
     };
 
 #undef WEFT_VULKAN_MEMBER
+
+    // A handle as a 64-bit value, as the C ABI payload carries it (render_backend_vulkan.h) and as the renderer names
+    // textures, and back.
+    template <class Handle>
+    std::uint64_t abi_handle(Handle handle) {
+        if constexpr (std::is_pointer_v<Handle>) {
+            return std::uint64_t(reinterpret_cast<std::uintptr_t>(handle));
+        } else {
+            return std::uint64_t(handle);
+        }
+    }
+
+    template <class Handle>
+    Handle native_handle(std::uint64_t value) {
+        if constexpr (std::is_pointer_v<Handle>) {
+            return reinterpret_cast<Handle>(std::uintptr_t(value));
+        } else {
+            return Handle(value);
+        }
+    }
 } // namespace weft::render::vulkan

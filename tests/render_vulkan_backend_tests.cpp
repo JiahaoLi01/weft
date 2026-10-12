@@ -12,6 +12,7 @@
 #include <cstring>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -222,6 +223,17 @@ namespace {
         std::vector<std::unique_ptr<Target>> targets_;
     };
 
+    // The largest channel difference between two images.
+    int worst(const std::vector<Pixel>& a, const std::vector<Pixel>& b) {
+        int out{};
+        for (std::size_t i = 0; i < a.size(); ++i) {
+            for (unsigned c = 0; c < 4; ++c) {
+                out = std::max(out, std::abs(int(a[i][c]) - int(b[i][c])));
+            }
+        }
+        return out;
+    }
+
     weft_paint_list shared(paint::DisplayList list) {
         return {std::make_shared<const paint::DisplayList>(std::move(list))};
     }
@@ -273,7 +285,12 @@ int main(int argc, char** argv) {
         vk::Backend backend(gpu);
         auto* r = backend.renderer;
         Host host(*device, limits::frames_in_flight);
-        // A failed check exits at once: the backend may still hold frames, which only a drained renderer may drop.
+        // The renderers and backends of the cache and device-loss sections. A failed check exits at once, before any
+        // backend that may still hold frames is destroyed: only a drained renderer may drop them.
+        std::optional<vk::Renderer> cached;
+        std::optional<vk::Backend> cached_backend;
+        std::optional<vk::Renderer> lost;
+        std::optional<vk::Backend> lost_backend;
         try {
             weft_render_info info{};
             info.struct_size = sizeof(info);
@@ -561,11 +578,111 @@ int main(int argc, char** argv) {
             CHECK(host.pixels(target) == quads_expected);
             CHECK(gpu.frames_created == gpu.frames_released && gpu.native_creations == gpu.native_releases);
 
+            // A caching renderer: the glyph run's coverage images share one atlas page, whose first write discards
+            // it. Atlas regions draw within a level of separate textures.
+            {
+                cached.emplace(*device, width, height);
+                cached->cache_assets = true;
+                cached->cache.resource_limit = 2 * glyph_textures - glyph_textures / 3;
+                {
+                    cached_backend.emplace(*cached);
+                    auto* c = cached_backend->renderer;
+                    std::uint64_t cached_serial{};
+                    auto prepare_cached = [&](const weft_paint_list& list, weft_render_handle& out) {
+                        const weft_render_list_frame input{sizeof(input), WEFT_RENDER_ABI_VERSION, &list, 0, 0,
+                                                           nullptr};
+                        return weft_renderer_prepare_list(c, &input, &out);
+                    };
+                    auto record = [&](unsigned slot, Host::Target& t, weft_render_handle frame,
+                                      weft_render_handle& out) {
+                        const auto command = host.begin(slot);
+                        host.prologue(command, t, nullptr);
+                        weft_render_vulkan_pass p{};
+                        const auto pass = cached_backend->pass(command, t.image.view, WEFT_RENDER_TARGET_SRGB_RGBA8, p);
+                        const auto result = weft_renderer_encode(c, frame, &pass, &out);
+                        if (result == WEFT_RENDER_OK) {
+                            host.epilogue(command, t);
+                        }
+                        return result;
+                    };
+                    auto submit = [&](unsigned slot, weft_render_handle cached_use) {
+                        host.submit(slot);
+                        ok(weft_renderer_notify_submitted(c, cached_use, queue, ++cached_serial), "submit cached");
+                    };
+                    auto complete = [&](std::initializer_list<unsigned> slots) {
+                        for (const auto s : slots) {
+                            host.wait(s);
+                        }
+                        ok(weft_renderer_notify_completed(c, epoch, queue, cached_serial), "complete cached");
+                    };
+
+                    // A recording that would also write the new page first waits for the one that does: busy, with
+                    // nothing recorded, until that one is submitted; then it uploads nothing.
+                    weft_render_handle frame{};
+                    ok(prepare_cached(glyphs, frame), "prepare cached glyphs");
+                    weft_render_handle first{};
+                    ok(record(0, target, frame, first), "first write of the atlas page");
+                    CHECK(cached->uploads == glyph_textures && cached->atlas.pages() == 1);
+                    const auto draws_before = cached->draws;
+                    weft_render_handle waiting{};
+                    CHECK(record(1, second, frame, waiting) == WEFT_RENDER_BUSY && !waiting.renderer_id &&
+                          cached->draws == draws_before && cached->frames_released == cached->frames_created - 1);
+                    host.reset(1);
+                    submit(0, first);
+                    ok(record(1, second, frame, waiting), "record once the first write was submitted");
+                    CHECK(cached->uploads == glyph_textures);
+                    ok(weft_renderer_release_prepared(c, frame), "release cached glyphs");
+                    submit(1, waiting);
+                    complete({0, 1});
+                    CHECK(worst(host.pixels(target), glyphs_expected) <= 1 &&
+                          worst(host.pixels(second), glyphs_expected) <= 1);
+                    CHECK(cached->atlas.live() == glyph_textures && cached->cache.entries.size() == glyph_textures);
+
+                    // While the glyph run is in flight, other glyphs cannot evict it: preparing them fails and leaves
+                    // the textures it created cached-> Once the run completed, they evict its oldest textures and reuse
+                    // their regions.
+                    const auto others = shared(glyph_run(0x0dd5eed));
+                    const auto others_expected = reference.draw(*others.list);
+                    ok(prepare_cached(glyphs, frame), "prepare the cached glyphs again");
+                    ok(record(0, target, frame, first), "record cached glyphs");
+                    CHECK(cached->uploads == glyph_textures);
+                    ok(weft_renderer_release_prepared(c, frame), "release the cached glyphs");
+                    submit(0, first);
+                    weft_render_handle refused{};
+                    CHECK(prepare_cached(others, refused) == WEFT_RENDER_BACKEND_ERROR && !refused.renderer_id);
+                    CHECK(cached->cache.entries.size() == cached->cache.resource_limit);
+                    complete({0});
+                    ok(prepare_cached(others, frame), "prepare other glyphs");
+                    ok(record(0, target, frame, first), "record other glyphs");
+                    ok(weft_renderer_release_prepared(c, frame), "release other glyphs");
+                    submit(0, first);
+                    complete({0});
+                    CHECK(worst(host.pixels(target), others_expected) <= 1);
+                    CHECK(cached->atlas.pages() == 1 && cached->atlas.live() == cached->cache.resource_limit &&
+                          cached->cache.entries.size() == cached->cache.resource_limit);
+                    // The glyph run's textures that stayed cached kept their regions through the other glyphs' uploads
+                    // to the same page.
+                    const auto uploads_before = cached->uploads;
+                    ok(prepare_cached(glyphs, frame), "prepare the glyph run after the others");
+                    ok(record(0, target, frame, first), "record the glyph run after the others");
+                    ok(weft_renderer_release_prepared(c, frame), "release the glyph run after the others");
+                    submit(0, first);
+                    complete({0});
+                    CHECK(worst(host.pixels(target), glyphs_expected) <= 1);
+                    // Only the evicted third came back: the cached two thirds were held before anything was evicted.
+                    CHECK(cached->uploads - uploads_before == glyph_textures / 3);
+                }
+                cached_backend.reset();
+                // Destroying the backend drained the cache: every texture and the page are gone.
+                CHECK(cached->native_creations == cached->native_releases && cached->atlas_pages.empty() &&
+                      cached->atlas.live() == 0);
+            }
+
             // A host that lost its device confirms that the GPU no longer runs the frame; abandoning retires it at once.
             {
-                vk::Renderer lost(*device, width, height);
-                vk::Backend lost_backend(lost);
-                auto* l = lost_backend.renderer;
+                lost.emplace(*device, width, height);
+                lost_backend.emplace(*lost);
+                auto* l = lost_backend->renderer;
                 const weft_render_list_frame input{sizeof(input), WEFT_RENDER_ABI_VERSION, &page, 0, 0, nullptr};
                 weft_render_handle lost_frame{};
                 ok(weft_renderer_prepare_list(l, &input, &lost_frame), "prepare before the loss");
@@ -573,7 +690,7 @@ int main(int argc, char** argv) {
                 host.prologue(command, target, nullptr);
                 weft_render_vulkan_pass lost_payload{};
                 auto lost_pass =
-                    lost_backend.pass(command, target.image.view, WEFT_RENDER_TARGET_SRGB_RGBA8, lost_payload);
+                    lost_backend->pass(command, target.image.view, WEFT_RENDER_TARGET_SRGB_RGBA8, lost_payload);
                 weft_render_handle lost_use{};
                 ok(weft_renderer_encode(l, lost_frame, &lost_pass, &lost_use), "encode before the loss");
                 host.epilogue(command, target);
@@ -582,10 +699,10 @@ int main(int argc, char** argv) {
                 ok(weft_renderer_notify_submitted(l, lost_use, queue, 1), "submit before the loss");
                 host.wait(0);
                 CHECK(weft_renderer_abandon_device(l, epoch, 0) == WEFT_RENDER_HOST_CONFIRMATION_REQUIRED);
-                CHECK(lost.frames_released + 1 == lost.frames_created &&
-                      lost.native_creations - lost.native_releases == page_assets);
+                CHECK(lost->frames_released + 1 == lost->frames_created &&
+                      lost->native_creations - lost->native_releases == page_assets);
                 ok(weft_renderer_abandon_device(l, epoch, WEFT_RENDER_HOST_CONFIRMED_NO_FURTHER_ACCESS), "abandon");
-                CHECK(lost.frames_released == lost.frames_created && lost.native_creations == lost.native_releases);
+                CHECK(lost->frames_released == lost->frames_created && lost->native_creations == lost->native_releases);
             }
 
             if (device->validation_messages) {

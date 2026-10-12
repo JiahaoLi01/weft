@@ -42,8 +42,8 @@ namespace weft::probe_constants {
     inline constexpr int fixture_host_serial = 43;
     inline constexpr int completion_timeout_seconds = constants::render::d3d11::completion_timeout_seconds;
     inline constexpr int completion_poll_ms = constants::render::d3d11::completion_poll_ms;
-    inline constexpr int asset_identity_prune_threshold = constants::render::d3d11::asset_identity_prune_threshold;
-    inline constexpr int max_asset_identities = constants::render::d3d11::max_asset_identities;
+    inline constexpr int asset_identity_prune_threshold = constants::render::texture_cache::identity_prune_threshold;
+    inline constexpr int max_asset_identities = constants::render::texture_cache::max_identities;
     // Diagnostic HUD overlay of the window presenter.
     inline constexpr int overlay_max_draws = 4096;
     inline constexpr int overlay_max_bytes = 16 * constants::bytes_per_mib;

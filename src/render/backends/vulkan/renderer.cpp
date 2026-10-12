@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstring>
 #include <exception>
+#include <functional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -101,6 +102,46 @@ namespace weft::render::vulkan {
             Texels out{VK_FORMAT_R32G32B32A32_SFLOAT, std::vector<std::uint8_t>(linear.size() * sizeof(float))};
             std::memcpy(out.bytes.data(), linear.data(), out.bytes.size());
             return out;
+        }
+
+        // The bytes of the texture that the asset needs: its bordered image on the atlas, else its texels.
+        std::size_t texture_bytes(const paint::Asset& a, bool atlas) {
+            constexpr auto border = std::size_t(weft::constants::render::texture_cache::atlas_border);
+            const auto pixels = std::size_t(a.width) * a.height;
+            if (atlas) {
+                return (a.width + 2 * border) * (a.height + 2 * border);
+            }
+            if (a.encoding != paint::Encoding::SrgbStraight) {
+                return pixels;
+            }
+            for (std::size_t p = 3; p < a.bytes.size(); p += weft::constants::rgba8_bytes_per_pixel) {
+                if (a.bytes[p] != weft::constants::color_channel_max) {
+                    return pixels * weft::constants::rgba8_bytes_per_pixel * sizeof(float);
+                }
+            }
+            return pixels * weft::constants::rgba8_bytes_per_pixel;
+        }
+
+        void validate(const paint::Asset& a) {
+            const bool r8 = a.encoding != paint::Encoding::SrgbStraight;
+            ensure(a.width && a.height && a.width <= unsigned(limits::max_surface_dimension) &&
+                       a.height <= unsigned(limits::max_surface_dimension) &&
+                       a.bytes.size() ==
+                           std::size_t(a.width) * a.height * (r8 ? 1 : weft::constants::rgba8_bytes_per_pixel),
+                   "asset dimensions/encoding");
+            if (a.encoding == paint::Encoding::SignedDistance) {
+                ensure(a.spread >= weft::constants::render::min_sdf_spread &&
+                           a.spread <= weft::constants::render::max_sdf_spread,
+                       "distance spread metadata");
+            }
+        }
+
+        // Each element once, in order of address.
+        template <class T>
+        std::vector<T> distinct(std::vector<T> values) {
+            std::sort(values.begin(), values.end(), std::less<>());
+            values.erase(std::unique(values.begin(), values.end()), values.end());
+            return values;
         }
     } // namespace
 
@@ -244,6 +285,9 @@ namespace weft::render::vulkan {
         d.vkd.vkDeviceWaitIdle(d.device);
         for (auto& a : assets_) {
             d.destroy(a->image);
+        }
+        for (auto& page : atlas_pages) {
+            d.destroy(page.image);
         }
         d.destroy(readback_);
         d.destroy(blank_buffer_);
@@ -432,59 +476,157 @@ namespace weft::render::vulkan {
         PreparedFrame frame;
         frame.list = std::move(list);
         const auto& sources = frame.list->assets;
-        // Every texture exists and is leased before the frame pins them; a failure destroys the ones created.
-        std::vector<std::unique_ptr<NativeAsset>> created;
-        try {
-            created.reserve(sources.size());
-            frame.assets.reserve(sources.size());
-            assets_.reserve(assets_.size() + sources.size());
-            std::vector<ResourceId> dependencies;
-            dependencies.reserve(sources.size());
-            for (const auto& source : sources) {
-                const auto& a = *source;
-                const bool r8 = a.encoding != paint::Encoding::SrgbStraight;
-                ensure(a.width && a.height && a.width <= unsigned(limits::max_surface_dimension) &&
-                           a.height <= unsigned(limits::max_surface_dimension) &&
-                           a.bytes.size() ==
-                               std::size_t(a.width) * a.height * (r8 ? 1 : weft::constants::rgba8_bytes_per_pixel),
-                       "asset dimensions/encoding");
-                if (a.encoding == paint::Encoding::SignedDistance) {
-                    ensure(a.spread >= weft::constants::render::min_sdf_spread &&
-                               a.spread <= weft::constants::render::max_sdf_spread,
-                           "distance spread metadata");
+
+        // The frame's leases, one per asset; a failure releases them, and textures that nothing else holds retire.
+        struct Leases {
+            Renderer& r;
+            std::vector<ResourceId> ids;
+            bool kept{};
+
+            ~Leases() {
+                if (kept) {
+                    return;
                 }
-                auto source_texels = texels(a);
-                auto native = std::make_unique<NativeAsset>();
-                native->image = gpu.image(source_texels.format, a.width, a.height,
-                                          VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
-                native->texels = std::move(source_texels.bytes);
-                ++native_creations;
-                const auto result = tracker.CreateResource(
-                    {next_asset_id_++, 1, native->texels.size(), ResourceKind::Texture}, native->id);
-                if (result != LifetimeResult::Ok) {
-                    gpu.destroy(native->image);
-                    ++native_releases;
-                    lifetime(result, "CreateResource");
+                for (const auto& id : ids) {
+                    if (r.tracker.ReleaseResource(id) != LifetimeResult::Ok) {
+                        std::terminate();
+                    }
                 }
-                dependencies.push_back(native->id);
-                created.push_back(std::move(native));
+                r.collect();
             }
-            lifetime(tracker.PrepareFrame(dependencies, frame.id), "PrepareFrame");
-        } catch (...) {
-            for (auto& a : created) {
-                if (tracker.ReleaseResource(a->id) != LifetimeResult::Ok) {
-                    std::terminate();
+        } leases{*this, {}};
+
+        leases.ids.reserve(sources.size());
+        frame.assets.reserve(sources.size());
+        assets_.reserve(assets_.size() + sources.size());
+        std::vector<ResourceId> dependencies;
+        dependencies.reserve(2 * sources.size());
+        std::vector<TextureCache<CachedTexture>::Key> keys;
+        // Leases of the cached textures, taken before anything is created: eviction for an earlier miss cannot take a
+        // later hit.
+        std::vector<bool> held(sources.size());
+        if (cache_assets) {
+            keys.reserve(sources.size());
+            for (const auto& source : sources) {
+                keys.emplace_back(asset_identities.identify(source), 1);
+            }
+            for (std::size_t i = 0; i < keys.size(); ++i) {
+                if (const auto found = cache.entries.find(keys[i]); found != cache.entries.end()) {
+                    lifetime(tracker.RetainResource(found->second.native.id), "pin all incoming cached dependencies");
+                    leases.ids.push_back(found->second.native.id);
+                    held[i] = true;
                 }
-                gpu.destroy(a->image);
-                ++native_releases;
+            }
+        }
+        for (std::size_t i = 0; i < sources.size(); ++i) {
+            NativeAsset* texture{};
+            if (!cache_assets) {
+                validate(*sources[i]);
+                texture = &create(*sources[i], next_asset_id_++, 1);
+                leases.ids.push_back(texture->id);
+            } else if (auto* entry = cache.use(keys[i])) {
+                texture = entry->native.texture;
+                if (!held[i]) {
+                    // Created earlier in this frame for the same asset.
+                    lifetime(tracker.RetainResource(texture->id), "lease a texture of this frame again");
+                    leases.ids.push_back(texture->id);
+                }
+            } else {
+                const auto& a = *sources[i];
+                validate(a);
+                cache.evict(tracker, texture_bytes(a, atlas_candidate(a)), false,
+                            [&](const TextureCache<CachedTexture>::Entry& evicted) {
+                                if (evicted.native.texture->atlas) {
+                                    atlas.release(*evicted.native.texture->atlas);
+                                }
+                            });
+                texture = &create(a, keys[i].first, keys[i].second);
+                try {
+                    cache.add(keys[i], CachedTexture{texture->id, texture}, texture->texels.size());
+                } catch (...) {
+                    if (texture->atlas) {
+                        atlas.release(*texture->atlas);
+                    }
+                    lifetime(tracker.ReleaseResource(texture->id), "failed cache insertion rollback");
+                    collect();
+                    throw;
+                }
+                lifetime(tracker.RetainResource(texture->id), "new cached frame lease");
+                leases.ids.push_back(texture->id);
+            }
+            frame.assets.push_back(texture);
+            dependencies.push_back(texture->id);
+            if (texture->atlas) {
+                dependencies.push_back(atlas_pages.at(texture->atlas->page).id);
+            }
+        }
+        lifetime(tracker.PrepareFrame(dependencies, frame.id), "PrepareFrame");
+        leases.kept = true;
+        return frame;
+    }
+
+    NativeAsset& Renderer::create(const paint::Asset& a, std::uint64_t asset_id, std::uint64_t version) {
+        auto native = std::make_unique<NativeAsset>();
+        if (cache_assets && atlas_candidate(a)) {
+            native->atlas = place_on_atlas(a);
+        }
+        try {
+            if (native->atlas) {
+                native->texels = bordered(a);
+            } else {
+                auto source = texels(a);
+                native->image = gpu.image(source.format, a.width, a.height,
+                                          VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+                native->texels = std::move(source.bytes);
+            }
+            lifetime(
+                tracker.CreateResource({asset_id, version, native->texels.size(), ResourceKind::Texture}, native->id),
+                "CreateResource");
+        } catch (...) {
+            gpu.destroy(native->image);
+            if (native->atlas) {
+                atlas.release(*native->atlas);
             }
             throw;
         }
-        for (auto& a : created) {
-            frame.assets.push_back(a.get());
-            assets_.push_back(std::move(a));
+        ++native_creations;
+        // prepare() reserved room for the frame's textures.
+        assets_.push_back(std::move(native));
+        return *assets_.back();
+    }
+
+    std::optional<AtlasPacker::Region> Renderer::place_on_atlas(const paint::Asset& a) {
+        constexpr auto border = std::uint32_t(weft::constants::render::texture_cache::atlas_border);
+        auto region = atlas.allocate(a.width + 2 * border, a.height + 2 * border);
+        if (!region) {
+            return std::nullopt;
         }
-        return frame;
+        // Pages exist up to the region's; one that failed to appear earlier is created now.
+        try {
+            atlas_pages.reserve(region->page + 1);
+            while (atlas_pages.size() <= region->page) {
+                AtlasPage page;
+                page.image = gpu.image(VK_FORMAT_R8_UNORM, atlas.page_size(), atlas.page_size(),
+                                       VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+                const auto created = tracker.CreateResource(
+                    {next_asset_id_++, 1, std::size_t(atlas.page_size()) * atlas.page_size(), ResourceKind::AtlasPage},
+                    page.id);
+                if (created != LifetimeResult::Ok) {
+                    gpu.destroy(page.image);
+                    lifetime(created, "CreateResource atlas page");
+                }
+                atlas_pages.push_back(page);
+            }
+        } catch (...) {
+            atlas.release(*region);
+            throw;
+        }
+        ++atlas_placements;
+        return region;
+    }
+
+    VkImageView Renderer::view(const NativeAsset& texture) const {
+        return texture.atlas ? atlas_pages[texture.atlas->page].image.view : texture.image.view;
     }
 
     void Renderer::release(const PreparedFrame& frame) {
@@ -512,9 +654,48 @@ namespace weft::render::vulkan {
         });
     }
 
+    void Renderer::drain() {
+        cache.evict(tracker, 0, true, [&](const TextureCache<CachedTexture>::Entry& evicted) {
+            if (evicted.native.texture->atlas) {
+                atlas.release(*evicted.native.texture->atlas);
+            }
+        });
+        for (auto& page : atlas_pages) {
+            lifetime(tracker.ReleaseResource(page.id), "release an atlas page");
+            ResourceInfo info;
+            ensure(tracker.InspectResource(page.id, info) == LifetimeResult::StaleHandle, "an unused atlas page");
+            gpu.destroy(page.image);
+        }
+        atlas_pages.clear();
+        atlas = AtlasPacker(weft::constants::render::texture_cache::atlas_page_size,
+                            weft::constants::render::texture_cache::atlas_max_pages);
+        asset_identities.clear();
+        collect();
+    }
+
     Encoded Renderer::encode(const PreparedFrame& frame, VkCommandBuffer command, const Target& target, bool clear,
                              const paint::Color& clear_color) {
         const auto& d = gpu;
+        // The atlas pages the frame samples. A page that no submitted recording wrote is first written here, which
+        // discards its contents; while another recording that first writes it is not submitted, the frame waits.
+        std::vector<std::uint32_t> pages;
+        for (const auto* a : frame.assets) {
+            if (a->atlas) {
+                pages.push_back(a->atlas->page);
+            }
+        }
+        pages = distinct(std::move(pages));
+        std::vector<std::uint32_t> first_writes;
+        for (const auto p : pages) {
+            ResourceInfo info;
+            lifetime(tracker.InspectResource(atlas_pages.at(p).id, info), "inspect an atlas page");
+            if (info.phase == ResourcePhase::Encoded) {
+                throw Busy("an atlas page is first written by another recording that is not submitted");
+            }
+            if (info.phase == ResourcePhase::Created) {
+                first_writes.push_back(p);
+            }
+        }
         Encoded encoded;
         lifetime(tracker.EncodeFrame(frame.id, encoded.token), "EncodeFrame before recording");
         try {
@@ -522,13 +703,17 @@ namespace weft::render::vulkan {
             auto& resources = encoded.resources;
             const auto& list = *frame.list;
 
-            // Uploads of the textures that no submitted use uploaded, staged in this frame's buffer.
+            // Uploads of the textures that no submitted use uploaded, staged in this frame's buffer: whole images, and
+            // regions of atlas pages. Another use encoded earlier and submitted before this one may still read or write
+            // them: the uploads wait for those accesses.
             std::vector<VkImageMemoryBarrier> to_transfer;
             std::vector<VkImageMemoryBarrier> to_read;
             std::vector<VkBufferImageCopy> copies;
+            std::vector<VkImage> destinations;
             std::vector<const NativeAsset*> pending;
+            std::vector<std::uint32_t> written = first_writes;
             VkDeviceSize staged{};
-            for (const auto* a : frame.assets) {
+            for (const auto* a : distinct(std::vector<const NativeAsset*>(frame.assets.begin(), frame.assets.end()))) {
                 ResourceInfo info;
                 lifetime(tracker.InspectResource(a->id, info), "inspect upload readiness");
                 if (info.phase == ResourcePhase::Ready || info.phase == ResourcePhase::Submitted) {
@@ -538,18 +723,36 @@ namespace weft::render::vulkan {
                 VkBufferImageCopy copy{};
                 copy.bufferOffset = staged;
                 copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-                copy.imageExtent = {a->image.width, a->image.height, 1};
+                if (a->atlas) {
+                    const auto& r = *a->atlas;
+                    copy.imageOffset = {std::int32_t(r.x), std::int32_t(r.y), 0};
+                    copy.imageExtent = {r.width, r.height, 1};
+                    destinations.push_back(atlas_pages.at(r.page).image.image);
+                    written.push_back(r.page);
+                } else {
+                    copy.imageExtent = {a->image.width, a->image.height, 1};
+                    destinations.push_back(a->image.image);
+                    to_transfer.push_back(barrier(a->image.image, VK_IMAGE_LAYOUT_UNDEFINED,
+                                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT,
+                                                  VK_ACCESS_TRANSFER_WRITE_BIT));
+                    to_read.push_back(barrier(a->image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT,
+                                              VK_ACCESS_SHADER_READ_BIT));
+                }
                 copies.push_back(copy);
                 pending.push_back(a);
-                // Another use of this frame, encoded earlier and submitted before this one, may still read or write the
-                // texture: the upload waits for those accesses.
-                to_transfer.push_back(barrier(a->image.image, VK_IMAGE_LAYOUT_UNDEFINED,
-                                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT,
-                                              VK_ACCESS_TRANSFER_WRITE_BIT));
-                to_read.push_back(barrier(a->image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                staged += (a->texels.size() + staging_alignment - 1) / staging_alignment * staging_alignment;
+            }
+            // A written page keeps the regions on it, unless it is first written here.
+            for (const auto p : distinct(std::move(written))) {
+                const auto& page = atlas_pages.at(p).image.image;
+                const bool first = std::binary_search(first_writes.begin(), first_writes.end(), p);
+                to_transfer.push_back(barrier(
+                    page, first ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT));
+                to_read.push_back(barrier(page, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT,
                                           VK_ACCESS_SHADER_READ_BIT));
-                staged += (a->texels.size() + staging_alignment - 1) / staging_alignment * staging_alignment;
             }
             if (staged) {
                 resources.staging = d.buffer(staged, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true);
@@ -559,14 +762,22 @@ namespace weft::render::vulkan {
                 }
             }
 
-            // The pass; images of one texture draw together.
+            // The pass; images of one texture (an atlas page) draw together, from their regions there.
             std::vector<std::uint64_t> names(frame.assets.size());
             for (std::size_t i = 0; i < names.size(); ++i) {
-                names[i] = i;
+                names[i] = abi_handle(view(*frame.assets[i]));
             }
             auto planned = plan_scene_pass(list, 1, width, height, std::nullopt, Space::Linear, &names);
             ensure(bool(planned), "display list pass plan");
-            const auto& pass = *planned;
+            auto& pass = *planned;
+            for (std::size_t i = 0; i < list.items.size(); ++i) {
+                if (list.items[i].kind == paint::Item::Kind::Image) {
+                    const auto* a = frame.assets.at(list.images[list.items[i].payload].asset);
+                    if (a->atlas) {
+                        place_in(pass.records[i], region_uv(*a->atlas));
+                    }
+                }
+            }
             if (!pass.records.empty()) {
                 resources.records =
                     d.buffer(pass.records.size() * sizeof(SceneRecord), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true);
@@ -604,7 +815,7 @@ namespace weft::render::vulkan {
                         images.push_back(blank_image_.view);
                         break;
                     case ScenePass::Step::Image:
-                        images.push_back(frame.assets.at(batch.source)->image.view);
+                        images.push_back(view(*frame.assets.at(batch.source)));
                         break;
                     case ScenePass::Step::BeginGroup:
                         ++open;
@@ -679,13 +890,13 @@ namespace weft::render::vulkan {
             const bool clear_target = clear || pass.clear != paint::Color{};
             const auto& first_color = pass.clear != paint::Color{} ? pass.clear : clear_color;
             [&]() noexcept {
-                if (!copies.empty()) {
-                    const auto n = std::uint32_t(copies.size());
+                if (!to_transfer.empty()) {
+                    const auto n = std::uint32_t(to_transfer.size());
                     d.vkd.vkCmdPipelineBarrier(
                         command, VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, n, to_transfer.data());
                     for (std::size_t i = 0; i < copies.size(); ++i) {
-                        d.vkd.vkCmdCopyBufferToImage(command, resources.staging.buffer, pending[i]->image.image,
+                        d.vkd.vkCmdCopyBufferToImage(command, resources.staging.buffer, destinations[i],
                                                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copies[i]);
                     }
                     d.vkd.vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,

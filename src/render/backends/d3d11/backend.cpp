@@ -186,7 +186,7 @@ namespace weft::render::d3d11 {
                 keys.emplace_back(frame.assets[i].asset_id, frame.assets[i].asset_version);
             }
             auto packet = frame_packet(frame, [&](std::uint32_t i) {
-                return !gpu.cache_assets || !gpu.asset_cache.contains(keys[i]);
+                return !gpu.cache_assets || !gpu.cache.entries.contains(keys[i]);
             });
             return gpu.prepare(std::move(packet), keys, external_count);
         });

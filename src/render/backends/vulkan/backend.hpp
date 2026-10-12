@@ -9,32 +9,13 @@
 #include <array>
 #include <cstdint>
 #include <optional>
-#include <type_traits>
 
 // Vulkan adapter of the renderer C ABI (weft_render_vulkan_pass). The core ABI has no Vulkan dependency: the host
 // records into its own command buffers, submits them on the device's queue and reports their submission and completion
 // serials; nothing here submits or waits. Display list frames and quad frames (as their display lists) draw; external
-// textures are not supported yet.
+// textures are not supported yet. Encode returns WEFT_RENDER_BUSY for a frame whose new atlas page another unsubmitted
+// recording first writes (Busy in renderer.hpp).
 namespace weft::render::vulkan {
-    // A Vulkan handle as the payload carries it, and back (render_backend_vulkan.h).
-    template <class Handle>
-    std::uint64_t abi_handle(Handle handle) {
-        if constexpr (std::is_pointer_v<Handle>) {
-            return std::uint64_t(reinterpret_cast<std::uintptr_t>(handle));
-        } else {
-            return std::uint64_t(handle);
-        }
-    }
-
-    template <class Handle>
-    Handle native_handle(std::uint64_t value) {
-        if constexpr (std::is_pointer_v<Handle>) {
-            return reinterpret_cast<Handle>(std::uintptr_t(value));
-        } else {
-            return Handle(value);
-        }
-    }
-
     // The Vulkan format of a target format the adapter draws, or VK_FORMAT_UNDEFINED.
     VkFormat target_format(std::uint32_t format);
 

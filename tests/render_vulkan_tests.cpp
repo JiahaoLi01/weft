@@ -144,6 +144,26 @@ int main(int argc, char** argv) {
 
         vk::Renderer run(*device, 96, 64);
         const auto glyphs = run.draw(glyph_run());
+
+        // A caching renderer puts the glyph run's coverage images on one atlas page: two frames draw it within a level
+        // of separate textures in a few draws, and the second uploads nothing. Draining gives every region back.
+        vk::Renderer cached(*device, 96, 64);
+        cached.cache_assets = true;
+        const auto run_list = glyph_run();
+        for (int frame = 0; frame < 2; ++frame) {
+            const auto draws = cached.draws;
+            const auto uploads = cached.uploads;
+            const auto d = difference(cached.draw(run_list), glyphs, 1, 96);
+            std::cout << "atlas vs separate textures: worst " << d.worst << ", " << cached.draws - draws << " draws, "
+                      << cached.uploads - uploads << " uploads\n";
+            CHECK(d.worst <= 1 && cached.draws - draws <= 4);
+            CHECK(cached.uploads - uploads == (frame ? 0 : run_list.assets.size()));
+        }
+        CHECK(cached.atlas_placements == run_list.assets.size() && cached.atlas.pages() == 1 &&
+              cached.atlas.live() == run_list.assets.size() && cached.cache.hits == run_list.assets.size());
+        cached.drain();
+        CHECK(cached.atlas.live() == 0 && cached.atlas_pages.empty() &&
+              cached.native_creations == cached.native_releases);
 #ifdef _WIN32
         const auto page_difference = difference(drawn, d3d11(page_list(), 96, 64), 2, 96);
         report("page list", page_difference);

@@ -608,7 +608,7 @@ namespace probes {
                 pipeline->drain();
                 require(old_hud.expired(), "completed HUD lease retained");
             }
-            require(high_ppem_glyphs > 0 && gpu.cache_hits > 0 && gpu.tracker.Stats().submitted_tokens == 0,
+            require(high_ppem_glyphs > 0 && gpu.cache.hits > 0 && gpu.tracker.Stats().submitted_tokens == 0,
                     "native-resolution glyph cache completion");
             require(gpu.tracker.Stats().completed_serial ==
                         frames * weft::probe_constants::serials_per_ui_frame + compositions,
@@ -798,8 +798,8 @@ namespace probes {
             profile_text.pop_back();
             profile_text += ",\"native_texture_creations\":" + std::to_string(gpu.native_creations) +
                             ",\"native_uploads\":" + std::to_string(gpu.uploads) +
-                            ",\"gpu_cache_hits\":" + std::to_string(gpu.cache_hits) +
-                            ",\"gpu_cache_peak_bytes\":" + std::to_string(gpu.peak_cached_bytes) +
+                            ",\"gpu_cache_hits\":" + std::to_string(gpu.cache.hits) +
+                            ",\"gpu_cache_peak_bytes\":" + std::to_string(gpu.cache.peak_bytes) +
                             ",\"cpu_glyph_cache_bytes\":" + std::to_string(packet_cache.glyphs.bytes) +
                             ",\"glyph_cache_hits\":" + std::to_string(packet_cache.glyphs.hits) +
                             ",\"atlas_placements\":" + std::to_string(gpu.atlas_placements) +
@@ -842,8 +842,8 @@ namespace probes {
             << ",\"last_present_fps\":" << rate.fps
             << ",\"fps_metric\":\"successful visible host Present calls per monotonic second\",\"hud_updates\":"
             << presenter.overlay_updates << ",\"native_texture_creations\":" << gpu.native_creations
-            << ",\"native_uploads\":" << gpu.uploads << ",\"gpu_cache_hits\":" << gpu.cache_hits
-            << ",\"gpu_cache_peak_bytes\":" << gpu.peak_cached_bytes
+            << ",\"native_uploads\":" << gpu.uploads << ",\"gpu_cache_hits\":" << gpu.cache.hits
+            << ",\"gpu_cache_peak_bytes\":" << gpu.cache.peak_bytes
             << ",\"glyph_cache_hits\":" << packet_cache.glyphs.hits
             << ",\"motion_enabled\":" << (motion ? "true" : "false") << ",\"motion\":" << motion_state
             << ",\"pipeline_depth\":" << (pipeline ? weft::probe_constants::frames_in_flight : 1)

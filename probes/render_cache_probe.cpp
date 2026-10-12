@@ -9,7 +9,7 @@ namespace probes {
         Experiment cached(warp, weft::probe_constants::small_target_size, weft::probe_constants::small_target_size);
         Experiment reference(warp, weft::probe_constants::small_target_size, weft::probe_constants::small_target_size);
         cached.cache_assets = true;
-        cached.cache_resource_limit = weft::probe_constants::stress_cache_max_resources;
+        cached.cache.resource_limit = weft::probe_constants::stress_cache_max_resources;
         // Traffic past the former 64 MiB threshold must preserve live IDs.
         auto stable = std::make_shared<const Asset>(Asset{1, 1, Encoding::Coverage, {255}});
         const auto stable_id = cached.asset_identity(stable);
@@ -116,7 +116,7 @@ namespace probes {
         backend.inject_recording_failure = false;
         require(failed && !cached.tracker.Stats().encoded_tokens && !cached.tracker.Stats().submitted_tokens,
                 "cached partial recording failure pins");
-        for (const auto& [key, entry] : cached.asset_cache) {
+        for (const auto& [key, entry] : cached.cache.entries) {
             ResourceInfo info;
             lifetime(cached.tracker.InspectResource(entry.native.id, info), "cache failed upload state");
             require(info.phase == ResourcePhase::Created, "failed cached upload became Ready");
@@ -152,8 +152,8 @@ namespace probes {
                     read(reference, cheetah_packet(page(state), fonts, images)));
             ++frames;
         }
-        require(cached.cache_hits > 0 && cached.native_releases > 0 &&
-                    cached.asset_cache.size() <= weft::probe_constants::stress_cache_max_resources,
+        require(cached.cache.hits > 0 && cached.native_releases > 0 &&
+                    cached.cache.entries.size() <= weft::probe_constants::stress_cache_max_resources,
                 "cache reuse/eviction pressure absent");
         // A packet with more simultaneous dependencies than this deliberately
         // tiny cache must fail without an orphan tracked lease. Drain and reuse.
@@ -203,7 +203,7 @@ namespace probes {
             << ",\"mutation_frames\":" << frames << ",\"seed\":\"0xCE902026\",\"compared_pixels\":"
             << (frames + 1) * weft::probe_constants::small_target_pixels << ",\"max_difference\":" << max_error
             << ",\"native_creations\":" << cached.native_creations << ",\"native_releases\":" << cached.native_releases
-            << ",\"cache_hits\":" << cached.cache_hits
+            << ",\"cache_hits\":" << cached.cache.hits
             << ",\"capacity_failure_verified\":true,\"partial_retry_verified\":true,\"post_submit_drain_verified\":true,\"debug_warning_error_count\":0,\"passed\":true}";
         write_text(folder / "report.json", report.str());
         std::cout << "PASS cached/full paint mutation, source/font/clip/order, eviction and failure drain; max "
