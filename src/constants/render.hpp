@@ -163,6 +163,8 @@ namespace weft::constants::render {
         // Paint::mode.x of image items: ImageModeCoverage and ImageModeSignedDistance (other images are 0).
         inline constexpr float image_mode_coverage = 1.f;
         inline constexpr float image_mode_signed_distance = 2.f;
+        // Paint::mode.x of a plane: its content image seen through a homography (ImageModeProjective).
+        inline constexpr float image_mode_projective = 3.f;
         inline constexpr int record_initial_capacity = 16;
         // Nested transparent groups available per slot.
         inline constexpr int max_group_depth = 4;

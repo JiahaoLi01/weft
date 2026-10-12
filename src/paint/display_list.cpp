@@ -1,5 +1,8 @@
 #include "paint/display_list.hpp"
 
+#include "base/plane.hpp"
+#include "constants/common.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -50,90 +53,141 @@ namespace weft::paint {
         }
     } // namespace
 
+    namespace {
+        Status check_at(const DisplayList& list, std::size_t max_group_depth, unsigned planes);
+    } // namespace
+
     Status check(const DisplayList& list, std::size_t max_group_depth) {
-        std::size_t depth{};
-        for (std::size_t i = 0; i < list.items.size(); ++i) {
-            const auto& item = list.items[i];
-            const auto at = " at item " + std::to_string(i);
-            if (item.clips_begin > list.clips.size() || item.clips_count > list.clips.size() - item.clips_begin) {
-                return make_diagnostic(Diag::PaintList, "rounded clips out of range" + at);
-            }
-            for (auto c = item.clips_begin; c < item.clips_begin + item.clips_count; ++c) {
-                const auto& m = list.clips[c].to_local;
-                if (!std::all_of(m.begin(), m.end(), finite_value) || !std::isnormal(m[0] * m[3] - m[1] * m[2])) {
-                    return make_diagnostic(Diag::PaintList, "rounded clip map" + at);
-                }
-            }
-            switch (item.kind) {
-                case Item::Kind::Box:
-                    if (item.payload >= list.boxes.size()) {
-                        return make_diagnostic(Diag::PaintList, "box payload out of range" + at);
-                    }
-                    break;
-                case Item::Kind::Image: {
-                    if (item.payload >= list.images.size()) {
-                        return make_diagnostic(Diag::PaintList, "image payload or asset out of range" + at);
-                    }
-                    const auto& image = list.images[item.payload];
-                    if (image.asset < list.assets.size() ? !list.assets[image.asset]
-                                                         : image.asset - list.assets.size() >= list.external_textures) {
-                        return make_diagnostic(Diag::PaintList, "image payload or asset out of range" + at);
-                    }
-                    if (image.asset >= list.assets.size() && image.stroke != 0) {
-                        return make_diagnostic(Diag::PaintList, "external texture with a distance stroke" + at);
-                    }
-                    break;
-                }
-                case Item::Kind::Text:
-                case Item::Kind::Layer:
-                    if (item.payload >= list.rasters.size() || !list.rasters[item.payload].source) {
-                        return make_diagnostic(Diag::PaintList, "raster payload out of range or without source" + at);
-                    }
-                    break;
-                case Item::Kind::Shadow: {
-                    if (item.payload >= list.shadows.size()) {
-                        return make_diagnostic(Diag::PaintList, "shadow payload out of range" + at);
-                    }
-                    const auto& s = list.shadows[item.payload];
-                    if (!std::all_of(s.color.begin(), s.color.end(), finite_value) ||
-                        !std::all_of(s.radii.begin(), s.radii.end(), finite_value) || !std::isfinite(s.x) ||
-                        !std::isfinite(s.y) || !std::isfinite(s.spread) || !std::isfinite(s.blur) || s.blur < 0) {
-                        return make_diagnostic(Diag::PaintList, "shadow value" + at);
-                    }
-                    break;
-                }
-                case Item::Kind::Path: {
-                    if (item.payload >= list.paths.size()) {
-                        return make_diagnostic(Diag::PaintList, "path payload out of range" + at);
-                    }
-                    const auto& p = list.paths[item.payload];
-                    if (!p.path || !well_formed(*p.path) ||
-                        !std::all_of(p.color.begin(), p.color.end(), finite_value) ||
-                        (p.stroke && !well_formed(*p.stroke))) {
-                        return make_diagnostic(Diag::PaintList, "path value" + at);
-                    }
-                    break;
-                }
-                case Item::Kind::BeginGroup:
-                    if (++depth > max_group_depth) {
-                        return make_diagnostic(Diag::PaintList, "group depth bound" + at);
-                    }
-                    break;
-                case Item::Kind::EndGroup:
-                    if (depth == 0) {
-                        return make_diagnostic(Diag::PaintList, "group end without begin" + at);
-                    }
-                    --depth;
-                    break;
-                default:
-                    return make_diagnostic(Diag::PaintList, "unknown item kind" + at);
-            }
-        }
-        if (depth) {
-            return make_diagnostic(Diag::PaintList, "unclosed group");
-        }
-        return {};
+        return check_at(list, max_group_depth, 0);
     }
+
+    namespace {
+        // A plane's homography is invertible, and its corners lie in front of the viewer.
+        bool plane_geometry(const Plane& p) {
+            geometry::Plane map;
+            std::copy(p.transform.begin(), p.transform.end(), map.m.begin());
+            geometry::Plane inverse;
+            if (!map.inverse(inverse)) {
+                return false;
+            }
+            const auto& h = map.m;
+            for (const auto& [x, y] :
+                 std::array<std::array<double, 2>, 4>{{{0, 0}, {p.width, 0}, {0, p.height}, {p.width, p.height}}}) {
+                if (!(h[6] * x + h[7] * y + h[8] > constants::plane_min_depth)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // planes counts the plane contents around list: planes inside a plane's content and so on.
+        Status check_at(const DisplayList& list, std::size_t max_group_depth, unsigned planes) {
+            std::size_t depth{};
+            for (std::size_t i = 0; i < list.items.size(); ++i) {
+                const auto& item = list.items[i];
+                const auto at = " at item " + std::to_string(i);
+                if (item.clips_begin > list.clips.size() || item.clips_count > list.clips.size() - item.clips_begin) {
+                    return make_diagnostic(Diag::PaintList, "rounded clips out of range" + at);
+                }
+                for (auto c = item.clips_begin; c < item.clips_begin + item.clips_count; ++c) {
+                    const auto& m = list.clips[c].to_local;
+                    if (!std::all_of(m.begin(), m.end(), finite_value) || !std::isnormal(m[0] * m[3] - m[1] * m[2])) {
+                        return make_diagnostic(Diag::PaintList, "rounded clip map" + at);
+                    }
+                }
+                switch (item.kind) {
+                    case Item::Kind::Box:
+                        if (item.payload >= list.boxes.size()) {
+                            return make_diagnostic(Diag::PaintList, "box payload out of range" + at);
+                        }
+                        break;
+                    case Item::Kind::Image: {
+                        if (item.payload >= list.images.size()) {
+                            return make_diagnostic(Diag::PaintList, "image payload or asset out of range" + at);
+                        }
+                        const auto& image = list.images[item.payload];
+                        if (image.asset < list.assets.size()
+                                ? !list.assets[image.asset]
+                                : image.asset - list.assets.size() >= list.external_textures) {
+                            return make_diagnostic(Diag::PaintList, "image payload or asset out of range" + at);
+                        }
+                        if (image.asset >= list.assets.size() && image.stroke != 0) {
+                            return make_diagnostic(Diag::PaintList, "external texture with a distance stroke" + at);
+                        }
+                        break;
+                    }
+                    case Item::Kind::Text:
+                    case Item::Kind::Layer:
+                        if (item.payload >= list.rasters.size() || !list.rasters[item.payload].source) {
+                            return make_diagnostic(Diag::PaintList,
+                                                   "raster payload out of range or without source" + at);
+                        }
+                        break;
+                    case Item::Kind::Shadow: {
+                        if (item.payload >= list.shadows.size()) {
+                            return make_diagnostic(Diag::PaintList, "shadow payload out of range" + at);
+                        }
+                        const auto& s = list.shadows[item.payload];
+                        if (!std::all_of(s.color.begin(), s.color.end(), finite_value) ||
+                            !std::all_of(s.radii.begin(), s.radii.end(), finite_value) || !std::isfinite(s.x) ||
+                            !std::isfinite(s.y) || !std::isfinite(s.spread) || !std::isfinite(s.blur) || s.blur < 0) {
+                            return make_diagnostic(Diag::PaintList, "shadow value" + at);
+                        }
+                        break;
+                    }
+                    case Item::Kind::Path: {
+                        if (item.payload >= list.paths.size()) {
+                            return make_diagnostic(Diag::PaintList, "path payload out of range" + at);
+                        }
+                        const auto& p = list.paths[item.payload];
+                        if (!p.path || !well_formed(*p.path) ||
+                            !std::all_of(p.color.begin(), p.color.end(), finite_value) ||
+                            (p.stroke && !well_formed(*p.stroke))) {
+                            return make_diagnostic(Diag::PaintList, "path value" + at);
+                        }
+                        break;
+                    }
+                    case Item::Kind::Plane: {
+                        if (item.payload >= list.planes.size()) {
+                            return make_diagnostic(Diag::PaintList, "plane payload out of range" + at);
+                        }
+                        const auto& p = list.planes[item.payload];
+                        if (!p.content || !std::all_of(p.transform.begin(), p.transform.end(), finite_value) ||
+                            !(p.width > 0) || !(p.height > 0) || !std::isfinite(p.width) || !std::isfinite(p.height)) {
+                            return make_diagnostic(Diag::PaintList, "plane value" + at);
+                        }
+                        if (!plane_geometry(p)) {
+                            return make_diagnostic(Diag::PaintList, "plane behind the viewer or singular" + at);
+                        }
+                        if (planes >= constants::max_plane_depth) {
+                            return make_diagnostic(Diag::PaintList, "plane depth bound" + at);
+                        }
+                        if (auto nested = check_at(*p.content, max_group_depth, planes + 1); !nested) {
+                            return nested.error();
+                        }
+                        break;
+                    }
+                    case Item::Kind::BeginGroup:
+                        if (++depth > max_group_depth) {
+                            return make_diagnostic(Diag::PaintList, "group depth bound" + at);
+                        }
+                        break;
+                    case Item::Kind::EndGroup:
+                        if (depth == 0) {
+                            return make_diagnostic(Diag::PaintList, "group end without begin" + at);
+                        }
+                        --depth;
+                        break;
+                    default:
+                        return make_diagnostic(Diag::PaintList, "unknown item kind" + at);
+                }
+            }
+            if (depth) {
+                return make_diagnostic(Diag::PaintList, "unclosed group");
+            }
+            return {};
+        }
+    } // namespace
 
     Status append(DisplayList& into, const DisplayList& from, const Affine& transform) {
         const auto& t = transform;
@@ -153,6 +207,7 @@ namespace weft::paint {
         const auto rasters = std::uint32_t(into.rasters.size());
         const auto shadows = std::uint32_t(into.shadows.size());
         const auto paths = std::uint32_t(into.paths.size());
+        const auto planes = std::uint32_t(into.planes.size());
         const auto clips = std::uint32_t(into.clips.size());
         into.boxes.insert(into.boxes.end(), from.boxes.begin(), from.boxes.end());
         for (auto image : from.images) {
@@ -163,6 +218,15 @@ namespace weft::paint {
         into.rasters.insert(into.rasters.end(), from.rasters.begin(), from.rasters.end());
         into.shadows.insert(into.shadows.end(), from.shadows.begin(), from.shadows.end());
         into.paths.insert(into.paths.end(), from.paths.begin(), from.paths.end());
+        for (auto plane : from.planes) {
+            // The homography maps into from's target px; into's are t of them: rows scale, translations follow.
+            auto& h = plane.transform;
+            for (unsigned c = 0; c < 3; ++c) {
+                h[c] = t[0] * h[c] + t[4] * h[6 + c];
+                h[3 + c] = t[3] * h[3 + c] + t[5] * h[6 + c];
+            }
+            into.planes.push_back(plane);
+        }
         into.assets.insert(into.assets.end(), from.assets.begin(), from.assets.end());
         into.external_textures += from.external_textures;
         for (auto clip : from.clips) {
@@ -210,6 +274,9 @@ namespace weft::paint {
                     break;
                 case Item::Kind::Path:
                     item.payload += paths;
+                    break;
+                case Item::Kind::Plane:
+                    item.payload += planes;
                     break;
                 default:
                     break;

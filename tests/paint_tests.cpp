@@ -8,8 +8,10 @@
 #include "scene/scene.hpp"
 #include "support/check.hpp"
 
+#include <cmath>
 #include <iostream>
 #include <limits>
+#include <numbers>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -420,6 +422,113 @@ namespace {
                 "a rotated clip contains in its own space");
     }
 
+    // A plane draws a nested list flat, then through its homography. The check takes a well-formed content list nested
+    // at most max_plane_depth deep, a positive size and an invertible homography in front of the viewer; append
+    // composes the homography with its transform; the scene pass records the inverse of the content image's map, its
+    // depth row in outline, and bounds the image's projected corners.
+    void planes() {
+        // perspective(200px) rotateY(30deg) about the plane's origin, which lies at (10, 20) of the target.
+        const float c = std::cos(std::numbers::pi_v<float> / 6);
+        const float s = std::sin(std::numbers::pi_v<float> / 6);
+        paint::Plane plane;
+        plane.content = std::make_shared<const paint::DisplayList>(nested());
+        plane.transform = {c, 0, 10, 0, 1, 20, s / 200, 0, 1};
+        plane.width = 40;
+        plane.height = 30;
+        const auto with = [](const paint::Plane& p) {
+            paint::DisplayList l;
+            l.planes.push_back(p);
+            auto i = item(Kind::Plane, 0);
+            i.width = p.width;
+            i.height = p.height;
+            i.clip = {0, 0, 100, 80};
+            l.items = {i};
+            return l;
+        };
+        const auto map = [](const std::array<float, 9>& h, double x, double y) {
+            const double w = h[6] * x + h[7] * y + h[8];
+            return std::array<double, 2>{(h[0] * x + h[1] * y + h[2]) / w, (h[3] * x + h[4] * y + h[5]) / w};
+        };
+        require(bool(paint::check(with(plane), 2)), "plane item");
+        auto list = with(plane);
+        list.items[0].payload = 1;
+        require(rejected(list, 2, "plane payload out of range at item 0"), "plane payload range");
+        auto broken = plane;
+        broken.content.reset();
+        require(rejected(with(broken), 2, "plane value at item 0"), "plane without content");
+        broken = plane;
+        broken.transform[4] = std::numeric_limits<float>::quiet_NaN();
+        require(rejected(with(broken), 2, "plane value at item 0"), "plane homography not finite");
+        broken = plane;
+        broken.width = 0;
+        require(rejected(with(broken), 2, "plane value at item 0"), "empty plane");
+        broken = plane;
+        broken.transform = {1, 2, 0, 2, 4, 0, 0, 0, 1};
+        require(rejected(with(broken), 2, "plane behind the viewer or singular at item 0"), "singular plane");
+        // Depth falls to zero at x = 20 of the 40 px plane.
+        broken = plane;
+        broken.transform = {1, 0, 0, 0, 1, 0, -1.f / 20, 0, 1};
+        require(rejected(with(broken), 2, "plane behind the viewer or singular at item 0"), "plane behind the viewer");
+        broken = plane;
+        auto unclosed = nested();
+        unclosed.items.pop_back();
+        broken.content = std::make_shared<const paint::DisplayList>(unclosed);
+        require(rejected(with(broken), 2, "unclosed group"), "plane content is checked");
+        // Planes nest in plane contents two deep.
+        auto inner = plane;
+        inner.content = std::make_shared<const paint::DisplayList>(with(plane));
+        require(bool(paint::check(with(inner), 2)), "plane in a plane");
+        auto deepest = plane;
+        deepest.content = std::make_shared<const paint::DisplayList>(with(inner));
+        require(rejected(with(deepest), 2, "plane depth bound at item 0"), "plane depth bound");
+        // Appended under a transform, the plane maps each of its points where the transform takes them.
+        paint::DisplayList into;
+        into.boxes.emplace_back();
+        into.planes.push_back(plane);
+        into.items = {item(Kind::Box), item(Kind::Plane, 0)};
+        require(bool(paint::append(into, with(plane), {2, 0, 0, 3, 100, 200})) && bool(paint::check(into, 2)) &&
+                    into.items[2].kind == Kind::Plane && into.items[2].payload == 1 &&
+                    into.planes[1].content == plane.content,
+                "appended plane");
+        const auto before = map(plane.transform, 25, 10);
+        const auto after = map(into.planes[1].transform, 25, 10);
+        require(std::abs(after[0] - (2 * before[0] + 100)) < 1e-3 && std::abs(after[1] - (3 * before[1] + 200)) < 1e-3,
+                "appended plane homography");
+        // The scene pass: one image step; the content image is the plane with 2 px margins, 2 device px per CSS px.
+        using Step = weft::render::ScenePass::Step;
+        require(weft::render::plan_scene_pass(with(plane), 2, 100, 80).value().batches.size() == 1 &&
+                    weft::render::plane_pixels(plane, 2) == std::array<std::uint32_t, 2>{88, 68},
+                "plane image pixels");
+        const auto pass = weft::render::plan_scene_pass(with(plane), 2, 100, 80).value();
+        const auto& r = pass.records[0];
+        require(pass.batches[0].step == Step::Image && pass.batches[0].first == 0 && r.mode[0] == 3 &&
+                    r.extra[2] == 1 && r.extra[3] == 0 && r.size == std::array<float, 4>{44, 34, 0, 0},
+                "plane record");
+        // The shader's division takes a target point back to the image point that projects there: content point
+        // (25, 10) lies at (27, 12) of the image.
+        const auto target = map(plane.transform, 25, 10);
+        const auto row = [&](const std::array<float, 4>& v) {
+            return v[0] * target[0] + v[1] * target[1] + v[2];
+        };
+        const double depth = row(r.outline);
+        require(depth > 0 && std::abs(row(r.inv_x) / depth - 27) < 1e-3 && std::abs(row(r.inv_y) / depth - 12) < 1e-3,
+                "plane record inverts the image's map");
+        // The bounds hold the image's projected corners, the margins included.
+        for (const auto& [x, y] : std::array<std::array<double, 2>, 4>{{{-2, -2}, {42, -2}, {-2, 32}, {42, 32}}}) {
+            const auto p = map(plane.transform, x, y);
+            require(p[0] >= r.bounds[0] && p[1] >= r.bounds[1] && p[0] <= r.bounds[0] + r.bounds[2] &&
+                        p[1] <= r.bounds[1] + r.bounds[3],
+                    "plane bounds hold the image corners");
+        }
+        // A plane in front of the viewer whose image margin is not: the list is well formed, the pass refuses it.
+        broken = plane;
+        broken.transform = {1, 0, 0, 0, 1, 0, -1.f / 40.5f, 0, 1};
+        const auto edge = weft::render::plan_scene_pass(with(broken), 2, 100, 80);
+        require(bool(paint::check(with(broken), 2)) && !edge && edge.error().code == weft::Diag::PaintList &&
+                    edge.error().message.find("plane image behind the viewer") != std::string::npos,
+                "plane image behind the viewer");
+    }
+
     // Quads become items in order: boxes, tinted images and external textures; the group diagnostic is an isolated
     // group of red and blue, the clipped diagnostic a clip inset into its quad.
     void quads() {
@@ -576,8 +685,9 @@ int main() {
         external_textures();
         append();
         shadows();
+        planes();
         std::cout << "PASS paint contracts: display list payloads, rasters, shadows, group nesting and kinds; scene "
-                     "pass plans; quad lists; external textures; appended lists; shadow images\n";
+                     "pass plans; quad lists; external textures; appended lists; shadow images; planes\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

@@ -161,6 +161,13 @@ namespace weft::probe_constants::gallery {
     // The SVG drawing inks at least this many pixels: some channel below ink_level on white.
     inline constexpr unsigned min_vector_oracle_ink = 2000;
     inline constexpr int ink_level = 200;
+    // GPU perspective planes against the reference raster's CPU pixels, as the SVG oracle compares them. The
+    // reference does not antialias a plane's edges and the GPU does (the content image's transparent margin), so
+    // pixels along the projected edges differ by up to the edge's contrast.
+    inline constexpr double max_plane_oracle_mean = 1.0;
+    inline constexpr int max_plane_oracle_solid = 2;
+    inline constexpr unsigned max_plane_oracle_outliers = 400;
+    inline constexpr unsigned min_plane_oracle_ink = 4000;
     // The scene-native test draws at least this many passes natively and reuses this many layer images.
     inline constexpr std::size_t min_native_scene_passes = 3900;
     inline constexpr std::size_t min_native_layer_reuses = 300;
@@ -226,6 +233,8 @@ namespace weft::probe_constants::gallery {
     // the 128 MiB scratch budget holds at 1 MiB each.
     inline constexpr int retirement_surface_size = 80;
     inline constexpr int scratch_reentry_visits = 140;
+    // Visits of a plane whose image and content group must retire with their slot.
+    inline constexpr int plane_scratch_reentry_visits = 16;
     // run_complex_css_test: scene, its 2x surface, and the length of each phase.
     inline constexpr int complex_css_scene_width = 180;
     inline constexpr int complex_css_scene_height = 140;

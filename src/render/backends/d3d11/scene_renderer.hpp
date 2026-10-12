@@ -18,10 +18,10 @@
 #include <vector>
 
 // Native D3D11 pass of a scene display list (scene_display_list): instanced box records drawn by scene.hlsl,
-// transparent groups in scratch targets, and text, layer, shadow (render/shadow_image.hpp) and path coverage
-// (vector/path_raster.hpp) images. Text without color glyphs is a portable FreeType
-// image (scene_text_image); text with color glyphs and explicit layers come from the D2D reference raster. The
-// destination holds encoded premultiplied BGRA, like the D2D scene targets.
+// transparent groups in scratch targets, perspective planes whose content a nested pass draws into an image of its
+// own, and text, layer, shadow (render/shadow_image.hpp) and path coverage (vector/path_raster.hpp) images. Text
+// without color glyphs is a portable FreeType image (scene_text_image); text with color glyphs and explicit layers come
+// from the D2D reference raster. The destination holds encoded premultiplied BGRA, like the D2D scene targets.
 //
 // Owner thread of the SceneText. A plan the pass cannot draw returns false with a counted reason, and the caller
 // draws the frame another way.
@@ -50,7 +50,12 @@ namespace weft::render::d3d11 {
             unsigned width{};
             unsigned height{};
             unsigned capacity{};
+            // Scratch bytes of the slot's own targets: its groups, and in a plane's slot the plane's image.
             std::size_t group_bytes{};
+            // In a plane's slot, the image its pass draws the plane's content into.
+            Surface target;
+            // The slots of the plane contents the last pass drew, in item order.
+            std::vector<std::unique_ptr<Slot>> planes;
         };
 
         std::size_t passes{};
@@ -66,6 +71,8 @@ namespace weft::render::d3d11 {
         std::size_t shadow_reuses{};
         std::size_t path_builds{};
         std::size_t path_reuses{};
+        // Plane contents drawn by nested passes into their images.
+        std::size_t plane_passes{};
         std::size_t image_evictions{};
         // Fallback counts by reason.
         std::map<std::string, std::size_t> reasons;
@@ -79,7 +86,7 @@ namespace weft::render::d3d11 {
         }
 
         // The owning surface confirms the slot's last GPU use complete first. Destroying a backing also retires its
-        // share of the scratch budget.
+        // share of the scratch budget, its planes' slots included.
         void retire(Slot& slot);
 
         // Draws frame into destination (target_width x target_height device pixels, scale per CSS px) on the
@@ -89,6 +96,15 @@ namespace weft::render::d3d11 {
                    unsigned view_index, const std::vector<NodeIdentity>& layers);
 
     private:
+        // A pass ready to draw: its plan, the images its items sample, and per plane item the pass of its content.
+        struct Prepared {
+            ScenePass pass;
+            std::vector<std::shared_ptr<const Image>> images;
+            std::vector<std::unique_ptr<Prepared>> planes;
+            unsigned width{};
+            unsigned height{};
+        };
+
         Renderer& gpu_;
         SceneText& text_;
         ComPtr<ID3D11VertexShader> vs_;
@@ -114,5 +130,18 @@ namespace weft::render::d3d11 {
         // A path item's coverage over mask (device pixels); throws std::invalid_argument past the mask bounds.
         std::shared_ptr<const Image> path(const paint::Item& item, const paint::PathPaint& paint, float scale,
                                           const std::array<std::int32_t, 4>& mask);
+        // Plans list for a width x height device pixel target and builds the images it samples, its planes' contents
+        // included; throws std::invalid_argument with the reason for a list the pass cannot draw.
+        std::unique_ptr<Prepared> prepare(const paint::DisplayList& list, float scale, unsigned width, unsigned height,
+                                          std::optional<std::array<float, 4>> crop, unsigned view_index);
+        // Draws a prepared pass into destination: its planes' contents first, each into the image of its slot.
+        void draw_pass(Slot& slot, const Prepared& prepared, ID3D11RenderTargetView* destination, float scale);
+        // Scratch bytes the targets of a prepared pass and of its planes' passes take; a plane's pass also takes its
+        // image.
+        static std::size_t scratch_of(const Prepared& prepared, bool plane);
+        // Scratch bytes a slot and its planes' slots hold.
+        static std::size_t held_bytes(const Slot& slot);
+        // Fits slot and its planes' slots to prepared, releasing targets of another size.
+        static void shape(Slot& slot, const Prepared& prepared, bool plane);
     };
 } // namespace weft::render::d3d11

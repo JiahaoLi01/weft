@@ -8,8 +8,11 @@
 #include "scene/scene_display_list.hpp"
 #include "scene/scene_path.hpp"
 #include "test_constants/scene.hpp"
+#include "constants/render.hpp"
 #include <thread>
+#include <cmath>
 #include <cstring>
+#include <numbers>
 
 using weft::testing::format_host_time;
 using weft::testing::require;
@@ -273,6 +276,73 @@ int main() {
             require(std::abs(m[4] * map[0] + m[5] * map[2] + map[4]) < 1e-3f &&
                         std::abs(m[4] * map[1] + m[5] * map[3] + map[5]) < 1e-3f,
                     "rotated overflow clip map");
+        }
+        {
+            // A perspective box is a plane: its subtree listed flat in its own px (the box at the origin without its
+            // transform), drawn through the box's plane after its parent's transform, inside its parent's clips. An
+            // edge-on plane draws nothing, a plane in a plane nests, a third plane inside falls back, and so does a
+            // plane behind the viewer.
+            using Kind = weft::paint::Item::Kind;
+            const auto node = [](std::uint32_t slot, std::array<float, 4> box,
+                                 std::initializer_list<std::pair<const char*, const char*>> style) {
+                weft::SceneNode n;
+                n.identity = {1, 1, slot};
+                n.tag = "div";
+                n.box = box;
+                for (const auto& [k, v] : style) {
+                    n.style[k] = v;
+                }
+                return n;
+            };
+            weft::SceneFrame frame;
+            frame.root = node(180, {0, 0, 200, 200}, {});
+            auto outer =
+                node(181, {10, 20, 150, 150},
+                     {{"transform", "translateX(5px)"}, {"overflow", "hidden"}, {"border-top-left-radius", "8px"}});
+            auto card = node(182, {20, 30, 60, 40},
+                             {{"transform", "perspective(200px) rotateY(30deg)"}, {"background-color", "#ff0000"}});
+            card.children = {node(183, {5, 5, 10, 10}, {{"background-color", "#0000ff"}})};
+            outer.children = {card};
+            frame.root.children = {outer};
+            const auto plan = weft::scene_display_list(frame);
+            require(plan.fallback.empty() && plan.list.items.size() == 1 && plan.list.items[0].kind == Kind::Plane &&
+                        plan.list.items[0].clips_count == 1 &&
+                        bool(weft::paint::check(plan.list, weft::constants::render::scene::max_group_depth)),
+                    "perspective box is a plane");
+            const auto& plane = plan.list.planes[plan.list.items[0].payload];
+            const auto& content = *plane.content;
+            require(plane.width == 60 && plane.height == 40 && content.items.size() == 2 &&
+                        content.items[0].transform == weft::paint::identity &&
+                        content.items[1].transform == weft::paint::Affine{1, 0, 0, 1, 5, 5} &&
+                        content.items[0].clip == weft::paint::ClipRect{0, 0, 60, 40},
+                    "plane content in its own px");
+            // The plane's corner (0, 0): rotated about the box's center (30, 20), at its offset (20, 30) in the parent,
+            // which lies at (15, 20).
+            const auto& h = plane.transform;
+            const double c = std::cos(std::numbers::pi / 6);
+            const double w = 1 + std::sin(std::numbers::pi / 6) * -30 / 200;
+            require(std::abs(h[2] / h[8] - (15 + 20 + 30 + c * -30 / w)) < 1e-3 &&
+                        std::abs(h[5] / h[8] - (20 + 30 + 20 - 20 / w)) < 1e-3,
+                    "plane homography");
+            auto edge_on = frame;
+            edge_on.root.children[0].children[0].style["transform"] = "perspective(200px) rotateY(90deg)";
+            const auto hidden = weft::scene_display_list(edge_on);
+            require(hidden.fallback.empty() && hidden.list.items.empty(), "edge-on plane draws nothing");
+            auto behind = frame;
+            behind.root.children[0].children[0].style["transform"] = "perspective(20px) rotateY(80deg)";
+            require(weft::scene_display_list(behind).fallback == "plane behind the viewer", "plane behind the viewer");
+            auto nesting = frame;
+            auto& first = nesting.root.children[0].children[0];
+            first.children.push_back(
+                node(184, {20, 10, 30, 20}, {{"transform", "perspective(100px) rotateY(-20deg)"}, {"opacity", "0.5"}}));
+            const auto two = weft::scene_display_list(nesting);
+            const auto& in = *two.list.planes[0].content;
+            require(two.fallback.empty() && in.items.size() == 3 && in.items[2].kind == Kind::Plane &&
+                        in.planes[in.items[2].payload].width == 30,
+                    "plane in a plane");
+            first.children.back().children.push_back(
+                node(185, {2, 2, 10, 10}, {{"transform", "perspective(100px) rotateY(10deg)"}}));
+            require(weft::scene_display_list(nesting).fallback == "plane nesting bound", "plane nesting bound");
         }
         {
             // Short hex colors expand as the reference raster expands them: background, border and text tint.

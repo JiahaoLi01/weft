@@ -68,7 +68,7 @@ namespace weft::render {
             // Records [first, first + count) in one instanced draw without an image.
             Boxes,
             // Records [first, first + count) in one instanced draw of the image of source: one Text, Layer, Shadow,
-            // Path or Image item, or with texture names a run of boxes and images that sample one texture.
+            // Path, Plane or Image item, or with texture names a run of boxes and images that sample one texture.
             Image,
             // Continue in a cleared group target one level deeper.
             BeginGroup,
@@ -97,6 +97,11 @@ namespace weft::render {
         Space space{};
         std::size_t group_depth{};
     };
+
+    // The device pixels of a plane's content image: the plane with image_margin transparent px on each side, at scale,
+    // rounded up. A renderer draws the content image_margin px in, texel per device pixel, and binds the image to the
+    // plane's record.
+    std::array<std::uint32_t, 2> plane_pixels(const paint::Plane& plane, float scale);
 
     // Makes an image record sample its image from region (normalized origin and extent) of the bound texture, as an
     // atlas page holds it.

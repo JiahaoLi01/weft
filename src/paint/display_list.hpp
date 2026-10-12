@@ -156,6 +156,20 @@ namespace weft::paint {
         std::optional<Stroke> stroke;
     };
 
+    struct DisplayList;
+
+    // A plane in perspective: a nested list drawn flat over [0, width] x [0, height] of its own px, then mapped into
+    // the target by a homography in column-vector layout [a b c; d e f; g h i]: (x, y) -> ((a x + b y + c) / w,
+    // (d x + e y + f) / w) with w = g x + h y + i, above constants::plane_min_depth at the plane's corners (in front
+    // of the viewer). Renderers draw the content with a transparent margin, so the plane's edges antialias like an
+    // image's.
+    struct Plane {
+        std::shared_ptr<const DisplayList> content;
+        std::array<float, 9> transform{1, 0, 0, 0, 1, 0, 0, 0, 1};
+        float width{};
+        float height{};
+    };
+
     struct Item {
         enum class Kind : std::uint8_t {
             Box,
@@ -171,7 +185,9 @@ namespace weft::paint {
             // A Shadow, which a renderer prepares as an image.
             Shadow,
             // A PathPaint, which a renderer rasterizes as coverage at device scale.
-            Path
+            Path,
+            // A Plane, whose content a renderer draws into an image and projects.
+            Plane
         };
 
         Kind kind{};
@@ -181,8 +197,8 @@ namespace weft::paint {
         float width{};
         float height{};
         float opacity{1};
-        // Index in DisplayList::boxes (Box), images (Image), rasters (Text, Layer), shadows (Shadow) or paths
-        // (Path); unused by groups.
+        // Index in DisplayList::boxes (Box), images (Image), rasters (Text, Layer), shadows (Shadow), paths (Path)
+        // or planes (Plane); unused by groups.
         std::uint32_t payload{};
         // The item's rounded clips, outermost first: DisplayList::clips[clips_begin, clips_begin + clips_count).
         std::uint32_t clips_begin{};
@@ -196,6 +212,7 @@ namespace weft::paint {
         std::vector<Raster> rasters;
         std::vector<Shadow> shadows;
         std::vector<PathPaint> paths;
+        std::vector<Plane> planes;
         // Leases of the assets images draw.
         std::vector<std::shared_ptr<const Asset>> assets;
         // Host textures images draw after the assets: image asset assets.size() + i is external texture i, linear
@@ -206,8 +223,10 @@ namespace weft::paint {
 
     // Whether a list is well formed: payloads in range and of the item's kind, images of a leased asset or an external
     // texture without a stroke, rasters with a source, shadows with finite values and no negative blur, paths with a
-    // path of whole verbs and finite points and a stroke of finite, non-negative lengths, rounded clip ranges inside
-    // the clips, groups balanced and nested at most max_group_depth deep. Diag::PaintList otherwise.
+    // path of whole verbs and finite points and a stroke of finite, non-negative lengths, planes of a well-formed
+    // content list (nested at most constants::max_plane_depth deep), a positive size and a finite, invertible
+    // homography in front of the viewer, rounded clip ranges inside the clips, groups balanced and nested at most
+    // max_group_depth deep. Diag::PaintList otherwise.
     Status check(const DisplayList& list, std::size_t max_group_depth);
 
     // The deepest group nesting of a well-formed list.

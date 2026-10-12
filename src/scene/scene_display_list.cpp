@@ -16,6 +16,9 @@
 namespace weft {
     namespace {
         using Matrix = std::array<float, 6>;
+
+        // How many plane contents are being listed on this thread: a plane's content may hold planes, to a bound.
+        thread_local unsigned plane_nesting = 0;
         using Style = SceneStyle;
 
         using css::trim;
@@ -540,6 +543,72 @@ namespace weft {
                 }
                 if (list.items.size() > constants::scene::max_display_list_items) {
                     throw std::invalid_argument("native command bound");
+                }
+                // A perspective plane, as the reference raster draws it: the subtree flat in the node's own px, then
+                // projected through the node's plane.
+                if (get(n.style, PropertyId::Transform, "none").find("perspective(") != std::string::npos) {
+                    if (plane_nesting >= constants::max_plane_depth) {
+                        throw std::invalid_argument("plane nesting bound");
+                    }
+                    // An edge-on plane paints nothing, as in the reference raster.
+                    const auto perspective =
+                        scene_perspective(parse_scene_transform(get(n.style, PropertyId::Transform, "none")).value());
+                    if (perspective &&
+                        std::abs(std::cos(perspective->radians)) < constants::scene::edge_on_plane_epsilon) {
+                        return;
+                    }
+                    SceneFrame content;
+                    content.root = n;
+                    content.root.box[0] = content.root.box[1] = 0;
+                    content.root.style.erase(PropertyId::Transform);
+                    if (content.root.paint) {
+                        content.root.paint->values[constants::scene::paint_slot_transform].reset();
+                    }
+                    struct Nesting {
+                        Nesting() {
+                            ++plane_nesting;
+                        }
+
+                        ~Nesting() {
+                            --plane_nesting;
+                        }
+                    };
+                    SceneDisplayList nested;
+                    {
+                        Nesting guard;
+                        nested = scene_display_list(content, {}, text);
+                    }
+                    if (!nested.fallback.empty()) {
+                        throw std::invalid_argument(nested.fallback);
+                    }
+                    const auto plane =
+                        affine_plane(SceneAffine{parent[0], parent[1], parent[2], parent[3], parent[4], parent[5]}) *
+                        scene_plane(n);
+                    // The plane lies in front of the viewer at every corner.
+                    for (const auto& [x, y] : std::array<std::array<double, 2>, 4>{
+                             {{0, 0}, {n.box[2], 0}, {0, n.box[3]}, {n.box[2], n.box[3]}}}) {
+                        if (!(plane.m[6] * x + plane.m[7] * y + plane.m[8] > constants::plane_min_depth)) {
+                            throw std::invalid_argument("plane behind the viewer");
+                        }
+                    }
+                    paint::Plane value;
+                    value.content = std::make_shared<const paint::DisplayList>(std::move(nested.list));
+                    value.width = n.box[2];
+                    value.height = n.box[3];
+                    for (unsigned k = 0; k < value.transform.size(); ++k) {
+                        value.transform[k] = float(plane.m[k]);
+                    }
+                    paint::Item item;
+                    item.kind = paint::Item::Kind::Plane;
+                    item.clip = clip;
+                    item.clips_begin = chain.begin;
+                    item.clips_count = chain.count;
+                    item.width = n.box[2];
+                    item.height = n.box[3];
+                    item.payload = std::uint32_t(list.planes.size());
+                    list.planes.push_back(std::move(value));
+                    list.items.push_back(item);
+                    return;
                 }
                 // An svg element is a box; the SVG elements inside it are drawn in its viewport (svg below).
                 const bool svg_root = n.space == constants::svg_namespace_uri && n.tag == "svg";

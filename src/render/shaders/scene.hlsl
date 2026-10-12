@@ -20,9 +20,11 @@ static const float MinimumStopSpan = 1e-10;
 static const float WedgeEdgeEpsilon = .0001;
 static const float EqualBorderWidthEpsilon = .00001;
 // Paint::mode.x of images: a scene raster (premultiplied, or a mask with Paint::extra.w), a coverage mask tinted with
-// Paint::background, or signed distances.
+// Paint::background, signed distances, or a plane's content image seen through a homography: Paint::invX and invY
+// then hold the first rows of the inverse homography and Paint::outline its third, the depth.
 static const float ImageModeCoverage = 1;
 static const float ImageModeSignedDistance = 2;
+static const float ImageModeProjective = 3;
 // FreeType encodes contour zero at byte 128, not normalized 0.5.
 static const float SdfByteMax = 255.0;
 static const float SdfZeroByte = 128.0;
@@ -239,6 +241,11 @@ float4 ps_main(Vertex v) : SV_Target {
     float coverage = clipChain(p, world);
 #endif
     float2 position = float2(dot(p.invX.xyz, float3(world, 1)), dot(p.invY.xyz, float3(world, 1)));
+    if (p.mode.x == ImageModeProjective) {
+        // Nothing behind the viewer.
+        float depth = dot(p.outline.xyz, float3(world, 1));
+        position = depth > 0 ? position / depth : float2(-1, -1);
+    }
     if (p.extra.z == FlagEnabled) {
 #if SPACE_LINEAR
         coverage = any(position < 0) || any(position >= p.size.xy) ? 0 : coverage;

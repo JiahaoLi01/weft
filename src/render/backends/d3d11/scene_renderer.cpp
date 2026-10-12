@@ -55,9 +55,55 @@ namespace weft::render::d3d11 {
     }
 
     void SceneRenderer::retire(Slot& slot) {
-        ensure(slot.group_bytes <= scratch_bytes_, "native scratch retirement accounting");
-        scratch_bytes_ -= slot.group_bytes;
+        const auto bytes = held_bytes(slot);
+        ensure(bytes <= scratch_bytes_, "native scratch retirement accounting");
+        scratch_bytes_ -= bytes;
         slot = Slot{};
+    }
+
+    std::size_t SceneRenderer::scratch_of(const Prepared& prepared, bool plane) {
+        auto bytes = std::size_t(prepared.width) * prepared.height * 4 * (prepared.pass.group_depth + (plane ? 1 : 0));
+        for (const auto& nested : prepared.planes) {
+            if (nested) {
+                bytes += scratch_of(*nested, true);
+            }
+        }
+        return bytes;
+    }
+
+    std::size_t SceneRenderer::held_bytes(const Slot& slot) {
+        auto bytes = slot.group_bytes;
+        for (const auto& nested : slot.planes) {
+            bytes += held_bytes(*nested);
+        }
+        return bytes;
+    }
+
+    void SceneRenderer::shape(Slot& slot, const Prepared& prepared, bool plane) {
+        const auto bytes =
+            std::size_t(prepared.width) * prepared.height * 4 * (prepared.pass.group_depth + (plane ? 1 : 0));
+        if (slot.width != prepared.width || slot.height != prepared.height || slot.group_bytes != bytes) {
+            slot.groups = {};
+            slot.target = {};
+            slot.width = prepared.width;
+            slot.height = prepared.height;
+            slot.group_bytes = bytes;
+        }
+        const auto count = std::size_t(
+            std::count_if(prepared.planes.begin(), prepared.planes.end(), [](const std::unique_ptr<Prepared>& p) {
+                return bool(p);
+            }));
+        slot.planes.resize(count);
+        std::size_t next{};
+        for (const auto& nested : prepared.planes) {
+            if (nested) {
+                auto& s = slot.planes[next++];
+                if (!s) {
+                    s = std::make_unique<Slot>();
+                }
+                shape(*s, *nested, true);
+            }
+        }
     }
 
     std::shared_ptr<const SceneRenderer::Image>
@@ -318,74 +364,78 @@ namespace weft::render::d3d11 {
         return result;
     }
 
-    bool SceneRenderer::paint(Slot& slot, const SceneFrame& frame, ID3D11RenderTargetView* destination, float scale,
-                              unsigned target_width, unsigned target_height, std::optional<std::array<float, 4>> crop,
-                              unsigned view_index, const std::vector<NodeIdentity>& layers) {
-        auto compiled = scene_display_list(frame, layers, &text_);
-        if (!compiled.fallback.empty()) {
-            ++fallbacks;
-            ++reasons[compiled.fallback];
-            return false;
-        }
-        auto& list = compiled.list;
-        if (const auto valid = paint::check(list, limits::max_group_depth); !valid) {
-            ++fallbacks;
-            ++reasons[valid.error().message];
-            return false;
-        }
+    std::unique_ptr<SceneRenderer::Prepared> SceneRenderer::prepare(const paint::DisplayList& list, float scale,
+                                                                    unsigned width, unsigned height,
+                                                                    std::optional<std::array<float, 4>> crop,
+                                                                    unsigned view_index) {
         // Scene slots hold no asset textures.
         if (std::any_of(list.items.begin(), list.items.end(), [](const paint::Item& item) {
                 return item.kind == Kind::Image;
             })) {
-            ++fallbacks;
-            ++reasons["scene renderer draws no image items"];
-            return false;
+            throw std::invalid_argument("scene renderer draws no image items");
         }
-        auto planned = plan_scene_pass(list, scale, target_width, target_height, crop);
+        auto planned = plan_scene_pass(list, scale, width, height, crop);
         if (!planned) {
-            ++fallbacks;
-            ++reasons[planned.error().message];
-            return false;
+            throw std::invalid_argument(planned.error().message);
         }
-        const auto& pass = *planned;
-        const auto& records = pass.records;
-        std::vector<std::shared_ptr<const Image>> images(list.items.size());
-        try {
-            for (std::size_t i = 0; i < list.items.size(); ++i) {
-                const auto& item = list.items[i];
-                if (item.kind == Kind::Text || item.kind == Kind::Layer) {
-                    images[i] = image(item, list.rasters[item.payload], scale, view_index);
-                } else if (item.kind == Kind::Shadow) {
-                    images[i] = shadow(item, list.shadows[item.payload], scale);
-                } else if (item.kind == Kind::Path) {
-                    const auto& mask = pass.masks[i];
-                    if (mask[2] > mask[0] && mask[3] > mask[1]) {
-                        images[i] = path(item, list.paths[item.payload], scale, mask);
-                    }
+        auto out = std::make_unique<Prepared>();
+        out->pass = std::move(*planned);
+        out->width = width;
+        out->height = height;
+        out->images.resize(list.items.size());
+        out->planes.resize(list.items.size());
+        for (std::size_t i = 0; i < list.items.size(); ++i) {
+            const auto& item = list.items[i];
+            if (item.kind == Kind::Text || item.kind == Kind::Layer) {
+                out->images[i] = image(item, list.rasters[item.payload], scale, view_index);
+            } else if (item.kind == Kind::Shadow) {
+                out->images[i] = shadow(item, list.shadows[item.payload], scale);
+            } else if (item.kind == Kind::Path) {
+                const auto& mask = out->pass.masks[i];
+                if (mask[2] > mask[0] && mask[3] > mask[1]) {
+                    out->images[i] = path(item, list.paths[item.payload], scale, mask);
                 }
+            } else if (item.kind == Kind::Plane) {
+                // The content flat in its own image, image_margin px in, texel per device pixel.
+                const auto& plane = list.planes[item.payload];
+                const auto pixels = plane_pixels(plane, scale);
+                if (pixels[0] > unsigned(constants::render::d3d11::max_surface_dimension) ||
+                    pixels[1] > unsigned(constants::render::d3d11::max_surface_dimension)) {
+                    throw std::invalid_argument("plane image bound");
+                }
+                paint::DisplayList content;
+                const float margin = limits::image_margin;
+                if (const auto shifted = paint::append(content, *plane.content, {1, 0, 0, 1, margin, margin});
+                    !shifted) {
+                    throw std::invalid_argument(shifted.error().message);
+                }
+                out->planes[i] = prepare(content, scale, pixels[0], pixels[1], std::nullopt, view_index);
             }
-        } catch (const std::invalid_argument& e) {
-            ++fallbacks;
-            ++reasons[e.what()];
-            return false;
         }
-        // The caller has confirmed this slot's prior real submission complete. Immutable image leases survive cache
-        // eviction and the entire next submission; buffers and group targets are never rewritten in flight.
-        const auto depth_needed = pass.group_depth;
-        const auto desired_bytes = std::size_t(target_width) * target_height * 4 * depth_needed;
-        if (scratch_bytes_ - slot.group_bytes + desired_bytes > limits::scratch_budget_bytes) {
-            ++fallbacks;
-            ++reasons["native scratch budget reference"];
-            return false;
+        return out;
+    }
+
+    void SceneRenderer::draw_pass(Slot& slot, const Prepared& prepared, ID3D11RenderTargetView* destination,
+                                  float scale) {
+        // Plane contents first, each into its slot's image, which this pass then samples.
+        std::vector<ID3D11ShaderResourceView*> planes(prepared.planes.size());
+        std::size_t next{};
+        for (std::size_t i = 0; i < prepared.planes.size(); ++i) {
+            if (prepared.planes[i]) {
+                auto& nested = *slot.planes.at(next++);
+                if (!nested.target.texture) {
+                    nested.target = group_target(gpu_.device.Get(), nested.width, nested.height);
+                }
+                draw_pass(nested, *prepared.planes[i], nested.target.rtv.Get(), scale);
+                planes[i] = nested.target.srv.Get();
+                ++plane_passes;
+            }
         }
-        if (slot.width != target_width || slot.height != target_height || slot.group_bytes != desired_bytes) {
-            scratch_bytes_ -= slot.group_bytes;
-            slot.groups = {};
-            slot.width = target_width;
-            slot.height = target_height;
-            slot.group_bytes = desired_bytes;
-            scratch_bytes_ += desired_bytes;
-        }
+        const auto& pass = prepared.pass;
+        const auto& records = pass.records;
+        const auto& images = prepared.images;
+        const auto target_width = prepared.width;
+        const auto target_height = prepared.height;
         slot.leases = images;
         if (!slot.records || slot.capacity < records.size()) {
             unsigned capacity = limits::record_initial_capacity;
@@ -473,7 +523,7 @@ namespace weft::render::d3d11 {
         ctx->OMSetRenderTargets(1, &destination, nullptr);
         unsigned depth{};
         std::vector<ID3D11RenderTargetView*> stack{destination};
-        auto draw = [&](unsigned start, unsigned count, ID3D11ShaderResourceView* image) {
+        auto instances = [&](unsigned start, unsigned count, ID3D11ShaderResourceView* image) {
             view[3] = float(start);
             ctx->UpdateSubresource(slot.constants.Get(), 0, nullptr, view.data(), 0, 0);
             ctx->PSSetShaderResources(1, 1, &image);
@@ -500,21 +550,59 @@ namespace weft::render::d3d11 {
                     stack.pop_back();
                     auto* rtv = stack.back();
                     ctx->OMSetRenderTargets(1, &rtv, nullptr);
-                    draw(batch.first, 1, s.srv.Get());
+                    instances(batch.first, 1, s.srv.Get());
                     break;
                 }
                 case Step::Image:
                     // A path with nothing inside its clip has no image and draws nothing.
                     if (images[batch.first]) {
-                        draw(batch.first, 1, images[batch.first]->view.Get());
+                        instances(batch.first, 1, images[batch.first]->view.Get());
+                    } else if (planes[batch.first]) {
+                        instances(batch.first, 1, planes[batch.first]);
                     }
                     break;
                 case Step::Boxes:
-                    draw(batch.first, batch.count, nullptr);
+                    instances(batch.first, batch.count, nullptr);
                     break;
             }
         }
         ctx->ClearState();
+    }
+
+    bool SceneRenderer::paint(Slot& slot, const SceneFrame& frame, ID3D11RenderTargetView* destination, float scale,
+                              unsigned target_width, unsigned target_height, std::optional<std::array<float, 4>> crop,
+                              unsigned view_index, const std::vector<NodeIdentity>& layers) {
+        auto compiled = scene_display_list(frame, layers, &text_);
+        if (!compiled.fallback.empty()) {
+            ++fallbacks;
+            ++reasons[compiled.fallback];
+            return false;
+        }
+        const auto& list = compiled.list;
+        if (const auto valid = paint::check(list, limits::max_group_depth); !valid) {
+            ++fallbacks;
+            ++reasons[valid.error().message];
+            return false;
+        }
+        std::unique_ptr<Prepared> prepared;
+        try {
+            prepared = prepare(list, scale, target_width, target_height, crop, view_index);
+        } catch (const std::invalid_argument& e) {
+            ++fallbacks;
+            ++reasons[e.what()];
+            return false;
+        }
+        // The caller has confirmed this slot's prior real submission complete. Immutable image leases survive cache
+        // eviction and the entire next submission; buffers and targets are never rewritten in flight.
+        const auto held = held_bytes(slot);
+        if (scratch_bytes_ - held + scratch_of(*prepared, false) > limits::scratch_budget_bytes) {
+            ++fallbacks;
+            ++reasons["native scratch budget reference"];
+            return false;
+        }
+        shape(slot, *prepared, false);
+        scratch_bytes_ = scratch_bytes_ - held + held_bytes(slot);
+        draw_pass(slot, *prepared, destination, scale);
         ++passes;
         return true;
     }

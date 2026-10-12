@@ -173,6 +173,7 @@ namespace probes {
         // Repeated completed destruction must return the transparent-group
         // scratch reservation, not accumulate until otherwise valid cards fall
         // back after the 128 MiB budget. 140 x 1 MiB catches that accounting leak.
+        // A plane's image and the groups of its content are the slot's scratch too.
         {
             Experiment gpu(warp, weft::probe_constants::gallery::retirement_surface_size,
                            weft::probe_constants::gallery::retirement_surface_size);
@@ -187,12 +188,33 @@ namespace probes {
             child.identity.slot = 2;
             child.style = {{"background-color", "#408020"}};
             grouped->root.children.push_back(child);
+            // A 200 px plane under a 256 px root: its content, the translucent plane box over a child, is a group in
+            // a 408 x 408 device px image (2 px margins at scale 2), so the slot holds two such targets.
+            auto planar = frame(0);
+            planar->root.box = {0, 0, 256, 256};
+            planar->root.style = {{"background-color", "#ffffff"}};
+            auto plane = child;
+            plane.identity.slot = 3;
+            plane.box = {28, 28, 200, 200};
+            plane.style = {{"transform", "perspective(400px) rotateY(20deg)"},
+                           {"opacity", "0.5"},
+                           {"background-color", "#2050d0"}};
+            auto inner = child;
+            inner.identity.slot = 4;
+            inner.box = {20, 20, 80, 60};
+            plane.children.push_back(inner);
+            planar->root.children.push_back(plane);
+            const std::size_t plane_bytes = std::size_t(2) * 408 * 408 * weft::constants::rgba8_bytes_per_pixel;
             std::array<bool, gallery_scene_count> visible{};
             std::array<bool, gallery_scene_count> hidden{};
             visible[0] = true;
-            for (unsigned visit = 0; visit < weft::probe_constants::gallery::scratch_reentry_visits; ++visit) {
-                auto& source = surfaces.paint_owned(0, grouped);
-                require(source.last_native && surfaces.native_work().scratch_bytes() == weft::constants::bytes_per_mib,
+            for (unsigned visit = 0; visit < weft::probe_constants::gallery::scratch_reentry_visits +
+                                                 weft::probe_constants::gallery::plane_scratch_reentry_visits;
+                 ++visit) {
+                const bool planes = visit >= weft::probe_constants::gallery::scratch_reentry_visits;
+                const auto bytes = planes ? plane_bytes : std::size_t(weft::constants::bytes_per_mib);
+                auto& source = surfaces.paint_owned(0, planes ? planar : grouped);
+                require(source.last_native && surfaces.native_work().scratch_bytes() == bytes,
                         "transparent group backing missing/budget leaked");
                 surfaces.publish();
                 FramePacket packet;
@@ -206,18 +228,21 @@ namespace probes {
                                                     {}, {source.handle});
                 surfaces.submitted(serial, visible);
                 surfaces.retire_hidden(hidden);
-                require(surfaces.native_work().scratch_bytes() == weft::constants::bytes_per_mib,
+                require(surfaces.native_work().scratch_bytes() == bytes,
                         "uncompleted transparent group scratch retired");
                 pipeline.drain();
                 surfaces.retire_hidden(hidden);
                 require(!surfaces.live_slots() && !surfaces.native_work().scratch_bytes(),
                         "completed transparent group scratch retained");
             }
-            require(pipeline.submissions == weft::probe_constants::gallery::scratch_reentry_visits &&
-                        pipeline.completions == weft::probe_constants::gallery::scratch_reentry_visits &&
-                        surfaces.native_work().passes == weft::probe_constants::gallery::scratch_reentry_visits &&
+            const auto visits = weft::probe_constants::gallery::scratch_reentry_visits +
+                                weft::probe_constants::gallery::plane_scratch_reentry_visits;
+            require(pipeline.submissions == visits && pipeline.completions == visits &&
+                        surfaces.native_work().passes == visits &&
+                        surfaces.native_work().plane_passes ==
+                            weft::probe_constants::gallery::plane_scratch_reentry_visits &&
                         !surfaces.native_work().fallbacks,
-                    "transparent group retirement native coverage");
+                    "transparent group and plane retirement native coverage");
             surfaces.release();
             gpu.check_debug_messages();
         }
@@ -230,7 +255,7 @@ namespace probes {
                 std::to_string(completions) + ",\"hidden_retirements\":" + std::to_string(evictions) +
                 ",\"peak_live_slots\":" + std::to_string(peak_slots) +
                 ",\"peak_imported_bytes\":" + std::to_string(peak_bytes) +
-                ",\"group_scratch_reentry_submissions\":140,\"group_scratch_reentry_fallbacks\":0,\"group_scratch_bytes_after_retirement\":0,\"budget_bytes\":536870912,\"debug_warning_error_count\":0}");
+                ",\"group_scratch_reentry_submissions\":140,\"plane_scratch_reentry_submissions\":16,\"group_scratch_reentry_fallbacks\":0,\"group_scratch_bytes_after_retirement\":0,\"budget_bytes\":536870912,\"debug_warning_error_count\":0}");
         std::cout
             << "PASS reproduced old Sunburst budget rejection / 206 completed fixed submissions / two large visible cards / re-entry pixels / hidden actual retirement\n";
         return 0;

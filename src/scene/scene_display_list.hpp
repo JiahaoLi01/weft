@@ -12,14 +12,14 @@ namespace weft {
     // A scene frame as a display list, or why it has none.
     struct SceneDisplayList {
         paint::DisplayList list;
-        // Empty unless the frame needs what the list cannot express yet (SVG text without a text engine, projective
-        // transforms, unsupported values): the list is then empty, and the whole frame is drawn another way, so no
-        // partly accepted list changes stacking.
+        // Empty unless the frame needs what the list cannot express yet (SVG text without a text engine, planes
+        // behind the viewer or nested too deep, unsupported values): the list is then empty, and the whole frame is
+        // drawn another way, so no partly accepted list changes stacking.
         std::string fallback;
     };
 
-    // The frame's boxes, shadows, text, SVG paths and opacity groups in paint order. layers are the nodes drawn as
-    // cached layer images; text measures SVG text, which needs it to be placed.
+    // The frame's boxes, shadows, text, SVG paths, perspective planes and opacity groups in paint order. layers are the
+    // nodes drawn as cached layer images; text measures SVG text, which needs it to be placed.
     SceneDisplayList scene_display_list(const SceneFrame& frame, const std::vector<NodeIdentity>& layers = {},
                                         SceneText* text = nullptr);
 } // namespace weft

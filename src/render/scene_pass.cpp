@@ -1,5 +1,7 @@
 #include "render/scene_pass.hpp"
 
+#include "base/plane.hpp"
+#include "constants/common.hpp"
 #include "render/rounded_clip.hpp"
 #include "render/shadow_image.hpp"
 #include "render/srgb.hpp"
@@ -11,6 +13,12 @@
 #include <string>
 
 namespace weft::render {
+    std::array<std::uint32_t, 2> plane_pixels(const paint::Plane& plane, float scale) {
+        const double margins = scene_limits::image_margins;
+        return {std::uint32_t(std::ceil((plane.width + margins) * scale)),
+                std::uint32_t(std::ceil((plane.height + margins) * scale))};
+    }
+
     namespace {
         using Kind = paint::Item::Kind;
 
@@ -42,6 +50,65 @@ namespace weft::render {
                                                      std::min(std::int32_t(w), edge(clip[2] * scale, true)),
                                                      std::min(std::int32_t(h), edge(clip[3] * scale, true))};
             return vector::mask_bounds(list.paths[item.payload], device, bounds);
+        }
+
+        // The map from a plane's content image (in CSS px, the content image_margin px in) to target px: the plane's
+        // homography after the shift by the margin.
+        geometry::Plane plane_map(const paint::Plane& plane) {
+            const double m = scene_limits::image_margin;
+            const auto& h = plane.transform;
+            return {{h[0], h[1], h[2] - m * (h[0] + h[1]), h[3], h[4], h[5] - m * (h[3] + h[4]), h[6], h[7],
+                     h[8] - m * (h[6] + h[7])}};
+        }
+
+        // A plane's record: its content image projected. The inverse of the image's map gives the rows the shader
+        // takes, the third (the depth) in outline; the bounds hold the projected corners. None when a corner of the
+        // image lies behind the viewer or the map is singular.
+        std::optional<SceneRecord> plane_record(const paint::Plane& plane, const paint::Item& item,
+                                                const paint::ClipRect& clip, float scale) {
+            const auto map = plane_map(plane);
+            geometry::Plane inverse;
+            if (!map.inverse(inverse)) {
+                return std::nullopt;
+            }
+            const auto pixels = plane_pixels(plane, scale);
+            const double w = pixels[0] / double(scale);
+            const double h = pixels[1] / double(scale);
+            double left = scene_limits::record_bounds_sentinel;
+            double top = scene_limits::record_bounds_sentinel;
+            double right = -left;
+            double bottom = -top;
+            for (const auto& [x, y] : std::array<std::array<double, 2>, 4>{{{0, 0}, {w, 0}, {0, h}, {w, h}}}) {
+                const auto& t = map.m;
+                const double z = t[6] * x + t[7] * y + t[8];
+                if (!(z > constants::plane_min_depth)) {
+                    return std::nullopt;
+                }
+                const double px = (t[0] * x + t[1] * y + t[2]) / z;
+                const double py = (t[3] * x + t[4] * y + t[5]) / z;
+                left = std::min(left, px);
+                top = std::min(top, py);
+                right = std::max(right, px);
+                bottom = std::max(bottom, py);
+            }
+            SceneRecord r{};
+            r.uv = {0, 0, 1, 1};
+            r.clips = {float(item.clips_begin), float(item.clips_count), 0, 0};
+            r.clip = clip;
+            r.size = {float(w), float(h), 0, 0};
+            r.extra = {0, item.opacity, scene_limits::flag_enabled, scene_limits::flag_disabled};
+            r.mode = {scene_limits::image_mode_projective, 0, 0, 0};
+            const auto& v = inverse.m;
+            r.inv_x = {float(v[0]), float(v[1]), float(v[2]), 0};
+            r.inv_y = {float(v[3]), float(v[4]), float(v[5]), 0};
+            r.outline = {float(v[6]), float(v[7]), float(v[8]), 0};
+            const double outset = scene_limits::record_bounds_outset / double(scale);
+            const double x0 = std::max(left, double(clip[0])) - outset;
+            const double y0 = std::max(top, double(clip[1])) - outset;
+            const double x1 = std::min(right, double(clip[2])) + outset;
+            const double y1 = std::min(bottom, double(clip[3])) + outset;
+            r.bounds = {float(x0), float(y0), float(std::max(0.0, x1 - x0)), float(std::max(0.0, y1 - y0))};
+            return r;
         }
 
         SceneRecord record(const paint::DisplayList& list, const paint::Item& item, const paint::ClipRect& clip,
@@ -211,6 +278,14 @@ namespace weft::render {
             }
             pass.masks.push_back(item.kind == Kind::Path ? path_mask(list, item, clip, scale, width, height)
                                                          : std::array<std::int32_t, 4>{});
+            if (item.kind == Kind::Plane) {
+                auto r = plane_record(list.planes[item.payload], item, clip, scale);
+                if (!r) {
+                    return make_diagnostic(Diag::PaintList, "plane image behind the viewer or singular");
+                }
+                pass.records.push_back(*r);
+                continue;
+            }
             pass.records.push_back(record(list, item, clip, scale, width, height, space, pass.masks.back()));
         }
         pass.group_depth = paint::group_depth(list);
@@ -233,6 +308,7 @@ namespace weft::render {
                 case Kind::Layer:
                 case Kind::Shadow:
                 case Kind::Path:
+                case Kind::Plane:
                     pass.batches.push_back({Step::Image, i++, 1});
                     break;
                 case Kind::Image:

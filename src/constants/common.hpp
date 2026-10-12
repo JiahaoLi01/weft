@@ -45,6 +45,10 @@ namespace weft::constants {
     // maps this far away.
     inline constexpr double plane_singular_epsilon = 1e-10;
     inline constexpr double plane_far_point = 1e10;
+    // Perspective planes of the paint IR (paint::Plane): how deep plane contents may nest, and the least depth (w) a
+    // plane's corner may have, in front of the viewer.
+    inline constexpr unsigned max_plane_depth = 2;
+    inline constexpr double plane_min_depth = 1e-3;
     // Largest viewport edge accepted by the layout and scene profiles.
     inline constexpr int max_viewport_dimension_px = 4096;
     inline constexpr int rgba8_bytes_per_pixel = 4;

@@ -236,6 +236,65 @@ namespace probes {
                                    surfaces.native_work().fallbacks == fallbacks_before),
                     "native box shadow fell back");
         }
+
+        // A GPU frame against the reference raster's CPU pixels: the mean channel difference, the largest one in solid
+        // regions (the reference uniform within solid_region_tolerance over 5 x 5 pixels), the pixels that differ by
+        // more than vector_outlier_level, and the reference's inked pixels (some channel below ink_level).
+        struct OracleDifference {
+            double mean{};
+            int solid{};
+            unsigned outliers{};
+            unsigned ink{};
+        };
+
+        const auto compare = [](const weft::SceneBitmap& drawn, const weft::SceneBitmap& reference) {
+            OracleDifference out;
+            const auto w = int(drawn.width);
+            const auto h = int(drawn.height);
+            double total{};
+            for (std::size_t i = 0; i < drawn.rgba.size(); ++i) {
+                total += std::abs(int(drawn.rgba[i]) - int(reference.rgba[i]));
+            }
+            for (std::size_t i = 0; i < drawn.rgba.size(); i += 4) {
+                int worst{};
+                for (int c = 0; c < 4; ++c) {
+                    worst = std::max(worst, std::abs(int(drawn.rgba[i + c]) - int(reference.rgba[i + c])));
+                }
+                out.outliers += worst > weft::probe_constants::gallery::vector_outlier_level;
+            }
+            out.mean = total / double(drawn.rgba.size());
+            const auto at = [&](const weft::SceneBitmap& b, int x, int y, int c) {
+                return int(b.rgba[(std::size_t(y) * b.width + x) * 4 + c]);
+            };
+            for (int y = 2; y < h - 2; ++y) {
+                for (int x = 2; x < w - 2; ++x) {
+                    bool solid = true;
+                    for (int dy = -2; solid && dy <= 2; ++dy) {
+                        for (int dx = -2; solid && dx <= 2; ++dx) {
+                            for (int c = 0; c < 4; ++c) {
+                                solid = solid && std::abs(at(reference, x + dx, y + dy, c) - at(reference, x, y, c)) <=
+                                                     weft::probe_constants::gallery::solid_region_tolerance;
+                            }
+                        }
+                    }
+                    if (solid) {
+                        for (int c = 0; c < 4; ++c) {
+                            out.solid = std::max(out.solid, std::abs(at(drawn, x, y, c) - at(reference, x, y, c)));
+                        }
+                    }
+                }
+            }
+            for (std::size_t i = 0; i < reference.rgba.size(); i += 4) {
+                out.ink += std::min({reference.rgba[i], reference.rgba[i + 1], reference.rgba[i + 2]}) <
+                           weft::probe_constants::gallery::ink_level;
+            }
+            return out;
+        };
+        const auto save = [&](const weft::SceneBitmap& b, const char* name) {
+            std::vector<Pixel> pixels(std::size_t(b.width) * b.height);
+            std::memcpy(pixels.data(), b.rgba.data(), b.rgba.size());
+            save_png(folder / name, pixels, b.width, b.height);
+        };
         // SVG on the GPU matches the reference raster's CPU pixels: fills by rule, strokes with miter, round and bevel
         // joins and every cap, dashes, an opacity group and transforms. Edges antialias differently (exact area
         // coverage against Direct2D's), so the frame's mean difference and its solid regions are compared.
@@ -374,53 +433,11 @@ namespace probes {
                     require(int(p[c]) == quantized, "GPU translucent fill quantization");
                 }
             }
-            const auto w = int(drawn.width);
-            const auto h = int(drawn.height);
-            double total{};
-            for (std::size_t i = 0; i < drawn.rgba.size(); ++i) {
-                total += std::abs(int(drawn.rgba[i]) - int(reference.rgba[i]));
-            }
-            for (std::size_t i = 0; i < drawn.rgba.size(); i += 4) {
-                int worst{};
-                for (int c = 0; c < 4; ++c) {
-                    worst = std::max(worst, std::abs(int(drawn.rgba[i + c]) - int(reference.rgba[i + c])));
-                }
-                vector_outliers += worst > weft::probe_constants::gallery::vector_outlier_level;
-            }
-            vector_mean = total / double(drawn.rgba.size());
-            // Solid pixels: the reference is uniform over the 5 x 5 pixels around them.
-            const auto at = [&](const weft::SceneBitmap& b, int x, int y, int c) {
-                return int(b.rgba[(std::size_t(y) * b.width + x) * 4 + c]);
-            };
-            for (int y = 2; y < h - 2; ++y) {
-                for (int x = 2; x < w - 2; ++x) {
-                    bool solid = true;
-                    for (int dy = -2; solid && dy <= 2; ++dy) {
-                        for (int dx = -2; solid && dx <= 2; ++dx) {
-                            for (int c = 0; c < 4; ++c) {
-                                solid = solid && std::abs(at(reference, x + dx, y + dy, c) - at(reference, x, y, c)) <=
-                                                     weft::probe_constants::gallery::solid_region_tolerance;
-                            }
-                        }
-                    }
-                    if (solid) {
-                        for (int c = 0; c < 4; ++c) {
-                            vector_solid =
-                                std::max(vector_solid, std::abs(at(drawn, x, y, c) - at(reference, x, y, c)));
-                        }
-                    }
-                }
-            }
-            unsigned ink{};
-            for (std::size_t i = 0; i < reference.rgba.size(); i += 4) {
-                ink += std::min({reference.rgba[i], reference.rgba[i + 1], reference.rgba[i + 2]}) <
-                       weft::probe_constants::gallery::ink_level;
-            }
-            const auto save = [&](const weft::SceneBitmap& b, const char* name) {
-                std::vector<Pixel> pixels(std::size_t(b.width) * b.height);
-                std::memcpy(pixels.data(), b.rgba.data(), b.rgba.size());
-                save_png(folder / name, pixels, b.width, b.height);
-            };
+            const auto difference = compare(drawn, reference);
+            vector_mean = difference.mean;
+            vector_solid = difference.solid;
+            vector_outliers = difference.outliers;
+            const auto ink = difference.ink;
             save(drawn, "vector-oracle.png");
             save(reference, "vector-oracle-reference.png");
             std::cout << "vector oracle: mean difference " << vector_mean << ", solid regions max " << vector_solid
@@ -434,6 +451,99 @@ namespace probes {
                                    surfaces.native_work().fallbacks == fallbacks_before),
                     "native SVG fell back");
         }
+        // Perspective planes on the GPU match the reference raster's CPU pixels: each plane's content drawn flat (a
+        // rounded, bordered box with children, a gradient under opacity, a plane inside a plane) and projected; an
+        // edge-on plane draws nothing. The reference samples its planes without antialiasing their edges, so the
+        // frame's mean difference and its solid regions are compared.
+        double plane_mean{};
+        int plane_solid{};
+        unsigned plane_outliers{};
+        {
+            using Pairs = std::initializer_list<std::pair<const char*, const char*>>;
+            const auto box = [](std::uint32_t slot, std::array<float, 4> rect, Pairs style) {
+                weft::SceneNode n;
+                n.identity = {1, 1, slot};
+                n.tag = "div";
+                n.box = rect;
+                for (const auto& [k, v] : style) {
+                    n.style[k] = v;
+                }
+                return n;
+            };
+            weft::SceneFrame frame;
+            frame.root = box(940, {0, 0, 160, 100}, {{"background-color", "#ffffff"}});
+            auto card = box(941, {12, 14, 60, 70},
+                            {{"transform", "perspective(220px) rotateY(40deg)"},
+                             {"background-color", "#2a6fdb"},
+                             {"border-top-left-radius", "10px"},
+                             {"border-top-right-radius", "10px"},
+                             {"border-bottom-right-radius", "10px"},
+                             {"border-bottom-left-radius", "10px"},
+                             {"border-top-width", "3px"},
+                             {"border-right-width", "3px"},
+                             {"border-bottom-width", "3px"},
+                             {"border-left-width", "3px"},
+                             {"border-top-color", "#102040"},
+                             {"border-right-color", "#102040"},
+                             {"border-bottom-color", "#102040"},
+                             {"border-left-color", "#102040"}});
+            card.children = {box(942, {8, 8, 30, 20}, {{"background-color", "#f0c030"}}),
+                             box(943, {14, 36, 34, 24},
+                                 {{"transform", "perspective(120px) rotateY(-35deg)"},
+                                  {"background-color", "#20a060"},
+                                  {"border-top-left-radius", "4px"},
+                                  {"border-bottom-right-radius", "4px"}})};
+            auto faded = box(944, {90, 16, 56, 64},
+                             {{"transform", "perspective(160px) rotateY(-55deg)"},
+                              {"opacity", "0.85"},
+                              {"background-image", "linear-gradient(90deg, #f0a020, #c02060)"}});
+            faded.children = {box(945, {10, 12, 36, 18},
+                                  {{"background-color", "#ffffff"},
+                                   {"border-top-left-radius", "9px"},
+                                   {"border-top-right-radius", "9px"},
+                                   {"border-bottom-right-radius", "9px"},
+                                   {"border-bottom-left-radius", "9px"}})};
+            auto edge_on = box(946, {60, 86, 40, 10},
+                               {{"transform", "perspective(100px) rotateY(90deg)"}, {"background-color", "#000000"}});
+            frame.root.children = {card, faded, edge_on};
+            const auto scale = weft::probe_constants::gallery::scene_raster_scale;
+            const auto reference = software.raster(frame, float(scale));
+            const auto planes_before = surfaces.native_work().plane_passes;
+            const auto fallbacks_before = surfaces.native_work().fallbacks;
+            auto& drawn_surface = surfaces.paint(0, frame);
+            surfaces.publish();
+            FramePacket packet;
+            packet.draws.push_back({{0, 0, float(drawn_surface.width), float(drawn_surface.height)}, {1, 1, 1, 1}, 0});
+            serial = pipeline.submit(std::move(packet),
+                                     [] {
+                                     },
+                                     {}, {drawn_surface.handle});
+            surfaces.submitted(serial, visible);
+            const auto drawn = surfaces.read(0);
+            require(drawn.width == reference.width && drawn.height == reference.height, "GPU plane surface size");
+            // The edge-on plane leaves its row white in both.
+            for (const auto* row : {&drawn, &reference}) {
+                const auto* p = row->rgba.data() + (std::size_t(91 * scale) * row->width + 80 * scale) * 4;
+                require(p[0] == 255 && p[1] == 255 && p[2] == 255, "edge-on plane drew");
+            }
+            const auto difference = compare(drawn, reference);
+            plane_mean = difference.mean;
+            plane_solid = difference.solid;
+            plane_outliers = difference.outliers;
+            save(drawn, "plane-oracle.png");
+            save(reference, "plane-oracle-reference.png");
+            std::cout << "plane oracle: mean difference " << plane_mean << ", solid regions max " << plane_solid
+                      << ", outliers " << plane_outliers << ", ink " << difference.ink << '\n';
+            require(difference.ink > weft::probe_constants::gallery::min_plane_oracle_ink &&
+                        plane_mean <= weft::probe_constants::gallery::max_plane_oracle_mean &&
+                        plane_solid <= weft::probe_constants::gallery::max_plane_oracle_solid &&
+                        plane_outliers <= weft::probe_constants::gallery::max_plane_oracle_outliers,
+                    "GPU perspective planes differ from the reference raster");
+            // Three plane contents: two planes and the one inside the first.
+            require(!optimized || (surfaces.native_work().plane_passes == planes_before + 3 &&
+                                   surfaces.native_work().fallbacks == fallbacks_before),
+                    "native planes fell back");
+        }
         surfaces.release();
         gpu.evict_assets(0, true);
         gpu.check_debug_messages();
@@ -446,20 +556,20 @@ namespace probes {
                       << "\n";
         }
         if (optimized) {
-            // XHTML and SVG draw natively; only the projective plane case still falls back.
+            // XHTML, SVG and perspective planes all draw natively.
             const auto& native = surfaces.native_work();
-            require(native.passes > weft::probe_constants::gallery::min_native_scene_passes && native.fallbacks > 0 &&
-                        native.reasons.size() == 1 && native.reasons.contains("projective transform") &&
+            require(native.passes > weft::probe_constants::gallery::min_native_scene_passes && native.fallbacks == 0 &&
                         native.layer_reuses > weft::probe_constants::gallery::min_native_layer_reuses &&
-                        native.path_builds > 0,
-                    "original XHTML/SVG native and fallback paths unexercised");
+                        native.path_builds > 0 && native.plane_passes > 0,
+                    "original XHTML/SVG/plane native paths unexercised or fell back");
         }
         report << "],\"optimized\":" << (optimized ? "true" : "false")
                << ",\"native_passes\":" << surfaces.native_work().passes
                << ",\"native_fallbacks\":" << surfaces.native_work().fallbacks
                << ",\"fallback_reasons\":" << fallback_reasons_json(surfaces.native_work())
                << ",\"native_layer_builds\":" << surfaces.native_work().layer_builds
-               << ",\"native_layer_reuses\":" << surfaces.native_work().layer_reuses << ",\"captures\":" << captures
+               << ",\"native_layer_reuses\":" << surfaces.native_work().layer_reuses
+               << ",\"native_plane_passes\":" << surfaces.native_work().plane_passes << ",\"captures\":" << captures
                << ",\"frames\":" << pipeline.submissions << ",\"worst_channel_mean\":" << worst_mean
                << ",\"minimum_soft_iou\":" << minimum_iou << ",\"pool_slots\":" << surfaces.allocated
                << ",\"pool_reuses\":" << surfaces.reuses << ",\"retired_imports\":" << surfaces.retired
@@ -467,7 +577,8 @@ namespace probes {
                << ",\"alpha_conversion_max_difference\":" << conversion_error
                << ",\"vector_oracle_mean\":" << vector_mean << ",\"vector_oracle_solid_max\":" << vector_solid
                << ",\"vector_oracle_outliers\":" << vector_outliers << ",\"shadow_oracle_pixels\":" << shadow_pixels
-               << ",\"shadow_oracle_max_difference\":" << shadow_error
+               << ",\"shadow_oracle_max_difference\":" << shadow_error << ",\"plane_oracle_mean\":" << plane_mean
+               << ",\"plane_oracle_solid_max\":" << plane_solid << ",\"plane_oracle_outliers\":" << plane_outliers
                << ",\"crop_reveal_verified\":true,\"debug_warnings\":0}";
         write_text(folder / "report.json", report.str());
         std::cout << "PASS GPU 26 CSS + 8 D3 / 102 unchanged Chromium references / actual completion retirement\n";
