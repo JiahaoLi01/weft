@@ -22,6 +22,18 @@ if(WIN32)
         target_link_libraries(weft_d3d11_probe PRIVATE weft::render_vulkan weft::scene_vulkan)
         target_compile_definitions(weft_d3d11_probe PRIVATE WEFT_PROBE_VULKAN=1)
     endif()
+    # UI shader effects the gallery's pages name (probes/gallery_effects.hpp): the CRPG UI's smoke background, for the
+    # nested tooltip page (examples/crpg-gallery). The initial values are the original's DEFAULT_SMOKE_PARAMS, its
+    # 48 x 64 canvas and its common rarity color.
+    add_library(weft_gallery_effects STATIC)
+    weft_project_options(weft_gallery_effects)
+    target_link_libraries(weft_gallery_effects PUBLIC weft::paint)
+    target_include_directories(weft_gallery_effects PUBLIC "${CMAKE_BINARY_DIR}/generated")
+    weft_add_effect(weft_gallery_effects crpg_smoke "${PROJECT_SOURCE_DIR}/examples/crpg-gallery/effects/smoke.hlsl"
+        PARAMETERS smoke-scales:vec4=7.2,2.8,0.1,0.3 smoke-speeds:vec4=1,1,-6,-10 smoke-shape:vec3=2,0,0
+            smoke-canvas:vec2=48,64 "smoke-color:color=#9ca3af" smoke-start:number=0
+        TEXTURES cloud noise ANIMATED)
+    target_link_libraries(weft_d3d11_probe PRIVATE weft_gallery_effects)
 endif()
 
 if(WIN32 AND WEFT_BUILD_TESTS)

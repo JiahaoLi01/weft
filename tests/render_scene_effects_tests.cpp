@@ -2,9 +2,9 @@
 #include "effects/effect_parameters.hpp"
 #include "effects/effect_repeat.hpp"
 #include "effects/effect_textures.hpp"
-#include "render/backends/d3d11/scene_renderer.hpp"
 #include "render/srgb.hpp"
 #include "support/check.hpp"
+#include "support/d3d11_scene.hpp"
 #include "support/scene_fonts.hpp"
 #ifdef WEFT_TEST_VULKAN
 #include "render/backends/vulkan/scene_renderer.hpp"
@@ -223,46 +223,6 @@ namespace {
         return true;
     }
 
-    // The native D3D11 pass on a transparent target, read back as encoded premultiplied BGRA rows.
-    struct D3D11Scene {
-        weft::render::d3d11::Renderer gpu{true, width, height};
-        weft::render::d3d11::SceneRenderer scene{gpu, weft::testing::thread_scene_text()};
-        weft::render::d3d11::SceneRenderer::Slot slot;
-
-        Pixels draw(const weft::SceneFrame& frame) {
-            using Microsoft::WRL::ComPtr;
-            D3D11_TEXTURE2D_DESC desc{};
-            desc.Width = width;
-            desc.Height = height;
-            desc.MipLevels = desc.ArraySize = 1;
-            desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-            desc.SampleDesc.Count = 1;
-            desc.BindFlags = D3D11_BIND_RENDER_TARGET;
-            ComPtr<ID3D11Texture2D> target;
-            ComPtr<ID3D11RenderTargetView> rtv;
-            require(SUCCEEDED(gpu.device->CreateTexture2D(&desc, nullptr, &target)) &&
-                        SUCCEEDED(gpu.device->CreateRenderTargetView(target.Get(), nullptr, &rtv)),
-                    "D3D11 scene target");
-            require(scene.paint(slot, frame, rtv.Get(), 1, width, height, std::nullopt, 0, {}), "native D3D11 pass");
-            desc.BindFlags = 0;
-            desc.Usage = D3D11_USAGE_STAGING;
-            desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-            ComPtr<ID3D11Texture2D> staging;
-            require(SUCCEEDED(gpu.device->CreateTexture2D(&desc, nullptr, &staging)), "D3D11 readback");
-            gpu.immediate->CopyResource(staging.Get(), target.Get());
-            D3D11_MAPPED_SUBRESOURCE mapped{};
-            require(SUCCEEDED(gpu.immediate->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped)), "D3D11 map");
-            Pixels out(std::size_t(width) * height * 4);
-            for (unsigned y = 0; y < height; ++y) {
-                std::memcpy(out.data() + std::size_t(y) * width * 4,
-                            static_cast<const std::uint8_t*>(mapped.pData) + std::size_t(y) * mapped.RowPitch,
-                            width * 4);
-            }
-            gpu.immediate->Unmap(staging.Get(), 0);
-            return out;
-        }
-    };
-
     // The checks every pass passes; the pixels of each frame for the comparison of passes.
     std::array<Pixels, 2> check(const char* pass, const std::function<Pixels(const weft::SceneFrame&)>& draw) {
         const auto effect_drawn = draw(composed(true));
@@ -280,7 +240,7 @@ int main() {
     try {
         // The D3D11 pass keeps the D2D reference raster for color glyph images, which needs COM.
         require(SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED)), "COM init");
-        D3D11Scene d3d11;
+        weft::testing::D3D11Scene d3d11(width, height);
         const auto warp = check("D3D11 WARP", [&](const weft::SceneFrame& f) {
             return d3d11.draw(f);
         });

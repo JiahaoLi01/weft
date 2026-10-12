@@ -1453,7 +1453,26 @@ CMake 拆分：
 - 页面替换 gallery 中的 webgl-02/03；去掉调参面板；源码按之前的方式只读捕获，烟雾在副本中改用 `-weft-effect`，原工程不改。
 - 页面用到而尚未支持的能力一并补上：scene 文字换行、`position: fixed`、点线边框、`text-transform`、`tabular-nums`、`vh`、`overflow-y`、`#root` 之外的 portal、`Element.closest`、模板字符串里的 Tailwind 类名提取等。
 
+11.3 的顺序（2026-10-13，调查页面与画廊管线后确定）：
+- 11.3a：烟雾效果。原版 `SmokeBg` 的公式写成 HLSL，与 CPU 上照搬的原版 tick 逐像素对照。
+- 11.3b：scene 内联排版。纯内联内容的块按 Chrome 的规则换行：跨元素的空白合并、UAX 14 断行、行盒高度（strut 与各内联框）、`text-align`；内联框按行分片（左右边只画在首尾片），命中与 `getClientRects` 按片；`inline-block` 与 SVG 作为原子内联按基线对齐；常见块元素（`h1`–`h6`、`p` 等）的 UA 样式；`text-align`、`white-space` 改为继承。用 Chrome 的逐行几何验证。
+- 11.3c：CSS 能力：`position: fixed`、点线与虚线边框、`text-transform`、`font-style`、`font-variant-numeric: tabular-nums`、`vh`/`vw`、`overflow-x`/`overflow-y`、`-webkit-user-select`。
+- 11.3d：运行时：`#root` 之外的 portal（scene 根改为 body）、`Element.closest`、页面自己的样式表、模板字符串与数据里的 Tailwind 类名提取。
+- 11.3e：页面进画廊替换 webgl-02/03；Chrome 参照用原版画布烟雾；验收悬停嵌套、按住 3 秒钉住、拖动钉住的窗口。
+
 ## 第 11 步记录（2026-10-12）
+
+**11.3a：烟雾效果**（2026-10-13）：
+- `examples/crpg-gallery/effects/smoke.hlsl`：原版 `SmokeBg` 的 tick 写成效果：
+  - 48×64（可设）画布的每个像素取一个云纹理素和一个噪声纹理素（最近邻、按原版取正模），经 gamma 表、噪声与渐隐；字节截断与原版一致；
+  - 画布双线性拉伸到盒子上，与页面缩放画布的方式相同；
+  - 参数：缩放与 gamma、四个速度、渐隐方式与 90° 旋转、画布尺寸、稀有度颜色、时钟起点（原版在挂载时开始计时）。
+- `weft_gallery_effects`（新）：编出 `crpg_smoke` 效果，初始值取原版的默认参数与 common 颜色。
+- `render_crpg_smoke_contract`（新）：与 `tests/support/crpg_smoke.hpp`（CPU 上照搬原版 tick：double 运算、Float32 渐隐表、`|0` 截断、JS 的 `%`）逐像素对照，D3D11 WARP 与 Vulkan（RTX 5090）：
+  - 8 种情形：开始时、25 个 tick 后、更晚、时钟在 2 秒后才开始、宽扁的 chip（右侧渐隐、旋转 90°、96×24）、无噪声、拉伸 3 倍、按非整数比拉伸的 chip；
+  - 每种情形与原版字节的最大差都是 1，没有像素超过 2 级；颜色等于稀有度颜色乘 alpha。
+- 变异检查 8 个全部被发现：忽略时钟起点、取最近的画布像素、不加像素中心偏移、从不旋转、总是顶部渐隐、噪声按云的尺度移动、没有 gamma 表、噪声不取模。
+- `ctest`：Release 125/125，Debug 125/125；产物与 11.2 相同。
 
 **11.1：效果基础**：
 - paint IR：
