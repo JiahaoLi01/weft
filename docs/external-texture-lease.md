@@ -1,6 +1,6 @@
 # 外部 GPU 纹理 lease：实际合同
 
-2026-10-09：已实现图形 API 无关的实验 C ABI 扩展和 probe-private D3D11 adapter。宿主生成的 GPU 纹理可以直接进入 UI 有序 quad 合成，源图无需 CPU 读回/重传。现有 `render_backend.h` v1 的结构、函数表与普通帧入口保持不变；新增入口位于 [render_external_texture.h](../include/weft/render_external_texture.h)。它为宿主 viewport 和后续 ANGLE 提供共同入口，当前还没有 JS WebGL context 或 ANGLE 依赖。
+2026-10-09：已实现图形 API 无关的实验 C ABI 扩展和 probe-private D3D11 adapter。宿主生成的 GPU 纹理可以直接进入 UI 有序 quad 合成，源图无需 CPU 读回/重传。现有 `render_backend.h` v1 的结构、函数表与普通帧入口保持不变；新增入口位于 [render_external_texture.h](../include/weft/render_external_texture.h)。它是宿主 viewport（引擎渲染的纹理）进入 UI 的入口；WebGL2/ANGLE 已于 2026-10-12 移出需求，见 [决策](decisions.md)。
 
 ## 所有权与同步
 

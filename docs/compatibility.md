@@ -15,7 +15,8 @@
 | 虚拟列表、聊天、背包、HUD、动画、固定 Preact 与 D3 真实应用 | M4 |
 | 检查、trace、兼容诊断、打包与干净构建 | M5 |
 | var、media queries、更宽 CSSOM 与其他未被首批场景依赖的能力 | 可选扩展，不作为 v0.1 退出必需项 |
-| 固定 CRPG gallery 的 72 例，含 Canvas2D、WebGL2/Three、第三方动画与所需 CSS/SVG/交互 | 新增 workload 承诺；逐例执行/像素/交互/性能验收，尚未完整实现 |
+| 固定 CRPG gallery 的 72 例中的 70 例，含 Canvas2D、第三方动画与所需 CSS/SVG/交互；两例 Three.js 于 2026-10-12 移出需求 | 新增 workload 承诺；逐例执行/像素/交互/性能验收，尚未完整实现 |
+| WebGL/WebGL2 | 不在目标内（用户 2026-10-12 决定，见 [决策](decisions.md)）：3D 由宿主引擎渲染、经外部纹理合成；`getContext('webgl')` 与 `getContext('webgl2')` 返回 `null` |
 
 如果固定测试应用需要额外 API，先将它作为明确的新增承诺记录，而不是悄悄扩大 v0.1 范围。完整功能列表必须在实现时标注 planned/implemented/verified 与对应测试。
 
@@ -134,7 +135,7 @@ v0.1 框架目标为固定版本 Preact 和 D3 的真实应用。D3 要覆盖原
 
 JS source/bundle 是基础交付格式。bytecode 缓存绑定 VM 版本、字节序、构建配置和 source hash，不能用跨版本缓存代替升级测试。JS engine 的 ECMAScript 支持与本项目 Web API 支持分别列账。
 
-Gallery/rAF Foundation 历史记录：可选 rAF module 已通过 owner 批次/取消/微任务/错误/隐藏/GC/预算验证，原 React 19.2.4 与 React Spring 三例实际修改 native DOM。72 例短观察中 38 例未发现执行错误、34 例阻断；该次未运行 gallery 原生像素/交互。两例 Canvas2D 现已在可选原生 context、显式 positioned adapter 和 D3D11 中验证 64 帧/输入/缩放/退休，见 [Canvas 实际范围](gallery-canvas.md)；其余 70 例未增加像素验收，gallery 性能仍未验收。WebGL2 尚未实现；“不在 v0.1”的完整 Canvas 仍不扩张为所有 Canvas API 的承诺。ANGLE 为 WebGL2 候选，未固定/接入；公共外部纹理首版已验证，见上方；通用宿主 viewport 与移动仍待验收。原始源码/包不分叉，详见 [gallery 范围与证据](gallery-foundation.md)。
+Gallery/rAF Foundation 历史记录：可选 rAF module 已通过 owner 批次/取消/微任务/错误/隐藏/GC/预算验证，原 React 19.2.4 与 React Spring 三例实际修改 native DOM。72 例短观察中 38 例未发现执行错误、34 例阻断；该次未运行 gallery 原生像素/交互。两例 Canvas2D 现已在可选原生 context、显式 positioned adapter 和 D3D11 中验证 64 帧/输入/缩放/退休，见 [Canvas 实际范围](gallery-canvas.md)；其余 70 例未增加像素验收，gallery 性能仍未验收。WebGL2 已于 2026-10-12 移出需求；“不在 v0.1”的完整 Canvas 仍不扩张为所有 Canvas API 的承诺。公共外部纹理首版已验证，见上方；通用宿主 viewport 与移动仍待验收。原始源码/包不分叉，详见 [gallery 范围与证据](gallery-foundation.md)。
 
 ## 诊断与范围变更
 

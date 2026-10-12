@@ -100,3 +100,16 @@ scene 布局的文本测量从 DirectWrite 改为与 flow 相同的 HarfBuzz/Fre
 
 Windows 独立探针的 R8 距离材质、三种倍率、描边和 direct/RTT 已通过，详见 [实际证据](sdf-font-probe.md)。尚未选择产品字体或实现 MSDF；单通道尖角误差、极端缩小与移动显示质量未验收。若固定产品场景的尖角/大倍率质量无法达到阈值，再验证 MSDF；若生成耗时或 atlas 预算过高，保留灰度路径并调整 raster 策略。不会将这些选择暴露为改变 CSS 排版的属性。
 
+
+## WebGL 不在目标内，3D 交给宿主引擎
+
+用户于 2026-10-12 决定：WebGL/WebGL2 与固定 gallery 里两例 Three.js（webgl-02、webgl-03）移出需求。
+
+依据：
+- 游戏引擎渲染 3D 的能力强于 Three.js，在 UI 里再跑一套 WebGL 是和引擎抢活；
+- 3D 内容由引擎渲染进纹理，经外部纹理在 UI 中合成：同设备、零拷贝，D3D11 与 Vulkan 已实现；
+- 完整 WebGL 需要 JS 绑定、校验、一致性测试和 ANGLE 这一大型依赖，换不来对应的价值。
+
+`getContext('webgl')` 与 `getContext('webgl2')` 返回 `null`，与浏览器不支持时一致，库自行降级。烟雾等小型着色器效果仍在 UI 内做，作为单独的 UI 着色器效果目标设计，不经过 WebGL。
+
+修改条件：出现必须原样运行的 WebGL 网页库需求时，ANGLE 方案仍可接在同一条外部纹理合成路径上。

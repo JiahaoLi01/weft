@@ -52,7 +52,7 @@ Native 每例新建 VM，用原 React 组件和依赖运行 12 个 owner 绘制�
 
 先完成 Canvas2D 的两例：backing size 与 CSS size 分离、`getContext` 类型互斥、fillRect/arc/path/fill、颜色/alpha、指针与资源生命周期，实际输出可更新的纹理。再接公共外部纹理 lease：代际设备/资源身份、encoding/alpha、宿主 producer/consumer 同步、实际 submission 完成后退休；渲染线程不访问 Node/JSValue，帧包独立。
 
-WebGL2 的标准 JS 入口、对象身份、参数/错误校验和 DOM/canvas 生命周期由本项目实现；**ANGLE** 候选负责 ES 3 着色器与图形后端，复用同一 canvas/外部纹理合成路径。ANGLE 不直接提供浏览器 WebGL JS API。宿主引擎 viewport 另提供直接纹理入口，适合游戏模型/场景；不能拿它替换 Three.js 来宣称原 WebGL 例通过。ANGLE 尚未固定候选源码或完成 probe；D3D11、Vulkan、Metal 和移动都须各自验证。接入前先验证固定 ANGLE build、QuickJS typed arrays/同步 WebGL 调用、同设备纹理交换、resize/context loss/销毁和透明合成。
+2026-10-12 起 WebGL2 与两例 Three.js 移出需求（见 [决策](decisions.md)），本段是当时的计划，不再执行。WebGL2 的标准 JS 入口、对象身份、参数/错误校验和 DOM/canvas 生命周期由本项目实现；**ANGLE** 候选负责 ES 3 着色器与图形后端，复用同一 canvas/外部纹理合成路径。ANGLE 不直接提供浏览器 WebGL JS API。宿主引擎 viewport 另提供直接纹理入口，适合游戏模型/场景；不能拿它替换 Three.js 来宣称原 WebGL 例通过。ANGLE 尚未固定候选源码或完成 probe；D3D11、Vulkan、Metal 和移动都须各自验证。接入前先验证固定 ANGLE build、QuickJS typed arrays/同步 WebGL 调用、同设备纹理交换、resize/context loss/销毁和透明合成。
 
 其他缺口按 SVG paint → DOM selector/CSSOM → CSS 动画及第三方调度/交互推进。Lottie 的四份 JSON 需要由宿主资源 provider 固定来源与 SHA，并在原 URL 调用契约下加载；不开放任意游戏服务连接。某例无效资源、源码问题和渲染缺失分别记录，不把删例、占位 UI 或换库算通过。
 
