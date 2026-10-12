@@ -64,6 +64,54 @@ int main() {
                     "Unicode content must invalidate source");
         }
         {
+            // Short hex colors expand as the reference raster expands them: background, border and text tint.
+            weft::SceneFrame frame;
+            auto& n = frame.root;
+            n.identity = {1, 1, 120};
+            n.tag = "div";
+            n.text = "hex";
+            n.box = {0, 0, 60, 20};
+            n.style = {{"background-color", "#3a7"},
+                       {"border-top-width", "1px"},
+                       {"border-top-color", "#f00"},
+                       {"color", "#000"},
+                       {"font-size", "12px"}};
+            const auto plan = weft::scene_display_list(frame);
+            require(plan.fallback.empty() && plan.list.items.size() == 2 &&
+                        plan.list.items[1].kind == weft::paint::Item::Kind::Text,
+                    "short hex colors fell back");
+            const auto& box = plan.list.boxes[plan.list.items[0].payload];
+            const float max = weft::constants::color_channel_max;
+            require(box.background == std::array<float, 4>{0x33 / max, 0xaa / max, 0x77 / max, 1} &&
+                        box.edges[0] == std::array<float, 4>{1, 0, 0, 1} &&
+                        plan.list.rasters[plan.list.items[1].payload].tint == std::array<float, 4>{0, 0, 0, 1},
+                    "short hex color values");
+            // Length stops are fractions of the gradient line in the tile: a radial gradient's half diagonal, a
+            // linear gradient's extent along its angle.
+            n.text.clear();
+            n.style["background-image"] = "radial-gradient(circle, #333 1px, transparent 1px)";
+            n.style["background-size"] = "60px 60px";
+            const auto radial = weft::scene_display_list(frame);
+            const auto same_offset = [](float a, float b) {
+                return std::abs(a - b) < 1e-5f;
+            };
+            const auto& dots = radial.list.boxes[radial.list.items[0].payload].gradient;
+            require(radial.fallback.empty() && dots.kind == weft::paint::GradientKind::Radial &&
+                        dots.stops.size() == 2 && same_offset(dots.stops[0].offset, 1 / std::hypot(30.f, 30.f)) &&
+                        same_offset(dots.stops[1].offset, 1 / std::hypot(30.f, 30.f)) && dots.tile[0] == 60,
+                    "radial length stops");
+            n.style["background-image"] = "linear-gradient(90deg, #f00 6px, #00f 18px)";
+            n.style["background-size"] = "60px 20px";
+            const auto linear = weft::scene_display_list(frame);
+            const auto& bands = linear.list.boxes[linear.list.items[0].payload].gradient;
+            require(linear.fallback.empty() && bands.stops.size() == 2 && same_offset(bands.stops[0].offset, .1f) &&
+                        same_offset(bands.stops[1].offset, .3f),
+                    "linear length stops");
+            n.style["background-image"] = "conic-gradient(#f00 6px, #00f 50%)";
+            require(weft::scene_display_list(frame).fallback == "conic gradient length stop",
+                    "conic length stop must stay a visible fallback");
+        }
+        {
             // Rounded overflow clips become clip chains, outermost first. A box's own background and its opacity
             // group take the parent's chain; its text and children add its clip. A mirroring scale moves each
             // corner's radii to where the corner lands and scales them per axis.

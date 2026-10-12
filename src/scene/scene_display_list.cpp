@@ -54,7 +54,7 @@ namespace weft {
             if (s == "transparent" || s == "none") {
                 return {};
             }
-            return parse_css_color(css::expand_color_shorthand(s, false));
+            return parse_css_color(css::expand_color_shorthand(s));
         }
 
         Matrix multiply(Matrix a, Matrix b) {
@@ -127,6 +127,25 @@ namespace weft {
                 g.angle = number(a[0].substr(5, a[0].size() - 8));
                 a.erase(a.begin());
             }
+            auto& tile = g.tile;
+            tile[0] = width;
+            tile[1] = height;
+            auto size = split(get(s, PropertyId::BackgroundSize, "100% 100%"));
+            if (size.size() == 2) {
+                tile[0] = len(size[0], width);
+                tile[1] = len(size[1], height);
+            }
+            if (tile[0] <= 0 || tile[1] <= 0) {
+                throw std::invalid_argument("gradient tile");
+            }
+            // A length stop is a fraction of the gradient line in the tile, as the shader measures it: a linear
+            // gradient's extent along its angle, a radial gradient's half diagonal. A conic gradient takes no
+            // lengths.
+            const float radians = g.angle * std::numbers::pi_v<float> / constants::degrees_per_half_turn;
+            const float line = g.kind == paint::GradientKind::Radial ? std::hypot(tile[0] / 2, tile[1] / 2)
+                               : g.kind == paint::GradientKind::Linear
+                                   ? std::abs(tile[0] * std::sin(radians)) + std::abs(tile[1] * std::cos(radians))
+                                   : 0.f;
             std::vector<bool> specified;
             for (auto text : a) {
                 auto v = split(text);
@@ -136,10 +155,14 @@ namespace weft {
                     specified.push_back(false);
                 } else {
                     for (std::size_t i = 1; i < v.size(); ++i) {
-                        if (v[i].ends_with("px")) {
-                            throw std::invalid_argument("absolute gradient stop reference");
+                        float offset = len(v[i]);
+                        if (!v[i].ends_with('%')) {
+                            if (line <= 0) {
+                                throw std::invalid_argument("conic gradient length stop");
+                            }
+                            offset /= line;
                         }
-                        g.stops.push_back({len(v[i]), c});
+                        g.stops.push_back({offset, c});
                         specified.push_back(true);
                     }
                 }
@@ -175,17 +198,6 @@ namespace weft {
                                                                     float(k - i + 1) / float(j - i + 1);
                 }
                 i = j;
-            }
-            auto& tile = g.tile;
-            tile[0] = width;
-            tile[1] = height;
-            auto size = split(get(s, PropertyId::BackgroundSize, "100% 100%"));
-            if (size.size() == 2) {
-                tile[0] = len(size[0], width);
-                tile[1] = len(size[1], height);
-            }
-            if (tile[0] <= 0 || tile[1] <= 0) {
-                throw std::invalid_argument("gradient tile");
             }
             auto pos = split(get(s, PropertyId::BackgroundPosition, "0% 0%"));
             if (!pos.empty()) {
