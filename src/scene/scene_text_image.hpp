@@ -4,8 +4,9 @@
 
 #include <array>
 
-// Portable text images of scene text nodes: FreeType coverage of the SceneText glyph runs, laid out as the reference
-// raster lays out a text node. Renderers sample them as masks or premultiplied color.
+// Portable text images of scene text nodes: FreeType coverage of the SceneText glyph runs, and the paint of color
+// glyphs (Font::rasterize_color), laid out as the reference raster lays out a text node. Renderers sample them as masks
+// or premultiplied color.
 namespace weft {
     // Top-left of the line box of a text node's single line inside its border box: text-align, flex centering of
     // the text, padding and border. The baseline is metrics.baseline below it.
@@ -14,7 +15,8 @@ namespace weft {
     struct SceneTextImage {
         // Encoded sRGB RGBA with straight alpha, (box + 2 * margin) * scale pixels, rounded up.
         SceneBitmap bitmap;
-        // Glyphs of color fonts (COLR/CBDT/sbix/SVG) are not drawn; the caller needs another raster for them.
+        // Some color glyph has paint that Font::rasterize_color cannot draw (PNG or SVG images): it is not drawn, and
+        // the caller needs another raster for it. COLR glyphs are drawn, over the text's other glyphs.
         bool color_glyphs{};
     };
 

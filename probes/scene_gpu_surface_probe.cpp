@@ -458,6 +458,56 @@ namespace probes {
         double plane_mean{};
         int plane_solid{};
         unsigned plane_outliers{};
+        // Color glyphs (COLRv1 emoji of Segoe UI Emoji) drawn natively match the reference raster's DirectWrite: the
+        // same paint, antialiased differently.
+        double color_mean{};
+        int color_solid{};
+        unsigned color_outliers{};
+        {
+            weft::SceneFrame frame;
+            frame.root.box = {0, 0, 220, 48};
+            frame.root.tag = "div";
+            frame.root.identity = {1, 1, 960};
+            frame.root.style = {{"background-color", "#ffffff"}};
+            weft::SceneNode label;
+            label.identity = {1, 1, 961};
+            label.tag = "div";
+            label.box = {6, 8, 208, 32};
+            label.text = "A\xF0\x9F\x94\xA5\xE2\x9A\x94\xF0\x9F\x92\x8E\xE2\x98\xA0 42";
+            label.style = {{"font-size", "22px"}, {"color", "#303030"}};
+            frame.root.children = {label};
+            const auto scale = weft::probe_constants::gallery::scene_raster_scale;
+            const auto reference = software.raster(frame, float(scale));
+            const auto references_before = surfaces.native_work().reference_builds;
+            const auto fallbacks_before = surfaces.native_work().fallbacks;
+            auto& drawn_surface = surfaces.paint(0, frame);
+            surfaces.publish();
+            FramePacket packet;
+            packet.draws.push_back({{0, 0, float(drawn_surface.width), float(drawn_surface.height)}, {1, 1, 1, 1}, 0});
+            serial = pipeline.submit(std::move(packet),
+                                     [] {
+                                     },
+                                     {}, {drawn_surface.handle});
+            surfaces.submitted(serial, visible);
+            const auto drawn = surfaces.read(0);
+            require(drawn.width == reference.width && drawn.height == reference.height, "GPU color text surface size");
+            const auto difference = compare(drawn, reference);
+            color_mean = difference.mean;
+            color_solid = difference.solid;
+            color_outliers = difference.outliers;
+            save(drawn, "color-text-oracle.png");
+            save(reference, "color-text-oracle-reference.png");
+            std::cout << "color text oracle: mean difference " << color_mean << ", solid regions max " << color_solid
+                      << ", outliers " << color_outliers << ", ink " << difference.ink << '\n';
+            require(difference.ink > weft::probe_constants::gallery::min_color_text_oracle_ink &&
+                        color_mean <= weft::probe_constants::gallery::max_color_text_oracle_mean &&
+                        color_solid <= weft::probe_constants::gallery::max_color_text_oracle_solid &&
+                        color_outliers <= weft::probe_constants::gallery::max_color_text_oracle_outliers,
+                    "GPU color text differs from the reference raster");
+            require(!optimized || (surfaces.native_work().reference_builds == references_before &&
+                                   surfaces.native_work().fallbacks == fallbacks_before),
+                    "native color text used the reference raster or fell back");
+        }
         // An explicit layer at a whole device pixel offset draws what its content draws inline: the layer's image
         // holds the content texel for pixel, so only its 8-bit premultiplied intermediate may differ.
         int layer_difference{};
@@ -628,10 +678,8 @@ namespace probes {
                         native.layer_reuses > weft::probe_constants::gallery::min_native_layer_reuses &&
                         native.path_builds > 0 && native.plane_passes > 0,
                     "original XHTML/SVG/plane native paths unexercised or fell back");
-            // Layers draw natively; the reference raster draws only text with color glyphs.
-            require(native.layer_builds > 0 &&
-                        native.reference_builds == native.text_builds - native.text_portable_builds,
-                    "native layers drawn by the reference raster");
+            // Layers and color glyphs draw natively: the native path never uses the reference raster.
+            require(native.layer_builds > 0 && native.reference_builds == 0, "native path used the reference raster");
         }
         report << "],\"optimized\":" << (optimized ? "true" : "false")
                << ",\"native_passes\":" << surfaces.native_work().passes
@@ -651,6 +699,8 @@ namespace probes {
                << ",\"shadow_oracle_max_difference\":" << shadow_error << ",\"plane_oracle_mean\":" << plane_mean
                << ",\"plane_oracle_solid_max\":" << plane_solid << ",\"plane_oracle_outliers\":" << plane_outliers
                << ",\"layer_oracle_max_difference\":" << layer_difference
+               << ",\"color_text_oracle_mean\":" << color_mean << ",\"color_text_oracle_solid_max\":" << color_solid
+               << ",\"color_text_oracle_outliers\":" << color_outliers
                << ",\"crop_reveal_verified\":true,\"debug_warnings\":0}";
         write_text(folder / "report.json", report.str());
         std::cout << "PASS GPU 26 CSS + 8 D3 / 102 unchanged Chromium references / actual completion retirement\n";

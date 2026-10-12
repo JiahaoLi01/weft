@@ -1,3 +1,6 @@
+#define NOMINMAX
+#include <windows.h>
+
 #include "constants/text.hpp"
 #include "scene/scene_text_image.hpp"
 #include "support/check.hpp"
@@ -105,9 +108,69 @@ namespace {
                                 return v == 0;
                             }),
                 "transparent text draws nothing");
-        // Color font glyphs are reported, not drawn; the rest of the text still is.
-        const auto emoji = weft::scene_text_image(text, text_node("A\xF0\x9F\x98\x80", style, 80, 30), 1, 4);
-        require(emoji.color_glyphs && ink(emoji.bitmap)[2] >= 0, "color glyphs reported");
+        // Color glyphs (COLRv1 emoji) are drawn in their colors over the rest of the text, as the reference raster's
+        // DirectWrite draws them: the two images differ by antialiasing, not by paint.
+        const auto emoji_node = text_node("A\xF0\x9F\x94\xA5\xE2\x98\xA0", style, 80, 30);
+        for (const float scale : {1.f, 2.f}) {
+            const auto emoji = weft::scene_text_image(text, emoji_node, scale, 4);
+            require(!emoji.color_glyphs && ink(emoji.bitmap)[2] >= 0, "color glyphs drawn");
+            weft::SceneFrame frame;
+            frame.root.tag = "div";
+            frame.root.box = {0, 0, 88, 38};
+            frame.root.style = {{"background-color", "transparent"}};
+            auto child = emoji_node;
+            child.box[0] = child.box[1] = 4;
+            frame.root.children.push_back(child);
+            weft::SceneRaster raster(text);
+            const auto reference = raster.raster(frame, scale);
+            require(reference.width == emoji.bitmap.width && reference.height == emoji.bitmap.height,
+                    "reference image size");
+            double difference{};
+            double both{};
+            double either{};
+            unsigned hues{};
+            for (std::size_t i = 0; i < reference.rgba.size(); i += 4) {
+                const float a = emoji.bitmap.rgba[i + 3] / 255.f;
+                const float b = reference.rgba[i + 3] / 255.f;
+                both += std::min(a, b);
+                either += std::max(a, b);
+                for (int c = 0; c < 3; ++c) {
+                    // Premultiplied channels: straight color under zero alpha does not count.
+                    difference += std::abs(emoji.bitmap.rgba[i + c] * a - reference.rgba[i + c] * b);
+                }
+                difference += std::abs(emoji.bitmap.rgba[i + 3] - int(reference.rgba[i + 3]));
+                hues += a > .8f && emoji.bitmap.rgba[i] > 180 && emoji.bitmap.rgba[i + 1] < 100;
+            }
+            const double mean = difference / reference.rgba.size();
+            std::cout << "color text at " << scale << "x: mean difference " << mean << ", alpha IoU " << both / either
+                      << '\n';
+            require(hues > 0 && mean <= weft::test_constants::scene::max_color_text_mean &&
+                        both / either >= weft::test_constants::scene::min_color_text_iou,
+                    "color glyphs match the reference raster");
+        }
+        // Overlapping color glyphs composite source over in glyph order: the second of two overlapping glyphs lies
+        // where a lone one padded by its advance does, and wherever it is opaque its own pixels show.
+        auto overlap = text_node("\xF0\x9F\x94\xA5\xF0\x9F\x94\xA5", style, 120, 30);
+        overlap.style["letter-spacing"] = "-18px";
+        auto lone = overlap;
+        lone.text = "\xF0\x9F\x94\xA5";
+        lone.style["padding-left"] = std::to_string(text.measure(lone.text, lone.style).width) + "px";
+        const auto two = weft::scene_text_image(text, overlap, 1, 4).bitmap;
+        const auto one = weft::scene_text_image(text, lone, 1, 4).bitmap;
+        unsigned covered{};
+        bool later_on_top = true;
+        for (std::size_t i = 0; i < one.rgba.size(); i += 4) {
+            if (one.rgba[i + 3] == 255) {
+                ++covered;
+                for (int c = 0; c < 4; ++c) {
+                    later_on_top &= std::abs(int(two.rgba[i + c]) - int(one.rgba[i + c])) <= 1;
+                }
+            }
+        }
+        const auto left_of = [](const weft::SceneBitmap& b) {
+            return ink(b)[0];
+        };
+        require(covered > 100 && later_on_top && left_of(two) < left_of(one), "overlapping color glyphs");
         bool rejected{};
         try {
             (void)weft::scene_text_image(text, n, 0, 4);
@@ -191,6 +254,15 @@ namespace {
 
 int main() {
     try {
+        // The reference raster draws through WIC.
+        CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+
+        struct ComLifetime {
+            ~ComLifetime() {
+                CoUninitialize();
+            }
+        } com;
+
         auto& text = weft::testing::thread_scene_text();
         origins();
         images(text);

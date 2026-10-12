@@ -55,4 +55,14 @@ namespace weft::constants::text {
     inline constexpr int sdf_max_bitmap_dimension = 2048;
     // FreeType SDF byte for distance zero: distance = (byte - 128) * spread / 128.
     inline constexpr int sdf_zero_distance_byte = 128;
+
+    // Color glyphs (text/color_canvas.hpp): the largest canvas in pixels, the deepest group nesting, the pixels
+    // around a glyph's paint extents, the flattening tolerance of clip curves in pixels with its subdivision bound,
+    // and the determinant below which a paint space is degenerate and paints nothing.
+    inline constexpr int max_color_glyph_pixels = 512 * 512;
+    inline constexpr int max_color_groups = 32;
+    inline constexpr int color_glyph_margin = 1;
+    inline constexpr double color_flattening_tolerance = .01;
+    inline constexpr int color_max_flattening_depth = 16;
+    inline constexpr double color_singular_epsilon = 1e-12;
 } // namespace weft::constants::text

@@ -167,7 +167,7 @@ namespace weft::render::d3d11 {
         }
         // The node image_margin px in from the edges of a transparent frame of its size and margins: an explicit
         // layer's content, drawn by a nested pass into the layer's image, and what the reference raster draws of text
-        // with color glyphs. Text without color glyphs is FreeType coverage.
+        // whose color glyphs are images. Other text is a portable image.
         const auto framed = [&] {
             SceneFrame frame;
             frame.root.tag = "div";

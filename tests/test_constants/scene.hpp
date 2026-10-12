@@ -15,6 +15,10 @@ namespace weft::test_constants::scene {
     // Visual oracle against the Chromium reference images.
     // Largest mean absolute difference of any RGBA channel.
     inline constexpr int max_channel_mean_difference = 3;
+    // Color glyphs of a text image against the reference raster's DirectWrite: the mean premultiplied channel
+    // difference over the image, and the soft IoU of their alpha.
+    inline constexpr double max_color_text_mean = 3;
+    inline constexpr double min_color_text_iou = .9;
     // A pixel is foreground when a color channel differs from the backdrop by more than this.
     inline constexpr int foreground_channel_threshold = 20;
     // A 1-2-1 blurred foreground mask value above this stays foreground.

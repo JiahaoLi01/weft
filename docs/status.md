@@ -4,6 +4,20 @@
 
 ## 本次已实现
 
+重构第 10 步之五（j）：可移植的彩色字形（2026-10-12）。详见 [重构计划](refactoring-plan.md#第-10-步记录2026-10-11)。
+- **结果**：
+  - COLRv1/COLRv0 彩色字形（Segoe UI Emoji 等）由 HarfBuzz 的 paint 接口加新的软件画布绘制，包括渐变与合成模式，不再依赖 DirectWrite；
+  - 原生路径在所有测试中都不再使用 D2D 光栅。
+- **验证**：
+  - `ctest` Release 107/107、Debug 107/107（239.9 s），Android 零警告；
+  - 与 DirectWrite 对照，文字图像的均差在 1.6 以内，GPU 帧均差 0.44；
+  - cluster 含 emoji 的案例与浏览器的 IoU 升高；
+  - 12 个变异全部被发现。
+- **限制**：
+  - PNG/SVG 图像字形（CBDT、sbix、SVG 表，如部分 Android 的 Noto Color Emoji）还画不了，只有这种文字仍走 D2D；
+  - SVG 文字中的彩色字形仍回退。
+- **下一步**：Vulkan 的 scene pass（编码空间），把规划与图像准备从 D3D11 渲染器中抽成可移植部分。
+
 重构第 10 步之五（i）：显式图层原生绘制（2026-10-12）。详见 [重构计划](refactoring-plan.md#第-10-步记录2026-10-11)。
 - **结果**：
   - 显式图层的图像由原生嵌套 pass 绘制，替代 D2D 参考光栅；原生路径中只剩彩色字形文字依赖 D2D；

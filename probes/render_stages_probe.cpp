@@ -164,10 +164,8 @@ namespace probes {
         require(surfaces.native_work().passes > 10 && surfaces.native_work().layer_builds > 100 &&
                     surfaces.native_work().image_evictions > 0,
                 "native pass unexercised");
-        // Layers draw natively; the reference raster draws only text with color glyphs.
-        require(surfaces.native_work().reference_builds ==
-                    surfaces.native_work().text_builds - surfaces.native_work().text_portable_builds,
-                "native layers drawn by the reference raster");
+        // Layers and color glyphs draw natively: the native path never uses the reference raster.
+        require(surfaces.native_work().reference_builds == 0, "native path used the reference raster");
         require(work.layer_reuses > 100 && work.layer_builds > 32 && work.layer_evictions > 0 &&
                     surfaces.partial_paints > 0,
                 "retained/damage/capacity paths unexercised");

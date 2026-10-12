@@ -60,11 +60,9 @@ namespace weft {
         const auto run = text.shape(n.text, n.style);
         const auto origin = scene_text_origin(n, run->metrics);
         std::vector<float> coverage(std::size_t(w) * h);
+        // Premultiplied colors of the color glyphs, each source over the ones before; empty without any.
+        std::vector<std::array<float, 4>> painted;
         for (const auto& g : run->glyphs) {
-            if (text.color_face(g.face)) {
-                out.color_glyphs = true;
-                continue;
-            }
             // Whole pixel and fraction of the pen position; just below zero, p - floor(p) rounds up to 1.
             const auto split = [](float p) {
                 auto whole = std::floor(p);
@@ -77,6 +75,34 @@ namespace weft {
             };
             const auto [ix, fx] = split((margin + origin[0] + g.x) * scale);
             const auto [iy, fy] = split((margin + origin[1] + run->metrics.baseline + g.y) * scale);
+            if (text.color_face(g.face)) {
+                const auto glyph = text.face(g.face).rasterize_color(g.glyph_id, run->size * scale, fx, fy, color);
+                if (!glyph) {
+                    out.color_glyphs = true;
+                    continue;
+                }
+                if (painted.empty()) {
+                    painted.resize(coverage.size());
+                }
+                const int left = int(ix) + glyph->left;
+                const int top = int(iy) - glyph->top;
+                for (std::uint32_t row = 0; row < glyph->height; ++row) {
+                    const int y = top + int(row);
+                    for (std::uint32_t column = 0; y >= 0 && y < int(h) && column < glyph->width; ++column) {
+                        const int x = left + int(column);
+                        if (x < 0 || x >= int(w)) {
+                            continue;
+                        }
+                        const auto* s = glyph->rgba.data() + (std::size_t(row) * glyph->width + column) * 4;
+                        auto& d = painted[std::size_t(y) * w + x];
+                        const float keep = 1 - s[3] / float(constants::color_channel_max);
+                        for (int c = 0; c < 4; ++c) {
+                            d[c] = s[c] / float(constants::color_channel_max) + d[c] * keep;
+                        }
+                    }
+                }
+                continue;
+            }
             const auto glyph = text.face(g.face).rasterize(g.glyph_id, run->size * scale, fx, fy);
             const int left = int(ix) + glyph.left;
             const int top = int(iy) - glyph.top;
@@ -96,6 +122,27 @@ namespace weft {
                     a = a + c * (1 - a);
                 }
             }
+        }
+        if (!painted.empty()) {
+            // Color glyphs over the text's other glyphs, back to straight color.
+            for (std::size_t i = 0; i < coverage.size(); ++i) {
+                const float alpha = std::clamp(coverage[i] * color[3], 0.f, 1.f);
+                auto& d = painted[i];
+                const float keep = 1 - d[3];
+                for (int c = 0; c < 3; ++c) {
+                    d[c] += std::clamp(color[c], 0.f, 1.f) * alpha * keep;
+                }
+                d[3] += alpha * keep;
+                if (d[3] <= 0) {
+                    continue;
+                }
+                auto* p = out.bitmap.rgba.data() + i * 4;
+                for (int c = 0; c < 3; ++c) {
+                    p[c] = std::uint8_t(std::lround(std::clamp(d[c] / d[3], 0.f, 1.f) * constants::color_channel_max));
+                }
+                p[3] = std::uint8_t(std::lround(std::clamp(d[3], 0.f, 1.f) * constants::color_channel_max));
+            }
+            return out;
         }
         for (std::size_t i = 0; i < coverage.size(); ++i) {
             const float alpha = coverage[i] * color[3];

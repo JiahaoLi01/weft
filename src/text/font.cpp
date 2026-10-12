@@ -1,5 +1,6 @@
 #include "text/font.hpp"
 #include "base/owner_thread.hpp"
+#include "text/color_canvas.hpp"
 #include "constants/common.hpp"
 #include "constants/text.hpp"
 #include <ft2build.h>
@@ -375,6 +376,236 @@ namespace weft {
         if (sink.open) {
             out.verbs.push_back(GlyphOutline::Verb::Close);
         }
+        return out;
+    }
+
+    namespace {
+        // HarfBuzz's paint calls on a ColorCanvas, in font units (the font's scale is its em). Image paint (PNG and
+        // SVG glyphs) cannot be drawn: it marks the glyph unsupported.
+        struct ColorPainter {
+            ColorCanvas& canvas;
+            bool unsupported{};
+        };
+
+        ColorCanvas& canvas_of(void* data) {
+            return static_cast<ColorPainter*>(data)->canvas;
+        }
+
+        ColorCanvas::Color straight(hb_color_t c) {
+            const float max = constants::color_channel_max;
+            return {hb_color_get_red(c) / max, hb_color_get_green(c) / max, hb_color_get_blue(c) / max,
+                    hb_color_get_alpha(c) / max};
+        }
+
+        std::vector<ColorCanvas::Stop> stops_of(hb_color_line_t* line) {
+            unsigned count = hb_color_line_get_color_stops(line, 0, nullptr, nullptr);
+            std::vector<hb_color_stop_t> raw(count);
+            hb_color_line_get_color_stops(line, 0, &count, raw.data());
+            std::vector<ColorCanvas::Stop> out;
+            out.reserve(count);
+            for (unsigned i = 0; i < count; ++i) {
+                out.push_back({raw[i].offset, straight(raw[i].color)});
+            }
+            return out;
+        }
+
+        ColorCanvas::Extend extend_of(hb_color_line_t* line) {
+            switch (hb_color_line_get_extend(line)) {
+                case HB_PAINT_EXTEND_REPEAT:
+                    return ColorCanvas::Extend::Repeat;
+                case HB_PAINT_EXTEND_REFLECT:
+                    return ColorCanvas::Extend::Reflect;
+                default:
+                    return ColorCanvas::Extend::Pad;
+            }
+        }
+
+        // A glyph's outline as HarfBuzz draws it, in font units with y up.
+        hb_draw_funcs_t* outline_funcs() {
+            static hb_draw_funcs_t* const funcs = [] {
+                auto* f = hb_draw_funcs_create();
+                hb_draw_funcs_set_move_to_func(
+                    f,
+                    [](hb_draw_funcs_t*, void* data, hb_draw_state_t*, float x, float y, void*) {
+                        auto& o = *static_cast<GlyphOutline*>(data);
+                        o.verbs.push_back(GlyphOutline::Verb::Move);
+                        o.points.push_back({x, y});
+                    },
+                    nullptr, nullptr);
+                hb_draw_funcs_set_line_to_func(
+                    f,
+                    [](hb_draw_funcs_t*, void* data, hb_draw_state_t*, float x, float y, void*) {
+                        auto& o = *static_cast<GlyphOutline*>(data);
+                        o.verbs.push_back(GlyphOutline::Verb::Line);
+                        o.points.push_back({x, y});
+                    },
+                    nullptr, nullptr);
+                hb_draw_funcs_set_quadratic_to_func(
+                    f,
+                    [](hb_draw_funcs_t*, void* data, hb_draw_state_t*, float cx, float cy, float x, float y, void*) {
+                        auto& o = *static_cast<GlyphOutline*>(data);
+                        o.verbs.push_back(GlyphOutline::Verb::Quadratic);
+                        o.points.push_back({cx, cy});
+                        o.points.push_back({x, y});
+                    },
+                    nullptr, nullptr);
+                hb_draw_funcs_set_cubic_to_func(
+                    f,
+                    [](hb_draw_funcs_t*, void* data, hb_draw_state_t*, float c1x, float c1y, float c2x, float c2y,
+                       float x, float y, void*) {
+                        auto& o = *static_cast<GlyphOutline*>(data);
+                        o.verbs.push_back(GlyphOutline::Verb::Cubic);
+                        o.points.push_back({c1x, c1y});
+                        o.points.push_back({c2x, c2y});
+                        o.points.push_back({x, y});
+                    },
+                    nullptr, nullptr);
+                hb_draw_funcs_set_close_path_func(
+                    f,
+                    [](hb_draw_funcs_t*, void* data, hb_draw_state_t*, void*) {
+                        static_cast<GlyphOutline*>(data)->verbs.push_back(GlyphOutline::Verb::Close);
+                    },
+                    nullptr, nullptr);
+                hb_draw_funcs_make_immutable(f);
+                return f;
+            }();
+            return funcs;
+        }
+
+        hb_paint_funcs_t* paint_funcs() {
+            static hb_paint_funcs_t* const funcs = [] {
+                auto* f = hb_paint_funcs_create();
+                hb_paint_funcs_set_push_transform_func(
+                    f,
+                    [](hb_paint_funcs_t*, void* data, float xx, float yx, float xy, float yy, float dx, float dy,
+                       void*) {
+                        canvas_of(data).push_transform({xx, yx, xy, yy, dx, dy});
+                    },
+                    nullptr, nullptr);
+                hb_paint_funcs_set_pop_transform_func(
+                    f,
+                    [](hb_paint_funcs_t*, void* data, void*) {
+                        canvas_of(data).pop_transform();
+                    },
+                    nullptr, nullptr);
+                hb_paint_funcs_set_push_clip_glyph_func(
+                    f,
+                    [](hb_paint_funcs_t*, void* data, hb_codepoint_t glyph, hb_font_t* font, void*) {
+                        GlyphOutline outline;
+                        hb_font_draw_glyph(font, glyph, outline_funcs(), &outline);
+                        canvas_of(data).push_clip(outline);
+                    },
+                    nullptr, nullptr);
+                hb_paint_funcs_set_push_clip_rectangle_func(
+                    f,
+                    [](hb_paint_funcs_t*, void* data, float xmin, float ymin, float xmax, float ymax, void*) {
+                        canvas_of(data).push_clip(std::array<double, 4>{xmin, ymin, xmax, ymax});
+                    },
+                    nullptr, nullptr);
+                hb_paint_funcs_set_pop_clip_func(
+                    f,
+                    [](hb_paint_funcs_t*, void* data, void*) {
+                        canvas_of(data).pop_clip();
+                    },
+                    nullptr, nullptr);
+                hb_paint_funcs_set_color_func(
+                    f,
+                    [](hb_paint_funcs_t*, void* data, hb_bool_t, hb_color_t color, void*) {
+                        canvas_of(data).fill(straight(color));
+                    },
+                    nullptr, nullptr);
+                hb_paint_funcs_set_image_func(
+                    f,
+                    [](hb_paint_funcs_t*, void* data, hb_blob_t*, unsigned, unsigned, hb_tag_t, float,
+                       hb_glyph_extents_t*, void*) -> hb_bool_t {
+                        static_cast<ColorPainter*>(data)->unsupported = true;
+                        return false;
+                    },
+                    nullptr, nullptr);
+                hb_paint_funcs_set_linear_gradient_func(
+                    f,
+                    [](hb_paint_funcs_t*, void* data, hb_color_line_t* line, float x0, float y0, float x1, float y1,
+                       float x2, float y2, void*) {
+                        canvas_of(data).linear_gradient(stops_of(line), extend_of(line), {x0, y0}, {x1, y1}, {x2, y2});
+                    },
+                    nullptr, nullptr);
+                hb_paint_funcs_set_radial_gradient_func(
+                    f,
+                    [](hb_paint_funcs_t*, void* data, hb_color_line_t* line, float x0, float y0, float r0, float x1,
+                       float y1, float r1, void*) {
+                        canvas_of(data).radial_gradient(stops_of(line), extend_of(line), {x0, y0}, r0, {x1, y1}, r1);
+                    },
+                    nullptr, nullptr);
+                hb_paint_funcs_set_sweep_gradient_func(
+                    f,
+                    [](hb_paint_funcs_t*, void* data, hb_color_line_t* line, float x0, float y0, float start, float end,
+                       void*) {
+                        canvas_of(data).sweep_gradient(stops_of(line), extend_of(line), {x0, y0}, start, end);
+                    },
+                    nullptr, nullptr);
+                hb_paint_funcs_set_push_group_func(
+                    f,
+                    [](hb_paint_funcs_t*, void* data, void*) {
+                        canvas_of(data).push_group();
+                    },
+                    nullptr, nullptr);
+                hb_paint_funcs_set_pop_group_func(
+                    f,
+                    [](hb_paint_funcs_t*, void* data, hb_paint_composite_mode_t mode, void*) {
+                        canvas_of(data).pop_group(ColorCanvas::Composite(mode));
+                    },
+                    nullptr, nullptr);
+                hb_paint_funcs_make_immutable(f);
+                return f;
+            }();
+            return funcs;
+        }
+    } // namespace
+
+    std::optional<ColorGlyphBitmap> Font::rasterize_color(std::uint32_t glyph_id, float pixels, float offset_x,
+                                                          float offset_y, const std::array<float, 4>& foreground) {
+        impl_->check(pixels);
+        if (glyph_id >= static_cast<std::uint32_t>(impl_->face->num_glyphs)) {
+            throw std::invalid_argument("WEFT_GLYPH_ID: out of range");
+        }
+        // The em as the font's scale: HarfBuzz paints in font units, and the canvas's base map takes them to pixels.
+        auto* font = impl_->shape_font;
+        const auto em = static_cast<int>(hb_face_get_upem(impl_->hb_face));
+        hb_font_set_scale(font, em, em);
+        hb_glyph_extents_t extents{};
+        ColorGlyphBitmap out;
+        if (!hb_font_get_glyph_extents(font, glyph_id, &extents) || !extents.width || !extents.height) {
+            return out;
+        }
+        const double scale = double(pixels) / em;
+        const double margin = constants::text::color_glyph_margin;
+        const double left = std::floor(offset_x + extents.x_bearing * scale) - margin;
+        const double right = std::ceil(offset_x + (extents.x_bearing + extents.width) * scale) + margin;
+        const double top = std::floor(offset_y - extents.y_bearing * scale) - margin;
+        const double bottom = std::ceil(offset_y - (extents.y_bearing + extents.height) * scale) + margin;
+        const double area = (right - left) * (bottom - top);
+        if (!(area > 0) || area > constants::text::max_color_glyph_pixels) {
+            return std::nullopt;
+        }
+        const auto width = static_cast<std::uint32_t>(right - left);
+        const auto height = static_cast<std::uint32_t>(bottom - top);
+        ColorCanvas canvas(width, height, {scale, 0, 0, -scale, offset_x - left, offset_y - top});
+        ColorPainter painter{canvas};
+        const auto channel = [](float v) {
+            return static_cast<std::uint8_t>(
+                std::lround(std::clamp(v, 0.f, 1.f) * static_cast<float>(constants::color_channel_max)));
+        };
+        hb_font_paint_glyph(
+            font, glyph_id, paint_funcs(), &painter, 0,
+            HB_COLOR(channel(foreground[2]), channel(foreground[1]), channel(foreground[0]), channel(foreground[3])));
+        if (painter.unsupported || canvas.overflowed()) {
+            return std::nullopt;
+        }
+        out.width = width;
+        out.height = height;
+        out.left = static_cast<int>(left);
+        out.top = -static_cast<int>(top);
+        out.rgba = canvas.pixels();
         return out;
     }
 

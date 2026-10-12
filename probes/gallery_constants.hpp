@@ -168,6 +168,12 @@ namespace weft::probe_constants::gallery {
     inline constexpr int max_plane_oracle_solid = 2;
     inline constexpr unsigned max_plane_oracle_outliers = 400;
     inline constexpr unsigned min_plane_oracle_ink = 4000;
+    // GPU color glyphs against the reference raster's DirectWrite, as the SVG oracle compares them: the same COLRv1
+    // paint, antialiased by exact area against Direct2D's.
+    inline constexpr double max_color_text_oracle_mean = 1.0;
+    inline constexpr int max_color_text_oracle_solid = 2;
+    inline constexpr unsigned max_color_text_oracle_outliers = 64;
+    inline constexpr unsigned min_color_text_oracle_ink = 1000;
     // A layer at a whole device pixel offset against its content drawn inline: the layer image's 8-bit
     // premultiplied intermediate rounds once more.
     inline constexpr int max_layer_oracle_difference = 1;

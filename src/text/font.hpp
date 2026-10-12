@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -57,6 +58,15 @@ namespace weft {
         std::vector<Verb> verbs;
         std::vector<std::array<float, 2>> points;
         bool evenodd{};
+    };
+
+    // A color glyph's pixels: premultiplied encoded sRGB RGBA, placed like GlyphBitmap.
+    struct ColorGlyphBitmap {
+        std::uint32_t width{};
+        std::uint32_t height{};
+        int left{};
+        int top{};
+        std::vector<std::uint8_t> rgba;
     };
 
     enum class SdfSource {
@@ -149,6 +159,11 @@ namespace weft {
         GlyphBitmap rasterize(const Glyph& glyph, float pixels);
         // The unhinted outline at pixels per em, as rasterize draws it; empty for a glyph without one.
         GlyphOutline outline(std::uint32_t glyph_id, float pixels);
+        // The glyph's color paint (a COLRv1 graph or COLRv0 layers; an outline without one is the foreground) at
+        // pixels per em, its origin offset like rasterize's; foreground is the text's straight color. Empty when the
+        // glyph paints nothing; none for paint the canvas cannot draw (PNG or SVG images, ColorCanvas bounds).
+        std::optional<ColorGlyphBitmap> rasterize_color(std::uint32_t glyph_id, float pixels, float offset_x,
+                                                        float offset_y, const std::array<float, 4>& foreground);
         SdfBitmap rasterize_sdf(std::uint32_t glyph_id,
                                 std::uint32_t base_ppem = constants::text::sdf_default_base_ppem,
                                 std::uint32_t spread = constants::text::sdf_default_spread,

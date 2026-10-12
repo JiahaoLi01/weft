@@ -147,7 +147,7 @@ if(WIN32)
         COMMAND weft_scene_text_tests "${artifacts}/scene-text-$<CONFIG>/native.json"
         FIXTURES_SETUP scene_text_report)
     weft_add_executable(weft_scene_text_image_tests SOURCES scene_text_image_tests.cpp
-        LINK weft::scene weft::platform_win32)
+        LINK weft::scene_d2d weft::platform_win32)
     weft_add_test(NAME scene_text_image COMMAND weft_scene_text_image_tests)
     weft_add_python_test(NAME scene_text_browser_diff
         SCRIPT tools/compare_scene_text.py
@@ -165,6 +165,8 @@ endif()
 # Fonts and text.
 weft_add_executable(weft_text_tests SOURCES text_tests.cpp LINK weft::text SOURCE_DIR)
 weft_add_test(NAME text_font_probe COMMAND weft_text_tests)
+weft_add_executable(weft_color_canvas_tests SOURCES color_canvas_tests.cpp LINK weft::text)
+weft_add_test(NAME color_canvas_contract COMMAND weft_color_canvas_tests)
 
 weft_add_executable(weft_font_catalog_tests SOURCES font_catalog_tests.cpp LINK weft::text SOURCE_DIR)
 if(ANDROID)
