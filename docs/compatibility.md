@@ -16,7 +16,7 @@
 | 检查、trace、兼容诊断、打包与干净构建 | M5 |
 | var、media queries、更宽 CSSOM 与其他未被首批场景依赖的能力 | 可选扩展，不作为 v0.1 退出必需项 |
 | 固定 CRPG gallery 的 72 例中的 70 例，含 Canvas2D、第三方动画与所需 CSS/SVG/交互；两例 Three.js 于 2026-10-12 移出需求 | 新增 workload 承诺；逐例执行/像素/交互/性能验收，尚未完整实现 |
-| UI 着色器效果（`-weft-effect()`）、UI 粒子（`-weft-particles`）、背景拷贝与 `backdrop-filter: blur()` | 新增目标（2026-10-12），设计见 [架构](architecture.md)；尚未实现 |
+| UI 着色器效果（`-weft-effect()`）、UI 粒子（`-weft-particles`）、背景拷贝与 `backdrop-filter: blur()` | 新增目标（2026-10-12），设计见 [架构](architecture.md)。已实现：效果绘制项，D3D11 与 Vulkan 的显示列表渲染器可以画（11.1）。尚未实现：CSS `-weft-effect()` 挂接、scene 渲染器中的效果、C ABI 的效果特性位、粒子、背景拷贝与 `backdrop-filter` |
 | WebGL/WebGL2 | 不在目标内（用户 2026-10-12 决定，见 [决策](decisions.md)）：3D 由宿主引擎渲染、经外部纹理合成；`getContext('webgl')` 与 `getContext('webgl2')` 返回 `null` |
 
 如果固定测试应用需要额外 API，先将它作为明确的新增承诺记录，而不是悄悄扩大 v0.1 范围。完整功能列表必须在实现时标注 planned/implemented/verified 与对应测试。

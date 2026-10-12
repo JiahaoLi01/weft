@@ -67,6 +67,10 @@ namespace weft::constants::render {
         inline constexpr int atlas_max_pages = 4;
         inline constexpr int atlas_max_image = 128;
         inline constexpr int atlas_border = 1;
+        // A cache key whose version has this bit names the texture of its own that an effect samples, never an atlas
+        // region. Display list versions are small counters, and effects do not come through the C ABI's quad frames,
+        // so it never meets a host's version.
+        inline constexpr unsigned long long standalone_key_bit = 1ull << 63;
     } // namespace texture_cache
 
     // D3D11 reference renderer and its C ABI adapter (src/render/backends/d3d11).
@@ -115,6 +119,10 @@ namespace weft::constants::render {
         inline constexpr int binding_image = 11;
         inline constexpr int binding_clips = 12;
         inline constexpr int binding_sampler = 20;
+        // An effect's textures (scene.hlsl effectTexture0-3, t3-t6: one binding each from this one) and the sampler
+        // that repeats them (effectRepeat, s1).
+        inline constexpr int binding_effect_textures = 13;
+        inline constexpr int binding_effect_sampler = 21;
         // Each instance draws two triangles.
         inline constexpr int quad_vertex_count = 6;
         // Descriptor sets one pass may allocate: one per batch.

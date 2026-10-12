@@ -1,6 +1,8 @@
 #include "render/backends/d3d11/host.hpp"
+#include "render/paint_list.hpp"
 #include "render/srgb.hpp"
 #include "support/check.hpp"
+#include "support/effect_lists.hpp"
 #include "support/render_lists.hpp"
 
 #include <algorithm>
@@ -17,7 +19,8 @@
 // The D3D11 reference renderer as a library, without the probes: two frames through the synchronous host on
 // WARP (--hardware: the default adapter), pixel readback, texture retirement after the actual completion query, the
 // GPU conversion of translucent sRGB inputs against the CPU reference bit for bit, a display list drawn directly and
-// as a C ABI list frame against CPU expectations, isolated groups, and a clean debug layer.
+// as a C ABI list frame against CPU expectations, isolated groups, UI shader effects against CPU expectations and
+// against the boxes they reproduce, and a clean debug layer.
 namespace {
 #define CHECK(v) WEFT_REQUIRE(v)
 
@@ -164,6 +167,18 @@ int main(int argc, char** argv) {
         weft::render::d3d11::render_window(framed, list_packet, [] {
         });
         CHECK(read_output(framed) == drawn && framed.native_releases == 3);
+        // Effects come to the C ABI with a feature bit of their own: a list frame with one is refused, untouched.
+        {
+            const weft_paint_list effect_list{std::make_shared<const weft::paint::DisplayList>(uv_list())};
+            const weft_render_list_frame input{sizeof(input), WEFT_RENDER_ABI_VERSION, &effect_list, 0, 0, nullptr};
+            weft_render_handle refused{};
+            const auto result = weft_renderer_prepare_list(framed.ensure_backend().renderer, &input, &refused);
+            // A frame prepared by mistake goes back before the check fails, so the renderer tears down cleanly.
+            if (refused.renderer_id) {
+                weft_renderer_release_prepared(framed.ensure_backend().renderer, refused);
+            }
+            CHECK(result == WEFT_RENDER_UNSUPPORTED_FEATURE && !refused.renderer_id);
+        }
         framed.check_debug_messages();
 
         // Isolated groups composite once at their opacity: red under blue at half opacity shows half blue where they
@@ -183,6 +198,35 @@ int main(int argc, char** argv) {
             CHECK(close_to(pixels[std::size_t(28) * 64 + 60], encode(black), 0));
         }
         grouped.check_debug_messages();
+
+        // UI shader effects (tests/effects): where in its box an effect runs; the record field of each parameter and
+        // the time, sixteen effects in one draw; textures read as data, as color and repeated, apart from the atlas
+        // region the cache holds for the same asset as an image; a box drawn after effects; and an effect drawn as the
+        // box it reproduces, rotated, with corners, under a rounded clip in a group.
+        {
+            Renderer effects(!hardware, effect_width, effect_height);
+            effects.cache_assets = true;
+            const auto draw = [&](weft::paint::DisplayList list) {
+                weft::render::d3d11::render_list(effects, std::move(list), [] {
+                });
+                return read_output(effects);
+            };
+            auto draws = effects.display_draws;
+            CHECK(effect_matches("uv effect", draw(uv_list()), uv_expected, 1));
+            // A frame of one effect: its draw and the frame's own.
+            const auto single = effects.display_draws - draws;
+            draws = effects.display_draws;
+            CHECK(effect_matches("parameters effect", draw(parameters_list()), parameters_expected, 1));
+            CHECK(effects.display_draws - draws == single);
+            draw(atlas_list());
+            CHECK(effects.atlas_placements == 1);
+            CHECK(effect_matches("textures effect", draw(textures_list()), textures_expected, 1));
+            CHECK(effects.atlas_placements == 1);
+            const auto composed = effect_difference(draw(composed_list(true)), draw(composed_list(false)));
+            std::cout << "effect against its box: worst " << composed[0] << " over " << composed[1] << " pixels\n";
+            CHECK(composed[0] <= 1 && composed[1] > 400);
+            effects.check_debug_messages();
+        }
 
         // A caching renderer places the glyph images on an atlas page and draws the run in a few draws; the pixels are
         // those of one texture per image, because each placed image repeats its edge texels around it.
@@ -223,11 +267,12 @@ int main(int argc, char** argv) {
         CHECK(cached.atlas.live() == 0);
         cached.check_debug_messages();
         std::cout << "driver command lists: " << renderer.driver_command_lists << '\n';
-        std::cout << "PASS D3D11 renderer library on " << renderer.adapter << ": 2 frames, " << renderer.native_releases
-                  << " textures retired after completion; " << exact
-                  << " GPU-converted sRGB texels equal the CPU reference bit for bit; a display list drawn directly "
-                     "and as a C ABI list frame matches its CPU expectations; isolated groups; debug layer "
-                  << (renderer.debug_layer ? "clean" : "unavailable") << '\n';
+        std::cout
+            << "PASS D3D11 renderer library on " << renderer.adapter << ": 2 frames, " << renderer.native_releases
+            << " textures retired after completion; " << exact
+            << " GPU-converted sRGB texels equal the CPU reference bit for bit; a display list drawn directly "
+               "and as a C ABI list frame matches its CPU expectations; isolated groups; UI shader effects; debug layer "
+            << (renderer.debug_layer ? "clean" : "unavailable") << '\n';
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "FAIL: " << error.what() << '\n';

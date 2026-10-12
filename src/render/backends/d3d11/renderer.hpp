@@ -21,6 +21,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -127,6 +128,8 @@ namespace weft::render::d3d11 {
         ComPtr<ID3D11RasterizerState> raster;
         ComPtr<ID3D11DepthStencilState> depth;
         ComPtr<ID3D11SamplerState> sampler;
+        // The linear sampler that repeats the textures effects sample (scene.hlsl, effectRepeat).
+        ComPtr<ID3D11SamplerState> effect_sampler;
         // GPU conversion of translucent encoded sRGB inputs and its decode/alpha tables, and of encoded premultiplied
         // textures (Direct2D targets): convert_vs draws one triangle over the viewport.
         ComPtr<ID3D11VertexShader> convert_vs;
@@ -203,8 +206,9 @@ namespace weft::render::d3d11 {
         // drains the cache and requires every submission complete.
         void evict_assets(std::size_t required = 0, bool all = false);
         // Creates or reuses one leased texture per asset of the list and pins them for the frame. keys are the
-        // (asset_id, asset_version) cache keys when cache_assets is set. The list draws boxes, images and isolated
-        // groups (no scene rasters) at one device px per CSS px.
+        // (asset_id, asset_version) cache keys when cache_assets is set. The list draws boxes, images, effects and
+        // isolated groups (no scene rasters) at one device px per CSS px. An asset an effect samples has a texture of
+        // its own, never an atlas region.
         PreparedFrame prepare(std::shared_ptr<const paint::DisplayList> list,
                               const std::vector<std::pair<std::uint64_t, std::uint64_t>>& keys = {});
         PreparedFrame prepare(paint::DisplayList list,
@@ -234,6 +238,15 @@ namespace weft::render::d3d11 {
         void complete_backend();
 
     private:
+        // The linear pass of an effect program (its d3d11_linear bytecode), created on first use. The lease keeps the
+        // program alive, so its address names it alone.
+        struct EffectShader {
+            std::shared_ptr<const paint::EffectProgram> program;
+            ComPtr<ID3D11PixelShader> shader;
+        };
+
+        std::unordered_map<const paint::EffectProgram*, EffectShader> effect_shaders_;
+        ID3D11PixelShader* effect_shader(const std::shared_ptr<const paint::EffectProgram>& program);
         // Places a coverage asset on the glyph atlas and makes upload its bordered image; nothing when it does not fit.
         std::optional<AtlasPacker::Region> place_on_atlas(const Asset& a, std::vector<std::uint8_t>& upload);
         // The normalized part of an asset's texture that holds it: an atlas region, or the whole texture.

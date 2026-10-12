@@ -31,12 +31,17 @@ namespace weft::render::vulkan {
     // A failure throws and leaves nothing behind.
     ScenePasses create_scene_passes(const Device& d, VkFormat format, VkPipelineLayout layout, VkShaderModule vertex,
                                     VkShaderModule fragment);
+    // The pipeline of a shader pair for the render passes of pass (those of one target format, as create_scene_passes
+    // makes them): the scene shader's records with premultiplied source-over.
+    VkPipeline create_scene_pipeline(const Device& d, VkRenderPass pass, VkPipelineLayout layout, VkShaderModule vertex,
+                                     VkShaderModule fragment);
     void destroy(const Device& d, ScenePasses& passes) noexcept;
 
-    // The scene shader's one descriptor set: View (b0), records (t0), image (t1), clips (t2) and the sampler (s0).
+    // The scene shader's one descriptor set: View (b0), records (t0), image (t1), clips (t2) and the sampler (s0), and
+    // an effect's textures (t3-t6) and repeating sampler (s1).
     VkDescriptorSetLayout create_scene_set_layout(const Device& d);
-    // Linear filtering, clamped to the edge.
-    VkSampler create_linear_sampler(const Device& d);
+    // Linear filtering, clamped to the edge, or repeating.
+    VkSampler create_linear_sampler(const Device& d, bool repeat = false);
     // A descriptor pool for capacity sets of the scene set layout.
     VkDescriptorPool create_scene_pool(const Device& d, std::uint32_t capacity);
 } // namespace weft::render::vulkan

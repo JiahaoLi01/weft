@@ -115,7 +115,7 @@ namespace weft::render {
                            float scale, unsigned w, unsigned h, Space space, const std::array<std::int32_t, 4>& mask) {
             auto m = item.transform;
             const bool image = item.kind == Kind::Text || item.kind == Kind::Layer || item.kind == Kind::Image ||
-                               item.kind == Kind::Shadow || item.kind == Kind::Path;
+                               item.kind == Kind::Shadow || item.kind == Kind::Path || item.kind == Kind::Effect;
             SceneRecord r{};
             r.uv = {0, 0, 1, 1};
             r.clips = {float(item.clips_begin), float(item.clips_count), 0, 0};
@@ -157,6 +157,15 @@ namespace weft::render {
                 // Coverage tinted with the path's color.
                 r.background = in(space, list.paths[item.payload].color);
                 r.extra[3] = scene_limits::flag_enabled;
+            } else if (item.kind == Kind::Effect) {
+                // The time and the parameters as the program's function reads them, unconverted; the corners shape the
+                // box as a box's.
+                const auto& effect = list.effects[item.payload];
+                r.radii = effect.radii;
+                r.extra[0] = effect.time;
+                for (unsigned p = 0; p < effect.parameters.size(); ++p) {
+                    effect_parameter(r, p) = effect.parameters[p];
+                }
             } else if ((item.kind == Kind::Text || item.kind == Kind::Layer) && list.rasters[item.payload].mask) {
                 r.background = in(space, list.rasters[item.payload].tint);
                 r.extra[3] = scene_limits::flag_enabled;
@@ -215,10 +224,10 @@ namespace weft::render {
             // and boxes without corners cover the pixels whose centers they contain and need only half a pixel.
             const bool pixel_centers =
                 space == Space::Linear && m[1] == 0 && m[2] == 0 &&
-                (item.kind == Kind::Image ||
-                 (item.kind == Kind::Box && std::all_of(r.radii.begin(), r.radii.end(), [](float v) {
-                      return v == 0;
-                  })));
+                (item.kind == Kind::Image || ((item.kind == Kind::Box || item.kind == Kind::Effect) &&
+                                              std::all_of(r.radii.begin(), r.radii.end(), [](float v) {
+                                                  return v == 0;
+                                              })));
             const float outset =
                 (pixel_centers ? scene_limits::pixel_center_outset : scene_limits::record_bounds_outset) / scale;
             const float x0 = std::max(left - outset, clip[0] - outset);
@@ -311,6 +320,19 @@ namespace weft::render {
                 case Kind::Plane:
                     pass.batches.push_back({Step::Image, i++, 1});
                     break;
+                case Kind::Effect: {
+                    // A run of effects of one program and the same textures.
+                    const auto first = i;
+                    const auto& head = list.effects[list.items[i].payload];
+                    for (++i; i < list.items.size() && list.items[i].kind == Kind::Effect; ++i) {
+                        const auto& next = list.effects[list.items[i].payload];
+                        if (next.program != head.program || next.textures != head.textures) {
+                            break;
+                        }
+                    }
+                    pass.batches.push_back({Step::Effect, first, i - first, list.items[first].payload});
+                    break;
+                }
                 case Kind::Image:
                     if (!textures) {
                         pass.batches.push_back({Step::Image, i, 1, list.images[list.items[i].payload].asset});

@@ -49,15 +49,47 @@ weft_add_test(NAME render_backend_contract COMMAND weft_render_backend_tests)
 weft_add_executable(weft_render_backend_concept_tests SOURCES render_backend_concept_tests.cpp LINK weft::render)
 weft_add_test(NAME render_backend_concept COMMAND weft_render_backend_concept_tests)
 
+# UI shader effects the renderer tests draw (cmake/WeftEffects.cmake), compiled for every backend built here.
+add_library(weft_test_effects STATIC)
+weft_project_options(weft_test_effects)
+target_link_libraries(weft_test_effects PUBLIC weft::paint)
+target_include_directories(weft_test_effects PUBLIC "${CMAKE_BINARY_DIR}/generated")
+weft_add_effect(weft_test_effects effect_uv effects/uv.hlsl PARAMETERS 0 TEXTURES 0)
+weft_add_effect(weft_test_effects effect_parameters effects/parameters.hlsl PARAMETERS 16 TEXTURES 0)
+weft_add_effect(weft_test_effects effect_textures effects/textures.hlsl PARAMETERS 0 TEXTURES 2)
+weft_add_effect(weft_test_effects effect_color effects/color.hlsl PARAMETERS 1 TEXTURES 0)
+weft_add_effect(weft_test_effects effect_repeat effects/repeat.hlsl PARAMETERS 0 TEXTURES 1)
+
+# The effect check (cmake/check_effect.cmake) on tests/effects/check/<sample>.hlsl: it accepts the sample, or with a
+# reason refuses it with a message that names the reason. CMake wraps messages: the reason's spaces match any space.
+function(weft_effect_check sample)
+    set(test effect_check_${sample})
+    weft_add_test(NAME ${test}
+        COMMAND "${CMAKE_COMMAND}" "-DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/effects/check/${sample}.hlsl"
+            "-DSTAMP=${CMAKE_CURRENT_BINARY_DIR}/${test}.stamp" -P "${PROJECT_SOURCE_DIR}/cmake/check_effect.cmake")
+    if(ARGC GREATER 1)
+        string(REPLACE " " "[ \t\r\n]+" reason "${ARGV1}")
+        set_tests_properties(${test} PROPERTIES PASS_REGULAR_EXPRESSION "${reason}")
+    endif()
+endfunction()
+# Comments that name anything, static globals, types and helper functions.
+weft_effect_check(accepted)
+foreach(sample register cbuffer texture sampler)
+    weft_effect_check(${sample} "it samples effectTexture0-3")
+endforeach()
+weft_effect_check(global "a global without static")
+weft_effect_check(include "without includes")
+
 if(WIN32)
-    weft_add_executable(weft_render_d3d11_tests SOURCES render_d3d11_tests.cpp LINK weft::render_d3d11)
+    weft_add_executable(weft_render_d3d11_tests SOURCES render_d3d11_tests.cpp
+        LINK weft::render_d3d11 weft_test_effects)
     weft_add_test(NAME render_d3d11_contract COMMAND weft_render_d3d11_tests TIMEOUT 60)
 endif()
 
 # The Vulkan renderer on this machine's Vulkan device, against CPU expectations and on Windows against the D3D11
 # renderer on WARP; skipped (exit 77) without a Vulkan loader or device.
 if(WEFT_RENDER_VULKAN)
-    set(vulkan_test_links weft::render_vulkan)
+    set(vulkan_test_links weft::render_vulkan weft_test_effects)
     if(WIN32)
         list(APPEND vulkan_test_links weft::render_d3d11)
     endif()

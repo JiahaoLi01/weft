@@ -73,14 +73,18 @@ namespace weft::render {
             // Continue in a cleared group target one level deeper.
             BeginGroup,
             // Return to the enclosing target, where record first composites the group's target.
-            EndGroup
+            EndGroup,
+            // Records [first, first + count) in one instanced draw of an effect: consecutive Effect items of one
+            // program and the same textures, the program and textures of DisplayList::effects[source].
+            Effect
         };
 
         struct Batch {
             Step step{};
             std::uint32_t first{};
             std::uint32_t count{};
-            // The image source (DisplayList asset index, past the assets an external texture) an Image step binds.
+            // The image source (DisplayList asset index, past the assets an external texture) an Image step binds, or
+            // the effect (DisplayList::effects index) of an Effect step's first item.
             std::uint32_t source{};
         };
 
@@ -102,6 +106,23 @@ namespace weft::render {
     // rounded up. A renderer draws the content image_margin px in, texel per device pixel, and binds the image to the
     // plane's record.
     std::array<std::uint32_t, 2> plane_pixels(const paint::Plane& plane, float scale);
+
+    // The field of an effect record that holds parameter i (below constants::max_effect_parameters): the fields effect
+    // records leave unused, in the order the shader's effect pass reads them (scene.hlsl, ps_main of WEFT_EFFECT).
+    inline SceneRecord::Vector& effect_parameter(SceneRecord& record, unsigned i) {
+        static_assert(scene_limits::max_gradient_stops == 8 && scene_limits::gradient_offset_vectors == 2 &&
+                      constants::max_effect_parameters == 16);
+        if (i < 8) {
+            return record.stops[i];
+        }
+        if (i < 12) {
+            return record.edges[i - 8];
+        }
+        if (i < 14) {
+            return record.offsets[i - 12];
+        }
+        return i == 14 ? record.tile : record.background;
+    }
 
     // Makes an image record sample its image from region (normalized origin and extent) of the bound texture, as an
     // atlas page holds it.

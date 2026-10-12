@@ -1,7 +1,9 @@
 // The shared pass of display lists (src/render/scene_pass.hpp). A scene pass composites encoded premultiplied
 // colors, the existing D2D/Chrome scene contract, and the shared conversion pass produces the engine's linear
 // target. The SPACE_LINEAR variant is a linear pass: it gets linear premultiplied colors from the CPU and
-// composites them unquantized. A compile-time variant keeps the scene pass's code exactly as it was.
+// composites them unquantized. A compile-time variant keeps the scene pass's code exactly as it was. The WEFT_EFFECT
+// variant is the pixel stage of one UI shader effect (cmake/WeftEffects.cmake): its source, included after this file,
+// defines effect().
 
 // paint::GradientKind values (src/paint/display_list.hpp).
 static const float GradientLinear = 1;
@@ -221,6 +223,104 @@ bool wedge(float2 position, float2 a, float2 b, float2 c, float2 d) {
     return all(q >= -WedgeEdgeEpsilon) || all(q <= WedgeEdgeEpsilon);
 }
 
+#if WEFT_EFFECT
+// UI shader effects (docs/architecture.md, "UI 着色器效果、粒子与背景拷贝"). An effect reads only its EffectInput and
+// the textures and sampler declared here; cmake/check_effect.cmake refuses sources that declare resources.
+static const uint EffectParameters = 16;
+// The effect's textures, in the order of paint::Effect::textures: coverage assets as data in r, sRGB images as linear
+// premultiplied color. effectRepeat filters them linearly and repeats them.
+Texture2D effectTexture0 : register(t3);
+Texture2D effectTexture1 : register(t4);
+Texture2D effectTexture2 : register(t5);
+Texture2D effectTexture3 : register(t6);
+SamplerState effectRepeat : register(s1);
+
+// One pixel as an effect sees it: its uv across the item's box, the box's size and the pixel's position in the box in
+// CSS px, the pixel's position in the target in device px, device px per CSS px, the effect's time in seconds and its
+// parameters (absent ones zero).
+struct EffectInput {
+    float2 uv;
+    float2 size;
+    float2 position;
+    float2 pixel;
+    float scale;
+    float time;
+    float4 parameters[EffectParameters];
+};
+
+// The sRGB transfer, for effects that work with CSS colors: an encoded channel to linear light, and back. Scalar
+// conditions: HLSL 2021 (DXC) takes no vector condition in ?:, and FXC has no select().
+float effectLinear(float c) {
+    return c <= .04045 ? c / 12.92 : pow((c + .055) / 1.055, 2.4);
+}
+
+float3 effectLinear(float3 c) {
+    return float3(effectLinear(c.r), effectLinear(c.g), effectLinear(c.b));
+}
+
+float effectEncoded(float c) {
+    return c <= .0031308 ? c * 12.92 : 1.055 * pow(c, 1 / 2.4) - .055;
+}
+
+float3 effectEncoded(float3 c) {
+    return float3(effectEncoded(c.r), effectEncoded(c.g), effectEncoded(c.b));
+}
+
+// The effect's linear premultiplied color at one pixel, defined by the effect's source.
+float4 effect(EffectInput input);
+
+// An effect record (scene_pass.cpp) is an image record whose texels the effect computes: clipped as an image, shaped
+// by the box's corners as a box, with the time in extra.x and the parameters in the fields effects leave unused
+// (render::effect_parameter).
+float4 ps_main(Vertex v) : SV_Target {
+    Paint p = paints[v.index];
+    float2 world = v.position.xy / scale;
+#if SPACE_LINEAR
+    float coverage = world.x < p.clip.x || world.y < p.clip.y || world.x >= p.clip.z || world.y >= p.clip.w
+                         ? 0
+                         : clipChain(p, world);
+#else
+    if (world.x < p.clip.x || world.y < p.clip.y || world.x >= p.clip.z || world.y >= p.clip.w) {
+        discard;
+    }
+    float coverage = clipChain(p, world);
+#endif
+    float2 position = float2(dot(p.invX.xyz, float3(world, 1)), dot(p.invY.xyz, float3(world, 1)));
+    EffectInput input;
+    input.uv = position / p.size.xy;
+    input.size = p.size.xy;
+    input.position = position;
+    input.pixel = v.position.xy;
+    input.scale = scale;
+    input.time = p.extra.x;
+    [unroll]
+    for (uint i = 0; i < MaxGradientStops; i++) {
+        input.parameters[i] = p.stops[i];
+    }
+    [unroll]
+    for (uint e = 0; e < QuadCorners; e++) {
+        input.parameters[MaxGradientStops + e] = p.edges[e];
+    }
+    input.parameters[12] = p.offsets[0];
+    input.parameters[13] = p.offsets[1];
+    input.parameters[14] = p.tile;
+    input.parameters[15] = p.background;
+    float4 color = effect(input);
+    float sd = distanceRound(position, p.size.xy, p.radii);
+    float aa = max(pixelWidth(sd), MinimumAntialiasWidth);
+    float outer = saturate(.5 - sd / aa);
+#if SPACE_LINEAR
+    // As a document box's background: without corners or rotation it covers the pixels whose centers it contains.
+    if (all(p.radii == 0) && p.invX.y == 0 && p.invY.x == 0) {
+        outer = all(position >= 0) && all(position < p.size.xy) ? 1 : 0;
+    }
+#else
+    // An encoded pass composites encoded premultiplied colors, unquantized.
+    color = color.a > 0 ? float4(effectEncoded(saturate(color.rgb / color.a)) * color.a, color.a) : float4(0, 0, 0, 0);
+#endif
+    return color * outer * p.extra.y * coverage;
+}
+#else
 float4 ps_main(Vertex v) : SV_Target {
     Paint p = paints[v.index];
     float2 world = v.position.xy / scale;
@@ -307,3 +407,4 @@ float4 ps_main(Vertex v) : SV_Target {
     }
     return result * outer * p.extra.y * coverage;
 }
+#endif

@@ -95,68 +95,74 @@ namespace weft::render::vulkan {
                       "vkCreateRenderPass");
             }
 
-            const VkPipelineShaderStageCreateInfo stages[]{
-                {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vertex,
-                 "vs_main", nullptr},
-                {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT,
-                 fragment, "ps_main", nullptr}};
-            VkPipelineVertexInputStateCreateInfo vertices{};
-            vertices.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-            VkPipelineInputAssemblyStateCreateInfo assembly{};
-            assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-            assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-            VkPipelineViewportStateCreateInfo viewport{};
-            viewport.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-            viewport.viewportCount = 1;
-            viewport.scissorCount = 1;
-            VkPipelineRasterizationStateCreateInfo raster{};
-            raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-            raster.polygonMode = VK_POLYGON_MODE_FILL;
-            raster.cullMode = VK_CULL_MODE_NONE;
-            raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-            raster.lineWidth = 1;
-            VkPipelineMultisampleStateCreateInfo multisample{};
-            multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-            multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-            // Premultiplied source-over, as the D3D11 renderer blends.
-            VkPipelineColorBlendAttachmentState blend{};
-            blend.blendEnable = VK_TRUE;
-            blend.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
-            blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-            blend.colorBlendOp = VK_BLEND_OP_ADD;
-            blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-            blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-            blend.alphaBlendOp = VK_BLEND_OP_ADD;
-            blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
-                                   VK_COLOR_COMPONENT_A_BIT;
-            VkPipelineColorBlendStateCreateInfo blending{};
-            blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-            blending.attachmentCount = 1;
-            blending.pAttachments = &blend;
-            const VkDynamicState dynamic_states[]{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-            VkPipelineDynamicStateCreateInfo dynamic{};
-            dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-            dynamic.dynamicStateCount = std::uint32_t(std::size(dynamic_states));
-            dynamic.pDynamicStates = dynamic_states;
-            VkGraphicsPipelineCreateInfo info{};
-            info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-            info.stageCount = std::uint32_t(std::size(stages));
-            info.pStages = stages;
-            info.pVertexInputState = &vertices;
-            info.pInputAssemblyState = &assembly;
-            info.pViewportState = &viewport;
-            info.pRasterizationState = &raster;
-            info.pMultisampleState = &multisample;
-            info.pColorBlendState = &blending;
-            info.pDynamicState = &dynamic;
-            info.layout = layout;
-            info.renderPass = out.clear;
-            check(d.vkd.vkCreateGraphicsPipelines(d.device, VK_NULL_HANDLE, 1, &info, nullptr, &out.pipeline),
-                  "vkCreateGraphicsPipelines");
+            out.pipeline = create_scene_pipeline(d, out.clear, layout, vertex, fragment);
         } catch (...) {
             destroy(d, out);
             throw;
         }
+        return out;
+    }
+
+    VkPipeline create_scene_pipeline(const Device& d, VkRenderPass pass, VkPipelineLayout layout, VkShaderModule vertex,
+                                     VkShaderModule fragment) {
+        const VkPipelineShaderStageCreateInfo stages[]{{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
+                                                        VK_SHADER_STAGE_VERTEX_BIT, vertex, "vs_main", nullptr},
+                                                       {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
+                                                        VK_SHADER_STAGE_FRAGMENT_BIT, fragment, "ps_main", nullptr}};
+        VkPipelineVertexInputStateCreateInfo vertices{};
+        vertices.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        VkPipelineInputAssemblyStateCreateInfo assembly{};
+        assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        VkPipelineViewportStateCreateInfo viewport{};
+        viewport.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        viewport.viewportCount = 1;
+        viewport.scissorCount = 1;
+        VkPipelineRasterizationStateCreateInfo raster{};
+        raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        raster.polygonMode = VK_POLYGON_MODE_FILL;
+        raster.cullMode = VK_CULL_MODE_NONE;
+        raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        raster.lineWidth = 1;
+        VkPipelineMultisampleStateCreateInfo multisample{};
+        multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+        // Premultiplied source-over, as the D3D11 renderer blends.
+        VkPipelineColorBlendAttachmentState blend{};
+        blend.blendEnable = VK_TRUE;
+        blend.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+        blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blend.colorBlendOp = VK_BLEND_OP_ADD;
+        blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blend.alphaBlendOp = VK_BLEND_OP_ADD;
+        blend.colorWriteMask =
+            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        VkPipelineColorBlendStateCreateInfo blending{};
+        blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        blending.attachmentCount = 1;
+        blending.pAttachments = &blend;
+        const VkDynamicState dynamic_states[]{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        VkPipelineDynamicStateCreateInfo dynamic{};
+        dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dynamic.dynamicStateCount = std::uint32_t(std::size(dynamic_states));
+        dynamic.pDynamicStates = dynamic_states;
+        VkGraphicsPipelineCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        info.stageCount = std::uint32_t(std::size(stages));
+        info.pStages = stages;
+        info.pVertexInputState = &vertices;
+        info.pInputAssemblyState = &assembly;
+        info.pViewportState = &viewport;
+        info.pRasterizationState = &raster;
+        info.pMultisampleState = &multisample;
+        info.pColorBlendState = &blending;
+        info.pDynamicState = &dynamic;
+        info.layout = layout;
+        info.renderPass = pass;
+        VkPipeline out{};
+        check(d.vkd.vkCreateGraphicsPipelines(d.device, VK_NULL_HANDLE, 1, &info, nullptr, &out),
+              "vkCreateGraphicsPipelines");
         return out;
     }
 
@@ -174,7 +180,18 @@ namespace weft::render::vulkan {
             {std::uint32_t(limits::binding_records), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, stages, nullptr},
             {std::uint32_t(limits::binding_image), VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, stages, nullptr},
             {std::uint32_t(limits::binding_clips), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, stages, nullptr},
-            {std::uint32_t(limits::binding_sampler), VK_DESCRIPTOR_TYPE_SAMPLER, 1, stages, nullptr}};
+            {std::uint32_t(limits::binding_sampler), VK_DESCRIPTOR_TYPE_SAMPLER, 1, stages, nullptr},
+            {std::uint32_t(limits::binding_effect_textures), VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
+             VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+            {std::uint32_t(limits::binding_effect_textures) + 1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
+             VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+            {std::uint32_t(limits::binding_effect_textures) + 2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
+             VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+            {std::uint32_t(limits::binding_effect_textures) + 3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
+             VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+            {std::uint32_t(limits::binding_effect_sampler), VK_DESCRIPTOR_TYPE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT,
+             nullptr}};
+        static_assert(weft::constants::max_effect_textures == 4);
         VkDescriptorSetLayoutCreateInfo set{};
         set.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
         set.bindingCount = std::uint32_t(std::size(bindings));
@@ -184,15 +201,16 @@ namespace weft::render::vulkan {
         return out;
     }
 
-    VkSampler create_linear_sampler(const Device& d) {
+    VkSampler create_linear_sampler(const Device& d, bool repeat) {
         VkSamplerCreateInfo sampler{};
         sampler.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
         sampler.magFilter = VK_FILTER_LINEAR;
         sampler.minFilter = VK_FILTER_LINEAR;
         sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-        sampler.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        sampler.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        const auto mode = repeat ? VK_SAMPLER_ADDRESS_MODE_REPEAT : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sampler.addressModeU = mode;
+        sampler.addressModeV = mode;
+        sampler.addressModeW = mode;
         sampler.maxLod = VK_LOD_CLAMP_NONE;
         VkSampler out{};
         check(d.vkd.vkCreateSampler(d.device, &sampler, nullptr, &out), "vkCreateSampler");
@@ -200,10 +218,12 @@ namespace weft::render::vulkan {
     }
 
     VkDescriptorPool create_scene_pool(const Device& d, std::uint32_t capacity) {
+        // Every set holds every binding of the layout, the effect's included.
+        const auto images = 1 + std::uint32_t(weft::constants::max_effect_textures);
         const VkDescriptorPoolSize sizes[]{{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, capacity},
                                            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2 * capacity},
-                                           {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, capacity},
-                                           {VK_DESCRIPTOR_TYPE_SAMPLER, capacity}};
+                                           {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, images * capacity},
+                                           {VK_DESCRIPTOR_TYPE_SAMPLER, 2 * capacity}};
         VkDescriptorPoolCreateInfo info{};
         info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         info.maxSets = capacity;

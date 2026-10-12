@@ -283,6 +283,10 @@ namespace weft::render::d3d11 {
                 case Step::Boxes:
                     instances(batch.first, batch.count, nullptr);
                     break;
+                case Step::Effect:
+                    // The scene preparer refuses effects until scene passes run them.
+                    ensure(false, "a scene pass without effects");
+                    break;
             }
         }
         ctx->ClearState();

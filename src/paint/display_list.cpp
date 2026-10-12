@@ -167,6 +167,38 @@ namespace weft::paint {
                         }
                         break;
                     }
+                    case Item::Kind::Effect: {
+                        if (item.payload >= list.effects.size()) {
+                            return make_diagnostic(Diag::PaintList, "effect payload out of range" + at);
+                        }
+                        const auto& e = list.effects[item.payload];
+                        if (e.program >= list.programs.size() || !list.programs[e.program]) {
+                            return make_diagnostic(Diag::PaintList, "effect program out of range" + at);
+                        }
+                        const auto& program = *list.programs[e.program];
+                        if (program.parameters > constants::max_effect_parameters ||
+                            program.textures > constants::max_effect_textures ||
+                            e.parameters.size() > program.parameters || e.textures.size() != program.textures) {
+                            return make_diagnostic(Diag::PaintList, "effect parameters or textures" + at);
+                        }
+                        for (const auto t : e.textures) {
+                            if (t >= list.assets.size() || !list.assets[t] ||
+                                list.assets[t]->encoding == Encoding::SignedDistance) {
+                                return make_diagnostic(Diag::PaintList, "effect texture" + at);
+                            }
+                        }
+                        const auto finite_parameters =
+                            std::all_of(e.parameters.begin(), e.parameters.end(), [](const auto& v) {
+                                return std::all_of(v.begin(), v.end(), finite_value);
+                            });
+                        if (!std::isfinite(e.time) || !finite_parameters ||
+                            !std::all_of(e.radii.begin(), e.radii.end(), [](float r) {
+                                return std::isfinite(r) && r >= 0;
+                            })) {
+                            return make_diagnostic(Diag::PaintList, "effect value" + at);
+                        }
+                        break;
+                    }
                     case Item::Kind::BeginGroup:
                         if (++depth > max_group_depth) {
                             return make_diagnostic(Diag::PaintList, "group depth bound" + at);
@@ -208,6 +240,8 @@ namespace weft::paint {
         const auto shadows = std::uint32_t(into.shadows.size());
         const auto paths = std::uint32_t(into.paths.size());
         const auto planes = std::uint32_t(into.planes.size());
+        const auto effects = std::uint32_t(into.effects.size());
+        const auto programs = std::uint32_t(into.programs.size());
         const auto clips = std::uint32_t(into.clips.size());
         into.boxes.insert(into.boxes.end(), from.boxes.begin(), from.boxes.end());
         for (auto image : from.images) {
@@ -227,7 +261,16 @@ namespace weft::paint {
             }
             into.planes.push_back(plane);
         }
+        for (auto effect : from.effects) {
+            // Effects sample assets of the list only, never external textures.
+            effect.program += programs;
+            for (auto& texture : effect.textures) {
+                texture += assets;
+            }
+            into.effects.push_back(std::move(effect));
+        }
         into.assets.insert(into.assets.end(), from.assets.begin(), from.assets.end());
+        into.programs.insert(into.programs.end(), from.programs.begin(), from.programs.end());
         into.external_textures += from.external_textures;
         for (auto clip : from.clips) {
             if (clip.to_local != identity_clip_map) {
@@ -277,6 +320,9 @@ namespace weft::paint {
                     break;
                 case Item::Kind::Plane:
                     item.payload += planes;
+                    break;
+                case Item::Kind::Effect:
+                    item.payload += effects;
                     break;
                 default:
                     break;

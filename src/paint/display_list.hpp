@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 // The portable paint IR (docs/architecture.md, "FramePacket 与 GPU 生命周期"): what one frame draws, in paint order,
@@ -170,6 +171,36 @@ namespace weft::paint {
         float height{};
     };
 
+    // A compiled UI shader effect (docs/architecture.md, "UI 着色器效果、粒子与背景拷贝"): its HLSL pixel function as
+    // each backend runs it in each composition space, and what the function reads. Immutable; lists lease it as they
+    // lease assets.
+    struct EffectProgram {
+        std::string name;
+        // Parameters (float4 each) and textures the function reads: at most constants::max_effect_parameters and
+        // constants::max_effect_textures.
+        std::uint32_t parameters{};
+        std::uint32_t textures{};
+        // Pixel shader bytecode, empty where not built: D3D11 DXBC and Vulkan SPIR-V, for an encoded and a linear
+        // pass.
+        std::vector<std::uint8_t> d3d11_encoded;
+        std::vector<std::uint8_t> d3d11_linear;
+        std::vector<std::uint8_t> spirv_encoded;
+        std::vector<std::uint8_t> spirv_linear;
+    };
+
+    // A UI shader effect over the item's box [0, width] x [0, height], inside its corner radii (top-left first, then
+    // clockwise, as a box's): the program's function at time (seconds) with parameters (absent ones zero), sampling
+    // textures, assets of the list read as data (coverage) or as linear premultiplied color (sRGB images). The
+    // function returns linear premultiplied color.
+    struct Effect {
+        // In DisplayList::programs.
+        std::uint32_t program{};
+        float time{};
+        std::vector<std::array<float, 4>> parameters;
+        std::vector<std::uint32_t> textures;
+        std::array<float, 4> radii{};
+    };
+
     struct Item {
         enum class Kind : std::uint8_t {
             Box,
@@ -187,7 +218,9 @@ namespace weft::paint {
             // A PathPaint, which a renderer rasterizes as coverage at device scale.
             Path,
             // A Plane, whose content a renderer draws into an image and projects.
-            Plane
+            Plane,
+            // An Effect, a program's pixel function over the item's box.
+            Effect
         };
 
         Kind kind{};
@@ -197,8 +230,8 @@ namespace weft::paint {
         float width{};
         float height{};
         float opacity{1};
-        // Index in DisplayList::boxes (Box), images (Image), rasters (Text, Layer), shadows (Shadow), paths (Path)
-        // or planes (Plane); unused by groups.
+        // Index in DisplayList::boxes (Box), images (Image), rasters (Text, Layer), shadows (Shadow), paths (Path),
+        // planes (Plane) or effects (Effect); unused by groups.
         std::uint32_t payload{};
         // The item's rounded clips, outermost first: DisplayList::clips[clips_begin, clips_begin + clips_count).
         std::uint32_t clips_begin{};
@@ -213,8 +246,11 @@ namespace weft::paint {
         std::vector<Shadow> shadows;
         std::vector<PathPaint> paths;
         std::vector<Plane> planes;
-        // Leases of the assets images draw.
+        std::vector<Effect> effects;
+        // Leases of the assets images and effects draw.
         std::vector<std::shared_ptr<const Asset>> assets;
+        // Leases of the programs effects run.
+        std::vector<std::shared_ptr<const EffectProgram>> programs;
         // Host textures images draw after the assets: image asset assets.size() + i is external texture i, linear
         // premultiplied and drawn with its own colors. The list only counts them; a renderer binds them per frame.
         std::uint32_t external_textures{};
@@ -225,8 +261,9 @@ namespace weft::paint {
     // texture without a stroke, rasters with a source, shadows with finite values and no negative blur, paths with a
     // path of whole verbs and finite points and a stroke of finite, non-negative lengths, planes of a well-formed
     // content list (nested at most constants::max_plane_depth deep), a positive size and a finite, invertible
-    // homography in front of the viewer, rounded clip ranges inside the clips, groups balanced and nested at most
-    // max_group_depth deep. Diag::PaintList otherwise.
+    // homography in front of the viewer, effects of a leased program with at most its parameters and exactly its
+    // textures (coverage or sRGB assets of the list), finite values and non-negative radii, rounded clip ranges inside
+    // the clips, groups balanced and nested at most max_group_depth deep. Diag::PaintList otherwise.
     Status check(const DisplayList& list, std::size_t max_group_depth);
 
     // The deepest group nesting of a well-formed list.
@@ -234,7 +271,7 @@ namespace weft::paint {
 
     // Appends from's items after into's under transform, which maps from's target px into into's and must scale by
     // positive factors and translate (Diag::PaintList otherwise). Item transforms compose with it, clip rects and
-    // rounded clips map through it, and payloads, assets, rounded clips and external textures are renumbered: from's
-    // assets follow into's, and every external texture follows every asset.
+    // rounded clips map through it, and payloads, assets, programs, rounded clips and external textures are
+    // renumbered: from's assets follow into's, and every external texture follows every asset.
     Status append(DisplayList& into, const DisplayList& from, const Affine& transform = identity);
 } // namespace weft::paint

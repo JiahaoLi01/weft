@@ -52,6 +52,8 @@ namespace weft::render::d3d11 {
         };
         // Entries of each srgb_convert.hlsl table: one per byte value.
         constexpr unsigned convert_table_entries = 256;
+        // The register of an effect's first texture (scene.hlsl, effectTexture0); its others follow.
+        constexpr UINT effect_texture_slot = 3;
 
         // Writes box of resource from data in command order. Where the runtime emulates command lists (WARP), the
         // original UpdateSubresource misplaces the source of a box with a nonzero origin on a deferred context;
@@ -275,6 +277,8 @@ namespace weft::render::d3d11 {
         s.AddressU = s.AddressV = s.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
         s.MaxLOD = D3D11_FLOAT32_MAX;
         throw_if_failed(device->CreateSamplerState(&s, &sampler), "CreateSamplerState");
+        s.AddressU = s.AddressV = s.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+        throw_if_failed(device->CreateSamplerState(&s, &effect_sampler), "CreateSamplerState effects");
         output = surface(DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB);
         intermediate = surface(DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT);
         group = surface(DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT);
@@ -380,6 +384,20 @@ namespace weft::render::d3d11 {
                        "SDF stroke exceeds distance padding");
             }
         }
+        // An asset an effect samples has a texture of its own, never an atlas region, under a key of its own: an image
+        // of the same asset on the atlas stays apart.
+        std::vector<bool> standalone(list->assets.size());
+        for (const auto& effect : list->effects) {
+            for (const auto t : effect.textures) {
+                standalone[t] = true;
+            }
+        }
+        auto keyed = keys;
+        for (std::size_t i = 0; cache_assets && i < keyed.size() && i < standalone.size(); ++i) {
+            if (standalone[i]) {
+                keyed[i].second |= weft::constants::render::texture_cache::standalone_key_bit;
+            }
+        }
         PreparedFrame frame;
         frame.list = std::move(list);
         const auto& sources = frame.list->assets;
@@ -397,13 +415,13 @@ namespace weft::render::d3d11 {
                     }
                 }
             }
-        } existing{*this, std::vector<std::optional<ResourceId>>(cache_assets ? keys.size() : 0)};
+        } existing{*this, std::vector<std::optional<ResourceId>>(cache_assets ? keyed.size() : 0)};
 
         // Protect the ENTIRE incoming dependency set before creating anything.
         // LRU cannot evict a later draw's hit while processing an earlier miss.
         if (cache_assets) {
-            for (std::size_t i = 0; i < keys.size(); ++i) {
-                if (const auto found = cache.entries.find(keys[i]); found != cache.entries.end()) {
+            for (std::size_t i = 0; i < keyed.size(); ++i) {
+                if (const auto found = cache.entries.find(keyed[i]); found != cache.entries.end()) {
                     lifetime(tracker.RetainResource(found->second.native.id), "pin all incoming cached dependencies");
                     existing.values[i] = found->second.native.id;
                 }
@@ -414,7 +432,7 @@ namespace weft::render::d3d11 {
             NativeAsset n;
             const bool r8 = a.encoding != Encoding::SrgbStraight;
             const auto key =
-                cache_assets ? keys.at(i) : std::pair<std::uint64_t, std::uint64_t>{i + 1, window_serial + 1};
+                cache_assets ? keyed.at(i) : std::pair<std::uint64_t, std::uint64_t>{i + 1, window_serial + 1};
             if (cache_assets) {
                 if (auto* found = cache.use(key)) {
                     auto& cached = *found;
@@ -469,7 +487,7 @@ namespace weft::render::d3d11 {
             if (cache_assets) {
                 evict_assets(resource_bytes);
             }
-            if (cache_assets && atlas_candidate(a)) {
+            if (cache_assets && atlas_candidate(a) && !standalone[i]) {
                 n.atlas = place_on_atlas(a, n.upload);
             }
             if (n.atlas) {
@@ -798,11 +816,38 @@ namespace weft::render::d3d11 {
                     context->OMSetRenderTargets(1, &targets.back(), nullptr);
                     draw(batch.first, 1, group_layers[targets.size() - 1].srv.Get());
                     break;
+                case ScenePass::Step::Effect: {
+                    // The effect's pixel stage over its records, its textures at t3 on, repeated by s1.
+                    const auto& effect = list.effects[batch.source];
+                    std::array<ID3D11ShaderResourceView*, weft::constants::max_effect_textures> effect_views{};
+                    for (std::size_t t = 0; t < effect.textures.size(); ++t) {
+                        effect_views[t] = images.at(effect.textures[t]).view;
+                    }
+                    context->PSSetShader(effect_shader(list.programs[effect.program]), nullptr, 0);
+                    context->PSSetShaderResources(effect_texture_slot, UINT(effect_views.size()), effect_views.data());
+                    auto* repeat = effect_sampler.Get();
+                    context->PSSetSamplers(1, 1, &repeat);
+                    draw(batch.first, batch.count, nullptr);
+                    context->PSSetShader(display_ps.Get(), nullptr, 0);
+                    break;
+                }
             }
         }
-        ID3D11ShaderResourceView* empty[3]{};
-        context->VSSetShaderResources(0, 1, empty);
-        context->PSSetShaderResources(0, 3, empty);
+        std::array<ID3D11ShaderResourceView*, effect_texture_slot + weft::constants::max_effect_textures> empty{};
+        context->VSSetShaderResources(0, 1, empty.data());
+        context->PSSetShaderResources(0, UINT(empty.size()), empty.data());
+    }
+
+    ID3D11PixelShader* Renderer::effect_shader(const std::shared_ptr<const paint::EffectProgram>& program) {
+        if (const auto found = effect_shaders_.find(program.get()); found != effect_shaders_.end()) {
+            return found->second.shader.Get();
+        }
+        ensure(!program->d3d11_linear.empty(), "an effect built for D3D11");
+        EffectShader made{program, {}};
+        throw_if_failed(device->CreatePixelShader(program->d3d11_linear.data(), program->d3d11_linear.size(), nullptr,
+                                                  &made.shader),
+                        "CreatePixelShader effect");
+        return effect_shaders_.emplace(program.get(), std::move(made)).first->second.shader.Get();
     }
 
     void Renderer::complete() {

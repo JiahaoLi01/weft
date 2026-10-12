@@ -124,8 +124,8 @@ namespace weft::render::vulkan {
         Renderer& operator=(const Renderer&) = delete;
 
         // Finds or creates a texture for each of the list's assets and pins them for the frame. The list draws boxes,
-        // images and isolated groups (no scene rasters) at one device px per CSS px; its external textures are
-        // external, one view each.
+        // images, effects and isolated groups (no scene rasters) at one device px per CSS px; its external textures
+        // are external, one view each. An asset an effect samples has a texture of its own, never an atlas region.
         PreparedFrame prepare(std::shared_ptr<const paint::DisplayList> list, std::vector<ExternalView> external = {});
         // Releases the frame's CPU leases; its textures retire once no use or cache holds them.
         void release(const PreparedFrame& frame);
@@ -190,7 +190,8 @@ namespace weft::render::vulkan {
         VkFramebuffer framebuffer(VkImageView view, VkFormat format);
         // The texture of a new asset, in the registry and leased once: an atlas region of a caching renderer when the
         // asset fits there, otherwise an image of its own.
-        NativeAsset& create(const paint::Asset& asset, std::uint64_t asset_id, std::uint64_t version);
+        NativeAsset& create(const paint::Asset& asset, std::uint64_t asset_id, std::uint64_t version,
+                            bool standalone = false);
         // A buffer of at least size, from spares or new with room to grow.
         Buffer take(std::vector<Buffer>& spares, VkDeviceSize size, VkBufferUsageFlags usage);
         // A reset descriptor pool for at least sets sets, from the spares or new with room to grow.
@@ -201,18 +202,32 @@ namespace weft::render::vulkan {
         std::optional<AtlasPacker::Region> place_on_atlas(const paint::Asset& asset);
         // The view a texture is sampled through: its page's, or its own.
         VkImageView view(const NativeAsset& texture) const;
+        // The pipeline of an effect program's linear pass (its spirv_linear) for a target format, created on first use.
+        VkPipeline effect_pipeline(const std::shared_ptr<const paint::EffectProgram>& program, VkFormat format);
 
         std::uint64_t next_asset_id_{1};
         VkCommandPool pool_{};
         VkCommandBuffer command_{};
         VkFence fence_{};
         VkSampler sampler_{};
+        // Repeats the textures effects sample (scene.hlsl, effectRepeat).
+        VkSampler effect_sampler_{};
         VkShaderModule vertex_{};
         VkShaderModule fragment_{};
         VkDescriptorSetLayout set_layout_{};
         VkPipelineLayout layout_{};
         VkFormat layer_format_{};
         std::map<VkFormat, Passes> passes_;
+
+        // An effect program's fragment stage and pipeline for a target format. The lease keeps the program alive, so
+        // its address names it alone.
+        struct EffectPipeline {
+            std::shared_ptr<const paint::EffectProgram> program;
+            VkShaderModule fragment{};
+            VkPipeline pipeline{};
+        };
+
+        std::map<std::pair<const paint::EffectProgram*, VkFormat>, EffectPipeline> effect_pipelines_;
         Image output_;
         // Linear float targets of nested groups, created when a pass first nests that deep.
         std::vector<Image> layers_;

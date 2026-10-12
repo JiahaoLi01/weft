@@ -177,6 +177,7 @@ namespace weft::render::vulkan {
         check(d.vkd.vkCreateFence(d.device, &fence, nullptr, &fence_), "vkCreateFence");
 
         sampler_ = create_linear_sampler(d);
+        effect_sampler_ = create_linear_sampler(d, true);
         vertex_ = shader_module(d, vertex_spirv, sizeof(vertex_spirv));
         fragment_ = shader_module(d, fragment_spirv, sizeof(fragment_spirv));
 
@@ -246,6 +247,10 @@ namespace weft::render::vulkan {
             d.destroy(layer);
         }
         d.destroy(output_);
+        for (auto& [key, e] : effect_pipelines_) {
+            d.vkd.vkDestroyPipeline(d.device, e.pipeline, nullptr);
+            d.vkd.vkDestroyShaderModule(d.device, e.fragment, nullptr);
+        }
         for (auto& [format, p] : passes_) {
             d.vkd.vkDestroyPipeline(d.device, p.pipeline, nullptr);
             d.vkd.vkDestroyRenderPass(d.device, p.clear, nullptr);
@@ -255,9 +260,29 @@ namespace weft::render::vulkan {
         d.vkd.vkDestroyDescriptorSetLayout(d.device, set_layout_, nullptr);
         d.vkd.vkDestroyShaderModule(d.device, fragment_, nullptr);
         d.vkd.vkDestroyShaderModule(d.device, vertex_, nullptr);
+        d.vkd.vkDestroySampler(d.device, effect_sampler_, nullptr);
         d.vkd.vkDestroySampler(d.device, sampler_, nullptr);
         d.vkd.vkDestroyFence(d.device, fence_, nullptr);
         d.vkd.vkDestroyCommandPool(d.device, pool_, nullptr);
+    }
+
+    VkPipeline Renderer::effect_pipeline(const std::shared_ptr<const paint::EffectProgram>& program, VkFormat format) {
+        const auto key = std::make_pair(program.get(), format);
+        if (const auto found = effect_pipelines_.find(key); found != effect_pipelines_.end()) {
+            return found->second.pipeline;
+        }
+        ensure(!program->spirv_linear.empty(), "an effect built for Vulkan");
+        const auto& p = passes(format);
+        EffectPipeline made{
+            program, shader_module(gpu, program->spirv_linear.data(), program->spirv_linear.size()), {}};
+        try {
+            made.pipeline = create_scene_pipeline(gpu, p.clear, layout_, vertex_, made.fragment);
+            return effect_pipelines_.emplace(key, made).first->second.pipeline;
+        } catch (...) {
+            gpu.vkd.vkDestroyPipeline(gpu.device, made.pipeline, nullptr);
+            gpu.vkd.vkDestroyShaderModule(gpu.device, made.fragment, nullptr);
+            throw;
+        }
     }
 
     const Renderer::Passes& Renderer::passes(VkFormat format) {
@@ -339,14 +364,23 @@ namespace weft::render::vulkan {
         assets_.reserve(assets_.size() + sources.size());
         std::vector<ResourceId> dependencies;
         dependencies.reserve(2 * sources.size());
+        // An asset an effect samples has a texture of its own, never an atlas region, under a key of its own: an image
+        // of the same asset on the atlas stays apart.
+        std::vector<bool> standalone(sources.size());
+        for (const auto& effect : frame.list->effects) {
+            for (const auto t : effect.textures) {
+                standalone[t] = true;
+            }
+        }
         std::vector<TextureCache<CachedTexture>::Key> keys;
         // Leases of the cached textures, taken before anything is created: eviction for an earlier miss cannot take a
         // later hit.
         std::vector<bool> held(sources.size());
         if (cache_assets) {
             keys.reserve(sources.size());
-            for (const auto& source : sources) {
-                keys.emplace_back(asset_identities.identify(source), 1);
+            for (std::size_t i = 0; i < sources.size(); ++i) {
+                keys.emplace_back(asset_identities.identify(sources[i]),
+                                  standalone[i] ? 1 | weft::constants::render::texture_cache::standalone_key_bit : 1);
             }
             for (std::size_t i = 0; i < keys.size(); ++i) {
                 if (const auto found = cache.entries.find(keys[i]); found != cache.entries.end()) {
@@ -360,7 +394,7 @@ namespace weft::render::vulkan {
             NativeAsset* texture{};
             if (!cache_assets) {
                 validate(*sources[i]);
-                texture = &create(*sources[i], next_asset_id_++, 1);
+                texture = &create(*sources[i], next_asset_id_++, 1, standalone[i]);
                 leases.ids.push_back(texture->id);
             } else if (auto* entry = cache.use(keys[i])) {
                 texture = entry->native.texture;
@@ -372,13 +406,13 @@ namespace weft::render::vulkan {
             } else {
                 const auto& a = *sources[i];
                 validate(a);
-                cache.evict(tracker, texture_bytes(a, atlas_candidate(a)), false,
+                cache.evict(tracker, texture_bytes(a, atlas_candidate(a) && !standalone[i]), false,
                             [&](const TextureCache<CachedTexture>::Entry& evicted) {
                                 if (evicted.native.texture->atlas) {
                                     atlas.release(*evicted.native.texture->atlas);
                                 }
                             });
-                texture = &create(a, keys[i].first, keys[i].second);
+                texture = &create(a, keys[i].first, keys[i].second, standalone[i]);
                 try {
                     cache.add(keys[i], CachedTexture{texture->id, texture}, texture->texels.size());
                 } catch (...) {
@@ -403,9 +437,10 @@ namespace weft::render::vulkan {
         return frame;
     }
 
-    NativeAsset& Renderer::create(const paint::Asset& a, std::uint64_t asset_id, std::uint64_t version) {
+    NativeAsset& Renderer::create(const paint::Asset& a, std::uint64_t asset_id, std::uint64_t version,
+                                  bool standalone) {
         auto native = std::make_unique<NativeAsset>();
-        if (cache_assets && atlas_candidate(a)) {
+        if (cache_assets && atlas_candidate(a) && !standalone) {
             native->atlas = place_on_atlas(a);
         }
         try {
@@ -652,25 +687,44 @@ namespace weft::render::vulkan {
                 layers_.push_back(layer);
             }
 
-            // One descriptor set per draw: the image it samples, or the layer a group composites.
+            // One descriptor set per draw: the image it samples, or the layer a group composites; an effect's textures
+            // and, in batch order, its pipeline for the target it draws into.
             std::vector<VkImageView> images;
+            std::vector<std::optional<std::array<VkImageView, weft::constants::max_effect_textures>>> effect_views;
+            std::vector<VkPipeline> effects;
             std::size_t open{};
             for (const auto& batch : pass.batches) {
                 switch (batch.step) {
                     case ScenePass::Step::Boxes:
                         images.push_back(blank_image_.view);
+                        effect_views.emplace_back();
                         break;
                     case ScenePass::Step::Image:
                         images.push_back(batch.source < frame.assets.size()
                                              ? view(*frame.assets[batch.source])
                                              : frame.external.at(batch.source - frame.assets.size()).view);
+                        effect_views.emplace_back();
                         break;
                     case ScenePass::Step::BeginGroup:
                         ++open;
                         break;
                     case ScenePass::Step::EndGroup:
                         images.push_back(layers_.at(--open).view);
+                        effect_views.emplace_back();
                         break;
+                    case ScenePass::Step::Effect: {
+                        const auto& effect = list.effects[batch.source];
+                        std::array<VkImageView, weft::constants::max_effect_textures> textures;
+                        textures.fill(blank_image_.view);
+                        for (std::size_t t = 0; t < effect.textures.size(); ++t) {
+                            textures[t] = view(*frame.assets.at(effect.textures[t]));
+                        }
+                        images.push_back(blank_image_.view);
+                        effect_views.emplace_back(textures);
+                        effects.push_back(
+                            effect_pipeline(list.programs[effect.program], open ? layer_format_ : target.format));
+                        break;
+                    }
                 }
             }
             std::vector<VkDescriptorSet> sets(images.size());
@@ -714,6 +768,29 @@ namespace weft::render::vulkan {
                     writes[3].pBufferInfo = &clip_info;
                     writes[4].pImageInfo = &sampler_info;
                     d.vkd.vkUpdateDescriptorSets(d.device, std::uint32_t(std::size(writes)), writes, 0, nullptr);
+                    if (!effect_views[s]) {
+                        continue;
+                    }
+                    // An effect's textures and its repeating sampler.
+                    std::array<VkDescriptorImageInfo, weft::constants::max_effect_textures + 1> effect_info{};
+                    std::array<VkWriteDescriptorSet, weft::constants::max_effect_textures + 1> effect_writes{};
+                    for (std::size_t i = 0; i < effect_writes.size(); ++i) {
+                        const bool sampler = i == weft::constants::max_effect_textures;
+                        effect_info[i] =
+                            sampler ? VkDescriptorImageInfo{effect_sampler_, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED}
+                                    : VkDescriptorImageInfo{VK_NULL_HANDLE, (*effect_views[s])[i],
+                                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+                        auto& w = effect_writes[i];
+                        w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                        w.dstSet = sets[s];
+                        w.dstBinding = sampler ? std::uint32_t(limits::binding_effect_sampler)
+                                               : std::uint32_t(limits::binding_effect_textures + i);
+                        w.descriptorCount = 1;
+                        w.descriptorType = sampler ? VK_DESCRIPTOR_TYPE_SAMPLER : VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+                        w.pImageInfo = &effect_info[i];
+                    }
+                    d.vkd.vkUpdateDescriptorSets(d.device, std::uint32_t(effect_writes.size()), effect_writes.data(), 0,
+                                                 nullptr);
                 }
             }
             if (inject_encode_failure) {
@@ -766,11 +843,18 @@ namespace weft::render::vulkan {
                 };
                 begin(resources.framebuffer, target_passes, clear_target, first_color);
                 std::size_t depth{};
+                std::size_t next_effect{};
                 for (const auto& batch : pass.batches) {
                     switch (batch.step) {
                         case ScenePass::Step::Boxes:
                         case ScenePass::Step::Image:
                             draw_records(batch.first, batch.count);
+                            break;
+                        case ScenePass::Step::Effect:
+                            d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, effects[next_effect++]);
+                            draw_records(batch.first, batch.count);
+                            d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                                    (depth ? layer_passes : target_passes).pipeline);
                             break;
                         case ScenePass::Step::BeginGroup:
                             d.vkd.vkCmdEndRenderPass(command);

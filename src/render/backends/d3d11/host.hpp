@@ -95,7 +95,8 @@ namespace weft::render::d3d11 {
 
     // Draws a display list through the renderer directly, without the C ABI: prepares it, encodes it into
     // renderer.output, executes and submits it, calls present() after the UI work and waits for the actual
-    // completion. Only for a renderer without a C ABI backend or pipelined host.
+    // completion. A caching renderer keys the list's assets by their identities, as a C ABI list frame does. Only for
+    // a renderer without a C ABI backend or pipelined host.
     template <class Present>
     void render_list(Renderer& r, paint::DisplayList list, Present&& present) {
         ensure(!r.backend && !r.pipeline_enabled, "the display list host drives the renderer directly");
@@ -104,7 +105,14 @@ namespace weft::render::d3d11 {
             ensure(result == LifetimeResult::Ok, operation);
         };
         r.assets.clear();
-        auto frame = r.prepare(std::move(list));
+        std::vector<std::pair<std::uint64_t, std::uint64_t>> keys;
+        if (r.cache_assets) {
+            keys.reserve(list.assets.size());
+            for (const auto& asset : list.assets) {
+                keys.emplace_back(r.asset_identity(asset), 1);
+            }
+        }
+        auto frame = r.prepare(std::move(list), keys);
         Encoded encoded;
         try {
             encoded = r.encode(frame, false);

@@ -431,6 +431,10 @@ namespace weft::render::vulkan {
                 case ScenePass::Step::EndGroup:
                     images.push_back(groups.at(--open).view);
                     break;
+                case ScenePass::Step::Effect:
+                    // The scene preparer refuses effects until scene passes run them.
+                    ensure(false, "a scene pass without effects");
+                    break;
             }
         }
         std::vector<VkDescriptorSet> sets(images.size());
@@ -524,6 +528,9 @@ namespace weft::render::vulkan {
                                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
                     begin(depth ? groups[depth - 1].framebuffer : out, false, paint::Color{});
                     instances(batch.first, 1);
+                    break;
+                case ScenePass::Step::Effect:
+                    // Refused before any descriptor set was written.
                     break;
             }
         }

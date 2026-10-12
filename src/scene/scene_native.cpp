@@ -315,11 +315,11 @@ namespace weft {
     std::unique_ptr<ScenePrepared> ScenePreparer::prepare(const paint::DisplayList& list, float scale, unsigned width,
                                                           unsigned height, std::optional<std::array<float, 4>> crop,
                                                           unsigned view_index) {
-        // Scene passes sample no asset textures.
+        // Scene passes sample no asset textures and run no effects yet.
         if (std::any_of(list.items.begin(), list.items.end(), [](const paint::Item& item) {
-                return item.kind == Kind::Image;
+                return item.kind == Kind::Image || item.kind == Kind::Effect;
             })) {
-            throw std::invalid_argument("scene renderer draws no image items");
+            throw std::invalid_argument("scene renderer draws no image or effect items");
         }
         auto planned = render::plan_scene_pass(list, scale, width, height, crop);
         if (!planned) {

@@ -17,7 +17,7 @@
 #include <string>
 
 // The portable paint IR: structural checks of display lists, the portable plan of a scene pass, quad packets as
-// display lists, external textures and appended lists.
+// display lists, external textures, appended lists and UI shader effects.
 namespace {
     using weft::testing::require;
     namespace paint = weft::paint;
@@ -674,6 +674,144 @@ namespace {
     }
 } // namespace
 
+// Effects: a leased program with at most its parameters and exactly its textures, coverage or sRGB assets, finite
+// values and non-negative corners; appended lists renumber programs and textures; the plan carries the time, the
+// parameters in the record fields effects leave unused and the corners, and draws a run of effects of one program
+// and the same textures at once.
+void effects() {
+    auto program = std::make_shared<paint::EffectProgram>();
+    program->name = "test";
+    program->parameters = 3;
+    program->textures = 1;
+    const auto data = std::make_shared<const paint::Asset>(paint::Asset{2, 2, paint::Encoding::Coverage, {1, 2, 3, 4}});
+    const auto distances =
+        std::make_shared<const paint::Asset>(paint::Asset{2, 2, paint::Encoding::SignedDistance, {1, 2, 3, 4}, 4});
+    const auto effect_item = [](std::uint32_t payload) {
+        auto e = item(Kind::Effect, payload);
+        e.width = 10;
+        e.height = 8;
+        e.clip = {0, 0, 100, 100};
+        return e;
+    };
+    const auto make = [&] {
+        paint::DisplayList list;
+        list.assets = {data, distances};
+        list.programs = {program};
+        list.effects.push_back({0, 1.5f, {{1, 2, 3, 4}, {5, 6, 7, 8}}, {0}, {1, 2, 3, 4}});
+        list.items.push_back(effect_item(0));
+        return list;
+    };
+    require(bool(paint::check(make(), 4)), "a well-formed effect");
+    const auto refused = [&](auto&& change, const char* what) {
+        auto list = make();
+        change(list);
+        require(!paint::check(list, 4), what);
+    };
+    refused(
+        [](paint::DisplayList& l) {
+            l.items[0].payload = 1;
+        },
+        "effect payload out of range");
+    refused(
+        [](paint::DisplayList& l) {
+            l.effects[0].program = 1;
+        },
+        "effect program out of range");
+    refused(
+        [](paint::DisplayList& l) {
+            l.programs[0] = nullptr;
+        },
+        "effect without a program");
+    refused(
+        [](paint::DisplayList& l) {
+            l.effects[0].parameters.resize(4);
+        },
+        "more parameters than the program reads");
+    refused(
+        [](paint::DisplayList& l) {
+            l.effects[0].textures.clear();
+        },
+        "fewer textures than the program reads");
+    refused(
+        [](paint::DisplayList& l) {
+            l.effects[0].textures = {2};
+        },
+        "effect texture out of range");
+    refused(
+        [](paint::DisplayList& l) {
+            l.effects[0].textures = {1};
+        },
+        "signed distances as an effect texture");
+    refused(
+        [](paint::DisplayList& l) {
+            l.effects[0].time = std::numeric_limits<float>::quiet_NaN();
+        },
+        "non-finite effect time");
+    refused(
+        [](paint::DisplayList& l) {
+            l.effects[0].parameters[1][2] = std::numeric_limits<float>::infinity();
+        },
+        "non-finite effect parameter");
+    refused(
+        [](paint::DisplayList& l) {
+            l.effects[0].radii[3] = -1;
+        },
+        "negative effect corner");
+
+    // Appended: from's program follows into's, and its texture follows into's assets.
+    auto into = make();
+    require(bool(paint::append(into, make())), "append effects");
+    require(into.programs.size() == 2 && into.effects.size() == 2 && into.items[1].payload == 1 &&
+                into.effects[1].program == 1 && into.effects[1].textures == std::vector<std::uint32_t>{2} &&
+                bool(paint::check(into, 4)),
+            "appended effects renumbered");
+
+    // The plan of every parameter: the fields effects leave unused, in the order the shader reads them.
+    auto all = std::make_shared<paint::EffectProgram>();
+    all->parameters = 16;
+    paint::DisplayList list;
+    list.assets = {data, std::make_shared<const paint::Asset>(paint::Asset{1, 1, paint::Encoding::Coverage, {9}})};
+    list.programs = {all};
+    paint::Effect every{0, 2.25f, {}, {}, {0, 1, 2, 3}};
+    for (unsigned p = 0; p < 16; ++p) {
+        every.parameters.push_back({float(p), 0, 0, 1});
+    }
+    list.effects = {every, every};
+    auto other = std::make_shared<paint::EffectProgram>();
+    other->textures = 1;
+    list.programs.push_back(program);
+    list.programs.push_back(other);
+    list.effects.push_back({1, 0, {}, {0}, {}});
+    list.effects.push_back({1, 0, {}, {1}, {}});
+    list.effects.push_back({2, 0, {}, {1}, {}});
+    list.boxes.emplace_back();
+    list.items = {effect_item(0), effect_item(1), item(Kind::Box), effect_item(2), effect_item(3), effect_item(4)};
+    list.items[2].width = 4;
+    list.items[2].height = 4;
+    list.items[2].clip = {0, 0, 100, 100};
+    require(bool(paint::check(list, 4)), "a list of effects and a box");
+    const auto pass = weft::render::plan_scene_pass(list, 1, 100, 100).value();
+    const auto& r = pass.records[0];
+    const std::array<const weft::render::SceneRecord::Vector*, 16> fields{
+        &r.stops[0], &r.stops[1], &r.stops[2], &r.stops[3], &r.stops[4],   &r.stops[5],   &r.stops[6], &r.stops[7],
+        &r.edges[0], &r.edges[1], &r.edges[2], &r.edges[3], &r.offsets[0], &r.offsets[1], &r.tile,     &r.background};
+    for (unsigned p = 0; p < 16; ++p) {
+        require((*fields[p])[0] == float(p), "effect parameter in its record field");
+    }
+    require(r.extra[0] == 2.25f && r.extra[2] == weft::render::scene_limits::flag_enabled &&
+                r.radii == std::array<float, 4>{0, 1, 2, 3} && r.size[0] == 10 && r.size[1] == 8,
+            "effect time, image geometry and corners in the record");
+    using Step = weft::render::ScenePass::Step;
+    const auto& b = pass.batches;
+    require(b.size() == 5 && b[0].step == Step::Effect && b[0].first == 0 && b[0].count == 2 && b[0].source == 0 &&
+                b[1].step == Step::Boxes && b[1].first == 2 && b[1].count == 1 && b[2].step == Step::Effect &&
+                b[2].first == 3 && b[2].count == 1 && b[2].source == 2 && b[3].step == Step::Effect &&
+                b[3].first == 4 && b[3].count == 1 && b[3].source == 3 && b[4].step == Step::Effect &&
+                b[4].first == 5 && b[4].count == 1 && b[4].source == 4,
+            "a run of effects of one program and the same textures is one draw; other textures or another program "
+            "start another");
+}
+
 int main() {
     try {
         checks();
@@ -686,8 +824,9 @@ int main() {
         append();
         shadows();
         planes();
+        effects();
         std::cout << "PASS paint contracts: display list payloads, rasters, shadows, group nesting and kinds; scene "
-                     "pass plans; quad lists; external textures; appended lists; shadow images; planes\n";
+                     "pass plans; quad lists; external textures; appended lists; shadow images; planes; effects\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

@@ -1,5 +1,6 @@
 #include "render/backends/vulkan/renderer.hpp"
 #include "support/check.hpp"
+#include "support/effect_lists.hpp"
 #include "support/render_lists.hpp"
 
 #ifdef _WIN32
@@ -182,7 +183,27 @@ int main(int argc, char** argv) {
         cached.drain();
         CHECK(cached.atlas.live() == 0 && cached.atlas_pages.empty() &&
               cached.native_creations == cached.native_releases);
+        // UI shader effects, as the D3D11 test checks them: uv, parameters and time in one draw, textures apart from the
+        // atlas, a box after effects, and an effect drawn as the box it reproduces.
+        vk::Renderer effects(*device, effect_width, effect_height);
+        effects.cache_assets = true;
+        CHECK(effect_matches("uv effect", effects.draw(uv_list()), uv_expected, 1));
+        const auto effect_draws = effects.draws;
+        CHECK(effect_matches("parameters effect", effects.draw(parameters_list()), parameters_expected, 1));
+        CHECK(effects.draws - effect_draws == 1);
+        effects.draw(atlas_list());
+        CHECK(effects.atlas_placements == 1);
+        CHECK(effect_matches("textures effect", effects.draw(textures_list()), textures_expected, 1));
+        CHECK(effects.atlas_placements == 1);
+        const auto composed = effects.draw(composed_list(true));
+        const auto against_box = effect_difference(composed, effects.draw(composed_list(false)));
+        std::cout << "effect against its box: worst " << against_box[0] << " over " << against_box[1] << " pixels\n";
+        CHECK(against_box[0] <= 1 && against_box[1] > 400);
 #ifdef _WIN32
+        const auto effect_difference_d3d11 =
+            difference(composed, d3d11(composed_list(true), effect_width, effect_height), 2, effect_width);
+        report("effect", effect_difference_d3d11);
+        CHECK(!effect_difference_d3d11.over);
         const auto page_difference = difference(drawn, d3d11(page_list(), 96, 64), 2, 96);
         report("page list", page_difference);
         const auto group_difference = difference(grouped_first, d3d11(groups(true), 64, 32), 2, 64);
@@ -196,9 +217,11 @@ int main(int argc, char** argv) {
                       << " validation messages; first: " << device->first_validation_message << '\n';
         }
         CHECK(device->validation_messages == 0);
-        std::cout << "PASS Vulkan renderer on " << device->name << ": " << page.draws + grouped.draws + run.draws
-                  << " draws; the page list matches its CPU expectations; isolated groups; validation "
-                  << (device->validation ? "clean" : "not installed") << '\n';
+        std::cout
+            << "PASS Vulkan renderer on " << device->name << ": "
+            << page.draws + grouped.draws + run.draws + effects.draws
+            << " draws; the page list matches its CPU expectations; isolated groups; UI shader effects; validation "
+            << (device->validation ? "clean" : "not installed") << '\n';
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "FAIL: " << error.what() << '\n';

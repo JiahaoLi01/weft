@@ -49,6 +49,10 @@ namespace weft::constants {
     // plane's corner may have, in front of the viewer.
     inline constexpr unsigned max_plane_depth = 2;
     inline constexpr double plane_min_depth = 1e-3;
+    // UI shader effects of the paint IR (paint::Effect): the float4 parameters and the textures one effect may read.
+    // The parameters fill the shared shader record's fields that effects leave unused.
+    inline constexpr unsigned max_effect_parameters = 16;
+    inline constexpr unsigned max_effect_textures = 4;
     // Largest viewport edge accepted by the layout and scene profiles.
     inline constexpr int max_viewport_dimension_px = 4096;
     inline constexpr int rgba8_bytes_per_pixel = 4;
