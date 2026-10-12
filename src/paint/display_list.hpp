@@ -94,6 +94,20 @@ namespace weft::paint {
         Color tint{};
     };
 
+    // An outer box-shadow of the item's box [0, width] x [0, height]: the box grown by spread on each side (its radii
+    // too), offset by (x, y), blurred by a Gaussian of standard deviation blur / 2, and shown only outside the box.
+    // Lengths in item px.
+    struct Shadow {
+        Color color{};
+        float x{};
+        float y{};
+        float blur{};
+        float spread{};
+        // The box's corner radii as specified, top-left first and clockwise; each corner stays within half the shorter
+        // side.
+        std::array<float, 4> radii{};
+    };
+
     struct Item {
         enum class Kind : std::uint8_t {
             Box,
@@ -105,7 +119,9 @@ namespace weft::paint {
             Image,
             // Items up to the matching EndGroup composite as one isolated group with the EndGroup's opacity.
             BeginGroup,
-            EndGroup
+            EndGroup,
+            // A Shadow, which a renderer prepares as an image.
+            Shadow
         };
 
         Kind kind{};
@@ -115,7 +131,8 @@ namespace weft::paint {
         float width{};
         float height{};
         float opacity{1};
-        // Index in DisplayList::boxes (Box), images (Image) or rasters (Text, Layer); unused by groups.
+        // Index in DisplayList::boxes (Box), images (Image), rasters (Text, Layer) or shadows (Shadow); unused by
+        // groups.
         std::uint32_t payload{};
         // The item's rounded clips, outermost first: DisplayList::clips[clips_begin, clips_begin + clips_count).
         std::uint32_t clips_begin{};
@@ -127,6 +144,7 @@ namespace weft::paint {
         std::vector<Box> boxes;
         std::vector<Image> images;
         std::vector<Raster> rasters;
+        std::vector<Shadow> shadows;
         // Leases of the assets images draw.
         std::vector<std::shared_ptr<const Asset>> assets;
         // Host textures images draw after the assets: image asset assets.size() + i is external texture i, linear
@@ -136,8 +154,8 @@ namespace weft::paint {
     };
 
     // Whether a list is well formed: payloads in range and of the item's kind, images of a leased asset or an external
-    // texture without a stroke, rasters with a source, rounded clip ranges inside the clips, groups balanced and
-    // nested at most max_group_depth deep. Diag::PaintList otherwise.
+    // texture without a stroke, rasters with a source, shadows with finite values and no negative blur, rounded clip
+    // ranges inside the clips, groups balanced and nested at most max_group_depth deep. Diag::PaintList otherwise.
     Status check(const DisplayList& list, std::size_t max_group_depth);
 
     // The deepest group nesting of a well-formed list.

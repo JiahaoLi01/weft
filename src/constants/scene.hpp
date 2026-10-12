@@ -133,7 +133,7 @@ namespace weft::constants::scene {
     // Border widths closer than this share the box center as the wedge apex.
     inline constexpr double border_width_epsilon = 1e-5;
 
-    // D2D raster adapter: shadows, gradients and bitmaps.
+    // Box shadows (scene_values::box_shadows and render/shadow_image.hpp, shared by every renderer).
     inline constexpr int max_box_shadow_layers = 8;
     // Largest box-shadow blur radius and spread magnitude.
     inline constexpr int max_box_shadow_extent_px = 64;

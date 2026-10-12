@@ -9,5 +9,5 @@ if(WIN32)
     weft_add_library(scene_d2d
         SOURCES scene_raster_d2d.cpp
         PUBLIC weft::scene
-        PRIVATE d2d1 dwrite windowscodecs ole32)
+        PRIVATE weft::render d2d1 dwrite windowscodecs ole32)
 endif()

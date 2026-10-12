@@ -64,6 +64,37 @@ int main() {
                     "Unicode content must invalidate source");
         }
         {
+            // Shadows come right under their box, bottom first (CSS lists the topmost first), with the radii as
+            // specified; a transparent one is left out; with opacity, a box and its shadows are one group.
+            weft::SceneFrame frame;
+            auto& n = frame.root;
+            n.identity = {1, 1, 130};
+            n.tag = "div";
+            n.box = {0, 0, 60, 40};
+            n.style = {{"background-color", "#ffffff"},
+                       {"opacity", "0.5"},
+                       {"border-top-left-radius", "8px"},
+                       {"box-shadow", "1px 2px 3px 4px #ff0000, 0 0 #0000, -5px -6px 7px 0px rgba(0, 0, 255, 0.5)"}};
+            using Kind = weft::paint::Item::Kind;
+            const auto plan = weft::scene_display_list(frame);
+            const auto& items = plan.list.items;
+            require(plan.fallback.empty() && items.size() == 5 && items[0].kind == Kind::BeginGroup &&
+                        items[1].kind == Kind::Shadow && items[2].kind == Kind::Shadow && items[3].kind == Kind::Box &&
+                        items[4].kind == Kind::EndGroup && items[4].opacity == .5f && items[1].opacity == 1,
+                    "shadows under their box in the box's group");
+            const auto& bottom = plan.list.shadows[items[1].payload];
+            const auto& top = plan.list.shadows[items[2].payload];
+            require(bottom.x == -5 && bottom.y == -6 && bottom.blur == 7 &&
+                        bottom.color == weft::paint::Color{0, 0, 1, .5f},
+                    "the last listed shadow is painted first");
+            require(top.x == 1 && top.y == 2 && top.blur == 3 && top.spread == 4 &&
+                        top.color == weft::paint::Color{1, 0, 0, 1} && top.radii == std::array<float, 4>{8, 0, 0, 0},
+                    "the first listed shadow is painted last");
+            n.style["box-shadow"] = "inset 0 0 4px #000000";
+            require(weft::scene_display_list(frame).fallback.find("outer shadow") != std::string::npos,
+                    "inset shadow must stay a visible fallback");
+        }
+        {
             // Short hex colors expand as the reference raster expands them: background, border and text tint.
             weft::SceneFrame frame;
             auto& n = frame.root;
@@ -392,14 +423,28 @@ int main() {
         require(held > initial + 10 && settled > release + 5 && settled <= 460.1f,
                 "unmodified Anime held movement / release inertia / container bounds");
         s.vm.eval("drag.revert();globalThis.drag=null;globalThis.ballX=null");
-        // Renderer must preserve actual shadow paint and reject it from the native
-        // subset until that backend supports it. A white base makes missing shadow
-        // visible, unlike the gallery's nearly black backdrop.
+        // The reference raster paints the shadow, and the native list carries it as a shadow item right under its
+        // box. A white base makes a missing shadow visible, unlike the gallery's nearly black backdrop.
         s.vm.eval(
             "document.getElementById('root').innerHTML='<div id=\"shadow\" style=\"position:absolute;left:40px;top:40px;width:40px;height:40px;background:#ff0000;border-radius:5px;box-shadow:0px 8px 12px 0px rgba(0,0,0,0.8)\"></div>';document.getElementById('root').style.backgroundColor='#ffffff'");
         s.step(1700);
         const auto with = s.bitmap(weft::test_constants::scene::gallery_raster_scale);
-        require(!weft::scene_display_list(s.current).fallback.empty(), "shadow silently dropped by native subset");
+        {
+            using Kind = weft::paint::Item::Kind;
+            const auto native = weft::scene_display_list(s.current);
+            const auto& items = native.list.items;
+            const auto at = std::find_if(items.begin(), items.end(), [](const auto& item) {
+                return item.kind == Kind::Shadow;
+            });
+            require(native.fallback.empty() && at != items.end() && at + 1 != items.end() &&
+                        (at + 1)->kind == Kind::Box && native.list.shadows.size() == 1,
+                    "shadow item under its box");
+            const auto& shadow = native.list.shadows[at->payload];
+            require(shadow.x == 0 && shadow.y == 8 && shadow.blur == 12 && shadow.spread == 0 &&
+                        shadow.color == weft::paint::Color{0, 0, 0, .8f} &&
+                        shadow.radii == std::array<float, 4>{5, 5, 5, 5} && at->width == 40 && at->height == 40,
+                    "shadow item values");
+        }
         s.vm.eval("document.getElementById('shadow').style.boxShadow='none'");
         s.step(1701);
         const auto without = s.bitmap(weft::test_constants::scene::gallery_raster_scale);

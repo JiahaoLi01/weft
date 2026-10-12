@@ -2,11 +2,13 @@
 #include "render/atlas_packer.hpp"
 #include "render/quad_list.hpp"
 #include "render/scene_pass.hpp"
+#include "render/shadow_image.hpp"
 #include "render/srgb.hpp"
 #include "scene/scene.hpp"
 #include "support/check.hpp"
 
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -64,6 +66,80 @@ namespace {
         list = good;
         list.items[0].kind = Kind(99);
         require(rejected(list, 2, "unknown item kind at item 0"), "unknown kind");
+        list = good;
+        list.shadows.push_back({{0, 0, 0, .5f}, 1, 2, 4, 0, {}});
+        list.items.push_back(item(Kind::Shadow, 0));
+        require(bool(paint::check(list, 2)), "shadow item");
+        list.items.back().payload = 1;
+        require(rejected(list, 2, "shadow payload out of range at item 7"), "shadow payload range");
+        list.items.back().payload = 0;
+        list.shadows[0].blur = -1;
+        require(rejected(list, 2, "shadow value at item 7"), "negative shadow blur");
+        list.shadows[0].blur = 4;
+        list.shadows[0].x = std::numeric_limits<float>::quiet_NaN();
+        require(rejected(list, 2, "shadow value at item 7"), "shadow offset not finite");
+    }
+
+    // A shadow image is the box's shape spread, offset and blurred, shown only outside the box, over a rectangle
+    // padded by three standard deviations and two device pixels; the scene pass draws it as an image there.
+    void shadows() {
+        namespace render = weft::render;
+        const paint::Shadow hard{{1, 0, 0, 1}, 10, 0, 0, 0, {}};
+        const auto g = render::shadow_geometry(hard, 20, 10, 2);
+        require(g.rect == std::array<float, 4>{9, -1, 22, 12} && g.width == 44 && g.height == 24,
+                "hard shadow geometry");
+        const auto image = render::shadow_image(hard, 20, 10, 2).value();
+        require(image.geometry.rect == g.rect && image.rgba.size() == std::size_t(44) * 24 * 4, "hard shadow size");
+        // The pixel whose center is at (x, y) in item px.
+        const auto at = [](const render::ShadowImage& i, float x, float y) {
+            const auto col = unsigned((x - i.geometry.rect[0]) * i.geometry.width / i.geometry.rect[2]);
+            const auto row = unsigned((y - i.geometry.rect[1]) * i.geometry.height / i.geometry.rect[3]);
+            return i.rgba.data() + (std::size_t(row) * i.geometry.width + col) * 4;
+        };
+        require(at(image, 15.25f, 5.25f)[3] == 0, "a shadow under its box");
+        const auto* red = at(image, 25.25f, 5.25f);
+        require(red[0] == 255 && red[1] == 0 && red[2] == 0 && red[3] == 255, "a hard shadow beside its box");
+        require(at(image, 30.75f, 5.25f)[3] == 0, "past a hard shadow");
+        // Blurred and spread: symmetric about the box, fading with distance, wider for a larger spread.
+        const paint::Shadow soft{{0, 0, 0, 1}, 0, 0, 8, 2, {4, 4, 4, 4}};
+        const auto blurred = render::shadow_image(soft, 20, 10, 1).value();
+        const auto alpha = [&](const render::ShadowImage& i, float x, float y) {
+            return int(at(i, x, y)[3]);
+        };
+        require(blurred.geometry.rect == std::array<float, 4>{-16, -16, 52, 42}, "blurred shadow geometry");
+        require(alpha(blurred, 10.5f, 5.5f) == 0 &&
+                    std::abs(alpha(blurred, -2.5f, 5.5f) - alpha(blurred, 22.5f, 5.5f)) <= 1 &&
+                    alpha(blurred, -2.5f, 5.5f) > alpha(blurred, -6.5f, 5.5f) &&
+                    alpha(blurred, -6.5f, 5.5f) > alpha(blurred, -10.5f, 5.5f) && alpha(blurred, -2.5f, 5.5f) > 64,
+                "blurred shadow falls off symmetrically");
+        auto wider = soft;
+        wider.spread = 6;
+        require(alpha(render::shadow_image(wider, 20, 10, 1).value(), -6.5f, 5.5f) > alpha(blurred, -6.5f, 5.5f),
+                "spread widens a shadow");
+        auto huge = soft;
+        huge.blur = 64;
+        const auto refused = render::shadow_image(huge, 4000, 4000, 2);
+        require(!refused && refused.error().code == weft::Diag::PaintList, "shadow bitmap bound");
+        // Planned as an image with its own colors over the shadow's rectangle, under the item's transform.
+        paint::DisplayList list;
+        list.shadows.push_back(hard);
+        auto shadow = item(Kind::Shadow, 0);
+        shadow.transform = {1, 0, 0, 1, 100, 50};
+        shadow.width = 20;
+        shadow.height = 10;
+        shadow.clip = {0, 0, 200, 100};
+        shadow.opacity = .5f;
+        list.items = {shadow};
+        require(bool(paint::check(list, 1)), "shadow list is well formed");
+        const auto pass = render::plan_scene_pass(list, 2, 400, 200).value();
+        const auto& r = pass.records[0];
+        require(pass.batches.size() == 1 && pass.batches[0].step == render::ScenePass::Step::Image &&
+                    r.size == std::array<float, 4>{22, 12, 0, 0} && r.extra[1] == .5f &&
+                    r.extra[2] == render::scene_limits::flag_enabled &&
+                    r.extra[3] == render::scene_limits::flag_disabled,
+                "shadow image record");
+        require(r.inv_x == std::array<float, 4>{1, 0, -109, 0} && r.inv_y == std::array<float, 4>{0, 1, -49, 0},
+                "a shadow record maps its rectangle");
     }
 
     // Runs of boxes share a draw, images and groups get their own steps, and an opaque first box that covers the
@@ -359,6 +435,17 @@ namespace {
                 "payloads renumber");
         const auto status = paint::append(into, from, {1, 1, 0, 1, 0, 0});
         require(!status && status.error().code == weft::Diag::PaintList, "skewed append");
+        // Shadows renumber after the destination's and keep their item-px values.
+        paint::DisplayList shaded;
+        shaded.shadows.push_back({{0, 0, 0, 1}, 1, 1, 0, 0, {}});
+        shaded.items = {item(Kind::Shadow, 0)};
+        paint::DisplayList more;
+        more.shadows.push_back({{1, 0, 0, 1}, 3, 4, 5, 6, {1, 2, 3, 4}});
+        more.items = {item(Kind::Shadow, 0)};
+        require(bool(paint::append(shaded, more, {2, 0, 0, 2, 0, 0})) && bool(paint::check(shaded, 1)) &&
+                    shaded.items[1].payload == 1 && shaded.shadows[1].blur == 5 && shaded.shadows[1].x == 3 &&
+                    shaded.shadows[1].radii == std::array<float, 4>{1, 2, 3, 4},
+                "appended shadows");
     }
 } // namespace
 
@@ -372,8 +459,9 @@ int main() {
         quads();
         external_textures();
         append();
-        std::cout << "PASS paint contracts: display list payloads, rasters, group nesting and kinds; scene pass plans; "
-                     "quad lists; external textures; appended lists\n";
+        shadows();
+        std::cout << "PASS paint contracts: display list payloads, rasters, shadows, group nesting and kinds; scene "
+                     "pass plans; quad lists; external textures; appended lists; shadow images\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

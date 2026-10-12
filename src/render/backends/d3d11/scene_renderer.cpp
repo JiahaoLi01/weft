@@ -1,6 +1,7 @@
 #include "render/backends/d3d11/scene_renderer.hpp"
 
 #include "constants/common.hpp"
+#include "render/shadow_image.hpp"
 #include "scene/scene_paint.hpp"
 #include "scene/scene_text_image.hpp"
 
@@ -191,6 +192,56 @@ namespace weft::render::d3d11 {
         return result;
     }
 
+    std::shared_ptr<const SceneRenderer::Image> SceneRenderer::shadow(const paint::Item& item, const paint::Shadow& s,
+                                                                      float scale) {
+        const std::array<float, 15> key{s.x,        s.y,        s.blur,     s.spread,    s.color[0],
+                                        s.color[1], s.color[2], s.color[3], s.radii[0],  s.radii[1],
+                                        s.radii[2], s.radii[3], item.width, item.height, scale};
+        if (auto it = shadows_.find(key); it != shadows_.end()) {
+            ++shadow_reuses;
+            return it->second;
+        }
+        auto image = shadow_image(s, item.width, item.height, scale);
+        if (!image) {
+            throw std::invalid_argument(image.error().message);
+        }
+        // Premultiplied RGBA to the texture's BGRA.
+        auto& pixels = image->rgba;
+        for (std::size_t i = 0; i < pixels.size(); i += 4) {
+            std::swap(pixels[i], pixels[i + 2]);
+        }
+        const auto bytes = pixels.size();
+        if (bytes > limits::image_cache_budget_bytes) {
+            throw std::invalid_argument("shadow image byte bound");
+        }
+        auto result = std::make_shared<Image>();
+        result->scale = scale;
+        result->bytes = bytes;
+        D3D11_TEXTURE2D_DESC desc{};
+        desc.Width = image->geometry.width;
+        desc.Height = image->geometry.height;
+        desc.MipLevels = desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Usage = D3D11_USAGE_IMMUTABLE;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        D3D11_SUBRESOURCE_DATA data{pixels.data(), image->geometry.width * 4, 0};
+        ComPtr<ID3D11Texture2D> texture;
+        throw_if_failed(gpu_.device->CreateTexture2D(&desc, &data, &texture), "native shadow image");
+        throw_if_failed(gpu_.device->CreateShaderResourceView(texture.Get(), nullptr, &result->view),
+                        "native shadow view");
+        ++shadow_builds;
+        if (shadows_.size() >= limits::image_cache_max_entries ||
+            shadow_bytes_ + bytes > limits::image_cache_budget_bytes) {
+            shadows_.clear();
+            shadow_bytes_ = 0;
+            ++image_evictions;
+        }
+        shadow_bytes_ += bytes;
+        shadows_.emplace(key, result);
+        return result;
+    }
+
     bool SceneRenderer::paint(Slot& slot, const SceneFrame& frame, ID3D11RenderTargetView* destination, float scale,
                               unsigned target_width, unsigned target_height, std::optional<std::array<float, 4>> crop,
                               unsigned view_index, const std::vector<NodeIdentity>& layers) {
@@ -228,6 +279,8 @@ namespace weft::render::d3d11 {
                 const auto& item = list.items[i];
                 if (item.kind == Kind::Text || item.kind == Kind::Layer) {
                     images[i] = image(item, list.rasters[item.payload], scale, view_index);
+                } else if (item.kind == Kind::Shadow) {
+                    images[i] = shadow(item, list.shadows[item.payload], scale);
                 }
             }
         } catch (const std::invalid_argument& e) {

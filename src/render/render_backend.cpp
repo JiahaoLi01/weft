@@ -378,7 +378,7 @@ namespace {
                 return WEFT_RENDER_INVALID_ARGUMENT;
             }
             uint32_t feature = WEFT_RENDER_FEATURE_SOLID;
-            if (item.kind == Kind::Text || item.kind == Kind::Layer ||
+            if (item.kind == Kind::Text || item.kind == Kind::Layer || item.kind == Kind::Shadow ||
                 item.clips_count > uint32_t(weft::constants::render::scene::max_rounded_clips)) {
                 return WEFT_RENDER_UNSUPPORTED_FEATURE;
             }

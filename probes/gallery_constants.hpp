@@ -142,6 +142,10 @@ namespace weft::probe_constants::gallery {
 
     // Largest channel difference accepted between GPU output and the CPU packet oracle.
     inline constexpr int max_cpu_oracle_difference = weft::probe_constants::cpu_oracle_tolerance;
+    // GPU box shadows against the reference raster's CPU pixels, outside the box: the same shadow image, bilinear
+    // filtered by each, within this many levels; at least this many pixels must show the shadow.
+    inline constexpr int max_shadow_oracle_difference = weft::probe_constants::cpu_oracle_tolerance;
+    inline constexpr unsigned min_shadow_oracle_pixels = 1000;
     // 4K preview oracle grid: starts at 17 px with prime strides and stops left of the HUD.
     inline constexpr int oracle_grid_origin = 17;
     inline constexpr int oracle_grid_stride_x = 211;

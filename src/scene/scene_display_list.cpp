@@ -245,9 +245,6 @@ namespace weft {
                 if ((!n.space.empty() && n.space != constants::xhtml_namespace_uri)) {
                     throw std::invalid_argument("SVG reference");
                 }
-                if (!get(n.style, PropertyId::BoxShadow).empty() && get(n.style, PropertyId::BoxShadow) != "none") {
-                    throw std::invalid_argument("shadow reference");
-                }
                 paint::Item item;
                 item.transform = multiply(parent, matrix(n));
                 item.clip = clip;
@@ -315,7 +312,11 @@ namespace weft {
                                      std::any_of(box.widths.begin(), box.widths.end(), [](float w) {
                                          return w > 0;
                                      });
-                const bool isolated = opacity < 1 && (!n.children.empty() || (!n.text.empty() && painted));
+                // Shadows of the border box with its corners as specified, as the reference raster draws them.
+                const auto shadows = scene_values::box_shadows(
+                    n.style, item.width, item.height, scene_values::specified_radii(n.style, item.width, item.height));
+                const bool isolated = opacity < 1 && (!n.children.empty() || (!n.text.empty() && painted) ||
+                                                      (!shadows.empty() && (painted || !n.text.empty())));
                 if (!isolated) {
                     item.opacity = opacity;
                 }
@@ -330,6 +331,14 @@ namespace weft {
                     g.clips_begin = chain.begin;
                     g.clips_count = chain.count;
                     list.items.push_back(g);
+                }
+                // Shadows lie under the box, bottom first.
+                for (const auto& shadow : shadows) {
+                    auto s = item;
+                    s.kind = paint::Item::Kind::Shadow;
+                    s.payload = std::uint32_t(list.shadows.size());
+                    list.shadows.push_back(shadow);
+                    list.items.push_back(s);
                 }
                 if (painted) {
                     auto shape = item;

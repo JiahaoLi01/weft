@@ -1,6 +1,7 @@
 #include "paint/display_list.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 
 namespace weft::paint {
@@ -46,6 +47,21 @@ namespace weft::paint {
                         return make_diagnostic(Diag::PaintList, "raster payload out of range or without source" + at);
                     }
                     break;
+                case Item::Kind::Shadow: {
+                    if (item.payload >= list.shadows.size()) {
+                        return make_diagnostic(Diag::PaintList, "shadow payload out of range" + at);
+                    }
+                    const auto& s = list.shadows[item.payload];
+                    const auto finite = [](float v) {
+                        return std::isfinite(v);
+                    };
+                    if (!std::all_of(s.color.begin(), s.color.end(), finite) ||
+                        !std::all_of(s.radii.begin(), s.radii.end(), finite) || !std::isfinite(s.x) ||
+                        !std::isfinite(s.y) || !std::isfinite(s.spread) || !std::isfinite(s.blur) || s.blur < 0) {
+                        return make_diagnostic(Diag::PaintList, "shadow value" + at);
+                    }
+                    break;
+                }
                 case Item::Kind::BeginGroup:
                     if (++depth > max_group_depth) {
                         return make_diagnostic(Diag::PaintList, "group depth bound" + at);
@@ -83,6 +99,7 @@ namespace weft::paint {
         const auto boxes = std::uint32_t(into.boxes.size());
         const auto images = std::uint32_t(into.images.size());
         const auto rasters = std::uint32_t(into.rasters.size());
+        const auto shadows = std::uint32_t(into.shadows.size());
         const auto clips = std::uint32_t(into.clips.size());
         into.boxes.insert(into.boxes.end(), from.boxes.begin(), from.boxes.end());
         for (auto image : from.images) {
@@ -91,6 +108,7 @@ namespace weft::paint {
             into.images.push_back(image);
         }
         into.rasters.insert(into.rasters.end(), from.rasters.begin(), from.rasters.end());
+        into.shadows.insert(into.shadows.end(), from.shadows.begin(), from.shadows.end());
         into.assets.insert(into.assets.end(), from.assets.begin(), from.assets.end());
         into.external_textures += from.external_textures;
         for (auto clip : from.clips) {
@@ -119,6 +137,9 @@ namespace weft::paint {
                 case Item::Kind::Text:
                 case Item::Kind::Layer:
                     item.payload += rasters;
+                    break;
+                case Item::Kind::Shadow:
+                    item.payload += shadows;
                     break;
                 default:
                     break;

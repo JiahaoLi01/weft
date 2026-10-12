@@ -5,6 +5,8 @@
 #include "constants/common.hpp"
 #include "constants/scene.hpp"
 #include "dom/node.hpp"
+#include "paint/display_list.hpp"
+#include "style/style.hpp"
 #include "render/rounded_clip.hpp"
 #include "style/values.hpp"
 
@@ -12,8 +14,10 @@
 #include <array>
 #include <map>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 // Computed style values of the scene renderers (scene_geometry, scene_text_image and the D2D reference raster): one
 // parser, so every renderer resolves a length to the same float.
@@ -120,6 +124,86 @@ namespace weft::scene_values {
         return std::any_of(c.radius_x.begin(), c.radius_x.end(), [](float r) {
             return r > 0;
         });
+    }
+
+    // A box's corner radii as specified, top-left first and clockwise: percentages of the shorter side, not yet
+    // reduced against each other.
+    inline std::array<float, 4> specified_radii(const Style& s, float w, float h) {
+        std::array<float, 4> r{};
+        unsigned k{};
+        for (const auto id : {PropertyId::BorderTopLeftRadius, PropertyId::BorderTopRightRadius,
+                              PropertyId::BorderBottomRightRadius, PropertyId::BorderBottomLeftRadius}) {
+            r[k++] = len(get(s, id, "0"), std::min(w, h));
+        }
+        return r;
+    }
+
+    // A box-shadow color: transparent for none, transparent and #0000, rgb(r g b / a) with space separated
+    // channels, currentcolor as the color property, and otherwise a CSS color.
+    inline paint::Color shadow_color(std::string text, const Style& s) {
+        text = css::trim(text);
+        if (text == "none" || text == "transparent" || text == "#0000") {
+            return {};
+        }
+        if (text.starts_with("rgb(") && text.find('/') != text.npos) {
+            auto v = text.substr(4, text.size() - 5);
+            std::replace(v.begin(), v.end(), '/', ' ');
+            std::istringstream parser(v);
+            float r{};
+            float g{};
+            float b{};
+            float a{};
+            if (!(parser >> r >> g >> b >> a)) {
+                fail("shadow color");
+            }
+            return {r / constants::color_channel_max, g / constants::color_channel_max,
+                    b / constants::color_channel_max, a};
+        }
+        if (text == "currentColor" || text == "currentcolor") {
+            text = get(s, PropertyId::Color, constants::default_color);
+        }
+        return parse_css_color(css::expand_color_shorthand(text));
+    }
+
+    // A w x h box's visible outer shadows in paint order, bottom first (CSS lists the topmost first), each with the
+    // box's specified radii. A layer is "x y [blur [spread]] color"; an inset layer, a missing length or color, more
+    // than max_box_shadow_layers layers, or a blur or spread past max_box_shadow_extent_px fails. Transparent shadows
+    // and shadows whose spread empties the box are left out.
+    inline std::vector<paint::Shadow> box_shadows(const Style& s, float w, float h, const std::array<float, 4>& radii) {
+        std::vector<paint::Shadow> out;
+        const auto value = get(s, PropertyId::BoxShadow, "none");
+        if (value.empty() || value == "none") {
+            return out;
+        }
+        const auto layers = css::split(value, ',', {.quotes = false}).parts;
+        if (layers.size() > constants::scene::max_box_shadow_layers) {
+            fail("shadow layer bound");
+        }
+        for (auto it = layers.rbegin(); it != layers.rend(); ++it) {
+            const auto parts = css::split(*it, ' ', {.quotes = false}).parts;
+            if (parts.size() < 3 || parts.size() > 5 || parts[0] == "inset") {
+                fail("outer shadow lengths and color required");
+            }
+            paint::Shadow shadow;
+            shadow.color = shadow_color(parts.back(), s);
+            if (shadow.color[3] == 0) {
+                continue;
+            }
+            shadow.x = len(parts[0]);
+            shadow.y = len(parts[1]);
+            shadow.blur = parts.size() > 3 ? len(parts[2]) : 0;
+            shadow.spread = parts.size() > 4 ? len(parts[3]) : 0;
+            if (shadow.blur < 0 || shadow.blur > constants::scene::max_box_shadow_extent_px ||
+                std::abs(shadow.spread) > constants::scene::max_box_shadow_extent_px) {
+                fail("shadow blur/spread bound");
+            }
+            if (w + 2 * shadow.spread <= 0 || h + 2 * shadow.spread <= 0) {
+                continue;
+            }
+            shadow.radii = radii;
+            out.push_back(shadow);
+        }
+        return out;
     }
 
     // The rounded border box of a w x h box in its own coordinates, when a corner is rounded.

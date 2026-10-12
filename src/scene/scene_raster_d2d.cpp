@@ -4,6 +4,7 @@
 #include "scene/scene_text_image.hpp"
 #include "scene/scene_values.hpp"
 #include "base/css_scalar.hpp"
+#include "render/shadow_image.hpp"
 #include "base/owner_thread.hpp"
 #include "constants/scene.hpp"
 #include <d2d1_1.h>
@@ -1048,155 +1049,34 @@ namespace weft {
         }
 
         void shadow(const SceneNode& n, const std::array<float, 4>& corners) {
-            auto value = get(n.style, PropertyId::BoxShadow, "none");
-            if (value.empty() || value == "none") {
-                return;
-            }
-            auto items = split(value, ',');
-            if (items.size() > constants::scene::max_box_shadow_layers) {
-                fail("shadow layer bound");
-            }
             const auto w = n.box[2];
             const auto h = n.box[3];
-            auto distance = [](float x, float y, float width, float height, const std::array<float, 4>& radii) {
-                const auto r = std::min(std::min(width, height) / 2,
-                                        radii[y < height / 2 ? (x < width / 2 ? 0 : 1) : (x < width / 2 ? 3 : 2)]);
-                const auto qx = std::abs(x - width / 2) - (width / 2 - r);
-                const auto qy = std::abs(y - height / 2) - (height / 2 - r);
-                return std::hypot(std::max(qx, 0.f), std::max(qy, 0.f)) + std::min(std::max(qx, qy), 0.f) - r;
-            };
-            for (auto it = items.rbegin(); it != items.rend(); ++it) {
-                auto parts = split(*it);
-                if (parts.size() < 3 || parts.size() > 5 || parts[0] == "inset") {
-                    fail("outer shadow lengths and color required");
-                }
-                auto ctext = parts.back();
-                D2D1_COLOR_F c{};
-                if (ctext == "#0000") {
-                    continue;
-                }
-                if (ctext.starts_with("rgb(") && ctext.find('/') != ctext.npos) {
-                    auto v = ctext.substr(4, ctext.size() - 5);
-                    std::replace(v.begin(), v.end(), '/', ' ');
-                    std::istringstream parser(v);
-                    float r{};
-                    float g{};
-                    float b{};
-                    float a{};
-                    if (!(parser >> r >> g >> b >> a)) {
-                        fail("shadow color");
-                    }
-                    c = {r / constants::color_channel_max, g / constants::color_channel_max,
-                         b / constants::color_channel_max, a};
-                } else {
-                    c = color(ctext, n.style);
-                }
-                if (c.a == 0) {
-                    continue;
-                }
-                const auto x = len(parts[0]);
-                const auto y = len(parts[1]);
-                const auto blur = parts.size() > 3 ? len(parts[2]) : 0;
-                const auto spread = parts.size() > 4 ? len(parts[3]) : 0;
-                if (blur < 0 || blur > constants::scene::max_box_shadow_extent_px ||
-                    std::abs(spread) > constants::scene::max_box_shadow_extent_px) {
-                    fail("shadow blur/spread bound");
-                }
-                if (w + 2 * spread <= 0 || h + 2 * spread <= 0) {
-                    continue;
-                }
+            for (const auto& layer : scene_values::box_shadows(n.style, w, h, corners)) {
                 std::ostringstream key;
-                key << *it << '|' << w << '|' << h << '|' << scale;
+                key << layer.x << '|' << layer.y << '|' << layer.blur << '|' << layer.spread << '|' << w << '|' << h
+                    << '|' << scale;
+                for (auto v : layer.color) {
+                    key << '|' << v;
+                }
                 for (auto r : corners) {
                     key << '|' << r;
                 }
                 auto cached = shadows.find(key.str());
                 if (cached == shadows.end()) {
-                    const auto sigma = blur * scale / 2;
-                    const auto guard =
-                        std::ceil(constants::scene::shadow_kernel_sigmas * sigma) + constants::scene::shadow_guard_px;
-                    const float left = x - spread - guard / scale;
-                    const float top = y - spread - guard / scale;
-                    const unsigned iw = unsigned(std::ceil((w + 2 * spread) * scale + 2 * guard));
-                    const unsigned ih = unsigned(std::ceil((h + 2 * spread) * scale + 2 * guard));
-                    const auto count = std::size_t(iw) * ih;
-                    if (!iw || !ih || count > constants::scene::max_shadow_bitmap_pixels) {
-                        fail("shadow bitmap bound");
+                    auto image = render::shadow_image(layer, w, h, scale);
+                    if (!image) {
+                        fail(image.error().message);
                     }
-                    std::vector<float> mask(count);
-                    std::vector<float> temporary(count);
-                    std::vector<float> filtered(count);
-                    auto radii = corners;
-                    for (auto& r : radii) {
-                        r = std::max(0.f, r + spread);
+                    // Premultiplied RGBA to the bitmap's BGRA.
+                    auto& pixels = image->rgba;
+                    for (std::size_t i = 0; i < pixels.size(); i += 4) {
+                        std::swap(pixels[i], pixels[i + 2]);
                     }
-                    for (unsigned row = 0; row < ih; ++row) {
-                        for (unsigned col = 0; col < iw; ++col) {
-                            const float px = (col + .5f) / scale - guard / scale;
-                            const float py = (row + .5f) / scale - guard / scale;
-                            mask[std::size_t(row) * iw + col] = std::clamp(
-                                .5f - distance(px, py, w + 2 * spread, h + 2 * spread, radii) * scale, 0.f, 1.f);
-                        }
-                    }
-                    if (sigma > 0) {
-                        const int radius = int(std::ceil(constants::scene::shadow_kernel_sigmas * sigma));
-                        std::vector<float> kernel(2 * radius + 1);
-                        float total{};
-                        for (int k = -radius; k <= radius; ++k) {
-                            total += kernel[k + radius] = std::exp(-float(k * k) / (2 * sigma * sigma));
-                        }
-                        for (auto& v : kernel) {
-                            v /= total;
-                        }
-                        for (unsigned row = 0; row < ih; ++row) {
-                            for (unsigned col = 0; col < iw; ++col) {
-                                float v{};
-                                for (int k = -radius; k <= radius; ++k) {
-                                    if (int(col) + k >= 0 && int(col) + k < int(iw)) {
-                                        v += mask[std::size_t(row) * iw + col + k] * kernel[k + radius];
-                                    }
-                                }
-                                temporary[std::size_t(row) * iw + col] = v;
-                            }
-                        }
-                        for (unsigned row = 0; row < ih; ++row) {
-                            for (unsigned col = 0; col < iw; ++col) {
-                                float v{};
-                                for (int k = -radius; k <= radius; ++k) {
-                                    if (int(row) + k >= 0 && int(row) + k < int(ih)) {
-                                        v += temporary[std::size_t(int(row) + k) * iw + col] * kernel[k + radius];
-                                    }
-                                }
-                                filtered[std::size_t(row) * iw + col] = v;
-                            }
-                        }
-                    } else {
-                        filtered = mask;
-                    }
-                    std::vector<std::uint8_t> pixels(count * 4);
-                    for (unsigned row = 0; row < ih; ++row) {
-                        for (unsigned col = 0; col < iw; ++col) {
-                            const auto index = std::size_t(row) * iw + col;
-                            const auto outside = std::clamp(
-                                .5f + distance(left + (col + .5f) / scale, top + (row + .5f) / scale, w, h, corners) *
-                                          scale,
-                                0.f, 1.f);
-                            const auto alpha = filtered[index] * outside * c.a;
-                            auto p = pixels.data() + index * 4;
-                            p[0] = std::uint8_t(std::clamp(c.b * alpha * constants::color_channel_max + .5f, 0.f,
-                                                           static_cast<float>(constants::color_channel_max)));
-                            p[1] = std::uint8_t(std::clamp(c.g * alpha * constants::color_channel_max + .5f, 0.f,
-                                                           static_cast<float>(constants::color_channel_max)));
-                            p[2] = std::uint8_t(std::clamp(c.r * alpha * constants::color_channel_max + .5f, 0.f,
-                                                           static_cast<float>(constants::color_channel_max)));
-                            p[3] = std::uint8_t(std::clamp(alpha * constants::color_channel_max + .5f, 0.f,
-                                                           static_cast<float>(constants::color_channel_max)));
-                        }
-                    }
+                    const auto& g = image->geometry;
                     ShadowBitmap entry;
-                    entry.rect = {left, top, left + iw / scale, top + ih / scale};
+                    entry.rect = {g.rect[0], g.rect[1], g.rect[0] + g.rect[2], g.rect[1] + g.rect[3]};
                     entry.bytes = pixels.size();
-                    check(target->CreateBitmap({iw, ih}, pixels.data(), iw * 4,
+                    check(target->CreateBitmap({g.width, g.height}, pixels.data(), g.width * 4,
                                                D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,
                                                                                         D2D1_ALPHA_MODE_PREMULTIPLIED)),
                                                &entry.bitmap));

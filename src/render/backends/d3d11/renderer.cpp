@@ -368,8 +368,9 @@ namespace weft::render::d3d11 {
         ensure(list && bool(paint::check(*list, weft::constants::render::scene::max_group_depth)),
                "well-formed display list");
         for (const auto& item : list->items) {
-            ensure(item.kind != paint::Item::Kind::Text && item.kind != paint::Item::Kind::Layer,
-                   "the display list pass draws no scene rasters");
+            ensure(item.kind != paint::Item::Kind::Text && item.kind != paint::Item::Kind::Layer &&
+                       item.kind != paint::Item::Kind::Shadow,
+                   "the display list pass draws no scene rasters or shadows");
             if (item.kind == paint::Item::Kind::Image) {
                 const auto& image = list->images[item.payload];
                 ensure(image.stroke >= 0 && (image.asset >= list->assets.size() ||

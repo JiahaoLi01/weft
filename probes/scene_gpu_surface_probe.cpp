@@ -171,6 +171,71 @@ namespace probes {
                                  {}, {restored.handle});
         surfaces.submitted(serial, visible);
         require(surfaces.read(0).rgba == full.rgba, "GPU scroll reveal retained cropped pixels");
+        int shadow_error{};
+        unsigned shadow_pixels{};
+        // Box shadows on the GPU match the reference raster's CPU pixels wherever only shadow shows (box edges
+        // antialias differently): two layers, the topmost listed first, one blurred and spread, one hard, under a
+        // rounded box at a fractional offset.
+        {
+            weft::SceneFrame shade;
+            shade.root.box = {0, 0, 80, 80};
+            shade.root.tag = "div";
+            shade.root.identity = {1, 1, 901};
+            shade.root.style = {{"background-color", "#ffffff"}};
+            auto caster = shade.root;
+            caster.identity.slot = 2;
+            caster.box = {22.25f, 18.5f, 40, 36};
+            caster.style = {{"background-color", "#2050d0"},
+                            {"border-top-left-radius", "6px"},
+                            {"border-top-right-radius", "6px"},
+                            {"border-bottom-right-radius", "12px"},
+                            {"border-bottom-left-radius", "6px"},
+                            {"box-shadow", "-8px -6px 0px 0px #ff0000, 3px 6px 8px 2px rgba(0, 0, 0, 0.6)"}};
+            shade.root.children.push_back(caster);
+            const auto scale = weft::probe_constants::gallery::scene_raster_scale;
+            const auto reference = software.raster(shade, float(scale));
+            const auto shadows_before = surfaces.native_work().shadow_builds;
+            const auto fallbacks_before = surfaces.native_work().fallbacks;
+            auto& shaded = surfaces.paint(0, shade);
+            surfaces.publish();
+            FramePacket packet;
+            packet.draws.push_back({{0, 0, float(shaded.width), float(shaded.height)}, {1, 1, 1, 1}, 0});
+            serial = pipeline.submit(std::move(packet),
+                                     [] {
+                                     },
+                                     {}, {shaded.handle});
+            surfaces.submitted(serial, visible);
+            const auto drawn = surfaces.read(0);
+            require(drawn.width == reference.width && drawn.height == reference.height, "GPU shadow surface size");
+            for (unsigned y = 0; y < drawn.height; ++y) {
+                for (unsigned x = 0; x < drawn.width; ++x) {
+                    // Device pixel centers more than 2 px outside the box's rectangle.
+                    const float cx = (x + .5f) / scale;
+                    const float cy = (y + .5f) / scale;
+                    const float margin = 2.f / scale;
+                    if (cx > caster.box[0] - margin && cx < caster.box[0] + caster.box[2] + margin &&
+                        cy > caster.box[1] - margin && cy < caster.box[1] + caster.box[3] + margin) {
+                        continue;
+                    }
+                    const auto offset = (std::size_t(y) * drawn.width + x) * 4;
+                    if (reference.rgba[offset] < 200 || reference.rgba[offset + 1] < 200) {
+                        ++shadow_pixels;
+                    }
+                    for (unsigned c = 0; c < 4; ++c) {
+                        shadow_error = std::max(
+                            shadow_error, std::abs(int(drawn.rgba[offset + c]) - int(reference.rgba[offset + c])));
+                    }
+                }
+            }
+            std::cout << "shadow oracle: " << shadow_pixels << " shadow pixels, max difference " << shadow_error
+                      << '\n';
+            require(shadow_pixels > weft::probe_constants::gallery::min_shadow_oracle_pixels &&
+                        shadow_error <= weft::probe_constants::gallery::max_shadow_oracle_difference,
+                    "GPU box shadow differs from the reference raster");
+            require(!optimized || (surfaces.native_work().shadow_builds > shadows_before &&
+                                   surfaces.native_work().fallbacks == fallbacks_before),
+                    "native box shadow fell back");
+        }
         surfaces.release();
         gpu.evict_assets(0, true);
         gpu.check_debug_messages();
@@ -198,6 +263,7 @@ namespace probes {
                << ",\"pool_reuses\":" << surfaces.reuses << ",\"retired_imports\":" << surfaces.retired
                << ",\"peak_in_flight\":" << pipeline.peak_in_flight
                << ",\"alpha_conversion_max_difference\":" << conversion_error
+               << ",\"shadow_oracle_pixels\":" << shadow_pixels << ",\"shadow_oracle_max_difference\":" << shadow_error
                << ",\"crop_reveal_verified\":true,\"debug_warnings\":0}";
         write_text(folder / "report.json", report.str());
         std::cout << "PASS GPU 26 CSS + 8 D3 / 102 unchanged Chromium references / actual completion retirement\n";

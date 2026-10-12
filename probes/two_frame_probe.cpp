@@ -142,8 +142,13 @@ namespace probes {
             });
             failed = false;
             try {
+                // The present callback fails at run time; read through volatile, so the compiler does not find the
+                // code after it in submit unreachable (C4702).
+                static volatile bool present_fails = true;
                 pipeline.submit(packet(5), [] {
-                    throw std::runtime_error("pipeline-post-submit");
+                    if (present_fails) {
+                        throw std::runtime_error("pipeline-post-submit");
+                    }
                 });
             } catch (const std::runtime_error& e) {
                 failed = std::string(e.what()) == "pipeline-post-submit";

@@ -1,6 +1,7 @@
 #include "render/scene_pass.hpp"
 
 #include "render/rounded_clip.hpp"
+#include "render/shadow_image.hpp"
 #include "render/srgb.hpp"
 
 #include <algorithm>
@@ -26,7 +27,8 @@ namespace weft::render {
         SceneRecord record(const paint::DisplayList& list, const paint::Item& item, const paint::ClipRect& clip,
                            float scale, unsigned w, unsigned h, Space space) {
             auto m = item.transform;
-            const bool image = item.kind == Kind::Text || item.kind == Kind::Layer || item.kind == Kind::Image;
+            const bool image = item.kind == Kind::Text || item.kind == Kind::Layer || item.kind == Kind::Image ||
+                               item.kind == Kind::Shadow;
             SceneRecord r{};
             r.uv = {0, 0, 1, 1};
             r.clips = {float(item.clips_begin), float(item.clips_count), 0, 0};
@@ -64,7 +66,7 @@ namespace weft::render {
                 } else if (asset && asset->encoding == paint::Encoding::SignedDistance) {
                     r.mode = {scene_limits::image_mode_signed_distance, asset->spread, source.stroke, 0};
                 }
-            } else if (image && list.rasters[item.payload].mask) {
+            } else if ((item.kind == Kind::Text || item.kind == Kind::Layer) && list.rasters[item.payload].mask) {
                 r.background = in(space, list.rasters[item.payload].tint);
                 r.extra[3] = scene_limits::flag_enabled;
             }
@@ -78,6 +80,13 @@ namespace weft::render {
                 m[5] -= scene_limits::image_margin * (m[1] + m[3]);
                 r.size[0] += scene_limits::image_margins;
                 r.size[1] += scene_limits::image_margins;
+            } else if (item.kind == Kind::Shadow) {
+                // A shadow image covers its own rectangle around the box, with its own premultiplied colors.
+                const auto g = shadow_geometry(list.shadows[item.payload], item.width, item.height, scale);
+                m[4] += g.rect[0] * m[0] + g.rect[1] * m[2];
+                m[5] += g.rect[0] * m[1] + g.rect[1] * m[3];
+                r.size[0] = g.rect[2];
+                r.size[1] = g.rect[3];
             }
             float det = m[0] * m[3] - m[1] * m[2];
             r.inv_x = {m[3] / det, -m[2] / det, (m[2] * m[5] - m[3] * m[4]) / det, 0};
@@ -187,6 +196,7 @@ namespace weft::render {
                     break;
                 case Kind::Text:
                 case Kind::Layer:
+                case Kind::Shadow:
                     pass.batches.push_back({Step::Image, i++, 1});
                     break;
                 case Kind::Image:

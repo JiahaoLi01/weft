@@ -972,6 +972,28 @@ CMake 拆分：
 - `scene_cluster_platform` 新增：`#3a7`、`#f00`、`#000` 分别作背景、边框与文字着色的取值；径向与线性长度色标的比例（线性用非正方形平铺，能区分轴向）；圆锥长度色标回退。
 - 变异检查 5 个全部被发现：不展开简写、径向用整条对角线、线性交换两轴、圆锥接受长度、长度不换算。
 
+**10.5d：原生阴影**：
+- paint IR：新负载 `Shadow`（颜色、偏移、模糊、扩展，以及按指定值、尚未相互缩小的四角半径）与条目种类 `Item::Kind::Shadow`；`check()` 校验负载范围与数值（有限、模糊非负），`append()` 重新编号阴影。
+- 可移植阴影图 `render::shadow_image()` 与 `shadow_geometry()`（`src/render/shadow_image.*`），从 D2D 参考原样移出：
+  - 展开形状（盒子按 spread 外扩，半径同加）的抗锯齿遮罩，σ = blur·scale/2 的可分离高斯（与 Chromium 相同），四周留三个标准差加 2 个设备像素；
+  - 只保留盒子以外的部分，输出预乘 RGBA8；超过 1024×1024 像素返回 `Diag::PaintList`。
+- 共享解析 `scene_values::box_shadows()`：层数上限 8、`x y [blur [spread]] color`、`rgb(r g b / a)` 与 `#0000`、模糊与扩展上限 64px，全部与原 D2D 相同；内阴影仍报 `WEFT_SCENE_RASTER`。D2D 参考改用这两处共享代码，产物逐字节不变。
+- 显示列表：阴影条目紧挨在盒子之下，最后列出的先画（CSS 先列出的在最上）；节点有透明度且阴影与背景或文字同时存在时，整个节点作为一组隔离。
+- 规划器：阴影是一张自带颜色的图像，记录的变换平移到阴影矩形的原点，尺寸取矩形尺寸。D3D11 scene 渲染器按数值缓存阴影纹理（与文字、图层同一条目与字节上限，计数 `shadow_builds`/`shadow_reuses`）。文档路径（D3D11、Vulkan 与 C ABI）不接受阴影条目。
+- 回退：cluster GPU 210 → 189（剩下全是 SVG），预览 44 → 41；scene-native 不变（SVG 968、投影变换 121）。
+- 顺带：`two_frame_probe` 故意抛异常的 present 回调改为读 volatile 条件后抛出。原先 LTCG 重新生成 `TwoFramePipeline::submit` 时会报 C4702（该实例中 return 不可达）。
+
+验证：
+- `ctest --preset windows-release --parallel 6` 105/105，`windows-debug --parallel 6` 105/105（315.3 s）。
+- 产物（与 10.5c 相比，计时类与按真实时钟播放的预览除外）：只有 cluster GPU 的 anime-11（投掷小球，`shadow-lg`）7 张截图改为原生，Debug 与 Release 相同。与原 D2D 的差别在圆的边缘与文字：编码 pass 的抗锯齿按 fwidth 计宽，对角边缘更软。阴影本身是 10% 的黑色。与浏览器参考：IoU 0.9589 → 0.9619，均差 0.1442 → 0.1484。
+- scene-native 探针新增阴影对照：两层阴影（一层模糊带扩展，一层硬边红色）画在小数偏移的圆角盒下。盒外 3522 个阴影像素与 D2D 的 CPU 栅格相比，原生最大差 2，D2D GPU 目标模式为 0。报告新增 `shadow_oracle_pixels`、`shadow_oracle_max_difference`。
+- 合同：
+  - `paint_contract`：阴影负载与数值检查、`append` 重新编号；阴影图的几何，盒下透明、硬阴影在盒旁、模糊对称衰减、扩展变宽与位图上限；规划记录的矩形映射与标志；
+  - `scene_cluster_platform`：阴影在盒子之下、最后列出的先画、透明度成组、透明层略去、内阴影回退、gallery 阴影条目的取值。
+- 变异检查 11 个全部被发现：
+  - 由合同发现：丢掉阴影、按列出顺序画、透明度不成组、记录不平移、记录用盒子尺寸、盒下也画阴影、σ 取 blur、接受负模糊、`append` 不重新编号；
+  - 由 scene-native 探针发现：上传时不换 RGBA/BGRA、渲染器不准备阴影图（崩溃）。
+
 ## 顺序调整（2026-10-10）
 
 用户决定先完成第 7–9 步，第 10 步（第二个图形后端与移动平台）暂缓。跨平台仍是硬性需求：
