@@ -71,6 +71,8 @@ namespace weft::render::vulkan {
         void destroy(Buffer& buffer) const noexcept;
         // Whether images of format can be color attachments that blend.
         bool blends(VkFormat format) const;
+        // Whether images of format can be sampled with linear filtering.
+        bool filters(VkFormat format) const;
         // Blocks of device memory that small images share now, and the device memory allocations made so far (blocks,
         // and the memory of larger images and of buffers).
         std::size_t image_blocks() const;

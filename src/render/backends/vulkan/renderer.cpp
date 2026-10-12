@@ -289,10 +289,14 @@ namespace weft::render::vulkan {
         return out;
     }
 
-    PreparedFrame Renderer::prepare(std::shared_ptr<const paint::DisplayList> list) {
+    PreparedFrame Renderer::prepare(std::shared_ptr<const paint::DisplayList> list,
+                                    std::vector<ExternalView> external) {
         ensure(list && bool(paint::check(*list, weft::constants::render::scene::max_group_depth)) &&
-                   !list->external_textures,
-               "a well-formed display list without external textures");
+                   list->external_textures == external.size(),
+               "a well-formed display list with a view of each external texture");
+        for (const auto& e : external) {
+            ensure(e.view != VK_NULL_HANDLE, "an external texture view");
+        }
         for (const auto& item : list->items) {
             ensure(item.kind != paint::Item::Kind::Text && item.kind != paint::Item::Kind::Layer &&
                        item.kind != paint::Item::Kind::Shadow && item.kind != paint::Item::Kind::Path &&
@@ -308,6 +312,7 @@ namespace weft::render::vulkan {
         }
         PreparedFrame frame;
         frame.list = std::move(list);
+        frame.external = std::move(external);
         const auto& sources = frame.list->assets;
 
         // The frame's leases, one per asset; a failure releases them, and textures that nothing else holds retire.
@@ -596,19 +601,27 @@ namespace weft::render::vulkan {
             }
 
             // The pass; images of one texture (an atlas page) draw together, from their regions there.
-            std::vector<std::uint64_t> names(frame.assets.size());
-            for (std::size_t i = 0; i < names.size(); ++i) {
+            std::vector<std::uint64_t> names(frame.assets.size() + frame.external.size());
+            for (std::size_t i = 0; i < frame.assets.size(); ++i) {
                 names[i] = abi_handle(view(*frame.assets[i]));
+            }
+            for (std::size_t i = 0; i < frame.external.size(); ++i) {
+                names[frame.assets.size() + i] = abi_handle(frame.external[i].view);
             }
             auto planned = plan_scene_pass(list, 1, width, height, std::nullopt, Space::Linear, &names);
             ensure(bool(planned), "display list pass plan");
             auto& pass = *planned;
             for (std::size_t i = 0; i < list.items.size(); ++i) {
-                if (list.items[i].kind == paint::Item::Kind::Image) {
-                    const auto* a = frame.assets.at(list.images[list.items[i].payload].asset);
-                    if (a->atlas) {
-                        place_in(pass.records[i], region_uv(*a->atlas));
+                if (list.items[i].kind != paint::Item::Kind::Image) {
+                    continue;
+                }
+                const auto source = list.images[list.items[i].payload].asset;
+                if (source >= frame.assets.size()) {
+                    if (frame.external.at(source - frame.assets.size()).bottom_left) {
+                        flip_rows(pass.records[i]);
                     }
+                } else if (const auto* a = frame.assets[source]; a->atlas) {
+                    place_in(pass.records[i], region_uv(*a->atlas));
                 }
             }
             if (!pass.records.empty()) {
@@ -648,7 +661,9 @@ namespace weft::render::vulkan {
                         images.push_back(blank_image_.view);
                         break;
                     case ScenePass::Step::Image:
-                        images.push_back(view(*frame.assets.at(batch.source)));
+                        images.push_back(batch.source < frame.assets.size()
+                                             ? view(*frame.assets[batch.source])
+                                             : frame.external.at(batch.source - frame.assets.size()).view);
                         break;
                     case ScenePass::Step::BeginGroup:
                         ++open;

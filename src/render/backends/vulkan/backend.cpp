@@ -3,6 +3,7 @@
 #include "render/frame_input.hpp"
 #include "render/quad_list.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <exception>
 #include <iostream>
@@ -99,6 +100,68 @@ namespace weft::render::vulkan {
                 sizeof(payload)};
     }
 
+    std::uint32_t Backend::external_formats() const {
+        std::uint32_t out = (1u << WEFT_RENDER_TARGET_LINEAR_RGBA8) | (1u << WEFT_RENDER_TARGET_LINEAR_RGBA16F);
+        if (gpu.gpu.filters(VK_FORMAT_R32G32B32A32_SFLOAT)) {
+            out |= 1u << WEFT_RENDER_TARGET_LINEAR_RGBA32F;
+        }
+        return out;
+    }
+
+    void Backend::enable_external(unsigned capacity, std::uint64_t bytes) {
+        imports_.assign(capacity, VK_NULL_HANDLE);
+        const auto table = make_c_external_backend(*this, {external_formats(), capacity, bytes});
+        render_result(weft_renderer_install_external_backend(renderer, &table), "install external texture extension");
+    }
+
+    weft_render_result Backend::import_texture(const weft_render_external_texture& description, std::uint64_t& out) {
+        out = 0;
+        if (description.native_texture_size < sizeof(weft_render_vulkan_texture)) {
+            return WEFT_RENDER_INVALID_ARGUMENT;
+        }
+        const auto& p = *static_cast<const weft_render_vulkan_texture*>(description.native_texture);
+        if (p.struct_size < sizeof(p) || p.abi_version != WEFT_RENDER_EXTERNAL_ABI_VERSION || !p.device ||
+            !p.image_view) {
+            return WEFT_RENDER_INVALID_ARGUMENT;
+        }
+        if (native_handle<VkDevice>(p.device) != gpu.gpu.device) {
+            return WEFT_RENDER_WRONG_BACKEND;
+        }
+        const auto view = native_handle<VkImageView>(p.image_view);
+        if (std::find(imports_.begin(), imports_.end(), view) != imports_.end()) {
+            return WEFT_RENDER_INVALID_STATE;
+        }
+        const auto free = std::find(imports_.begin(), imports_.end(), VkImageView{VK_NULL_HANDLE});
+        if (free == imports_.end()) {
+            return WEFT_RENDER_BUSY;
+        }
+        *free = view;
+        out = std::uint64_t(free - imports_.begin()) + 1;
+        ++imported;
+        return WEFT_RENDER_OK;
+    }
+
+    void Backend::release_texture(std::uint64_t native) {
+        if (!native || native > imports_.size() || !imports_[native - 1]) {
+            std::terminate();
+        }
+        imports_[native - 1] = VK_NULL_HANDLE;
+        ++released;
+    }
+
+    weft_render_result Backend::external_views(const weft_render_external_asset* textures, std::uint32_t count,
+                                               std::vector<ExternalView>& out) const {
+        out.reserve(count);
+        for (std::uint32_t i = 0; i < count; ++i) {
+            const auto token = textures[i].native_texture;
+            if (!token || token > imports_.size() || !imports_[token - 1]) {
+                return WEFT_RENDER_STALE_HANDLE;
+            }
+            out.push_back({imports_[token - 1], textures[i].description.origin == WEFT_RENDER_EXTERNAL_BOTTOM_LEFT});
+        }
+        return WEFT_RENDER_OK;
+    }
+
     template <class Make>
     weft_render_result Backend::prepare_with(std::uint64_t& out, Make&& make) {
         out = 0;
@@ -125,17 +188,44 @@ namespace weft::render::vulkan {
         });
     }
 
-    weft_render_result Backend::prepare_list(const weft_paint_list& list, const weft_render_external_asset*,
+    weft_render_result Backend::prepare_list(const weft_paint_list& list, const weft_render_external_asset* textures,
                                              std::uint32_t count, std::uint64_t& out) {
         out = 0;
-        if (count) {
-            return WEFT_RENDER_UNSUPPORTED_FEATURE;
-        }
         if (!list.list) {
             return WEFT_RENDER_INVALID_ARGUMENT;
         }
+        std::vector<ExternalView> external;
+        try {
+            if (const auto result = external_views(textures, count, external); result != WEFT_RENDER_OK) {
+                return result;
+            }
+        } catch (...) {
+            return WEFT_RENDER_OUT_OF_MEMORY;
+        }
         return prepare_with(out, [&] {
-            return gpu.prepare(list.list);
+            return gpu.prepare(list.list, std::move(external));
+        });
+    }
+
+    weft_render_result Backend::prepare_external(const weft_render_frame& frame,
+                                                 const weft_render_external_asset* textures, std::uint32_t count,
+                                                 std::uint64_t& out) {
+        out = 0;
+        std::vector<ExternalView> external;
+        try {
+            if (const auto result = external_views(textures, count, external); result != WEFT_RENDER_OK) {
+                return result;
+            }
+        } catch (...) {
+            return WEFT_RENDER_OUT_OF_MEMORY;
+        }
+        return prepare_with(out, [&] {
+            const auto packet = frame_packet(frame, [](std::uint32_t) {
+                return true;
+            });
+            return gpu.prepare(
+                std::make_shared<const paint::DisplayList>(quad_list(packet, count, gpu.width, gpu.height)),
+                std::move(external));
         });
     }
 

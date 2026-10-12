@@ -518,6 +518,14 @@ namespace weft::render::vulkan {
         return (properties.optimalTilingFeatures & needed) == needed;
     }
 
+    bool Device::filters(VkFormat format) const {
+        VkFormatProperties properties{};
+        vki.vkGetPhysicalDeviceFormatProperties(physical, format, &properties);
+        constexpr VkFormatFeatureFlags needed =
+            VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+        return (properties.optimalTilingFeatures & needed) == needed;
+    }
+
     VKAPI_ATTR VkBool32 VKAPI_CALL Device::report(VkDebugUtilsMessageSeverityFlagBitsEXT,
                                                   VkDebugUtilsMessageTypeFlagsEXT,
                                                   const VkDebugUtilsMessengerCallbackDataEXT* data, void* user) {

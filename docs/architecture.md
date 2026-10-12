@@ -6,7 +6,7 @@
 
 当前又增加独立 Windows HWND/swapchain 主鼠标宿主：WindowProc 只排队值，owner 命中前 flush 布局，以弱节点身份派发真实 MouseEvent；GPU completion 覆盖 UI 与宿主合成，resize/close 在安全点处理。单击、取消、隐藏节点、共同祖先与实际提交通过；完整 PointerEvent/focus/IME、CSS/HTML 加载尚未实现，见 [窗口合同](native-window-probe.md)。
 
-现已增加独立实验 C ABI renderer facade，D3D11 reference adapter 与窗口经过 function table。通用层校验能力/owner/instance/epoch，并跟踪 prepared/use 的提交与退休；各 adapter 解释自己的 native pass，宿主提交/显示/提供完成。Vulkan 与原生 Metal adapter 尚未实现，见 [后端 API 合同](render-backend-api.md)。
+现已增加独立实验 C ABI renderer facade，D3D11 reference adapter 与窗口经过 function table。通用层校验能力/owner/instance/epoch，并跟踪 prepared/use 的提交与退休；各 adapter 解释自己的 native pass，宿主提交/显示/提供完成。Vulkan adapter 已接入（2026-10-12），原生 Metal adapter 尚未实现，见 [后端 API 合同](render-backend-api.md)。
 
 2026-10-08 增加 flow 值接口：自己的 inline 行盒/Unicode 断点与 Yoga block/Flex 约束组合；owner 按 identity 保存 scroll，同步 geometry host 每读全量重算且禁止 JS 重入，snapshot 复制偏移/几何。圆角 clip chain 为不可变值，reference 准备阶段合并 coverage/image，renderer C ABI v1 不变。libunibreak 6.1 的有界 UAX14/29 数据已固定；scroll job 当前微任务时序、跨源 shaped cluster 与实体输入限制见 [实际合同](flow-layout-probe.md)，不提升后文完整设计的实现状态。
 

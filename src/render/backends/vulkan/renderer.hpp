@@ -59,12 +59,22 @@ namespace weft::render::vulkan {
         NativeAsset* texture{};
     };
 
+    // A host texture that a list draws (its asset indices follow the list's assets): a view of a linear premultiplied
+    // image in VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, its writes visible to fragment shader reads, whose rows may
+    // start at the bottom. The host keeps it alive until every frame that samples it completed.
+    struct ExternalView {
+        VkImageView view{};
+        bool bottom_left{};
+    };
+
     struct PreparedFrame {
         PreparedFrameId id;
         std::shared_ptr<const paint::DisplayList> list;
         // The textures of the list's assets, in order; the frame holds a lease of each and pins them, and the atlas
         // pages they are on.
         std::vector<NativeAsset*> assets;
+        // The list's host textures, in order.
+        std::vector<ExternalView> external;
     };
 
     // A color target of the renderer's size: a view of a single-sample 2D image of format, one mip level and layer, in
@@ -114,8 +124,9 @@ namespace weft::render::vulkan {
         Renderer& operator=(const Renderer&) = delete;
 
         // Finds or creates a texture for each of the list's assets and pins them for the frame. The list draws boxes,
-        // images and isolated groups (no scene rasters, no external textures) at one device px per CSS px.
-        PreparedFrame prepare(std::shared_ptr<const paint::DisplayList> list);
+        // images and isolated groups (no scene rasters) at one device px per CSS px; its external textures are
+        // external, one view each.
+        PreparedFrame prepare(std::shared_ptr<const paint::DisplayList> list, std::vector<ExternalView> external = {});
         // Releases the frame's CPU leases; its textures retire once no use or cache holds them.
         void release(const PreparedFrame& frame);
         // Records the frame's pending uploads and its pass over target into command, a primary command buffer that is

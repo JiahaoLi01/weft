@@ -75,6 +75,11 @@ if(WEFT_RENDER_VULKAN)
     weft_add_test(NAME render_vulkan_memory_heap COMMAND weft_render_vulkan_memory_tests --heap TIMEOUT 120)
     weft_add_test(NAME render_vulkan_memory_device COMMAND weft_render_vulkan_memory_tests --device TIMEOUT 120)
     set_tests_properties(render_vulkan_memory_device PROPERTIES SKIP_RETURN_CODE 77)
+    # Host textures through the Vulkan adapter of the renderer C ABI.
+    weft_add_executable(weft_render_vulkan_external_tests SOURCES render_vulkan_external_tests.cpp
+        LINK weft::render_vulkan)
+    weft_add_test(NAME render_vulkan_external_contract COMMAND weft_render_vulkan_external_tests TIMEOUT 120)
+    set_tests_properties(render_vulkan_external_contract PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 
 add_executable(weft_render_backend_c_smoke render_backend_c_smoke.c)

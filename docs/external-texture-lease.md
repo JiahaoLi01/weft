@@ -26,7 +26,7 @@ sRGB SRV、straight alpha、encoded-premultiplied Canvas、HDR、BGRA、mipmap�
 
 [D3D11 schema](../include/weft/render_backend_d3d11.h) 借用有效 `ID3D11ShaderResourceView`；reference 校验其真实 device、view format、全尺寸单 mip Texture2D 和描述尺寸。拒绝 CPU writable、shared/misc flags、array/MSAA；仅接受 DEFAULT/IMMUTABLE。import AddRef；通用层的退休调用 release。encode 在任何命令前检查输入纹理是否同时是当前 RTV，发现 alias 返回 invalid state。D3D11 不允许同一 subresource 同时绑定 SRV/RTV，见 [官方功能规范](https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm)。
 
-Vulkan/Metal 仍需各自实现 native import、layout/ownership、barrier/fence 和颜色合同；现有 API ID 和模拟合同不能当作移动后端已通过。
+2026-10-12 起 Vulkan 适配器实现了 native import：[Vulkan schema](../include/weft/render_backend_vulkan.h) 借用宿主的 `VkImageView`，校验设备，拒绝同一视图的第二次导入。Vulkan 不能查询视图的属性，格式（线性 RGBA8、RGBA16F，设备能线性过滤时 RGBA32F）、尺寸与用法由宿主保证；宿主写入的命令在同一队列上先提交，把图像留在 `SHADER_READ_ONLY_OPTIMAL` 并让写入对片元着色器可见。`render_vulkan_external_contract` 在 RTX 5090 与 AMD 核显上验证像素、bottom-left、租约退休与拒绝路径，验证层含同步验证零告警。Metal 仍需实现 native import、barrier 和颜色合同；现有 API ID 和模拟合同不能当作移动后端已通过。
 
 ## 实际验证与运行
 
