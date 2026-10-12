@@ -1,11 +1,15 @@
 #pragma once
 
+#include "render/backends/vulkan/memory.hpp"
 #include "render/backends/vulkan/vulkan.hpp"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <vector>
 
 // One Vulkan device of the system's loader: an instance, with the validation layer when it is installed, one physical
 // device and one graphics queue. Owner thread of the renderers that use it.
@@ -23,10 +27,13 @@ namespace weft::render::vulkan {
     };
 
     // A device-local 2D image of one mip level and layer, with its memory and a view of it. A framebuffer only for the
-    // renderer's own targets.
+    // renderer's own targets. A small image's memory is the range [memory_offset, memory_offset + memory_size) of a
+    // block that small images share; a larger image's (memory_size 0) is its own.
     struct Image {
         VkImage image{};
         VkDeviceMemory memory{};
+        VkDeviceSize memory_offset{};
+        VkDeviceSize memory_size{};
         VkImageView view{};
         VkFramebuffer framebuffer{};
         VkFormat format{};
@@ -55,7 +62,8 @@ namespace weft::render::vulkan {
         std::uint32_t memory_type(std::uint32_t bits, VkMemoryPropertyFlags flags) const;
         // Waits (bounded) for fence.
         void wait(VkFence fence) const;
-        // A new image or buffer; a failure throws and leaves nothing behind.
+        // A new image or buffer; a failure throws and leaves nothing behind. Images of at most block_image_max_bytes
+        // share blocks of device memory: allocating and freeing device memory costs far more than making an image.
         Image image(VkFormat format, std::uint32_t width, std::uint32_t height, VkImageUsageFlags usage) const;
         Buffer buffer(VkDeviceSize size, VkBufferUsageFlags usage, bool mapped) const;
         // Destroys what exists of image or buffer and empties it. The device must no longer use it.
@@ -63,6 +71,13 @@ namespace weft::render::vulkan {
         void destroy(Buffer& buffer) const noexcept;
         // Whether images of format can be color attachments that blend.
         bool blends(VkFormat format) const;
+        // Blocks of device memory that small images share now, and the device memory allocations made so far (blocks,
+        // and the memory of larger images and of buffers).
+        std::size_t image_blocks() const;
+
+        std::size_t memory_allocations() const noexcept {
+            return memory_allocations_;
+        }
 
         InstanceFunctions vki;
         DeviceFunctions vkd;
@@ -87,7 +102,23 @@ namespace weft::render::vulkan {
         std::string first_validation_message;
 
     private:
+        // A block of device-local memory of one memory type that small images share. Only images of optimal tiling
+        // share blocks, so no linear resource needs bufferImageGranularity apart from them.
+        struct ImageBlock {
+            ImageBlock(VkDeviceMemory m, std::uint32_t t, VkDeviceSize size) : memory(m), type(t), ranges(size) {
+            }
+
+            VkDeviceMemory memory;
+            std::uint32_t type;
+            RangeHeap ranges;
+        };
+
         Device() = default;
+
+        // Gives image a range of a block of memory type `type` that fits needs: a new block when none has room.
+        void place(Image& image, const VkMemoryRequirements& needs, std::uint32_t type) const;
+        // Frees image's range of its block. A block left empty goes unless it is the only empty one of its type.
+        void release(const Image& image) const noexcept;
 
         static VKAPI_ATTR VkBool32 VKAPI_CALL report(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
                                                      VkDebugUtilsMessageTypeFlagsEXT types,
@@ -95,5 +126,8 @@ namespace weft::render::vulkan {
 
         void* library_{};
         VkDebugUtilsMessengerEXT messenger_{};
+        mutable std::mutex blocks_mutex_;
+        mutable std::vector<std::unique_ptr<ImageBlock>> blocks_;
+        mutable std::atomic<std::size_t> memory_allocations_{};
     };
 } // namespace weft::render::vulkan

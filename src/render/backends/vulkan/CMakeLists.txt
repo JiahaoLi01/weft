@@ -1,7 +1,7 @@
 # Vulkan backend: the system loader opened at run time, one device with the validation layer when installed, and the
 # display list renderer with the shared scene shader compiled to SPIR-V.
 weft_add_library(render_vulkan
-    SOURCES backend.cpp device.cpp pipeline.cpp renderer.cpp swapchain.cpp
+    SOURCES backend.cpp device.cpp memory.cpp pipeline.cpp renderer.cpp swapchain.cpp
     PUBLIC weft::render weft_vulkan_headers)
 if(WIN32)
     # Surfaces of Win32 windows for the swapchain.

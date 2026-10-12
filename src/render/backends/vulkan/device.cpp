@@ -2,6 +2,7 @@
 
 #include "constants/render.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <optional>
 #include <sstream>
@@ -309,6 +310,9 @@ namespace weft::render::vulkan {
     Device::~Device() {
         if (device) {
             vkd.vkDeviceWaitIdle(device);
+            for (const auto& block : blocks_) {
+                vkd.vkFreeMemory(device, block->memory, nullptr);
+            }
             vkd.vkDestroyDevice(device, nullptr);
         }
         if (messenger_) {
@@ -355,12 +359,18 @@ namespace weft::render::vulkan {
             check(vkd.vkCreateImage(device, &info, nullptr, &out.image), "vkCreateImage");
             VkMemoryRequirements needs{};
             vkd.vkGetImageMemoryRequirements(device, out.image, &needs);
-            VkMemoryAllocateInfo allocate{};
-            allocate.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-            allocate.allocationSize = needs.size;
-            allocate.memoryTypeIndex = memory_type(needs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-            check(vkd.vkAllocateMemory(device, &allocate, nullptr, &out.memory), "vkAllocateMemory image");
-            check(vkd.vkBindImageMemory(device, out.image, out.memory, 0), "vkBindImageMemory");
+            const auto type = memory_type(needs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            if (needs.size <= weft::constants::render::vulkan::block_image_max_bytes) {
+                place(out, needs, type);
+            } else {
+                VkMemoryAllocateInfo allocate{};
+                allocate.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+                allocate.allocationSize = needs.size;
+                allocate.memoryTypeIndex = type;
+                check(vkd.vkAllocateMemory(device, &allocate, nullptr, &out.memory), "vkAllocateMemory image");
+                ++memory_allocations_;
+            }
+            check(vkd.vkBindImageMemory(device, out.image, out.memory, out.memory_offset), "vkBindImageMemory");
             VkImageViewCreateInfo view{};
             view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
             view.image = out.image;
@@ -395,6 +405,7 @@ namespace weft::render::vulkan {
                             mapped ? VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
                                    : VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
             check(vkd.vkAllocateMemory(device, &allocate, nullptr, &out.memory), "vkAllocateMemory buffer");
+            ++memory_allocations_;
             check(vkd.vkBindBufferMemory(device, out.buffer, out.memory, 0), "vkBindBufferMemory");
             if (mapped) {
                 check(vkd.vkMapMemory(device, out.memory, 0, VK_WHOLE_SIZE, 0, &out.mapped), "vkMapMemory");
@@ -417,9 +428,73 @@ namespace weft::render::vulkan {
             vkd.vkDestroyImage(device, image.image, nullptr);
         }
         if (image.memory) {
-            vkd.vkFreeMemory(device, image.memory, nullptr);
+            if (image.memory_size) {
+                release(image);
+            } else {
+                vkd.vkFreeMemory(device, image.memory, nullptr);
+            }
         }
         image = {};
+    }
+
+    void Device::place(Image& image, const VkMemoryRequirements& needs, std::uint32_t type) const {
+        const std::lock_guard lock(blocks_mutex_);
+        for (const auto& block : blocks_) {
+            if (block->type != type) {
+                continue;
+            }
+            if (const auto offset = block->ranges.allocate(needs.size, needs.alignment)) {
+                image.memory = block->memory;
+                image.memory_offset = *offset;
+                image.memory_size = needs.size;
+                return;
+            }
+        }
+        VkMemoryAllocateInfo allocate{};
+        allocate.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocate.allocationSize = weft::constants::render::vulkan::image_block_bytes;
+        allocate.memoryTypeIndex = type;
+        VkDeviceMemory block{};
+        check(vkd.vkAllocateMemory(device, &allocate, nullptr, &block), "vkAllocateMemory image block");
+        ++memory_allocations_;
+        try {
+            blocks_.push_back(std::make_unique<ImageBlock>(block, type, allocate.allocationSize));
+        } catch (...) {
+            vkd.vkFreeMemory(device, block, nullptr);
+            throw;
+        }
+        // A small image fits an empty block at any alignment: offset 0 is aligned.
+        const auto offset = blocks_.back()->ranges.allocate(needs.size, needs.alignment);
+        ensure(offset.has_value(), "a small image in an empty block");
+        image.memory = block;
+        image.memory_offset = *offset;
+        image.memory_size = needs.size;
+    }
+
+    void Device::release(const Image& image) const noexcept {
+        const std::lock_guard lock(blocks_mutex_);
+        const auto block = std::find_if(blocks_.begin(), blocks_.end(), [&](const auto& b) {
+            return b->memory == image.memory;
+        });
+        ensure(block != blocks_.end(), "an image range of one of the device's blocks");
+        auto& ranges = (*block)->ranges;
+        ranges.free(image.memory_offset, image.memory_size);
+        if (ranges.used()) {
+            return;
+        }
+        const auto type = (*block)->type;
+        const bool other_empty = std::any_of(blocks_.begin(), blocks_.end(), [&](const auto& b) {
+            return b.get() != block->get() && b->type == type && !b->ranges.used();
+        });
+        if (other_empty) {
+            vkd.vkFreeMemory(device, (*block)->memory, nullptr);
+            blocks_.erase(block);
+        }
+    }
+
+    std::size_t Device::image_blocks() const {
+        const std::lock_guard lock(blocks_mutex_);
+        return blocks_.size();
     }
 
     void Device::destroy(Buffer& buffer) const noexcept {

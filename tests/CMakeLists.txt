@@ -69,6 +69,12 @@ if(WEFT_RENDER_VULKAN)
         LINK weft::render_vulkan)
     weft_add_test(NAME render_vulkan_backend_contract COMMAND weft_render_vulkan_backend_tests TIMEOUT 120)
     set_tests_properties(render_vulkan_backend_contract PROPERTIES SKIP_RETURN_CODE 77)
+    # Device memory that images share: the range heap on the CPU, and images in shared blocks on the device.
+    weft_add_executable(weft_render_vulkan_memory_tests SOURCES render_vulkan_memory_tests.cpp
+        LINK weft::render_vulkan)
+    weft_add_test(NAME render_vulkan_memory_heap COMMAND weft_render_vulkan_memory_tests --heap TIMEOUT 120)
+    weft_add_test(NAME render_vulkan_memory_device COMMAND weft_render_vulkan_memory_tests --device TIMEOUT 120)
+    set_tests_properties(render_vulkan_memory_device PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 
 add_executable(weft_render_backend_c_smoke render_backend_c_smoke.c)

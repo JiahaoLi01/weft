@@ -342,9 +342,10 @@ namespace probes {
             std::cout << "Swapchain " << swapchain.extent.width << 'x' << swapchain.extent.height
                       << ", validation layer " << (d.validation ? "on" : "off") << "; a scene's first frame P50 "
                       << first_p50 << " ms, max " << first_max << " ms; later frames P50 " << later_p50 << " ms, P99 "
-                      << later_p99 << " ms, max " << later_max << " ms\n";
+                      << later_p99 << " ms, max " << later_max << " ms; " << d.memory_allocations()
+                      << " device memory allocations, " << d.image_blocks() << " image blocks\n";
             std::ostringstream report;
-            report << "{\"format\":\"scene-vulkan-window-v2\",\"adapter\":" << json_string(d.name)
+            report << "{\"format\":\"scene-vulkan-window-v3\",\"adapter\":" << json_string(d.name)
                    << ",\"swapchain_width\":" << swapchain.extent.width
                    << ",\"swapchain_height\":" << swapchain.extent.height
                    << ",\"validation_layer\":" << (d.validation ? "true" : "false") << ",\"frames\":" << presented
@@ -352,7 +353,9 @@ namespace probes {
                    << ",\"mean_frame_ms\":" << (presented ? total_ms / double(presented) : 0)
                    << ",\"first_frame_ms\":{\"p50\":" << first_p50 << ",\"max\":" << first_max << '}'
                    << ",\"later_frame_ms\":{\"p50\":" << later_p50 << ",\"p99\":" << later_p99
-                   << ",\"max\":" << later_max << "},\"validation_messages\":" << d.validation_messages << '}';
+                   << ",\"max\":" << later_max << "},\"memory_allocations\":" << d.memory_allocations()
+                   << ",\"image_blocks\":" << d.image_blocks() << ",\"validation_messages\":" << d.validation_messages
+                   << '}';
             write_text(folder / "report.json", report.str());
             std::cout << "PASS Vulkan scene window: every gallery scene presented as draw() draws it\n";
         }

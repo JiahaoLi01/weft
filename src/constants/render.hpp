@@ -145,6 +145,10 @@ namespace weft::constants::render {
         inline constexpr int scene_slot_spare_buffers = 64;
         inline constexpr int scene_slot_spare_images = 16;
         inline constexpr int scene_slot_spare_pools = 16;
+        // Images of at most block_image_max_bytes share blocks of image_block_bytes of device-local memory: one
+        // allocation per block instead of one per image. A device keeps one empty block of each memory type.
+        inline constexpr unsigned image_block_bytes = 16u * constants::bytes_per_mib;
+        inline constexpr unsigned block_image_max_bytes = 2u * constants::bytes_per_mib;
         // A swapchain asks for this many images beyond the surface's minimum, so that acquiring rarely waits.
         inline constexpr int swapchain_extra_images = 1;
     } // namespace vulkan
