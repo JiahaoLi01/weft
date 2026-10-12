@@ -4,6 +4,11 @@ weft_add_library(scene
     PUBLIC weft::style weft::text weft::paint
     PRIVATE weft::layout)
 
+# The backend-neutral half of native scene passes: display lists, their plans and the images they sample.
+weft_add_library(scene_native
+    SOURCES scene_native.cpp
+    PUBLIC weft::scene weft::render weft::vector)
+
 if(WIN32)
     # Direct2D/DirectWrite reference raster for scenes.
     weft_add_library(scene_d2d

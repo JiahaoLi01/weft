@@ -8,9 +8,9 @@ weft_add_hlsl(weft_render_d3d11 encoded_convert srgb_convert.hlsl DEFINES ENCODE
 # The linear pass of display lists: the shared scene shader compositing linear premultiplied colors.
 weft_add_hlsl(weft_render_d3d11 display_linear "${PROJECT_SOURCE_DIR}/src/render/shaders/scene.hlsl" ALWAYS_OPTIMIZE DEFINES SPACE_LINEAR=1)
 
-# Native D3D11 pass of compiled scenes. Text images and path coverage are portable (weft::scene, weft::vector); the
-# D2D reference raster draws layers and text with color glyphs.
+# Native D3D11 pass of compiled scenes, prepared by the portable weft::scene_native; the D2D reference raster draws
+# only text whose color glyphs are images.
 weft_add_library(scene_d3d11
     SOURCES scene_renderer.cpp
-    PUBLIC weft::render_d3d11 weft::scene_d2d weft::vector)
+    PUBLIC weft::render_d3d11 weft::scene_d2d weft::scene_native)
 weft_add_hlsl(weft_scene_d3d11 scene_native "${PROJECT_SOURCE_DIR}/src/render/shaders/scene.hlsl" ALWAYS_OPTIMIZE)

@@ -2,41 +2,28 @@
 
 #include "constants/render.hpp"
 #include "render/backends/d3d11/renderer.hpp"
-#include "render/scene_pass.hpp"
 #include "scene/scene.hpp"
-#include "scene/scene_geometry.hpp"
-#include "scene/scene_display_list.hpp"
-#include "vector/path_raster.hpp"
+#include "scene/scene_native.hpp"
 
 #include <array>
 #include <cstddef>
-#include <map>
+#include <cstdint>
 #include <memory>
 #include <optional>
-#include <string>
 #include <unordered_map>
 #include <vector>
 
-// Native D3D11 pass of a scene display list (scene_display_list): instanced box records drawn by scene.hlsl,
-// transparent groups in scratch targets, perspective planes whose content a nested pass draws into an image of its
-// own, and text, layer, shadow (render/shadow_image.hpp) and path coverage (vector/path_raster.hpp) images. Text is a
-// portable image (scene_text_image: FreeType coverage and COLR color glyphs), and an explicit layer's image is its
-// node's display list drawn by a nested pass; only text whose color glyphs are images (PNG or SVG) comes from the D2D
-// reference raster. The destination holds encoded premultiplied BGRA, like the D2D scene targets.
+// Native D3D11 pass of a scene: the passes a ScenePreparer prepares (scene/scene_native.hpp), drawn by scene.hlsl as
+// instanced box records, transparent groups in scratch targets, perspective planes and explicit layers whose content a
+// nested pass draws into an image of its own, and the text, shadow and path images the preparer builds, uploaded once
+// each. Only text whose color glyphs are images (PNG or SVG) comes from the D2D reference raster. The destination
+// holds encoded premultiplied BGRA, like the D2D scene targets.
 //
-// Owner thread of the SceneText. A plan the pass cannot draw returns false with a counted reason, and the caller
+// Owner thread of the SceneText. A frame the pass cannot draw returns false with a counted reason, and the caller
 // draws the frame another way.
 namespace weft::render::d3d11 {
-    class SceneRenderer {
+    class SceneRenderer : public SceneNativeWork {
     public:
-        // A text or layer image, unchanged once built; slots lease the images their last pass sampled.
-        struct Image {
-            SceneNode key;
-            float scale{};
-            ComPtr<ID3D11ShaderResourceView> view;
-            std::size_t bytes{};
-        };
-
         // Per-destination state. Reuse a slot only after the GPU completed its previous pass.
         struct Slot {
             ComPtr<ID3D11Buffer> records;
@@ -47,7 +34,8 @@ namespace weft::render::d3d11 {
             ComPtr<ID3D11ShaderResourceView> clip_view;
             unsigned clip_capacity{};
             std::array<Surface, constants::render::scene::max_group_depth> groups;
-            std::vector<std::shared_ptr<const Image>> leases;
+            // The images and layers the last pass sampled: their textures stay while the slot holds them.
+            std::vector<std::shared_ptr<const void>> leases;
             unsigned width{};
             unsigned height{};
             unsigned capacity{};
@@ -58,27 +46,6 @@ namespace weft::render::d3d11 {
             // The slots of the plane contents the last pass drew, in item order.
             std::vector<std::unique_ptr<Slot>> planes;
         };
-
-        std::size_t passes{};
-        std::size_t fallbacks{};
-        std::size_t draws{};
-        std::size_t text_builds{};
-        // Text builds from portable images (the rest are reference raster images of color glyph images).
-        std::size_t text_portable_builds{};
-        // Images the D2D reference raster drew: text whose color glyphs are images (PNG or SVG), and nothing else.
-        std::size_t reference_builds{};
-        std::size_t text_reuses{};
-        std::size_t layer_builds{};
-        std::size_t layer_reuses{};
-        std::size_t shadow_builds{};
-        std::size_t shadow_reuses{};
-        std::size_t path_builds{};
-        std::size_t path_reuses{};
-        // Plane contents drawn by nested passes into their images.
-        std::size_t plane_passes{};
-        std::size_t image_evictions{};
-        // Fallback counts by reason.
-        std::map<std::string, std::size_t> reasons;
 
         SceneRenderer(Renderer& gpu, SceneText& text);
         SceneRenderer(const SceneRenderer&) = delete;
@@ -99,52 +66,30 @@ namespace weft::render::d3d11 {
                    unsigned view_index, const std::vector<NodeIdentity>& layers);
 
     private:
-        // A pass ready to draw: its plan, the images its items sample, and per plane item the pass of its content.
-        struct Prepared {
-            ScenePass pass;
-            std::vector<std::shared_ptr<const Image>> images;
-            std::vector<std::unique_ptr<Prepared>> planes;
-            unsigned width{};
-            unsigned height{};
+        // The texture of a preparer's image or layer, kept while that lives.
+        struct Texture {
+            std::weak_ptr<const void> source;
+            ComPtr<ID3D11ShaderResourceView> view;
         };
 
         Renderer& gpu_;
-        SceneText& text_;
         ComPtr<ID3D11VertexShader> vs_;
         ComPtr<ID3D11PixelShader> ps_;
         ComPtr<ID3D11RasterizerState> raster_;
         SceneRaster reference_;
-        SceneGeometry geometry_;
-        std::map<std::array<std::uint64_t, 4>, std::shared_ptr<const Image>> images_;
-        std::size_t image_bytes_{};
-        // Shadow images by value: offset, blur, spread, color, radii, box size and scale.
-        std::map<std::array<float, 15>, std::shared_ptr<const Image>> shadows_;
-        std::size_t shadow_bytes_{};
-        vector::Rasterizer vector_;
-        // Path coverage images by value: the path, its stroke, the device map and the mask's pixels.
-        std::unordered_map<std::string, std::shared_ptr<const Image>> paths_;
-        std::size_t path_bytes_{};
+        ScenePreparer preparer_;
+        std::unordered_map<std::uint64_t, Texture> textures_;
         std::size_t scratch_bytes_{};
 
-        std::shared_ptr<const Image> image(const paint::Item& item, const paint::Raster& raster, float scale,
-                                           unsigned view_index);
-        // A shadow item's image; throws std::invalid_argument past the shadow bitmap bound.
-        std::shared_ptr<const Image> shadow(const paint::Item& item, const paint::Shadow& shadow, float scale);
-        // A path item's coverage over mask (device pixels); throws std::invalid_argument past the mask bounds.
-        std::shared_ptr<const Image> path(const paint::Item& item, const paint::PathPaint& paint, float scale,
-                                          const std::array<std::int32_t, 4>& mask);
-        // Plans list for a width x height device pixel target and builds the images it samples, its planes' contents
-        // included; throws std::invalid_argument with the reason for a list the pass cannot draw.
-        std::unique_ptr<Prepared> prepare(const paint::DisplayList& list, float scale, unsigned width, unsigned height,
-                                          std::optional<std::array<float, 4>> crop, unsigned view_index);
+        // An image's texture, uploaded the first time.
+        ID3D11ShaderResourceView* texture(const std::shared_ptr<const SceneImage>& image);
+        // A layer's texture, its content drawn the first time.
+        ID3D11ShaderResourceView* texture(const std::shared_ptr<const SceneLayerImage>& layer, float scale);
         // Draws a prepared pass into destination: its planes' contents first, each into the image of its slot.
-        void draw_pass(Slot& slot, const Prepared& prepared, ID3D11RenderTargetView* destination, float scale);
-        // Scratch bytes the targets of a prepared pass and of its planes' passes take; a plane's pass also takes its
-        // image.
-        static std::size_t scratch_of(const Prepared& prepared, bool plane);
+        void draw_pass(Slot& slot, const ScenePrepared& prepared, ID3D11RenderTargetView* destination, float scale);
         // Scratch bytes a slot and its planes' slots hold.
         static std::size_t held_bytes(const Slot& slot);
         // Fits slot and its planes' slots to prepared, releasing targets of another size.
-        static void shape(Slot& slot, const Prepared& prepared, bool plane);
+        static void shape(Slot& slot, const ScenePrepared& prepared, bool plane);
     };
 } // namespace weft::render::d3d11

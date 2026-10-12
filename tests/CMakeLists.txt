@@ -146,6 +146,9 @@ if(WIN32)
     weft_add_test(NAME scene_text_metrics
         COMMAND weft_scene_text_tests "${artifacts}/scene-text-$<CONFIG>/native.json"
         FIXTURES_SETUP scene_text_report)
+    weft_add_executable(weft_scene_native_tests SOURCES scene_native_tests.cpp
+        LINK weft::scene_native weft::platform_win32)
+    weft_add_test(NAME scene_native_contract COMMAND weft_scene_native_tests)
     weft_add_executable(weft_scene_text_image_tests SOURCES scene_text_image_tests.cpp
         LINK weft::scene_d2d weft::platform_win32)
     weft_add_test(NAME scene_text_image COMMAND weft_scene_text_image_tests)
