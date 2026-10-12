@@ -168,6 +168,9 @@ namespace weft::probe_constants::gallery {
     inline constexpr int max_plane_oracle_solid = 2;
     inline constexpr unsigned max_plane_oracle_outliers = 400;
     inline constexpr unsigned min_plane_oracle_ink = 4000;
+    // A layer at a whole device pixel offset against its content drawn inline: the layer image's 8-bit
+    // premultiplied intermediate rounds once more.
+    inline constexpr int max_layer_oracle_difference = 1;
     // The scene-native test draws at least this many passes natively and reuses this many layer images.
     inline constexpr std::size_t min_native_scene_passes = 3900;
     inline constexpr std::size_t min_native_layer_reuses = 300;

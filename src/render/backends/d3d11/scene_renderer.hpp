@@ -20,15 +20,16 @@
 // Native D3D11 pass of a scene display list (scene_display_list): instanced box records drawn by scene.hlsl,
 // transparent groups in scratch targets, perspective planes whose content a nested pass draws into an image of its
 // own, and text, layer, shadow (render/shadow_image.hpp) and path coverage (vector/path_raster.hpp) images. Text
-// without color glyphs is a portable FreeType image (scene_text_image); text with color glyphs and explicit layers come
-// from the D2D reference raster. The destination holds encoded premultiplied BGRA, like the D2D scene targets.
+// without color glyphs is a portable FreeType image (scene_text_image), and an explicit layer's image is its node's
+// display list drawn by a nested pass; text with color glyphs comes from the D2D reference raster. The destination
+// holds encoded premultiplied BGRA, like the D2D scene targets.
 //
 // Owner thread of the SceneText. A plan the pass cannot draw returns false with a counted reason, and the caller
 // draws the frame another way.
 namespace weft::render::d3d11 {
     class SceneRenderer {
     public:
-        // A text or layer image, immutable once built; slots lease the images their last pass sampled.
+        // A text or layer image, unchanged once built; slots lease the images their last pass sampled.
         struct Image {
             SceneNode key;
             float scale{};
@@ -64,6 +65,8 @@ namespace weft::render::d3d11 {
         std::size_t text_builds{};
         // Text builds from portable FreeType images (the rest are reference raster images with color glyphs).
         std::size_t text_portable_builds{};
+        // Images the D2D reference raster drew: text with color glyphs, and nothing else.
+        std::size_t reference_builds{};
         std::size_t text_reuses{};
         std::size_t layer_builds{};
         std::size_t layer_reuses{};

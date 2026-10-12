@@ -458,6 +458,72 @@ namespace probes {
         double plane_mean{};
         int plane_solid{};
         unsigned plane_outliers{};
+        // An explicit layer at a whole device pixel offset draws what its content draws inline: the layer's image
+        // holds the content texel for pixel, so only its 8-bit premultiplied intermediate may differ.
+        int layer_difference{};
+        {
+            weft::SceneFrame frame;
+            frame.root.box = {0, 0, 120, 80};
+            frame.root.tag = "div";
+            frame.root.identity = {1, 1, 950};
+            frame.root.style = {{"background-color", "#ffffff"}};
+            weft::SceneNode card;
+            card.identity = {1, 1, 951};
+            card.tag = "div";
+            card.box = {10, 12, 90, 56};
+            card.style = {{"background-color", "#3060c0"},      {"border-top-left-radius", "6px"},
+                          {"border-top-right-radius", "6px"},   {"border-bottom-right-radius", "6px"},
+                          {"border-bottom-left-radius", "6px"}, {"border-top-width", "2px"},
+                          {"border-right-width", "2px"},        {"border-bottom-width", "2px"},
+                          {"border-left-width", "2px"},         {"border-top-color", "#102040"},
+                          {"border-right-color", "#102040"},    {"border-bottom-color", "#102040"},
+                          {"border-left-color", "#102040"}};
+            weft::SceneNode badge;
+            badge.identity = {1, 1, 952};
+            badge.tag = "div";
+            badge.box = {8, 8, 30, 14};
+            badge.style = {{"background-color", "#f0c030"}, {"opacity", "0.8"}};
+            weft::SceneNode label;
+            label.identity = {1, 1, 953};
+            label.tag = "div";
+            label.box = {8, 28, 70, 20};
+            label.text = "Layer 42";
+            label.style = {{"font-size", "12px"}, {"color", "#ffffff"}};
+            card.children = {badge, label};
+            frame.root.children = {card};
+            const auto draw = [&](std::vector<weft::NodeIdentity> layers) {
+                auto& drawn_surface = surfaces.paint_owned(0, std::make_shared<const weft::SceneFrame>(frame),
+                                                           weft::probe_constants::gallery::scene_raster_scale,
+                                                           std::nullopt, std::move(layers));
+                surfaces.publish();
+                FramePacket packet;
+                packet.draws.push_back(
+                    {{0, 0, float(drawn_surface.width), float(drawn_surface.height)}, {1, 1, 1, 1}, 0});
+                serial = pipeline.submit(std::move(packet),
+                                         [] {
+                                         },
+                                         {}, {drawn_surface.handle});
+                surfaces.submitted(serial, visible);
+                return surfaces.read(0);
+            };
+            const auto layers_before = surfaces.native_work().layer_builds;
+            const auto fallbacks_before = surfaces.native_work().fallbacks;
+            const auto inline_drawn = draw({});
+            const auto layered = draw({card.identity});
+            require(inline_drawn.width == layered.width && inline_drawn.height == layered.height,
+                    "GPU layer surface size");
+            for (std::size_t i = 0; i < layered.rgba.size(); ++i) {
+                layer_difference =
+                    std::max(layer_difference, std::abs(int(layered.rgba[i]) - int(inline_drawn.rgba[i])));
+            }
+            save(layered, "layer-oracle.png");
+            std::cout << "layer oracle: max difference " << layer_difference << '\n';
+            require(layer_difference <= weft::probe_constants::gallery::max_layer_oracle_difference,
+                    "GPU layer differs from its content drawn inline");
+            require(!optimized || (surfaces.native_work().layer_builds == layers_before + 1 &&
+                                   surfaces.native_work().fallbacks == fallbacks_before),
+                    "native layer fell back");
+        }
         {
             using Pairs = std::initializer_list<std::pair<const char*, const char*>>;
             const auto box = [](std::uint32_t slot, std::array<float, 4> rect, Pairs style) {
@@ -562,6 +628,10 @@ namespace probes {
                         native.layer_reuses > weft::probe_constants::gallery::min_native_layer_reuses &&
                         native.path_builds > 0 && native.plane_passes > 0,
                     "original XHTML/SVG/plane native paths unexercised or fell back");
+            // Layers draw natively; the reference raster draws only text with color glyphs.
+            require(native.layer_builds > 0 &&
+                        native.reference_builds == native.text_builds - native.text_portable_builds,
+                    "native layers drawn by the reference raster");
         }
         report << "],\"optimized\":" << (optimized ? "true" : "false")
                << ",\"native_passes\":" << surfaces.native_work().passes
@@ -569,16 +639,18 @@ namespace probes {
                << ",\"fallback_reasons\":" << fallback_reasons_json(surfaces.native_work())
                << ",\"native_layer_builds\":" << surfaces.native_work().layer_builds
                << ",\"native_layer_reuses\":" << surfaces.native_work().layer_reuses
-               << ",\"native_plane_passes\":" << surfaces.native_work().plane_passes << ",\"captures\":" << captures
-               << ",\"frames\":" << pipeline.submissions << ",\"worst_channel_mean\":" << worst_mean
-               << ",\"minimum_soft_iou\":" << minimum_iou << ",\"pool_slots\":" << surfaces.allocated
-               << ",\"pool_reuses\":" << surfaces.reuses << ",\"retired_imports\":" << surfaces.retired
-               << ",\"peak_in_flight\":" << pipeline.peak_in_flight
+               << ",\"native_plane_passes\":" << surfaces.native_work().plane_passes
+               << ",\"native_reference_builds\":" << surfaces.native_work().reference_builds
+               << ",\"captures\":" << captures << ",\"frames\":" << pipeline.submissions
+               << ",\"worst_channel_mean\":" << worst_mean << ",\"minimum_soft_iou\":" << minimum_iou
+               << ",\"pool_slots\":" << surfaces.allocated << ",\"pool_reuses\":" << surfaces.reuses
+               << ",\"retired_imports\":" << surfaces.retired << ",\"peak_in_flight\":" << pipeline.peak_in_flight
                << ",\"alpha_conversion_max_difference\":" << conversion_error
                << ",\"vector_oracle_mean\":" << vector_mean << ",\"vector_oracle_solid_max\":" << vector_solid
                << ",\"vector_oracle_outliers\":" << vector_outliers << ",\"shadow_oracle_pixels\":" << shadow_pixels
                << ",\"shadow_oracle_max_difference\":" << shadow_error << ",\"plane_oracle_mean\":" << plane_mean
                << ",\"plane_oracle_solid_max\":" << plane_solid << ",\"plane_oracle_outliers\":" << plane_outliers
+               << ",\"layer_oracle_max_difference\":" << layer_difference
                << ",\"crop_reveal_verified\":true,\"debug_warnings\":0}";
         write_text(folder / "report.json", report.str());
         std::cout << "PASS GPU 26 CSS + 8 D3 / 102 unchanged Chromium references / actual completion retirement\n";

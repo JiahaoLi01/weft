@@ -1696,6 +1696,7 @@ namespace probes {
                 std::to_string(native.fallbacks) + ",\"native_draw_batches\":" + std::to_string(native.draws) +
                 ",\"text_builds\":" + std::to_string(native.text_builds) + ",\"text_portable_builds\":" +
                 std::to_string(native.text_portable_builds) + ",\"text_reuses\":" + std::to_string(native.text_reuses) +
+                ",\"reference_builds\":" + std::to_string(native.reference_builds) +
                 ",\"native_layer_builds\":" + std::to_string(native.layer_builds) + ",\"native_layer_reuses\":" +
                 std::to_string(native.layer_reuses) + ",\"layer_builds\":" + std::to_string(raster_stats.layer_builds) +
                 ",\"layer_reuses\":" + std::to_string(raster_stats.layer_reuses) +

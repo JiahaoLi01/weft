@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <climits>
+#include <cmath>
 #include <cstdint>
 #include <stdexcept>
 #include <utility>
@@ -164,19 +165,10 @@ namespace weft::render::d3d11 {
              metrics.height > n.box[3] + limits::text_fit_tolerance)) {
             throw std::invalid_argument("text overflow reference");
         }
-        // Text without color glyphs is FreeType coverage (portable); color glyphs and layers use the reference
-        // raster.
-        SceneBitmap bitmap;
-        bool portable = false;
-        if (item.kind == Kind::Text) {
-            auto text = scene_text_image(text_, n, scale, limits::image_margin);
-            if (!text.color_glyphs) {
-                bitmap = std::move(text.bitmap);
-                portable = true;
-                ++text_portable_builds;
-            }
-        }
-        if (!portable) {
+        // The node image_margin px in from the edges of a transparent frame of its size and margins: an explicit
+        // layer's content, drawn by a nested pass into the layer's image, and what the reference raster draws of text
+        // with color glyphs. Text without color glyphs is FreeType coverage.
+        const auto framed = [&] {
             SceneFrame frame;
             frame.root.tag = "div";
             frame.root.identity = {UINT32_MAX, 1, n.identity.view_epoch};
@@ -185,43 +177,75 @@ namespace weft::render::d3d11 {
             auto child = n;
             child.box[0] = child.box[1] = limits::image_margin;
             frame.root.children.push_back(std::move(child));
-            bitmap = reference_.raster(frame, scale);
-        }
-        const auto bytes = bitmap.rgba.size();
-        if (bytes > limits::image_cache_budget_bytes) {
-            throw std::invalid_argument("text source byte bound");
-        }
-        // Straight RGBA to premultiplied BGRA.
-        for (std::size_t i = 0; i < bitmap.rgba.size(); i += 4) {
-            std::swap(bitmap.rgba[i], bitmap.rgba[i + 2]);
-            for (unsigned c = 0; c < 3; ++c) {
-                bitmap.rgba[i + c] = std::uint8_t(
-                    (unsigned(bitmap.rgba[i + c]) * bitmap.rgba[i + 3] + constants::color_channel_max / 2) /
-                    constants::color_channel_max);
-            }
-        }
+            return frame;
+        };
         auto result = std::make_shared<Image>();
         result->key = n;
         result->scale = scale;
-        result->bytes = bytes;
-        D3D11_TEXTURE2D_DESC desc{};
-        desc.Width = bitmap.width;
-        desc.Height = bitmap.height;
-        desc.MipLevels = desc.ArraySize = 1;
-        desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-        desc.SampleDesc.Count = 1;
-        desc.Usage = D3D11_USAGE_IMMUTABLE;
-        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        D3D11_SUBRESOURCE_DATA data{bitmap.rgba.data(), bitmap.width * 4, 0};
-        ComPtr<ID3D11Texture2D> texture;
-        throw_if_failed(gpu_.device->CreateTexture2D(&desc, &data, &texture), "native text source");
-        throw_if_failed(gpu_.device->CreateShaderResourceView(texture.Get(), nullptr, &result->view),
-                        "native text view");
         if (item.kind == Kind::Layer) {
+            const auto frame = framed();
+            const auto w = unsigned(std::ceil(frame.root.box[2] * scale));
+            const auto h = unsigned(std::ceil(frame.root.box[3] * scale));
+            result->bytes = std::size_t(w) * h * constants::rgba8_bytes_per_pixel;
+            if (w > unsigned(constants::render::d3d11::max_surface_dimension) ||
+                h > unsigned(constants::render::d3d11::max_surface_dimension) ||
+                result->bytes > limits::image_cache_budget_bytes) {
+                throw std::invalid_argument("layer image byte bound");
+            }
+            const auto listed = scene_display_list(frame, {}, &text_);
+            if (!listed.fallback.empty()) {
+                throw std::invalid_argument(listed.fallback);
+            }
+            if (const auto valid = paint::check(listed.list, limits::max_group_depth); !valid) {
+                throw std::invalid_argument(valid.error().message);
+            }
+            const auto prepared = prepare(listed.list, scale, w, h, std::nullopt, view_index);
+            // The pass's buffers and targets serve this pass alone: D3D11 keeps them until the GPU is done with them.
+            Slot pass;
+            shape(pass, *prepared, true);
+            pass.target = group_target(gpu_.device.Get(), w, h);
+            draw_pass(pass, *prepared, pass.target.rtv.Get(), scale);
+            result->view = pass.target.srv;
             ++layer_builds;
         } else {
+            SceneBitmap bitmap;
+            auto text = scene_text_image(text_, n, scale, limits::image_margin);
+            if (!text.color_glyphs) {
+                bitmap = std::move(text.bitmap);
+                ++text_portable_builds;
+            } else {
+                bitmap = reference_.raster(framed(), scale);
+                ++reference_builds;
+            }
+            result->bytes = bitmap.rgba.size();
+            if (result->bytes > limits::image_cache_budget_bytes) {
+                throw std::invalid_argument("text source byte bound");
+            }
+            // Straight RGBA to premultiplied BGRA.
+            for (std::size_t i = 0; i < bitmap.rgba.size(); i += 4) {
+                std::swap(bitmap.rgba[i], bitmap.rgba[i + 2]);
+                for (unsigned c = 0; c < 3; ++c) {
+                    bitmap.rgba[i + c] = std::uint8_t(
+                        (unsigned(bitmap.rgba[i + c]) * bitmap.rgba[i + 3] + constants::color_channel_max / 2) /
+                        constants::color_channel_max);
+                }
+            }
+            D3D11_TEXTURE2D_DESC desc{};
+            desc.Width = bitmap.width;
+            desc.Height = bitmap.height;
+            desc.MipLevels = desc.ArraySize = 1;
+            desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+            desc.SampleDesc.Count = 1;
+            desc.Usage = D3D11_USAGE_IMMUTABLE;
+            desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            D3D11_SUBRESOURCE_DATA data{bitmap.rgba.data(), bitmap.width * 4, 0};
+            ComPtr<ID3D11Texture2D> texture;
+            throw_if_failed(gpu_.device->CreateTexture2D(&desc, &data, &texture), "native text source");
+            throw_if_failed(gpu_.device->CreateShaderResourceView(texture.Get(), nullptr, &result->view),
+                            "native text view");
             ++text_builds;
         }
+        const auto bytes = result->bytes;
         if (images_.size() >= limits::image_cache_max_entries ||
             image_bytes_ + bytes > limits::image_cache_budget_bytes) {
             images_.clear();
