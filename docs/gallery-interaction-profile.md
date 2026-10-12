@@ -196,7 +196,7 @@ RTX 5090、可见 4K 240 Hz 窗口，三轮中位数，与上一轮结束时相�
 - **开关**：
   - 命令行任意位置加 `--no-vsync`，对本进程打开的所有窗口生效；
   - 画廊窗口和 Canvas 窗口里按 F7 切换，HUD 第二行与标题栏显示 VSync 状态；
-  - `tools\gallery.bat` 菜单按 V 切换，作用于 1、2、3、5 项；也可以写 `tools\gallery.bat 1 novsync`；输出目录名带 `-novsync`。
+  - `tools\gallery.bat` 菜单按 V 切换，作用于 1、2、3、5、7 项；也可以写 `tools\gallery.bat 1 novsync`；输出目录名带 `-novsync`。
 - **实现**（`WindowPresenter`）：
   - 关闭时 `Present1` 用 sync interval 0；
   - 系统支持撕裂时（`DXGI_FEATURE_PRESENT_ALLOW_TEARING`），交换链带 `DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING`，present 带 `DXGI_PRESENT_ALLOW_TEARING`；

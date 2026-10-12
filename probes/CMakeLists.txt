@@ -17,7 +17,8 @@ if(WIN32)
     if(WEFT_RENDER_VULKAN)
         # The CaseCheetah flow window (vulkan_flow_window_probe.cpp) and the native scene pass (scene_vulkan_probe.cpp)
         # on Vulkan.
-        target_sources(weft_d3d11_probe PRIVATE vulkan_flow_window_probe.cpp scene_vulkan_probe.cpp)
+        target_sources(weft_d3d11_probe PRIVATE vulkan_flow_window_probe.cpp scene_vulkan_probe.cpp
+            scene_vulkan_window.cpp)
         target_link_libraries(weft_d3d11_probe PRIVATE weft::render_vulkan weft::scene_vulkan)
         target_compile_definitions(weft_d3d11_probe PRIVATE WEFT_PROBE_VULKAN=1)
     endif()
@@ -36,6 +37,12 @@ if(WIN32 AND WEFT_BUILD_TESTS)
         weft_add_test(NAME vulkan_scene_native
             COMMAND weft_d3d11_probe --scene-vulkan-test "${artifacts}/scene-vulkan-$<CONFIG>/hardware" TIMEOUT 300)
         set_tests_properties(vulkan_scene_native PROPERTIES SKIP_RETURN_CODE 77)
+        # The gallery's scenes in a Vulkan swapchain window: every scene presented as draw() draws it; skipped (77)
+        # without a Vulkan device that presents.
+        weft_add_test(NAME vulkan_scene_window
+            COMMAND weft_d3d11_probe --scene-vulkan-window-test "${artifacts}/scene-vulkan-window-$<CONFIG>/hardware"
+            TIMEOUT 300)
+        set_tests_properties(vulkan_scene_window PROPERTIES SKIP_RETURN_CODE 77)
     endif()
 
     # weft_add_d3d11_test(<test> <mode> <artifact dir> [weft_add_test options...]) runs one WARP mode.

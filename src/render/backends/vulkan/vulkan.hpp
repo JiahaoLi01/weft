@@ -103,6 +103,7 @@
     F(vkCmdPipelineBarrier)                                                                                            \
     F(vkCmdCopyBufferToImage)                                                                                          \
     F(vkCmdCopyImageToBuffer)                                                                                          \
+    F(vkCmdCopyImage)                                                                                                  \
     F(vkCmdClearColorImage)                                                                                            \
     F(vkCmdBeginRenderPass)                                                                                            \
     F(vkCmdEndRenderPass)                                                                                              \

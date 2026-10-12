@@ -1,6 +1,6 @@
 # 当前检查入口（2026-10-10）
 
-快速入口：双击 `tools\gallery.bat`，或在仓库根目录运行 `tools\gallery.bat <编号>`。菜单项：1 目录窗口、2 带 profiler 的窗口（关闭后自动分析 trace）、3 live 拖拽/Canvas 基准、4 隐藏自测、5 Canvas 窗口、6 构建 Release 探针。可执行文件缺失时先构建；每次运行写入 `artifacts\local\gallery-runs\<时间>-<模式>`。
+快速入口：双击 `tools\gallery.bat`，或在仓库根目录运行 `tools\gallery.bat <编号>`。菜单项：1 目录窗口、2 带 profiler 的窗口（关闭后自动分析 trace）、3 live 拖拽/Canvas 基准、4 隐藏自测、5 Canvas 窗口、6 构建 Release 探针、7 Vulkan scene 窗口（原生 Vulkan scene pass 逐个显示 34 个 scene，点击、空格或方向键切换）、8 Vulkan scene 窗口自测。可执行文件缺失时先构建；每次运行写入 `artifacts\local\gallery-runs\<时间>-<模式>`。
 
 `weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/gallery-cluster/interactive`：4K、FPS/OWNER Hz、72标签/十组，66原例像素、6诊断。新30例的交互、共享能力和原始 Throw 问题见 [本轮合同](gallery-shared-cluster.md)。以下为此前36例阶段的历史记录，其计数和旧封存路径不代表当前二进制。
 

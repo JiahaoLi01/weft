@@ -41,7 +41,8 @@ namespace weft::render::vulkan {
         };
 
         // What one recorded frame uses: its buffers, scratch images, descriptor pools and target framebuffer, leases
-        // of the images and layers it samples, and the cache entries it uploads or draws.
+        // of the images and layers it samples, and the cache entries it uploads or draws. Its buffers, scratch images
+        // and pools serve its later recordings; the slot destroys them with itself, after its commands completed.
         struct Slot {
             enum class State : std::uint8_t {
                 Idle,
@@ -49,15 +50,27 @@ namespace weft::render::vulkan {
                 Submitted
             };
 
+            Slot() = default;
+            Slot(const Slot&) = delete;
+            Slot& operator=(const Slot&) = delete;
+            ~Slot();
+
             State state{};
             // Numbers the slot's recording among the renderer's.
             std::uint64_t recording{};
             std::vector<Buffer> buffers;
             std::vector<Image> images;
-            std::vector<VkDescriptorPool> pools;
+            // Descriptor pools and their capacity in sets.
+            std::vector<std::pair<VkDescriptorPool, std::uint32_t>> pools;
             VkFramebuffer framebuffer{};
             std::vector<std::shared_ptr<const void>> leases;
             std::vector<std::uint64_t> created;
+            // What the slot's earlier recordings used, for its next ones.
+            std::vector<Buffer> spare_buffers;
+            std::vector<Image> spare_images;
+            std::vector<std::pair<VkDescriptorPool, std::uint32_t>> spare_pools;
+            // The device of the slot's objects, once it recorded.
+            const Device* device{};
         };
 
         SceneRenderer(Device& device, SceneText& text);
@@ -89,9 +102,11 @@ namespace weft::render::vulkan {
                                                       unsigned view_index, const std::vector<NodeIdentity>& layers);
 
         Device& gpu;
-        // Images uploaded, and recordings made.
+        // Images uploaded, recordings made, and buffers, scratch images and descriptor pools made for slots (which
+        // their later recordings reuse).
         std::size_t uploads{};
         std::size_t recordings{};
+        std::size_t slot_objects{};
 
     private:
         // The image of a preparer's image or layer, kept while that lives; pending while the recording that uploads or
@@ -117,9 +132,10 @@ namespace weft::render::vulkan {
         Buffer blank_buffer_;
         std::unordered_map<std::uint64_t, Texture> textures_;
         std::uint64_t next_recording_{};
-        // draw()'s target and its copy, of the last frame's size.
+        // draw()'s target and its copy, of the last frame's size, and its slot.
         Image target_;
         Buffer readback_;
+        Slot draw_slot_;
         // The command buffer and slot of the recording in progress.
         VkCommandBuffer command_buffer_{};
         Slot* slot_{};
@@ -134,11 +150,16 @@ namespace weft::render::vulkan {
         void record(const ScenePrepared& prepared, VkFramebuffer framebuffer, float scale);
         // The image of a layer, its content recorded the first time.
         VkImageView layer(const std::shared_ptr<const SceneLayerImage>& layer, float scale);
-        // A color target image of the targets' format, sampled once drawn, with a framebuffer; the slot's when kept is
-        // false.
+        // A color target image of the targets' format, sampled once drawn, with a framebuffer: the slot's (a spare of
+        // that size, or new) unless kept, which is the cache's.
         Image target(std::uint32_t width, std::uint32_t height, bool kept = false);
+        // A mapped buffer of the slot's of at least size bytes, for any of a pass's uses: a spare, or new with room.
+        Buffer& buffer(VkDeviceSize size);
+        // A descriptor pool of the slot's for at least sets sets: a spare, reset, or new with room.
+        VkDescriptorPool pool(std::uint32_t sets);
         VkFramebuffer framebuffer(VkImageView view, std::uint32_t width, std::uint32_t height);
-        // Releases the slot's resources and leases.
+        // Ends the slot's recording: its buffers, scratch images and pools become spares (as many as the slot keeps),
+        // its target framebuffer, leases and cache entries go.
         void release(Slot& slot) noexcept;
         // Destroys every device object the renderer holds.
         void destroy_all() noexcept;

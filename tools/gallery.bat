@@ -33,10 +33,12 @@ echo   3  Live benchmarks             anime drag, scatter drag, Canvas; about 30
 echo   4  Gallery self-test           hidden 4K run with pixel, geometry and input checks
 echo   5  Canvas window               particles and fireworks; Tab switches, Esc closes, F7 toggles VSync
 echo   6  Build                       Release weft_d3d11_probe
-echo   V  VSync %VSYNC_STATE%                   for entries 1, 2, 3 and 5; off lifts the frame rate above the refresh rate
+echo   7  Vulkan scenes               the 34 scenes on the native Vulkan pass; click/Space/arrows switch, Esc closes
+echo   8  Vulkan scene self-test      every scene presented, compared with the Vulkan pass's own draw
+echo   V  VSync %VSYNC_STATE%                   for entries 1, 2, 3, 5 and 7; off lifts the frame rate above the refresh rate
 echo.
 set "CHOICE="
-set /p "CHOICE=Choose 1-6, or V to toggle VSync: "
+set /p "CHOICE=Choose 1-8, or V to toggle VSync: "
 if /i "%CHOICE%"=="V" (
     if defined VSYNC (set "VSYNC=") else (set "VSYNC=--no-vsync")
     goto menu
@@ -55,6 +57,8 @@ if "%CHOICE%"=="2" goto profile
 if "%CHOICE%"=="3" goto live
 if "%CHOICE%"=="4" goto selftest
 if "%CHOICE%"=="5" goto canvas
+if "%CHOICE%"=="7" goto vulkan
+if "%CHOICE%"=="8" goto vulkantest
 echo Unknown entry "%CHOICE%".
 set "CODE=1"
 goto done
@@ -96,6 +100,16 @@ goto finish
 :canvas
 set "OUT=artifacts\local\gallery-runs\%STAMP%-canvas%TAG%"
 "%EXE%" --gallery-canvas-window-hardware "%OUT%" %VSYNC%
+goto finish
+
+:vulkan
+set "OUT=artifacts\local\gallery-runs\%STAMP%-vulkan-scenes%TAG%"
+"%EXE%" --scene-vulkan-window "%OUT%" %VSYNC%
+goto finish
+
+:vulkantest
+set "OUT=artifacts\local\gallery-runs\%STAMP%-vulkan-scenes-selftest"
+"%EXE%" --scene-vulkan-window-test "%OUT%"
 goto finish
 
 :finish

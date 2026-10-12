@@ -7,8 +7,9 @@
 #include <string>
 
 // The Vulkan scene pass recorded into a host's command buffers (--adapter <name> picks the device): three frames in
-// flight from three slots, submitted and retired by the host, draw what draw() draws; a recording that samples what an
-// unsubmitted one uploads is Busy; a discarded recording's uploads leave the cache. Skipped (77) without a device.
+// flight from three slots, submitted and retired by the host, draw what draw() draws, and each slot's later recordings
+// reuse what its first one made; a recording that samples what an unsubmitted one uploads is Busy; a discarded
+// recording's uploads leave the cache. Skipped (77) without a device.
 namespace {
     using weft::testing::require;
     namespace vk = weft::render::vulkan;
@@ -159,7 +160,9 @@ int main(int argc, char** argv) {
         };
 
         // Three frames in flight: each slot is retired once its commands completed, before it records again. A frame's
-        // counter text leaves the cache when the next frame prepares; the frame still running leases it.
+        // counter text leaves the cache when the next frame prepares; the frame still running leases it. Every frame has
+        // the same passes, so a slot's later recordings make no buffers, scratch images or descriptor pools.
+        std::size_t primed{};
         for (unsigned i = 0; i < frames; ++i) {
             auto& h = hosts[i % hosts.size()];
             complete(h);
@@ -169,11 +172,15 @@ int main(int argc, char** argv) {
                                  layers),
                     "encode");
             submit(h);
+            if (i + 1 == hosts.size()) {
+                primed = scene.slot_objects;
+            }
         }
         for (auto& h : hosts) {
             complete(h);
         }
         require(compared == frames, "every frame in flight compared");
+        require(primed > 0 && scene.slot_objects == primed, "slots reuse what their first recordings made");
 
         // A recording that samples what an unsubmitted one uploads is Busy and records nothing. Once that one is
         // submitted (still running) it records, and both draw alike.
@@ -241,7 +248,7 @@ int main(int argc, char** argv) {
         }
         require(!d.validation_messages && !scene.fallbacks, "validation and fallbacks");
         std::cout << "PASS Vulkan scene recording on " << d.name << ": " << compared
-                  << " frames in flight equal to draw(), Busy, discard\n";
+                  << " frames in flight equal to draw(), later recordings of a slot made nothing, Busy, discard\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

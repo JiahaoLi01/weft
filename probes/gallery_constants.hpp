@@ -177,6 +177,8 @@ namespace weft::probe_constants::gallery {
     // A layer at a whole device pixel offset against its content drawn inline: the layer image's 8-bit
     // premultiplied intermediate rounds once more.
     inline constexpr int max_layer_oracle_difference = 1;
+    // Frames the Vulkan scene window's self test shows of each scene, the last one compared with draw().
+    inline constexpr unsigned vulkan_window_frames = 12;
     // The Vulkan scene pass against the D3D11 one: pixels that differ by more than vulkan_scene_near_level levels are
     // counted, at most this many over the gallery's captures, and none by more than max_vulkan_scene_difference. Both
     // passes take fine derivatives; what remains are pixels on hard gradient stops (css-20's stripes, 19 levels),

@@ -490,16 +490,19 @@ int main(int argc, char** argv) {
         // --scene-vulkan-test <output-directory> [--adapter <name>]
         const bool vulkan_scene = (argc == 3 || (argc == 5 && std::string(argv[3]) == "--adapter")) &&
                                   std::string(argv[1]) == "--scene-vulkan-test";
+        const bool vulkan_scene_window = argc == 3 && (std::string(argv[1]) == "--scene-vulkan-window" ||
+                                                       std::string(argv[1]) == "--scene-vulkan-window-test");
 #else
         const bool vulkan_flow_window = false;
         const bool vulkan_scene = false;
+        const bool vulkan_scene_window = false;
 #endif
         require(gallery_input_benchmark || gallery_live_benchmark || gallery_trace || gallery_profile ||
                     surface_retirement || gallery_scroll || gallery_cluster || owner_async || scene_native_test ||
                     render_stages || complex_css_test || scene_gpu_test || gallery_benchmark || gallery_preview ||
                     external_texture || gallery_canvas_window || gallery_canvas || pipeline_probe || cache_probe ||
-                    flow_window || vulkan_flow_window || vulkan_scene || cheetah_flow || flow || automatic || browser ||
-                    sdf || react || window || backend || cheetah || alert || theme ||
+                    flow_window || vulkan_flow_window || vulkan_scene || vulkan_scene_window || cheetah_flow || flow ||
+                    automatic || browser || sdf || react || window || backend || cheetah || alert || theme ||
                     (argc == 3 && (std::string(argv[1]) == "--warp" || std::string(argv[1]) == "--hardware")),
                 "Usage: weft_d3d11_probe --gallery-window-[test-]hardware|warp <output-directory> [--no-vsync] (or an "
                 "existing probe mode)");
@@ -508,6 +511,11 @@ int main(int argc, char** argv) {
 #ifdef WEFT_PROBE_VULKAN
             if (vulkan_scene) {
                 const auto result = run_scene_vulkan_test(argv[2], argc == 5 ? argv[4] : "");
+                CoUninitialize();
+                return result;
+            }
+            if (vulkan_scene_window) {
+                const auto result = run_scene_vulkan_window(std::string(argv[1]).ends_with("-test"), argv[2]);
                 CoUninitialize();
                 return result;
             }
