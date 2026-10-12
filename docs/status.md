@@ -4,6 +4,21 @@
 
 ## 本次已实现
 
+重构第 10 步之六（b）：Vulkan 的 scene pass（2026-10-12）。详见 [重构计划](refactoring-plan.md#第-10-步记录2026-10-11)。
+- **结果**：
+  - scene 的原生 pass 有了 Vulkan 实现：复用可移植准备层，编码 SPIR-V 着色器，平面、图层、组、文字、阴影、SVG 路径齐全；
+  - gallery 的 26 CSS + 8 D3 在 RTX 5090 与 AMD 核显上都通过 102 张 Chromium 参考；
+  - 编码 pass 改用 fine 导数，Vulkan 与 D3D11 的差异大幅缩小，D3D11 产物与浏览器的距离基本不变。
+- **验证**：
+  - `ctest` Release 109/109、Debug 109/109（240.1 s），Android 零警告；
+  - 与 D3D11 WARP 逐像素比较：RTX 5090 超过 2 级的像素 162 个，最多 19 级（硬渐变停止点）；AMD 核显只有 1 个像素，最多 3 级；
+  - 验证层（含同步验证）零告警；7 个变异全部被发现。
+- **限制**：
+  - Vulkan scene pass 目前是同步的（自己提交、等待、读回），还没有接入宿主命令缓冲和完成 serial；
+  - Android 设备上未运行；
+  - 字形是 PNG/SVG 图像的文字在 Vulkan 上没有参考光栅，计为回退。
+- **下一步**：Vulkan scene pass 接入宿主提交（异步、两帧在途、按完成 serial 退休），之后是 Android 的示例应用（需要安装 Android SDK 与模拟器，等用户确认）。
+
 重构第 10 步之六（a）：原生 scene pass 的可移植准备层（2026-10-12）。详见 [重构计划](refactoring-plan.md#第-10-步记录2026-10-11)。
 - **结果**：
   - 新库 `weft::scene_native` 承担原生 scene pass 中与图形 API 无关的一半：显示列表、规划、按内容缓存的文字/阴影/路径图像，以及平面与图层的嵌套 pass；

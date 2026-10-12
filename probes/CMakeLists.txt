@@ -15,9 +15,10 @@ if(WIN32)
         d3d11 dxgi windowscodecs ole32 user32 dbghelp
         SOURCE_DIR LARGE_STACK GC_STRESS)
     if(WEFT_RENDER_VULKAN)
-        # The CaseCheetah flow window on Vulkan (vulkan_flow_window_probe.cpp).
-        target_sources(weft_d3d11_probe PRIVATE vulkan_flow_window_probe.cpp)
-        target_link_libraries(weft_d3d11_probe PRIVATE weft::render_vulkan)
+        # The CaseCheetah flow window (vulkan_flow_window_probe.cpp) and the native scene pass (scene_vulkan_probe.cpp)
+        # on Vulkan.
+        target_sources(weft_d3d11_probe PRIVATE vulkan_flow_window_probe.cpp scene_vulkan_probe.cpp)
+        target_link_libraries(weft_d3d11_probe PRIVATE weft::render_vulkan weft::scene_vulkan)
         target_compile_definitions(weft_d3d11_probe PRIVATE WEFT_PROBE_VULKAN=1)
     endif()
 endif()
@@ -30,6 +31,11 @@ if(WIN32 AND WEFT_BUILD_TESTS)
             COMMAND weft_d3d11_probe --cheetah-flow-window-test-4k-vulkan
             "${artifacts}/cheetah-flow-window-vulkan-$<CONFIG>/hardware" TIMEOUT 180)
         set_tests_properties(vulkan_cheetah_flow_window_4k PROPERTIES SKIP_RETURN_CODE 77)
+        # The gallery's scenes through the native Vulkan scene pass on this machine's device, against the D3D11 native
+        # pass on WARP and the Chromium references; skipped (77) without a Vulkan device.
+        weft_add_test(NAME vulkan_scene_native
+            COMMAND weft_d3d11_probe --scene-vulkan-test "${artifacts}/scene-vulkan-$<CONFIG>/hardware" TIMEOUT 300)
+        set_tests_properties(vulkan_scene_native PROPERTIES SKIP_RETURN_CODE 77)
     endif()
 
     # weft_add_d3d11_test(<test> <mode> <artifact dir> [weft_add_test options...]) runs one WARP mode.

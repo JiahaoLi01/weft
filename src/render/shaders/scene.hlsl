@@ -163,14 +163,11 @@ float clipChain(Paint p, float2 world) {
     return coverage;
 }
 
-// How fast v changes across a pixel. A linear pass takes fine derivatives, which every backend computes alike: Vulkan
-// leaves fwidth coarse or fine, and an RTX 5090 widened distance edges by up to 18 levels against WARP.
+// How fast v changes across a pixel, from fine derivatives, which every backend computes alike: Vulkan leaves fwidth
+// coarse or fine, and an RTX 5090 widened distance edges by up to 18 levels against WARP. Coarse ones also spread across
+// a quad where a distance turns a corner (the max of two edges), dimming a box's corner pixel against Chrome's.
 float pixelWidth(float v) {
-#if SPACE_LINEAR
     return abs(ddx_fine(v)) + abs(ddy_fine(v));
-#else
-    return fwidth(v);
-#endif
 }
 
 float4 over(float4 a, float4 b) {

@@ -177,6 +177,13 @@ namespace weft::probe_constants::gallery {
     // A layer at a whole device pixel offset against its content drawn inline: the layer image's 8-bit
     // premultiplied intermediate rounds once more.
     inline constexpr int max_layer_oracle_difference = 1;
+    // The Vulkan scene pass against the D3D11 one: pixels that differ by more than vulkan_scene_near_level levels are
+    // counted, at most this many over the gallery's captures, and none by more than max_vulkan_scene_difference. Both
+    // passes take fine derivatives; what remains are pixels on hard gradient stops (css-20's stripes, 19 levels),
+    // which rounding on either GPU puts on either side, and single levels of antialiasing.
+    inline constexpr int vulkan_scene_near_level = 2;
+    inline constexpr std::size_t max_vulkan_scene_far_pixels = 400;
+    inline constexpr int max_vulkan_scene_difference = 24;
     // The scene-native test draws at least this many passes natively and reuses this many layer images.
     inline constexpr std::size_t min_native_scene_passes = 3900;
     inline constexpr std::size_t min_native_layer_reuses = 300;

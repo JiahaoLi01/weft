@@ -176,7 +176,6 @@ namespace weft::render::vulkan {
 
         // The render passes and pipeline of format, created on first use.
         const Passes& passes(VkFormat format);
-        Passes create_passes(VkFormat format);
         VkFramebuffer framebuffer(VkImageView view, VkFormat format);
         // The texture of a new asset, in the registry and leased once: an atlas region of a caching renderer when the
         // asset fits there, otherwise an image of its own.

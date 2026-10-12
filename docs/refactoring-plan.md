@@ -1222,6 +1222,40 @@ CMake 拆分：
   - scratch 漏算平面图像（新合同发现）。这一项起初未被发现，补了合同之后才发现。
 - 有一次全量 Release 运行中，4K 实时预览 `d3d11_warp_gallery_preview` 失败，没有留下信息。之后两次全量和四次单独运行都通过。此后全量运行改用 `--output-on-failure`，以便留下证据。
 
+**10.6b：Vulkan 的 scene pass**：
+- 新库 `weft::scene_vulkan`（`src/render/backends/vulkan/scene_renderer.hpp`）复用 `ScenePreparer`，用共享 scene 着色器的编码变体（SPIR-V，不带 `SPACE_LINEAR`）绘制：
+  - 实例化记录，组画在暂存图像里；
+  - 平面与显式图层由嵌套 pass 画进各自的图像；
+  - 文字、阴影、路径图像按 id 上传一次，源对象不再存在时回收；
+  - 所有目标都是编码预乘 BGRA（`B8G8R8A8_UNORM`），与 D3D11 scene 目标相同。
+- `draw()` 是同步的：在自己的命令缓冲上记录一帧，提交并等待。
+  - 返回时设备已不再使用这一帧的任何资源，帧内的缓冲、组图像、平面图像和描述符池随之销毁；
+  - 失败时撤掉本帧加入缓存的图像；
+  - 接入宿主命令缓冲并按完成 serial 退休的异步路径还没有做。
+- 共享的 Vulkan 记录辅助（`vulkan/pipeline.hpp`）：着色器模块、图像屏障、清除/加载渲染 pass、预乘 source-over 管线、描述符集布局、采样器与描述符池。显示列表渲染器改用它们，行为不变，原有 Vulkan 测试全部通过。
+- 着色器：编码 pass 也改用 fine 导数。原先用 `fwidth`，而 Vulkan 由实现决定 coarse 还是 fine。
+  - D3D11 的编码产物随之变化，都在抗锯齿边缘：cluster 136 张、scene-native 64 张；
+  - 与浏览器参考相比，分别有 88 张、40 张更近，39 张、23 张更远，变远的最多 0.0003、0.0005 级均值；
+  - 顺带消除了 coarse 导数让盒子角像素变暗的问题：css-00 右下角从 160 恢复到 212，与 Chrome 一致。
+- 新探针 `vulkan_scene_native`：26 CSS + 8 D3 的 102 个采样帧逐帧与 D3D11 WARP 原生 pass 比较，并与 Chromium 参考比较；开启验证层与同步验证。
+  - RTX 5090：
+    - 102 帧全部在 Chromium 容差内，最差均差 2.45，最小 IoU 0.82；
+    - 与 D3D11 超过 2 级的像素共 162 个，最多 19 级。这些是 css-20 条纹进度条硬渐变停止点上的像素，GPU 的舍入决定它们落在哪一边；
+    - css-25 有 5.4 万个像素红通道比 D3D11 高 1 级，原因是 8 位混合在半级处的舍入，它的 Chromium 均差因此从 2.33 升到 2.45；
+    - 验证消息 0；平面 pass 3 次，图层构建 6 次、复用 12 次。
+  - AMD Radeon 核显（`--adapter AMD`，手动运行）：与 D3D11 最多差 3 级，超过 2 级的只有 1 个像素，最差 Chromium 均差 2.328，验证消息 0。
+  - 上限：与 D3D11 最多差 24 级，超过 2 级的像素不超过 400 个。
+
+验证：
+- `ctest --preset windows-release --parallel 6` 109/109（新增 `vulkan_scene_native`），`windows-debug --parallel 6` 109/109（240.1 s）。
+- Android 交叉编译零警告，`scene_vulkan` 与编码 SPIR-V 都在 Android 上编译。
+- 变异检查 7 个全部被发现：
+  - 不画平面、缩放丢失、首实例丢失（Chromium 容差发现）；
+  - 组图像继续而不清除、平面图像未转为采样布局（验证层发现）；
+  - 编码 pass 改回 `fwidth`（与 D3D11 的差异上限发现）；
+  - 新图层内容的图像不上传（缺纹理发现）。
+- 未验证：Android 设备上的运行（没有 SDK 和模拟器）。
+
 ## 顺序调整（2026-10-10）
 
 用户决定先完成第 7–9 步，第 10 步（第二个图形后端与移动平台）暂缓。跨平台仍是硬性需求：
