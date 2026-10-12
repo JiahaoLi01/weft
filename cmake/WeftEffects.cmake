@@ -6,18 +6,70 @@
 # refused (cmake/check_effect.cmake): an effect reads its input and the textures the shared shader declares, nothing
 # else.
 #
-# weft_add_effect(<target> <name> <source.hlsl> PARAMETERS <count> TEXTURES <count>)
+# weft_add_effect(<target> <name> <source.hlsl>
+#                 PARAMETERS <count> | PARAMETERS <parameter>:<type>[=<initial>]...
+#                 TEXTURES <count> | TEXTURES <texture>...
+#                 [ANIMATED])
 # Adds the program to <target>, declared in the generated header "effects/<name>.hpp":
 #   const std::shared_ptr<const weft::paint::EffectProgram>& weft::effects::<name>();
-# <name> is a C++ identifier; PARAMETERS (float4 each) and TEXTURES are what the function reads.
+# <name> is a C++ identifier. PARAMETERS (float4 each, at most 16) and TEXTURES (at most 4) are what the function reads,
+# by count for a program that only display lists draw, or by name for CSS (paint::EffectParameter): CSS sets parameter
+# <parameter> with the custom property --<parameter>, a value of <type> (number, vec2, vec3, vec4 or color), or
+# <initial> when none is set, CSS text with commas for spaces (7.2,2.8; quote one with a #: "tint:color=#9ca3af"). A
+# host registers the named textures with the program. ANIMATED: the function reads the time.
 function(weft_add_effect target name source)
-    cmake_parse_arguments(PARSE_ARGV 3 arg "" "PARAMETERS;TEXTURES" "")
+    cmake_parse_arguments(PARSE_ARGV 3 arg "ANIMATED" "" "PARAMETERS;TEXTURES")
     if(NOT name MATCHES "^[A-Za-z_][A-Za-z0-9_]*$")
         message(FATAL_ERROR "weft_add_effect: ${name} is not an identifier")
     endif()
-    if(NOT arg_PARAMETERS MATCHES "^[0-9]+$" OR arg_PARAMETERS GREATER 16 OR
-       NOT arg_TEXTURES MATCHES "^[0-9]+$" OR arg_TEXTURES GREATER 4)
-        message(FATAL_ERROR "weft_add_effect: ${name} needs PARAMETERS 0-16 and TEXTURES 0-4")
+    # The manifest: counts, and the named parameters and textures as C++ initializers.
+    set(named_parameters "")
+    set(named_textures "")
+    if(arg_PARAMETERS MATCHES "^[0-9]+$")
+        set(parameter_count ${arg_PARAMETERS})
+    else()
+        list(LENGTH arg_PARAMETERS parameter_count)
+        foreach(parameter IN LISTS arg_PARAMETERS)
+            if(NOT parameter MATCHES "^([A-Za-z_][A-Za-z0-9_-]*):(number|vec2|vec3|vec4|color)(=(.*))?$")
+                message(FATAL_ERROR "weft_add_effect: ${name} parameter ${parameter} is not <name>:<type>[=<initial>]")
+            endif()
+            set(type_number Number)
+            set(type_vec2 Vector2)
+            set(type_vec3 Vector3)
+            set(type_vec4 Vector4)
+            set(type_color Color)
+            set(type "${type_${CMAKE_MATCH_2}}")
+            set(parameter_name "${CMAKE_MATCH_1}")
+            string(REPLACE "," " " initial "${CMAKE_MATCH_4}")
+            string(REPLACE "\\" "\\\\" initial "${initial}")
+            string(REPLACE "\"" "\\\"" initial "${initial}")
+            string(APPEND named_parameters "                {\"${parameter_name}\", "
+                "weft::paint::EffectParameter::Type::${type}, \"${initial}\"},\n")
+        endforeach()
+    endif()
+    if(arg_TEXTURES MATCHES "^[0-9]+$")
+        set(texture_count ${arg_TEXTURES})
+    else()
+        list(LENGTH arg_TEXTURES texture_count)
+        foreach(texture IN LISTS arg_TEXTURES)
+            if(NOT texture MATCHES "^[A-Za-z_][A-Za-z0-9_-]*$")
+                message(FATAL_ERROR "weft_add_effect: ${name} texture ${texture} is not a name")
+            endif()
+            string(APPEND named_textures "\"${texture}\", ")
+        endforeach()
+    endif()
+    if(parameter_count GREATER 16 OR texture_count GREATER 4)
+        message(FATAL_ERROR "weft_add_effect: ${name} reads at most 16 parameters and 4 textures")
+    endif()
+    set(manifest "")
+    if(named_parameters)
+        string(APPEND manifest "            p->named_parameters = {\n${named_parameters}            };\n")
+    endif()
+    if(named_textures)
+        string(APPEND manifest "            p->named_textures = {${named_textures}};\n")
+    endif()
+    if(arg_ANIMATED)
+        string(APPEND manifest "            p->animated = true;\n")
     endif()
     get_filename_component(source "${source}" ABSOLUTE)
     set(scene "${PROJECT_SOURCE_DIR}/src/render/shaders/scene.hlsl")
@@ -85,7 +137,7 @@ function(weft_add_effect target name source)
 #include <memory>
 
 namespace weft::effects {
-    // The UI shader effect ${name}: ${arg_PARAMETERS} parameters, ${arg_TEXTURES} textures.
+    // The UI shader effect ${name}: ${parameter_count} parameters, ${texture_count} textures.
     const std::shared_ptr<const paint::EffectProgram>& ${name}();
 } // namespace weft::effects
 ")
@@ -102,9 +154,9 @@ ${tables}    } // namespace
         static const std::shared_ptr<const paint::EffectProgram> program = [] {
             auto p = std::make_shared<paint::EffectProgram>();
             p->name = \"${name}\";
-            p->parameters = ${arg_PARAMETERS};
-            p->textures = ${arg_TEXTURES};
-${fills}            return p;
+            p->parameters = ${parameter_count};
+            p->textures = ${texture_count};
+${manifest}${fills}            return p;
         }();
         return program;
     }

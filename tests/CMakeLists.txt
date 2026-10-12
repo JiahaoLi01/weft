@@ -62,6 +62,9 @@ weft_add_effect(weft_test_effects effect_parameters effects/parameters.hlsl PARA
 weft_add_effect(weft_test_effects effect_textures effects/textures.hlsl PARAMETERS 0 TEXTURES 2)
 weft_add_effect(weft_test_effects effect_color effects/color.hlsl PARAMETERS 1 TEXTURES 0)
 weft_add_effect(weft_test_effects effect_repeat effects/repeat.hlsl PARAMETERS 0 TEXTURES 1)
+# An effect that CSS attaches: named parameters, a named texture, and the time.
+weft_add_effect(weft_test_effects effect_css effects/css.hlsl
+    PARAMETERS "tint:color=#336699" amount:number=0.5 offset:vec2=0,0 TEXTURES mask ANIMATED)
 
 # The effect check (cmake/check_effect.cmake) on tests/effects/check/<sample>.hlsl: it accepts the sample, or with a
 # reason refuses it with a message that names the reason. CMake wraps messages: the reason's spaces match any space.
@@ -195,6 +198,21 @@ if(WIN32)
     weft_add_executable(weft_scene_native_tests SOURCES scene_native_tests.cpp
         LINK weft::scene_native weft::platform_win32)
     weft_add_test(NAME scene_native_contract COMMAND weft_scene_native_tests)
+    # UI shader effects that CSS attaches in scenes: registration, custom properties and display lists.
+    weft_add_executable(weft_scene_effect_tests SOURCES scene_effect_tests.cpp
+        LINK weft::scene weft::platform_win32 weft_test_effects)
+    weft_add_test(NAME scene_effect_contract COMMAND weft_scene_effect_tests)
+    # UI shader effects in the native scene passes: D3D11 on WARP, and Vulkan on this machine's device when built.
+    set(scene_effect_links weft::scene_d3d11 weft::platform_win32 weft_test_effects)
+    if(WEFT_RENDER_VULKAN)
+        list(APPEND scene_effect_links weft::scene_vulkan)
+    endif()
+    weft_add_executable(weft_render_scene_effects_tests SOURCES render_scene_effects_tests.cpp
+        LINK ${scene_effect_links})
+    if(WEFT_RENDER_VULKAN)
+        target_compile_definitions(weft_render_scene_effects_tests PRIVATE WEFT_TEST_VULKAN)
+    endif()
+    weft_add_test(NAME render_scene_effects_contract COMMAND weft_render_scene_effects_tests TIMEOUT 120)
     if(WEFT_RENDER_VULKAN)
         # The Vulkan scene pass recorded into a host's command buffers on this machine's Vulkan device; skipped (77)
         # without one.

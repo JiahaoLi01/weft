@@ -73,6 +73,7 @@ namespace weft::render::vulkan {
             fence.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
             check(d.vkd.vkCreateFence(d.device, &fence, nullptr, &fence_), "vkCreateFence");
             sampler_ = create_linear_sampler(d);
+            effect_sampler_ = create_linear_sampler(d, true);
             vertex_ = shader_module(d, vertex_spirv, sizeof(vertex_spirv));
             fragment_ = shader_module(d, fragment_spirv, sizeof(fragment_spirv));
             set_layout_ = create_scene_set_layout(d);
@@ -121,6 +122,11 @@ namespace weft::render::vulkan {
             d.destroy(texture.image);
         }
         textures_.clear();
+        for (auto& [program, e] : effect_pipelines_) {
+            d.vkd.vkDestroyPipeline(d.device, e.pipeline, nullptr);
+            d.vkd.vkDestroyShaderModule(d.device, e.fragment, nullptr);
+        }
+        effect_pipelines_.clear();
         d.destroy(readback_);
         d.destroy(target_);
         d.destroy(blank_buffer_);
@@ -130,13 +136,14 @@ namespace weft::render::vulkan {
         d.vkd.vkDestroyDescriptorSetLayout(d.device, set_layout_, nullptr);
         d.vkd.vkDestroyShaderModule(d.device, fragment_, nullptr);
         d.vkd.vkDestroyShaderModule(d.device, vertex_, nullptr);
+        d.vkd.vkDestroySampler(d.device, effect_sampler_, nullptr);
         d.vkd.vkDestroySampler(d.device, sampler_, nullptr);
         d.vkd.vkDestroyFence(d.device, fence_, nullptr);
         d.vkd.vkDestroyCommandPool(d.device, pool_, nullptr);
         layout_ = {};
         set_layout_ = {};
         fragment_ = vertex_ = {};
-        sampler_ = {};
+        sampler_ = effect_sampler_ = {};
         fence_ = {};
         pool_ = {};
     }
@@ -279,6 +286,13 @@ namespace weft::render::vulkan {
                 check_pending(*prepared.layers[i]->content);
             }
         }
+        for (const auto& effect : prepared.effects) {
+            for (const auto& texture : effect.textures) {
+                if (pending(texture->id)) {
+                    throw Busy("a scene samples what another recording that is not submitted uploads");
+                }
+            }
+        }
     }
 
     void SceneRenderer::upload(const ScenePrepared& prepared) {
@@ -299,6 +313,13 @@ namespace weft::render::vulkan {
                     self(self, *p.layers[i]->content);
                 }
             }
+            for (const auto& effect : p.effects) {
+                for (const auto& texture : effect.textures) {
+                    if (!textures_.contains(texture->id) && seen.insert(texture->id).second) {
+                        pending.push_back(texture);
+                    }
+                }
+            }
         };
         walk(walk, prepared);
         if (pending.empty()) {
@@ -308,25 +329,31 @@ namespace weft::render::vulkan {
         std::vector<VkBufferImageCopy> copies;
         for (const auto& image : pending) {
             ensure(image->width && image->height &&
-                       image->bgra.size() ==
-                           std::size_t(image->width) * image->height * weft::constants::rgba8_bytes_per_pixel,
+                       image->pixels.size() ==
+                           std::size_t(image->width) * image->height * scene_image_texel_bytes(image->format),
                    "scene image size");
             VkBufferImageCopy copy{};
             copy.bufferOffset = staged;
             copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
             copy.imageExtent = {image->width, image->height, 1};
             copies.push_back(copy);
-            staged += (image->bgra.size() + staging_alignment - 1) / staging_alignment * staging_alignment;
+            staged += (image->pixels.size() + staging_alignment - 1) / staging_alignment * staging_alignment;
         }
         const auto& staging = buffer(staged);
         std::vector<VkImageMemoryBarrier> to_transfer;
         std::vector<VkImageMemoryBarrier> to_read;
         for (std::size_t i = 0; i < pending.size(); ++i) {
             const auto& image = *pending[i];
-            std::memcpy(static_cast<std::uint8_t*>(staging.mapped) + copies[i].bufferOffset, image.bgra.data(),
-                        image.bgra.size());
+            std::memcpy(static_cast<std::uint8_t*>(staging.mapped) + copies[i].bufferOffset, image.pixels.data(),
+                        image.pixels.size());
+            // Each format as the shader samples it: encoded premultiplied bytes as they are, data in r, sRGB decoded
+            // to linear light before filtering, linear floats.
+            const auto format = image.format == SceneImage::Format::Bgra   ? target_format
+                                : image.format == SceneImage::Format::Data ? VK_FORMAT_R8_UNORM
+                                : image.format == SceneImage::Format::Srgb ? VK_FORMAT_R8G8B8A8_SRGB
+                                                                           : VK_FORMAT_R32G32B32A32_SFLOAT;
             Texture texture{pending[i],
-                            d.image(target_format, image.width, image.height,
+                            d.image(format, image.width, image.height,
                                     VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT),
                             slot_->recording};
             const auto handle = texture.image.image;
@@ -348,6 +375,22 @@ namespace weft::render::vulkan {
                                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr,
                                    std::uint32_t(to_read.size()), to_read.data());
         uploads += pending.size();
+    }
+
+    VkPipeline SceneRenderer::effect_pipeline(const std::shared_ptr<const paint::EffectProgram>& program) {
+        if (const auto found = effect_pipelines_.find(program.get()); found != effect_pipelines_.end()) {
+            return found->second.pipeline;
+        }
+        ensure(!program->spirv_encoded.empty(), "an effect built for Vulkan");
+        EffectPipeline made{
+            program, shader_module(gpu, program->spirv_encoded.data(), program->spirv_encoded.size()), {}};
+        try {
+            made.pipeline = create_scene_pipeline(gpu, passes_.clear, layout_, vertex_, made.fragment);
+        } catch (...) {
+            gpu.vkd.vkDestroyShaderModule(gpu.device, made.fragment, nullptr);
+            throw;
+        }
+        return effect_pipelines_.emplace(program.get(), std::move(made)).first->second.pipeline;
     }
 
     VkImageView SceneRenderer::layer(const std::shared_ptr<const SceneLayerImage>& layer, float scale) {
@@ -411,18 +454,23 @@ namespace weft::render::vulkan {
             groups.push_back(target(prepared.width, prepared.height));
         }
 
-        // One descriptor set per draw: the image it samples, the group it composites, or none.
+        // One descriptor set per draw: the image it samples, the group it composites, or none; an effect's textures and,
+        // in batch order, its pipeline.
         std::vector<VkImageView> images;
+        std::vector<std::optional<std::array<VkImageView, weft::constants::max_effect_textures>>> effect_views;
+        std::vector<VkPipeline> effects;
         std::size_t open{};
         for (const auto& batch : pass.batches) {
             switch (batch.step) {
                 case ScenePass::Step::Boxes:
                     images.push_back(blank_image_.view);
+                    effect_views.emplace_back();
                     break;
                 case ScenePass::Step::Image:
                     // A path with nothing inside its clip has no image and draws nothing.
                     if (views[batch.first]) {
                         images.push_back(views[batch.first]);
+                        effect_views.emplace_back();
                     }
                     break;
                 case ScenePass::Step::BeginGroup:
@@ -430,11 +478,22 @@ namespace weft::render::vulkan {
                     break;
                 case ScenePass::Step::EndGroup:
                     images.push_back(groups.at(--open).view);
+                    effect_views.emplace_back();
                     break;
-                case ScenePass::Step::Effect:
-                    // The scene preparer refuses effects until scene passes run them.
-                    ensure(false, "a scene pass without effects");
+                case ScenePass::Step::Effect: {
+                    const auto& effect = prepared.effects.at(batch.source);
+                    ensure(effect.textures.size() <= weft::constants::max_effect_textures, "effect textures");
+                    std::array<VkImageView, weft::constants::max_effect_textures> textures;
+                    textures.fill(blank_image_.view);
+                    for (std::size_t t = 0; t < effect.textures.size(); ++t) {
+                        textures[t] = textures_.at(effect.textures[t]->id).image.view;
+                        slot_->leases.push_back(effect.textures[t]);
+                    }
+                    images.push_back(blank_image_.view);
+                    effect_views.emplace_back(textures);
+                    effects.push_back(effect_pipeline(effect.program));
                     break;
+                }
             }
         }
         std::vector<VkDescriptorSet> sets(images.size());
@@ -476,6 +535,29 @@ namespace weft::render::vulkan {
                 writes[3].pBufferInfo = &clip_info;
                 writes[4].pImageInfo = &sampler_info;
                 d.vkd.vkUpdateDescriptorSets(d.device, std::uint32_t(std::size(writes)), writes, 0, nullptr);
+                if (!effect_views[s]) {
+                    continue;
+                }
+                // An effect's textures and its repeating sampler.
+                std::array<VkDescriptorImageInfo, weft::constants::max_effect_textures + 1> effect_info{};
+                std::array<VkWriteDescriptorSet, weft::constants::max_effect_textures + 1> effect_writes{};
+                for (std::size_t i = 0; i < effect_writes.size(); ++i) {
+                    const bool repeat = i == weft::constants::max_effect_textures;
+                    effect_info[i] =
+                        repeat ? VkDescriptorImageInfo{effect_sampler_, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED}
+                               : VkDescriptorImageInfo{VK_NULL_HANDLE, (*effect_views[s])[i],
+                                                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+                    auto& w = effect_writes[i];
+                    w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    w.dstSet = sets[s];
+                    w.dstBinding = repeat ? std::uint32_t(limits::binding_effect_sampler)
+                                          : std::uint32_t(limits::binding_effect_textures + i);
+                    w.descriptorCount = 1;
+                    w.descriptorType = repeat ? VK_DESCRIPTOR_TYPE_SAMPLER : VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+                    w.pImageInfo = &effect_info[i];
+                }
+                d.vkd.vkUpdateDescriptorSets(d.device, std::uint32_t(effect_writes.size()), effect_writes.data(), 0,
+                                             nullptr);
             }
         }
 
@@ -506,6 +588,7 @@ namespace weft::render::vulkan {
         };
         begin(out, true, pass.clear);
         std::size_t depth{};
+        std::size_t next_effect{};
         for (const auto& batch : pass.batches) {
             switch (batch.step) {
                 case ScenePass::Step::Boxes:
@@ -530,7 +613,9 @@ namespace weft::render::vulkan {
                     instances(batch.first, 1);
                     break;
                 case ScenePass::Step::Effect:
-                    // Refused before any descriptor set was written.
+                    d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, effects[next_effect++]);
+                    instances(batch.first, batch.count);
+                    d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, passes_.pipeline);
                     break;
             }
         }
@@ -561,6 +646,27 @@ namespace weft::render::vulkan {
         }
         const auto prepared = preparer_.prepare(frame, scale, target.width, target.height, crop, view_index, layers);
         if (!prepared) {
+            return false;
+        }
+        // An effect's translucent color texture is linear floats, which not every device filters.
+        const auto linear = [](auto&& self, const ScenePrepared& p) -> bool {
+            for (const auto& effect : p.effects) {
+                for (const auto& texture : effect.textures) {
+                    if (texture->format == SceneImage::Format::Linear) {
+                        return true;
+                    }
+                }
+            }
+            for (std::size_t i = 0; i < p.planes.size(); ++i) {
+                if ((p.planes[i] && self(self, *p.planes[i])) || (p.layers[i] && self(self, *p.layers[i]->content))) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        if (!d.filters(VK_FORMAT_R32G32B32A32_SFLOAT) && linear(linear, *prepared)) {
+            ++fallbacks;
+            ++reasons["effect float texture filtering"];
             return false;
         }
         slot_ = &slot;

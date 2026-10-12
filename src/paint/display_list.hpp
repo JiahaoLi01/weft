@@ -171,6 +171,26 @@ namespace weft::paint {
         float height{};
     };
 
+    // A parameter of an effect program that CSS sets: the custom property --name on the element or its ancestors, a
+    // value of type, or initial when no property is set.
+    struct EffectParameter {
+        enum class Type : std::uint8_t {
+            // One number, in x.
+            Number,
+            // Two to four numbers separated by spaces, in x, y, z and w.
+            Vector2,
+            Vector3,
+            Vector4,
+            // A CSS color, as straight linear RGB and alpha.
+            Color
+        };
+
+        std::string name;
+        Type type{};
+        // CSS text.
+        std::string initial;
+    };
+
     // A compiled UI shader effect (docs/architecture.md, "UI 着色器效果、粒子与背景拷贝"): its HLSL pixel function as
     // each backend runs it in each composition space, and what the function reads. Immutable; lists lease it as they
     // lease assets.
@@ -180,6 +200,12 @@ namespace weft::paint {
         // constants::max_effect_textures.
         std::uint32_t parameters{};
         std::uint32_t textures{};
+        // Its manifest, for CSS: each parameter by name and type, in the order the function reads them, and the
+        // textures by name, all of them or none (a program that only display lists draw); and whether the function
+        // reads the time, so that frames keep coming while it shows.
+        std::vector<EffectParameter> named_parameters;
+        std::vector<std::string> named_textures;
+        bool animated{};
         // Pixel shader bytecode, empty where not built: D3D11 DXBC and Vulkan SPIR-V, for an encoded and a linear
         // pass.
         std::vector<std::uint8_t> d3d11_encoded;

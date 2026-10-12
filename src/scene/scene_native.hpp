@@ -43,6 +43,8 @@ namespace weft {
         std::size_t shadow_reuses{};
         std::size_t path_builds{};
         std::size_t path_reuses{};
+        std::size_t effect_texture_builds{};
+        std::size_t effect_texture_reuses{};
         // Plane contents drawn by nested passes into their images.
         std::size_t plane_passes{};
         // Cached images evicted for the caches' bounds (SceneCacheBounds).
@@ -55,14 +57,31 @@ namespace weft {
         std::map<std::string, std::size_t> reasons;
     };
 
-    // Pixels a pass samples, immutable once built: premultiplied encoded sRGB in BGRA byte order, as the scene
-    // targets hold them. id is unique among a preparer's images and layers.
+    // Pixels a pass samples, immutable once built. id is unique among a preparer's images and layers.
     struct SceneImage {
+        enum class Format : std::uint8_t {
+            // Premultiplied encoded sRGB in BGRA byte order, as the scene targets hold them: text, shadows and paths.
+            Bgra,
+            // One byte per texel, sampled in r: an effect's coverage texture, read as data.
+            Data,
+            // Opaque sRGB in RGBA byte order, which the sampler decodes to linear light before filtering: an effect's
+            // color texture.
+            Srgb,
+            // Linear premultiplied RGBA floats: an effect's translucent color texture.
+            Linear
+        };
+
         std::uint64_t id{};
         std::uint32_t width{};
         std::uint32_t height{};
-        std::vector<std::uint8_t> bgra;
+        Format format{};
+        std::vector<std::uint8_t> pixels;
     };
+
+    // The bytes of one texel of an image format.
+    inline std::size_t scene_image_texel_bytes(SceneImage::Format format) {
+        return format == SceneImage::Format::Data ? 1 : format == SceneImage::Format::Linear ? 4 * sizeof(float) : 4;
+    }
 
     struct ScenePrepared;
 
@@ -75,9 +94,16 @@ namespace weft {
         std::shared_ptr<const ScenePrepared> content;
     };
 
+    // An effect of a prepared pass: its program, and the images of its textures in the program's order.
+    struct ScenePreparedEffect {
+        std::shared_ptr<const paint::EffectProgram> program;
+        std::vector<std::shared_ptr<const SceneImage>> textures;
+    };
+
     // A display list's pass ready to draw on a width x height device px target: its plan, and per item the image a
     // text, shadow or path item samples (null for a path with nothing in its clip), the pass of a plane's content
-    // (drawn into an image of plane_pixels), or a layer's image.
+    // (drawn into an image of plane_pixels), or a layer's image; and per effect of the list (DisplayList::effects, as
+    // Effect batches name them) its program and textures.
     struct ScenePrepared {
         render::ScenePass pass;
         unsigned width{};
@@ -85,6 +111,7 @@ namespace weft {
         std::vector<std::shared_ptr<const SceneImage>> images;
         std::vector<std::unique_ptr<ScenePrepared>> planes;
         std::vector<std::shared_ptr<const SceneLayerImage>> layers;
+        std::vector<ScenePreparedEffect> effects;
     };
 
     // Scratch bytes the targets of a prepared pass and of its planes' passes take: their groups, and a plane's pass
@@ -140,6 +167,8 @@ namespace weft {
         SceneImageCache<std::array<float, 15>, std::shared_ptr<const SceneImage>> shadows_;
         // Path coverage images by value: the path, its stroke, the device map and the mask's pixels.
         SceneImageCache<std::string, std::shared_ptr<const SceneImage>> paths_;
+        // The images of effects' textures by asset; the cache holds the asset while it keeps its image.
+        SceneImageCache<std::shared_ptr<const paint::Asset>, std::shared_ptr<const SceneImage>> effect_textures_;
 
         // Plans list and builds the images it samples, its planes' and layers' contents included; throws
         // std::invalid_argument with the reason for a list a native pass cannot draw.
@@ -159,5 +188,8 @@ namespace weft {
         // A path item's coverage over mask (device pixels); throws std::invalid_argument past the mask bounds.
         std::shared_ptr<const SceneImage> path(const paint::Item& item, const paint::PathPaint& paint, float scale,
                                                const std::array<std::int32_t, 4>& mask);
+        // The image of an effect's texture: coverage as data, an opaque sRGB image as sRGB, a translucent one as
+        // linear premultiplied floats.
+        std::shared_ptr<const SceneImage> effect_texture(const std::shared_ptr<const paint::Asset>& asset);
     };
 } // namespace weft

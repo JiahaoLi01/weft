@@ -13,6 +13,8 @@ namespace weft::render::d3d11 {
     namespace {
         namespace limits = constants::render::scene;
         using Color = std::array<float, 4>;
+        // The register of an effect's first texture (scene.hlsl, effectTexture0); its others follow.
+        constexpr UINT effect_texture_slot = 3;
         using Record = SceneRecord;
         using Step = ScenePass::Step;
 
@@ -110,15 +112,25 @@ namespace weft::render::d3d11 {
         if (const auto it = textures_.find(image->id); it != textures_.end()) {
             return it->second.view.Get();
         }
+        // Each format as the shader samples it: encoded premultiplied bytes as they are, data in r, sRGB decoded to
+        // linear light before filtering, linear floats.
+        using Format = SceneImage::Format;
+        const auto texel = scene_image_texel_bytes(image->format);
+        ensure(image->width && image->height &&
+                   image->pixels.size() == std::size_t(image->width) * image->height * texel,
+               "scene image size");
         D3D11_TEXTURE2D_DESC desc{};
         desc.Width = image->width;
         desc.Height = image->height;
         desc.MipLevels = desc.ArraySize = 1;
-        desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        desc.Format = image->format == Format::Bgra   ? DXGI_FORMAT_B8G8R8A8_UNORM
+                      : image->format == Format::Data ? DXGI_FORMAT_R8_UNORM
+                      : image->format == Format::Srgb ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
+                                                      : DXGI_FORMAT_R32G32B32A32_FLOAT;
         desc.SampleDesc.Count = 1;
         desc.Usage = D3D11_USAGE_IMMUTABLE;
         desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        D3D11_SUBRESOURCE_DATA data{image->bgra.data(), image->width * constants::rgba8_bytes_per_pixel, 0};
+        D3D11_SUBRESOURCE_DATA data{image->pixels.data(), UINT(image->width * texel), 0};
         ComPtr<ID3D11Texture2D> pixels;
         Texture texture{image, {}};
         throw_if_failed(gpu_.device->CreateTexture2D(&desc, &data, &pixels), "native scene image");
@@ -137,6 +149,18 @@ namespace weft::render::d3d11 {
         pass.target = group_target(gpu_.device.Get(), layer->width, layer->height);
         draw_pass(pass, *layer->content, pass.target.rtv.Get(), scale);
         return textures_.emplace(layer->id, Texture{layer, pass.target.srv}).first->second.view.Get();
+    }
+
+    ID3D11PixelShader* SceneRenderer::effect_shader(const std::shared_ptr<const paint::EffectProgram>& program) {
+        if (const auto found = effect_shaders_.find(program.get()); found != effect_shaders_.end()) {
+            return found->second.shader.Get();
+        }
+        ensure(!program->d3d11_encoded.empty(), "an effect built for D3D11");
+        EffectShader made{program, {}};
+        throw_if_failed(gpu_.device->CreatePixelShader(program->d3d11_encoded.data(), program->d3d11_encoded.size(),
+                                                       nullptr, &made.shader),
+                        "native scene effect shader");
+        return effect_shaders_.emplace(program.get(), std::move(made)).first->second.shader.Get();
     }
 
     void SceneRenderer::draw_pass(Slot& slot, const ScenePrepared& prepared, ID3D11RenderTargetView* destination,
@@ -161,6 +185,17 @@ namespace weft::render::d3d11 {
             } else if (prepared.images[i]) {
                 views[i] = texture(prepared.images[i]);
                 slot.leases.push_back(prepared.images[i]);
+            }
+        }
+        // Each effect's textures, at t3 on.
+        std::vector<std::array<ID3D11ShaderResourceView*, constants::max_effect_textures>> effect_views(
+            prepared.effects.size());
+        for (std::size_t e = 0; e < prepared.effects.size(); ++e) {
+            const auto& textures = prepared.effects[e].textures;
+            ensure(textures.size() <= constants::max_effect_textures, "effect textures");
+            for (std::size_t t = 0; t < textures.size(); ++t) {
+                effect_views[e][t] = texture(textures[t]);
+                slot.leases.push_back(textures[t]);
             }
         }
         const auto& pass = prepared.pass;
@@ -259,7 +294,7 @@ namespace weft::render::d3d11 {
         const bool offsets = constant_offsets && offsets_supported_;
         if (offsets) {
             for (const auto& batch : pass.batches) {
-                if (batch.step == Step::Boxes || batch.step == Step::EndGroup ||
+                if (batch.step == Step::Boxes || batch.step == Step::EndGroup || batch.step == Step::Effect ||
                     (batch.step == Step::Image && views[batch.first])) {
                     starts.push_back(batch.first);
                 }
@@ -341,10 +376,18 @@ namespace weft::render::d3d11 {
                 case Step::Boxes:
                     instances(batch.first, batch.count, nullptr);
                     break;
-                case Step::Effect:
-                    // The scene preparer refuses effects until scene passes run them.
-                    ensure(false, "a scene pass without effects");
+                case Step::Effect: {
+                    // The effect's encoded pass over its records, its textures at t3 on, repeated by s1.
+                    const auto& effect = prepared.effects.at(batch.source);
+                    ctx->PSSetShader(effect_shader(effect.program), nullptr, 0);
+                    ctx->PSSetShaderResources(effect_texture_slot, UINT(effect_views[batch.source].size()),
+                                              effect_views[batch.source].data());
+                    auto* repeat = gpu_.effect_sampler.Get();
+                    ctx->PSSetSamplers(1, 1, &repeat);
+                    instances(batch.first, batch.count, nullptr);
+                    ctx->PSSetShader(ps_.Get(), nullptr, 0);
                     break;
+                }
             }
         }
         ctx->ClearState();

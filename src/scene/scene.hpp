@@ -1,6 +1,7 @@
 #pragma once
 #include "style/style.hpp"
 #include "dom/geometry.hpp"
+#include "scene/scene_effects.hpp"
 #include "scene/scene_paint.hpp"
 #include "scene/scene_text.hpp"
 #include <functional>
@@ -24,12 +25,22 @@ namespace weft {
         std::array<float, 4> box{}; // Parent-local border box, before transform.
         std::vector<SceneNode> children;
         std::optional<ScenePaintValues> paint; // Derived numeric cache, not DOM/style identity.
+        // The -weft-effect() background and its parameters, resolved from the custom properties.
+        std::shared_ptr<const SceneEffect> effect;
 
         friend bool operator==(const SceneNode& a, const SceneNode& b) {
             return a.identity == b.identity && a.tag == b.tag && a.space == b.space && a.text == b.text &&
-                   a.attributes == b.attributes && a.style == b.style && a.box == b.box && a.children == b.children;
+                   a.attributes == b.attributes && a.style == b.style && a.box == b.box &&
+                   (a.effect == b.effect || (a.effect && b.effect && *a.effect == *b.effect)) &&
+                   a.children == b.children;
         }
     };
+
+    // Whether two nodes show the same effect: none, or one of equal values.
+    inline bool scene_effect_equal(const std::shared_ptr<const SceneEffect>& a,
+                                   const std::shared_ptr<const SceneEffect>& b) {
+        return a == b || (a && b && *a == *b);
+    }
 
     struct SceneFrame {
         SceneNode root;
@@ -97,7 +108,7 @@ namespace weft {
         if (a.identity != b.identity || a.tag != b.tag || a.space != b.space || a.text != b.text ||
             a.attributes != b.attributes || a.style != b.style || a.box != b.box ||
             a.children.size() != b.children.size() || bool(a.paint) != bool(b.paint) ||
-            (a.paint && a.paint->values != b.paint->values)) {
+            (a.paint && a.paint->values != b.paint->values) || !scene_effect_equal(a.effect, b.effect)) {
             return false;
         }
         for (std::size_t i = 0; i < a.children.size(); ++i) {
@@ -131,6 +142,9 @@ namespace weft {
         void update(const DomSnapshot&, SceneFrame&, float width, float height, double time_ms);
         void reset();
         void set_profiling(bool);
+        // The effects background-image: -weft-effect(name) names; the host keeps them alive. Without them such a
+        // background is a scene profile diagnostic.
+        void set_effects(const SceneEffects* effects);
 
         struct Work {
             std::size_t style_evaluations{};

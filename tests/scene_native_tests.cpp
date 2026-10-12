@@ -2,6 +2,8 @@
 #include "support/check.hpp"
 #include "support/scene_fonts.hpp"
 
+#include <cmath>
+#include <cstring>
 #include <iostream>
 #include <map>
 
@@ -126,6 +128,40 @@ int main() {
         require(!preparer.prepare(behind, 2, 400, 200, std::nullopt, 0, {}) && work.fallbacks == 1 &&
                     work.reasons.at("plane behind the viewer") == 1,
                 "fallback reason");
+        // An effect's textures: an image of each asset in the format the effect samples (coverage as data, an opaque
+        // sRGB image as sRGB, a translucent one as linear premultiplied floats), built once while the asset lives.
+        {
+            auto program = std::make_shared<weft::paint::EffectProgram>();
+            program->textures = 3;
+            const auto data = std::make_shared<const weft::paint::Asset>(
+                weft::paint::Asset{2, 1, weft::paint::Encoding::Coverage, {10, 20}});
+            const auto opaque = std::make_shared<const weft::paint::Asset>(
+                weft::paint::Asset{1, 1, weft::paint::Encoding::SrgbStraight, {255, 128, 0, 255}});
+            const auto translucent = std::make_shared<const weft::paint::Asset>(
+                weft::paint::Asset{1, 1, weft::paint::Encoding::SrgbStraight, {255, 128, 0, 128}});
+            weft::SceneFrame effected;
+            effected.root = node(400, {0, 0, 40, 40}, {});
+            effected.root.effect =
+                std::make_shared<const weft::SceneEffect>(weft::SceneEffect{program, {data, opaque, translucent}, {}});
+            weft::SceneNativeWork effect_work;
+            weft::ScenePreparer textures(text, effect_work, 4096);
+            const auto prepared = textures.prepare(effected, 1, 40, 40, std::nullopt, 0, {});
+            require(prepared && prepared->effects.size() == 1 && prepared->effects[0].program == program,
+                    "a prepared effect");
+            const auto& effect_images = prepared->effects[0].textures;
+            float red{};
+            std::memcpy(&red, effect_images[2]->pixels.data(), sizeof(red));
+            require(effect_images.size() == 3 && effect_images[0]->format == weft::SceneImage::Format::Data &&
+                        effect_images[0]->pixels == std::vector<std::uint8_t>{10, 20} &&
+                        effect_images[1]->format == weft::SceneImage::Format::Srgb &&
+                        effect_images[2]->format == weft::SceneImage::Format::Linear &&
+                        effect_images[2]->pixels.size() == 4 * sizeof(float) && std::abs(red - 128 / 255.f) < 1e-6f,
+                    "effect texture formats");
+            const auto again = textures.prepare(effected, 1, 40, 40, std::nullopt, 0, {});
+            require(again && again->effects[0].textures[0] == effect_images[0] &&
+                        effect_work.effect_texture_builds == 3 && effect_work.effect_texture_reuses == 3,
+                    "effect textures built once");
+        }
         // A pass with more images than a cache's entry bound keeps them all for the next pass, which reuses every
         // one; a pass of other images then evicts the earlier pass's, oldest first, down to the bound.
         weft::SceneNativeWork bounded_work;

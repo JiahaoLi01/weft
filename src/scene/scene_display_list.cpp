@@ -101,7 +101,8 @@ namespace weft {
 
         void gradient(paint::Gradient& g, float width, float height, const Style& s) {
             auto image = get(s, PropertyId::BackgroundImage, "none");
-            if (image == "none") {
+            // An effect is the node's SceneEffect, not a gradient.
+            if (image == "none" || image.starts_with("-weft-effect(")) {
                 return;
             }
             auto b = image.find('(');
@@ -220,6 +221,22 @@ namespace weft {
     SceneDisplayList scene_display_list(const SceneFrame& f, const std::vector<NodeIdentity>& layers, SceneText* text) {
         SceneDisplayList out;
         auto& list = out.list;
+        // Whether a subtree shows an effect: such a node draws in the pass, never as a cached layer image, so that the
+        // effect follows the frame's time and its own values.
+        const auto shows_effect = [](auto&& self, const SceneNode& n) -> bool {
+            return n.effect || std::any_of(n.children.begin(), n.children.end(), [&](const SceneNode& child) {
+                       return self(self, child);
+                   });
+        };
+        // The index of a program or an asset in the list, added the first time.
+        const auto index_of = [](auto& leases, const auto& lease) {
+            const auto found = std::find(leases.begin(), leases.end(), lease);
+            if (found != leases.end()) {
+                return std::uint32_t(found - leases.begin());
+            }
+            leases.push_back(lease);
+            return std::uint32_t(leases.size() - 1);
+        };
         // A node's own values as a raster source, without its subtree.
         const auto own = [](const SceneNode& n) {
             auto source = std::make_shared<SceneNode>();
@@ -664,7 +681,8 @@ namespace weft {
                                                n.paint->values[constants::scene::paint_slot_opacity]->scalar.relative),
                                          0.f, 1.f);
                 }
-                if (std::find(layers.begin(), layers.end(), n.identity) != layers.end()) {
+                if (std::find(layers.begin(), layers.end(), n.identity) != layers.end() &&
+                    !shows_effect(shows_effect, n)) {
                     auto source = std::make_shared<SceneNode>(n);
                     source->box[0] = source->box[1] = 0;
                     source->style.erase(PropertyId::Transform);
@@ -678,10 +696,11 @@ namespace weft {
                     list.items.push_back(item);
                     return;
                 }
-                const bool painted = box.background[3] > 0 || box.gradient.kind != paint::GradientKind::None ||
-                                     std::any_of(box.widths.begin(), box.widths.end(), [](float w) {
-                                         return w > 0;
-                                     });
+                const bool bordered = std::any_of(box.widths.begin(), box.widths.end(), [](float w) {
+                    return w > 0;
+                });
+                const bool painted =
+                    box.background[3] > 0 || box.gradient.kind != paint::GradientKind::None || bordered || n.effect;
                 // Shadows of the border box with its corners as specified, as the reference raster draws them.
                 const auto shadows = scene_values::box_shadows(
                     n.style, item.width, item.height, scene_values::specified_radii(n.style, item.width, item.height));
@@ -710,12 +729,41 @@ namespace weft {
                     list.shadows.push_back(shadow);
                     list.items.push_back(s);
                 }
-                if (painted) {
+                const auto add_box = [&](const paint::Box& value) {
                     auto shape = item;
                     shape.kind = paint::Item::Kind::Box;
                     shape.payload = std::uint32_t(list.boxes.size());
-                    list.boxes.push_back(box);
+                    list.boxes.push_back(value);
                     list.items.push_back(shape);
+                };
+                if (painted && !n.effect) {
+                    add_box(box);
+                } else if (n.effect) {
+                    // As CSS paints a background image: over the background color and under the borders, inside the
+                    // border box's corners. The effect's time is the frame's.
+                    if (box.background[3] > 0) {
+                        auto under = box;
+                        under.widths = {};
+                        add_box(under);
+                    }
+                    paint::Effect effect;
+                    effect.program = index_of(list.programs, n.effect->program);
+                    effect.time = float(f.time_ms / constants::milliseconds_per_second);
+                    effect.parameters = n.effect->parameters;
+                    for (const auto& texture : n.effect->textures) {
+                        effect.textures.push_back(index_of(list.assets, texture));
+                    }
+                    effect.radii = box.radii;
+                    auto shape = item;
+                    shape.kind = paint::Item::Kind::Effect;
+                    shape.payload = std::uint32_t(list.effects.size());
+                    list.effects.push_back(std::move(effect));
+                    list.items.push_back(shape);
+                    if (bordered) {
+                        auto over = box;
+                        over.background = {};
+                        add_box(over);
+                    }
                 }
                 if (svg_root) {
                     // An svg viewport clips to the rounded border box, as the reference raster clips it; under a

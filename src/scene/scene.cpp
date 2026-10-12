@@ -138,7 +138,8 @@ namespace weft {
             }
             if (s.contains(PropertyId::Background)) {
                 const auto v = s.at(PropertyId::Background);
-                s[PropertyId::BackgroundImage] = v.find("gradient(") != v.npos ? v : "none";
+                s[PropertyId::BackgroundImage] =
+                    v.find("gradient(") != v.npos || v.find("-weft-effect(") != v.npos ? v : "none";
                 s[PropertyId::BackgroundColor] = s[PropertyId::BackgroundImage] == "none" ? v : "transparent";
                 s.erase(PropertyId::Background);
             }
@@ -784,6 +785,7 @@ namespace weft {
         InterpolationCache interpolation;
         PaintCache paint_cache;
         SceneMeasure measure;
+        const SceneEffects* effects{};
         std::map<SceneId, State> states;
         std::set<SceneId> live;
         double now = -1;
@@ -828,6 +830,10 @@ namespace weft {
         }
 
         bool static_subtree(const SceneNode& n) const {
+            // An effect that reads the time changes every frame.
+            if (n.effect && n.effect->program->animated) {
+                return false;
+            }
             if (n.tag != "#text") {
                 auto it = states.find(identity(n.identity));
                 if (it == states.end() || !it->second.plans_valid || !it->second.transitions.empty() ||
@@ -1082,12 +1088,32 @@ namespace weft {
             if (st.current != out.style) {
                 st.current = out.style;
             }
+            // A -weft-effect(name) background: the registered effect, with the parameters of the custom properties.
+            if (const auto image = get(out.style, PropertyId::BackgroundImage, "none");
+                image.starts_with("-weft-effect(")) {
+                constexpr std::size_t open = std::string_view("-weft-effect(").size();
+                const auto name = image.ends_with(')') ? trim(image.substr(open, image.size() - open - 1)) : "";
+                if (name.empty() || !std::all_of(name.begin(), name.end(), [](char ch) {
+                        return std::isalnum(static_cast<unsigned char>(ch)) || ch == '-' || ch == '_';
+                    })) {
+                    fail("-weft-effect() takes one effect name");
+                }
+                if (!effects) {
+                    fail("-weft-effect(" + name + ") without registered effects");
+                }
+                out.effect = effects->resolve(name, c.custom_properties);
+                if (out.effect->program->animated) {
+                    animated = true;
+                    work.paint_changed = true;
+                }
+            }
             work.geometry_changed |= !scene_geometry_own_equal(output, out, reuse_style);
             work.paint_changed |= output.identity != out.identity || output.tag != out.tag ||
                                   output.space != out.space || output.text != out.text ||
                                   output.attributes != out.attributes || (!reuse_style && output.style != out.style) ||
                                   bool(output.paint) != bool(out.paint) ||
-                                  (output.paint && out.paint && output.paint->values != out.paint->values);
+                                  (output.paint && out.paint && output.paint->values != out.paint->values) ||
+                                  !scene_effect_equal(output.effect, out.effect);
             auto retained = std::move(output.children);
             std::size_t ci{};
             const bool mixed = std::any_of(d.children.begin(), d.children.end(),
@@ -1477,6 +1503,9 @@ namespace weft {
             if (bool(to.paint) != bool(from.paint) || (to.paint && to.paint->values != from.paint->values)) {
                 to.paint = from.paint;
             }
+            if (!scene_effect_equal(to.effect, from.effect)) {
+                to.effect = from.effect;
+            }
             follow_children(to, from, [&](SceneNode& a, const SceneNode& b) {
                 follow(a, b, reused);
             });
@@ -1518,6 +1547,11 @@ namespace weft {
     void SceneSolver::set_profiling(bool enabled) {
         impl_->owner.require(Diag::SceneOwner);
         impl_->profiling = enabled;
+    }
+
+    void SceneSolver::set_effects(const SceneEffects* effects) {
+        impl_->owner.require(Diag::SceneOwner);
+        impl_->effects = effects;
     }
 
     void SceneSolver::reset() {

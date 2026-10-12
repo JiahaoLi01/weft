@@ -178,7 +178,10 @@ namespace weft::paint {
                         const auto& program = *list.programs[e.program];
                         if (program.parameters > constants::max_effect_parameters ||
                             program.textures > constants::max_effect_textures ||
-                            e.parameters.size() > program.parameters || e.textures.size() != program.textures) {
+                            e.parameters.size() > program.parameters || e.textures.size() != program.textures ||
+                            (!program.named_parameters.empty() &&
+                             program.named_parameters.size() != program.parameters) ||
+                            (!program.named_textures.empty() && program.named_textures.size() != program.textures)) {
                             return make_diagnostic(Diag::PaintList, "effect parameters or textures" + at);
                         }
                         for (const auto t : e.textures) {

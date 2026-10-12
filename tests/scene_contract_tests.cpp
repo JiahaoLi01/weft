@@ -4,6 +4,7 @@
 #include "support/scene_fonts.hpp"
 #include "script/script_platform.hpp"
 #include "support/check.hpp"
+#include "support/native_scene.hpp"
 #include "../probes/gallery_scene_session.hpp"
 #include "constants/scene.hpp"
 #include "dom/tree.hpp"
@@ -22,6 +23,7 @@ using weft::testing::require;
 
 namespace {
     namespace dom = weft::dom;
+    using weft::testing::NativeScene;
     constexpr int element_type = weft::constants::element_node_type;
 
     // The reference painter's GPU-target mode, which paints through retained paint programs, on a size x size CPU
@@ -47,52 +49,6 @@ namespace {
         }
         return out;
     }
-
-    // A scene DOM without a script engine: document > div, the scene root.
-    struct NativeScene {
-        dom::Tree tree{1};
-        dom::Node* document{};
-        dom::Node* root{};
-
-        NativeScene() {
-            document = &tree.create(weft::constants::document_node_type, "#document", "", {});
-            root = &html("div");
-            tree.insert(*document, *root, nullptr);
-        }
-
-        dom::Node& html(std::string local) {
-            return tree.create(element_type, std::move(local), weft::constants::xhtml_namespace_uri,
-                               document->identity);
-        }
-
-        dom::Node& svg(std::string local) {
-            return tree.create(element_type, std::move(local), weft::constants::svg_namespace_uri, document->identity);
-        }
-
-        void set(dom::Node& n, const std::string& name, std::string value) {
-            auto it = std::find_if(n.attributes.begin(), n.attributes.end(), [&](const dom::Attribute& a) {
-                return a.name == name;
-            });
-            if (it == n.attributes.end()) {
-                n.attributes.push_back({name, name, "", std::move(value)});
-            } else {
-                it->value = std::move(value);
-            }
-            tree.changed(n);
-        }
-
-        void toggle_class(dom::Node& n, const std::string& name) {
-            auto it = std::find_if(n.attributes.begin(), n.attributes.end(), [](const dom::Attribute& a) {
-                return a.name == "class";
-            });
-            if (it != n.attributes.end() && it->value == name) {
-                n.attributes.erase(it);
-                tree.changed(n);
-            } else {
-                set(n, "class", name);
-            }
-        }
-    };
 
     bool same_elements(const std::vector<weft::ElementGeometry>& a, const std::vector<weft::ElementGeometry>& b) {
         if (a.size() != b.size()) {

@@ -17,8 +17,10 @@
 // Native Vulkan pass of a scene: the passes a ScenePreparer prepares (scene/scene_native.hpp), drawn by the shared
 // scene shader's encoded pass (src/render/shaders/scene.hlsl without SPACE_LINEAR, as SPIR-V) as instanced box records,
 // transparent groups in scratch images, perspective planes and explicit layers whose content a nested pass draws into
-// an image of its own, and the text, shadow and path images the preparer builds, uploaded once each. Every target holds
-// encoded premultiplied BGRA (B8G8R8A8_UNORM), as the D3D11 scene targets do.
+// an image of its own, the text, shadow and path images the preparer builds, uploaded once each, and UI shader effects
+// in their encoded pass with their textures. Every target holds encoded premultiplied BGRA (B8G8R8A8_UNORM), as the
+// D3D11 scene targets do. A device that cannot filter linear float images draws no effect with a translucent color
+// texture: the frame falls back.
 //
 // encode() records a frame into the host's command buffer with what it uses in a slot: the host submits the commands,
 // reports the submission (submitted()), and retires the slot once they completed, or discards a slot whose commands it
@@ -117,11 +119,22 @@ namespace weft::render::vulkan {
             std::uint64_t pending{};
         };
 
+        // An effect program's encoded pass: its fragment stage and pipeline. The lease keeps the program alive, so its
+        // address names it alone.
+        struct EffectPipeline {
+            std::shared_ptr<const paint::EffectProgram> program;
+            VkShaderModule fragment{};
+            VkPipeline pipeline{};
+        };
+
         ScenePreparer preparer_;
         VkCommandPool pool_{};
         VkCommandBuffer command_{};
         VkFence fence_{};
         VkSampler sampler_{};
+        // Repeats the textures effects sample (scene.hlsl, effectRepeat).
+        VkSampler effect_sampler_{};
+        std::unordered_map<const paint::EffectProgram*, EffectPipeline> effect_pipelines_;
         VkShaderModule vertex_{};
         VkShaderModule fragment_{};
         VkDescriptorSetLayout set_layout_{};
@@ -150,6 +163,8 @@ namespace weft::render::vulkan {
         void record(const ScenePrepared& prepared, VkFramebuffer framebuffer, float scale);
         // The image of a layer, its content recorded the first time.
         VkImageView layer(const std::shared_ptr<const SceneLayerImage>& layer, float scale);
+        // The pipeline of an effect program's encoded pass (its spirv_encoded), created on first use.
+        VkPipeline effect_pipeline(const std::shared_ptr<const paint::EffectProgram>& program);
         // A color target image of the targets' format, sampled once drawn, with a framebuffer: the slot's (a spare of
         // that size, or new) unless kept, which is the cache's.
         Image target(std::uint32_t width, std::uint32_t height, bool kept = false);

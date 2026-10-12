@@ -2,12 +2,14 @@
 
 #include "constants/common.hpp"
 #include "render/shadow_image.hpp"
+#include "render/srgb.hpp"
 #include "scene/scene_paint.hpp"
 #include "scene/scene_text_image.hpp"
 
 #include <algorithm>
 #include <climits>
 #include <cmath>
+#include <cstring>
 #include <stdexcept>
 #include <utility>
 
@@ -37,7 +39,8 @@ namespace weft {
           geometry_(text),
           images_(bounds.entries, bounds.bytes),
           shadows_(bounds.entries, bounds.bytes),
-          paths_(bounds.entries, bounds.bytes) {
+          paths_(bounds.entries, bounds.bytes),
+          effect_textures_(bounds.entries, bounds.bytes) {
     }
 
     std::unique_ptr<ScenePrepared> ScenePreparer::prepare(const SceneFrame& frame, float scale, unsigned width,
@@ -53,6 +56,7 @@ namespace weft {
         images_.begin_pass();
         shadows_.begin_pass();
         paths_.begin_pass();
+        effect_textures_.begin_pass();
         auto compiled = scene_display_list(frame, layers, &text_);
         if (!compiled.fallback.empty()) {
             return fallback(compiled.fallback);
@@ -67,7 +71,12 @@ namespace weft {
             const auto count = [&](auto&& self, const ScenePrepared& p) -> void {
                 for (const auto& image : p.images) {
                     if (image) {
-                        images.emplace(image->id, image->bgra.size());
+                        images.emplace(image->id, image->pixels.size());
+                    }
+                }
+                for (const auto& effect : p.effects) {
+                    for (const auto& texture : effect.textures) {
+                        images.emplace(texture->id, texture->pixels.size());
                     }
                 }
                 for (const auto& plane : p.planes) {
@@ -220,7 +229,7 @@ namespace weft {
             image->id = ++next_id_;
             image->width = bitmap.width;
             image->height = bitmap.height;
-            image->bgra = std::move(bitmap.rgba);
+            image->pixels = std::move(bitmap.rgba);
             entry.text = std::move(image);
             ++work_.text_builds;
         }
@@ -258,7 +267,7 @@ namespace weft {
         result->id = ++next_id_;
         result->width = image->geometry.width;
         result->height = image->geometry.height;
-        result->bgra = std::move(pixels);
+        result->pixels = std::move(pixels);
         ++work_.shadow_builds;
         const auto evictions = shadows_.evictions();
         shadows_.put(key, result, bytes);
@@ -317,7 +326,7 @@ namespace weft {
         result->id = ++next_id_;
         result->width = coverage->width;
         result->height = coverage->height;
-        result->bgra = std::move(pixels);
+        result->pixels = std::move(pixels);
         ++work_.path_builds;
         const auto evictions = paths_.evictions();
         paths_.put(key, result, bytes);
@@ -325,14 +334,64 @@ namespace weft {
         return result;
     }
 
+    std::shared_ptr<const SceneImage> ScenePreparer::effect_texture(const std::shared_ptr<const paint::Asset>& asset) {
+        if (const auto* cached = effect_textures_.find(asset)) {
+            ++work_.effect_texture_reuses;
+            return *cached;
+        }
+        const auto& a = *asset;
+        const auto pixels = std::size_t(a.width) * a.height;
+        const bool color = a.encoding == paint::Encoding::SrgbStraight;
+        if (!a.width || !a.height || a.encoding == paint::Encoding::SignedDistance ||
+            a.bytes.size() != pixels * (color ? constants::rgba8_bytes_per_pixel : 1)) {
+            throw std::invalid_argument("effect texture");
+        }
+        auto result = std::make_shared<SceneImage>();
+        result->id = ++next_id_;
+        result->width = a.width;
+        result->height = a.height;
+        bool opaque = true;
+        for (std::size_t p = 3; color && opaque && p < a.bytes.size(); p += constants::rgba8_bytes_per_pixel) {
+            opaque = a.bytes[p] == constants::color_channel_max;
+        }
+        if (!color || opaque) {
+            result->format = color ? SceneImage::Format::Srgb : SceneImage::Format::Data;
+            result->pixels = a.bytes;
+        } else {
+            // Linear premultiplied, as the display list renderers sample translucent images.
+            std::vector<float> linear(pixels * constants::rgba8_bytes_per_pixel);
+            for (std::size_t i = 0; i < pixels; ++i) {
+                const auto* p = a.bytes.data() + i * constants::rgba8_bytes_per_pixel;
+                const float alpha = p[3] / constants::render::color_channel_max_float;
+                for (unsigned c = 0; c < 3; ++c) {
+                    linear[i * 4 + c] =
+                        render::srgb_to_linear(p[c] / constants::render::color_channel_max_float) * alpha;
+                }
+                linear[i * 4 + 3] = alpha;
+            }
+            result->format = SceneImage::Format::Linear;
+            result->pixels.resize(linear.size() * sizeof(float));
+            std::memcpy(result->pixels.data(), linear.data(), result->pixels.size());
+        }
+        const auto bytes = result->pixels.size();
+        if (bytes > limits::image_max_bytes) {
+            throw std::invalid_argument("effect texture byte bound");
+        }
+        ++work_.effect_texture_builds;
+        const auto evictions = effect_textures_.evictions();
+        effect_textures_.put(asset, result, bytes);
+        work_.image_evictions += effect_textures_.evictions() - evictions;
+        return result;
+    }
+
     std::unique_ptr<ScenePrepared> ScenePreparer::prepare(const paint::DisplayList& list, float scale, unsigned width,
                                                           unsigned height, std::optional<std::array<float, 4>> crop,
                                                           unsigned view_index) {
-        // Scene passes sample no asset textures and run no effects yet.
+        // Scene passes sample no asset images.
         if (std::any_of(list.items.begin(), list.items.end(), [](const paint::Item& item) {
-                return item.kind == Kind::Image || item.kind == Kind::Effect;
+                return item.kind == Kind::Image;
             })) {
-            throw std::invalid_argument("scene renderer draws no image or effect items");
+            throw std::invalid_argument("scene renderer draws no image items");
         }
         auto planned = render::plan_scene_pass(list, scale, width, height, crop);
         if (!planned) {
@@ -345,6 +404,13 @@ namespace weft {
         out->images.resize(list.items.size());
         out->planes.resize(list.items.size());
         out->layers.resize(list.items.size());
+        for (const auto& effect : list.effects) {
+            auto& prepared = out->effects.emplace_back();
+            prepared.program = list.programs.at(effect.program);
+            for (const auto texture : effect.textures) {
+                prepared.textures.push_back(effect_texture(list.assets.at(texture)));
+            }
+        }
         for (std::size_t i = 0; i < list.items.size(); ++i) {
             const auto& item = list.items[i];
             if (item.kind == Kind::Text || item.kind == Kind::Layer) {
