@@ -1179,11 +1179,15 @@ namespace probes {
                 window.state.close_requested = true;
             }
             if (self_test && !scroll_test) {
-                // Pixel oracle and every original registry id, across the ten sections.
+                // Pixel oracle and every original registry id, across the ten sections. The oracle checks the
+                // shell's composition: it samples every visible scene as the GPU drew it (read back), core scenes
+                // included. Their CPU reference rasters are another rasterizer, whose antialiased edges differ from
+                // the native pass's by more than the oracle's tolerance; scene pixels have reference tests of their
+                // own.
                 if (frames <= weft::probe_constants::gallery::catalog_group_count) {
                     pipeline.drain();
                     auto oracle_list = std::make_shared<weft::paint::DisplayList>(*packet.list);
-                    for (unsigned i = weft::probe_constants::gallery::core_scene_count; i < gallery_scene_count; ++i) {
+                    for (unsigned i = 0; i < gallery_scene_count; ++i) {
                         if (scene_visible[i]) {
                             const auto source = scene_gpu.read(i);
                             oracle_list->assets[unsigned(scene_asset_indices[i])] = std::make_shared<const Asset>(
@@ -1193,6 +1197,7 @@ namespace probes {
                     FramePacket oracle_packet;
                     oracle_packet.list = oracle_list;
                     const auto pixels = gallery_output(gpu);
+                    std::optional<std::array<int, 2>> failed_at;
                     for (int y = weft::probe_constants::gallery::oracle_grid_origin; y < weft::constants::uhd_height;
                          y += weft::probe_constants::gallery::oracle_grid_stride_y) {
                         for (int x = weft::probe_constants::gallery::oracle_grid_origin;
@@ -1214,10 +1219,41 @@ namespace probes {
                                         std::cerr << "window frame " << frames << " point " << x << "," << y << "," << c
                                                   << " expected " << unsigned(expected.pixel[c]) << " actual "
                                                   << unsigned(actual[c]) << " error " << error << "\n";
+                                        if (!failed_at) {
+                                            failed_at = std::array{x, y};
+                                        }
                                     }
                                 }
                             }
                             ++oracle_samples;
+                        }
+                    }
+                    if (failed_at) {
+                        // Evidence: the frame, the oracle (left) beside the frame (right) around the first failing
+                        // point, and the scene images the oracle sampled.
+                        const auto stem = "group-" + std::to_string(frames - 1) + "-failed";
+                        save_png(folder / (stem + ".png"), pixels, weft::constants::uhd_width,
+                                 weft::constants::uhd_height);
+                        constexpr int side = weft::probe_constants::gallery::oracle_evidence_side;
+                        std::vector<Pixel> crops(std::size_t(2 * side) * side);
+                        for (int cy = 0; cy < side; ++cy) {
+                            for (int cx = 0; cx < side; ++cx) {
+                                const int px =
+                                    std::clamp((*failed_at)[0] - side / 2 + cx, 0, weft::constants::uhd_width - 1);
+                                const int py =
+                                    std::clamp((*failed_at)[1] - side / 2 + cy, 0, weft::constants::uhd_height - 1);
+                                crops[std::size_t(cy) * 2 * side + cx] = cheetah_sample(oracle_packet, px, py).pixel;
+                                crops[std::size_t(cy) * 2 * side + side + cx] =
+                                    pixels[std::size_t(py) * weft::constants::uhd_width + px];
+                            }
+                        }
+                        save_png(folder / (stem + "-oracle-and-frame.png"), crops, 2 * side, side);
+                        for (unsigned i = 0; i < gallery_scene_count; ++i) {
+                            if (scene_visible[i]) {
+                                const auto& a = *oracle_list->assets[unsigned(scene_asset_indices[i])];
+                                weft::testing::write_png(folder / (stem + "-scene-" + std::to_string(i) + ".png"),
+                                                         a.width, a.height, a.bytes);
+                            }
                         }
                     }
                     require(pixel_error <= weft::probe_constants::gallery::max_cpu_oracle_difference &&

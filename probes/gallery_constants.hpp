@@ -194,6 +194,8 @@ namespace weft::probe_constants::gallery {
     inline constexpr int oracle_grid_stride_x = 211;
     inline constexpr int oracle_grid_stride_y = 193;
     inline constexpr int oracle_grid_right = 2900;
+    // Side in px of the crops a failing pixel oracle saves around its first failing point.
+    inline constexpr int oracle_evidence_side = 64;
     // Canvas probe oracle grid strides.
     inline constexpr int canvas_oracle_stride_x = 13;
     inline constexpr int canvas_oracle_stride_y = 11;
