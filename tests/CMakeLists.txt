@@ -149,6 +149,14 @@ if(WIN32)
     weft_add_executable(weft_scene_native_tests SOURCES scene_native_tests.cpp
         LINK weft::scene_native weft::platform_win32)
     weft_add_test(NAME scene_native_contract COMMAND weft_scene_native_tests)
+    if(WEFT_RENDER_VULKAN)
+        # The Vulkan scene pass recorded into a host's command buffers on this machine's Vulkan device; skipped (77)
+        # without one.
+        weft_add_executable(weft_render_vulkan_scene_tests SOURCES render_vulkan_scene_tests.cpp
+            LINK weft::scene_vulkan weft::platform_win32)
+        weft_add_test(NAME render_vulkan_scene_contract COMMAND weft_render_vulkan_scene_tests TIMEOUT 120)
+        set_tests_properties(render_vulkan_scene_contract PROPERTIES SKIP_RETURN_CODE 77)
+    endif()
     weft_add_executable(weft_scene_text_image_tests SOURCES scene_text_image_tests.cpp
         LINK weft::scene_d2d weft::platform_win32)
     weft_add_test(NAME scene_text_image COMMAND weft_scene_text_image_tests)
