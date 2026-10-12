@@ -3,6 +3,7 @@
 #include "constants/render.hpp"
 
 #include <cstring>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <vector>
@@ -19,6 +20,16 @@
 namespace weft::render::vulkan {
     namespace {
         constexpr const char* validation_layer = "VK_LAYER_KHRONOS_validation";
+        // The surface extension of the platform's windows.
+#ifdef _WIN32
+        constexpr const char* platform_surface = "VK_KHR_win32_surface";
+#elif defined(__ANDROID__)
+        constexpr const char* platform_surface = "VK_KHR_android_surface";
+#else
+        constexpr const char* platform_surface = nullptr;
+#endif
+        // vkGetPhysicalDeviceWin32PresentationSupportKHR, without the Win32 header.
+        using PresentationSupport = VkBool32(VKAPI_PTR*)(VkPhysicalDevice, std::uint32_t);
 
         // The loader that comes with the driver.
         void* open_loader() {
@@ -101,6 +112,19 @@ namespace weft::render::vulkan {
         std::vector<const char*> layers;
         std::vector<const char*> extensions;
         bool synchronization{};
+        if (options.presentation) {
+            std::uint32_t count{};
+            check(enumerate_extensions(nullptr, &count, nullptr), "vkEnumerateInstanceExtensionProperties");
+            std::vector<VkExtensionProperties> provided(count);
+            check(enumerate_extensions(nullptr, &count, provided.data()), "vkEnumerateInstanceExtensionProperties");
+            if (!platform_surface || !has_extension(provided, VK_KHR_SURFACE_EXTENSION_NAME) ||
+                !has_extension(provided, platform_surface)) {
+                unavailable = "no Vulkan surface extensions for this platform's windows";
+                return nullptr;
+            }
+            extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
+            extensions.push_back(platform_surface);
+        }
         if (options.validation) {
             std::uint32_t count{};
             check(enumerate_layers(&count, nullptr), "vkEnumerateInstanceLayerProperties");
@@ -164,6 +188,8 @@ namespace weft::render::vulkan {
         check(created, "vkCreateInstance");
         d->validation = !layers.empty();
         d->synchronization = synchronization;
+        d->presents = options.presentation;
+        d->get_instance_proc = get;
 
 #define WEFT_VULKAN_LOAD(name)                                                                                         \
     d->vki.name = reinterpret_cast<PFN_##name>(get(d->instance, #name));                                               \
@@ -174,7 +200,46 @@ namespace weft::render::vulkan {
             check(d->vki.vkCreateDebugUtilsMessengerEXT(d->instance, &messenger, nullptr, &d->messenger_),
                   "vkCreateDebugUtilsMessengerEXT");
         }
+        if (d->presents) {
+            WEFT_VULKAN_SURFACE_FUNCTIONS(WEFT_VULKAN_LOAD)
+        }
 #undef WEFT_VULKAN_LOAD
+#ifdef _WIN32
+        const auto win32_presents = d->presents ? reinterpret_cast<PresentationSupport>(get(
+                                                      d->instance, "vkGetPhysicalDeviceWin32PresentationSupportKHR"))
+                                                : nullptr;
+        ensure(!d->presents || win32_presents, "vkGetPhysicalDeviceWin32PresentationSupportKHR");
+#endif
+        // A graphics queue family of physical, which presents when the device must; nothing when it has none.
+        auto graphics_family = [&](VkPhysicalDevice physical) -> std::optional<std::uint32_t> {
+            std::uint32_t families{};
+            d->vki.vkGetPhysicalDeviceQueueFamilyProperties(physical, &families, nullptr);
+            std::vector<VkQueueFamilyProperties> queues(families);
+            d->vki.vkGetPhysicalDeviceQueueFamilyProperties(physical, &families, queues.data());
+            if (d->presents) {
+                std::uint32_t count{};
+                check(d->vki.vkEnumerateDeviceExtensionProperties(physical, nullptr, &count, nullptr),
+                      "vkEnumerateDeviceExtensionProperties");
+                std::vector<VkExtensionProperties> provided(count);
+                check(d->vki.vkEnumerateDeviceExtensionProperties(physical, nullptr, &count, provided.data()),
+                      "vkEnumerateDeviceExtensionProperties");
+                if (!has_extension(provided, VK_KHR_SWAPCHAIN_EXTENSION_NAME)) {
+                    return std::nullopt;
+                }
+            }
+            for (std::uint32_t i = 0; i < families; ++i) {
+                if (!(queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)) {
+                    continue;
+                }
+#ifdef _WIN32
+                if (d->presents && !win32_presents(physical, i)) {
+                    continue;
+                }
+#endif
+                return i;
+            }
+            return std::nullopt;
+        };
 
         std::uint32_t count{};
         check(d->vki.vkEnumeratePhysicalDevices(d->instance, &count, nullptr), "vkEnumeratePhysicalDevices");
@@ -186,15 +251,7 @@ namespace weft::render::vulkan {
         for (std::size_t i = 0; i < physicals.size(); ++i) {
             VkPhysicalDeviceProperties properties{};
             d->vki.vkGetPhysicalDeviceProperties(physicals[i], &properties);
-            std::uint32_t families{};
-            d->vki.vkGetPhysicalDeviceQueueFamilyProperties(physicals[i], &families, nullptr);
-            std::vector<VkQueueFamilyProperties> queues(families);
-            d->vki.vkGetPhysicalDeviceQueueFamilyProperties(physicals[i], &families, queues.data());
-            bool graphics{};
-            for (const auto& q : queues) {
-                graphics = graphics || (q.queueFlags & VK_QUEUE_GRAPHICS_BIT);
-            }
-            if (!graphics || properties.apiVersion < VK_API_VERSION_1_1) {
+            if (!graphics_family(physicals[i]) || properties.apiVersion < VK_API_VERSION_1_1) {
                 continue;
             }
             const bool named = !options.adapter.empty() &&
@@ -207,8 +264,10 @@ namespace weft::render::vulkan {
             }
         }
         if (best < 0 || (!options.adapter.empty() && best_rank < 2)) {
-            unavailable = options.adapter.empty() ? "no Vulkan 1.1 device with a graphics queue"
-                                                  : "no Vulkan device named " + options.adapter;
+            unavailable = options.adapter.empty()
+                              ? std::string(d->presents ? "no Vulkan 1.1 device with a graphics queue that presents"
+                                                        : "no Vulkan 1.1 device with a graphics queue")
+                              : "no Vulkan device named " + options.adapter;
             return nullptr;
         }
         d->physical = physicals[std::size_t(best)];
@@ -219,32 +278,29 @@ namespace weft::render::vulkan {
         d->driver_version = properties.driverVersion;
         d->discrete = properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
         d->vki.vkGetPhysicalDeviceMemoryProperties(d->physical, &d->memory);
-        std::uint32_t families{};
-        d->vki.vkGetPhysicalDeviceQueueFamilyProperties(d->physical, &families, nullptr);
-        std::vector<VkQueueFamilyProperties> queues(families);
-        d->vki.vkGetPhysicalDeviceQueueFamilyProperties(d->physical, &families, queues.data());
-        for (std::uint32_t i = 0; i < families; ++i) {
-            if (queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-                d->queue_family = i;
-                break;
-            }
-        }
+        d->queue_family = *graphics_family(d->physical);
         const float priority = 1;
         VkDeviceQueueCreateInfo queue{};
         queue.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
         queue.queueFamilyIndex = d->queue_family;
         queue.queueCount = 1;
         queue.pQueuePriorities = &priority;
+        const char* swapchain = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
         VkDeviceCreateInfo device{};
         device.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         device.queueCreateInfoCount = 1;
         device.pQueueCreateInfos = &queue;
+        device.enabledExtensionCount = d->presents ? 1u : 0u;
+        device.ppEnabledExtensionNames = &swapchain;
         check(d->vki.vkCreateDevice(d->physical, &device, nullptr, &d->device), "vkCreateDevice");
 
 #define WEFT_VULKAN_LOAD(name)                                                                                         \
     d->vkd.name = reinterpret_cast<PFN_##name>(d->vki.vkGetDeviceProcAddr(d->device, #name));                          \
     ensure(d->vkd.name != nullptr, #name);
         WEFT_VULKAN_DEVICE_FUNCTIONS(WEFT_VULKAN_LOAD)
+        if (d->presents) {
+            WEFT_VULKAN_SWAPCHAIN_FUNCTIONS(WEFT_VULKAN_LOAD)
+        }
 #undef WEFT_VULKAN_LOAD
         d->vkd.vkGetDeviceQueue(d->device, d->queue_family, 0, &d->queue);
         return d;

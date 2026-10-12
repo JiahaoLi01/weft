@@ -4,6 +4,19 @@
 
 ## 本次已实现
 
+重构第 10 步之四（d）：Vulkan 交换链窗口与性能（2026-10-12）。详见 [重构计划](refactoring-plan.md#第-10-步记录2026-10-11)。
+- **结果**：
+  - Vulkan 设备可向窗口呈现，`vulkan::Swapchain` 管理交换链；示例宿主经 C ABI 两帧在途地画 CaseCheetah 4K 流式页面；
+  - 渲染器复用完成帧的缓冲与描述符池，Vulkan（关验证层）每帧编码 P50 0.062 ms，与 D3D11 的 0.072 ms 相当；
+  - `tools/cheetah-flow.bat` 打开 D3D11 或 Vulkan 窗口，或运行对比基准。
+- **验证**：
+  - `ctest --preset windows-release --parallel 6` 105/105，`windows-debug --parallel 6` 105/105（290.0 s）；
+  - 4K Vulkan 窗口自测：输入、滚动、缩放、像素对照（最大差 1）与退休，同步验证零告警；
+  - 4K 滚轮基准（RTX 5090，120 帧，三次中位数）：Vulkan 关验证层 228.8 fps，每帧 P50/P99/最大 4.34/4.83/5.66 ms；D3D11 211.8 fps，4.54/5.30/5.90 ms；5 个变异全部被发现。
+- **未验证**：Vulkan 冷启动（4K 交换链创建约 130 ms）与峰值内存（227 MiB，D3D11 110 MiB）的优化、AMD 核显上的窗口与性能、Vulkan 外部纹理、Android 与 iOS。
+- **人工验证**：双击 `tools/cheetah-flow.bat`，选 2 打开 Vulkan 窗口（标题栏显示帧率与 GPU），滚轮滚动列表、点“仓”展开、拖动窗口大小；选 1 打开同一页面的 D3D11 窗口对照；选 3 运行对比基准（约 2 分钟）。
+- **下一步**：10.5 可移植文字与路径；10.6 平台层与 Android（NDK）。
+
 重构第 10 步之四（c）：可移植的纹理缓存与 Vulkan 字形 atlas（2026-10-12）。详见 [重构计划](refactoring-plan.md#第-10-步记录2026-10-11)。
 - **结果**：
   - 缓存策略（资产身份、LRU 纹理索引与淘汰规则、atlas 放置）移到 `render/texture_cache.hpp`，D3D11 与 Vulkan 共用；

@@ -392,12 +392,18 @@ namespace probes {
 
 int main(int argc, char** argv) {
     using namespace probes;
-    // --no-vsync anywhere turns vertical sync off for the windows this process opens; the modes see the rest.
+    // --no-vsync anywhere turns vertical sync off for the windows this process opens, --no-validation the Vulkan
+    // validation layer of its Vulkan windows; the modes see the rest.
     std::vector<char*> arguments(argv, argv + argc);
     if (std::erase_if(arguments, [](const char* argument) {
             return std::string_view(argument) == "--no-vsync";
         })) {
         window_present_settings().vsync = false;
+    }
+    if (std::erase_if(arguments, [](const char* argument) {
+            return std::string_view(argument) == "--no-validation";
+        })) {
+        window_present_settings().validation = false;
     }
     argc = int(arguments.size());
     argv = arguments.data();
@@ -477,17 +483,34 @@ int main(int argc, char** argv) {
                                           std::string(argv[1]) == "--react-window-warp" ||
                                           std::string(argv[1]) == "--react-window-test-hardware" ||
                                           std::string(argv[1]) == "--react-window-test-warp");
+#ifdef WEFT_PROBE_VULKAN
+        const bool vulkan_flow_window = argc == 3 && (std::string(argv[1]) == "--cheetah-flow-window-vulkan" ||
+                                                      std::string(argv[1]) == "--cheetah-flow-window-test-4k-vulkan" ||
+                                                      std::string(argv[1]) == "--cheetah-flow-window-perf-vulkan");
+#else
+        const bool vulkan_flow_window = false;
+#endif
         require(gallery_input_benchmark || gallery_live_benchmark || gallery_trace || gallery_profile ||
                     surface_retirement || gallery_scroll || gallery_cluster || owner_async || scene_native_test ||
                     render_stages || complex_css_test || scene_gpu_test || gallery_benchmark || gallery_preview ||
                     external_texture || gallery_canvas_window || gallery_canvas || pipeline_probe || cache_probe ||
-                    flow_window || cheetah_flow || flow || automatic || browser || sdf || react || window || backend ||
-                    cheetah || alert || theme ||
+                    flow_window || vulkan_flow_window || cheetah_flow || flow || automatic || browser || sdf || react ||
+                    window || backend || cheetah || alert || theme ||
                     (argc == 3 && (std::string(argv[1]) == "--warp" || std::string(argv[1]) == "--hardware")),
                 "Usage: weft_d3d11_probe --gallery-window-[test-]hardware|warp <output-directory> [--no-vsync] (or an "
                 "existing probe mode)");
         check_hresult(CoInitializeEx(nullptr, COINIT_MULTITHREADED), "CoInitializeEx");
         try {
+#ifdef WEFT_PROBE_VULKAN
+            if (vulkan_flow_window) {
+                const auto result =
+                    run_cheetah_flow_window_vulkan(std::string(argv[1]).find("-test-") != std::string::npos ||
+                                                       std::string(argv[1]).find("-perf-") != std::string::npos,
+                                                   argv[2], std::string(argv[1]).find("-perf-") != std::string::npos);
+                CoUninitialize();
+                return result;
+            }
+#endif
             const auto result =
                 gallery_input_benchmark  ? run_gallery_preview(false, argv[2], false, std::string("input-") + argv[3])
                 : gallery_live_benchmark ? run_gallery_preview(false, argv[2], false, std::string("live-") + argv[3])

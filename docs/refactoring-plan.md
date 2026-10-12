@@ -888,6 +888,31 @@ CMake 拆分：
 - `render_vulkan_backend_contract` 的缓存场景：另一录制正首次写入页面时返回 BUSY 且不录命令，提交后再录不上传；在途的字形串不被其他字形淘汰（准备失败、不留租约），完成后最旧的三分之一被淘汰、区域被复用，留在缓存里的三分之二在其他字形写入同一页后仍正确，重新准备时只上传被淘汰的三分之一；销毁适配器后所有纹理与页面释放；同步验证零告警；
 - 变异检查：7 个，6 个被发现（页面首次写入不等待另一录制、区域上传到页面原点、atlas 图像采样整页、淘汰取走在途纹理、drain 保留页面、命中未在淘汰前加租约）；“每次写页面都从 UNDEFINED 转换”未被发现：RTX 5090 与 AMD 核显的驱动在这种转换后都保留了 R8 页面的内容，像素测试观察不到，这条规则靠代码与注释保证。
 
+**10.4d：Vulkan 交换链窗口与性能**：
+- `vulkan::Device` 可选 `presentation`：平台的 surface 实例扩展（Windows `VK_KHR_win32_surface`，Android `VK_KHR_android_surface`）、`VK_KHR_swapchain`，以及能向窗口呈现的图形队列（Windows 上按 `vkGetPhysicalDeviceWin32PresentationSupportKHR` 选）。
+- `vulkan::Swapchain`（`src/render/backends/vulkan/swapchain.*`）：在平台创建的 surface 上建 sRGB BGRA8/RGBA8 交换链，垂直同步用 FIFO，否则 mailbox 或 immediate；`acquire`/`present` 报告过期或次优，由宿主重建；`win32_surface()` 为 Win32 窗口建 surface。
+- 示例宿主 `probes/vulkan_window_host.hpp`（`VulkanWindowPresenter`）：UI 经 C ABI 画进渲染尺寸的离屏目标（不透明黑底），再 blit 进交换链图像并留黑边；两帧在途，每个槽有命令缓冲、fence 与获取信号量，每张交换链图像一个呈现信号量；fence 完成后向渲染器报告完成 serial，并读出 UI pass 的时间戳。
+- 探针模式（`weft_d3d11_probe`，有 Vulkan 后端时编译）：`--cheetah-flow-window-vulkan`（交互）、`--cheetah-flow-window-test-4k-vulkan`（隐藏自测）、`--cheetah-flow-window-perf-vulkan`（隐藏 4K 滚轮基准；`--no-validation` 关闭验证层）。React 应用、布局与显示列表与 D3D11 的 4K 窗口相同。新测试 `vulkan_cheetah_flow_window_4k`，没有能呈现的 Vulkan 设备时以 77 跳过。
+- 渲染器的增量优化：完成的帧把记录、裁剪、暂存缓冲与描述符池交回渲染器复用（每类最多 4 个，缓冲不超过 16 MiB，新建时按 2 的幂留余量）；View 常量是渲染器的一个常驻缓冲；`draw()` 的回读缓冲首次调用时才建，窗口的截图缓冲首次截图时才建。
+- 工具：`tools/benchmark_flow_window_apis.py` 交替运行三种模式并输出中位数；`tools/cheetah-flow.bat` 菜单打开 D3D11 或 Vulkan 窗口、运行基准与 Vulkan 自测。
+
+验证：
+- `ctest --preset windows-release --parallel 6` 105/105，`windows-debug --parallel 6` 105/105（290.0 s）；产物与 10.4c 逐字节相同（计时套件与新的 Vulkan 窗口套件除外）；
+- `vulkan_cheetah_flow_window_4k`（RTX 5090，Release 与 Debug）：React 点击、滚轮映射、4K 内部留边不派发、空闲帧不重建 UI、1000×420 缩放后的黑边与滚轮映射；4K CPU 像素对照 3680 个样本，最大差 1；122 个纹理在完成后全部退休；验证层含同步验证零告警；
+- 变异检查 5 个全部被发现：复用的缓冲可能过小、复用的描述符池不重置、View 常量宽高互换、超出上限的缓冲被保留（新增大图测试）、窗口留边不清黑。
+
+性能（2026-10-12，AMD Ryzen 9 9950X3D + RTX 5090，Windows 11；Release；隐藏窗口，客户区与渲染都是 3840×2160；Roboto 与 Noto Sans CJK SC，三张 1024×1536 原图；60 个 DOM 元素；预热 8 帧后测 120 帧滚轮；FIFO / 同步间隔 1，隐藏窗口不受刷新率限制；三种模式交替各 3 次取中位数，连续运行，未控温。复现：`python -I tools/benchmark_flow_window_apis.py build/windows-msvc/bin/Release/weft_d3d11_probe.exe <输出目录> 3`）：
+
+| 模式 | 帧率 | 每帧总时间 P50/P99/最大 | 编码 P50/P99/最大 | 提交与呈现 P50 | UI GPU P50 | 冷启动首帧 | 峰值工作集 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| D3D11（调试层开） | 211.8 fps | 4.54 / 5.30 / 5.90 ms | 0.072 / 0.116 / 0.118 ms | 0.099 ms | 0.106 ms | 20.2 ms | 109.6 MiB |
+| Vulkan（验证层与同步验证开） | 216.7 fps | 4.53 / 5.41 / 6.05 ms | 0.178 / 0.347 / 0.389 ms | 0.087 ms | 0.089 ms | 176.6 ms | 240.7 MiB |
+| Vulkan（关验证层） | 228.8 fps | 4.34 / 4.83 / 5.66 ms | 0.062 / 0.088 / 0.120 ms | 0.048 ms | 0.090 ms | 174.1 ms | 227.4 MiB |
+
+- 两边每帧的主要成本都是 owner 的布局（约 4.0 ms）；编码与 UI GPU 时间只算 UI pass，可以直接比较。D3D11 窗口每帧还用着色器合成并画 FPS HUD，Vulkan 窗口用 blit 合成、帧率在标题栏，所以“提交与呈现”与绘制调用数（D3D11 每帧约 23 次，Vulkan 3 次）不能直接比较。
+- 复用帧资源之前，Vulkan（关验证层）编码 P50 0.20 ms，帧率 199.7–208.4。
+- Vulkan 冷启动首帧里约 130 ms 是 4K 交换链创建（`vkCreateSwapchainKHR`，在 NVIDIA 驱动内）；其余约 45 ms 与更高的峰值工作集来自半透明原图在 CPU 上转成线性浮点再暂存（D3D11 在 GPU 上转换）。这两项留作后续优化。
+
 ## 顺序调整（2026-10-10）
 
 用户决定先完成第 7–9 步，第 10 步（第二个图形后端与移动平台）暂缓。跨平台仍是硬性需求：

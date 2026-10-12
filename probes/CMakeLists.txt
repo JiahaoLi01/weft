@@ -14,9 +14,24 @@ if(WIN32)
         LINK weft::render_d3d11 weft::scene_d3d11 weft::text weft::script weft::layout weft::input weft::canvas_d2d weft::scene_d2d weft::platform_win32
         d3d11 dxgi windowscodecs ole32 user32 dbghelp
         SOURCE_DIR LARGE_STACK GC_STRESS)
+    if(WEFT_RENDER_VULKAN)
+        # The CaseCheetah flow window on Vulkan (vulkan_flow_window_probe.cpp).
+        target_sources(weft_d3d11_probe PRIVATE vulkan_flow_window_probe.cpp)
+        target_link_libraries(weft_d3d11_probe PRIVATE weft::render_vulkan)
+        target_compile_definitions(weft_d3d11_probe PRIVATE WEFT_PROBE_VULKAN=1)
+    endif()
 endif()
 
 if(WIN32 AND WEFT_BUILD_TESTS)
+    if(WEFT_RENDER_VULKAN)
+        # The 4K flow window on this machine's Vulkan device: React input, wheel scrolling, the letterbox, resize, the
+        # pixel oracle and retirement; skipped (77) without a Vulkan device that presents.
+        weft_add_test(NAME vulkan_cheetah_flow_window_4k
+            COMMAND weft_d3d11_probe --cheetah-flow-window-test-4k-vulkan
+            "${artifacts}/cheetah-flow-window-vulkan-$<CONFIG>/hardware" TIMEOUT 180)
+        set_tests_properties(vulkan_cheetah_flow_window_4k PROPERTIES SKIP_RETURN_CODE 77)
+    endif()
+
     # weft_add_d3d11_test(<test> <mode> <artifact dir> [weft_add_test options...]) runs one WARP mode.
     function(weft_add_d3d11_test name mode directory)
         weft_add_test(NAME ${name} COMMAND weft_d3d11_probe ${mode} "${artifacts}/${directory}" ${ARGN})

@@ -77,8 +77,8 @@ namespace weft::render::vulkan {
     class Renderer;
 
     // What one recorded frame uses besides its textures: pass data, staged uploads, descriptors and the target's
-    // framebuffer. Destroyed with the frame's use: once the frame completed, or at once when its commands were discarded
-    // unsubmitted.
+    // framebuffer. Released with the frame's use: once the frame completed, or at once when its commands were discarded
+    // unsubmitted. The renderer then reuses the buffers and the descriptor pool for later frames.
     class FrameResources {
     public:
         FrameResources() = default;
@@ -90,8 +90,9 @@ namespace weft::render::vulkan {
         Buffer staging;
         Buffer records;
         Buffer clips;
-        Buffer view;
         VkDescriptorPool pool{};
+        // The descriptor sets the pool holds.
+        std::uint32_t pool_sets{};
         VkFramebuffer framebuffer{};
 
     private:
@@ -128,6 +129,8 @@ namespace weft::render::vulkan {
         // Releases every cached texture and the atlas pages, for a renderer with no frame prepared or in flight that
         // shuts down.
         void drain();
+        // The largest buffer kept from released frames for later ones.
+        VkDeviceSize largest_spare() const;
 
         // Draws list over a transparent target of the renderer's size and returns its pixels once the frame completed:
         // prepare, encode into the renderer's own command buffer, submit, wait and retire. The renderer must have no
@@ -178,6 +181,12 @@ namespace weft::render::vulkan {
         // The texture of a new asset, in the registry and leased once: an atlas region of a caching renderer when the
         // asset fits there, otherwise an image of its own.
         NativeAsset& create(const paint::Asset& asset, std::uint64_t asset_id, std::uint64_t version);
+        // A buffer of at least size, from spares or new with room to grow.
+        Buffer take(std::vector<Buffer>& spares, VkDeviceSize size, VkBufferUsageFlags usage);
+        // A reset descriptor pool for at least sets sets, from the spares or new with room to grow.
+        std::pair<VkDescriptorPool, std::uint32_t> take_pool(std::uint32_t sets);
+        // Keeps a released frame's buffers and descriptor pool for later frames; destroys what is not kept.
+        void recycle(FrameResources& resources) noexcept;
         // A region for the asset's bordered image, on a new page when the open ones are full; nothing when the atlas is.
         std::optional<AtlasPacker::Region> place_on_atlas(const paint::Asset& asset);
         // The view a texture is sampled through: its page's, or its own.
@@ -200,7 +209,15 @@ namespace weft::render::vulkan {
         // Bound where a draw samples no image or the pass has no rounded clips.
         Image blank_image_;
         Buffer blank_buffer_;
+        // The View constants of every pass: the renderer's size, scale 1 and base instance 0.
+        Buffer view_;
+        // draw()'s copy of the target, created by its first call.
         Buffer readback_;
+        // Buffers and descriptor pools of released frames, at most spare_frame_resources of each kind.
+        std::vector<Buffer> spare_staging_;
+        std::vector<Buffer> spare_records_;
+        std::vector<Buffer> spare_clips_;
+        std::vector<std::pair<VkDescriptorPool, std::uint32_t>> spare_pools_;
         // Textures that have not retired yet.
         std::vector<std::unique_ptr<NativeAsset>> assets_;
     };

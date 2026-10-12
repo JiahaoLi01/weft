@@ -17,6 +17,9 @@ namespace weft::render::vulkan {
         bool validation = true;
         // With the validation layer, also checks hazards between the device's accesses (synchronization validation).
         bool synchronization = true;
+        // Presents to window surfaces: the platform's surface instance extensions, the swapchain device extension, and
+        // a graphics queue that presents (on Windows, to Win32 windows).
+        bool presentation = false;
     };
 
     // A device-local 2D image of one mip level and layer, with its memory and a view of it. A framebuffer only for the
@@ -73,9 +76,12 @@ namespace weft::render::vulkan {
         std::uint32_t api_version{};
         std::uint32_t driver_version{};
         bool discrete{};
-        // The validation layer is enabled, and with it synchronization validation.
+        // The validation layer is enabled, and with it synchronization validation; the device presents.
         bool validation{};
         bool synchronization{};
+        bool presents{};
+        // The loader's entry, for the functions of platform extensions.
+        PFN_vkGetInstanceProcAddr get_instance_proc{};
         // Validation warnings and errors so far, and the first of them.
         std::size_t validation_messages{};
         std::string first_validation_message;

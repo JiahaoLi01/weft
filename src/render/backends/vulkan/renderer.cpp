@@ -10,6 +10,7 @@
 #include <functional>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <utility>
 
 namespace weft::render::vulkan {
@@ -153,8 +154,8 @@ namespace weft::render::vulkan {
         : staging(std::exchange(other.staging, {})),
           records(std::exchange(other.records, {})),
           clips(std::exchange(other.clips, {})),
-          view(std::exchange(other.view, {})),
           pool(std::exchange(other.pool, {})),
+          pool_sets(std::exchange(other.pool_sets, 0)),
           framebuffer(std::exchange(other.framebuffer, {})),
           renderer_(std::exchange(other.renderer_, nullptr)) {
     }
@@ -165,8 +166,8 @@ namespace weft::render::vulkan {
             staging = std::exchange(other.staging, {});
             records = std::exchange(other.records, {});
             clips = std::exchange(other.clips, {});
-            view = std::exchange(other.view, {});
             pool = std::exchange(other.pool, {});
+            pool_sets = std::exchange(other.pool_sets, 0);
             framebuffer = std::exchange(other.framebuffer, {});
             renderer_ = std::exchange(other.renderer_, nullptr);
         }
@@ -181,19 +182,7 @@ namespace weft::render::vulkan {
         if (!renderer_) {
             return;
         }
-        const auto& d = renderer_->gpu;
-        d.destroy(staging);
-        d.destroy(records);
-        d.destroy(clips);
-        d.destroy(view);
-        if (pool) {
-            d.vkd.vkDestroyDescriptorPool(d.device, pool, nullptr);
-            pool = {};
-        }
-        if (framebuffer) {
-            d.vkd.vkDestroyFramebuffer(d.device, framebuffer, nullptr);
-            framebuffer = {};
-        }
+        renderer_->recycle(*this);
         ++renderer_->frames_released;
         renderer_ = nullptr;
     }
@@ -260,7 +249,13 @@ namespace weft::render::vulkan {
         output_ = d.image(output_format, w, h, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
         blank_image_ = d.image(VK_FORMAT_R8_UNORM, 1, 1, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
         blank_buffer_ = d.buffer(sizeof(SceneClip), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false);
-        readback_ = d.buffer(VkDeviceSize(w) * h * sizeof(Pixel), VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
+        const std::array<float, 4> view{float(w), float(h), 1, 0};
+        view_ = d.buffer(sizeof(view), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true);
+        std::memcpy(view_.mapped, view.data(), sizeof(view));
+        spare_staging_.reserve(limits::spare_frame_resources);
+        spare_records_.reserve(limits::spare_frame_resources);
+        spare_clips_.reserve(limits::spare_frame_resources);
+        spare_pools_.reserve(limits::spare_frame_resources);
         // The blank image is only bound, never sampled for a visible result; it needs a shader-readable layout. This one
         // submission precedes every frame on the device's queue.
         VkCommandBufferBeginInfo begin{};
@@ -290,6 +285,15 @@ namespace weft::render::vulkan {
             d.destroy(page.image);
         }
         d.destroy(readback_);
+        d.destroy(view_);
+        for (auto* spares : {&spare_staging_, &spare_records_, &spare_clips_}) {
+            for (auto& b : *spares) {
+                d.destroy(b);
+            }
+        }
+        for (auto& [pool, sets] : spare_pools_) {
+            d.vkd.vkDestroyDescriptorPool(d.device, pool, nullptr);
+        }
         d.destroy(blank_buffer_);
         d.destroy(blank_image_);
         for (auto& layer : layers_) {
@@ -755,7 +759,7 @@ namespace weft::render::vulkan {
                                           VK_ACCESS_SHADER_READ_BIT));
             }
             if (staged) {
-                resources.staging = d.buffer(staged, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true);
+                resources.staging = take(spare_staging_, staged, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
                 for (std::size_t i = 0; i < pending.size(); ++i) {
                     std::memcpy(static_cast<std::uint8_t*>(resources.staging.mapped) + copies[i].bufferOffset,
                                 pending[i]->texels.data(), pending[i]->texels.size());
@@ -780,12 +784,12 @@ namespace weft::render::vulkan {
             }
             if (!pass.records.empty()) {
                 resources.records =
-                    d.buffer(pass.records.size() * sizeof(SceneRecord), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true);
+                    take(spare_records_, pass.records.size() * sizeof(SceneRecord), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
                 std::memcpy(resources.records.mapped, pass.records.data(), pass.records.size() * sizeof(SceneRecord));
             }
             if (!pass.clips.empty()) {
                 resources.clips =
-                    d.buffer(pass.clips.size() * sizeof(SceneClip), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true);
+                    take(spare_clips_, pass.clips.size() * sizeof(SceneClip), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
                 std::memcpy(resources.clips.mapped, pass.clips.data(), pass.clips.size() * sizeof(SceneClip));
             }
 
@@ -828,22 +832,8 @@ namespace weft::render::vulkan {
             std::vector<VkDescriptorSet> sets(images.size());
             ensure(sets.size() <= unsigned(limits::max_pass_descriptor_sets), "descriptor sets of one pass");
             if (!sets.empty()) {
-                // The View constants: target size, scale and the base instance, which Vulkan's instance index holds.
-                const std::array<float, 4> view{float(width), float(height), 1, 0};
-                resources.view = d.buffer(sizeof(view), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true);
-                std::memcpy(resources.view.mapped, view.data(), sizeof(view));
                 const auto count = std::uint32_t(sets.size());
-                const VkDescriptorPoolSize sizes[]{{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, count},
-                                                   {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2 * count},
-                                                   {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, count},
-                                                   {VK_DESCRIPTOR_TYPE_SAMPLER, count}};
-                VkDescriptorPoolCreateInfo info{};
-                info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-                info.maxSets = count;
-                info.poolSizeCount = std::uint32_t(std::size(sizes));
-                info.pPoolSizes = sizes;
-                check(d.vkd.vkCreateDescriptorPool(d.device, &info, nullptr, &resources.pool),
-                      "vkCreateDescriptorPool");
+                std::tie(resources.pool, resources.pool_sets) = take_pool(count);
                 const std::vector<VkDescriptorSetLayout> layouts(sets.size(), set_layout_);
                 VkDescriptorSetAllocateInfo allocate{};
                 allocate.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -851,7 +841,7 @@ namespace weft::render::vulkan {
                 allocate.descriptorSetCount = count;
                 allocate.pSetLayouts = layouts.data();
                 check(d.vkd.vkAllocateDescriptorSets(d.device, &allocate, sets.data()), "vkAllocateDescriptorSets");
-                const VkDescriptorBufferInfo view_info{resources.view.buffer, 0, VK_WHOLE_SIZE};
+                const VkDescriptorBufferInfo view_info{view_.buffer, 0, VK_WHOLE_SIZE};
                 const VkDescriptorBufferInfo record_info{resources.records.buffer, 0, VK_WHOLE_SIZE};
                 const VkDescriptorBufferInfo clip_info{
                     resources.clips.buffer ? resources.clips.buffer : blank_buffer_.buffer, 0, VK_WHOLE_SIZE};
@@ -967,11 +957,101 @@ namespace weft::render::vulkan {
         }
     }
 
+    Buffer Renderer::take(std::vector<Buffer>& spares, VkDeviceSize size, VkBufferUsageFlags usage) {
+        auto best = spares.end();
+        for (auto i = spares.begin(); i != spares.end(); ++i) {
+            if (i->size >= size && (best == spares.end() || i->size < best->size)) {
+                best = i;
+            }
+        }
+        if (best != spares.end()) {
+            const auto out = *best;
+            spares.erase(best);
+            return out;
+        }
+        VkDeviceSize capacity = limits::spare_buffer_min_bytes;
+        while (capacity < size) {
+            capacity *= 2;
+        }
+        return gpu.buffer(capacity, usage, true);
+    }
+
+    std::pair<VkDescriptorPool, std::uint32_t> Renderer::take_pool(std::uint32_t sets) {
+        const auto& d = gpu;
+        auto best = spare_pools_.end();
+        for (auto i = spare_pools_.begin(); i != spare_pools_.end(); ++i) {
+            if (i->second >= sets && (best == spare_pools_.end() || i->second < best->second)) {
+                best = i;
+            }
+        }
+        if (best != spare_pools_.end()) {
+            const auto out = *best;
+            spare_pools_.erase(best);
+            check(d.vkd.vkResetDescriptorPool(d.device, out.first, 0), "vkResetDescriptorPool");
+            return out;
+        }
+        auto capacity = std::uint32_t(limits::descriptor_pool_min_sets);
+        while (capacity < sets) {
+            capacity *= 2;
+        }
+        const VkDescriptorPoolSize sizes[]{{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, capacity},
+                                           {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2 * capacity},
+                                           {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, capacity},
+                                           {VK_DESCRIPTOR_TYPE_SAMPLER, capacity}};
+        VkDescriptorPoolCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        info.maxSets = capacity;
+        info.poolSizeCount = std::uint32_t(std::size(sizes));
+        info.pPoolSizes = sizes;
+        VkDescriptorPool pool{};
+        check(d.vkd.vkCreateDescriptorPool(d.device, &info, nullptr, &pool), "vkCreateDescriptorPool");
+        return {pool, capacity};
+    }
+
+    VkDeviceSize Renderer::largest_spare() const {
+        VkDeviceSize out{};
+        for (const auto* spares : {&spare_staging_, &spare_records_, &spare_clips_}) {
+            for (const auto& b : *spares) {
+                out = std::max(out, b.size);
+            }
+        }
+        return out;
+    }
+
+    void Renderer::recycle(FrameResources& r) noexcept {
+        const auto& d = gpu;
+        auto keep = [&](std::vector<Buffer>& spares, Buffer& b) {
+            if (b.buffer && spares.size() < spares.capacity() && b.size <= limits::spare_buffer_max_bytes) {
+                spares.push_back(b);
+            } else {
+                d.destroy(b);
+            }
+            b = {};
+        };
+        keep(spare_staging_, r.staging);
+        keep(spare_records_, r.records);
+        keep(spare_clips_, r.clips);
+        if (r.pool && spare_pools_.size() < spare_pools_.capacity()) {
+            spare_pools_.emplace_back(r.pool, r.pool_sets);
+        } else if (r.pool) {
+            d.vkd.vkDestroyDescriptorPool(d.device, r.pool, nullptr);
+        }
+        r.pool = {};
+        r.pool_sets = 0;
+        if (r.framebuffer) {
+            d.vkd.vkDestroyFramebuffer(d.device, r.framebuffer, nullptr);
+            r.framebuffer = {};
+        }
+    }
+
     std::vector<Pixel> Renderer::draw(const paint::DisplayList& list) {
         const auto& d = gpu;
         const auto stats = tracker.Stats();
         ensure(!stats.prepared_frames && !stats.encoded_tokens && !stats.submitted_tokens,
                "draw() numbers the renderer's submissions itself");
+        if (!readback_.buffer) {
+            readback_ = d.buffer(VkDeviceSize(width) * height * sizeof(Pixel), VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
+        }
         auto frame = prepare(std::make_shared<const paint::DisplayList>(list));
         Encoded encoded;
         try {

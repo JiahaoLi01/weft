@@ -20,11 +20,27 @@
     F(vkGetPhysicalDeviceMemoryProperties)                                                                             \
     F(vkGetPhysicalDeviceFormatProperties)                                                                             \
     F(vkCreateDevice)                                                                                                  \
+    F(vkEnumerateDeviceExtensionProperties)                                                                            \
     F(vkGetDeviceProcAddr)
 
 #define WEFT_VULKAN_DEBUG_FUNCTIONS(F)                                                                                 \
     F(vkCreateDebugUtilsMessengerEXT)                                                                                  \
     F(vkDestroyDebugUtilsMessengerEXT)
+
+// Surface functions of VK_KHR_surface and swapchain functions of VK_KHR_swapchain, for a device that presents.
+#define WEFT_VULKAN_SURFACE_FUNCTIONS(F)                                                                               \
+    F(vkDestroySurfaceKHR)                                                                                             \
+    F(vkGetPhysicalDeviceSurfaceSupportKHR)                                                                            \
+    F(vkGetPhysicalDeviceSurfaceCapabilitiesKHR)                                                                       \
+    F(vkGetPhysicalDeviceSurfaceFormatsKHR)                                                                            \
+    F(vkGetPhysicalDeviceSurfacePresentModesKHR)
+
+#define WEFT_VULKAN_SWAPCHAIN_FUNCTIONS(F)                                                                             \
+    F(vkCreateSwapchainKHR)                                                                                            \
+    F(vkDestroySwapchainKHR)                                                                                           \
+    F(vkGetSwapchainImagesKHR)                                                                                         \
+    F(vkAcquireNextImageKHR)                                                                                           \
+    F(vkQueuePresentKHR)
 
 #define WEFT_VULKAN_DEVICE_FUNCTIONS(F)                                                                                \
     F(vkDestroyDevice)                                                                                                 \
@@ -41,6 +57,15 @@
     F(vkCreateFence)                                                                                                   \
     F(vkDestroyFence)                                                                                                  \
     F(vkWaitForFences)                                                                                                 \
+    F(vkGetFenceStatus)                                                                                                \
+    F(vkCreateSemaphore)                                                                                               \
+    F(vkDestroySemaphore)                                                                                              \
+    F(vkCreateQueryPool)                                                                                               \
+    F(vkDestroyQueryPool)                                                                                              \
+    F(vkGetQueryPoolResults)                                                                                           \
+    F(vkCmdResetQueryPool)                                                                                             \
+    F(vkCmdWriteTimestamp)                                                                                             \
+    F(vkCmdBlitImage)                                                                                                  \
     F(vkResetFences)                                                                                                   \
     F(vkCreateBuffer)                                                                                                  \
     F(vkDestroyBuffer)                                                                                                 \
@@ -65,6 +90,7 @@
     F(vkCreatePipelineLayout)                                                                                          \
     F(vkDestroyPipelineLayout)                                                                                         \
     F(vkCreateDescriptorPool)                                                                                          \
+    F(vkResetDescriptorPool)                                                                                           \
     F(vkDestroyDescriptorPool)                                                                                         \
     F(vkAllocateDescriptorSets)                                                                                        \
     F(vkUpdateDescriptorSets)                                                                                          \
@@ -98,10 +124,14 @@ namespace weft::render::vulkan {
         WEFT_VULKAN_INSTANCE_FUNCTIONS(WEFT_VULKAN_MEMBER)
         // Present when the debug utils extension is enabled.
         WEFT_VULKAN_DEBUG_FUNCTIONS(WEFT_VULKAN_MEMBER)
+        // Present when the device presents.
+        WEFT_VULKAN_SURFACE_FUNCTIONS(WEFT_VULKAN_MEMBER)
     };
 
     struct DeviceFunctions {
         WEFT_VULKAN_DEVICE_FUNCTIONS(WEFT_VULKAN_MEMBER)
+        // Present when the device presents.
+        WEFT_VULKAN_SWAPCHAIN_FUNCTIONS(WEFT_VULKAN_MEMBER)
     };
 
 #undef WEFT_VULKAN_MEMBER

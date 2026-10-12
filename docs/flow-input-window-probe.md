@@ -132,6 +132,8 @@ Release 换对应 preset/config；强制 GC 配置见 [building](building.md)。
 .\build\windows-msvc\bin\Release\weft_d3d11_probe.exe --cheetah-flow-window-hardware artifacts/local/motion/interactive
 ~~~
 
+同一页面的 Vulkan 窗口（2026-10-12）：`--cheetah-flow-window-vulkan`，或双击 `tools/cheetah-flow.bat` 选 2。隐藏自测 `--cheetah-flow-window-test-4k-vulkan` 注册为 `vulkan_cheetah_flow_window_4k`；两种 API 的 4K 滚轮基准对比见 [重构计划 10.4d](refactoring-plan.md#第-10-步记录2026-10-11)。
+
 点击左下“切换 2 / 13 项”，点“仓”展开，在列表上滚轮，再点击一项；resize 后继续滚动/选择，右下按钮接收 fixture 回执。关闭窗口生成 report。当前只自动验证 hidden HWND 注入消息，实体鼠标/滚轮、触摸/惯性、键盘/焦点/IME、可见 scrollbar、多显示器 DPI、完整 PointerEvent/HTML task 时序、Android/iOS 与产品性能预算均未验收。下一步扩大真实档案 UI/样式和 D3 SVG 像素，同时继续准备移动工具链。
 
 

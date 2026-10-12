@@ -20,6 +20,8 @@ namespace probes {
     int run_cheetah_flow_window(bool warp, bool self_test, const std::filesystem::path& folder,
                                 bool high_resolution = false, bool performance = false, bool sequential = false,
                                 bool motion_test = false);
+    // vulkan_flow_window_probe.cpp, built with the Vulkan backend (WEFT_PROBE_VULKAN)
+    int run_cheetah_flow_window_vulkan(bool self_test, const std::filesystem::path& folder, bool performance);
     // render_cache_probe.cpp
     int run_render_cache(bool warp, const std::filesystem::path& folder);
     // two_frame_probe.cpp

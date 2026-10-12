@@ -145,6 +145,24 @@ int main(int argc, char** argv) {
         vk::Renderer run(*device, 96, 64);
         const auto glyphs = run.draw(glyph_run());
 
+        // A translucent image too large for the spare bound: its staged float texels are not kept after the frame.
+        {
+            constexpr unsigned side = 1200;
+            std::vector<std::uint8_t> bytes(std::size_t(side) * side * 4, 128);
+            weft::paint::DisplayList big;
+            big.assets.push_back(std::make_shared<const Asset>(Asset{side, side, Encoding::SrgbStraight, bytes}));
+            big.images.emplace_back();
+            auto& item = big.items.emplace_back();
+            item.kind = weft::paint::Item::Kind::Image;
+            item.width = 96;
+            item.height = 64;
+            item.clip = {0, 0, 96, 64};
+            const auto pixels = run.draw(big);
+            CHECK(
+                close_to(pixels[std::size_t(32) * 96 + 48], encode({.5f * .216f, .5f * .216f, .5f * .216f, .502f}), 2));
+            CHECK(run.largest_spare() <= weft::constants::render::vulkan::spare_buffer_max_bytes);
+        }
+
         // A caching renderer puts the glyph run's coverage images on one atlas page: two frames draw it within a level
         // of separate textures in a few draws, and the second uploads nothing. Draining gives every region back.
         vk::Renderer cached(*device, 96, 64);

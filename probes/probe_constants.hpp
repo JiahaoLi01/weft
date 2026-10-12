@@ -27,6 +27,10 @@ namespace weft::probe_constants {
     inline constexpr int small_target_size = 64;
     inline constexpr int small_target_pixels = small_target_size * small_target_size;
 
+    // Exit code of a mode that cannot run on this machine (no Vulkan device that presents); CTest reports the test
+    // as skipped.
+    inline constexpr int skipped_exit_code = 77;
+
     // D3D11 reference renderer and backend limits (constants::render::d3d11), under their probe names.
     inline constexpr int frames_in_flight = constants::render::d3d11::frames_in_flight;
     // Assets of one FramePacket: the asset limit that the backend requests.

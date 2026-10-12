@@ -133,6 +133,15 @@ namespace weft::constants::render {
         inline constexpr int frames_in_flight = 2;
         inline constexpr int features = 31;
         inline constexpr unsigned max_frame_asset_bytes = 32u * constants::bytes_per_mib;
+        // Completed frames give the renderer their buffers and descriptor pools: it keeps at most this many of each
+        // kind, buffers of at most spare_buffer_max_bytes. A new buffer has room for at least spare_buffer_min_bytes,
+        // a new pool for descriptor_pool_min_sets sets, both doubling past them.
+        inline constexpr int spare_frame_resources = 4;
+        inline constexpr unsigned spare_buffer_max_bytes = 16u * constants::bytes_per_mib;
+        inline constexpr unsigned spare_buffer_min_bytes = 64u * constants::bytes_per_kib;
+        inline constexpr int descriptor_pool_min_sets = 16;
+        // A swapchain asks for this many images beyond the surface's minimum, so that acquiring rarely waits.
+        inline constexpr int swapchain_extra_images = 1;
     } // namespace vulkan
 
     // Scene passes (scene_pass.hpp and its backends). The shader-mirrored values match the static consts at the
