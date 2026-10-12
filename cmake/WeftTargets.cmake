@@ -9,7 +9,9 @@ function(weft_project_options target)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8)
     else()
-        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+        # Aggregate initializers leave members to their default member initializers on purpose.
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wno-missing-field-initializers
+            $<$<CXX_COMPILER_ID:Clang>:-Wno-missing-designated-field-initializers>)
     endif()
 endfunction()
 

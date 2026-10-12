@@ -913,6 +913,19 @@ CMake 拆分：
 - 复用帧资源之前，Vulkan（关验证层）编码 P50 0.20 ms，帧率 199.7–208.4。
 - Vulkan 冷启动首帧里约 130 ms 是 4K 交换链创建（`vkCreateSwapchainKHR`，在 NVIDIA 驱动内）；其余约 45 ms 与更高的峰值工作集来自半透明原图在 CPU 上转成线性浮点再暂存（D3D11 在 GPU 上转换）。这两项留作后续优化。
 
+**10.6a：Android arm64 交叉编译**（先于 10.5：NDK 已获批准下载，交叉编译能尽早暴露可移植性问题；可移植文字与路径仍是下一段）：
+- 依赖：Android NDK r30（30.0.16248370），按用户 2026-10-11 的批准下载，SHA-1 与官方页一致，解压在仓库之外；适用 2026-04-28 版 Android SDK License Agreement。
+- `CMakePresets.json` 新增 `android-arm64`（Ninja，NDK 工具链文件，arm64-v8a，android-29，Release）。29 是 NDK 系统字体 API 的最低级别，也是 Android 普遍提供 Vulkan 1.1 的版本。
+- Android 平台层 `src/platform/android`（`weft::platform_android`）：`system_font_catalog()` 用 NDK 的系统字体迭代器列出文件、集合序号、字重、斜体与变体轴；迭代器不给族名，由新的可移植函数 `font_family_names()`（`text/font_catalog.hpp`，FreeType 读 name 表：排版族名 ID 16，否则族名 ID 1，各语言去重）补上。通用族按 Chrome Android：serif Noto Serif，sans-serif 与 system-ui Roboto，monospace Droid Sans Mono；其余族按迭代顺序作回退。
+- Vulkan：`android_surface()` 为 Android native window 建 surface（`surface_android.cpp`，只在 Android 编译）；设备的 presentation 选项在 Android 上启用 `VK_KHR_android_surface`。
+- clang 下的警告：`-Wno-missing-field-initializers`（与 clang 的 designated 变体）——聚合初始化有意留成员给默认成员初始化；`document.cpp` 的 `&&`/`||` 加括号（语义不变）；删去 `scene.cpp` 未用的 `inset_edges`；QuickJS getter/setter 的函数指针经 `void(*)()` 转换，说明它在 QuickJS 的 union 里按 cproto 的签名回调。
+
+验证：
+- `cmake --preset android-arm64` 与 `cmake --build --preset android-arm64`：从干净构建 24 s，零错误零警告；36 个测试可执行文件是 AArch64 ELF；`weft_platform_android_smoke` 链接 Android 平台层与 Android surface，依赖 `libandroid.so`、`libdl.so`、`libm.so`、`libc.so`，不依赖 `libvulkan.so`；
+- 未验证：没有 Android 模拟器或真机，可执行文件都没有运行过；Activity、输入、窗口与 Vulkan 呈现都只到编译与链接；iOS 需要 macOS，未做；
+- Windows：`ctest --preset windows-release --parallel 6` 105/105，`windows-debug --parallel 6` 105/105（282.8 s）；`font_catalog_contract` 新增族名对照（Roboto、Ahem、Noto Sans CJK SC 的英文与中文记录去重为一个、非字体文件报错）；产物与 10.4d 逐字节相同；
+- 族名的变异检查 3 个全部被发现：逐条记录不去重、按小端读 UTF-16、读不了的文件返回空列表。
+
 ## 顺序调整（2026-10-10）
 
 用户决定先完成第 7–9 步，第 10 步（第二个图形后端与移动平台）暂缓。跨平台仍是硬性需求：

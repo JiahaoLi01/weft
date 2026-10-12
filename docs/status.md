@@ -4,6 +4,14 @@
 
 ## 本次已实现
 
+重构第 10 步之六（a）：Android arm64 交叉编译（2026-10-12）。详见 [重构计划](refactoring-plan.md#第-10-步记录2026-10-11)。
+- **结果**：
+  - NDK r30 下 `android-arm64` preset 构建全部可移植模块、Vulkan 后端与 36 个测试可执行文件，零错误零警告；
+  - Android 平台层：NDK 系统字体迭代器 + FreeType 族名组成字体目录；Vulkan 的 Android 窗口 surface。
+- **验证**：配置、编译、链接通过（arm64-v8a，API 29）；Windows `ctest` Release 105/105、Debug 105/105（282.8 s）。
+- **未验证**：Android 模拟器与真机上的运行、Activity 与输入、Vulkan 呈现与性能；iOS（需要 macOS）。在模拟器上运行需要另行下载 Android SDK 命令行工具、模拟器与系统镜像，尚未获批准。
+- **下一步**：10.5 可移植文字与路径（scene 不再回退 Direct2D）；之后 10.6b，Android 示例应用与模拟器验证。
+
 重构第 10 步之四（d）：Vulkan 交换链窗口与性能（2026-10-12）。详见 [重构计划](refactoring-plan.md#第-10-步记录2026-10-11)。
 - **结果**：
   - Vulkan 设备可向窗口呈现，`vulkan::Swapchain` 管理交换链；示例宿主经 C ABI 两帧在途地画 CaseCheetah 4K 流式页面；

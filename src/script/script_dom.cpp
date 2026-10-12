@@ -1780,12 +1780,18 @@ namespace weft {
         }
 
         void property(JSValueConst prototype, const char* name, int magic, bool writable = false) {
+            // QuickJS keeps the pointer in a union and calls it with the getter or setter signature that the cproto
+            // names; the cast through void(*)() states that round trip.
+            using Generic = void (*)();
             JSAtom atom = JS_NewAtom(context, name);
-            JSValue get = JS_NewCFunction2(context, reinterpret_cast<JSCFunction*>(get_property), name, 0,
-                                           JS_CFUNC_getter_magic, magic);
-            JSValue set = writable ? JS_NewCFunction2(context, reinterpret_cast<JSCFunction*>(set_property), name, 1,
-                                                      JS_CFUNC_setter_magic, magic)
-                                   : JS_UNDEFINED;
+            JSValue get =
+                JS_NewCFunction2(context, reinterpret_cast<JSCFunction*>(reinterpret_cast<Generic>(get_property)), name,
+                                 0, JS_CFUNC_getter_magic, magic);
+            JSValue set =
+                writable
+                    ? JS_NewCFunction2(context, reinterpret_cast<JSCFunction*>(reinterpret_cast<Generic>(set_property)),
+                                       name, 1, JS_CFUNC_setter_magic, magic)
+                    : JS_UNDEFINED;
             const int result = JS_DefinePropertyGetSet(context, prototype, atom, get, set, JS_PROP_CONFIGURABLE);
             JS_FreeAtom(context, atom);
             if (result < 0) {

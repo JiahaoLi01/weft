@@ -205,7 +205,7 @@ namespace weft {
                             (void)px(v);
                         }
                     } else if (k.starts_with("margin") || k == "border" || k == "border-width" ||
-                               k.ends_with("-width") && k.starts_with("border-")) {
+                               (k.ends_with("-width") && k.starts_with("border-"))) {
                         if (px(v) != 0) {
                             fail("zero margin/border subset");
                         }

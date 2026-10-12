@@ -16,7 +16,7 @@ Weft 的目标是在 Windows、Android 和 iOS 上，用同一套 HTML、CSS 和
 
 Windows 构建：`cmake --preset windows-msvc` → `cmake --build --preset windows-debug --parallel 4` → `ctest --preset windows-debug`。依赖源码已随项目固定，正常构建不联网；完整步骤见 [构建与探针](docs/building.md)。
 
-图形 API 已通过实验 C ABI 接口注册：通用层管理能力、句柄与提交/完成协议，D3D11 reference 和 React 窗口已接入。2026-10-11 起渲染器只有显示列表一条绘制路径：运行时的帧以不透明显示列表穿过 C ABI，宿主的四边形帧在适配器里转成显示列表。Vulkan、原生 Metal 可各自扩展 native pass，不要求经同一图形 API 翻译。2026-10-12 起有 Vulkan 渲染器与它的 C ABI 适配器（与 D3D11 共用规划和着色器源码；宿主录制、提交并报告完成，两帧在途；在本机 NVIDIA 与 AMD GPU 上验证；Windows 上可在 Vulkan 交换链窗口里运行 4K CaseCheetah 页面，双击 `tools/cheetah-flow.bat` 打开）；具体移动后端尚未实现，见 [后端 API](docs/render-backend-api.md)。
+图形 API 已通过实验 C ABI 接口注册：通用层管理能力、句柄与提交/完成协议，D3D11 reference 和 React 窗口已接入。2026-10-11 起渲染器只有显示列表一条绘制路径：运行时的帧以不透明显示列表穿过 C ABI，宿主的四边形帧在适配器里转成显示列表。Vulkan、原生 Metal 可各自扩展 native pass，不要求经同一图形 API 翻译。2026-10-12 起有 Vulkan 渲染器与它的 C ABI 适配器（与 D3D11 共用规划和着色器源码；宿主录制、提交并报告完成，两帧在途；在本机 NVIDIA 与 AMD GPU 上验证；Windows 上可在 Vulkan 交换链窗口里运行 4K CaseCheetah 页面，双击 `tools/cheetah-flow.bat` 打开）；Android arm64 已能交叉编译与链接（NDK r30，未在设备上运行，见 [构建](docs/building.md)）；具体移动后端尚未实现，见 [后端 API](docs/render-backend-api.md)。
 
 后续以用户持续开发的 CaseCheetah UI 为真实 workload，继续 D3D11。已只读捕获固定样本，未修改原游戏；原样 NineSlice.tsx、五条原始 CSS 和三张 PNG 已在自己的 DOM/CSS/DX11 输出三帧，528 项浏览器几何对照通过。新 positioned profile 的边界、运行方法与完整 UI 的后续缺口见 [CaseCheetah 样本](docs/casecheetah-workload.md)。
 

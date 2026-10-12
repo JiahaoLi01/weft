@@ -34,6 +34,11 @@ namespace weft {
     // CSS Fonts 4 font matching: for each family of the list that the catalog provides (generic keywords
     // mapped first), the face nearest to weight and style; then the same for the fallback families. Families
     // the catalog lacks are skipped and each face appears once. Empty when nothing matches.
+    // The family names that a face's name table lists: its typographic family names (name ID 16), else its family
+    // names (name ID 1), in every language and once each, for platform font lists that report files but no names.
+    // Throws std::runtime_error("WEFT_FONT_FILE: ...") for a file or face FreeType cannot open.
+    std::vector<std::string> font_family_names(const FontFaceSource& face);
+
     std::vector<FontFaceSource> match_font_faces(const FontCatalog& catalog, std::string_view families, int weight,
                                                  bool italic);
 } // namespace weft

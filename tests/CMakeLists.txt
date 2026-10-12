@@ -166,7 +166,12 @@ endif()
 weft_add_executable(weft_text_tests SOURCES text_tests.cpp LINK weft::text SOURCE_DIR)
 weft_add_test(NAME text_font_probe COMMAND weft_text_tests)
 
-weft_add_executable(weft_font_catalog_tests SOURCES font_catalog_tests.cpp LINK weft::text)
+weft_add_executable(weft_font_catalog_tests SOURCES font_catalog_tests.cpp LINK weft::text SOURCE_DIR)
+if(ANDROID)
+    # Links the Android platform layer and the Android Vulkan surface; runs on a device only (no test registered).
+    weft_add_executable(weft_platform_android_smoke SOURCES platform_android_smoke.cpp
+        LINK weft::platform_android weft::render_vulkan)
+endif()
 weft_add_test(NAME font_catalog_contract COMMAND weft_font_catalog_tests)
 
 weft_add_executable(weft_font_fallback_tests SOURCES font_fallback_tests.cpp LINK weft::text SOURCE_DIR)

@@ -47,7 +47,6 @@ namespace weft {
                                            PropertyId::BorderBottomColor, PropertyId::BorderLeftColor};
         constexpr Edges border_style_edges{PropertyId::BorderTopStyle, PropertyId::BorderRightStyle,
                                            PropertyId::BorderBottomStyle, PropertyId::BorderLeftStyle};
-        constexpr Edges inset_edges{PropertyId::Top, PropertyId::Right, PropertyId::Bottom, PropertyId::Left};
         constexpr Edges radius_corners{PropertyId::BorderTopLeftRadius, PropertyId::BorderTopRightRadius,
                                        PropertyId::BorderBottomRightRadius, PropertyId::BorderBottomLeftRadius};
 

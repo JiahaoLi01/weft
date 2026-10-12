@@ -9,5 +9,9 @@ if(WIN32)
 else()
     target_link_libraries(weft_render_vulkan PRIVATE ${CMAKE_DL_LIBS})
 endif()
+if(ANDROID)
+    # Surfaces of Android native windows for the swapchain.
+    target_sources(weft_render_vulkan PRIVATE surface_android.cpp)
+endif()
 weft_add_spirv(weft_render_vulkan display_linear "${PROJECT_SOURCE_DIR}/src/render/shaders/scene.hlsl"
     DEFINES SPACE_LINEAR=1)

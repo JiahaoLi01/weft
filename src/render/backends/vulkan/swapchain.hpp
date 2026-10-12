@@ -10,10 +10,18 @@
 // swapchain on the device's graphics queue, which presents to the surface (Device opened with presentation). Images
 // are sRGB BGRA8 or RGBA8 and take transfer writes and color attachment writes; FIFO presentation with vertical sync,
 // otherwise mailbox, else immediate. Owner thread of the device.
+#ifdef __ANDROID__
+struct ANativeWindow;
+#endif
+
 namespace weft::render::vulkan {
 #ifdef _WIN32
     // A surface for the Win32 window (HWND) of a module instance (HINSTANCE), for a Swapchain.
     VkSurfaceKHR win32_surface(const Device& device, void* instance, void* window);
+#endif
+#ifdef __ANDROID__
+    // A surface for an Android native window (of a NativeActivity or a SurfaceView), for a Swapchain.
+    VkSurfaceKHR android_surface(const Device& device, ANativeWindow* window);
 #endif
 
     class Swapchain {

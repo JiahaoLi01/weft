@@ -20,6 +20,18 @@ ctest --preset windows-release
 
 `portable-ninja` preset 供已初始化本机工具链的环境使用，目前没有单独验证；它不构成 Android/iOS 配置。
 
+## Android arm64 交叉编译（2026-10-12）
+
+需要 Android NDK r30（30.0.16248370，`android-ndk-r30-windows.zip`，727,980,788 字节，SHA-1 `9bf167a1985fa7d4a036186b78f702eab9179408`，取自 dl.google.com，适用 2026-04-28 版 Android SDK License Agreement）、Ninja，以及构建 SPIR-V 用的 Vulkan SDK 的 DXC（主机工具，与 Windows 构建相同）。`ANDROID_NDK_HOME` 指向解压后的 NDK 根目录：
+
+```powershell
+$env:ANDROID_NDK_HOME = "F:/SDKs/ndk-r30/android-ndk-r30"
+cmake --preset android-arm64
+cmake --build --preset android-arm64
+```
+
+产物在 `build/android-arm64`：全部可移植模块、Vulkan 后端（含 Android 窗口的 surface）、Android 平台层 `weft::platform_android`（NDK 系统字体迭代器，API 29），以及 36 个测试可执行文件（arm64-v8a ELF，`ANDROID_PLATFORM` android-29，`c++_static`）。Vulkan 在运行时由 `libvulkan.so` 打开，不链接它。这台 Windows 机器只能编译与链接；可执行文件没有在模拟器或真机上运行过。D3D11、Direct2D 与 DirectWrite 部分、探针只在 Windows 构建。
+
 `windows-profile` preset 构建到 `build/windows-profile`：代码生成与 Release 相同（`/O2 /Ob2`、`/OPT:REF,ICF`），另带 PDB，供采样剖析符号化（例如 `--gallery-owner-sample`，见 [交互性能](gallery-interaction-profile.md#owner-采样剖析)）。
 
 ## 固定依赖与离线构建

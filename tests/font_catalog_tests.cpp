@@ -71,6 +71,26 @@ namespace {
                std::vector<weft::FontFaceSource>{face("han.ttc", 1), face("body.ttf", 400)}));
         CHECK(weft::match_font_faces(weft::FontCatalog{}, "Body", 400, false).empty());
     }
+
+    // Family names read from the name table, for platform font lists that report only files.
+    void FamilyNames() {
+        auto names = [](const char* path, std::uint32_t index = 0) {
+            return weft::font_family_names({path, index, {}});
+        };
+        CHECK((names(WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf") ==
+               std::vector<std::string>{"Roboto"}));
+        CHECK((names(WEFT_SOURCE_DIR "/third_party/ahem/Ahem.ttf") == std::vector<std::string>{"Ahem"}));
+        // Its English and Chinese records name the same family: listed once.
+        CHECK((names(WEFT_SOURCE_DIR "/third_party/noto-cjk/source/NotoSansCJKsc-Regular.otf") ==
+               std::vector<std::string>{"Noto Sans CJK SC"}));
+        bool rejected{};
+        try {
+            names(WEFT_SOURCE_DIR "/third_party/ahem/LICENSE.txt");
+        } catch (const std::runtime_error&) {
+            rejected = true;
+        }
+        CHECK(rejected);
+    }
 } // namespace
 
 int main() {
@@ -78,7 +98,9 @@ int main() {
         Parsing();
         WeightMatching();
         ListsGenericsAndFallback();
-        std::cout << "PASS font catalog: family parsing, CSS weight/style matching, generics and fallback\n";
+        FamilyNames();
+        std::cout << "PASS font catalog: family parsing, CSS weight/style matching, generics and fallback, family "
+                     "names\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "FAIL: " << error.what() << '\n';

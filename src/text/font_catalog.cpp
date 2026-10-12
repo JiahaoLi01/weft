@@ -1,8 +1,14 @@
 #include "text/font_catalog.hpp"
 
+#include <ft2build.h>
+#include FT_FREETYPE_H
+#include FT_SFNT_NAMES_H
+#include FT_TRUETYPE_IDS_H
+
 #include <algorithm>
 #include <cctype>
 #include <optional>
+#include <stdexcept>
 
 namespace weft {
     namespace {
@@ -19,6 +25,46 @@ namespace weft {
                        return std::tolower(static_cast<unsigned char>(x)) ==
                               std::tolower(static_cast<unsigned char>(y));
                    });
+        }
+
+        // UTF-8 of big-endian UTF-16 bytes; nothing for a malformed string.
+        std::optional<std::string> utf16be(const FT_Byte* bytes, FT_UInt length) {
+            if (length % 2) {
+                return std::nullopt;
+            }
+            std::string out;
+            for (FT_UInt i = 0; i < length; i += 2) {
+                std::uint32_t c = std::uint32_t(bytes[i]) << 8 | bytes[i + 1];
+                if (c >= 0xD800 && c < 0xDC00) {
+                    if (i + 3 >= length) {
+                        return std::nullopt;
+                    }
+                    const std::uint32_t low = std::uint32_t(bytes[i + 2]) << 8 | bytes[i + 3];
+                    if (low < 0xDC00 || low >= 0xE000) {
+                        return std::nullopt;
+                    }
+                    c = 0x10000 + ((c - 0xD800) << 10) + (low - 0xDC00);
+                    i += 2;
+                } else if (c >= 0xDC00 && c < 0xE000) {
+                    return std::nullopt;
+                }
+                if (c < 0x80) {
+                    out += char(c);
+                } else if (c < 0x800) {
+                    out += char(0xC0 | c >> 6);
+                    out += char(0x80 | (c & 0x3F));
+                } else if (c < 0x10000) {
+                    out += char(0xE0 | c >> 12);
+                    out += char(0x80 | (c >> 6 & 0x3F));
+                    out += char(0x80 | (c & 0x3F));
+                } else {
+                    out += char(0xF0 | c >> 18);
+                    out += char(0x80 | (c >> 12 & 0x3F));
+                    out += char(0x80 | (c >> 6 & 0x3F));
+                    out += char(0x80 | (c & 0x3F));
+                }
+            }
+            return out;
         }
 
         std::string trim(std::string_view value) {
@@ -158,6 +204,64 @@ namespace weft {
             }
         }
         finish();
+        return out;
+    }
+
+    std::vector<std::string> font_family_names(const FontFaceSource& source) {
+        FT_Library library{};
+        if (FT_Init_FreeType(&library)) {
+            throw std::runtime_error("WEFT_FONT_FILE: FreeType initialization failed");
+        }
+        FT_Face face{};
+
+        struct Release {
+            FT_Library library;
+            FT_Face& face;
+
+            ~Release() {
+                if (face) {
+                    FT_Done_Face(face);
+                }
+                FT_Done_FreeType(library);
+            }
+        } release{library, face};
+
+        // FreeType reads only the tables it needs from the path, not the whole file.
+        if (FT_New_Face(library, source.path.string().c_str(), FT_Long(source.face_index), &face)) {
+            throw std::runtime_error("WEFT_FONT_FILE: FreeType rejected font face");
+        }
+        auto names = [&](FT_UShort id) {
+            std::vector<std::string> out;
+            const auto count = FT_Get_Sfnt_Name_Count(face);
+            for (FT_UInt i = 0; i < count; ++i) {
+                FT_SfntName name{};
+                if (FT_Get_Sfnt_Name(face, i, &name) || name.name_id != id || !name.string_len) {
+                    continue;
+                }
+                std::optional<std::string> value;
+                if (name.platform_id == TT_PLATFORM_APPLE_UNICODE ||
+                    (name.platform_id == TT_PLATFORM_MICROSOFT &&
+                     (name.encoding_id == TT_MS_ID_UNICODE_CS || name.encoding_id == TT_MS_ID_UCS_4))) {
+                    value = utf16be(name.string, name.string_len);
+                } else if (name.platform_id == TT_PLATFORM_MACINTOSH && name.encoding_id == TT_MAC_ID_ROMAN &&
+                           std::all_of(name.string, name.string + name.string_len, [](FT_Byte b) {
+                               return b < 0x80;
+                           })) {
+                    value = std::string(reinterpret_cast<const char*>(name.string), name.string_len);
+                }
+                if (value && !value->empty() && std::find(out.begin(), out.end(), *value) == out.end()) {
+                    out.push_back(std::move(*value));
+                }
+            }
+            return out;
+        };
+        auto out = names(TT_NAME_ID_TYPOGRAPHIC_FAMILY);
+        if (out.empty()) {
+            out = names(TT_NAME_ID_FONT_FAMILY);
+        }
+        if (out.empty() && face->family_name) {
+            out.emplace_back(face->family_name);
+        }
         return out;
     }
 
