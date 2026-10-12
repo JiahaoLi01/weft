@@ -63,8 +63,8 @@ namespace weft::render {
         enum class Step : std::uint8_t {
             // Records [first, first + count) in one instanced draw without an image.
             Boxes,
-            // Records [first, first + count) in one instanced draw of the image of source: one Text, Layer or Image
-            // item, or with texture names a run of boxes and images that sample one texture.
+            // Records [first, first + count) in one instanced draw of the image of source: one Text, Layer, Shadow,
+            // Path or Image item, or with texture names a run of boxes and images that sample one texture.
             Image,
             // Continue in a cleared group target one level deeper.
             BeginGroup,
@@ -82,6 +82,9 @@ namespace weft::render {
 
         // One record per item, in item order: record i belongs to item i.
         std::vector<SceneRecord> records;
+        // Per item, the device pixels (left, top, right, bottom) a path item's coverage mask covers: what the renderer
+        // rasterizes and record i draws. Empty for other items and for paths with nothing in their clip.
+        std::vector<std::array<std::int32_t, 4>> masks;
         std::vector<SceneClip> clips;
         std::vector<Batch> batches;
         // The target's initial color, premultiplied in the pass's space: an opaque first box covering the whole target

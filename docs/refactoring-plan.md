@@ -1022,6 +1022,43 @@ CMake 拆分：
 - `paint_contract`：路径的结构校验与 `append` 重新编号；规划器拒绝路径条目。
 - 变异检查 14 个全部被发现：忽略填充规则、不细分曲线、半径取整个线宽、超限的斜接改为截断、忽略虚线偏移、奇数图案不重复（为此新增偏移落在重复后半的用例）、零长度子路径不画线帽、边界不含描边范围、边界不含抗锯齿像素、行序上下颠倒、Close 后的线段不重新开始、路径可不以 Move 开头、`append` 不重新编号路径、负虚线通过校验。
 
+**10.5f：SVG 进入原生显示列表**：
+- `scene_display_list()` 生产 SVG 内容，与 D2D 参考的绘制顺序一致：
+  - svg 元素是一个盒子：视口（viewBox 与 preserveAspectRatio）把用户坐标映射进它的盒子，内容按它的圆角边框盒裁剪；
+  - SVG 元素：g 与嵌套 svg 只是分组；rect、circle、ellipse、path、polygon、polyline、line 成为路径条目，填充与描边各一条，颜色乘以 fill-opacity 或 stroke-opacity，line 不填充；
+  - text 的字形轮廓成为一条路径，按 x、y、dy、text-anchor 与基线（central 时为行盒中线）放置，在设备空间按完整变换光栅化，旋转标签不再重采样；含彩色字形的文字仍是图像；
+  - 元素 opacity 成组，只有一个条目且无子元素时由条目自己带透明度；
+  - transform 属性（否则 CSS transform）按 SVG 语法、原点 0 0；clip-path 只接受一个用户空间矩形，有 rx/ry 时成为圆角裁剪；
+  - 可见的回退：旋转或斜切下的 clip-path（`rotated SVG clip reference`）、未知元素（`SVG element …`）、没有文字引擎时的 SVG 文字（`SVG text reference`）。
+- 新文件 `scene/scene_path.*`：
+  - `scene_svg_path()` 把 SVG 形状转成 `paint::Path`：弧线按中心参数化后切成不超过 90° 的三次曲线，二次曲线升阶；宽或高不为正的矩形、半径不为正的圆不绘制（SVG 规定）；
+  - 弧线的中心化计算从 `scene_geometry` 移出，命中测试与绘制共用；
+  - `scene_svg_stroke()` 解析描边，斜接上限取 SVG 的初始值 4。
+- 文字轮廓：`Font::outline()` 取无提示轮廓（与字形图片同样的 FreeType 加载方式）；`SceneText::outline()` 把一段文字的轮廓拼成一条路径，原点在行盒左上，按字形排版缓存同样的键缓存，以 8 倍字号加载以避开 1/64 像素的定点精度。
+- 规划器：路径条目在设备像素上对齐的遮罩矩形由 `vector::mask_bounds` 在裁剪与目标内求出，存进 `ScenePass::masks`，记录逐像素对应纹素并以路径颜色着色。`weft::render` 私有依赖 `weft::vector`。
+- D3D11 scene 渲染器：用 `vector::Rasterizer` 光栅化路径遮罩，按内容（路径、描边、设备映射、遮罩矩形）缓存纹理；`scene_display_list` 取渲染器的文字引擎。
+- 着色器的两处量化修正：
+  - 着色遮罩（文字、路径）与盒子一样先把颜色量化成 8 位预乘；
+  - 量化时半级进位（`floor(x + .5)`）。HLSL 的 `round` 是四舍六入五成双，alpha 0.7 × 255 = 178.5 会取 178；参考端 D2D 的 `std::round` 与 Chromium 的 SkColor 都取 179。旭日图半透明扇区因此整片差 1 级，修正后与参考的均差 0.201 → 0.062。
+- D2D 参考的 SVG 斜接改为 SVG 语义：`D2D1_LINE_JOIN_MITER_OR_BEVEL` 加上限 4（D2D 的上限与 SVG 是同一个比值）。原先是 D2D 默认的截断斜接与上限 10，比 Chrome 多出尖刺；anime-04 的参考图在这些像素上与浏览器的误差 140–157 → 0.7–6.2。
+- 回退：
+  - scene-native 1089 → 121，只剩投影变换；
+  - cluster GPU 189 → 21、预览 41 → 12。剩下的是此前被 SVG 原因遮住的旋转盒子溢出裁剪（cluster 21、预览 4）与投影变换（预览 8）。
+- scene-native 探针的覆盖要求改为现状：原生 3900 次以上、回退只有投影变换、路径图像确有构建。
+
+验证：
+- `ctest --preset windows-release --parallel 6` 106/106，`windows-debug --parallel 6` 106/106（310.4 s）；Debug 与 Release 的 scene 像素相同；Android 交叉编译零警告。
+- 与浏览器参考的均差（最差通道，原 D2D → 原生）：
+  - scene-native：d3-00 0.553 → 0.511，d3-01 0.519 → 0.515，d3-02 0.035 → 0.037，d3-03 0.111 → 0.094，d3-04 0.040 → 0.006，d3-05 0.040 → 0.020，d3-06 0.052 → 0.019，d3-07 0.099 → 0.104；
+  - cluster GPU：旭日图 0.059 → 0.062，技能树 0.129 → 0.121，时间轴 0.197 → 0.185，散点 0.183 → 0.173，K 线 0.273 → 0.260，anime-04 0.250 → 0.251，图标 0.263 → 0.284 与 0.051 → 0.054（圆角描边边缘的抗锯齿）；
+  - 全套最差均差 2.327 与最小 IoU 0.8197 不变。量化修正也作用于原有原生帧：scene-native 有变化的帧中 24 帧更接近参考，6 帧差 0.002–0.005，总误差 6.74 → 6.22；render-stages 有 2 个像素差 1 级。
+- scene-native 探针新增 SVG 对照：原生与 D2D 的 CPU 栅格比，整帧均差 0.40 级，实心区域最大 1 级，超过 64 级的像素 4 个；帧内含 evenodd 星形、miter/round/bevel 连接、butt/round/square 线帽、虚线、旋转加透明度的组、非均匀缩放的椭圆描边、半透明填充。实心区域的 1 级差来自 CPU 参考把半级舍去；另加一条按 Chromium 规则直接算出期望值的半透明填充量化检查。报告新增 `vector_oracle_*` 字段，产物保存两张对照图。
+- `scene_cluster_platform` 新增 SVG 合同：视口变换与圆角视口裁剪、组透明度、填充与描边（含 stroke-opacity）、虚线、line 不填充、clip-path 矩形、文字轮廓按锚点与基线放置、三类回退、d3.arc 式弧线的三次曲线不偏离圆（r=300 时误差 < 0.05）。
+- `paint_contract`：路径条目的遮罩矩形与记录映射，裁剪外的路径没有遮罩。
+- 变异检查 12 个全部被发现：
+  - 由合同发现：不成组、忽略视口、clip-path 不裁剪、忽略 text-anchor、给 line 填充、视口裁剪丢掉圆角、忽略 stroke-opacity、文字回到图像、路径记录不平移；
+  - 由 scene-native 探针发现：渲染器不准备路径图像、量化改回五成双、参考端改回截断斜接。
+
 ## 顺序调整（2026-10-10）
 
 用户决定先完成第 7–9 步，第 10 步（第二个图形后端与移动平台）暂缓。跨平台仍是硬性需求：

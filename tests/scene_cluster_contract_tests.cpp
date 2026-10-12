@@ -6,6 +6,7 @@
 #include "scene_test_image.hpp"
 #include "cluster_visual_compare.hpp"
 #include "scene/scene_display_list.hpp"
+#include "scene/scene_path.hpp"
 #include "test_constants/scene.hpp"
 #include <thread>
 #include <cstring>
@@ -93,6 +94,133 @@ int main() {
             n.style["box-shadow"] = "inset 0 0 4px #000000";
             require(weft::scene_display_list(frame).fallback.find("outer shadow") != std::string::npos,
                     "inset shadow must stay a visible fallback");
+        }
+        {
+            // SVG content draws natively: the svg element's viewport maps user units into its box and clips to its
+            // rounded border box; an opacity group, fills and strokes as path items, dashes, a clip-path rectangle and
+            // text placed by its anchor. What the list cannot draw stays a visible fallback.
+            using Kind = weft::paint::Item::Kind;
+            using Pairs = std::initializer_list<std::pair<const char*, const char*>>;
+            const auto node = [](const char* tag, std::uint32_t slot, Pairs attributes, Pairs style) {
+                weft::SceneNode e;
+                e.identity = {1, 1, slot};
+                e.tag = tag;
+                e.space = weft::constants::svg_namespace_uri;
+                for (const auto& [k, v] : attributes) {
+                    e.attributes[k] = v;
+                }
+                for (const auto& [k, v] : style) {
+                    e.style[k] = v;
+                }
+                return e;
+            };
+            weft::SceneFrame frame;
+            frame.root.identity = {1, 1, 140};
+            frame.root.tag = "div";
+            frame.root.box = {0, 0, 200, 120};
+            auto svg = node("svg", 141, {{"viewBox", "0 0 50 40"}}, {{"border-top-left-radius", "6px"}});
+            svg.box = {10, 10, 100, 80};
+            auto group = node("g", 142, {{"transform", "translate(5, 5)"}}, {{"opacity", "0.5"}});
+            group.children = {
+                node("rect", 143, {{"x", "0"}, {"y", "0"}, {"width", "10"}, {"height", "8"}},
+                     {{"fill", "#ff0000"}, {"stroke", "#0000ff"}, {"stroke-width", "2"}, {"stroke-opacity", "0.5"}}),
+                node("circle", 144, {{"cx", "20"}, {"cy", "10"}, {"r", "4"}}, {{"fill", "#00ff00"}})};
+            auto defs = node("defs", 147, {}, {});
+            auto clip_path = node("clipPath", 148, {{"id", "c"}}, {});
+            clip_path.children = {node("rect", 149, {{"x", "2"}, {"y", "2"}, {"width", "6"}, {"height", "6"}}, {})};
+            defs.children = {clip_path};
+            const auto label = node("text", 151, {{"x", "30"}, {"y", "30"}},
+                                    {{"text-anchor", "middle"}, {"font-size", "10px"}, {"fill", "#123456"}});
+            svg.children = {defs,
+                            group,
+                            node("path", 145, {{"d", "M0 0 L10 0 L10 10 Z"}},
+                                 {{"fill", "none"}, {"stroke", "#000000"}, {"stroke-dasharray", "2 1"}}),
+                            node("line", 146, {{"x1", "0"}, {"y1", "0"}, {"x2", "10"}, {"y2", "0"}}, {}),
+                            node("rect", 150,
+                                 {{"x", "0"}, {"y", "0"}, {"width", "10"}, {"height", "10"}, {"clip-path", "url(#c)"}},
+                                 {{"fill", "#ffffff"}}),
+                            label};
+            svg.children.back().text = "A";
+            frame.root.children = {svg};
+            auto& text = weft::testing::thread_scene_text();
+            const auto plan = weft::scene_display_list(frame, {}, &text);
+            const auto& items = plan.list.items;
+            require(plan.fallback.empty() && items.size() == 8 && items[0].kind == Kind::BeginGroup &&
+                        items[1].kind == Kind::Path && items[2].kind == Kind::Path && items[3].kind == Kind::Path &&
+                        items[4].kind == Kind::EndGroup && items[5].kind == Kind::Path && items[6].kind == Kind::Path &&
+                        items[7].kind == Kind::Path,
+                    "SVG items: a group of fills and strokes, a dashed stroke, a clipped fill, text; no line fill");
+            const auto at = [&](std::size_t i) -> const weft::paint::PathPaint& {
+                return plan.list.paths[items[i].payload];
+            };
+            require(items[0].opacity == .5f && items[4].opacity == .5f &&
+                        at(1).color == weft::paint::Color{1, 0, 0, 1} && !at(1).stroke &&
+                        at(2).color == weft::paint::Color{0, 0, 1, .5f} && at(2).stroke && at(2).stroke->width == 2 &&
+                        at(3).color == weft::paint::Color{0, 1, 0, 1},
+                    "SVG fills and strokes");
+            require(items[1].transform == weft::paint::Affine{2, 0, 0, 2, 20, 20} &&
+                        items[5].transform == weft::paint::Affine{2, 0, 0, 2, 10, 10},
+                    "SVG viewport and group transforms");
+            require(at(5).stroke && at(5).stroke->dashes == std::vector<float>{2, 1} && at(5).path->verbs.size() == 4,
+                    "SVG dashed stroke");
+            require(items[1].clip == std::array<float, 4>{10, 10, 110, 90} && items[1].clips_count == 1 &&
+                        plan.list.clips[items[1].clips_begin].radius_x[0] == 6,
+                    "SVG viewport clips to the rounded svg box");
+            require(items[6].clip == std::array<float, 4>{14, 14, 26, 26}, "SVG clip-path rectangle");
+            // Text: its glyph outlines as a path in the line box, placed by the anchor and the baseline.
+            const auto metrics = text.measure("A", label.style);
+            const auto outline = text.outline("A", label.style);
+            bool inside = outline && !outline->points.empty();
+            for (const auto& point : outline ? outline->points : std::vector<std::array<float, 2>>{}) {
+                inside = inside && point[0] >= -1 && point[0] <= metrics.width + 1 && point[1] >= 0 &&
+                         point[1] <= metrics.height;
+            }
+            require(inside && at(7).path == outline && !at(7).stroke &&
+                        at(7).color == weft::paint::Color{0x12 / 255.f, 0x34 / 255.f, 0x56 / 255.f, 1} &&
+                        items[7].transform[4] == 10 + 2 * (30 - metrics.width / 2) &&
+                        items[7].transform[5] == 10 + 2 * (30 - metrics.baseline),
+                    "SVG text as glyph outlines placed by its anchor and baseline");
+            // Arcs become cubics that stay on their circles: an annular sector as d3.arc writes it, both sweeps.
+            {
+                const auto sector = node(
+                    "path", 160, {{"d", "M0,-300A300,300,0,0,1,259.8076,150L173.2051,100A200,200,0,0,0,0,-200Z"}}, {});
+                const auto path = weft::scene_svg_path(sector);
+                double worst{};
+                std::size_t p{};
+                std::array<float, 2> current{};
+                for (const auto verb : path->verbs) {
+                    using Verb = weft::paint::Path::Verb;
+                    if (verb == Verb::Cubic) {
+                        const auto p0 = current;
+                        const auto c1 = path->points[p];
+                        const auto c2 = path->points[p + 1];
+                        const auto p3 = path->points[p + 2];
+                        const double radius = std::hypot(p0[0], p0[1]);
+                        for (double t = .125; t < 1; t += .125) {
+                            const double u = 1 - t;
+                            const double x =
+                                u * u * u * p0[0] + 3 * u * u * t * c1[0] + 3 * u * t * t * c2[0] + t * t * t * p3[0];
+                            const double y =
+                                u * u * u * p0[1] + 3 * u * u * t * c1[1] + 3 * u * t * t * c2[1] + t * t * t * p3[1];
+                            worst = std::max(worst, std::abs(std::hypot(x, y) - radius));
+                        }
+                        current = p3;
+                        p += 3;
+                    } else if (verb != Verb::Close) {
+                        current = path->points[p++];
+                    }
+                }
+                require(worst < .05, "SVG arcs stay on their circles: " + std::to_string(worst));
+            }
+            require(weft::scene_display_list(frame).fallback == "SVG text reference", "SVG text needs a text engine");
+            auto foreign = frame;
+            foreign.root.children[0].children.push_back(node("foreignObject", 152, {}, {}));
+            require(weft::scene_display_list(foreign, {}, &text).fallback == "SVG element foreignObject",
+                    "unknown SVG element");
+            auto rotated = frame;
+            rotated.root.children[0].children[4].attributes["transform"] = "rotate(10)";
+            require(weft::scene_display_list(rotated, {}, &text).fallback == "rotated SVG clip reference",
+                    "rotated clip-path");
         }
         {
             // Short hex colors expand as the reference raster expands them: background, border and text tint.

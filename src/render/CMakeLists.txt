@@ -4,7 +4,8 @@
 weft_add_library(render
     SOURCES resource_lifetime.cpp render_backend.cpp rounded_clip.cpp scene_pass.cpp quad_list.cpp atlas_packer.cpp
         texture_cache.cpp shadow_image.cpp
-    PUBLIC weft::base weft::paint)
+    PUBLIC weft::base weft::paint
+    PRIVATE weft::vector)
 
 if(WIN32)
     add_subdirectory(backends/d3d11)

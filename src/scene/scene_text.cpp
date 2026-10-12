@@ -137,6 +137,9 @@ namespace weft {
         using RunKey = std::tuple<std::string, std::string, float, int, bool, float, float>;
         std::map<RunKey, std::shared_ptr<const SceneTextRun>> runs;
         std::size_t run_bytes{};
+        // Run outlines by the run's key; null for runs with color glyphs.
+        std::map<RunKey, std::shared_ptr<const paint::Path>> outlines;
+        std::size_t outline_bytes{};
         std::size_t hits{};
         std::size_t misses{};
 
@@ -257,6 +260,89 @@ namespace weft {
             return run;
         }
     };
+
+    std::shared_ptr<const paint::Path> SceneText::outline(std::string_view text, const SceneStyle& style) {
+        impl_->require_owner();
+        const auto f = scene_font(style);
+        Impl::RunKey key{std::string(text),         f.families, f.size, f.weight, f.italic, f.letter_spacing,
+                         f.line_height.value_or(-1)};
+        if (auto i = impl_->outlines.find(key); i != impl_->outlines.end()) {
+            return i->second;
+        }
+        const auto run = impl_->shape(text, f);
+        auto path = std::make_shared<paint::Path>();
+        bool color{};
+        // Outlines load at a multiple of the size, for points finer than FreeType's 1/64 px.
+        const float oversample = constants::scene::text_outline_oversample;
+        for (const auto& g : run->glyphs) {
+            const auto& face = impl_->faces[g.face];
+            if (face.color) {
+                color = true;
+                break;
+            }
+            const auto glyph = face.font->outline(g.glyph_id, run->size * oversample);
+            const float ox = g.x;
+            const float oy = run->metrics.baseline + g.y;
+            const auto at = [&](std::size_t i) {
+                return std::array<float, 2>{glyph.points[i][0] / oversample + ox, glyph.points[i][1] / oversample + oy};
+            };
+            std::size_t p{};
+            std::array<float, 2> current{};
+            for (const auto verb : glyph.verbs) {
+                using Verb = GlyphOutline::Verb;
+                switch (verb) {
+                    case Verb::Move:
+                        current = at(p++);
+                        path->verbs.push_back(paint::Path::Verb::Move);
+                        path->points.push_back(current);
+                        break;
+                    case Verb::Line:
+                        current = at(p++);
+                        path->verbs.push_back(paint::Path::Verb::Line);
+                        path->points.push_back(current);
+                        break;
+                    case Verb::Quadratic: {
+                        const auto c = at(p);
+                        const auto end = at(p + 1);
+                        p += 2;
+                        path->verbs.push_back(paint::Path::Verb::Cubic);
+                        path->points.push_back(
+                            {current[0] + 2.f / 3 * (c[0] - current[0]), current[1] + 2.f / 3 * (c[1] - current[1])});
+                        path->points.push_back(
+                            {end[0] + 2.f / 3 * (c[0] - end[0]), end[1] + 2.f / 3 * (c[1] - end[1])});
+                        path->points.push_back(end);
+                        current = end;
+                        break;
+                    }
+                    case Verb::Cubic:
+                        path->verbs.push_back(paint::Path::Verb::Cubic);
+                        path->points.push_back(at(p));
+                        path->points.push_back(at(p + 1));
+                        path->points.push_back(at(p + 2));
+                        current = at(p + 2);
+                        p += 3;
+                        break;
+                    case Verb::Close:
+                        path->verbs.push_back(paint::Path::Verb::Close);
+                        break;
+                }
+            }
+        }
+        std::shared_ptr<const paint::Path> result;
+        if (!color) {
+            result = std::move(path);
+        }
+        const auto bytes =
+            text.size() + (result ? result->verbs.size() + result->points.size() * sizeof(float) * 2 : 0);
+        if (impl_->outlines.size() >= constants::scene::text_cache_max_entries ||
+            impl_->outline_bytes + bytes > constants::scene::text_cache_max_bytes) {
+            impl_->outlines.clear();
+            impl_->outline_bytes = 0;
+        }
+        impl_->outline_bytes += bytes;
+        impl_->outlines.emplace(std::move(key), result);
+        return result;
+    }
 
     SceneText::SceneText(FontCatalog catalog) : impl_(std::make_unique<Impl>()) {
         impl_->catalog = std::move(catalog);

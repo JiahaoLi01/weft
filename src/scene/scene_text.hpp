@@ -1,5 +1,6 @@
 #pragma once
 
+#include "paint/display_list.hpp"
 #include "style/values.hpp"
 #include "text/font.hpp"
 #include "text/font_catalog.hpp"
@@ -71,6 +72,10 @@ namespace weft {
         // Shaped single line; the run stays valid while the caller holds it, also after cache eviction.
         std::shared_ptr<const SceneTextRun> shape(std::string_view text, const SceneStyle& style);
         std::shared_ptr<const SceneTextRun> shape(std::string_view text, const SceneFont& font);
+
+        // The run's glyph outlines as one path, its origin the top left of the line box (the baseline at
+        // metrics.baseline); null when a glyph comes from a color face. Kept while the cache holds it.
+        std::shared_ptr<const paint::Path> outline(std::string_view text, const SceneStyle& style);
 
         const FontFaceSource& face_source(std::uint32_t face) const;
         Font& face(std::uint32_t face);

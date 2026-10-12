@@ -3,6 +3,7 @@
 #include "render/rounded_clip.hpp"
 #include "render/shadow_image.hpp"
 #include "render/srgb.hpp"
+#include "vector/path_raster.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -24,11 +25,30 @@ namespace weft::render {
             return c;
         }
 
+        // The device pixels a path item's mask covers: the path under the item's transform at scale, within its clip
+        // and the target.
+        std::array<std::int32_t, 4> path_mask(const paint::DisplayList& list, const paint::Item& item,
+                                              const paint::ClipRect& clip, float scale, unsigned w, unsigned h) {
+            paint::Affine device = item.transform;
+            for (auto& v : device) {
+                v *= scale;
+            }
+            const auto edge = [](float v, bool up) {
+                const double d = up ? std::ceil(double(v)) : std::floor(double(v));
+                return std::int32_t(std::clamp(d, -double(1 << 24), double(1 << 24)));
+            };
+            const std::array<std::int32_t, 4> bounds{std::max(0, edge(clip[0] * scale, false)),
+                                                     std::max(0, edge(clip[1] * scale, false)),
+                                                     std::min(std::int32_t(w), edge(clip[2] * scale, true)),
+                                                     std::min(std::int32_t(h), edge(clip[3] * scale, true))};
+            return vector::mask_bounds(list.paths[item.payload], device, bounds);
+        }
+
         SceneRecord record(const paint::DisplayList& list, const paint::Item& item, const paint::ClipRect& clip,
-                           float scale, unsigned w, unsigned h, Space space) {
+                           float scale, unsigned w, unsigned h, Space space, const std::array<std::int32_t, 4>& mask) {
             auto m = item.transform;
             const bool image = item.kind == Kind::Text || item.kind == Kind::Layer || item.kind == Kind::Image ||
-                               item.kind == Kind::Shadow;
+                               item.kind == Kind::Shadow || item.kind == Kind::Path;
             SceneRecord r{};
             r.uv = {0, 0, 1, 1};
             r.clips = {float(item.clips_begin), float(item.clips_count), 0, 0};
@@ -66,6 +86,10 @@ namespace weft::render {
                 } else if (asset && asset->encoding == paint::Encoding::SignedDistance) {
                     r.mode = {scene_limits::image_mode_signed_distance, asset->spread, source.stroke, 0};
                 }
+            } else if (item.kind == Kind::Path) {
+                // Coverage tinted with the path's color.
+                r.background = in(space, list.paths[item.payload].color);
+                r.extra[3] = scene_limits::flag_enabled;
             } else if ((item.kind == Kind::Text || item.kind == Kind::Layer) && list.rasters[item.payload].mask) {
                 r.background = in(space, list.rasters[item.payload].tint);
                 r.extra[3] = scene_limits::flag_enabled;
@@ -80,6 +104,11 @@ namespace weft::render {
                 m[5] -= scene_limits::image_margin * (m[1] + m[3]);
                 r.size[0] += scene_limits::image_margins;
                 r.size[1] += scene_limits::image_margins;
+            } else if (item.kind == Kind::Path) {
+                // The mask lies in device pixels, texel for pixel.
+                m = {1, 0, 0, 1, mask[0] / scale, mask[1] / scale};
+                r.size[0] = float(mask[2] - mask[0]) / scale;
+                r.size[1] = float(mask[3] - mask[1]) / scale;
             } else if (item.kind == Kind::Shadow) {
                 // A shadow image covers its own rectangle around the box, with its own premultiplied colors.
                 const auto g = shadow_geometry(list.shadows[item.payload], item.width, item.height, scale);
@@ -167,11 +196,8 @@ namespace weft::render {
             }
         }
         pass.records.reserve(list.items.size());
+        pass.masks.reserve(list.items.size());
         for (const auto& item : list.items) {
-            // Path items need their coverage prepared at device scale, which the scene pass does not do yet.
-            if (item.kind == Kind::Path) {
-                return make_diagnostic(Diag::PaintList, "scene pass draws no path items");
-            }
             if (item.clips_count > std::uint32_t(scene_limits::max_rounded_clips)) {
                 return make_diagnostic(Diag::PaintList, "rounded clip chain bound");
             }
@@ -180,7 +206,9 @@ namespace weft::render {
                 clip = {std::max(clip[0], (*crop)[0]), std::max(clip[1], (*crop)[1]), std::min(clip[2], (*crop)[2]),
                         std::min(clip[3], (*crop)[3])};
             }
-            pass.records.push_back(record(list, item, clip, scale, width, height, space));
+            pass.masks.push_back(item.kind == Kind::Path ? path_mask(list, item, clip, scale, width, height)
+                                                         : std::array<std::int32_t, 4>{});
+            pass.records.push_back(record(list, item, clip, scale, width, height, space, pass.masks.back()));
         }
         pass.group_depth = paint::group_depth(list);
         std::uint32_t i{};
@@ -201,6 +229,7 @@ namespace weft::render {
                 case Kind::Text:
                 case Kind::Layer:
                 case Kind::Shadow:
+                case Kind::Path:
                     pass.batches.push_back({Step::Image, i++, 1});
                     break;
                 case Kind::Image:

@@ -107,12 +107,14 @@ float distanceRound(float2 position, float2 size, float4 radii) {
 // The reference producer quantizes its encoded brush before source-over.
 // Keep that order: low alpha (for example gold/10) otherwise crosses an
 // entire flat region's 8-bit foreground boundary before the final conversion.
+// Halves round up, as the producer's std::round does (HLSL's round goes to even:
+// alpha .7 would quantize to 178 rather than 179).
 // A linear pass's colors arrive linear and premultiplied from the CPU, unquantized.
 float4 premult(float4 c) {
 #if SPACE_LINEAR
     return c;
 #else
-    return round(float4(c.rgb * c.a, c.a) * EncodedChannelMax) / EncodedChannelMax;
+    return floor(float4(c.rgb * c.a, c.a) * EncodedChannelMax + .5) / EncodedChannelMax;
 #endif
 }
 
@@ -263,9 +265,9 @@ float4 ps_main(Vertex v) : SV_Target {
         if (p.mode.x == ImageModeCoverage) {
             return premult(p.background) * sample.r * p.extra.y * coverage;
         }
-        return (p.extra.w == FlagEnabled ? float4(p.background.rgb * p.background.a, p.background.a) * sample.a
-                                         : sample) *
-               p.extra.y * coverage;
+        // A tinted mask (scene text, paths) premultiplies its color as a box does: quantized, as the reference
+        // producer's brush.
+        return (p.extra.w == FlagEnabled ? premult(p.background) * sample.a : sample) * p.extra.y * coverage;
     }
     float sd = distanceRound(position, p.size.xy, p.radii);
     float aa = max(pixelWidth(sd), MinimumAntialiasWidth);

@@ -146,6 +146,21 @@ namespace weft::probe_constants::gallery {
     // filtered by each, within this many levels; at least this many pixels must show the shadow.
     inline constexpr int max_shadow_oracle_difference = weft::probe_constants::cpu_oracle_tolerance;
     inline constexpr unsigned min_shadow_oracle_pixels = 1000;
+    // GPU SVG against the reference raster's CPU pixels: the frame's mean channel difference, and the largest one in
+    // solid regions (the reference uniform within solid_region_tolerance over 5 x 5 pixels). A translucent color
+    // whose alpha lands on half a level quantizes up on the GPU, as Chromium does, and down in the CPU reference.
+    inline constexpr double max_vector_oracle_mean = 1.0;
+    inline constexpr int max_vector_oracle_solid = 1;
+    // Pixels that may differ by more than vector_outlier_level: edge antialiasing differs by less.
+    inline constexpr unsigned max_vector_oracle_outliers = 8;
+    inline constexpr int vector_outlier_level = 64;
+    inline constexpr int solid_region_tolerance = 2;
+    // The SVG drawing inks at least this many pixels: some channel below ink_level on white.
+    inline constexpr unsigned min_vector_oracle_ink = 2000;
+    inline constexpr int ink_level = 200;
+    // The scene-native test draws at least this many passes natively and reuses this many layer images.
+    inline constexpr std::size_t min_native_scene_passes = 3900;
+    inline constexpr std::size_t min_native_layer_reuses = 300;
     // 4K preview oracle grid: starts at 17 px with prime strides and stops left of the HUD.
     inline constexpr int oracle_grid_origin = 17;
     inline constexpr int oracle_grid_stride_x = 211;

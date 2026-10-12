@@ -135,6 +135,10 @@ namespace weft::constants::scene {
 
     // Box shadows (scene_values::box_shadows and render/shadow_image.hpp, shared by every renderer).
     inline constexpr int max_box_shadow_layers = 8;
+    // Text outlines load at this multiple of the font size and scale back down, for finer than 1/64 px points.
+    inline constexpr int text_outline_oversample = 8;
+    // SVG's initial stroke-miterlimit: a miter longer than this many stroke widths becomes a bevel.
+    inline constexpr float svg_miter_limit = 4;
     // Largest box-shadow blur radius and spread magnitude.
     inline constexpr int max_box_shadow_extent_px = 64;
     // Gaussian shadow kernels extend this many standard deviations.

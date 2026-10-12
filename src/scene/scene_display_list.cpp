@@ -1,10 +1,14 @@
 #include "scene/scene_display_list.hpp"
+#include "scene/scene_geometry.hpp"
+#include "scene/scene_path.hpp"
+#include "scene/scene_text.hpp"
 #include "scene/scene_transform.hpp"
 #include "scene/scene_values.hpp"
 #include "base/css_scalar.hpp"
 #include "constants/scene.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <numbers>
 #include <stdexcept>
 
@@ -209,7 +213,7 @@ namespace weft {
         }
     } // namespace
 
-    SceneDisplayList scene_display_list(const SceneFrame& f, const std::vector<NodeIdentity>& layers) {
+    SceneDisplayList scene_display_list(const SceneFrame& f, const std::vector<NodeIdentity>& layers, SceneText* text) {
         SceneDisplayList out;
         auto& list = out.list;
         // A node's own values as a raster source, without its subtree.
@@ -234,6 +238,252 @@ namespace weft {
 
         try {
             unsigned groups{};
+            // A chain with one more rounded clip: an axis-aligned rectangle whose corners a and b are its local
+            // corners (0, 0) and (w, h) under m, with local corner radii, top-left first. The chain is the enclosing
+            // clips, then this one, as one run.
+            const auto add_rounded = [&](Chain chain, const Matrix& m, std::array<float, 2> a, std::array<float, 2> b,
+                                         const std::array<float, 4>& radius_x, const std::array<float, 4>& radius_y) {
+                RoundedClip rounded;
+                rounded.rect = {std::min(a[0], b[0]), std::min(a[1], b[1]), std::abs(b[0] - a[0]),
+                                std::abs(b[1] - a[1])};
+                // Corners TL, TR, BR, BL of the box land where a mirroring transform puts them.
+                const bool mirror_x = m[0] < 0;
+                const bool mirror_y = m[3] < 0;
+                for (unsigned corner = 0; corner < 4; ++corner) {
+                    const bool right = corner == 1 || corner == 2;
+                    const bool bottom = corner >= 2;
+                    const bool world_right = right != mirror_x;
+                    const bool world_bottom = bottom != mirror_y;
+                    const unsigned world = world_bottom ? (world_right ? 2u : 3u) : (world_right ? 1u : 0u);
+                    rounded.radius_x[world] = radius_x[corner] * std::abs(m[0]);
+                    rounded.radius_y[world] = radius_y[corner] * std::abs(m[3]);
+                }
+                const std::vector<RoundedClip> enclosing(list.clips.begin() + chain.begin,
+                                                         list.clips.begin() + chain.begin + chain.count);
+                const Chain out{std::uint32_t(list.clips.size()), chain.count + 1};
+                list.clips.insert(list.clips.end(), enclosing.begin(), enclosing.end());
+                list.clips.push_back(rounded);
+                return out;
+            };
+            const auto axis_aligned = [](const Matrix& m) {
+                return std::abs(m[1]) <= constants::scene::axis_aligned_epsilon &&
+                       std::abs(m[2]) <= constants::scene::axis_aligned_epsilon;
+            };
+            const auto intersect = [](std::array<float, 4> clip, std::array<float, 2> a, std::array<float, 2> b) {
+                return std::array<float, 4>{
+                    std::max(clip[0], std::min(a[0], b[0])), std::max(clip[1], std::min(a[1], b[1])),
+                    std::min(clip[2], std::max(a[0], b[0])), std::min(clip[3], std::max(a[1], b[1]))};
+            };
+            // SVG content under m, its user space to target px, as the reference raster draws it: an opacity group,
+            // a clip-path of one user-space rectangle, the element's text, fill and stroke, then its children.
+            auto svg = [&](auto&& self, const SceneNode& c, Matrix parent, std::array<float, 4> clip, Chain chain,
+                           const SceneNode& root) -> void {
+                if (get(c.style, PropertyId::Display) == "none" || c.tag == "defs" || c.tag == "clipPath") {
+                    return;
+                }
+                if (list.items.size() > constants::scene::max_display_list_items) {
+                    throw std::invalid_argument("native command bound");
+                }
+                static constexpr std::array<std::string_view, 11> drawn{
+                    "circle", "ellipse", "g", "line", "path", "polygon", "polyline", "rect", "svg", "text", "#text"};
+                if (std::find(drawn.begin(), drawn.end(), c.tag) == drawn.end()) {
+                    throw std::invalid_argument("SVG element " + c.tag);
+                }
+                const auto t = c.attributes.contains("transform") ? c.attributes.at("transform")
+                                                                  : get(c.style, PropertyId::Transform);
+                const auto local = scene_affine(parse_scene_transform(t, true).value(), 0, 0);
+                const auto m = multiply(parent, {float(local.m11), float(local.m12), float(local.m21), float(local.m22),
+                                                 float(local.dx), float(local.dy)});
+                if (std::abs(m[0] * m[3] - m[1] * m[2]) < constants::scene::singular_determinant_epsilon) {
+                    return;
+                }
+                const float opacity = std::clamp(len(get(c.style, PropertyId::Opacity, "1")), 0.f, 1.f);
+                // clip-path="url(#id)" of one user-space rectangle, as in the reference raster.
+                auto inner_clip = clip;
+                auto inner_chain = chain;
+                const auto clip_path = c.attributes.find("clip-path");
+                if (clip_path != c.attributes.end() && !clip_path->second.empty() && clip_path->second != "none") {
+                    const auto& v = clip_path->second;
+                    if (!v.starts_with("url(#") || !v.ends_with(')')) {
+                        throw std::invalid_argument("local clip-path required");
+                    }
+                    const auto id = v.substr(5, v.size() - 6);
+                    auto find = [&](auto&& search, const SceneNode& n) -> const SceneNode* {
+                        if (n.attributes.contains("id") && n.attributes.at("id") == id) {
+                            return &n;
+                        }
+                        for (const auto& child : n.children) {
+                            if (auto* p = search(search, child)) {
+                                return p;
+                            }
+                        }
+                        return nullptr;
+                    };
+                    const auto* definition = find(find, root);
+                    if (!definition || definition->tag != "clipPath" || definition->children.size() != 1 ||
+                        definition->children[0].tag != "rect" ||
+                        scene_values::get(definition->attributes, "clipPathUnits", "userSpaceOnUse") !=
+                            "userSpaceOnUse") {
+                        throw std::invalid_argument("clipPath requires one user-space rect");
+                    }
+                    if (!axis_aligned(m)) {
+                        throw std::invalid_argument("rotated SVG clip reference");
+                    }
+                    const auto& r = definition->children[0].attributes;
+                    const auto v_of = [&](const char* k, float def = 0) {
+                        const auto i = r.find(k);
+                        return i == r.end() ? def : len(i->second);
+                    };
+                    const float x = v_of("x");
+                    const float y = v_of("y");
+                    const float w = v_of("width");
+                    const float h = v_of("height");
+                    const auto a = point(m, x, y);
+                    const auto b = point(m, x + w, y + h);
+                    inner_clip = intersect(clip, a, b);
+                    // Corner radii as the reference's rounded rectangle takes them: one for both, at most half a side.
+                    const float rx = std::clamp(v_of("rx"), 0.f, std::max(w, 0.f) / 2);
+                    const float ry = std::clamp(v_of("ry", v_of("rx")), 0.f, std::max(h, 0.f) / 2);
+                    if (rx > 0 && ry > 0) {
+                        inner_chain = add_rounded(chain, m, a, b, {rx, rx, rx, rx}, {ry, ry, ry, ry});
+                    }
+                }
+                std::vector<paint::Item> own;
+                const auto base = [&] {
+                    paint::Item i;
+                    i.transform = m;
+                    i.clip = inner_clip;
+                    i.clips_begin = inner_chain.begin;
+                    i.clips_count = inner_chain.count;
+                    return i;
+                };
+                if (c.tag == "text" && !c.text.empty()) {
+                    if (!text) {
+                        throw std::invalid_argument("SVG text reference");
+                    }
+                    // Placed as the reference raster places it: x and y with dy, text-anchor, and the baseline
+                    // (or the middle, for a central dominant-baseline) on y.
+                    const auto metrics = text->measure(c.text, c.style);
+                    const float size = len(get(c.style, PropertyId::FontSize, constants::default_font_size));
+                    float x = c.attributes.contains("x") ? len(c.attributes.at("x")) : 0;
+                    float y = c.attributes.contains("y") ? len(c.attributes.at("y")) : 0;
+                    if (c.attributes.contains("dy")) {
+                        y += len(c.attributes.at("dy"), size);
+                    }
+                    const auto anchor = get(c.style, PropertyId::TextAnchor, "start");
+                    if (anchor == "middle") {
+                        x -= metrics.width / 2;
+                    } else if (anchor == "end") {
+                        x -= metrics.width;
+                    }
+                    y -=
+                        get(c.style, PropertyId::DominantBaseline) == "central" ? metrics.height / 2 : metrics.baseline;
+                    const auto fill = color(get(c.style, PropertyId::Fill, "#000000"), c.style);
+                    // Glyph outlines as a path, drawn under the whole transform like any SVG shape; text with color
+                    // glyphs stays an image.
+                    const auto outline = fill[3] > 0 ? text->outline(c.text, c.style) : nullptr;
+                    if (outline) {
+                        auto item = base();
+                        item.kind = paint::Item::Kind::Path;
+                        item.transform = multiply(m, {1, 0, 0, 1, x, y});
+                        item.payload = std::uint32_t(list.paths.size());
+                        list.paths.push_back({outline, fill, std::nullopt});
+                        own.push_back(item);
+                    } else if (fill[3] > 0 && metrics.width > 0 && metrics.height > 0) {
+                        auto source = std::make_shared<SceneNode>();
+                        source->identity = c.identity;
+                        source->tag = c.tag;
+                        source->text = c.text;
+                        source->style = c.style;
+                        source->style.erase(PropertyId::Transform);
+                        source->style.erase(PropertyId::Opacity);
+                        source->box = {0, 0, metrics.width, metrics.height};
+                        paint::Raster raster;
+                        raster.mask = std::all_of(c.text.begin(), c.text.end(), [](unsigned char ch) {
+                            return ch >= constants::scene::printable_ascii_first &&
+                                   ch < constants::scene::printable_ascii_end;
+                        });
+                        if (raster.mask) {
+                            raster.tint = fill;
+                            source->style[PropertyId::Color] = "#ffffff";
+                        } else {
+                            char value[96];
+                            std::snprintf(value, sizeof value, "rgba(%d, %d, %d, %.9g)",
+                                          int(std::lround(fill[0] * constants::color_channel_max)),
+                                          int(std::lround(fill[1] * constants::color_channel_max)),
+                                          int(std::lround(fill[2] * constants::color_channel_max)), double(fill[3]));
+                            source->style[PropertyId::Color] = value;
+                        }
+                        raster.source = std::move(source);
+                        auto item = base();
+                        item.kind = paint::Item::Kind::Text;
+                        item.transform = multiply(m, {1, 0, 0, 1, x, y});
+                        item.width = metrics.width;
+                        item.height = metrics.height;
+                        item.payload = std::uint32_t(list.rasters.size());
+                        list.rasters.push_back(std::move(raster));
+                        own.push_back(item);
+                    }
+                }
+                if (const auto path = scene_svg_path(c)) {
+                    const auto fill = get(c.style, PropertyId::Fill, constants::default_color);
+                    if (fill != "none" && c.tag != "line") {
+                        auto value = color(fill, c.style);
+                        value[3] *= std::clamp(len(get(c.style, PropertyId::FillOpacity, "1")), 0.f, 1.f);
+                        if (value[3] > 0) {
+                            auto item = base();
+                            item.kind = paint::Item::Kind::Path;
+                            item.payload = std::uint32_t(list.paths.size());
+                            list.paths.push_back({path, value, std::nullopt});
+                            own.push_back(item);
+                        }
+                    }
+                    const auto stroke = get(c.style, PropertyId::Stroke, "none");
+                    if (stroke != "none") {
+                        auto value = color(stroke, c.style);
+                        value[3] *= std::clamp(len(get(c.style, PropertyId::StrokeOpacity, "1")), 0.f, 1.f);
+                        auto style = scene_svg_stroke(c.style);
+                        if (value[3] > 0 && style.width > 0) {
+                            auto item = base();
+                            item.kind = paint::Item::Kind::Path;
+                            item.payload = std::uint32_t(list.paths.size());
+                            list.paths.push_back({path, value, std::move(style)});
+                            own.push_back(item);
+                        }
+                    }
+                }
+                // An opacity group, unless one item stands alone and takes the opacity itself. The group's composite
+                // is not clipped by the element's own clip-path, as in the reference.
+                const bool group = opacity < 1 && (!c.children.empty() || own.size() > 1);
+                if (group) {
+                    if (++groups > constants::scene::max_opacity_group_depth) {
+                        throw std::invalid_argument("opacity depth bound");
+                    }
+                    paint::Item g;
+                    g.kind = paint::Item::Kind::BeginGroup;
+                    g.opacity = opacity;
+                    g.clip = clip;
+                    g.clips_begin = chain.begin;
+                    g.clips_count = chain.count;
+                    list.items.push_back(g);
+                } else if (opacity < 1 && own.size() == 1) {
+                    own[0].opacity = opacity;
+                }
+                list.items.insert(list.items.end(), own.begin(), own.end());
+                for (const auto& child : c.children) {
+                    self(self, child, m, inner_clip, inner_chain, root);
+                }
+                if (group) {
+                    paint::Item g;
+                    g.kind = paint::Item::Kind::EndGroup;
+                    g.opacity = opacity;
+                    g.clip = clip;
+                    g.clips_begin = chain.begin;
+                    g.clips_count = chain.count;
+                    list.items.push_back(g);
+                    --groups;
+                }
+            };
             auto visit = [&](auto&& self, const SceneNode& n, Matrix parent, std::array<float, 4> clip,
                              Chain chain) -> void {
                 if (get(n.style, PropertyId::Display) == "none" || n.box[2] <= 0 || n.box[3] <= 0) {
@@ -242,7 +492,9 @@ namespace weft {
                 if (list.items.size() > constants::scene::max_display_list_items) {
                     throw std::invalid_argument("native command bound");
                 }
-                if ((!n.space.empty() && n.space != constants::xhtml_namespace_uri)) {
+                // An svg element is a box; the SVG elements inside it are drawn in its viewport (svg below).
+                const bool svg_root = n.space == constants::svg_namespace_uri && n.tag == "svg";
+                if (!n.space.empty() && n.space != constants::xhtml_namespace_uri && !svg_root) {
                     throw std::invalid_argument("SVG reference");
                 }
                 paint::Item item;
@@ -347,40 +599,32 @@ namespace weft {
                     list.boxes.push_back(box);
                     list.items.push_back(shape);
                 }
-                if (get(n.style, PropertyId::Overflow) == "hidden" || get(n.style, PropertyId::Overflow) == "auto") {
+                if (svg_root) {
+                    // An svg viewport clips to the rounded border box, as the reference raster clips it.
+                    if (!axis_aligned(m)) {
+                        throw std::invalid_argument("rounded/transformed clip reference");
+                    }
+                    const auto a = point(m, 0, 0);
+                    const auto b = point(m, item.width, item.height);
+                    clip = intersect(clip, a, b);
+                    if (std::any_of(box.radii.begin(), box.radii.end(), [](float r) {
+                            return r > 0;
+                        })) {
+                        chain = add_rounded(chain, m, a, b, box.radii, box.radii);
+                    }
+                } else if (get(n.style, PropertyId::Overflow) == "hidden" ||
+                           get(n.style, PropertyId::Overflow) == "auto") {
                     // Content clips to the padding box with its inner corners. A rotated or skewed box has no
                     // axis-aligned clip.
-                    if (std::abs(m[1]) > constants::scene::axis_aligned_epsilon ||
-                        std::abs(m[2]) > constants::scene::axis_aligned_epsilon) {
+                    if (!axis_aligned(m)) {
                         throw std::invalid_argument("rounded/transformed clip reference");
                     }
                     const auto padding = scene_values::padding_box(n.style, item.width, item.height);
-                    auto a = point(m, padding.rect[0], padding.rect[1]);
-                    auto b = point(m, padding.rect[0] + padding.rect[2], padding.rect[1] + padding.rect[3]);
-                    clip = {std::max(clip[0], std::min(a[0], b[0])), std::max(clip[1], std::min(a[1], b[1])),
-                            std::min(clip[2], std::max(a[0], b[0])), std::min(clip[3], std::max(a[1], b[1]))};
+                    const auto a = point(m, padding.rect[0], padding.rect[1]);
+                    const auto b = point(m, padding.rect[0] + padding.rect[2], padding.rect[1] + padding.rect[3]);
+                    clip = intersect(clip, a, b);
                     if (scene_values::is_rounded(padding)) {
-                        RoundedClip rounded;
-                        rounded.rect = {std::min(a[0], b[0]), std::min(a[1], b[1]), std::abs(b[0] - a[0]),
-                                        std::abs(b[1] - a[1])};
-                        // Corners TL, TR, BR, BL of the box land where a mirroring transform puts them.
-                        const bool mirror_x = m[0] < 0;
-                        const bool mirror_y = m[3] < 0;
-                        for (unsigned corner = 0; corner < 4; ++corner) {
-                            const bool right = corner == 1 || corner == 2;
-                            const bool bottom = corner >= 2;
-                            const bool world_right = right != mirror_x;
-                            const bool world_bottom = bottom != mirror_y;
-                            const unsigned world = world_bottom ? (world_right ? 2u : 3u) : (world_right ? 1u : 0u);
-                            rounded.radius_x[world] = padding.radius_x[corner] * std::abs(m[0]);
-                            rounded.radius_y[world] = padding.radius_y[corner] * std::abs(m[3]);
-                        }
-                        // The subtree's chain: the enclosing clips, then this one, as one run.
-                        const std::vector<RoundedClip> enclosing(list.clips.begin() + chain.begin,
-                                                                 list.clips.begin() + chain.begin + chain.count);
-                        chain = {std::uint32_t(list.clips.size()), chain.count + 1};
-                        list.clips.insert(list.clips.end(), enclosing.begin(), enclosing.end());
-                        list.clips.push_back(rounded);
+                        chain = add_rounded(chain, m, a, b, padding.radius_x, padding.radius_y);
                     }
                 }
                 if (!n.text.empty()) {
@@ -422,8 +666,15 @@ namespace weft {
                     list.rasters.push_back(std::move(raster));
                     list.items.push_back(t);
                 }
+                if (svg_root) {
+                    const auto v = scene_svg_viewport(n);
+                    const auto user = multiply(item.transform, {v.sx, 0, 0, v.sy, v.tx, v.ty});
+                    for (const auto& c : n.children) {
+                        svg(svg, c, user, clip, chain, n);
+                    }
+                }
                 std::vector<std::size_t> order;
-                for (std::size_t i = 0; i < n.children.size(); ++i) {
+                for (std::size_t i = 0; !svg_root && i < n.children.size(); ++i) {
                     order.push_back(i);
                 }
                 std::stable_sort(order.begin(), order.end(), [&](auto a, auto b) {

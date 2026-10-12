@@ -242,10 +242,86 @@ namespace weft::render::d3d11 {
         return result;
     }
 
+    std::shared_ptr<const SceneRenderer::Image> SceneRenderer::path(const paint::Item& item, const paint::PathPaint& p,
+                                                                    float scale,
+                                                                    const std::array<std::int32_t, 4>& mask) {
+        paint::Affine device = item.transform;
+        for (auto& v : device) {
+            v *= scale;
+        }
+        // The key: every value the coverage depends on, as bytes.
+        std::string key;
+        const auto add = [&](const void* data, std::size_t size) {
+            key.append(static_cast<const char*>(data), size);
+        };
+        const auto& path = *p.path;
+        const auto verbs = path.verbs.size();
+        add(&verbs, sizeof verbs);
+        add(path.verbs.data(), path.verbs.size() * sizeof(path.verbs[0]));
+        add(path.points.data(), path.points.size() * sizeof(path.points[0]));
+        add(&path.evenodd, sizeof path.evenodd);
+        add(device.data(), sizeof device);
+        add(mask.data(), sizeof mask);
+        const bool stroked = p.stroke.has_value();
+        add(&stroked, sizeof stroked);
+        if (stroked) {
+            const auto& s = *p.stroke;
+            add(&s.width, sizeof s.width);
+            add(&s.cap, sizeof s.cap);
+            add(&s.join, sizeof s.join);
+            add(&s.miter_limit, sizeof s.miter_limit);
+            add(&s.dash_offset, sizeof s.dash_offset);
+            add(s.dashes.data(), s.dashes.size() * sizeof(s.dashes[0]));
+        }
+        if (auto it = paths_.find(key); it != paths_.end()) {
+            ++path_reuses;
+            return it->second;
+        }
+        auto coverage = vector_.rasterize(p, device, mask);
+        if (!coverage) {
+            throw std::invalid_argument(coverage.error().message);
+        }
+        // White coverage, premultiplied BGRA: the record tints it.
+        std::vector<std::uint8_t> pixels(coverage->coverage.size() * 4);
+        for (std::size_t i = 0; i < coverage->coverage.size(); ++i) {
+            std::fill_n(pixels.data() + i * 4, 4, coverage->coverage[i]);
+        }
+        const auto bytes = pixels.size();
+        if (bytes > limits::image_cache_budget_bytes) {
+            throw std::invalid_argument("path image byte bound");
+        }
+        auto result = std::make_shared<Image>();
+        result->scale = scale;
+        result->bytes = bytes;
+        D3D11_TEXTURE2D_DESC desc{};
+        desc.Width = coverage->width;
+        desc.Height = coverage->height;
+        desc.MipLevels = desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Usage = D3D11_USAGE_IMMUTABLE;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        D3D11_SUBRESOURCE_DATA data{pixels.data(), coverage->width * 4, 0};
+        ComPtr<ID3D11Texture2D> texture;
+        throw_if_failed(gpu_.device->CreateTexture2D(&desc, &data, &texture), "native path image");
+        throw_if_failed(gpu_.device->CreateShaderResourceView(texture.Get(), nullptr, &result->view),
+                        "native path view");
+        ++path_builds;
+        if (paths_.size() >= limits::image_cache_max_entries ||
+            path_bytes_ + bytes > limits::image_cache_budget_bytes) {
+            paths_.clear();
+            path_bytes_ = 0;
+            ++image_evictions;
+        }
+        path_bytes_ += bytes;
+        paths_.emplace(std::move(key), result);
+        return result;
+    }
+
     bool SceneRenderer::paint(Slot& slot, const SceneFrame& frame, ID3D11RenderTargetView* destination, float scale,
                               unsigned target_width, unsigned target_height, std::optional<std::array<float, 4>> crop,
                               unsigned view_index, const std::vector<NodeIdentity>& layers) {
-        auto compiled = scene_display_list(frame, layers);
+        auto compiled = scene_display_list(frame, layers, &text_);
         if (!compiled.fallback.empty()) {
             ++fallbacks;
             ++reasons[compiled.fallback];
@@ -281,6 +357,11 @@ namespace weft::render::d3d11 {
                     images[i] = image(item, list.rasters[item.payload], scale, view_index);
                 } else if (item.kind == Kind::Shadow) {
                     images[i] = shadow(item, list.shadows[item.payload], scale);
+                } else if (item.kind == Kind::Path) {
+                    const auto& mask = pass.masks[i];
+                    if (mask[2] > mask[0] && mask[3] > mask[1]) {
+                        images[i] = path(item, list.paths[item.payload], scale, mask);
+                    }
                 }
             }
         } catch (const std::invalid_argument& e) {
@@ -423,7 +504,10 @@ namespace weft::render::d3d11 {
                     break;
                 }
                 case Step::Image:
-                    draw(batch.first, 1, images[batch.first]->view.Get());
+                    // A path with nothing inside its clip has no image and draws nothing.
+                    if (images[batch.first]) {
+                        draw(batch.first, 1, images[batch.first]->view.Get());
+                    }
                     break;
                 case Step::Boxes:
                     draw(batch.first, batch.count, nullptr);

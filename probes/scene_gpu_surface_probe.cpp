@@ -236,6 +236,156 @@ namespace probes {
                                    surfaces.native_work().fallbacks == fallbacks_before),
                     "native box shadow fell back");
         }
+        // SVG on the GPU matches the reference raster's CPU pixels: fills by rule, strokes with miter, round and bevel
+        // joins and every cap, dashes, an opacity group and transforms. Edges antialias differently (exact area
+        // coverage against Direct2D's), so the frame's mean difference and its solid regions are compared.
+        double vector_mean{};
+        int vector_solid{};
+        unsigned vector_outliers{};
+        {
+            using Pairs = std::initializer_list<std::pair<const char*, const char*>>;
+            const auto element = [](const char* tag, std::uint32_t slot, Pairs attributes, Pairs style) {
+                weft::SceneNode e;
+                e.identity = {1, 1, slot};
+                e.tag = tag;
+                e.space = weft::constants::svg_namespace_uri;
+                for (const auto& [k, v] : attributes) {
+                    e.attributes[k] = v;
+                }
+                for (const auto& [k, v] : style) {
+                    e.style[k] = v;
+                }
+                return e;
+            };
+            weft::SceneFrame drawing;
+            drawing.root.box = {0, 0, 80, 80};
+            drawing.root.tag = "div";
+            drawing.root.identity = {1, 1, 910};
+            drawing.root.style = {{"background-color", "#ffffff"}};
+            auto svg = element("svg", 911, {{"viewBox", "0 0 40 40"}}, {});
+            svg.box = {0, 0, 80, 80};
+            auto group = element("g", 918, {{"transform", "rotate(15 20 20)"}}, {{"opacity", "0.6"}});
+            group.children = {element("rect", 919,
+                                      {{"x", "24"}, {"y", "20"}, {"width", "10"}, {"height", "8"}, {"rx", "2"}},
+                                      {{"fill", "#a020a0"}}),
+                              element("circle", 920, {{"cx", "10"}, {"cy", "26"}, {"r", "4"}},
+                                      {{"fill", "none"}, {"stroke", "#000000"}, {"stroke-width", "1"}})};
+            svg.children = {
+                element("path", 912, {{"d", "M20 2 L24 36 L4 12 L36 12 L16 36 Z"}},
+                        {{"fill", "#2050d0"}, {"fill-rule", "evenodd"}}),
+                element("polyline", 913, {{"points", "4 30 20 33 6 37"}},
+                        {{"fill", "none"}, {"stroke", "#d02020"}, {"stroke-width", "1.5"}}),
+                element(
+                    "polyline", 914, {{"points", "26 36 30 30 34 36"}},
+                    {{"fill", "none"}, {"stroke", "#2080d0"}, {"stroke-width", "1.5"}, {"stroke-linejoin", "round"}}),
+                element("path", 915, {{"d", "M4 4 Q20 0 36 4"}},
+                        {{"fill", "none"},
+                         {"stroke", "#20a040"},
+                         {"stroke-width", "1"},
+                         {"stroke-dasharray", "3 1.5"},
+                         {"stroke-linecap", "round"}}),
+                element("line", 916, {{"x1", "2"}, {"y1", "20"}, {"x2", "12"}, {"y2", "22"}},
+                        {{"stroke", "#000000"}, {"stroke-width", "2"}, {"stroke-linecap", "square"}}),
+                element("rect", 921, {{"x", "1"}, {"y", "26"}, {"width", "8"}, {"height", "12"}},
+                        {{"fill", "#64c2a6"}, {"fill-opacity", "0.7"}}),
+                element("rect", 922, {{"x", "30"}, {"y", "14"}, {"width", "9"}, {"height", "6"}},
+                        {{"fill", "#d4a843"}, {"fill-opacity", "0.55"}, {"stroke", "#0a0806"}, {"stroke-width", "1"}}),
+                element(
+                    "ellipse", 917,
+                    {{"cx", "30"}, {"cy", "8"}, {"rx", "6"}, {"ry", "3"}, {"transform", "scale(1 1.2)"}},
+                    {{"fill", "none"}, {"stroke", "#806000"}, {"stroke-width", "0.8"}, {"stroke-linejoin", "bevel"}}),
+                group};
+            drawing.root.children.push_back(svg);
+            const auto scale = weft::probe_constants::gallery::scene_raster_scale;
+            const auto reference = software.raster(drawing, float(scale));
+            const auto paths_before = surfaces.native_work().path_builds;
+            const auto fallbacks_before = surfaces.native_work().fallbacks;
+            auto& drawn_surface = surfaces.paint(0, drawing);
+            surfaces.publish();
+            FramePacket packet;
+            packet.draws.push_back({{0, 0, float(drawn_surface.width), float(drawn_surface.height)}, {1, 1, 1, 1}, 0});
+            serial = pipeline.submit(std::move(packet),
+                                     [] {
+                                     },
+                                     {}, {drawn_surface.handle});
+            surfaces.submitted(serial, visible);
+            const auto drawn = surfaces.read(0);
+            require(drawn.width == reference.width && drawn.height == reference.height, "GPU SVG surface size");
+            // The translucent rectangle (#64c2a6 at fill-opacity .7, on white) quantizes as Chromium's colors do,
+            // halves up: alpha .7 * 255 = 178.5 becomes 179.
+            {
+                const auto level = [](float v) {
+                    return int(std::floor(v * weft::constants::color_channel_max + .5f));
+                };
+                const float a = .7f;
+                const std::array<int, 3> color{0x64, 0xc2, 0xa6};
+                const auto* p = drawn.rgba.data() + (std::size_t(110) * drawn.width + 8) * 4;
+                for (int c = 0; c < 3; ++c) {
+                    const int quantized = level(color[c] / float(weft::constants::color_channel_max) * a) +
+                                          weft::constants::color_channel_max - level(a);
+                    require(int(p[c]) == quantized, "GPU translucent fill quantization");
+                }
+            }
+            const auto w = int(drawn.width);
+            const auto h = int(drawn.height);
+            double total{};
+            for (std::size_t i = 0; i < drawn.rgba.size(); ++i) {
+                total += std::abs(int(drawn.rgba[i]) - int(reference.rgba[i]));
+            }
+            for (std::size_t i = 0; i < drawn.rgba.size(); i += 4) {
+                int worst{};
+                for (int c = 0; c < 4; ++c) {
+                    worst = std::max(worst, std::abs(int(drawn.rgba[i + c]) - int(reference.rgba[i + c])));
+                }
+                vector_outliers += worst > weft::probe_constants::gallery::vector_outlier_level;
+            }
+            vector_mean = total / double(drawn.rgba.size());
+            // Solid pixels: the reference is uniform over the 5 x 5 pixels around them.
+            const auto at = [&](const weft::SceneBitmap& b, int x, int y, int c) {
+                return int(b.rgba[(std::size_t(y) * b.width + x) * 4 + c]);
+            };
+            for (int y = 2; y < h - 2; ++y) {
+                for (int x = 2; x < w - 2; ++x) {
+                    bool solid = true;
+                    for (int dy = -2; solid && dy <= 2; ++dy) {
+                        for (int dx = -2; solid && dx <= 2; ++dx) {
+                            for (int c = 0; c < 4; ++c) {
+                                solid = solid && std::abs(at(reference, x + dx, y + dy, c) - at(reference, x, y, c)) <=
+                                                     weft::probe_constants::gallery::solid_region_tolerance;
+                            }
+                        }
+                    }
+                    if (solid) {
+                        for (int c = 0; c < 4; ++c) {
+                            vector_solid =
+                                std::max(vector_solid, std::abs(at(drawn, x, y, c) - at(reference, x, y, c)));
+                        }
+                    }
+                }
+            }
+            unsigned ink{};
+            for (std::size_t i = 0; i < reference.rgba.size(); i += 4) {
+                ink += std::min({reference.rgba[i], reference.rgba[i + 1], reference.rgba[i + 2]}) <
+                       weft::probe_constants::gallery::ink_level;
+            }
+            const auto save = [&](const weft::SceneBitmap& b, const char* name) {
+                std::vector<Pixel> pixels(std::size_t(b.width) * b.height);
+                std::memcpy(pixels.data(), b.rgba.data(), b.rgba.size());
+                save_png(folder / name, pixels, b.width, b.height);
+            };
+            save(drawn, "vector-oracle.png");
+            save(reference, "vector-oracle-reference.png");
+            std::cout << "vector oracle: mean difference " << vector_mean << ", solid regions max " << vector_solid
+                      << ", outliers " << vector_outliers << '\n';
+            require(ink > weft::probe_constants::gallery::min_vector_oracle_ink &&
+                        vector_mean <= weft::probe_constants::gallery::max_vector_oracle_mean &&
+                        vector_solid <= weft::probe_constants::gallery::max_vector_oracle_solid &&
+                        vector_outliers <= weft::probe_constants::gallery::max_vector_oracle_outliers,
+                    "GPU SVG differs from the reference raster");
+            require(!optimized || (surfaces.native_work().path_builds > paths_before &&
+                                   surfaces.native_work().fallbacks == fallbacks_before),
+                    "native SVG fell back");
+        }
         surfaces.release();
         gpu.evict_assets(0, true);
         gpu.check_debug_messages();
@@ -248,8 +398,12 @@ namespace probes {
                       << "\n";
         }
         if (optimized) {
-            require(surfaces.native_work().passes > 1000 && surfaces.native_work().fallbacks > 500 &&
-                        surfaces.native_work().layer_reuses > 300,
+            // XHTML and SVG draw natively; only the projective plane case still falls back.
+            const auto& native = surfaces.native_work();
+            require(native.passes > weft::probe_constants::gallery::min_native_scene_passes && native.fallbacks > 0 &&
+                        native.reasons.size() == 1 && native.reasons.contains("projective transform") &&
+                        native.layer_reuses > weft::probe_constants::gallery::min_native_layer_reuses &&
+                        native.path_builds > 0,
                     "original XHTML/SVG native and fallback paths unexercised");
         }
         report << "],\"optimized\":" << (optimized ? "true" : "false")
@@ -263,7 +417,9 @@ namespace probes {
                << ",\"pool_reuses\":" << surfaces.reuses << ",\"retired_imports\":" << surfaces.retired
                << ",\"peak_in_flight\":" << pipeline.peak_in_flight
                << ",\"alpha_conversion_max_difference\":" << conversion_error
-               << ",\"shadow_oracle_pixels\":" << shadow_pixels << ",\"shadow_oracle_max_difference\":" << shadow_error
+               << ",\"vector_oracle_mean\":" << vector_mean << ",\"vector_oracle_solid_max\":" << vector_solid
+               << ",\"vector_oracle_outliers\":" << vector_outliers << ",\"shadow_oracle_pixels\":" << shadow_pixels
+               << ",\"shadow_oracle_max_difference\":" << shadow_error
                << ",\"crop_reveal_verified\":true,\"debug_warnings\":0}";
         write_text(folder / "report.json", report.str());
         std::cout << "PASS GPU 26 CSS + 8 D3 / 102 unchanged Chromium references / actual completion retirement\n";

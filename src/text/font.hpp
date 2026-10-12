@@ -1,5 +1,6 @@
 #pragma once
 #include "constants/text.hpp"
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -41,6 +42,23 @@ namespace weft {
         int top{};
         std::vector<std::uint8_t> coverage;
     };
+
+    // A glyph's outline, y down from its origin on the baseline: contours of lines and quadratic and cubic curves.
+    // Move and Line take one point, Quadratic two (control, end), Cubic three (two controls, end), Close none.
+    struct GlyphOutline {
+        enum class Verb : std::uint8_t {
+            Move,
+            Line,
+            Quadratic,
+            Cubic,
+            Close
+        };
+
+        std::vector<Verb> verbs;
+        std::vector<std::array<float, 2>> points;
+        bool evenodd{};
+    };
+
     enum class SdfSource {
         Bitmap,
         Outline
@@ -129,6 +147,8 @@ namespace weft {
         // (subpixel positioning, y down); left/top stay relative to that whole pixel origin.
         GlyphBitmap rasterize(std::uint32_t glyph_id, float pixels, float offset_x, float offset_y);
         GlyphBitmap rasterize(const Glyph& glyph, float pixels);
+        // The unhinted outline at pixels per em, as rasterize draws it; empty for a glyph without one.
+        GlyphOutline outline(std::uint32_t glyph_id, float pixels);
         SdfBitmap rasterize_sdf(std::uint32_t glyph_id,
                                 std::uint32_t base_ppem = constants::text::sdf_default_base_ppem,
                                 std::uint32_t spread = constants::text::sdf_default_spread,

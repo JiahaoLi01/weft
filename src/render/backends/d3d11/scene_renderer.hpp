@@ -6,6 +6,7 @@
 #include "scene/scene.hpp"
 #include "scene/scene_geometry.hpp"
 #include "scene/scene_display_list.hpp"
+#include "vector/path_raster.hpp"
 
 #include <array>
 #include <cstddef>
@@ -13,10 +14,12 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // Native D3D11 pass of a scene display list (scene_display_list): instanced box records drawn by scene.hlsl,
-// transparent groups in scratch targets, and text, layer and shadow images (render/shadow_image.hpp). Text without color glyphs is a portable FreeType
+// transparent groups in scratch targets, and text, layer, shadow (render/shadow_image.hpp) and path coverage
+// (vector/path_raster.hpp) images. Text without color glyphs is a portable FreeType
 // image (scene_text_image); text with color glyphs and explicit layers come from the D2D reference raster. The
 // destination holds encoded premultiplied BGRA, like the D2D scene targets.
 //
@@ -61,6 +64,8 @@ namespace weft::render::d3d11 {
         std::size_t layer_reuses{};
         std::size_t shadow_builds{};
         std::size_t shadow_reuses{};
+        std::size_t path_builds{};
+        std::size_t path_reuses{};
         std::size_t image_evictions{};
         // Fallback counts by reason.
         std::map<std::string, std::size_t> reasons;
@@ -96,11 +101,18 @@ namespace weft::render::d3d11 {
         // Shadow images by value: offset, blur, spread, color, radii, box size and scale.
         std::map<std::array<float, 15>, std::shared_ptr<const Image>> shadows_;
         std::size_t shadow_bytes_{};
+        vector::Rasterizer vector_;
+        // Path coverage images by value: the path, its stroke, the device map and the mask's pixels.
+        std::unordered_map<std::string, std::shared_ptr<const Image>> paths_;
+        std::size_t path_bytes_{};
         std::size_t scratch_bytes_{};
 
         std::shared_ptr<const Image> image(const paint::Item& item, const paint::Raster& raster, float scale,
                                            unsigned view_index);
         // A shadow item's image; throws std::invalid_argument past the shadow bitmap bound.
         std::shared_ptr<const Image> shadow(const paint::Item& item, const paint::Shadow& shadow, float scale);
+        // A path item's coverage over mask (device pixels); throws std::invalid_argument past the mask bounds.
+        std::shared_ptr<const Image> path(const paint::Item& item, const paint::PathPaint& paint, float scale,
+                                          const std::array<std::int32_t, 4>& mask);
     };
 } // namespace weft::render::d3d11

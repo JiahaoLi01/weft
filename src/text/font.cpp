@@ -309,6 +309,75 @@ namespace weft {
         return result;
     }
 
+    namespace {
+        // A FreeType point in pixels, y down.
+        std::array<float, 2> glyph_point(const FT_Vector* v) {
+            return {float(v->x) / constants::text::fixed_26_6_units_per_pixel,
+                    -float(v->y) / constants::text::fixed_26_6_units_per_pixel};
+        }
+
+        struct OutlineSink {
+            GlyphOutline& out;
+            bool open{};
+
+            void add(GlyphOutline::Verb verb, std::initializer_list<const FT_Vector*> points) {
+                out.verbs.push_back(verb);
+                for (const auto* p : points) {
+                    out.points.push_back(glyph_point(p));
+                }
+            }
+        };
+    } // namespace
+
+    GlyphOutline Font::outline(std::uint32_t glyph_id, float pixels) {
+        impl_->check(pixels);
+        if (glyph_id >= static_cast<std::uint32_t>(impl_->face->num_glyphs)) {
+            throw std::invalid_argument("WEFT_GLYPH_ID: out of range");
+        }
+        if (FT_Set_Char_Size(impl_->face, 0,
+                             static_cast<FT_F26Dot6>(std::round(pixels * constants::text::fixed_26_6_units_per_pixel)),
+                             constants::text::freetype_pixel_dpi, constants::text::freetype_pixel_dpi) ||
+            FT_Load_Glyph(impl_->face, glyph_id, FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP)) {
+            throw std::runtime_error("WEFT_GLYPH_OUTLINE: FreeType failure");
+        }
+        GlyphOutline out;
+        auto* glyph = impl_->face->glyph;
+        if (glyph->format != FT_GLYPH_FORMAT_OUTLINE) {
+            return out;
+        }
+        out.evenodd = (glyph->outline.flags & FT_OUTLINE_EVEN_ODD_FILL) != 0;
+        OutlineSink sink{out};
+        FT_Outline_Funcs funcs{};
+        funcs.move_to = [](const FT_Vector* to, void* user) {
+            auto& s = *static_cast<OutlineSink*>(user);
+            if (s.open) {
+                s.out.verbs.push_back(GlyphOutline::Verb::Close);
+            }
+            s.add(GlyphOutline::Verb::Move, {to});
+            s.open = true;
+            return 0;
+        };
+        funcs.line_to = [](const FT_Vector* to, void* user) {
+            static_cast<OutlineSink*>(user)->add(GlyphOutline::Verb::Line, {to});
+            return 0;
+        };
+        funcs.conic_to = [](const FT_Vector* control, const FT_Vector* to, void* user) {
+            static_cast<OutlineSink*>(user)->add(GlyphOutline::Verb::Quadratic, {control, to});
+            return 0;
+        };
+        funcs.cubic_to = [](const FT_Vector* c1, const FT_Vector* c2, const FT_Vector* to, void* user) {
+            static_cast<OutlineSink*>(user)->add(GlyphOutline::Verb::Cubic, {c1, c2, to});
+            return 0;
+        };
+        if (FT_Outline_Decompose(&glyph->outline, &funcs, &sink)) {
+            throw std::runtime_error("WEFT_GLYPH_OUTLINE: FreeType failure");
+        }
+        if (sink.open) {
+            out.verbs.push_back(GlyphOutline::Verb::Close);
+        }
+        return out;
+    }
+
     GlyphBitmap Font::rasterize(const Glyph& glyph, float pixels) {
         impl_->check(pixels);
         if (glyph.font_id != 0) {

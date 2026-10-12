@@ -718,6 +718,10 @@ namespace weft {
 
         ComPtr<ID2D1StrokeStyle> svg_stroke_uncached(const SceneNode& n) {
             D2D1_STROKE_STYLE_PROPERTIES p = D2D1::StrokeStyleProperties();
+            // SVG's initial miter limit (Direct2D's own default is 10). Direct2D's limit, the miter's reach from the
+            // vertex over half the stroke width, is the same ratio as SVG's miter length over the width; a miter join
+            // past it is cut, not beveled, unless the join is miter-or-bevel.
+            p.miterLimit = constants::scene::svg_miter_limit;
             auto cap = get(n.style, PropertyId::StrokeLinecap, "butt");
             auto join = get(n.style, PropertyId::StrokeLinejoin, "miter");
             if (cap != "butt" && cap != "round" && cap != "square" && !cap.empty()) {
@@ -731,7 +735,7 @@ namespace weft {
                                                                   : D2D1_CAP_STYLE_FLAT;
             p.lineJoin = join == "round"   ? D2D1_LINE_JOIN_ROUND
                          : join == "bevel" ? D2D1_LINE_JOIN_BEVEL
-                                           : D2D1_LINE_JOIN_MITER;
+                                           : D2D1_LINE_JOIN_MITER_OR_BEVEL;
             const auto width = len(get(n.style, PropertyId::StrokeWidth, "1"));
             auto d = get(n.style, PropertyId::StrokeDasharray, "none");
             std::vector<float> dash;

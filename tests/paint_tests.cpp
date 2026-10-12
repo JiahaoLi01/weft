@@ -175,15 +175,32 @@ namespace {
                 "shadow image record");
         require(r.inv_x == std::array<float, 4>{1, 0, -109, 0} && r.inv_y == std::array<float, 4>{0, 1, -49, 0},
                 "a shadow record maps its rectangle");
-        // Path items are refused, not planned, until the scene pass prepares their coverage.
+        // A path item draws its coverage over device pixels: the mask vector::mask_bounds gives within the clip and
+        // the target, placed texel for pixel and tinted with the path's color.
         paint::DisplayList drawn;
-        auto path = std::make_shared<paint::Path>();
-        path->verbs = {paint::Path::Verb::Move, paint::Path::Verb::Line};
-        path->points = {{0, 0}, {5, 5}};
-        drawn.paths.push_back({path, {1, 1, 1, 1}, std::nullopt});
-        drawn.items = {item(Kind::Path, 0)};
-        const auto refused_path = render::plan_scene_pass(drawn, 1, 10, 10);
-        require(!refused_path && refused_path.error().code == weft::Diag::PaintList, "path items refused");
+        auto square = std::make_shared<paint::Path>();
+        square->verbs = {paint::Path::Verb::Move, paint::Path::Verb::Line, paint::Path::Verb::Line,
+                         paint::Path::Verb::Line, paint::Path::Verb::Close};
+        square->points = {{0, 0}, {10, 0}, {10, 10}, {0, 10}};
+        drawn.paths.push_back({square, {1, 0, 0, .5f}, std::nullopt});
+        auto path_item = item(Kind::Path, 0);
+        path_item.transform = {1, 0, 0, 1, 5.25f, 3};
+        path_item.clip = {0, 0, 200, 100};
+        drawn.items = {path_item};
+        const auto path_pass = render::plan_scene_pass(drawn, 2, 40, 30).value();
+        const auto& p = path_pass.records[0];
+        require(path_pass.masks.size() == 1 && path_pass.masks[0] == std::array<std::int32_t, 4>{9, 5, 32, 27},
+                "path mask in device pixels");
+        require(path_pass.batches.size() == 1 && path_pass.batches[0].step == render::ScenePass::Step::Image &&
+                    p.size == std::array<float, 4>{11.5f, 11, 0, 0} && p.background == paint::Color{1, 0, 0, .5f} &&
+                    p.extra[2] == render::scene_limits::flag_enabled &&
+                    p.extra[3] == render::scene_limits::flag_enabled &&
+                    p.inv_x == std::array<float, 4>{1, 0, -4.5f, 0} && p.inv_y == std::array<float, 4>{0, 1, -2.5f, 0},
+                "path record");
+        drawn.items[0].clip = {50, 50, 60, 60};
+        const auto hidden = render::plan_scene_pass(drawn, 2, 40, 30).value();
+        require(hidden.masks[0] == std::array<std::int32_t, 4>{} && hidden.records[0].size[0] == 0,
+                "a path outside its clip has no mask");
     }
 
     // Runs of boxes share a draw, images and groups get their own steps, and an opaque first box that covers the

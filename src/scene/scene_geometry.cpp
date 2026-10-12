@@ -1,4 +1,5 @@
 #include "scene/scene_geometry.hpp"
+#include "scene/scene_path.hpp"
 #include "scene/scene_values.hpp"
 
 #include "base/css_scalar.hpp"
@@ -144,70 +145,6 @@ namespace weft {
             }
         };
 
-        // Points of an elliptical arc in center form, endpoints excluded; SVG implementation notes F.6.5.
-        struct Arc {
-            double cx{};
-            double cy{};
-            double rx{};
-            double ry{};
-            double phi{};
-            double start{};
-            double sweep{};
-
-            Point at(double t) const {
-                const double c = std::cos(t);
-                const double s = std::sin(t);
-                return {cx + rx * std::cos(phi) * c - ry * std::sin(phi) * s,
-                        cy + rx * std::sin(phi) * c + ry * std::cos(phi) * s};
-            }
-        };
-
-        std::optional<Arc> center_arc(Point p0, double rx, double ry, double degrees, bool large, bool sweep,
-                                      Point p1) {
-            rx = std::abs(rx);
-            ry = std::abs(ry);
-            if (rx == 0 || ry == 0 || (p0[0] == p1[0] && p0[1] == p1[1])) {
-                return std::nullopt;
-            }
-            const double phi = degrees * pi / constants::degrees_per_half_turn;
-            const double c = std::cos(phi);
-            const double s = std::sin(phi);
-            const double hx = (p0[0] - p1[0]) / 2;
-            const double hy = (p0[1] - p1[1]) / 2;
-            const double x1 = c * hx + s * hy;
-            const double y1 = -s * hx + c * hy;
-            const double lambda = (x1 * x1) / (rx * rx) + (y1 * y1) / (ry * ry);
-            if (lambda > 1) {
-                rx *= std::sqrt(lambda);
-                ry *= std::sqrt(lambda);
-            }
-            const double numerator = rx * rx * ry * ry - rx * rx * y1 * y1 - ry * ry * x1 * x1;
-            const double denominator = rx * rx * y1 * y1 + ry * ry * x1 * x1;
-            double factor = denominator > 0 ? std::sqrt(std::max(0.0, numerator / denominator)) : 0;
-            if (large == sweep) {
-                factor = -factor;
-            }
-            const double cx1 = factor * rx * y1 / ry;
-            const double cy1 = -factor * ry * x1 / rx;
-            Arc a;
-            a.cx = c * cx1 - s * cy1 + (p0[0] + p1[0]) / 2;
-            a.cy = s * cx1 + c * cy1 + (p0[1] + p1[1]) / 2;
-            a.rx = rx;
-            a.ry = ry;
-            a.phi = phi;
-            auto angle = [](double ux, double uy, double vx, double vy) {
-                return std::atan2(ux * vy - uy * vx, ux * vx + uy * vy);
-            };
-            a.start = angle(1, 0, (x1 - cx1) / rx, (y1 - cy1) / ry);
-            a.sweep = angle((x1 - cx1) / rx, (y1 - cy1) / ry, (-x1 - cx1) / rx, (-y1 - cy1) / ry);
-            if (!sweep && a.sweep > 0) {
-                a.sweep -= 2 * pi;
-            } else if (sweep && a.sweep < 0) {
-                a.sweep += 2 * pi;
-            }
-            return a;
-        }
-
         // Builds flattened figures and exact bounds from path commands.
         class ShapeBuilder {
         public:
@@ -247,7 +184,7 @@ namespace weft {
                       {p[0] + 2.0 / 3 * (c[0] - p[0]), p[1] + 2.0 / 3 * (c[1] - p[1])}, p);
             }
 
-            void arc(const Arc& a, Point end) {
+            void arc(const SceneArc& a, Point end) {
                 // Bounds: endpoints and each axis extremum inside the swept range.
                 for (int axis = 0; axis < 2; ++axis) {
                     const double t0 = axis == 0 ? std::atan2(-a.ry * std::sin(a.phi), a.rx * std::cos(a.phi))
@@ -365,7 +302,7 @@ namespace weft {
                         if (p0[0] == end[0] && p0[1] == end[1]) {
                             break;
                         }
-                        if (auto arc = center_arc(p0, c.v[0], c.v[1], c.v[2], c.v[3] != 0, c.v[4] != 0, end)) {
+                        if (auto arc = scene_center_arc(p0, c.v[0], c.v[1], c.v[2], c.v[3] != 0, c.v[4] != 0, end)) {
                             b.arc(*arc, end);
                         } else {
                             b.line(end);
@@ -397,7 +334,7 @@ namespace weft {
                 return;
             }
             auto corner = [&](Point from, Point to) {
-                if (auto a = center_arc(from, rx, ry, 0, false, true, to)) {
+                if (auto a = scene_center_arc(from, rx, ry, 0, false, true, to)) {
                     b.arc(*a, to);
                 }
             };
@@ -419,10 +356,10 @@ namespace weft {
         void build_ellipse(Shape& shape, double cx, double cy, double rx, double ry) {
             ShapeBuilder b(shape);
             b.move({cx + rx, cy});
-            if (auto a = center_arc({cx + rx, cy}, rx, ry, 0, false, true, {cx - rx, cy})) {
+            if (auto a = scene_center_arc({cx + rx, cy}, rx, ry, 0, false, true, {cx - rx, cy})) {
                 b.arc(*a, {cx - rx, cy});
             }
-            if (auto a = center_arc({cx - rx, cy}, rx, ry, 0, false, true, {cx + rx, cy})) {
+            if (auto a = scene_center_arc({cx - rx, cy}, rx, ry, 0, false, true, {cx + rx, cy})) {
                 b.arc(*a, {cx + rx, cy});
             }
             b.close();
