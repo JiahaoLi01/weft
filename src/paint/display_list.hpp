@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 // The portable paint IR (docs/architecture.md, "FramePacket 与 GPU 生命周期"): what one frame draws, in paint order,
@@ -108,6 +109,53 @@ namespace weft::paint {
         std::array<float, 4> radii{};
     };
 
+    // A path in item px: subpaths of lines and cubic Bezier curves. Each verb takes its points from points in order:
+    // Move and Line one, Cubic three (two controls, then the end), Close none.
+    struct Path {
+        enum class Verb : std::uint8_t {
+            Move,
+            Line,
+            Cubic,
+            Close
+        };
+
+        std::vector<Verb> verbs;
+        std::vector<std::array<float, 2>> points;
+        // Fill rule: even-odd, otherwise non-zero.
+        bool evenodd{};
+    };
+
+    // How a path is stroked (SVG 2, 13.5): a line of width centered on the path; caps end open subpaths and joins meet
+    // segments, a miter join past miter_limit times the width becomes a bevel. A non-empty dash pattern alternates
+    // dash and gap lengths from dash_offset into it, restarting on each subpath. Lengths in item px.
+    struct Stroke {
+        enum class Cap : std::uint8_t {
+            Butt,
+            Round,
+            Square
+        };
+
+        enum class Join : std::uint8_t {
+            Miter,
+            Round,
+            Bevel
+        };
+
+        float width{1};
+        Cap cap{};
+        Join join{};
+        float miter_limit{4};
+        std::vector<float> dashes;
+        float dash_offset{};
+    };
+
+    // A path filled, or stroked when stroke is set, with one color.
+    struct PathPaint {
+        std::shared_ptr<const Path> path;
+        Color color{};
+        std::optional<Stroke> stroke;
+    };
+
     struct Item {
         enum class Kind : std::uint8_t {
             Box,
@@ -121,7 +169,9 @@ namespace weft::paint {
             BeginGroup,
             EndGroup,
             // A Shadow, which a renderer prepares as an image.
-            Shadow
+            Shadow,
+            // A PathPaint, which a renderer rasterizes as coverage at device scale.
+            Path
         };
 
         Kind kind{};
@@ -131,8 +181,8 @@ namespace weft::paint {
         float width{};
         float height{};
         float opacity{1};
-        // Index in DisplayList::boxes (Box), images (Image), rasters (Text, Layer) or shadows (Shadow); unused by
-        // groups.
+        // Index in DisplayList::boxes (Box), images (Image), rasters (Text, Layer), shadows (Shadow) or paths
+        // (Path); unused by groups.
         std::uint32_t payload{};
         // The item's rounded clips, outermost first: DisplayList::clips[clips_begin, clips_begin + clips_count).
         std::uint32_t clips_begin{};
@@ -145,6 +195,7 @@ namespace weft::paint {
         std::vector<Image> images;
         std::vector<Raster> rasters;
         std::vector<Shadow> shadows;
+        std::vector<PathPaint> paths;
         // Leases of the assets images draw.
         std::vector<std::shared_ptr<const Asset>> assets;
         // Host textures images draw after the assets: image asset assets.size() + i is external texture i, linear
@@ -154,8 +205,9 @@ namespace weft::paint {
     };
 
     // Whether a list is well formed: payloads in range and of the item's kind, images of a leased asset or an external
-    // texture without a stroke, rasters with a source, shadows with finite values and no negative blur, rounded clip
-    // ranges inside the clips, groups balanced and nested at most max_group_depth deep. Diag::PaintList otherwise.
+    // texture without a stroke, rasters with a source, shadows with finite values and no negative blur, paths with a
+    // path of whole verbs and finite points and a stroke of finite, non-negative lengths, rounded clip ranges inside
+    // the clips, groups balanced and nested at most max_group_depth deep. Diag::PaintList otherwise.
     Status check(const DisplayList& list, std::size_t max_group_depth);
 
     // The deepest group nesting of a well-formed list.

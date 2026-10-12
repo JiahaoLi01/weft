@@ -168,6 +168,10 @@ namespace weft::render {
         }
         pass.records.reserve(list.items.size());
         for (const auto& item : list.items) {
+            // Path items need their coverage prepared at device scale, which the scene pass does not do yet.
+            if (item.kind == Kind::Path) {
+                return make_diagnostic(Diag::PaintList, "scene pass draws no path items");
+            }
             if (item.clips_count > std::uint32_t(scene_limits::max_rounded_clips)) {
                 return make_diagnostic(Diag::PaintList, "rounded clip chain bound");
             }

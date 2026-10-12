@@ -42,6 +42,7 @@ src/css/                   解析、PropertyId 与类型化值、级联、计算
 src/text/                  HarfBuzz/FreeType/libunibreak 塑形、回退、字形缓存
 src/layout/                格式上下文调度：block/inline/flex(Yoga)/grid/absolute，几何与命中
 src/paint/                 唯一的 display list、damage、隔离组
+src/vector/                矢量路径的覆盖率：FreeType 光栅器与描边器，虚线（2026-10-12 加入）
 src/render/                FramePacket、资源退休、后端 concept；backends/{d3d11,d3d12,vulkan,metal,gles}
 src/script/                QuickJS 绑定：DOM 包装、事件循环、timer/rAF、内嵌 bootstrap JS
 src/platform/              win32/android/ios/console：窗口、输入、时钟、字体发现
@@ -993,6 +994,33 @@ CMake 拆分：
 - 变异检查 11 个全部被发现：
   - 由合同发现：丢掉阴影、按列出顺序画、透明度不成组、记录不平移、记录用盒子尺寸、盒下也画阴影、σ 取 blur、接受负模糊、`append` 不重新编号；
   - 由 scene-native 探针发现：上传时不换 RGBA/BGRA、渲染器不准备阴影图（崩溃）。
+
+**10.5e：路径进入 paint IR，可移植的矢量光栅**（SVG 原生绘制的第一段；生产者与渲染器在 10.5f 接入）：
+- paint IR：
+  - `Path`：Move、Line、Cubic、Close 与点列，外加填充规则；弧线与二次曲线由生产者转成三次曲线；
+  - `Stroke`：宽度，butt/round/square 线帽，miter/round/bevel 连接，斜接上限（默认 4，超过时按 SVG 改为 bevel），虚线图案与偏移；
+  - `PathPaint`：路径加一种颜色，带 `stroke` 时描边，否则填充；条目种类 `Item::Kind::Path`。
+  - `check()` 要求路径以 Move 开头、动词恰好用完点列、点为有限值、描边长度有限且非负、斜接上限不小于 1；`append()` 重新编号。
+- 新模块 `src/vector`（`weft::vector`，私有依赖 FreeType，已 vendored）：
+  - `mask_bounds()`：路径在设备像素中能涂到的范围：点的包围盒，加上描边最远处（半宽乘斜接上限或方帽对角）和 1 个抗锯齿像素，再与裁剪相交；
+  - `Rasterizer::rasterize()`：在这个范围内输出 8 位覆盖率遮罩；
+- 光栅化的处理：
+  - 曲线先由 `FT_Outline_Decompose` 按 0.01 设备像素细分成直线，再交给 FreeType 的光栅器（精确面积覆盖）。FreeType 自己按约 1/6 像素展平，10px 的圆面积会小 0.7%；
+  - 描边由 FreeType 的描边器在路径自身的坐标里完成（坐标乘以变换的最大拉伸，保住 26.6 定点精度），再映射到设备，所以非均匀变换会像 SVG 一样拉伸线宽；
+  - 虚线在这里按 0.1 设备像素展平后切出，每个子路径重新开始；奇数图案重复一遍；零长度的虚线在 round/square 线帽下画成点；
+  - 遮罩超过 2048×2048 像素或 FreeType 轮廓上限（65535 点）时返回 `Diag::PaintList`。
+- 规划器、C ABI 与文档渲染器在 10.5f 之前明确拒绝路径条目（不再可能在规划器的批处理里死循环）。
+
+验证：
+- `ctest --preset windows-release --parallel 6` 106/106，`windows-debug --parallel 6` 106/106（297.0 s）；产物与 10.5d 逐字节相同（计时类与预览除外）。
+- 新测试 `vector_raster_contract`（可移植，Android 上同样编成 AArch64 可执行文件，未运行）：
+  - 填充：小数边缘按面积覆盖（0.75 → 191 级）；10px 圆的面积误差在 0.3% 内；nonzero 与 evenodd 在嵌套方形上的差别；Close 之后的线段从原子路径起点重新开始；
+  - 描边：butt、square、round 线帽的范围；miter、bevel、round 连接的外角；斜接上限 4 让约 6° 的尖角变成 bevel，上限 100 时尖角伸出；纵向放大 3 倍时线宽也成 3 倍；零长度子路径只在 round/square 线帽下成点；
+  - 虚线：交替、偏移、每个子路径重新开始、奇数图案（含偏移落在重复的后半）、零长度虚线成点；
+  - 边界与裁剪：遮罩外圈全为 0；按裁剪切出的遮罩与不裁剪时同位置的覆盖率相同；裁剪外为空；超限返回诊断；平移的小数部分移动的是覆盖率；
+  - 1500 条随机路径（含零长度段、Close 后续画、随机变换与描边样式、虚线）不失败且覆盖率不出边界；200 个随机凸多边形的面积与精确面积相差不超过 0.5% + 0.5 像素。
+- `paint_contract`：路径的结构校验与 `append` 重新编号；规划器拒绝路径条目。
+- 变异检查 14 个全部被发现：忽略填充规则、不细分曲线、半径取整个线宽、超限的斜接改为截断、忽略虚线偏移、奇数图案不重复（为此新增偏移落在重复后半的用例）、零长度子路径不画线帽、边界不含描边范围、边界不含抗锯齿像素、行序上下颠倒、Close 后的线段不重新开始、路径可不以 Move 开头、`append` 不重新编号路径、负虚线通过校验。
 
 ## 顺序调整（2026-10-10）
 

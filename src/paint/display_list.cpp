@@ -6,6 +6,43 @@
 
 namespace weft::paint {
     namespace {
+        bool finite_value(float v) {
+            return std::isfinite(v);
+        }
+
+        // Verbs that use exactly the points there are, a Move first, and finite points.
+        bool well_formed(const Path& path) {
+            std::size_t points{};
+            for (std::size_t i = 0; i < path.verbs.size(); ++i) {
+                switch (path.verbs[i]) {
+                    case Path::Verb::Move:
+                    case Path::Verb::Line:
+                        ++points;
+                        break;
+                    case Path::Verb::Cubic:
+                        points += 3;
+                        break;
+                    case Path::Verb::Close:
+                        break;
+                    default:
+                        return false;
+                }
+                if (i == 0 && path.verbs[i] != Path::Verb::Move) {
+                    return false;
+                }
+            }
+            return points == path.points.size() && std::all_of(path.points.begin(), path.points.end(), [](auto p) {
+                       return finite_value(p[0]) && finite_value(p[1]);
+                   });
+        }
+
+        bool well_formed(const Stroke& s) {
+            return finite_value(s.width) && s.width >= 0 && finite_value(s.miter_limit) && s.miter_limit >= 1 &&
+                   finite_value(s.dash_offset) && std::all_of(s.dashes.begin(), s.dashes.end(), [](float v) {
+                       return finite_value(v) && v >= 0;
+                   });
+        }
+
         // The row-vector composition: a, then b.
         Affine then(const Affine& a, const Affine& b) {
             return {a[0] * b[0] + a[1] * b[2], a[0] * b[1] + a[1] * b[3],        a[2] * b[0] + a[3] * b[2],
@@ -52,13 +89,22 @@ namespace weft::paint {
                         return make_diagnostic(Diag::PaintList, "shadow payload out of range" + at);
                     }
                     const auto& s = list.shadows[item.payload];
-                    const auto finite = [](float v) {
-                        return std::isfinite(v);
-                    };
-                    if (!std::all_of(s.color.begin(), s.color.end(), finite) ||
-                        !std::all_of(s.radii.begin(), s.radii.end(), finite) || !std::isfinite(s.x) ||
+                    if (!std::all_of(s.color.begin(), s.color.end(), finite_value) ||
+                        !std::all_of(s.radii.begin(), s.radii.end(), finite_value) || !std::isfinite(s.x) ||
                         !std::isfinite(s.y) || !std::isfinite(s.spread) || !std::isfinite(s.blur) || s.blur < 0) {
                         return make_diagnostic(Diag::PaintList, "shadow value" + at);
+                    }
+                    break;
+                }
+                case Item::Kind::Path: {
+                    if (item.payload >= list.paths.size()) {
+                        return make_diagnostic(Diag::PaintList, "path payload out of range" + at);
+                    }
+                    const auto& p = list.paths[item.payload];
+                    if (!p.path || !well_formed(*p.path) ||
+                        !std::all_of(p.color.begin(), p.color.end(), finite_value) ||
+                        (p.stroke && !well_formed(*p.stroke))) {
+                        return make_diagnostic(Diag::PaintList, "path value" + at);
                     }
                     break;
                 }
@@ -100,6 +146,7 @@ namespace weft::paint {
         const auto images = std::uint32_t(into.images.size());
         const auto rasters = std::uint32_t(into.rasters.size());
         const auto shadows = std::uint32_t(into.shadows.size());
+        const auto paths = std::uint32_t(into.paths.size());
         const auto clips = std::uint32_t(into.clips.size());
         into.boxes.insert(into.boxes.end(), from.boxes.begin(), from.boxes.end());
         for (auto image : from.images) {
@@ -109,6 +156,7 @@ namespace weft::paint {
         }
         into.rasters.insert(into.rasters.end(), from.rasters.begin(), from.rasters.end());
         into.shadows.insert(into.shadows.end(), from.shadows.begin(), from.shadows.end());
+        into.paths.insert(into.paths.end(), from.paths.begin(), from.paths.end());
         into.assets.insert(into.assets.end(), from.assets.begin(), from.assets.end());
         into.external_textures += from.external_textures;
         for (auto clip : from.clips) {
@@ -140,6 +188,9 @@ namespace weft::paint {
                     break;
                 case Item::Kind::Shadow:
                     item.payload += shadows;
+                    break;
+                case Item::Kind::Path:
+                    item.payload += paths;
                     break;
                 default:
                     break;

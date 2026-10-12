@@ -78,6 +78,41 @@ namespace {
         list.shadows[0].blur = 4;
         list.shadows[0].x = std::numeric_limits<float>::quiet_NaN();
         require(rejected(list, 2, "shadow value at item 7"), "shadow offset not finite");
+        // Paths: verbs that start with a move and use exactly their points, finite points, a sane stroke.
+        using Verb = paint::Path::Verb;
+        paint::Path line;
+        line.verbs = {Verb::Move, Verb::Line, Verb::Cubic, Verb::Close};
+        line.points = {{0, 0}, {1, 1}, {2, 0}, {3, 1}, {4, 0}};
+        const auto with = [&](paint::Path path, std::optional<paint::Stroke> stroke = std::nullopt) {
+            auto l = good;
+            l.paths.push_back({std::make_shared<const paint::Path>(std::move(path)), {1, 1, 1, 1}, stroke});
+            l.items.push_back(item(Kind::Path, 0));
+            return l;
+        };
+        require(bool(paint::check(with(line), 2)) && bool(paint::check(with(line, paint::Stroke{}), 2)), "path item");
+        auto broken = line;
+        broken.verbs[0] = Verb::Line;
+        require(rejected(with(broken), 2, "path value at item 7"), "a path starts with a move");
+        broken = line;
+        broken.points.pop_back();
+        require(rejected(with(broken), 2, "path value at item 7"), "path points short of its verbs");
+        broken = line;
+        broken.points[2][1] = std::numeric_limits<float>::infinity();
+        require(rejected(with(broken), 2, "path value at item 7"), "path point not finite");
+        paint::Stroke wide;
+        wide.width = -1;
+        require(rejected(with(line, wide), 2, "path value at item 7"), "negative stroke width");
+        wide.width = 1;
+        wide.dashes = {2, -1};
+        require(rejected(with(line, wide), 2, "path value at item 7"), "negative dash");
+        wide.dashes.clear();
+        wide.miter_limit = .5f;
+        require(rejected(with(line, wide), 2, "path value at item 7"), "miter limit below one");
+        auto missing = with(line);
+        missing.paths[0].path.reset();
+        require(rejected(missing, 2, "path value at item 7"), "path without a path");
+        missing.items.back().payload = 1;
+        require(rejected(missing, 2, "path payload out of range at item 7"), "path payload range");
     }
 
     // A shadow image is the box's shape spread, offset and blurred, shown only outside the box, over a rectangle
@@ -140,6 +175,15 @@ namespace {
                 "shadow image record");
         require(r.inv_x == std::array<float, 4>{1, 0, -109, 0} && r.inv_y == std::array<float, 4>{0, 1, -49, 0},
                 "a shadow record maps its rectangle");
+        // Path items are refused, not planned, until the scene pass prepares their coverage.
+        paint::DisplayList drawn;
+        auto path = std::make_shared<paint::Path>();
+        path->verbs = {paint::Path::Verb::Move, paint::Path::Verb::Line};
+        path->points = {{0, 0}, {5, 5}};
+        drawn.paths.push_back({path, {1, 1, 1, 1}, std::nullopt});
+        drawn.items = {item(Kind::Path, 0)};
+        const auto refused_path = render::plan_scene_pass(drawn, 1, 10, 10);
+        require(!refused_path && refused_path.error().code == weft::Diag::PaintList, "path items refused");
     }
 
     // Runs of boxes share a draw, images and groups get their own steps, and an opaque first box that covers the
@@ -446,6 +490,20 @@ namespace {
                     shaded.items[1].payload == 1 && shaded.shadows[1].blur == 5 && shaded.shadows[1].x == 3 &&
                     shaded.shadows[1].radii == std::array<float, 4>{1, 2, 3, 4},
                 "appended shadows");
+        // Paths renumber after the destination's and keep their points in item px.
+        auto path = std::make_shared<paint::Path>();
+        path->verbs = {paint::Path::Verb::Move, paint::Path::Verb::Line};
+        path->points = {{0, 0}, {5, 5}};
+        paint::DisplayList drawn;
+        drawn.paths.push_back({path, {1, 0, 0, 1}, std::nullopt});
+        drawn.items = {item(Kind::Path, 0)};
+        paint::DisplayList stroked;
+        stroked.paths.push_back({path, {0, 0, 1, 1}, paint::Stroke{}});
+        stroked.items = {item(Kind::Path, 0)};
+        require(bool(paint::append(drawn, stroked, {2, 0, 0, 2, 0, 0})) && bool(paint::check(drawn, 1)) &&
+                    drawn.items[1].payload == 1 && drawn.paths[1].stroke && drawn.paths[1].path->points[1][0] == 5 &&
+                    drawn.items[1].transform == paint::Affine{2, 0, 0, 2, 0, 0},
+                "appended paths");
     }
 } // namespace
 

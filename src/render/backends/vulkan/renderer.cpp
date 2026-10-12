@@ -468,8 +468,8 @@ namespace weft::render::vulkan {
                "a well-formed display list without external textures");
         for (const auto& item : list->items) {
             ensure(item.kind != paint::Item::Kind::Text && item.kind != paint::Item::Kind::Layer &&
-                       item.kind != paint::Item::Kind::Shadow,
-                   "the display list pass draws no scene rasters or shadows");
+                       item.kind != paint::Item::Kind::Shadow && item.kind != paint::Item::Kind::Path,
+                   "the display list pass draws no scene rasters, shadows or paths");
             if (item.kind == paint::Item::Kind::Image) {
                 const auto& image = list->images[item.payload];
                 ensure(image.stroke >= 0 && (image.asset >= list->assets.size() ||

@@ -190,6 +190,24 @@ namespace weft::constants::render {
         inline constexpr int scratch_budget_bytes = 128 * constants::bytes_per_mib;
     } // namespace scene
 
+    // Vector paths (vector/path_raster.hpp).
+    namespace path {
+        // Largest coverage mask, in device pixels; its BGRA image fits the scene image budget.
+        inline constexpr int max_mask_pixels = 2048 * 2048;
+        // Coverage reaches this many device pixels past a path's bounds.
+        inline constexpr int antialias_margin = 1;
+        // Curves flatten for dashing within this many device pixels, and for the rasterizer within this many.
+        inline constexpr double dash_flattening_tolerance = .1;
+        inline constexpr double raster_flattening_tolerance = .01;
+        // Most dashes one path may cut into.
+        inline constexpr int max_dash_segments = 65536;
+        // Deepest subdivision of one cubic while flattening.
+        inline constexpr int max_flattening_depth = 16;
+        // FreeType points per pixel (26.6 fixed point) and the unit of its 16.16 miter limit.
+        inline constexpr int freetype_subpixels = 64;
+        inline constexpr int freetype_fixed_one = 65536;
+    } // namespace path
+
     // Rounded clip probe work bounds.
     // Largest absolute rectangle coordinate, size or corner radius.
     inline constexpr int rounded_clip_max_magnitude = constants::max_logical_px_magnitude;
