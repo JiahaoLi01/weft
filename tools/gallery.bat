@@ -36,7 +36,7 @@ if not defined VALIDATION set "VALIDATION_STATE=on "
 echo.
 echo   Weft gallery - Release build, hardware GPU
 echo.
-echo   1  Gallery window              4K: 70 original cases + the CRPG nested tooltip page + UI particles; Esc closes, F7 toggles VSync
+echo   1  Gallery window              4K: 70 original cases + the CRPG nested tooltip page + UI particles + translucent windows; Esc closes, F7 toggles VSync
 echo   2  Gallery window + profiler   owner/render traces, analyzed after Esc
 echo   3  Live benchmarks             anime drag, scatter drag, Canvas, hover sweeps; about 50 s, windows pop up
 echo   4  Gallery self-test           hidden 4K run with pixel, geometry and input checks

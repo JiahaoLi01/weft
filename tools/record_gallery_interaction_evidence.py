@@ -45,8 +45,8 @@ for name, config in [("release", "Release"), ("debug", "Debug")]:
     assert gpu["submissions"] == gpu["completions"] == 630 and gpu["debug_warning_error_count"] == 0 and gpu["max_mean"] <= 3
     window = read(path / "window/preview-session.json")
     assert window["frames"] == window["actual_completed_submissions"] == 160
-    assert window["card_geometry_checks"] == 288 and window["cached_full_packet_checks"] == 17
-    assert window["cpu_pixel_samples"] == 1680 and window["cpu_pixel_max_difference"] <= 3
+    assert window["card_geometry_checks"] == 300 and window["cached_full_packet_checks"] == 17
+    assert window["cpu_pixel_samples"] == 2184 and window["cpu_pixel_max_difference"] <= 3
     thread = read(path / "window/thread-work.json")
     assert thread["accepted_inputs"] == thread["processed_inputs"] + thread["coalesced_inputs"] == 16
     scroll = read(path / "scroll/preview-session.json")
@@ -122,7 +122,7 @@ record = {"format": "gallery-interaction-seal-v1", "recorded_utc": datetime.now(
     "previous_seal": {"path": str(prior_path.relative_to(root)), "sha256": sha(prior_path), "verified_records": len(prior["artifacts"]) + len(prior["sources"])},
     "environment": {key: prior["environment"][key] for key in ["os", "cpu", "gpu", "gpu_driver", "compiler", "performance_configuration"]} |
         {"surface": [3840, 2160], "scene_scale": 2, "owner_scene_vms": 64, "canvas_vms": 2, "sampling": "single quiet serial run; default affinity/priority; fixed 240x60Hz, 16 warmup/224 samples; no GPU readback; opt-in trace overhead included; see gallery-interaction-profile.md for input and memory limits"},
-    "native_cases": 68, "catalogue_cases": 72, "pending_cases": 4,
+    "native_cases": 71, "catalogue_cases": 75, "pending_cases": 4,
     "limits": ["baseline binary retained but no independent complete baseline source snapshot", "fixed HWND input benchmark waits each publication; cannot prove asynchronous physical input latency", "K-Line/Anime full viewport still over 2ms game UI budget", "trace cap 65536 events per thread", "original Anime Throw stationary in Chrome/native; pinned-library inertia counterexample separately verified", "2 WebGL/4 Lottie pending", "optional 30-case forced-GC replay stopped after 115/210 captures; partial/truncated output is not acceptance; five focused forced-GC contracts are the accepted scope", "game integration, public owner C ABI, long run, total VRAM, fair Ultralight comparison and every mobile stage unverified"],
     "historical_failed_runs": "Retained for diagnosis; acceptance uses only the final full and hardware logs above."}
 (out / "run-metadata.json").write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")

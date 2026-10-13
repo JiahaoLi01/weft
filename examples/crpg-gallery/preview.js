@@ -1,7 +1,7 @@
 // Host-authored inspection shell, using native DOM/CSS/scroll/hit testing.
 // Every registry entry stays visible but the two Three.js cases (WebGL is not a product target); pages of the window's
-// own follow in sections of their own: the CRPG UI's nested tooltip page and the UI particle page. Diagnostic cards are
-// NEVER pixel passes.
+// own follow in sections of their own: the CRPG UI's nested tooltip page, the UI particle page and the translucent
+// window page's three cases. Diagnostic cards are NEVER pixel passes.
 (()=>{
   const groups=[
     ['CSS_TESTS','CSS',4,288,12],['D3_TESTS','D3',4,384,16],
@@ -9,18 +9,22 @@
     ['WEBGL_TESTS','Canvas / WebGL',1,600,16],['FRAMER_TESTS','Framer Motion',3,320,16],
     ['SPRING_TESTS','React Spring',3,288,16],['ICON_TESTS','Icons',2,288,16],
     ['ANIME_TESTS','Anime.js',4,288,12],['LOTTIE_TESTS','Lottie',4,288,12],
-    ['TOOLTIP_TESTS','CRPG Tooltip',1,800,16],['PARTICLE_TESTS','UI Particles',1,800,16]
+    ['TOOLTIP_TESTS','CRPG Tooltip',1,800,16],['PARTICLE_TESTS','UI Particles',1,800,16],
+    ['GLASS_TESTS','Translucent Windows',1,800,16]
   ];
   const retired=['webgl-02','webgl-03'];
   const cases=__ceGalleryCases.filter(c=>!retired.includes(c.id))
     .concat([{id:'tooltip-00',group:'TOOLTIP_TESTS',index:0,label:'CRPG: Nested Tooltip + Smoke'},
-      {id:'particles-00',group:'PARTICLE_TESTS',index:0,label:'UI Particles: Campfire, Loot, Rune, Motes'}]);
+      {id:'particles-00',group:'PARTICLE_TESTS',index:0,label:'UI Particles: Campfire, Loot, Rune, Motes'},
+      {id:'glass-00',group:'GLASS_TESTS',index:0,label:'Glass: Frosted - blur, saturate, tint, highlight'},
+      {id:'glass-01',group:'GLASS_TESTS',index:1,label:'Glass: Plain Translucent - tint only'},
+      {id:'glass-02',group:'GLASS_TESTS',index:2,label:'Glass: Blur Only - no tint'}]);
   const add=(parent,id,cls,text,style)=>{
     const e=document.createElement('div');if(id)e.id=id;if(cls)e.setAttribute('class',cls);
     if(text)e.textContent=text;if(style)Object.assign(e.style,style);parent.appendChild(e);return e;
   };
   const shell=add(document.body,'shell');
-  add(shell,'title','','CaseElephant / CRPG Gallery — 70 original cases + nested tooltip page + UI particle page');
+  add(shell,'title','','CaseElephant / CRPG Gallery — 70 original cases + nested tooltip page + UI particle page + translucent windows');
   add(shell,'summary','','Inspecting original packages…');
   const sidebar=add(shell,'sidebar');
   const scroller=add(shell,'scroller'),content=add(scroller,'content');
@@ -57,7 +61,7 @@
   content.style.height=y+'px';
   const profiler=add(sidebar,'profiler-toggle','nav','Profiler: OFF (F8)');
   profiler.addEventListener('click',()=>__cePreview.setProfiler(!__cePreview.profiler));
-  add(sidebar,'scope','','4K output / two frames in flight\n68 native cases / 4 pending\nFPS = shell + visible LIVE cards.\nProfiler: curves + phase timers\nHome/End, PgUp/PgDn, wheel; F5 resets timing.');
+  add(sidebar,'scope','','4K output / two frames in flight\n71 native cases / 4 pending\nFPS = shell + visible LIVE cards.\nProfiler: curves + phase timers\nHome/End, PgUp/PgDn, wheel; F5 resets timing.');
   globalThis.__cePreview={groups,offsets,cards,results:null,profiler:false,detail:'Click a case for its blocker summary; full errors are in preview-cases.json.',
     setProfiler(enabled){this.profiler=!!enabled;profiler.textContent='Profiler: '+(this.profiler?'ON':'OFF')+' (F8)';},
     jump(group){scroller.scrollTop=offsets[group]??0;for(const [key] of groups)document.getElementById('nav-'+key).setAttribute('data-active',String(key===group));},
@@ -68,6 +72,6 @@
       if(d)d.textContent='Pixels: NOT PASSED — '+r.reason;
       if(e)e.textContent='JS: '+r.execution+(r.failure?'\n'+r.failure.split('\n')[0].slice(0,160):' (12 frames, no input; not a rendering pass)');
     }
-    document.getElementById('summary').textContent='72 registered / 64 CSS + SVG scenes + 2 Canvas + the nested tooltip page + the UI particle page native / 4 pending visual integration / '+clean+' JS observations without error';
+    document.getElementById('summary').textContent='75 registered / 64 CSS + SVG scenes + 2 Canvas + the nested tooltip page + the UI particle page + 3 translucent window pages native / 4 pending visual integration / '+clean+' JS observations without error';
   }};
 })();

@@ -58,10 +58,11 @@ namespace probes {
         std::string hover_transform;
         std::string toggle_width;
         std::string anime_drag_transform;
-        // The nested tooltip page's portals on body (its open tooltips), and the times the UI particle page's chest
-        // was clicked, when the pages run.
+        // The nested tooltip page's portals on body (its open tooltips), the times the UI particle page's chest was
+        // clicked and the frosted glass case's windows (__ceGlassPage.state()), when the pages run.
         std::string tooltip_portals;
         std::string particle_clicks;
+        std::string glass_state;
         std::size_t snapshots{};
         std::size_t snapshot_reuses{};
         std::size_t evals{};
@@ -467,6 +468,10 @@ namespace probes {
                 if (count_ > weft::probe_constants::gallery::particle_page_scene) {
                     out->particle_clicks = scenes_[weft::probe_constants::gallery::particle_page_scene]->vm.eval(
                         "String(__ceParticlePage.clicks())");
+                }
+                if (count_ > weft::probe_constants::gallery::glass_page_scene) {
+                    out->glass_state =
+                        scenes_[weft::probe_constants::gallery::glass_page_scene]->vm.eval("__ceGlassPage.state()");
                 }
             }
             last_frame_ = out;

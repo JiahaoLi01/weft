@@ -16,7 +16,7 @@
 | 检查、trace、兼容诊断、打包与干净构建 | M5 |
 | var、media queries、更宽 CSSOM 与其他未被首批场景依赖的能力 | 可选扩展，不作为 v0.1 退出必需项 |
 | 固定 CRPG gallery 的 72 例中的 70 例，含 Canvas2D、第三方动画与所需 CSS/SVG/交互；两例 Three.js 于 2026-10-12 移出需求，2026-10-13 起画廊窗口以 CRPG UI 的嵌套提示页面（UI 着色器烟雾）取代这两例 | 新增 workload 承诺；逐例执行/像素/交互/性能验收，尚未完整实现 |
-| UI 着色器效果（`-weft-effect()`）、UI 粒子（`-weft-particles`）、背景拷贝与 `backdrop-filter: blur()` | 新增目标（2026-10-12），设计见 [架构](architecture.md)。已实现：效果绘制项，D3D11 与 Vulkan 的显示列表渲染器可以画（11.1）；scene 页面的 `background-image: -weft-effect(name)`（也可写在 `background` 简写里），参数取自元素的自定义属性，效果注册与诊断，用时间的效果让帧持续推进，D3D11 与 Vulkan 的 scene 渲染器可以画（11.2）；粒子绘制项（发射器、流与爆发、飞向目标、柔和圆点与精灵帧），D3D11 与 Vulkan 的 scene 渲染器可以画（11.4a）；scene 页面的粒子挂接：`-weft-particles: name` 与 `--particles-*` 覆盖值、`weft.emitParticles` 与飞向元素、发射记录的生命周期与上限、按粒子可达范围的损伤（11.4b）。scene 页面的背景拷贝与 `backdrop-filter`（11.5a），与 Chrome 截图逐像素对照（11.5b）。尚未实现：文档页面（它们不支持任何背景图片）、D2D 参考光栅、C ABI 的效果、粒子与背景特性位、粒子的效果外观、读背景的效果 |
+| UI 着色器效果（`-weft-effect()`）、UI 粒子（`-weft-particles`）、背景拷贝与 `backdrop-filter: blur()` | 新增目标（2026-10-12），设计见 [架构](architecture.md)。已实现：效果绘制项，D3D11 与 Vulkan 的显示列表渲染器可以画（11.1）；scene 页面的 `background-image: -weft-effect(name)`（也可写在 `background` 简写里），参数取自元素的自定义属性，效果注册与诊断，用时间的效果让帧持续推进，D3D11 与 Vulkan 的 scene 渲染器可以画（11.2）；粒子绘制项（发射器、流与爆发、飞向目标、柔和圆点与精灵帧），D3D11 与 Vulkan 的 scene 渲染器可以画（11.4a）；scene 页面的粒子挂接：`-weft-particles: name` 与 `--particles-*` 覆盖值、`weft.emitParticles` 与飞向元素、发射记录的生命周期与上限、按粒子可达范围的损伤（11.4b）。scene 页面的背景拷贝与 `backdrop-filter`（11.5a），与 Chrome 截图逐像素对照（11.5b）；画廊的半透明窗口组（11.5c）。尚未实现：文档页面（它们不支持任何背景图片）、D2D 参考光栅、C ABI 的效果、粒子与背景特性位、粒子的效果外观、读背景的效果 |
 | WebGL/WebGL2 | 不在目标内（用户 2026-10-12 决定，见 [决策](decisions.md)）：3D 由宿主引擎渲染、经外部纹理合成；`getContext('webgl')` 与 `getContext('webgl2')` 返回 `null` |
 
 如果固定测试应用需要额外 API，先将它作为明确的新增承诺记录，而不是悄悄扩大 v0.1 范围。完整功能列表必须在实现时标注 planned/implemented/verified 与对应测试。
@@ -131,6 +131,8 @@ CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后�
 - 限制：Final_Sigma 只看同一个文字节点；没有按 `lang` 的大小写规则；`shape_with_fallback` 的文字仍限于拉丁、汉字与通用字符，希腊、西里尔等字母的文字本来就报诊断。
 
 2026-10-13 重构第 11.3d 步之一：JS 的 `Element.closest(selectors)`：元素自身或最近的匹配祖先元素，没有时为 null；与 querySelector/matches 共用选择器文法与诊断。
+
+2026-10-13 重构第 11.5c 步：画廊新增 “Translucent Windows” 一组三例（毛玻璃、普通半透明、只模糊背后），窗口为 75 例、13 组，原生绘制 71 例。每例若干叠放的窗口，按标题栏拖动并置顶，− / + 在 1–32 之间增减，背景每帧在动。与 Chrome 155 逐帧对照：窗口顺序与位置相同，整帧每通道平均差 < 1 级，窗口空白玻璃平均差 0.6–1.0 级。页面只用已有特性（`backdrop-filter`、圆角裁剪、外阴影、CSS 动画），没有新增 CSS 语义。
 
 2026-10-13 重构第 11.5b 步：`backdrop-filter` 与 Chrome 截图逐像素对照。
 - 11 个用例：160×120 的条纹背景上，`blur(3px)`、`blur(20px)`、设备缩放 2 下的 `blur(8px)`、圆角、模糊后的 `saturate()` 与 `brightness()`、模糊前的 `grayscale()`、贴着页面边缘、透明度与内容、透明度组、嵌套、毛玻璃（缩放 2，圆角、半透明边框与底色、`blur(12px) saturate(180%)`）。Chrome 155.0.8059.40 的截图（`tools/browser_backdrop_reference.mjs`）与原生 D3D11 WARP 逐像素比较。

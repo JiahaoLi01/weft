@@ -77,6 +77,10 @@ namespace weft::render::vulkan {
     SceneRenderer::SceneRenderer(Device& device, SceneText& text)
         : gpu(device), preparer_(text, *this, std::uint32_t(limits::max_surface_dimension)) {
         const auto& d = gpu;
+        VkPhysicalDeviceProperties properties{};
+        d.vki.vkGetPhysicalDeviceProperties(d.physical, &properties);
+        const auto alignment = std::max<VkDeviceSize>(properties.limits.minUniformBufferOffsetAlignment, 1);
+        backdrop_stride_ = (sizeof(BackdropConstants) + alignment - 1) / alignment * alignment;
         try {
             VkCommandPoolCreateInfo pool{};
             pool.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -319,9 +323,22 @@ namespace weft::render::vulkan {
         keep(slot.buffers, slot.spare_buffers, std::size_t(limits::scene_slot_spare_buffers), [&](Buffer& b) {
             d.destroy(b);
         });
-        keep(slot.images, slot.spare_images, std::size_t(limits::scene_slot_spare_images), [&](Image& image) {
-            d.destroy(image);
-        });
+        // Scratch images within a count and their bytes.
+        std::size_t image_bytes{};
+        for (const auto& image : slot.spare_images) {
+            image_bytes += std::size_t(image.width) * image.height * 4;
+        }
+        for (auto& image : slot.images) {
+            const auto bytes = std::size_t(image.width) * image.height * 4;
+            if (slot.spare_images.size() < std::size_t(limits::scene_slot_spare_images) &&
+                image_bytes + bytes <= std::size_t(limits::scene_slot_spare_image_bytes)) {
+                slot.spare_images.push_back(image);
+                image_bytes += bytes;
+            } else {
+                d.destroy(image);
+            }
+        }
+        slot.images.clear();
         keep(slot.pools, slot.spare_pools, std::size_t(limits::scene_slot_spare_pools),
              [&](std::pair<VkDescriptorPool, std::uint32_t>& pool) {
                  d.vkd.vkDestroyDescriptorPool(d.device, pool.first, nullptr);
@@ -700,12 +717,15 @@ namespace weft::render::vulkan {
             allocate.pSetLayouts = layouts.data();
             check(d.vkd.vkAllocateDescriptorSets(d.device, &allocate, backdrop_sets.data()),
                   "vkAllocateDescriptorSets backdrop");
+            // Every pass's constants in one buffer, each at its stride.
+            const auto& values = buffer(backdrop_stride_ * backdrop_sets.size());
             std::size_t s{};
             for (const auto& chain : chains) {
                 for (std::size_t k = 0; k < chain.passes.size(); ++k, ++s) {
-                    auto& values = buffer(sizeof(BackdropConstants));
-                    std::memcpy(values.mapped, &chain.passes[k].second, sizeof(BackdropConstants));
-                    const VkDescriptorBufferInfo constants_info{values.buffer, 0, sizeof(BackdropConstants)};
+                    std::memcpy(static_cast<std::byte*>(values.mapped) + backdrop_stride_ * s, &chain.passes[k].second,
+                                sizeof(BackdropConstants));
+                    const VkDescriptorBufferInfo constants_info{values.buffer, backdrop_stride_ * s,
+                                                                sizeof(BackdropConstants)};
                     const VkDescriptorImageInfo source_info{VK_NULL_HANDLE, chain.images[k].view,
                                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
                     const VkDescriptorImageInfo mirror_info{mirror_sampler_, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};

@@ -35,8 +35,8 @@ for name, config in (("release", "Release"), ("debug", "Debug"), ("asan", "Relea
     folder = out / f"toggle-window-{name}"
     s, w, p, t = [read(folder / f) for f in ("preview-session.json", "thread-work.json", "live-profiler.json", "profile-summary.json")]
     assert s["frames"] == s["actual_completed_submissions"] == 160 and s["peak_in_flight"] == 2
-    assert s["card_geometry_checks"] == 288 and s["cached_full_packet_checks"] == 17
-    assert s["cpu_pixel_samples"] == 1680 and s["cpu_pixel_max_difference"] <= 3 and s["debug_warning_error_count"] == 0
+    assert s["card_geometry_checks"] == 300 and s["cached_full_packet_checks"] == 17
+    assert s["cpu_pixel_samples"] == 2184 and s["cpu_pixel_max_difference"] <= 3 and s["debug_warning_error_count"] == 0
     assert w["accepted_inputs"] == w["processed_inputs"] + w["coalesced_inputs"] == 15
     assert not p["enabled_at_close"] and p["owner_samples"] > 0 and p["render_samples"] > 0 and p["hud_updates"] > 1
     assert not t["complete_run_coverage"] and t["sampled_inputs"] == 3 and not any(t["dropped_events"].values())
@@ -102,7 +102,7 @@ record = {"format": "incremental-ui-profiler-seal-v1", "recorded_utc": datetime.
           "tests": runs, "comparison": comparison, "source_drift": drift, "sources": sources, "artifacts": artifacts,
           "previous_seal": {"path": prior_path.relative_to(root).as_posix(), "sha256": sha(prior_path), "verified_sources": len(prior["sources"]), "verified_artifacts": len(prior["artifacts"]), "independent_baseline_source": True},
           "environment": prior["environment"] | {"sampling": "quiet serial alternating three pairs CPU+Kline/Anime/Scatter; one Framer/Spring pair; default affinity/priority; 240 fixed60Hz,16/224 warm; instrumentation on, heavy curve HUD off; no GPU readback"},
-          "native_cases": 68, "catalogue_cases": 72, "pending_cases": 4,
+          "native_cases": 71, "catalogue_cases": 75, "pending_cases": 4,
           "limits": ["K-Line/Anime still exceed game UI millisecond budget", "timing/trace overhead included; old trace per-event writes/new memory ring", "old eight D3 hidden rAF continues/new uniform host hidden rAF pause; timers still pump", "GPU elapsed includes queue gaps and is not pure busy time", "physical mouse-to-display, long-run game and fair Ultralight comparison unverified", "ASan acceptance is two owner contracts and 4K window only; no full87/GC repeat", "mobile and 2 WebGL/4 Lottie remain unverified"],
           "historical_failures": "Preserved separately: first overlay capacity fault, missing ASan DLL/target configuration, exploratory and phase1 samples. Only specified final runs count as acceptance."}
 (out / "run-metadata.json").write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")

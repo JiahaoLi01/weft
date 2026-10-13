@@ -107,7 +107,9 @@ namespace probes {
                                     std::string& adapter) {
             namespace vk = weft::render::vulkan;
             std::string unavailable;
-            auto device = vk::Device::open({}, unavailable);
+            // Without the validation layer, whose state tracking (synchronization validation above all) would be
+            // timed with the pass; the tests run the same passes with it.
+            auto device = vk::Device::open({.validation = false}, unavailable);
             if (!device) {
                 std::cout << "Vulkan skipped: " << unavailable << '\n';
                 return {};
@@ -116,8 +118,10 @@ namespace probes {
             adapter = d.name;
             vk::SceneRenderer scene(d, weft::testing::thread_scene_text());
             vk::SceneRenderer::Slot slot;
+            // Readable, as a host's target with backdrops at its level must be.
             auto image = d.image(VK_FORMAT_B8G8R8A8_UNORM, target_width, target_height,
-                                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+                                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                                     VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
             VkCommandPoolCreateInfo pool_info{};
             pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
             pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
@@ -155,8 +159,8 @@ namespace probes {
                     vk::check(d.vkd.vkBeginCommandBuffer(command, &begin), "benchmark begin");
                     d.vkd.vkCmdResetQueryPool(command, timestamps, 0, 2);
                     d.vkd.vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestamps, 0);
-                    require(scene.encode(slot, f, command, {image.view, target_width, target_height}, scale,
-                                         std::nullopt, 0, {}),
+                    require(scene.encode(slot, f, command, {image.view, target_width, target_height, image.image},
+                                         scale, std::nullopt, 0, {}),
                             "native Vulkan particle pass");
                     d.vkd.vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamps, 1);
                     vk::check(d.vkd.vkEndCommandBuffer(command), "benchmark end");
@@ -190,7 +194,7 @@ namespace probes {
             d.vkd.vkDestroyFence(d.device, fence, nullptr);
             d.vkd.vkDestroyCommandPool(d.device, pool, nullptr);
             d.destroy(image);
-            require(d.validation_messages == 0, "Vulkan validation");
+            require(scene.reasons.empty(), "the Vulkan pass drew everything");
             return out;
         }
 #endif

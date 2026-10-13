@@ -37,10 +37,10 @@ def gpu_report(path):
 
 def window_report(path):
     value = load(path / 'preview-session.json')
-    assert value['case_count'] == 72 and value['native_pixel_cases'] == 68
+    assert value['case_count'] == 75 and value['native_pixel_cases'] == 71
     assert value['frames'] == value['actual_completed_submissions'] == 160
-    assert value['card_geometry_checks'] == 288 and value['cached_full_packet_checks'] == 17
-    assert value['cpu_pixel_samples'] == 1680 and value['cpu_pixel_max_difference'] <= 3
+    assert value['card_geometry_checks'] == 300 and value['cached_full_packet_checks'] == 17
+    assert value['cpu_pixel_samples'] == 2184 and value['cpu_pixel_max_difference'] <= 3
     assert value['peak_in_flight'] == 2 and value['debug_warning_error_count'] == 0
     thread = load(path / 'thread-work.json')
     assert thread['accepted_inputs'] == thread['processed_inputs'] == 16
@@ -102,7 +102,7 @@ for name, config in [('release', 'Release'), ('debug', 'Debug')]:
     runs[name]['cluster_hardware'] = gpu_report(out / ('gpu-hardware' + hardware_suffix))
     runs[name]['window_hardware'] = window_report(out / ('window' + hardware_suffix))
     retirement = load(destination / 'scene-surface-retirement-ctest/warp/report.json')
-    assert retirement['fixed_submissions'] == retirement['fixed_completions'] == 206 and retirement['peak_live_slots'] <= 6 and retirement['peak_imported_bytes'] <= 536870912
+    assert retirement['fixed_submissions'] == retirement['fixed_completions'] == 221 and retirement['peak_live_slots'] <= 6 and retirement['peak_imported_bytes'] <= 536870912
     runs[name]['surface_retirement_warp'] = retirement
     scroll = load(out / ('scroll-hardware' + hardware_suffix) / 'preview-session.json')
     assert scroll['frames'] == scroll['actual_completed_submissions'] == 120 and scroll['captures'] == 2 and scroll['scroll_regression'] and scroll['scene_gpu_hidden_retirements'] > 0 and scroll['scene_gpu_peak_imported_bytes'] <= 536870912 and scroll['debug_warning_error_count'] == 0
@@ -171,7 +171,7 @@ record = {
         'gpu_elapsed_limit': 'producer+UI query elapsed includes CPU queue gaps/owner wait; excludes HUD/Present; not pure GPU busy time',
         'nodes': '438 live shell nodes; 1061 full DOM element entries across the new 30 scenes at frame24 (380 D3 Interactive / 444 K-Line / 14 Framer / 12 Spring / 69 Icons / 142 Anime), excluding root/text; final geometry audit captures only div/button boxes it compares',
     },
-    'source_drift': drift, 'native_cases': 68, 'catalogue_cases': 72, 'pending_cases': 4,
+    'source_drift': drift, 'native_cases': 71, 'catalogue_cases': 75, 'pending_cases': 4,
     'original_full_gallery_rendered': False, 'ultralight_comparable': False, 'mobile_verified': False,
     'limits': ['bounded Windows scene/DOM/platform profile, not full browser or whole-library API support', 'original Anime Throw remains stationary in browser/native; pinned-library valid-transform inertia countertest passes', '2 MiB VM stack for new scene profiles; probe EXEs reserve 8 MiB host stack, production host headroom needs integration verification', 'hidden new rAF paused while timer pumped; benchmark contains no injected interactions', '2 WebGL and 4 Lottie cases pending', 'mobile configuration/compilation/link/simulator/device function/performance all unverified', 'full game integration/public owner C ABI/input-to-display latency/long run/total VRAM/fair Ultralight comparison unverified'],
     'exploration': 'earlier failure/debugger logs and targeted attempts retained separately; only final full logs and final hardware reports count as acceptance',

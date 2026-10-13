@@ -154,6 +154,9 @@ namespace weft::render::vulkan {
         // The area downsample, the Gaussian pass and the color matrix.
         std::array<VkPipeline, 3> backdrop_pipelines_{};
         VkSampler mirror_sampler_{};
+        // The distance between backdrop passes' constants in the buffer one recording gives them all: their size
+        // rounded up to the device's uniform buffer offset alignment.
+        VkDeviceSize backdrop_stride_{};
         VkPipeline under_pipeline_{};
         VkDescriptorSetLayout set_layout_{};
         VkPipelineLayout layout_{};

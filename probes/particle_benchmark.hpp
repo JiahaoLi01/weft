@@ -11,7 +11,8 @@
 // The 4K particle passes the particle benchmarks time (particle_benchmark.cpp): each frame a source gives drawn at scale
 // 2 into a 3840 x 2160 target, timed on the GPU by timestamps around the pass and on the CPU from the frame to its
 // submitted pass (display list, plan, upload, draw calls), the GPU idle before each frame. D3D11 on the adapter asked
-// for, and the Vulkan scene pass on this machine's device where built.
+// for, and the Vulkan scene pass on this machine's device where built, without the validation layer, into a target it
+// may read (backdrops at its level copy from it).
 namespace probes::particle_benchmark {
     inline constexpr unsigned target_width = 3840;
     inline constexpr unsigned target_height = 2160;

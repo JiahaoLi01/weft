@@ -1,0 +1,841 @@
+{
+ "format": "gallery-glass-reference-v1",
+ "browser": "Chrome/155.0.8059.40",
+ "gpu": {
+  "devices": [
+   {
+    "name": "NVIDIA GeForce RTX 5090",
+    "driver": "32.0.16.1062"
+   },
+   {
+    "name": "AMD Radeon(TM) Graphics",
+    "driver": "32.0.21043.5001"
+   },
+   {
+    "name": "Microsoft Basic Render Driver",
+    "driver": "10.0.26100.9278"
+   }
+  ],
+  "features": {
+   "2d_canvas": "enabled",
+   "direct_rendering_display_compositor": "disabled_off_ok",
+   "gpu_compositing": "enabled",
+   "multiple_raster_threads": "enabled_on",
+   "opengl": "enabled_on",
+   "rasterization": "enabled",
+   "raw_draw": "disabled_off_ok",
+   "skia_graphite": "disabled_off",
+   "trees_in_viz": "disabled_off",
+   "video_decode": "enabled",
+   "video_encode": "enabled",
+   "webgl": "enabled",
+   "webgpu": "enabled",
+   "webnn": "disabled_off"
+  }
+ },
+ "dpr": 1,
+ "width": 1596,
+ "height": 800,
+ "frames": 121,
+ "cases": [
+  {
+   "id": "glass-00",
+   "index": 0,
+   "captures": [
+    {
+     "frame": 0,
+     "time": 0,
+     "state": {
+      "kind": "frosted",
+      "count": 4,
+      "drags": 0,
+      "windows": [
+       {
+        "title": "Inventory 1",
+        "rect": [
+         48,
+         48,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Party 2",
+        "rect": [
+         205,
+         119,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Quest Log 3",
+        "rect": [
+         362,
+         190,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Map 4",
+        "rect": [
+         519,
+         261,
+         360,
+         232
+        ]
+       }
+      ]
+     },
+     "errors": []
+    },
+    {
+     "frame": 36,
+     "time": 600,
+     "state": {
+      "kind": "frosted",
+      "count": 4,
+      "drags": 0,
+      "windows": [
+       {
+        "title": "Inventory 1",
+        "rect": [
+         48,
+         48,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Party 2",
+        "rect": [
+         205,
+         119,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Quest Log 3",
+        "rect": [
+         362,
+         190,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Map 4",
+        "rect": [
+         519,
+         261,
+         360,
+         232
+        ]
+       }
+      ]
+     },
+     "errors": []
+    },
+    {
+     "frame": 72,
+     "time": 1200,
+     "state": {
+      "kind": "frosted",
+      "count": 4,
+      "drags": 1,
+      "windows": [
+       {
+        "title": "Party 2",
+        "rect": [
+         205,
+         119,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Quest Log 3",
+        "rect": [
+         362,
+         190,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Map 4",
+        "rect": [
+         519,
+         261,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Inventory 1",
+        "rect": [
+         288,
+         168,
+         360,
+         232
+        ]
+       }
+      ]
+     },
+     "errors": []
+    },
+    {
+     "frame": 120,
+     "time": 2000.0000000000002,
+     "state": {
+      "kind": "frosted",
+      "count": 5,
+      "drags": 1,
+      "windows": [
+       {
+        "title": "Party 2",
+        "rect": [
+         205,
+         119,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Quest Log 3",
+        "rect": [
+         362,
+         190,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Map 4",
+        "rect": [
+         519,
+         261,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Inventory 1",
+        "rect": [
+         288,
+         168,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Skills 5",
+        "rect": [
+         676,
+         332,
+         360,
+         232
+        ]
+       }
+      ]
+     },
+     "errors": []
+    }
+   ],
+   "input_trace": [
+    {
+     "frame": 40,
+     "x": 264,
+     "y": 68,
+     "target": "header"
+    },
+    {
+     "frame": 44,
+     "x": 324,
+     "y": 98,
+     "target": "div"
+    },
+    {
+     "frame": 48,
+     "x": 384,
+     "y": 128,
+     "target": "div"
+    },
+    {
+     "frame": 52,
+     "x": 444,
+     "y": 158,
+     "target": "div"
+    },
+    {
+     "frame": 56,
+     "x": 504,
+     "y": 188,
+     "target": "div"
+    },
+    {
+     "frame": 60,
+     "x": 504,
+     "y": 188,
+     "target": "header"
+    },
+    {
+     "frame": 80,
+     "x": 784.4296875,
+     "y": 756,
+     "target": "div"
+    },
+    {
+     "frame": 84,
+     "x": 784.4296875,
+     "y": 756,
+     "target": "div"
+    },
+    {
+     "frame": 100,
+     "x": 602.4296875,
+     "y": 756,
+     "target": "div"
+    }
+   ]
+  },
+  {
+   "id": "glass-01",
+   "index": 1,
+   "captures": [
+    {
+     "frame": 0,
+     "time": 0,
+     "state": {
+      "kind": "plain",
+      "count": 4,
+      "drags": 0,
+      "windows": [
+       {
+        "title": "Inventory 1",
+        "rect": [
+         48,
+         48,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Party 2",
+        "rect": [
+         205,
+         119,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Quest Log 3",
+        "rect": [
+         362,
+         190,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Map 4",
+        "rect": [
+         519,
+         261,
+         360,
+         232
+        ]
+       }
+      ]
+     },
+     "errors": []
+    },
+    {
+     "frame": 36,
+     "time": 600,
+     "state": {
+      "kind": "plain",
+      "count": 4,
+      "drags": 0,
+      "windows": [
+       {
+        "title": "Inventory 1",
+        "rect": [
+         48,
+         48,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Party 2",
+        "rect": [
+         205,
+         119,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Quest Log 3",
+        "rect": [
+         362,
+         190,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Map 4",
+        "rect": [
+         519,
+         261,
+         360,
+         232
+        ]
+       }
+      ]
+     },
+     "errors": []
+    },
+    {
+     "frame": 72,
+     "time": 1200,
+     "state": {
+      "kind": "plain",
+      "count": 4,
+      "drags": 1,
+      "windows": [
+       {
+        "title": "Party 2",
+        "rect": [
+         205,
+         119,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Quest Log 3",
+        "rect": [
+         362,
+         190,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Map 4",
+        "rect": [
+         519,
+         261,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Inventory 1",
+        "rect": [
+         288,
+         168,
+         360,
+         232
+        ]
+       }
+      ]
+     },
+     "errors": []
+    },
+    {
+     "frame": 120,
+     "time": 2000.0000000000002,
+     "state": {
+      "kind": "plain",
+      "count": 5,
+      "drags": 1,
+      "windows": [
+       {
+        "title": "Party 2",
+        "rect": [
+         205,
+         119,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Quest Log 3",
+        "rect": [
+         362,
+         190,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Map 4",
+        "rect": [
+         519,
+         261,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Inventory 1",
+        "rect": [
+         288,
+         168,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Skills 5",
+        "rect": [
+         676,
+         332,
+         360,
+         232
+        ]
+       }
+      ]
+     },
+     "errors": []
+    }
+   ],
+   "input_trace": [
+    {
+     "frame": 40,
+     "x": 264,
+     "y": 68,
+     "target": "header"
+    },
+    {
+     "frame": 44,
+     "x": 324,
+     "y": 98,
+     "target": "div"
+    },
+    {
+     "frame": 48,
+     "x": 384,
+     "y": 128,
+     "target": "div"
+    },
+    {
+     "frame": 52,
+     "x": 444,
+     "y": 158,
+     "target": "div"
+    },
+    {
+     "frame": 56,
+     "x": 504,
+     "y": 188,
+     "target": "div"
+    },
+    {
+     "frame": 60,
+     "x": 504,
+     "y": 188,
+     "target": "header"
+    },
+    {
+     "frame": 80,
+     "x": 784.4296875,
+     "y": 756,
+     "target": "div"
+    },
+    {
+     "frame": 84,
+     "x": 784.4296875,
+     "y": 756,
+     "target": "div"
+    },
+    {
+     "frame": 100,
+     "x": 602.4296875,
+     "y": 756,
+     "target": "div"
+    }
+   ]
+  },
+  {
+   "id": "glass-02",
+   "index": 2,
+   "captures": [
+    {
+     "frame": 0,
+     "time": 0,
+     "state": {
+      "kind": "blur",
+      "count": 4,
+      "drags": 0,
+      "windows": [
+       {
+        "title": "Inventory 1",
+        "rect": [
+         48,
+         48,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Party 2",
+        "rect": [
+         205,
+         119,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Quest Log 3",
+        "rect": [
+         362,
+         190,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Map 4",
+        "rect": [
+         519,
+         261,
+         360,
+         232
+        ]
+       }
+      ]
+     },
+     "errors": []
+    },
+    {
+     "frame": 36,
+     "time": 600,
+     "state": {
+      "kind": "blur",
+      "count": 4,
+      "drags": 0,
+      "windows": [
+       {
+        "title": "Inventory 1",
+        "rect": [
+         48,
+         48,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Party 2",
+        "rect": [
+         205,
+         119,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Quest Log 3",
+        "rect": [
+         362,
+         190,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Map 4",
+        "rect": [
+         519,
+         261,
+         360,
+         232
+        ]
+       }
+      ]
+     },
+     "errors": []
+    },
+    {
+     "frame": 72,
+     "time": 1200,
+     "state": {
+      "kind": "blur",
+      "count": 4,
+      "drags": 1,
+      "windows": [
+       {
+        "title": "Party 2",
+        "rect": [
+         205,
+         119,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Quest Log 3",
+        "rect": [
+         362,
+         190,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Map 4",
+        "rect": [
+         519,
+         261,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Inventory 1",
+        "rect": [
+         288,
+         168,
+         360,
+         232
+        ]
+       }
+      ]
+     },
+     "errors": []
+    },
+    {
+     "frame": 120,
+     "time": 2000.0000000000002,
+     "state": {
+      "kind": "blur",
+      "count": 5,
+      "drags": 1,
+      "windows": [
+       {
+        "title": "Party 2",
+        "rect": [
+         205,
+         119,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Quest Log 3",
+        "rect": [
+         362,
+         190,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Map 4",
+        "rect": [
+         519,
+         261,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Inventory 1",
+        "rect": [
+         288,
+         168,
+         360,
+         232
+        ]
+       },
+       {
+        "title": "Skills 5",
+        "rect": [
+         676,
+         332,
+         360,
+         232
+        ]
+       }
+      ]
+     },
+     "errors": []
+    }
+   ],
+   "input_trace": [
+    {
+     "frame": 40,
+     "x": 264,
+     "y": 68,
+     "target": "header"
+    },
+    {
+     "frame": 44,
+     "x": 324,
+     "y": 98,
+     "target": "div"
+    },
+    {
+     "frame": 48,
+     "x": 384,
+     "y": 128,
+     "target": "div"
+    },
+    {
+     "frame": 52,
+     "x": 444,
+     "y": 158,
+     "target": "div"
+    },
+    {
+     "frame": 56,
+     "x": 504,
+     "y": 188,
+     "target": "div"
+    },
+    {
+     "frame": 60,
+     "x": 504,
+     "y": 188,
+     "target": "header"
+    },
+    {
+     "frame": 80,
+     "x": 784.4296875,
+     "y": 756,
+     "target": "div"
+    },
+    {
+     "frame": 84,
+     "x": 784.4296875,
+     "y": 756,
+     "target": "div"
+    },
+    {
+     "frame": 100,
+     "x": 602.4296875,
+     "y": 756,
+     "target": "div"
+    }
+   ]
+  }
+ ],
+ "source_files": {
+  "examples/crpg-gallery/glass-cases.json": "480434f257211f17227d5f392a71ece7066b5fa2bb31c583a0475ecb5ab23f02",
+  "examples/crpg-gallery/glass-keyframes.css": "43547b0eedb5b37f7fb4c8951087908efa95eb6b5ea0907bb94e57ed0113e97e",
+  "examples/crpg-gallery/glass-utilities.css": "49eb86ab8b317e197fd72509e7ed7473693127d984ca8b54e5135a338ed28815",
+  "examples/crpg-gallery/native/GLASS_TESTS.js": "c6bd88c2c6eb794fc7ad692484d1e4369e275479f2a0f56a5bfea532d083f134",
+  "examples/crpg-gallery/native/platform.js": "726eb6e00c9f4a231b3cfda8910b4fc48440aedd88c5cf8b421334e9c1ff4a24",
+  "probes/cluster_reference_clock.js": "b8455c8854ef62d8239a6caf7c0b51799bd3ab36def02679e9c543cbf335b1fe",
+  "probes/page_reference_clock.js": "adadd7dfa6fd5c1861dd8ab9d590d0608077eeaa09a849c30d46a199e494568d",
+  "tools/browser_glass_page_reference.mjs": "a4b1fa2f4adb4e670ac076d963d5aa16a8e52535bca87a4bb1ccd2a082adc898"
+ }
+}

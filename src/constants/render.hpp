@@ -153,10 +153,12 @@ namespace weft::constants::render {
         inline constexpr unsigned spare_buffer_max_bytes = 16u * constants::bytes_per_mib;
         inline constexpr unsigned spare_buffer_min_bytes = 64u * constants::bytes_per_kib;
         inline constexpr int descriptor_pool_min_sets = 16;
-        // What a scene slot keeps of its recordings for its next ones: buffers, scratch images (by size) and
-        // descriptor pools.
+        // What a scene slot keeps of its recordings for its next ones: buffers, scratch images (by size; as many as
+        // fit in scene_slot_spare_image_bytes, which holds the scratch of 32 glass windows at 4K) and descriptor
+        // pools.
         inline constexpr int scene_slot_spare_buffers = 64;
-        inline constexpr int scene_slot_spare_images = 16;
+        inline constexpr int scene_slot_spare_images = 256;
+        inline constexpr unsigned scene_slot_spare_image_bytes = 64u * constants::bytes_per_mib;
         inline constexpr int scene_slot_spare_pools = 16;
         // Images of at most block_image_max_bytes share blocks of image_block_bytes of device-local memory: one
         // allocation per block instead of one per image. A device keeps one empty block of each memory type.

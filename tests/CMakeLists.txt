@@ -197,6 +197,17 @@ if(WIN32)
     endif()
     weft_add_test(NAME scene_particle_page COMMAND weft_scene_particle_page_tests
         "${artifacts}/particle-page-$<CONFIG>" TIMEOUT 300)
+    # The gallery's translucent window page: frosted, plain and blur-only windows over a moving background, dragged,
+    # added and removed, against Chrome's replay of the same frames and inputs.
+    weft_add_executable(weft_scene_glass_page_tests
+        SOURCES scene_glass_page_tests.cpp
+        LINK ${particle_page_links}
+        SOURCE_DIR LARGE_STACK)
+    if(WEFT_RENDER_VULKAN)
+        target_compile_definitions(weft_scene_glass_page_tests PRIVATE WEFT_TEST_VULKAN)
+    endif()
+    weft_add_test(NAME scene_glass_page COMMAND weft_scene_glass_page_tests
+        "${artifacts}/glass-page-$<CONFIG>" TIMEOUT 300)
 
     weft_add_executable(weft_scene_gallery_tests
         SOURCES scene_gallery_tests.cpp

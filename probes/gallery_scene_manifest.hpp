@@ -3,10 +3,10 @@
 #include <cstddef>
 #include <string>
 #include "gallery_constants.hpp"
-// The CSS_TESTS and D3_TESTS cards, the cluster groups' cases, the CRPG UI's nested tooltip page and the UI particle
-// page.
-inline constexpr unsigned gallery_scene_count = 66;
-inline constexpr unsigned gallery_native_case_count = 68;
+// The CSS_TESTS and D3_TESTS cards, the cluster groups' cases, the CRPG UI's nested tooltip page, the UI particle page
+// and the translucent window page's cases.
+inline constexpr unsigned gallery_scene_count = 69;
+inline constexpr unsigned gallery_native_case_count = 71;
 
 struct GallerySceneDescriptor {
     const char* group;
@@ -41,9 +41,12 @@ inline constexpr auto gallery_scene_descriptors = [] {
         }
     }
     // The tooltip page at the size of its Chrome reference (examples/crpg-gallery/tooltip-cases.json), the particle page
-    // at the same.
+    // and the glass page's cases (examples/crpg-gallery/glass-cases.json) at the same.
     out[n++] = {"TOOLTIP_TESTS", 0, weft::probe_constants::gallery::catalog_case_count, 1596, 800};
     out[n++] = {"PARTICLE_TESTS", 0, weft::probe_constants::gallery::catalog_case_count, 1596, 800};
+    for (unsigned i = 0; i < unsigned(weft::probe_constants::gallery::glass_case_count); ++i) {
+        out[n++] = {"GLASS_TESTS", i, weft::probe_constants::gallery::catalog_case_count, 1596, 800};
+    }
     return out;
 }();
 
@@ -58,9 +61,13 @@ struct GalleryWindowPage {
 
 inline constexpr std::array<GalleryWindowPage, weft::probe_constants::gallery::window_page_count> gallery_window_pages{
     {{"tooltip-00", "TOOLTIP_TESTS", "CRPG Tooltip", "CRPG: Nested Tooltip + Smoke"},
-     {"particles-00", "PARTICLE_TESTS", "UI Particles", "UI Particles: Campfire, Loot, Rune, Motes"}}};
+     {"particles-00", "PARTICLE_TESTS", "UI Particles", "UI Particles: Campfire, Loot, Rune, Motes"},
+     {"glass-00", "GLASS_TESTS", "Translucent Windows", "Glass: Frosted - blur, saturate, tint, highlight"},
+     {"glass-01", "GLASS_TESTS", "Translucent Windows", "Glass: Plain Translucent - tint only"},
+     {"glass-02", "GLASS_TESTS", "Translucent Windows", "Glass: Blur Only - no tint"}}};
 
-// Whether the D2D reference raster draws the scene: it reports UI shader effects and particles instead.
+// Whether the D2D reference raster draws the scene: it reports UI shader effects, particles and backdrop filters
+// instead.
 inline bool gallery_reference_raster(unsigned scene) {
     return scene < unsigned(weft::probe_constants::gallery::tooltip_page_scene);
 }

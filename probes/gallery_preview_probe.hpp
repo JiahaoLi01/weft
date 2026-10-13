@@ -54,6 +54,10 @@ namespace probes {
         if (group == "PARTICLE_TESTS") {
             return "Native UI particle page; -weft-particles streams and weft.emitParticles bursts; fixed-clock pixels";
         }
+        if (group == "GLASS_TESTS") {
+            return "Native translucent window page; backdrop-filter over a moving background; Chrome frame-by-frame "
+                   "reference";
+        }
         if (group == "WEBGL_TESTS") {
             return "WebGL context / Three.js GPU path not implemented";
         }
@@ -82,7 +86,7 @@ namespace probes {
                 << json_string(c.group == "WEBGL_TESTS" && c.index < weft::probe_constants::gallery::canvas_case_count
                                    ? "native_canvas_profile"
                                : c.group == "CSS_TESTS" || c.group == "D3_TESTS" || gallery_cluster_group(c.group) ||
-                                       c.group == "TOOLTIP_TESTS"
+                                       c.group == "TOOLTIP_TESTS" || c.group == "GLASS_TESTS"
                                    ? "native_scene_profile"
                                    : "not_passed")
                 << '}';
@@ -217,6 +221,7 @@ namespace probes {
         for (unsigned k = 0; k < gallery_window_pages.size(); ++k) {
             const auto& p = gallery_window_pages[k];
             GalleryPreviewCase page{p.id, p.group, p.label};
+            page.index = gallery_scene_descriptors[weft::probe_constants::gallery::tooltip_page_scene + k].index;
             page.reason = gallery_preview_gap(page.group);
 #ifdef WEFT_REACT_GC_STRESS
             page.execution = "not_run_gc_instrumentation";

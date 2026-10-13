@@ -52,4 +52,10 @@ reference = json.loads((root / 'tests/fixtures/tooltip-reference/report.json').r
 for name, digest in reference['source_files'].items():
     if hashlib.sha256((root / name).read_bytes()).hexdigest() != digest:
         raise SystemExit('Tooltip reference drift: ' + name)
+# The translucent window page's Chrome reference (tools/browser_glass_page_reference.mjs) was recorded from these
+# files, hashed with LF line ends as Git stores them.
+glass = json.loads((root / 'tests/fixtures/glass-reference/report.json').read_text(encoding='utf-8'))
+for name, digest in glass['source_files'].items():
+    if hashlib.sha256((root / name).read_bytes().replace(b'\r\n', b'\n')).hexdigest() != digest:
+        raise SystemExit('Glass reference drift: ' + name)
 print(f'PASS immutable gallery source, {len(asset_manifest["files"])} bitmaps and {len(cases)} original case records')

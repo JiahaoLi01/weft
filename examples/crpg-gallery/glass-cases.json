@@ -1,0 +1,50 @@
+{
+  "format": "gallery-glass-page-v1",
+  "note": "The translucent window page (GLASS_TESTS, examples/crpg-gallery/native/GLASS_TESTS.js) as three gallery cases: frosted, plain translucent and blur-only windows over a background that moves every frame. Frames at 60 Hz with the inputs of the acceptance: drag the bottom window by its title bar (it comes to the front), then + twice and - once. Captures: the first frame, the background moved, after the drag, after the count changed.",
+  "groups": [
+    {
+      "name": "GLASS_TESTS",
+      "prefix": "glass",
+      "count": 3,
+      "width": 1596,
+      "height": 800
+    }
+  ],
+  "frames": 121,
+  "capture_frames": [0, 36, 72, 120],
+  "inputs": {
+    "glass-00": [
+      {"frame": 40, "action": "down", "x": 264, "y": 68, "buttons": 1},
+      {"frame": 44, "action": "move", "x": 324, "y": 98, "buttons": 1},
+      {"frame": 48, "action": "move", "x": 384, "y": 128, "buttons": 1},
+      {"frame": 52, "action": "move", "x": 444, "y": 158, "buttons": 1},
+      {"frame": 56, "action": "move", "x": 504, "y": 188, "buttons": 1},
+      {"frame": 60, "action": "up", "x": 504, "y": 188},
+      {"frame": 80, "action": "click", "selector": ".gw-more"},
+      {"frame": 84, "action": "click", "selector": ".gw-more"},
+      {"frame": 100, "action": "click", "selector": ".gw-less"}
+    ],
+    "glass-01": [
+      {"frame": 40, "action": "down", "x": 264, "y": 68, "buttons": 1},
+      {"frame": 44, "action": "move", "x": 324, "y": 98, "buttons": 1},
+      {"frame": 48, "action": "move", "x": 384, "y": 128, "buttons": 1},
+      {"frame": 52, "action": "move", "x": 444, "y": 158, "buttons": 1},
+      {"frame": 56, "action": "move", "x": 504, "y": 188, "buttons": 1},
+      {"frame": 60, "action": "up", "x": 504, "y": 188},
+      {"frame": 80, "action": "click", "selector": ".gw-more"},
+      {"frame": 84, "action": "click", "selector": ".gw-more"},
+      {"frame": 100, "action": "click", "selector": ".gw-less"}
+    ],
+    "glass-02": [
+      {"frame": 40, "action": "down", "x": 264, "y": 68, "buttons": 1},
+      {"frame": 44, "action": "move", "x": 324, "y": 98, "buttons": 1},
+      {"frame": 48, "action": "move", "x": 384, "y": 128, "buttons": 1},
+      {"frame": 52, "action": "move", "x": 444, "y": 158, "buttons": 1},
+      {"frame": 56, "action": "move", "x": 504, "y": 188, "buttons": 1},
+      {"frame": 60, "action": "up", "x": 504, "y": 188},
+      {"frame": 80, "action": "click", "selector": ".gw-more"},
+      {"frame": 84, "action": "click", "selector": ".gw-more"},
+      {"frame": 100, "action": "click", "selector": ".gw-less"}
+    ]
+  }
+}

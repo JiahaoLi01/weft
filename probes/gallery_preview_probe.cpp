@@ -176,8 +176,9 @@ namespace probes {
         }
         std::filesystem::create_directories(folder);
         const auto startup = std::chrono::steady_clock::now();
-        std::cout << "Observing the window's 72 cases, 70 fixed original cases and its two pages (isolated, 12 "
-                     "opportunities; no full CSS/pixel pass)...\n";
+        std::cout << "Observing the window's " << weft::probe_constants::gallery::window_case_count
+                  << " cases, 70 fixed original cases and its " << weft::probe_constants::gallery::window_page_count
+                  << " pages (isolated, 12 opportunities; no full CSS/pixel pass)...\n";
         auto profile_control = std::make_shared<TraceControl>();
         profile_control->enabled = profile || !benchmark.empty();
         GalleryLiveProfiler live_profiler;
@@ -196,7 +197,7 @@ namespace probes {
             "{\"format\":\"gallery-preview-cases-v1\",\"case_count\":" +
                 std::to_string(weft::probe_constants::gallery::window_case_count) +
                 ",\"native_pixel_cases\":" + std::to_string(gallery_native_case_count) +
-                ",\"retired_cases\":[\"webgl-02\",\"webgl-03\"],\"original_full_gallery_rendered\":false,\"conditions\":{\"isolated_opportunities\":12,\"canvas_host\":true,\"css\":\"Fixed Tailwind utilities, 64 original CSS/SVG/animation scenes, two original Canvas cases, the nested tooltip page and the UI particle page\",\"input_dispatched\":false},\"cases\":" +
+                ",\"retired_cases\":[\"webgl-02\",\"webgl-03\"],\"original_full_gallery_rendered\":false,\"conditions\":{\"isolated_opportunities\":12,\"canvas_host\":true,\"css\":\"Fixed Tailwind utilities, 64 original CSS/SVG/animation scenes, two original Canvas cases, the nested tooltip page, the UI particle page and the translucent window page\",\"input_dispatched\":false},\"cases\":" +
                 records + "}");
         // Live benchmarks show the window, so presents go through the same DWM composition as the interactive window.
         NativeReactWindow window(!self_test && (benchmark.empty() || live), true);
@@ -399,9 +400,9 @@ namespace probes {
         unsigned captures{};
         unsigned seen_cases{};
         std::array<unsigned, weft::probe_constants::gallery::canvas_case_count> raf_calls{};
-        const char* groups[]{"CSS_TESTS",   "D3_TESTS",     "D3_INTERACTIVE_TESTS", "KLINE_TESTS",
-                             "WEBGL_TESTS", "FRAMER_TESTS", "SPRING_TESTS",         "ICON_TESTS",
-                             "ANIME_TESTS", "LOTTIE_TESTS", "TOOLTIP_TESTS",        "PARTICLE_TESTS"};
+        const char* groups[]{"CSS_TESTS",     "D3_TESTS",       "D3_INTERACTIVE_TESTS", "KLINE_TESTS", "WEBGL_TESTS",
+                             "FRAMER_TESTS",  "SPRING_TESTS",   "ICON_TESTS",           "ANIME_TESTS", "LOTTIE_TESTS",
+                             "TOOLTIP_TESTS", "PARTICLE_TESTS", "GLASS_TESTS"};
         std::array<bool, weft::probe_constants::gallery::window_case_count> seen{};
         // The window's steps on the nested tooltip page: the frame the walk captures its section at, its first
         // keyword's centre and a point of the first item card's smoke, in page px (tests/fixtures/tooltip-reference
@@ -417,6 +418,13 @@ namespace probes {
         constexpr float particle_chest[]{798, 426};
         constexpr float particle_fire[]{220.33f, 460.5f, 110, 120};
         constexpr int particle_fire_red = 200;
+        // The window's steps on the translucent window page: the frame the walk captures its section at, then a real
+        // queued drag of the frosted case's bottom window by a point of its title bar (glass_drag[0..1], in page px)
+        // by glass_drag[2..3] in glass_drag_steps moves, which brings it to the front where it lands, and a click on
+        // the case's + (examples/crpg-gallery/glass-cases.json drags it the same way).
+        constexpr unsigned glass_capture_frame = 78;
+        constexpr float glass_drag[]{264, 68, 240, 120};
+        constexpr int glass_drag_steps = 4;
         std::array<bool, weft::probe_constants::gallery::canvas_case_count> visible{};
         const std::array<weft::NodeIdentity, weft::probe_constants::gallery::canvas_case_count> slot_ids{
             shell.node_identity("#slot-webgl-00"), shell.node_identity("#slot-webgl-01")};
@@ -835,7 +843,8 @@ namespace probes {
                 request.time = time;
                 request.audit = self_test && !scroll_test &&
                                 (frames == 21 || frames == 34 || frames == page_capture_frame + 11 ||
-                                 frames == particle_capture_frame + 7);
+                                 frames == particle_capture_frame + 7 || frames == glass_capture_frame + 7 ||
+                                 frames == glass_capture_frame + 13);
                 for (unsigned i = 0; i < gallery_scene_count; ++i) {
                     auto r = scene_rect(i);
                     request.scenes[i] = r[1] < weft::probe_constants::gallery::shell_viewport_bottom &&
@@ -1231,6 +1240,7 @@ namespace probes {
                     frames <= unsigned(weft::probe_constants::gallery::catalog_group_count) ? int(frames) - 1
                     : frames == page_capture_frame     ? weft::probe_constants::gallery::catalog_group_count
                     : frames == particle_capture_frame ? weft::probe_constants::gallery::catalog_group_count + 1
+                    : frames == glass_capture_frame    ? weft::probe_constants::gallery::catalog_group_count + 2
                                                        : -1;
                 if (walk >= 0) {
                     pipeline.drain();
@@ -1334,9 +1344,9 @@ namespace probes {
                         }
                         // Independent expected card geometry from fixed TestGallery:
                         // four/three/two/one columns, original heights and gaps; the page at its reference size.
-                        const unsigned columns[]{4, 4, 1, 1, 1, 3, 3, 2, 4, 4, 1, 1};
-                        const unsigned heights[]{288, 384, 1500, 800, 600, 320, 288, 288, 288, 288, 800, 800};
-                        const unsigned gaps[]{12, 16, 16, 16, 16, 16, 16, 16, 12, 12, 16, 16};
+                        const unsigned columns[]{4, 4, 1, 1, 1, 3, 3, 2, 4, 4, 1, 1, 1};
+                        const unsigned heights[]{288, 384, 1500, 800, 600, 320, 288, 288, 288, 288, 800, 800, 800};
+                        const unsigned gaps[]{12, 16, 16, 16, 16, 16, 16, 16, 12, 12, 16, 16, 16};
                         double offset{};
                         double scroll{};
                         for (const auto& e : current->elements) {
@@ -1473,6 +1483,59 @@ namespace probes {
                         }
                     }
                     require(brightest > particle_fire_red, "the campfire's particles drawn in the window");
+                    jump(0);
+                }
+                // The translucent window page in its section: captured by the walk above, then a real queued drag of
+                // the frosted case's bottom window by its title bar brings it to the front where it lands, and a real
+                // queued click on + adds a window; the scene pass copies and blurs what lies behind the windows.
+                const unsigned glass_scene = weft::probe_constants::gallery::glass_page_scene;
+                const auto glass_point = [&](float x, float y) {
+                    const auto r = scene_rect(glass_scene);
+                    return MAKELPARAM(int((r[0] + x) * weft::probe_constants::gallery::shell_device_scale),
+                                      int((r[1] + y) * weft::probe_constants::gallery::shell_device_scale));
+                };
+                const auto glass_state = [&] {
+                    return owner ? owner_frame->glass_state : scenes[glass_scene]->vm.eval("__ceGlassPage.state()");
+                };
+                if (frames == glass_capture_frame - 2) {
+                    jump(weft::probe_constants::gallery::catalog_group_count + 2);
+                }
+                if (frames == glass_capture_frame) {
+                    require(PostMessageW(window.state.hwnd, WM_LBUTTONDOWN, MK_LBUTTON,
+                                         glass_point(glass_drag[0], glass_drag[1])),
+                            "glass window queued press");
+                    for (int step = 1; step <= glass_drag_steps; ++step) {
+                        const float f = float(step) / glass_drag_steps;
+                        require(PostMessageW(
+                                    window.state.hwnd, WM_MOUSEMOVE, MK_LBUTTON,
+                                    glass_point(glass_drag[0] + glass_drag[2] * f, glass_drag[1] + glass_drag[3] * f)),
+                                "glass window queued drag");
+                    }
+                    require(PostMessageW(window.state.hwnd, WM_LBUTTONUP, 0,
+                                         glass_point(glass_drag[0] + glass_drag[2], glass_drag[1] + glass_drag[3])),
+                            "glass window queued release");
+                }
+                if (frames == glass_capture_frame + 8) {
+                    // The dragged window ("Inventory 1", first at 48, 48) is last in the stack, moved by the drag.
+                    const auto state = glass_state();
+                    require(state.find("\"drags\":1") != std::string::npos &&
+                                state.find("{\"title\":\"Inventory 1\",\"rect\":[288,168,360,232]}]}") !=
+                                    std::string::npos,
+                            "window drag did not move the glass window to the front: " + state);
+                    const auto more = glass_point(weft::probe_constants::gallery::glass_more_button[0],
+                                                  weft::probe_constants::gallery::glass_more_button[1]);
+                    require(PostMessageW(window.state.hwnd, WM_LBUTTONDOWN, MK_LBUTTON, more) &&
+                                PostMessageW(window.state.hwnd, WM_LBUTTONUP, 0, more),
+                            "glass page queued click on +");
+                }
+                if (frames == glass_capture_frame + 14) {
+                    const auto state = glass_state();
+                    require(state.find("\"count\":5") != std::string::npos,
+                            "window click on + did not add a glass window: " + state);
+                    pipeline.drain();
+                    require(scene_gpu.native_work().backdrop_passes > 0, "the glass windows' backdrops in the window");
+                    save_png(folder / "glass-drag.png", presenter.pixels(), weft::constants::uhd_width,
+                             weft::constants::uhd_height);
                     jump(0);
                 }
                 if (frames == 11) { // Real queued mouse input, with scaled canvas coordinates.
@@ -1615,8 +1678,10 @@ namespace probes {
                 }
                 if (frames == 160) {
                     pipeline.drain();
-                    require(fps.ready && fps.fps > 0 && pause_count > 0 && static_rebuilds < 30,
-                            "gallery FPS/resume/static cache absent");
+                    require(fps.ready && fps.fps > 0 && pause_count > 0 &&
+                                static_rebuilds < weft::probe_constants::gallery::max_static_packet_rebuilds,
+                            "gallery FPS/resume/static cache absent: " + std::to_string(static_rebuilds) +
+                                " static packet rebuilds");
                     save_png(folder / "window-4k.png", presenter.pixels(), weft::constants::uhd_width,
                              weft::constants::uhd_height);
                     window.state.close_requested = true;
@@ -1902,6 +1967,7 @@ namespace probes {
                 ",\"image_evictions\":" + std::to_string(native.image_evictions) +
                 ",\"peak_pass_images\":" + std::to_string(native.peak_pass_images) +
                 ",\"peak_pass_image_bytes\":" + std::to_string(native.peak_pass_image_bytes) +
+                ",\"backdrop_passes\":" + std::to_string(native.backdrop_passes) +
                 ",\"native_layer_builds\":" + std::to_string(native.layer_builds) + ",\"native_layer_reuses\":" +
                 std::to_string(native.layer_reuses) + ",\"layer_builds\":" + std::to_string(raster_stats.layer_builds) +
                 ",\"layer_reuses\":" + std::to_string(raster_stats.layer_reuses) +
@@ -2015,7 +2081,7 @@ namespace probes {
                 GalleryPreviewSamples::json(samples.cpu) +
                 ",\"gpu_producer_and_ui_elapsed_ms\":" + GalleryPreviewSamples::json(samples.gpu) +
                 ",\"present_interval_ms\":" + GalleryPreviewSamples::json(samples.interval) +
-                ",\"startup_including_71_observations_ms\":" + format_host_time(startup_ms) +
+                ",\"startup_including_observations_ms\":" + format_host_time(startup_ms) +
                 ",\"gpu_cached_peak_bytes\":" + std::to_string(gpu.cache.peak_bytes) +
                 ",\"gpu_cache_budget_bytes\":536870912,\"retired_textures\":" + std::to_string(gpu.native_releases) +
                 ",\"actual_completed_submissions\":" + std::to_string(pipeline.completions) +

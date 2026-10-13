@@ -18,12 +18,14 @@ namespace weft::probe_constants::gallery {
     inline constexpr int catalog_case_count = 72;
     inline constexpr int catalog_group_count = 10;
     // The gallery window shows the catalogue without its two Three.js cases (webgl-02 and webgl-03: WebGL is not a
-    // product target) and, after the others, pages of its own, each in a section of its own: the CRPG UI's nested
-    // tooltip page and the UI particle page.
+    // product target) and, after the others, pages of its own in sections of their own: the CRPG UI's nested tooltip
+    // page, the UI particle page and the translucent window page's three cases (frosted, plain, blur only).
     inline constexpr int retired_case_count = 2;
-    inline constexpr int window_page_count = 2;
+    inline constexpr int glass_case_count = 3;
+    inline constexpr int window_page_count = 2 + glass_case_count;
+    inline constexpr int window_section_count = 3;
     inline constexpr int window_case_count = catalog_case_count - retired_case_count + window_page_count;
-    inline constexpr int window_group_count = catalog_group_count + window_page_count;
+    inline constexpr int window_group_count = catalog_group_count + window_section_count;
     // CSS_TESTS and D3_TESTS scenes come first in the scene manifest; cluster scenes follow them.
     inline constexpr int css_scene_count = 26;
     inline constexpr int d3_scene_count = 8;
@@ -44,11 +46,14 @@ namespace weft::probe_constants::gallery {
     inline constexpr int scatter_scene = 37;
     inline constexpr int kline_scene = 38;
     inline constexpr int anime_drag_scene = 58;
-    // The cluster scenes end where the window's pages, the last scenes, begin: the nested tooltip page, then the UI
-    // particle page.
+    // The cluster scenes end where the window's pages, the last scenes, begin: the nested tooltip page, the UI
+    // particle page, then the translucent window page's cases.
     inline constexpr int cluster_scene_end = 64;
     inline constexpr int tooltip_page_scene = cluster_scene_end;
     inline constexpr int particle_page_scene = tooltip_page_scene + 1;
+    inline constexpr int glass_page_scene = particle_page_scene + 1;
+    // The centre of the glass page's + in page px (tests/scene_glass_page_tests.cpp checks it).
+    inline constexpr float glass_more_button[]{784, 756};
 
     // --- Script hosts ---
 
@@ -211,6 +216,9 @@ namespace weft::probe_constants::gallery {
     inline constexpr int oracle_grid_right = 2900;
     // Side in px of the crops a failing pixel oracle saves around its first failing point.
     inline constexpr int oracle_evidence_side = 64;
+    // The window self test rebuilds the shell's static packet when the shell's DOM changes: each section the walk jumps
+    // to, each hover and click on the shell (30 over its 160 frames). Fewer than this many, so the packet is cached.
+    inline constexpr std::size_t max_static_packet_rebuilds = 33;
     // Canvas probe oracle grid strides.
     inline constexpr int canvas_oracle_stride_x = 13;
     inline constexpr int canvas_oracle_stride_y = 11;
