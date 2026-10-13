@@ -182,6 +182,21 @@ if(WIN32)
         SOURCE_DIR LARGE_STACK)
     weft_add_test(NAME scene_tooltip_page COMMAND weft_scene_tooltip_page_tests "${artifacts}/tooltip-page-$<CONFIG>"
         TIMEOUT 300)
+    # The gallery's UI particle page: streams, loot flying to the counter, hover, density, and its pixels alike on
+    # D3D11 WARP and Vulkan (when built) and from two runs of the same clock.
+    set(particle_page_links ${scene_libraries} weft::scene_d3d11 weft_gallery_effects windowscodecs ole32)
+    if(WEFT_RENDER_VULKAN)
+        list(APPEND particle_page_links weft::scene_vulkan)
+    endif()
+    weft_add_executable(weft_scene_particle_page_tests
+        SOURCES scene_particle_page_tests.cpp
+        LINK ${particle_page_links}
+        SOURCE_DIR LARGE_STACK)
+    if(WEFT_RENDER_VULKAN)
+        target_compile_definitions(weft_scene_particle_page_tests PRIVATE WEFT_TEST_VULKAN)
+    endif()
+    weft_add_test(NAME scene_particle_page COMMAND weft_scene_particle_page_tests
+        "${artifacts}/particle-page-$<CONFIG>" TIMEOUT 300)
 
     weft_add_executable(weft_scene_gallery_tests
         SOURCES scene_gallery_tests.cpp

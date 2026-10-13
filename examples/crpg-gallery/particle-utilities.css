@@ -1,0 +1,24 @@
+.pp-page{position:absolute;left:0;top:0;right:0;bottom:0;display:flex;flex-direction:column;padding:24px;gap:20px}
+.pp-motes{position:absolute;left:0;top:0;right:0;bottom:0;pointer-events:none;-weft-particles:motes}
+.pp-bar{display:flex;flex-direction:row;align-items:center;justify-content:space-between;height:60px;padding:0 24px;border:1px solid #4a3520;border-radius:12px;background-color:rgba(22,15,9,0.88)}
+.pp-title{font-size:22px;font-weight:700;letter-spacing:4px;color:#f0c674}
+.pp-gold{display:flex;flex-direction:row;align-items:center;gap:12px}
+.pp-coin{width:28px;height:28px;border-radius:14px;border:2px solid #8a5a12;background-image:radial-gradient(circle,#fff2b0,#e8b23c 45%,#a8701a)}
+.pp-count{font-size:22px;font-weight:700;color:#ffd166;min-width:60px}
+.pp-row{display:flex;flex-direction:row;gap:20px;flex-grow:1}
+.pp-card{position:relative;display:flex;flex-direction:column;flex-grow:1;flex-basis:0;min-width:0;border:1px solid #4a3520;border-radius:14px;background-image:linear-gradient(180deg,rgba(30,21,13,0.92),rgba(12,8,5,0.95))}
+.pp-card-title{padding:14px 20px;font-size:17px;font-weight:700;letter-spacing:1px;color:#e8d5b0;border-bottom:1px solid #2e2114}
+.pp-stage{position:relative;flex-grow:1}
+.pp-hint{padding:12px 20px;font-size:13px;color:#a08a6a;border-top:1px solid #2e2114}
+.pp-fire{position:absolute;left:50%;bottom:70px;width:110px;height:120px;transform:translateX(-50%);border-radius:55px;background-image:radial-gradient(circle,rgba(255,190,90,0.5),rgba(255,120,30,0.16) 40%,rgba(255,80,20,0) 70%);-weft-particles:flames}
+.pp-embers{position:absolute;left:50%;bottom:70px;width:110px;height:120px;transform:translateX(-50%);-weft-particles:embers}
+.pp-smoke{position:absolute;left:50%;bottom:150px;width:140px;height:160px;transform:translateX(-50%);-weft-particles:smoke}
+.pp-logs{position:absolute;left:50%;bottom:56px;width:150px;height:22px;transform:translateX(-50%);border-radius:11px;background-image:linear-gradient(180deg,#6b4423,#3b2412)}
+.pp-chest{position:absolute;left:50%;top:50%;width:150px;height:104px;transform:translate(-50%,-30%);border:3px solid #7a5222;border-radius:10px;background-image:linear-gradient(180deg,#8a5a2b,#5a3816);cursor:pointer}
+.pp-lid{position:absolute;left:-3px;top:-34px;width:150px;height:34px;border:3px solid #7a5222;border-top-left-radius:16px;border-top-right-radius:16px;border-bottom-right-radius:4px;border-bottom-left-radius:4px;background-image:linear-gradient(180deg,#a26a32,#7a4c20)}
+.pp-lock{position:absolute;left:61px;top:-8px;width:22px;height:26px;border-radius:4px;border:2px solid #6a4a12;background-color:#e0b040}
+.pp-rune{position:absolute;left:50%;top:50%;width:150px;height:150px;transform:translate(-50%,-50%);border-radius:75px;border:2px solid rgba(140,170,255,0.7);background-image:radial-gradient(circle,rgba(90,120,255,0.35),rgba(40,30,90,0.2) 60%,rgba(20,10,40,0) 72%);-weft-particles:aura}
+.pp-rune:hover{--particles-rate:240;border-color:rgba(190,210,255,0.95)}
+.pp-rune-core{position:absolute;left:55px;top:55px;width:40px;height:40px;border-radius:20px;transform:rotate(45deg);animation:pp-pulse 2.4s ease-in-out infinite;border:2px solid rgba(170,200,255,0.9);background-color:rgba(60,80,200,0.35)}
+.pp-button{width:48px;height:40px;border:1px solid #6a4c2a;border-radius:8px;background-color:#2a1d11;color:#f0c674;font-size:22px;font-weight:700;text-align:center;line-height:38px;cursor:pointer}
+.pp-density{font-size:16px;color:#e8d5b0}

@@ -132,6 +132,8 @@ CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后�
 
 2026-10-13 重构第 11.3d 步之一：JS 的 `Element.closest(selectors)`：元素自身或最近的匹配祖先元素，没有时为 null；与 querySelector/matches 共用选择器文法与诊断。
 
+2026-10-13 重构第 11.4c 步：画廊新增 UI 粒子页面（篝火、宝箱飞金币、符文光环、可调密度的微粒），窗口为 72 例、12 组，原生绘制 68 例。粒子的效果外观推迟（见重构计划 11.4 的取舍）。
+
 2026-10-13 重构第 11.4b 步：UI 粒子的 CSS 与 JS 挂接（scene 页面）。
 - 宿主按名字注册粒子（发射器与精灵）；发射区域相对元素的边框盒。
 - CSS `-weft-particles: none | <name>`：元素显示时持续发射。自定义属性可覆盖 `--particles-rate`（每秒个数）、`--particles-life` 与 `--particles-speed`（一个值或两个值的范围）、`--particles-direction` 与 `--particles-spread`（度）、`--particles-gravity`（x y，px/s²）、`--particles-scale`（尺寸因子，一个值或范围）、`--particles-color`（各关键点的颜色，各点的透明度乘它的透明度）。名字或覆盖值改变时，旧流停止并播完，新流开始；`display: none` 的元素与其子孙立即丢弃粒子，重新显示时开始新流。

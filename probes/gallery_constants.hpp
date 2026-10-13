@@ -18,10 +18,12 @@ namespace weft::probe_constants::gallery {
     inline constexpr int catalog_case_count = 72;
     inline constexpr int catalog_group_count = 10;
     // The gallery window shows the catalogue without its two Three.js cases (webgl-02 and webgl-03: WebGL is not a
-    // product target) and, in a section of its own after the others, the CRPG UI's nested tooltip page.
+    // product target) and, after the others, pages of its own, each in a section of its own: the CRPG UI's nested
+    // tooltip page and the UI particle page.
     inline constexpr int retired_case_count = 2;
-    inline constexpr int window_case_count = catalog_case_count - retired_case_count + 1;
-    inline constexpr int window_group_count = catalog_group_count + 1;
+    inline constexpr int window_page_count = 2;
+    inline constexpr int window_case_count = catalog_case_count - retired_case_count + window_page_count;
+    inline constexpr int window_group_count = catalog_group_count + window_page_count;
     // CSS_TESTS and D3_TESTS scenes come first in the scene manifest; cluster scenes follow them.
     inline constexpr int css_scene_count = 26;
     inline constexpr int d3_scene_count = 8;
@@ -42,9 +44,11 @@ namespace weft::probe_constants::gallery {
     inline constexpr int scatter_scene = 37;
     inline constexpr int kline_scene = 38;
     inline constexpr int anime_drag_scene = 58;
-    // The cluster scenes end where the nested tooltip page, the last scene, begins.
+    // The cluster scenes end where the window's pages, the last scenes, begin: the nested tooltip page, then the UI
+    // particle page.
     inline constexpr int cluster_scene_end = 64;
     inline constexpr int tooltip_page_scene = cluster_scene_end;
+    inline constexpr int particle_page_scene = tooltip_page_scene + 1;
 
     // --- Script hosts ---
 

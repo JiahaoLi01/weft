@@ -176,9 +176,8 @@ namespace probes {
         }
         std::filesystem::create_directories(folder);
         const auto startup = std::chrono::steady_clock::now();
-        std::cout
-            << "Observing the window's 71 cases, 70 fixed original cases and the nested tooltip page (isolated, 12 "
-               "opportunities; no full CSS/pixel pass)...\n";
+        std::cout << "Observing the window's 72 cases, 70 fixed original cases and its two pages (isolated, 12 "
+                     "opportunities; no full CSS/pixel pass)...\n";
         auto profile_control = std::make_shared<TraceControl>();
         profile_control->enabled = profile || !benchmark.empty();
         GalleryLiveProfiler live_profiler;
@@ -197,7 +196,7 @@ namespace probes {
             "{\"format\":\"gallery-preview-cases-v1\",\"case_count\":" +
                 std::to_string(weft::probe_constants::gallery::window_case_count) +
                 ",\"native_pixel_cases\":" + std::to_string(gallery_native_case_count) +
-                ",\"retired_cases\":[\"webgl-02\",\"webgl-03\"],\"original_full_gallery_rendered\":false,\"conditions\":{\"isolated_opportunities\":12,\"canvas_host\":true,\"css\":\"Fixed Tailwind utilities, 64 original CSS/SVG/animation scenes, two original Canvas cases and the nested tooltip page\",\"input_dispatched\":false},\"cases\":" +
+                ",\"retired_cases\":[\"webgl-02\",\"webgl-03\"],\"original_full_gallery_rendered\":false,\"conditions\":{\"isolated_opportunities\":12,\"canvas_host\":true,\"css\":\"Fixed Tailwind utilities, 64 original CSS/SVG/animation scenes, two original Canvas cases, the nested tooltip page and the UI particle page\",\"input_dispatched\":false},\"cases\":" +
                 records + "}");
         // Live benchmarks show the window, so presents go through the same DWM composition as the interactive window.
         NativeReactWindow window(!self_test && (benchmark.empty() || live), true);
@@ -402,7 +401,7 @@ namespace probes {
         std::array<unsigned, weft::probe_constants::gallery::canvas_case_count> raf_calls{};
         const char* groups[]{"CSS_TESTS",   "D3_TESTS",     "D3_INTERACTIVE_TESTS", "KLINE_TESTS",
                              "WEBGL_TESTS", "FRAMER_TESTS", "SPRING_TESTS",         "ICON_TESTS",
-                             "ANIME_TESTS", "LOTTIE_TESTS", "TOOLTIP_TESTS"};
+                             "ANIME_TESTS", "LOTTIE_TESTS", "TOOLTIP_TESTS",        "PARTICLE_TESTS"};
         std::array<bool, weft::probe_constants::gallery::window_case_count> seen{};
         // The window's steps on the nested tooltip page: the frame the walk captures its section at, its first
         // keyword's centre and a point of the first item card's smoke, in page px (tests/fixtures/tooltip-reference
@@ -411,6 +410,13 @@ namespace probes {
         constexpr float page_keyword[]{388.4f, 384.9f};
         constexpr float page_smoke[]{330, 305};
         constexpr int page_smoke_red = 100;
+        // The window's steps on the UI particle page: the frame the walk captures its section at, the chest's centre
+        // and the fire's box in page px (tests/scene_particle_page_tests.cpp checks them), and the least red the
+        // brightest of the fire's pixels has (the stage's own background is near black).
+        constexpr unsigned particle_capture_frame = 64;
+        constexpr float particle_chest[]{798, 426};
+        constexpr float particle_fire[]{220.33f, 460.5f, 110, 120};
+        constexpr int particle_fire_red = 200;
         std::array<bool, weft::probe_constants::gallery::canvas_case_count> visible{};
         const std::array<weft::NodeIdentity, weft::probe_constants::gallery::canvas_case_count> slot_ids{
             shell.node_identity("#slot-webgl-00"), shell.node_identity("#slot-webgl-01")};
@@ -827,8 +833,9 @@ namespace probes {
             if (owner) {
                 GalleryOwnerRequest request;
                 request.time = time;
-                request.audit =
-                    self_test && !scroll_test && (frames == 21 || frames == 34 || frames == page_capture_frame + 11);
+                request.audit = self_test && !scroll_test &&
+                                (frames == 21 || frames == 34 || frames == page_capture_frame + 11 ||
+                                 frames == particle_capture_frame + 7);
                 for (unsigned i = 0; i < gallery_scene_count; ++i) {
                     auto r = scene_rect(i);
                     request.scenes[i] = r[1] < weft::probe_constants::gallery::shell_viewport_bottom &&
@@ -974,9 +981,9 @@ namespace probes {
                 }
                 if (scene_visible[i] && (dirty || !scene_images[i])) {
                     const auto raster_start = phase_seconds();
-                    // The reference raster reports UI shader effects instead of drawing them, so the page's slot
-                    // keeps the placeholder; the oracle samples every scene as the GPU drew it.
-                    if (self_test && i != unsigned(weft::probe_constants::gallery::tooltip_page_scene)) {
+                    // The reference raster reports UI shader effects and particles instead of drawing them, so the
+                    // pages' slots keep the placeholder; the oracle samples every scene as the GPU drew it.
+                    if (self_test && gallery_reference_raster(i)) {
                         const auto b =
                             owner
                                 ? scene_reference[i]->raster(frame, weft::probe_constants::gallery::scene_raster_scale)
@@ -1214,16 +1221,17 @@ namespace probes {
                 window.state.close_requested = true;
             }
             if (self_test && !scroll_test) {
-                // Pixel oracle and every registry id, across the eleven sections: the ten original ones in the
-                // first frames, the nested tooltip page's later (its own steps below). The oracle checks the
+                // Pixel oracle and every registry id, across the twelve sections: the ten original ones in the
+                // first frames, the window's pages later (their own steps below). The oracle checks the
                 // shell's composition: it samples every visible scene as the GPU drew it (read back), core scenes
                 // included. Their CPU reference rasters are another rasterizer, whose antialiased edges differ from
                 // the native pass's by more than the oracle's tolerance; scene pixels have reference tests of their
                 // own.
-                const int walk = frames <= unsigned(weft::probe_constants::gallery::catalog_group_count)
-                                     ? int(frames) - 1
-                                 : frames == page_capture_frame ? weft::probe_constants::gallery::catalog_group_count
-                                                                : -1;
+                const int walk =
+                    frames <= unsigned(weft::probe_constants::gallery::catalog_group_count) ? int(frames) - 1
+                    : frames == page_capture_frame     ? weft::probe_constants::gallery::catalog_group_count
+                    : frames == particle_capture_frame ? weft::probe_constants::gallery::catalog_group_count + 1
+                                                       : -1;
                 if (walk >= 0) {
                     pipeline.drain();
                     auto oracle_list = std::make_shared<weft::paint::DisplayList>(*packet.list);
@@ -1326,9 +1334,9 @@ namespace probes {
                         }
                         // Independent expected card geometry from fixed TestGallery:
                         // four/three/two/one columns, original heights and gaps; the page at its reference size.
-                        const unsigned columns[]{4, 4, 1, 1, 1, 3, 3, 2, 4, 4, 1};
-                        const unsigned heights[]{288, 384, 1500, 800, 600, 320, 288, 288, 288, 288, 800};
-                        const unsigned gaps[]{12, 16, 16, 16, 16, 16, 16, 16, 12, 12, 16};
+                        const unsigned columns[]{4, 4, 1, 1, 1, 3, 3, 2, 4, 4, 1, 1};
+                        const unsigned heights[]{288, 384, 1500, 800, 600, 320, 288, 288, 288, 288, 800, 800};
+                        const unsigned gaps[]{12, 16, 16, 16, 16, 16, 16, 16, 12, 12, 16, 16};
                         double offset{};
                         double scroll{};
                         for (const auto& e : current->elements) {
@@ -1415,6 +1423,56 @@ namespace probes {
                     const auto away = MAKELPARAM(int(r[0] * weft::probe_constants::gallery::shell_device_scale) / 2,
                                                  int(r[1] * weft::probe_constants::gallery::shell_device_scale));
                     require(PostMessageW(window.state.hwnd, WM_MOUSEMOVE, 0, away), "page pointer leaves");
+                    jump(0);
+                }
+                // The UI particle page in its section: captured by the walk above, then a real queued click on the
+                // chest throws coins that fly to the gold counter, while the campfire burns.
+                if (frames == particle_capture_frame - 2) {
+                    jump(weft::probe_constants::gallery::catalog_group_count + 1);
+                }
+                if (frames == particle_capture_frame) {
+                    const auto r = scene_rect(weft::probe_constants::gallery::particle_page_scene);
+                    const auto pt = MAKELPARAM(
+                        int((r[0] + particle_chest[0]) * weft::probe_constants::gallery::shell_device_scale),
+                        int((r[1] + particle_chest[1]) * weft::probe_constants::gallery::shell_device_scale));
+                    require(PostMessageW(window.state.hwnd, WM_LBUTTONDOWN, MK_LBUTTON, pt) &&
+                                PostMessageW(window.state.hwnd, WM_LBUTTONUP, 0, pt),
+                            "particle page chest queued click");
+                }
+                if (frames == particle_capture_frame + 8) {
+                    const unsigned particle_scene = weft::probe_constants::gallery::particle_page_scene;
+                    require((owner ? owner_frame->particle_clicks
+                                   : scenes[particle_scene]->vm.eval("__ceParticlePage.clicks()")) == "1",
+                            "window click did not open the chest");
+                    // Coins in flight: bursts with a target in the page's frame.
+                    std::size_t flights{};
+                    const auto count = [&](auto&& self, const weft::SceneNode& n) -> void {
+                        for (const auto& e : n.particles) {
+                            flights += e.emission.target.has_value();
+                        }
+                        for (const auto& c : n.children) {
+                            self(self, c);
+                        }
+                    };
+                    count(count,
+                          owner ? owner_frame->scenes[particle_scene]->root : scenes[particle_scene]->current.root);
+                    require(flights > 0, "the chest's coins fly in the window");
+                    pipeline.drain();
+                    const auto pixels = presenter.pixels();
+                    save_png(folder / "particles-loot.png", pixels, weft::constants::uhd_width,
+                             weft::constants::uhd_height);
+                    const auto r = scene_rect(particle_scene);
+                    int brightest{};
+                    for (float y = particle_fire[1]; y < particle_fire[1] + particle_fire[3]; y += .5f) {
+                        for (float x = particle_fire[0]; x < particle_fire[0] + particle_fire[2]; x += .5f) {
+                            const auto& p =
+                                pixels[std::size_t((r[1] + y) * weft::probe_constants::gallery::shell_device_scale) *
+                                           weft::constants::uhd_width +
+                                       std::size_t((r[0] + x) * weft::probe_constants::gallery::shell_device_scale)];
+                            brightest = std::max(brightest, int(p[0]));
+                        }
+                    }
+                    require(brightest > particle_fire_red, "the campfire's particles drawn in the window");
                     jump(0);
                 }
                 if (frames == 11) { // Real queued mouse input, with scaled canvas coordinates.
@@ -1983,8 +2041,9 @@ namespace probes {
                 ",\"scene_raster\":\"native D3D11 shapes/cached sources + D2D GPU fallback / linear RGBA16F external leases\",\"canvas_raster\":\"Direct2D SOFTWARE WIC\",\"ultralight_comparable\":false,\"mobile_verified\":false,\"debug_warning_error_count\":" +
                 (gpu.debug_layer ? "0" : "null") + "}");
         std::cout
-            << "PASS gallery preview: 71 window cards, 64 original scene cases + 2 original Canvas + the nested tooltip "
-               "page (hover, smoke), 4K, exact host clock, bounded two-frame completion\n";
+            << "PASS gallery preview: 72 window cards, 64 original scene cases + 2 original Canvas + the nested tooltip "
+               "page (hover, smoke) + the UI particle page (click, flight, fire), 4K, exact host clock, bounded "
+               "two-frame completion\n";
         return 0;
     }
 } // namespace probes

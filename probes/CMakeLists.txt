@@ -10,7 +10,7 @@ if(WIN32)
         external_texture_probe.cpp flow_probe.cpp gallery_canvas_probe.cpp gallery_cluster_gpu_probe.cpp
         gallery_interaction_profile.cpp gallery_preview_probe.cpp react_window_host.cpp render_backend_probe.cpp
         render_cache_probe.cpp render_stages_probe.cpp sampling_profiler.cpp scene_gpu_surface_probe.cpp
-        scene_surface_retirement_probe.cpp two_frame_probe.cpp particle_benchmark.cpp
+        scene_surface_retirement_probe.cpp two_frame_probe.cpp particle_benchmark.cpp particle_page_benchmark.cpp
         LINK weft::render_d3d11 weft::scene_d3d11 weft::text weft::script weft::layout weft::input weft::canvas_d2d weft::scene_d2d weft::platform_win32
         d3d11 dxgi windowscodecs ole32 user32 dbghelp
         SOURCE_DIR LARGE_STACK GC_STRESS)
@@ -79,8 +79,10 @@ if(WIN32 AND WEFT_BUILD_TESTS)
     weft_add_d3d11_test(d3d11_warp_complex_css --complex-css-test-warp complex-css-$<CONFIG>/warp TIMEOUT 60)
     weft_add_d3d11_test(d3d11_warp_scene_surface_retirement --scene-surface-retirement-warp
         scene-surface-retirement-$<CONFIG>/warp TIMEOUT 180)
-    # The particle benchmark's 4K frames, briefly: that it runs (the hardware run measures, by hand).
+    # The particle benchmarks' 4K frames, briefly: that they run (the hardware runs measure, by hand).
     weft_add_d3d11_test(d3d11_warp_particle_benchmark --particles-benchmark-warp particles-$<CONFIG>/warp TIMEOUT 180)
+    weft_add_d3d11_test(d3d11_warp_particle_page_benchmark --particle-page-benchmark-warp
+        particle-page-benchmark-$<CONFIG>/warp TIMEOUT 300)
     weft_add_d3d11_test(d3d11_warp_gallery_cluster --gallery-cluster-gpu-warp gallery-cluster-$<CONFIG>/warp TIMEOUT 300)
     weft_add_d3d11_test(d3d11_warp_scene_gpu --scene-gpu-test-warp scene-gpu-$<CONFIG>/warp
         TIMEOUT 240 GC_STRESS_TIMEOUT 600)

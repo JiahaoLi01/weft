@@ -51,6 +51,9 @@ namespace probes {
         if (group == "TOOLTIP_TESTS") {
             return "Native CRPG nested tooltip page; smoke as a UI shader effect; Chrome frame-by-frame reference";
         }
+        if (group == "PARTICLE_TESTS") {
+            return "Native UI particle page; -weft-particles streams and weft.emitParticles bursts; fixed-clock pixels";
+        }
         if (group == "WEBGL_TESTS") {
             return "WebGL context / Three.js GPU path not implemented";
         }
@@ -210,23 +213,25 @@ namespace probes {
 #endif
             cases.push_back(std::move(c));
         }
-        GalleryPreviewCase page{"tooltip-00", "TOOLTIP_TESTS", "CRPG: Nested Tooltip + Smoke"};
-        page.reason = gallery_preview_gap(page.group);
+        // The window's own pages, the last scenes.
+        for (unsigned k = 0; k < gallery_window_pages.size(); ++k) {
+            const auto& p = gallery_window_pages[k];
+            GalleryPreviewCase page{p.id, p.group, p.label};
+            page.reason = gallery_preview_gap(page.group);
 #ifdef WEFT_REACT_GC_STRESS
-        page.execution = "not_run_gc_instrumentation";
+            page.execution = "not_run_gc_instrumentation";
 #else
-        {
-            auto session = gallery_scene_session(weft::probe_constants::gallery::tooltip_page_scene);
+            auto session = gallery_scene_session(weft::probe_constants::gallery::tooltip_page_scene + k);
             for (unsigned f = 0; f < weft::probe_constants::gallery::observation_frames; ++f) {
                 session->step(f * weft::probe_constants::gallery::observation_step_ms +
                               weft::probe_constants::gallery::host_clock_offset_ms);
             }
-            require(session->vm.eval("__ceGallery.state().active.label") == page.label, "nested tooltip page label");
+            require(session->vm.eval("__ceGallery.state().active.label") == page.label, "window page label");
             page.execution = "no_error_observed";
             session->unmount();
-        }
 #endif
-        cases.push_back(std::move(page));
+            cases.push_back(std::move(page));
+        }
         require(cases.size() == std::size_t(weft::probe_constants::gallery::window_case_count),
                 "gallery window catalogue");
         return cases;

@@ -58,8 +58,10 @@ namespace probes {
         std::string hover_transform;
         std::string toggle_width;
         std::string anime_drag_transform;
-        // The nested tooltip page's portals on body (its open tooltips), when the page runs.
+        // The nested tooltip page's portals on body (its open tooltips), and the times the UI particle page's chest
+        // was clicked, when the pages run.
         std::string tooltip_portals;
+        std::string particle_clicks;
         std::size_t snapshots{};
         std::size_t snapshot_reuses{};
         std::size_t evals{};
@@ -461,6 +463,10 @@ namespace probes {
                 if (count_ > weft::probe_constants::gallery::tooltip_page_scene) {
                     out->tooltip_portals = scenes_[weft::probe_constants::gallery::tooltip_page_scene]->vm.eval(
                         "String(document.body.children.length-1)");
+                }
+                if (count_ > weft::probe_constants::gallery::particle_page_scene) {
+                    out->particle_clicks = scenes_[weft::probe_constants::gallery::particle_page_scene]->vm.eval(
+                        "String(__ceParticlePage.clicks())");
                 }
             }
             last_frame_ = out;

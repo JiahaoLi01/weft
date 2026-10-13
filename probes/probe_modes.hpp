@@ -40,6 +40,8 @@ namespace probes {
     int run_scene_surface_retirement(bool warp, const std::filesystem::path& folder);
     // particle_benchmark.cpp
     int run_particle_benchmark(bool warp, const std::filesystem::path& folder);
+    // particle_page_benchmark.cpp
+    int run_particle_page_benchmark(bool warp, const std::filesystem::path& folder);
     // gallery_cluster_gpu_probe.cpp
     int run_gallery_cluster_gpu(bool warp, const std::filesystem::path& folder);
     // gallery_interaction_profile.cpp

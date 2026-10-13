@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <string>
 #include <vector>
 
 // The native D3D11 scene pass on WARP over a transparent width x height target, read back as encoded premultiplied
@@ -35,8 +36,13 @@ namespace weft::testing {
             require(SUCCEEDED(gpu.device->CreateTexture2D(&desc, nullptr, &target)) &&
                         SUCCEEDED(gpu.device->CreateRenderTargetView(target.Get(), nullptr, &rtv)),
                     "D3D11 scene target");
-            require(scene.paint(slot, frame, rtv.Get(), scale, width, height, std::nullopt, 0, {}),
-                    "native D3D11 pass");
+            if (!scene.paint(slot, frame, rtv.Get(), scale, width, height, std::nullopt, 0, {})) {
+                std::string why;
+                for (const auto& [reason, count] : scene.reasons) {
+                    why += " " + reason;
+                }
+                require(false, "native D3D11 pass:" + why);
+            }
             desc.BindFlags = 0;
             desc.Usage = D3D11_USAGE_STAGING;
             desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
