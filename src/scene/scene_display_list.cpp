@@ -224,10 +224,11 @@ namespace weft {
                                         float scale) {
         SceneDisplayList out;
         auto& list = out.list;
-        // Whether a subtree shows an effect: such a node draws in the pass, never as a cached layer image, so that the
-        // effect follows the frame's time and its own values.
+        // Whether a subtree shows an effect or particles: such a node draws in the pass, never as a cached layer image,
+        // so that they follow the frame's time and their own values.
         const auto shows_effect = [](auto&& self, const SceneNode& n) -> bool {
-            return n.effect || std::any_of(n.children.begin(), n.children.end(), [&](const SceneNode& child) {
+            return n.effect || !n.particles.empty() ||
+                   std::any_of(n.children.begin(), n.children.end(), [&](const SceneNode& child) {
                        return self(self, child);
                    });
         };
@@ -844,6 +845,20 @@ namespace weft {
                         over.background = {};
                         add_box(over);
                     }
+                }
+                // The element's particles over its background and borders, under its content, unclipped by its own
+                // overflow; a sprite is an asset of the list.
+                for (const auto& emission : n.particles) {
+                    paint::Particles particles{emission.emitter->emitter, emission.emission};
+                    particles.emitter.sprite.reset();
+                    if (emission.emitter->sprite) {
+                        particles.emitter.sprite = index_of(list.assets, emission.emitter->sprite);
+                    }
+                    auto shape = item;
+                    shape.kind = paint::Item::Kind::Particles;
+                    shape.payload = std::uint32_t(list.particles.size());
+                    list.particles.push_back(std::move(particles));
+                    list.items.push_back(shape);
                 }
                 if (svg_root) {
                     // An svg viewport clips to the rounded border box, as the reference raster clips it; under a

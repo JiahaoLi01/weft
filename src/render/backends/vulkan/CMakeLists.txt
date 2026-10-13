@@ -22,3 +22,6 @@ weft_add_library(scene_vulkan
     SOURCES scene_renderer.cpp
     PUBLIC weft::render_vulkan weft::scene_native)
 weft_add_spirv(weft_scene_vulkan scene_encoded "${PROJECT_SOURCE_DIR}/src/render/shaders/scene.hlsl")
+# Its particle pass: both stages of the same shader's WEFT_PARTICLES variant.
+weft_add_spirv(weft_scene_vulkan scene_particles_encoded "${PROJECT_SOURCE_DIR}/src/render/shaders/scene.hlsl"
+    DEFINES WEFT_PARTICLES=1)

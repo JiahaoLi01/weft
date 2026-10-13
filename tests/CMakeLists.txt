@@ -244,6 +244,13 @@ if(WIN32)
         target_compile_definitions(weft_render_scene_effects_tests PRIVATE WEFT_TEST_VULKAN)
     endif()
     weft_add_test(NAME render_scene_effects_contract COMMAND weft_render_scene_effects_tests TIMEOUT 120)
+    # UI particles in both scene passes against a CPU raster of the shared particle model.
+    weft_add_executable(weft_render_scene_particles_tests SOURCES render_scene_particles_tests.cpp
+        LINK ${scene_effect_links})
+    if(WEFT_RENDER_VULKAN)
+        target_compile_definitions(weft_render_scene_particles_tests PRIVATE WEFT_TEST_VULKAN)
+    endif()
+    weft_add_test(NAME render_scene_particles_contract COMMAND weft_render_scene_particles_tests TIMEOUT 120)
     # The CRPG UI's smoke as a UI shader effect against the original's tick on the CPU, on both scene passes.
     weft_add_executable(weft_render_crpg_smoke_tests SOURCES render_crpg_smoke_tests.cpp
         LINK ${scene_effect_links} weft_gallery_effects windowscodecs ole32 SOURCE_DIR)
@@ -300,6 +307,9 @@ weft_add_executable(weft_selector_tests SOURCES selector_tests.cpp LINK weft::do
 weft_add_test(NAME selector_contract COMMAND weft_selector_tests)
 weft_add_executable(weft_paint_tests SOURCES paint_tests.cpp LINK weft::paint weft::render weft::scene)
 weft_add_test(NAME paint_contract COMMAND weft_paint_tests)
+# The particle model the scene shader shares: random values, timing, motion, shapes, curves, frames and flights.
+weft_add_executable(weft_particle_model_tests SOURCES particle_model_tests.cpp LINK weft::paint)
+weft_add_test(NAME particle_model COMMAND weft_particle_model_tests)
 weft_add_executable(weft_vector_raster_tests SOURCES vector_raster_tests.cpp LINK weft::vector)
 weft_add_test(NAME vector_raster_contract COMMAND weft_vector_raster_tests)
 weft_add_executable(weft_dom_tests SOURCES dom_tests.cpp LINK weft::dom)

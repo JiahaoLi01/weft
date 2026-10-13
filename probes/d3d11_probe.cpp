@@ -423,6 +423,8 @@ int main(int argc, char** argv) {
         const bool gallery_input_benchmark = argc == 4 && std::string(argv[1]) == "--gallery-input-benchmark-hardware";
         const bool gallery_benchmark = argc == 4 && std::string(argv[1]) == "--gallery-benchmark-hardware";
         const bool gallery_live_benchmark = argc == 4 && std::string(argv[1]) == "--gallery-live-benchmark-hardware";
+        const bool particle_benchmark = argc == 3 && (std::string(argv[1]) == "--particles-benchmark-hardware" ||
+                                                      std::string(argv[1]) == "--particles-benchmark-warp");
         const bool surface_retirement = argc == 3 && (std::string(argv[1]) == "--scene-surface-retirement-hardware" ||
                                                       std::string(argv[1]) == "--scene-surface-retirement-warp");
         const bool gallery_scroll = argc == 3 && (std::string(argv[1]) == "--gallery-scroll-test-hardware" ||
@@ -498,11 +500,12 @@ int main(int argc, char** argv) {
         const bool vulkan_scene_window = false;
 #endif
         require(gallery_input_benchmark || gallery_live_benchmark || gallery_trace || gallery_profile ||
-                    surface_retirement || gallery_scroll || gallery_cluster || owner_async || scene_native_test ||
-                    render_stages || complex_css_test || scene_gpu_test || gallery_benchmark || gallery_preview ||
-                    external_texture || gallery_canvas_window || gallery_canvas || pipeline_probe || cache_probe ||
-                    flow_window || vulkan_flow_window || vulkan_scene || vulkan_scene_window || cheetah_flow || flow ||
-                    automatic || browser || sdf || react || window || backend || cheetah || alert || theme ||
+                    surface_retirement || particle_benchmark || gallery_scroll || gallery_cluster || owner_async ||
+                    scene_native_test || render_stages || complex_css_test || scene_gpu_test || gallery_benchmark ||
+                    gallery_preview || external_texture || gallery_canvas_window || gallery_canvas || pipeline_probe ||
+                    cache_probe || flow_window || vulkan_flow_window || vulkan_scene || vulkan_scene_window ||
+                    cheetah_flow || flow || automatic || browser || sdf || react || window || backend || cheetah ||
+                    alert || theme ||
                     (argc == 3 && (std::string(argv[1]) == "--warp" || std::string(argv[1]) == "--hardware")),
                 "Usage: weft_d3d11_probe --gallery-window-[test-]hardware|warp <output-directory> [--no-vsync] (or an "
                 "existing probe mode)");
@@ -536,6 +539,7 @@ int main(int argc, char** argv) {
                 : gallery_profile    ? run_gallery_interaction_profile(argv[2], argv[3],
                                                                        std::string(argv[1]) == "--gallery-owner-sample")
                 : surface_retirement ? run_scene_surface_retirement(std::string(argv[1]).ends_with("warp"), argv[2])
+                : particle_benchmark ? run_particle_benchmark(std::string(argv[1]).ends_with("warp"), argv[2])
                 : gallery_scroll
                     ? run_gallery_preview(std::string(argv[1]).ends_with("warp"), argv[2], true, {}, true, true)
                 : gallery_cluster   ? run_gallery_cluster_gpu(std::string(argv[1]).ends_with("warp"), argv[2])

@@ -1,4 +1,5 @@
 #include "paint/display_list.hpp"
+#include "paint/particles.hpp"
 #include "render/atlas_packer.hpp"
 #include "render/quad_list.hpp"
 #include "render/rounded_clip.hpp"
@@ -17,7 +18,7 @@
 #include <string>
 
 // The portable paint IR: structural checks of display lists, the portable plan of a scene pass, quad packets as
-// display lists, external textures, appended lists and UI shader effects.
+// display lists, external textures, appended lists, UI shader effects and UI particles.
 namespace {
     using weft::testing::require;
     namespace paint = weft::paint;
@@ -812,6 +813,237 @@ void effects() {
             "start another");
 }
 
+// UI particles: what the checks refuse of an emitter and an emission, append's renumbering, and the plan of an emission:
+// one record holding it in particle_field order, and one draw of the particles it may have alive, none for none.
+void particles() {
+    const auto sprite = std::make_shared<const paint::Asset>(
+        paint::Asset{4, 4, paint::Encoding::SrgbStraight, std::vector<std::uint8_t>(64, 255)});
+    const auto distances =
+        std::make_shared<const paint::Asset>(paint::Asset{2, 2, paint::Encoding::SignedDistance, {1, 2, 3, 4}, 4});
+    const auto make = [&] {
+        paint::DisplayList list;
+        list.assets = {sprite, distances};
+        paint::Particles p;
+        p.emitter.shape = paint::ParticleEmitter::Shape::Circle;
+        p.emitter.area = {10, 5, 4, 0};
+        p.emitter.rate = 10;
+        p.emitter.life = {1, 2};
+        p.emitter.speed = {5, 10};
+        p.emitter.direction = -90;
+        p.emitter.spread = 40;
+        p.emitter.gravity = {1, 30};
+        p.emitter.drag = .5f;
+        p.emitter.angle = {-10, 10};
+        p.emitter.spin = {0, 90};
+        p.emitter.size = {2, 4, 6, 1};
+        p.emitter.scale = {.5f, 1.5f};
+        p.emitter.color = {paint::Color{1, .5f, .25f, 1}, paint::Color{1, .4f, .2f, .8f},
+                           paint::Color{.5f, .2f, .1f, .5f}, paint::Color{.2f, .1f, 0, 0}};
+        p.emitter.softness = .5f;
+        p.emission.elapsed = 3.25;
+        p.emission.seed = 0x12345678u;
+        list.particles.push_back(p);
+        auto i = item(Kind::Particles);
+        i.width = 20;
+        i.height = 10;
+        i.clip = {0, 0, 100, 100};
+        i.transform = {2, 0, 0, 2, 5, 7};
+        list.items.push_back(i);
+        return list;
+    };
+    require(bool(paint::check(make(), 4)), "a well-formed emission");
+    const auto refused = [&](auto&& change, const char* reason, const char* what) {
+        auto list = make();
+        change(list.particles[0]);
+        require(rejected(list, 4, reason), what);
+    };
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    refused(
+        [](paint::Particles& p) {
+            p.emitter.life = {0, 1};
+        },
+        "particle emitter range", "a lifetime of 0");
+    refused(
+        [](paint::Particles& p) {
+            p.emitter.life = {2, 1};
+        },
+        "particle emitter range", "a life range backwards");
+    refused(
+        [](paint::Particles& p) {
+            p.emitter.speed = {-1, 1};
+        },
+        "particle emitter range", "a negative speed");
+    refused(
+        [](paint::Particles& p) {
+            p.emitter.spin = {5, 1};
+        },
+        "particle emitter range", "a spin range backwards");
+    refused(
+        [](paint::Particles& p) {
+            p.emitter.drag = -1;
+        },
+        "particle emitter range", "a negative drag");
+    refused(
+        [](paint::Particles& p) {
+            p.emitter.rate = -1;
+        },
+        "particle emitter range", "a negative rate");
+    refused(
+        [](paint::Particles& p) {
+            p.emitter.softness = 1.5f;
+        },
+        "particle emitter range", "softness past 1");
+    refused(
+        [](paint::Particles& p) {
+            p.emitter.size[2] = -1;
+        },
+        "particle emitter range", "a negative size");
+    refused(
+        [](paint::Particles& p) {
+            p.emitter.area[2] = -1;
+        },
+        "particle emitter range", "a negative area");
+    refused(
+        [](paint::Particles& p) {
+            p.emitter.frame_rate = -1;
+        },
+        "particle emitter range", "frames backwards");
+    refused(
+        [](paint::Particles& p) {
+            p.emitter.color[1][3] = 2;
+        },
+        "particle emitter value", "alpha past 1");
+    refused(
+        [](paint::Particles& p) {
+            p.emitter.color[2][0] = -1;
+        },
+        "particle emitter value", "a negative channel");
+    refused(
+        [&](paint::Particles& p) {
+            p.emitter.gravity[0] = nan;
+        },
+        "particle emitter value", "a NaN");
+    refused(
+        [](paint::Particles& p) {
+            p.emitter.sprite = 5;
+        },
+        "particle sprite", "a sprite out of range");
+    refused(
+        [](paint::Particles& p) {
+            p.emitter.sprite = 1;
+        },
+        "particle sprite", "a distance field as a sprite");
+    refused(
+        [](paint::Particles& p) {
+            p.emitter.sprite = 0;
+            p.emitter.frames = {0, 1};
+        },
+        "particle sprite", "a sprite without frames");
+    refused(
+        [](paint::Particles& p) {
+            p.emitter.sprite = 0;
+            p.emitter.frames = {64, 32};
+        },
+        "particle sprite", "more frames than the bound");
+    refused(
+        [](paint::Particles& p) {
+            p.emission.elapsed = -1;
+        },
+        "particle emission value", "a negative time");
+    refused(
+        [](paint::Particles& p) {
+            p.emission.stopped = 4;
+        },
+        "particle emission value", "a stop after the time");
+    refused(
+        [&](paint::Particles& p) {
+            p.emission.target = std::array<float, 2>{nan, 0};
+        },
+        "particle emission value", "a target at NaN");
+    refused(
+        [](paint::Particles& p) {
+            p.emission.kind = paint::ParticleEmission::Kind::Burst;
+            p.emission.count = 0;
+        },
+        "particle emission count", "an empty burst");
+    refused(
+        [](paint::Particles& p) {
+            p.emission.kind = paint::ParticleEmission::Kind::Burst;
+            p.emission.count = weft::constants::max_particles_per_emission + 1;
+        },
+        "particle emission count", "a burst past the bound");
+    refused(
+        [](paint::Particles& p) {
+            p.emitter.rate = 40000;
+        },
+        "particle emission count", "a stream that may have more particles alive than the bound");
+    {
+        auto list = make();
+        list.items[0].payload = 1;
+        require(rejected(list, 4, "particles payload out of range"), "particles payload out of range");
+    }
+
+    // Appended: from's payloads follow into's, and its sprite follows into's assets.
+    auto into = make();
+    auto from = make();
+    from.particles[0].emitter.sprite = 0;
+    require(bool(paint::append(into, from)), "append particles");
+    require(into.particles.size() == 2 && into.items[1].payload == 1 && into.particles[1].emitter.sprite == 2u &&
+                !into.particles[0].emitter.sprite && bool(paint::check(into, 4)),
+            "appended particles renumbered");
+
+    // The plan: one record in particle_field order, one draw of the particles the stream may have alive.
+    auto list = make();
+    auto& p = list.particles[0];
+    p.emitter.sprite = 0;
+    p.emitter.frames = {2, 2};
+    p.emitter.frame_rate = 6;
+    p.emission.target = std::array<float, 2>{40, 50};
+    require(bool(paint::check(list, 4)), "a sprite flying to a target");
+    const auto timing = paint::particle_timing(p);
+    // 33 emitted by 3.25 s at 10 per second, at most 21 of them alive (2 s lives): the newest is 50 ms old.
+    require(timing.count == 21 && timing.newest == 32 && std::abs(timing.age - .05f) < 1e-6f &&
+                std::abs(timing.interval - .1f) < 1e-7f,
+            "a stream's timing");
+    const auto pass = weft::render::plan_scene_pass(list, 2, 200, 200).value();
+    using Step = weft::render::ScenePass::Step;
+    require(pass.batches.size() == 1 && pass.batches[0].step == Step::Particles && pass.batches[0].first == 0 &&
+                pass.batches[0].count == 21 && pass.batches[0].source == 0,
+            "one draw of the particles alive");
+    auto r = pass.records[0];
+    using weft::render::particle_field;
+    namespace f = weft::render;
+    using V = weft::render::SceneRecord::Vector;
+    require(particle_field(r, f::ParticleMapX) == V{2, 0, 5, 0} && particle_field(r, f::ParticleMapY) == V{0, 2, 7, 0},
+            "the item's map into target px");
+    require(particle_field(r, f::ParticleTiming) == V{timing.age, timing.interval, 32, 0} &&
+                particle_field(r, f::ParticleEmission) ==
+                    V{21, 0, float(0x12345678u % weft::constants::particle_index_period), 2},
+            "timing, count, seed and shape");
+    require(particle_field(r, f::ParticleArea) == V{10, 5, 4, 0} &&
+                particle_field(r, f::ParticleLifeSpeed) == V{1, 2, 5, 10} &&
+                particle_field(r, f::ParticleHeading) == V{-90, 40, .5f, .5f} &&
+                particle_field(r, f::ParticleForces) == V{1, 30, 0, 90} &&
+                particle_field(r, f::ParticleTurn) == V{-10, 10, .5f, 1.5f} &&
+                particle_field(r, f::ParticleSize) == V{2, 4, 6, 1},
+            "the emitter's ranges and sizes");
+    for (unsigned k = 0; k < 4; ++k) {
+        require(particle_field(r, f::ParticleField(f::ParticleColor + k)) == p.emitter.color[k],
+                "the colors, straight and linear");
+    }
+    require(particle_field(r, f::ParticleSprite) == V{2, 2, 6, weft::render::scene_limits::particle_sprite_color} &&
+                particle_field(r, f::ParticleTarget) == V{40, 50, weft::render::scene_limits::flag_enabled, 0} &&
+                r.uv == V{0, 0, 1, 1},
+            "the sprite, its frames and the target");
+    // A burst draws its count; a stream that emits nothing draws nothing.
+    p.emission.kind = paint::ParticleEmission::Kind::Burst;
+    p.emission.count = 7;
+    require(weft::render::plan_scene_pass(list, 2, 200, 200).value().batches.at(0).count == 7, "a burst's count");
+    p.emission.kind = paint::ParticleEmission::Kind::Stream;
+    p.emitter.rate = 0;
+    require(weft::render::plan_scene_pass(list, 2, 200, 200).value().batches.empty(), "no particles, no draw");
+}
+
 int main() {
     try {
         checks();
@@ -825,8 +1057,10 @@ int main() {
         shadows();
         planes();
         effects();
+        particles();
         std::cout << "PASS paint contracts: display list payloads, rasters, shadows, group nesting and kinds; scene "
-                     "pass plans; quad lists; external textures; appended lists; shadow images; planes; effects\n";
+                     "pass plans; quad lists; external textures; appended lists; shadow images; planes; effects; "
+                     "particles\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

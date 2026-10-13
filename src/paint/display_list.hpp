@@ -232,6 +232,82 @@ namespace weft::paint {
         std::array<float, 4> radii{};
     };
 
+    // How the particles of an emitter start, move and look (docs/architecture.md, "粒子"): each particle a disc or a
+    // sprite frame centred on its position, its state a function of its emission's elapsed time alone (stateless, no
+    // simulation). Lengths in item px, angles in degrees (0 along +x, 90 along +y), times in seconds; each particle
+    // draws its lifetime, speed, direction, size factor, angle and spin from the ranges, uniformly.
+    struct ParticleEmitter {
+        enum class Shape : std::uint8_t {
+            // At x, y of area.
+            Point,
+            // Anywhere in the rectangle x, y, width, height of area.
+            Rect,
+            // Anywhere in the disc of centre x, y and radius z of area.
+            Circle,
+            // On the outline of the rectangle of area.
+            Edge
+        };
+
+        Shape shape{};
+        std::array<float, 4> area{};
+        // Particles per second of a stream.
+        float rate{};
+        std::array<float, 2> life{1, 1};
+        std::array<float, 2> speed{};
+        // The direction of travel, spread over the full width of spread around it.
+        float direction{};
+        float spread{};
+        // Acceleration (px/s²), and linear drag (per second) towards the drift gravity reaches (gravity / drag).
+        std::array<float, 2> gravity{};
+        float drag{};
+        // Initial angle (degrees) and spin (degrees per second).
+        std::array<float, 2> angle{};
+        std::array<float, 2> spin{};
+        // Size across (px) at life 0, 1/3, 2/3 and 1, linear between, times the particle's factor from scale.
+        std::array<float, 4> size{8, 8, 8, 8};
+        std::array<float, 2> scale{1, 1};
+        // Straight linear RGBA at life 0, 1/3, 2/3 and 1, interpolated in linear light.
+        std::array<Color, 4> color{Color{1, 1, 1, 1}, Color{1, 1, 1, 1}, Color{1, 1, 1, 1}, Color{1, 1, 1, 1}};
+        // A disc's soft edge, as a fraction of its radius from the rim inward (0: a hard edge, antialiased).
+        float softness{};
+        // A sprite instead of a disc: an asset of the list (coverage, or sRGB color) in a grid of columns x rows
+        // frames read left to right, then down, tinted by the color. Frames advance at frame_rate per second of a
+        // particle's life, looping; at frame_rate 0 each particle shows one frame drawn at random.
+        std::optional<std::uint32_t> sprite;
+        std::array<std::uint32_t, 2> frames{1, 1};
+        float frame_rate{};
+
+        friend bool operator==(const ParticleEmitter&, const ParticleEmitter&) = default;
+    };
+
+    // One emission of an emitter: a stream that emits the emitter's rate of particles per second from its start (until
+    // stopped, seconds after its start, when set), or a burst of count particles emitted over duration seconds from
+    // its start, at random times. elapsed is the time since its start at the list's frame. The seed draws each
+    // particle's values. With a target (item px), particles fly from where they start towards their initial velocity,
+    // then curve to arrive at it at the end of their lives, without gravity or drag.
+    struct ParticleEmission {
+        enum class Kind : std::uint8_t {
+            Stream,
+            Burst
+        };
+
+        Kind kind{};
+        double elapsed{};
+        std::optional<double> stopped;
+        std::uint32_t count{};
+        float duration{};
+        std::uint32_t seed{};
+        std::optional<std::array<float, 2>> target;
+
+        friend bool operator==(const ParticleEmission&, const ParticleEmission&) = default;
+    };
+
+    // The particles of one emission, in its item's space: they move with the item and draw in its place in paint order.
+    struct Particles {
+        ParticleEmitter emitter;
+        ParticleEmission emission;
+    };
+
     struct Item {
         enum class Kind : std::uint8_t {
             Box,
@@ -251,7 +327,9 @@ namespace weft::paint {
             // A Plane, whose content a renderer draws into an image and projects.
             Plane,
             // An Effect, a program's pixel function over the item's box.
-            Effect
+            Effect,
+            // Particles of one emission, in the item's space.
+            Particles
         };
 
         Kind kind{};
@@ -262,7 +340,7 @@ namespace weft::paint {
         float height{};
         float opacity{1};
         // Index in DisplayList::boxes (Box), images (Image), rasters (Text, Layer), shadows (Shadow), paths (Path),
-        // planes (Plane) or effects (Effect); unused by groups.
+        // planes (Plane), effects (Effect) or particles (Particles); unused by groups.
         std::uint32_t payload{};
         // The item's rounded clips, outermost first: DisplayList::clips[clips_begin, clips_begin + clips_count).
         std::uint32_t clips_begin{};
@@ -278,7 +356,8 @@ namespace weft::paint {
         std::vector<PathPaint> paths;
         std::vector<Plane> planes;
         std::vector<Effect> effects;
-        // Leases of the assets images and effects draw.
+        std::vector<Particles> particles;
+        // Leases of the assets images, effects and particle sprites draw.
         std::vector<std::shared_ptr<const Asset>> assets;
         // Leases of the programs effects run.
         std::vector<std::shared_ptr<const EffectProgram>> programs;
@@ -293,8 +372,12 @@ namespace weft::paint {
     // path of whole verbs and finite points and a stroke of finite, non-negative lengths, planes of a well-formed
     // content list (nested at most constants::max_plane_depth deep), a positive size and a finite, invertible
     // homography in front of the viewer, effects of a leased program with at most its parameters and exactly its
-    // textures (coverage or sRGB assets of the list), finite values and non-negative radii, rounded clip ranges inside
-    // the clips, groups balanced and nested at most max_group_depth deep. Diag::PaintList otherwise.
+    // textures (coverage or sRGB assets of the list), finite values and non-negative radii, particles with finite
+    // values, ordered ranges, positive lifetimes, non-negative rates, speeds, drag, sizes and colors, a softness up to
+    // 1, a sprite of a coverage or sRGB asset of the list in at most constants::max_particle_sprite_frames frames, and
+    // an emission of at most constants::max_particles_per_emission particles that stopped no later than its elapsed
+    // time, rounded clip ranges inside the clips, groups balanced and nested at most max_group_depth deep.
+    // Diag::PaintList otherwise.
     Status check(const DisplayList& list, std::size_t max_group_depth);
 
     // The deepest group nesting of a well-formed list.

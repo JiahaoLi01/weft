@@ -76,7 +76,10 @@ namespace weft::render {
             EndGroup,
             // Records [first, first + count) in one instanced draw of an effect: consecutive Effect items of one
             // program and the same textures, the program and textures of DisplayList::effects[source].
-            Effect
+            Effect,
+            // Record first's count particles in one draw of the particle shaders: 6 x count vertices of one instance,
+            // vertex v drawing particle v / 6. source is the emission's DisplayList::particles index.
+            Particles
         };
 
         struct Batch {
@@ -122,6 +125,34 @@ namespace weft::render {
             return record.offsets[i - 12];
         }
         return i == 14 ? record.tile : record.background;
+    }
+
+    // The fields of a particles record that hold its emission, by effect_parameter's order (the shader's particle
+    // pass, scene.hlsl WEFT_PARTICLES, reads them in the same order): the item's map into target px (rows {a, c, e} and
+    // {b, d, f}); the timing (paint::ParticleTiming's age and interval, the newest index, and 1 for a burst); the count,
+    // a burst's duration, the seed's low 24 bits and the shape; the area; life and speed ranges; direction, spread,
+    // drag and softness; gravity and the spin range; the angle and scale ranges; the four sizes; the four colors
+    // (straight linear RGBA); the sprite's columns, rows, frame rate and mode (particle_sprite_*); the target and
+    // whether there is one. The sprite's region of its texture is the record's uv.
+    enum ParticleField : unsigned {
+        ParticleMapX,
+        ParticleMapY,
+        ParticleTiming,
+        ParticleEmission,
+        ParticleArea,
+        ParticleLifeSpeed,
+        ParticleHeading,
+        ParticleForces,
+        ParticleTurn,
+        ParticleSize,
+        ParticleColor,
+        ParticleSprite = ParticleColor + 4,
+        ParticleTarget
+    };
+
+    inline SceneRecord::Vector& particle_field(SceneRecord& record, ParticleField field) {
+        static_assert(ParticleTarget + 1 == constants::max_effect_parameters);
+        return effect_parameter(record, field);
     }
 
     // Makes an image record sample its image from region (normalized origin and extent) of the bound texture, as an

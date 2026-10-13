@@ -2,6 +2,7 @@
 
 #include "base/plane.hpp"
 #include "constants/common.hpp"
+#include "paint/particles.hpp"
 #include "render/rounded_clip.hpp"
 #include "render/shadow_image.hpp"
 #include "render/srgb.hpp"
@@ -165,6 +166,41 @@ namespace weft::render {
                 r.extra[0] = effect.time;
                 for (unsigned p = 0; p < effect.parameters.size(); ++p) {
                     effect_parameter(r, p) = effect.parameters[p];
+                }
+            } else if (item.kind == Kind::Particles) {
+                // The emission as the particle shaders read it (particle_field), its timing from the shared model; the
+                // colors straight and linear, as the model interpolates them.
+                const auto& particles = list.particles[item.payload];
+                const auto& e = particles.emitter;
+                const auto& emission = particles.emission;
+                const auto timing = paint::particle_timing(particles);
+                const bool burst = emission.kind == paint::ParticleEmission::Kind::Burst;
+                particle_field(r, ParticleMapX) = {m[0], m[2], m[4], 0};
+                particle_field(r, ParticleMapY) = {m[1], m[3], m[5], 0};
+                particle_field(r, ParticleTiming) = {timing.age, timing.interval, float(timing.newest),
+                                                     burst ? scene_limits::flag_enabled : scene_limits::flag_disabled};
+                particle_field(r, ParticleEmission) = {float(timing.count), emission.duration,
+                                                       float(emission.seed % constants::particle_index_period),
+                                                       float(static_cast<int>(e.shape))};
+                particle_field(r, ParticleArea) = e.area;
+                particle_field(r, ParticleLifeSpeed) = {e.life[0], e.life[1], e.speed[0], e.speed[1]};
+                particle_field(r, ParticleHeading) = {e.direction, e.spread, e.drag, e.softness};
+                particle_field(r, ParticleForces) = {e.gravity[0], e.gravity[1], e.spin[0], e.spin[1]};
+                particle_field(r, ParticleTurn) = {e.angle[0], e.angle[1], e.scale[0], e.scale[1]};
+                particle_field(r, ParticleSize) = e.size;
+                for (unsigned k = 0; k < e.color.size(); ++k) {
+                    particle_field(r, ParticleField(ParticleColor + k)) = e.color[k];
+                }
+                float mode = scene_limits::particle_sprite_none;
+                if (e.sprite) {
+                    mode = list.assets[*e.sprite]->encoding == paint::Encoding::Coverage
+                               ? scene_limits::particle_sprite_coverage
+                               : scene_limits::particle_sprite_color;
+                }
+                particle_field(r, ParticleSprite) = {float(e.frames[0]), float(e.frames[1]), e.frame_rate, mode};
+                if (emission.target) {
+                    particle_field(r, ParticleTarget) = {(*emission.target)[0], (*emission.target)[1],
+                                                         scene_limits::flag_enabled, 0};
                 }
             } else if ((item.kind == Kind::Text || item.kind == Kind::Layer) && list.rasters[item.payload].mask) {
                 r.background = in(space, list.rasters[item.payload].tint);
@@ -332,6 +368,15 @@ namespace weft::render {
                         }
                     }
                     pass.batches.push_back({Step::Effect, first, i - first, list.items[first].payload});
+                    break;
+                }
+                case Kind::Particles: {
+                    // One emission's particles in one draw; none alive, no draw.
+                    const auto payload = list.items[i].payload;
+                    if (const auto count = paint::particle_timing(list.particles[payload]).count) {
+                        pass.batches.push_back({Step::Particles, i, count, payload});
+                    }
+                    ++i;
                     break;
                 }
                 case Kind::Image:

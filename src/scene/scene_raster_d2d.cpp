@@ -1720,6 +1720,10 @@ namespace weft {
             if (get(n.style, PropertyId::Display) == "none" || n.box[2] <= 0 || n.box[3] <= 0) {
                 return;
             }
+            // The reference raster draws no UI particles; the native passes do.
+            if (!n.particles.empty()) {
+                fail("particles");
+            }
             // An inline element in lines: its box a fragment at a time, then its text and children.
             if (!n.fragments.empty()) {
                 for (const auto& box : scene_fragment_boxes(n)) {

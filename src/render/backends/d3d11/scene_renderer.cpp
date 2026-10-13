@@ -52,6 +52,16 @@ namespace weft::render::d3d11 {
         };
         throw_if_failed(gpu.device->CreateVertexShader(vs, sizeof(vs), nullptr, &vs_), "native scene vertex shader");
         throw_if_failed(gpu.device->CreatePixelShader(ps, sizeof(ps), nullptr, &ps_), "native scene pixel shader");
+        static constexpr unsigned char particle_vs[] = {
+#include "shaders/scene_particles.vs.inc"
+        };
+        static constexpr unsigned char particle_ps[] = {
+#include "shaders/scene_particles.ps.inc"
+        };
+        throw_if_failed(gpu.device->CreateVertexShader(particle_vs, sizeof(particle_vs), nullptr, &particle_vs_),
+                        "native particle vertex shader");
+        throw_if_failed(gpu.device->CreatePixelShader(particle_ps, sizeof(particle_ps), nullptr, &particle_ps_),
+                        "native particle pixel shader");
         D3D11_RASTERIZER_DESC raster{};
         raster.FillMode = D3D11_FILL_SOLID;
         raster.CullMode = D3D11_CULL_NONE;
@@ -198,6 +208,14 @@ namespace weft::render::d3d11 {
                 slot.leases.push_back(textures[t]);
             }
         }
+        // Each emission's sprite, at t3.
+        std::vector<ID3D11ShaderResourceView*> sprite_views(prepared.sprites.size());
+        for (std::size_t s = 0; s < prepared.sprites.size(); ++s) {
+            if (prepared.sprites[s]) {
+                sprite_views[s] = texture(prepared.sprites[s]);
+                slot.leases.push_back(prepared.sprites[s]);
+            }
+        }
         const auto& pass = prepared.pass;
         const auto& records = pass.records;
         const auto target_width = prepared.width;
@@ -295,7 +313,7 @@ namespace weft::render::d3d11 {
         if (offsets) {
             for (const auto& batch : pass.batches) {
                 if (batch.step == Step::Boxes || batch.step == Step::EndGroup || batch.step == Step::Effect ||
-                    (batch.step == Step::Image && views[batch.first])) {
+                    batch.step == Step::Particles || (batch.step == Step::Image && views[batch.first])) {
                     starts.push_back(batch.first);
                 }
             }
@@ -311,7 +329,9 @@ namespace weft::render::d3d11 {
         constexpr unsigned stride = constants::render::d3d11::constant_buffer_offset_bytes;
         constexpr unsigned per_chunk = constants::render::d3d11::max_constant_buffer_bytes / stride;
         std::size_t next_draw{};
-        auto instances = [&](unsigned start, unsigned count, ID3D11ShaderResourceView* image) {
+        // count instances of a quad, or one instance of vertices (the particles' 6 per particle).
+        auto instances = [&](unsigned start, unsigned count, ID3D11ShaderResourceView* image,
+                             unsigned vertices = constants::render::d3d11::quad_vertex_count) {
             if (offsets) {
                 const auto at = unsigned(next_draw % per_chunk);
                 if (!at) {
@@ -339,7 +359,7 @@ namespace weft::render::d3d11 {
                 ctx->UpdateSubresource(slot.constants.Get(), 0, nullptr, view.data(), 0, 0);
             }
             ctx->PSSetShaderResources(1, 1, &image);
-            ctx->DrawInstanced(constants::render::d3d11::quad_vertex_count, count, 0, 0);
+            ctx->DrawInstanced(vertices, count, 0, 0);
             ++draws;
         };
         // A target bound for output samples nothing: the image last drawn goes before the target changes.
@@ -385,6 +405,17 @@ namespace weft::render::d3d11 {
                     auto* repeat = gpu_.effect_sampler.Get();
                     ctx->PSSetSamplers(1, 1, &repeat);
                     instances(batch.first, batch.count, nullptr);
+                    ctx->PSSetShader(ps_.Get(), nullptr, 0);
+                    break;
+                }
+                case Step::Particles: {
+                    // The particle pass over the emission's record, its sprite at t3.
+                    ctx->VSSetShader(particle_vs_.Get(), nullptr, 0);
+                    ctx->PSSetShader(particle_ps_.Get(), nullptr, 0);
+                    auto* sprite = sprite_views.at(batch.source);
+                    ctx->PSSetShaderResources(effect_texture_slot, 1, &sprite);
+                    instances(batch.first, 1, nullptr, constants::render::d3d11::quad_vertex_count * batch.count);
+                    ctx->VSSetShader(vs_.Get(), nullptr, 0);
                     ctx->PSSetShader(ps_.Get(), nullptr, 0);
                     break;
                 }

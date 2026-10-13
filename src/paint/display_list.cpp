@@ -80,6 +80,59 @@ namespace weft::paint {
             return true;
         }
 
+        // An emitter's and an emission's values (DisplayList::check).
+        Status check_particles(const DisplayList& list, const Particles& p) {
+            const auto& m = p.emitter;
+            const auto& e = p.emission;
+            const auto finite = [](const auto& values) {
+                return std::all_of(values.begin(), values.end(), finite_value);
+            };
+            const auto ordered = [](const std::array<float, 2>& range) {
+                return range[0] <= range[1];
+            };
+            const auto non_negative = [](const auto& values) {
+                return std::all_of(values.begin(), values.end(), [](float v) {
+                    return v >= 0;
+                });
+            };
+            const bool colors = std::all_of(m.color.begin(), m.color.end(), [&](const Color& c) {
+                return finite(c) && non_negative(c) && c[3] <= 1;
+            });
+            if (!finite(m.area) || !finite(m.life) || !finite(m.speed) || !finite(m.gravity) || !finite(m.angle) ||
+                !finite(m.spin) || !finite(m.size) || !finite(m.scale) || !std::isfinite(m.rate) ||
+                !std::isfinite(m.direction) || !std::isfinite(m.spread) || !std::isfinite(m.drag) ||
+                !std::isfinite(m.softness) || !std::isfinite(m.frame_rate) || !colors) {
+                return make_diagnostic(Diag::PaintList, "particle emitter value");
+            }
+            if (!ordered(m.life) || !ordered(m.speed) || !ordered(m.angle) || !ordered(m.spin) || !ordered(m.scale) ||
+                !(m.life[0] > 0) || m.rate < 0 || m.speed[0] < 0 || m.drag < 0 || !non_negative(m.size) ||
+                m.scale[0] < 0 || m.softness < 0 || m.softness > 1 || m.frame_rate < 0 ||
+                (m.shape != ParticleEmitter::Shape::Point && (m.area[2] < 0 || m.area[3] < 0))) {
+                return make_diagnostic(Diag::PaintList, "particle emitter range");
+            }
+            if (m.sprite) {
+                const auto frames = std::uint64_t(m.frames[0]) * m.frames[1];
+                if (*m.sprite >= list.assets.size() || !list.assets[*m.sprite] ||
+                    list.assets[*m.sprite]->encoding == Encoding::SignedDistance || frames == 0 ||
+                    frames > constants::max_particle_sprite_frames) {
+                    return make_diagnostic(Diag::PaintList, "particle sprite");
+                }
+            }
+            if (!std::isfinite(e.elapsed) || e.elapsed < 0 || !std::isfinite(e.duration) || e.duration < 0 ||
+                (e.stopped && (!std::isfinite(*e.stopped) || *e.stopped < 0 || *e.stopped > e.elapsed)) ||
+                (e.target && !finite(*e.target))) {
+                return make_diagnostic(Diag::PaintList, "particle emission value");
+            }
+            const double count = e.kind == ParticleEmission::Kind::Burst
+                                     ? double(e.count)
+                                     : std::ceil(double(std::max(m.life[0], m.life[1])) * double(m.rate)) + 1;
+            if ((e.kind == ParticleEmission::Kind::Burst && e.count == 0) ||
+                count > constants::max_particles_per_emission) {
+                return make_diagnostic(Diag::PaintList, "particle emission count");
+            }
+            return {};
+        }
+
         // planes counts the plane contents around list: planes inside a plane's content and so on.
         Status check_at(const DisplayList& list, std::size_t max_group_depth, unsigned planes) {
             std::size_t depth{};
@@ -202,6 +255,15 @@ namespace weft::paint {
                         }
                         break;
                     }
+                    case Item::Kind::Particles: {
+                        if (item.payload >= list.particles.size()) {
+                            return make_diagnostic(Diag::PaintList, "particles payload out of range" + at);
+                        }
+                        if (auto valid = check_particles(list, list.particles[item.payload]); !valid) {
+                            return make_diagnostic(Diag::PaintList, valid.error().message + at);
+                        }
+                        break;
+                    }
                     case Item::Kind::BeginGroup:
                         if (++depth > max_group_depth) {
                             return make_diagnostic(Diag::PaintList, "group depth bound" + at);
@@ -244,6 +306,7 @@ namespace weft::paint {
         const auto paths = std::uint32_t(into.paths.size());
         const auto planes = std::uint32_t(into.planes.size());
         const auto effects = std::uint32_t(into.effects.size());
+        const auto particles = std::uint32_t(into.particles.size());
         const auto programs = std::uint32_t(into.programs.size());
         const auto clips = std::uint32_t(into.clips.size());
         into.boxes.insert(into.boxes.end(), from.boxes.begin(), from.boxes.end());
@@ -271,6 +334,13 @@ namespace weft::paint {
                 texture += assets;
             }
             into.effects.push_back(std::move(effect));
+        }
+        for (auto p : from.particles) {
+            // Sprites are assets of the list, never external textures.
+            if (p.emitter.sprite) {
+                *p.emitter.sprite += assets;
+            }
+            into.particles.push_back(std::move(p));
         }
         into.assets.insert(into.assets.end(), from.assets.begin(), from.assets.end());
         into.programs.insert(into.programs.end(), from.programs.begin(), from.programs.end());
@@ -326,6 +396,9 @@ namespace weft::paint {
                     break;
                 case Item::Kind::Effect:
                     item.payload += effects;
+                    break;
+                case Item::Kind::Particles:
+                    item.payload += particles;
                     break;
                 default:
                     break;

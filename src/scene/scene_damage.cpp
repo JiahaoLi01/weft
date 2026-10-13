@@ -38,12 +38,12 @@ namespace weft {
                                      -std::numeric_limits<double>::infinity(),
                                      -std::numeric_limits<double>::infinity()};
         auto add = [&](auto&& self, const SceneNode& n, const auto& boxes) -> void {
-            // Text may overhang its layout box; SVG/projective paint can have
+            // Text may overhang its layout box; SVG/projective paint and particles can have
             // nonlocal extents. The independent full path owns those cases.
             const auto* t = n.style.find(PropertyId::Transform);
             const auto* shadow = n.style.find(PropertyId::BoxShadow);
             if ((shadow && !shadow->text().empty() && shadow->text() != "none") || !n.text.empty() ||
-                (!n.space.empty() && n.space != constants::xhtml_namespace_uri) ||
+                !n.particles.empty() || (!n.space.empty() && n.space != constants::xhtml_namespace_uri) ||
                 (t && t->text().find("perspective(") != std::string::npos)) {
                 full();
                 return;
@@ -77,7 +77,8 @@ namespace weft {
                          x.attributes != y.attributes || x.style != y.style || x.box != y.box || x.lines != y.lines ||
                          x.fragments != y.fragments || x.children.size() != y.children.size() ||
                          bool(x.paint) != bool(y.paint) || (x.paint && x.paint->values != y.paint->values) ||
-                         !scene_effect_equal(x.effect, y.effect) || (y.effect && y.effect->program->animated);
+                         !scene_effect_equal(x.effect, y.effect) || (y.effect && y.effect->program->animated) ||
+                         x.particles != y.particles;
             if (!local) {
                 for (std::size_t i = 0; i < x.children.size(); ++i) {
                     if (x.children[i].identity != y.children[i].identity) {

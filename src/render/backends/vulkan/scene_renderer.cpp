@@ -20,6 +20,13 @@ namespace weft::render::vulkan {
         constexpr unsigned char fragment_spirv[] = {
 #include "shaders/scene_encoded.ps.spv.inc"
         };
+        // Its particle pass.
+        constexpr unsigned char particle_vertex_spirv[] = {
+#include "shaders/scene_particles_encoded.vs.spv.inc"
+        };
+        constexpr unsigned char particle_fragment_spirv[] = {
+#include "shaders/scene_particles_encoded.ps.spv.inc"
+        };
 
         // Encoded premultiplied BGRA, as the D3D11 scene targets.
         constexpr VkFormat target_format = VK_FORMAT_B8G8R8A8_UNORM;
@@ -84,6 +91,9 @@ namespace weft::render::vulkan {
             check(d.vkd.vkCreatePipelineLayout(d.device, &layout, nullptr, &layout_), "vkCreatePipelineLayout");
             ensure(d.blends(target_format), "encoded BGRA8 targets that blend");
             passes_ = create_scene_passes(d, target_format, layout_, vertex_, fragment_);
+            particle_vertex_ = shader_module(d, particle_vertex_spirv, sizeof(particle_vertex_spirv));
+            particle_fragment_ = shader_module(d, particle_fragment_spirv, sizeof(particle_fragment_spirv));
+            particle_pipeline_ = create_scene_pipeline(d, passes_.clear, layout_, particle_vertex_, particle_fragment_);
             blank_image_ =
                 d.image(VK_FORMAT_R8_UNORM, 1, 1, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
             blank_buffer_ = d.buffer(sizeof(SceneClip), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false);
@@ -127,6 +137,11 @@ namespace weft::render::vulkan {
             d.vkd.vkDestroyShaderModule(d.device, e.fragment, nullptr);
         }
         effect_pipelines_.clear();
+        d.vkd.vkDestroyPipeline(d.device, particle_pipeline_, nullptr);
+        d.vkd.vkDestroyShaderModule(d.device, particle_fragment_, nullptr);
+        d.vkd.vkDestroyShaderModule(d.device, particle_vertex_, nullptr);
+        particle_pipeline_ = {};
+        particle_fragment_ = particle_vertex_ = {};
         d.destroy(readback_);
         d.destroy(target_);
         d.destroy(blank_buffer_);
@@ -320,6 +335,11 @@ namespace weft::render::vulkan {
                     }
                 }
             }
+            for (const auto& sprite : p.sprites) {
+                if (sprite && !textures_.contains(sprite->id) && seen.insert(sprite->id).second) {
+                    pending.push_back(sprite);
+                }
+            }
         };
         walk(walk, prepared);
         if (pending.empty()) {
@@ -494,6 +514,18 @@ namespace weft::render::vulkan {
                     effects.push_back(effect_pipeline(effect.program));
                     break;
                 }
+                case ScenePass::Step::Particles: {
+                    // The emission's sprite where an effect's first texture goes.
+                    std::array<VkImageView, weft::constants::max_effect_textures> textures;
+                    textures.fill(blank_image_.view);
+                    if (const auto& sprite = prepared.sprites.at(batch.source)) {
+                        textures[0] = textures_.at(sprite->id).image.view;
+                        slot_->leases.push_back(sprite);
+                    }
+                    images.push_back(blank_image_.view);
+                    effect_views.emplace_back(textures);
+                    break;
+                }
             }
         }
         std::vector<VkDescriptorSet> sets(images.size());
@@ -580,10 +612,12 @@ namespace weft::render::vulkan {
             d.vkd.vkCmdSetScissor(command, 0, 1, &scissor);
         };
         std::size_t next_set{};
-        const auto instances = [&](std::uint32_t first, std::uint32_t count) {
+        // count instances of a quad, or one instance of vertices (the particles' 6 per particle).
+        const auto instances = [&](std::uint32_t first, std::uint32_t count,
+                                   std::uint32_t vertices = std::uint32_t(limits::quad_vertex_count)) {
             d.vkd.vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 1, &sets[next_set++], 0,
                                           nullptr);
-            d.vkd.vkCmdDraw(command, std::uint32_t(limits::quad_vertex_count), count, 0, first);
+            d.vkd.vkCmdDraw(command, vertices, count, 0, first);
             ++draws;
         };
         begin(out, true, pass.clear);
@@ -615,6 +649,11 @@ namespace weft::render::vulkan {
                 case ScenePass::Step::Effect:
                     d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, effects[next_effect++]);
                     instances(batch.first, batch.count);
+                    d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, passes_.pipeline);
+                    break;
+                case ScenePass::Step::Particles:
+                    d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, particle_pipeline_);
+                    instances(batch.first, 1, std::uint32_t(limits::quad_vertex_count) * batch.count);
                     d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, passes_.pipeline);
                     break;
             }

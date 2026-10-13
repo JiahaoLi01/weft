@@ -16,7 +16,7 @@
 | 检查、trace、兼容诊断、打包与干净构建 | M5 |
 | var、media queries、更宽 CSSOM 与其他未被首批场景依赖的能力 | 可选扩展，不作为 v0.1 退出必需项 |
 | 固定 CRPG gallery 的 72 例中的 70 例，含 Canvas2D、第三方动画与所需 CSS/SVG/交互；两例 Three.js 于 2026-10-12 移出需求，2026-10-13 起画廊窗口以 CRPG UI 的嵌套提示页面（UI 着色器烟雾）取代这两例 | 新增 workload 承诺；逐例执行/像素/交互/性能验收，尚未完整实现 |
-| UI 着色器效果（`-weft-effect()`）、UI 粒子（`-weft-particles`）、背景拷贝与 `backdrop-filter: blur()` | 新增目标（2026-10-12），设计见 [架构](architecture.md)。已实现：效果绘制项，D3D11 与 Vulkan 的显示列表渲染器可以画（11.1）；scene 页面的 `background-image: -weft-effect(name)`（也可写在 `background` 简写里），参数取自元素的自定义属性，效果注册与诊断，用时间的效果让帧持续推进，D3D11 与 Vulkan 的 scene 渲染器可以画（11.2）。尚未实现：文档页面（它们不支持任何背景图片）、D2D 参考光栅、C ABI 的效果特性位、粒子、背景拷贝与 `backdrop-filter` |
+| UI 着色器效果（`-weft-effect()`）、UI 粒子（`-weft-particles`）、背景拷贝与 `backdrop-filter: blur()` | 新增目标（2026-10-12），设计见 [架构](architecture.md)。已实现：效果绘制项，D3D11 与 Vulkan 的显示列表渲染器可以画（11.1）；scene 页面的 `background-image: -weft-effect(name)`（也可写在 `background` 简写里），参数取自元素的自定义属性，效果注册与诊断，用时间的效果让帧持续推进，D3D11 与 Vulkan 的 scene 渲染器可以画（11.2）；粒子绘制项（发射器、流与爆发、飞向目标、柔和圆点与精灵帧），D3D11 与 Vulkan 的 scene 渲染器可以画（11.4a）。尚未实现：文档页面（它们不支持任何背景图片）、D2D 参考光栅、C ABI 的效果与粒子特性位、粒子的 CSS 与 JS 挂接（11.4b）、背景拷贝与 `backdrop-filter` |
 | WebGL/WebGL2 | 不在目标内（用户 2026-10-12 决定，见 [决策](decisions.md)）：3D 由宿主引擎渲染、经外部纹理合成；`getContext('webgl')` 与 `getContext('webgl2')` 返回 `null` |
 
 如果固定测试应用需要额外 API，先将它作为明确的新增承诺记录，而不是悄悄扩大 v0.1 范围。完整功能列表必须在实现时标注 planned/implemented/verified 与对应测试。
@@ -131,6 +131,16 @@ CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后�
 - 限制：Final_Sigma 只看同一个文字节点；没有按 `lang` 的大小写规则；`shape_with_fallback` 的文字仍限于拉丁、汉字与通用字符，希腊、西里尔等字母的文字本来就报诊断。
 
 2026-10-13 重构第 11.3d 步之一：JS 的 `Element.closest(selectors)`：元素自身或最近的匹配祖先元素，没有时为 null；与 querySelector/matches 共用选择器文法与诊断。
+
+2026-10-13 重构第 11.4a 步：UI 粒子的绘制项与 scene 渲染器（尚无 CSS 与 JS 挂接，见 11.4b）。
+- 模型：无状态，每个粒子由发射的已过时间、序号与种子解析得出，不逐帧模拟、不逐帧上传；CPU 参考实现与着色器用同一组公式。
+  - 发射形状：点、矩形、圆、矩形轮廓；速度、方向与扩散、重力、线性阻力（解析解）、初始角度与自转；尺寸与颜色（线性光中插值）随寿命按四点曲线；
+  - 流（每秒若干个，可停止）与爆发（若干个，可在一段时间内随机发出）；可让粒子沿二次曲线飞向目标点，寿命结束时到达；
+  - 外观：柔和或抗锯齿的圆点，或精灵图集的帧（随寿命播放或随机），按颜色着色；
+  - 一次发射最多 65536 个粒子，精灵最多 1024 帧；长时间运行的流在 CPU 上以双精度算出最新粒子的年龄，着色器只用小数，精度不随运行时间下降。
+- 绘制：粒子在所属元素的空间里，随元素移动、变换，参与其透明度与祖先裁剪，画在元素的背景与边框之上、内容之下，不受元素自身溢出裁剪。
+- 线性显示列表 pass、C ABI 与 D2D 参考光栅不画粒子，给诊断（`UNSUPPORTED_FEATURE`、显示列表 pass 的前置检查、`WEFT_SCENE_RASTER: particles`）。
+- 带粒子的元素改变时，损伤为整个目标（粒子可以飞出元素）。
 
 2026-10-13 重构第 11.3e 步之一：
 - 字体回退按 emoji 呈现选择系统回退字体，与 Chrome 相同：

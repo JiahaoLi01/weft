@@ -413,6 +413,10 @@ namespace weft {
                 prepared.textures.push_back(effect_texture(list.assets.at(texture)));
             }
         }
+        for (const auto& particles : list.particles) {
+            const auto& sprite = particles.emitter.sprite;
+            out->sprites.push_back(sprite ? effect_texture(list.assets.at(*sprite)) : nullptr);
+        }
         for (std::size_t i = 0; i < list.items.size(); ++i) {
             const auto& item = list.items[i];
             if (item.kind == Kind::Text || item.kind == Kind::Layer) {

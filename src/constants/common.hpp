@@ -53,6 +53,13 @@ namespace weft::constants {
     // The parameters fill the shared shader record's fields that effects leave unused.
     inline constexpr unsigned max_effect_parameters = 16;
     inline constexpr unsigned max_effect_textures = 4;
+    // UI particles of the paint IR (paint::Particles): the particles one emission draws, and the frames of a sprite's
+    // grid. A particle's random values hash its index modulo particle_index_period, which floats hold exactly.
+    inline constexpr unsigned max_particles_per_emission = 65536;
+    inline constexpr unsigned max_particle_sprite_frames = 1024;
+    inline constexpr unsigned particle_index_period = 1u << 24;
+    // Below this drag (per second) particles move as without drag: the drag terms' limits.
+    inline constexpr float particle_drag_epsilon = 1e-4f;
     // Largest viewport edge accepted by the layout and scene profiles.
     inline constexpr int max_viewport_dimension_px = 4096;
     inline constexpr int rgba8_bytes_per_pixel = 4;

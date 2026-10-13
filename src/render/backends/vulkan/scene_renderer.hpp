@@ -137,6 +137,10 @@ namespace weft::render::vulkan {
         std::unordered_map<const paint::EffectProgram*, EffectPipeline> effect_pipelines_;
         VkShaderModule vertex_{};
         VkShaderModule fragment_{};
+        // The particle pass: both stages of scene.hlsl's WEFT_PARTICLES variant, and its pipeline.
+        VkShaderModule particle_vertex_{};
+        VkShaderModule particle_fragment_{};
+        VkPipeline particle_pipeline_{};
         VkDescriptorSetLayout set_layout_{};
         VkPipelineLayout layout_{};
         ScenePasses passes_;

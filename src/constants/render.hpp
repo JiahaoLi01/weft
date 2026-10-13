@@ -187,6 +187,12 @@ namespace weft::constants::render {
         inline constexpr float image_mode_signed_distance = 2.f;
         // Paint::mode.x of a plane: its content image seen through a homography (ImageModeProjective).
         inline constexpr float image_mode_projective = 3.f;
+        // The sprite mode of a particles record (render::ParticleSprite's w): discs, coverage sprites tinted by the
+        // particle's color, or color sprites (linear premultiplied) times it (ParticleSpriteCoverage and
+        // ParticleSpriteColor).
+        inline constexpr float particle_sprite_none = 0.f;
+        inline constexpr float particle_sprite_coverage = 1.f;
+        inline constexpr float particle_sprite_color = 2.f;
         inline constexpr int record_initial_capacity = 16;
         // Nested transparent groups available per slot.
         inline constexpr int max_group_depth = 4;

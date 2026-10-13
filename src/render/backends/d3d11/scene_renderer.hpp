@@ -92,6 +92,9 @@ namespace weft::render::d3d11 {
         bool offsets_supported_{};
         ComPtr<ID3D11VertexShader> vs_;
         ComPtr<ID3D11PixelShader> ps_;
+        // The particle pass: both stages of scene.hlsl's WEFT_PARTICLES variant.
+        ComPtr<ID3D11VertexShader> particle_vs_;
+        ComPtr<ID3D11PixelShader> particle_ps_;
         ComPtr<ID3D11RasterizerState> raster_;
         SceneRaster reference_;
         ScenePreparer preparer_;

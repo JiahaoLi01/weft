@@ -3,7 +3,8 @@
 // target. The SPACE_LINEAR variant is a linear pass: it gets linear premultiplied colors from the CPU and
 // composites them unquantized. A compile-time variant keeps the scene pass's code exactly as it was. The WEFT_EFFECT
 // variant is the pixel stage of one UI shader effect (cmake/WeftEffects.cmake): its source, included after this file,
-// defines effect().
+// defines effect(). The WEFT_PARTICLES variant is both stages of the particle pass: each vertex a corner of one
+// particle's quad.
 
 // paint::GradientKind values (src/paint/display_list.hpp).
 static const float GradientLinear = 1;
@@ -81,6 +82,7 @@ struct Vertex {
     nointerpolation uint index : TEXCOORD0;
 };
 
+#if !WEFT_PARTICLES
 Vertex vs_main(uint vertex : SV_VertexID, uint index : SV_InstanceID) {
     const float2 corners[6] = {float2(0, 0), float2(1, 0), float2(0, 1), float2(0, 1), float2(1, 0), float2(1, 1)};
     index += (uint)baseInstance;
@@ -91,6 +93,7 @@ Vertex vs_main(uint vertex : SV_VertexID, uint index : SV_InstanceID) {
     v.index = index;
     return v;
 }
+#endif
 
 float distanceRound(float2 position, float2 size, float4 radii) {
     // The four corner arcs have the same normalized circular geometry as the
@@ -229,7 +232,249 @@ bool wedge(float2 position, float2 a, float2 b, float2 c, float2 d) {
     return all(q >= -WedgeEdgeEpsilon) || all(q <= WedgeEdgeEpsilon);
 }
 
-#if WEFT_EFFECT
+#if WEFT_EFFECT || WEFT_PARTICLES
+// The sRGB transfer, for effects that work with CSS colors: an encoded channel to linear light, and back. Scalar
+// conditions: HLSL 2021 (DXC) takes no vector condition in ?:, and FXC has no select().
+float effectLinear(float c) {
+    return c <= .04045 ? c / 12.92 : pow((c + .055) / 1.055, 2.4);
+}
+
+float3 effectLinear(float3 c) {
+    return float3(effectLinear(c.r), effectLinear(c.g), effectLinear(c.b));
+}
+
+float effectEncoded(float c) {
+    return c <= .0031308 ? c * 12.92 : 1.055 * pow(c, 1 / 2.4) - .055;
+}
+
+float3 effectEncoded(float3 c) {
+    return float3(effectEncoded(c.r), effectEncoded(c.g), effectEncoded(c.b));
+}
+#endif
+
+#if WEFT_PARTICLES
+// UI particles (docs/architecture.md, "粒子"): a record per emission (scene_pass.cpp; render::ParticleField names its
+// fields), drawn as 6 vertices per particle. Each particle's state follows the shared model (src/paint/particles.cpp)
+// in float: the same random values, start, motion, curves and frames.
+Texture2D particleSprite : register(t3);
+
+static const uint ParticleIndexPeriod = 16777216;
+// A particle's random values by index (paint/particles.cpp's Draw), and how many the hash spaces per particle.
+static const uint ParticleDraws = 16;
+static const uint DrawLife = 0;
+static const uint DrawStartU = 1;
+static const uint DrawStartV = 2;
+static const uint DrawSpeed = 3;
+static const uint DrawDirection = 4;
+static const uint DrawScale = 5;
+static const uint DrawAngle = 6;
+static const uint DrawSpin = 7;
+static const uint DrawFrame = 8;
+static const uint DrawEmission = 9;
+static const float ParticleDragEpsilon = .0001;
+// paint::ParticleEmitter::Shape.
+static const float ShapeRect = 1;
+static const float ShapeCircle = 2;
+static const float ShapeEdge = 3;
+// The sprite mode, render::ParticleSprite's w (constants::render::scene::particle_sprite_*).
+static const float SpriteNone = 0;
+static const float SpriteCoverage = 1;
+// A disc's quad reaches this many device px past its rim, which antialiases across it.
+static const float ParticleRimPixels = 1;
+static const float2 OutsideTarget = float2(-2, -2);
+
+struct ParticleVertex {
+    float4 position : SV_Position;
+    nointerpolation uint index : TEXCOORD0;
+    // Across the particle: -1 to 1 over its size, beyond over a disc's rim.
+    float2 local : TEXCOORD1;
+    // Straight linear color.
+    nointerpolation float4 color : TEXCOORD2;
+    // The sprite frame's region of the bound texture: origin and extent.
+    nointerpolation float4 frame : TEXCOORD3;
+};
+
+// lowbias32 (Chris Wellons), as paint/particles.cpp.
+uint particleHash(uint x) {
+    x ^= x >> 16;
+    x *= 0x7feb352dU;
+    x ^= x >> 15;
+    x *= 0x846ca68bU;
+    x ^= x >> 16;
+    return x;
+}
+
+float particleRandom(uint seed, uint particle, uint k) {
+    return (float)(particleHash(seed ^ particleHash(particle * ParticleDraws + k)) >> 8) * (1.0 / 16777216.0);
+}
+
+// keys at 0, 1/3, 2/3 and 1, linear between, at fraction (clamped to [0, 1]).
+float particleCurve(float4 keys, float fraction) {
+    float t = saturate(fraction) * 3;
+    float i = min(floor(t), 2);
+    float a = i < 1 ? keys.x : i < 2 ? keys.y : keys.z;
+    float b = i < 1 ? keys.y : i < 2 ? keys.z : keys.w;
+    return a + (b - a) * (t - i);
+}
+
+// Record fields (render::ParticleField): stops[0] and [1] the map into target px, [2] the timing, [3] the count,
+// duration, seed and shape, [4] the area, [5] life and speed, [6] direction, spread, drag and softness, [7] gravity
+// and spin; edges[0] angle and scale, [1] sizes, [2] and [3] then offsets[0] and [1] the colors; tile the sprite;
+// background the target.
+ParticleVertex vs_main(uint vertex : SV_VertexID, uint instance : SV_InstanceID) {
+    const float2 corners[6] = {float2(-1, -1), float2(1, -1), float2(-1, 1), float2(-1, 1), float2(1, -1), float2(1, 1)};
+    uint index = instance + (uint)baseInstance;
+    Paint p = paints[index];
+    float4 timing = p.stops[2];
+    float4 emission = p.stops[3];
+    float4 lifeSpeed = p.stops[5];
+    float4 heading = p.stops[6];
+    float4 forces = p.stops[7];
+    float4 turn = p.edges[0];
+    float4 sprite = p.tile;
+    uint particle = vertex / 6;
+    uint seed = (uint)emission.z;
+    ParticleVertex v;
+    v.index = index;
+    v.local = corners[vertex % 6];
+    v.color = float4(0, 0, 0, 0);
+    v.frame = float4(0, 0, 0, 0);
+    v.position = float4(OutsideTarget, 0, 1);
+    // Its identity and age: a burst's particles by instance, a stream's newest first.
+    uint id;
+    float age;
+    if (timing.w == FlagEnabled) {
+        id = particle;
+        age = timing.x - emission.y * particleRandom(seed, id, DrawEmission);
+    } else {
+        id = ((uint)timing.z + ParticleIndexPeriod - particle) % ParticleIndexPeriod;
+        age = timing.x + (float)particle * timing.y;
+    }
+    float life = lerp(lifeSpeed.x, lifeSpeed.y, particleRandom(seed, id, DrawLife));
+    if (!(age >= 0 && age < life)) {
+        return v;
+    }
+    // Where it starts.
+    float u = particleRandom(seed, id, DrawStartU);
+    float w = particleRandom(seed, id, DrawStartV);
+    float4 area = p.stops[4];
+    float2 start = area.xy;
+    if (emission.w == ShapeRect) {
+        start = area.xy + area.zw * float2(u, w);
+    } else if (emission.w == ShapeCircle) {
+        float r = area.z * sqrt(w);
+        float a = TwoPi * u;
+        start = area.xy + r * float2(cos(a), sin(a));
+    } else if (emission.w == ShapeEdge) {
+        // Clockwise from the top left corner.
+        float d = u * 2 * (area.z + area.w);
+        if (d < area.z) {
+            start = area.xy + float2(d, 0);
+        } else if (d < area.z + area.w) {
+            start = area.xy + float2(area.z, d - area.z);
+        } else if (d < 2 * area.z + area.w) {
+            start = area.xy + float2(area.z - (d - area.z - area.w), area.w);
+        } else {
+            start = area.xy + float2(0, area.w - (d - 2 * area.z - area.w));
+        }
+    }
+    // How it moves.
+    float speed = lerp(lifeSpeed.z, lifeSpeed.w, particleRandom(seed, id, DrawSpeed));
+    float travel = (heading.x + (particleRandom(seed, id, DrawDirection) - .5) * heading.y) * DegreesToRadians;
+    float2 velocity = speed * float2(cos(travel), sin(travel));
+    float fraction = age / life;
+    float2 position;
+    if (p.background.z == FlagEnabled) {
+        // To the target along a quadratic curve that leaves along the velocity, eased in and out.
+        float f = fraction * fraction * (3 - 2 * fraction);
+        float2 control = start + velocity * life * .5;
+        position = (1 - f) * (1 - f) * start + 2 * (1 - f) * f * control + f * f * p.background.xy;
+    } else if (heading.z > ParticleDragEpsilon) {
+        float decay = (1 - exp(-heading.z * age)) / heading.z;
+        position = start + velocity * decay + forces.xy * (age - decay) / heading.z;
+    } else {
+        position = start + velocity * age + .5 * forces.xy * age * age;
+    }
+    // How it looks.
+    float size = particleCurve(p.edges[1], fraction) * lerp(turn.z, turn.w, particleRandom(seed, id, DrawScale));
+    float4 color;
+    color.r = particleCurve(float4(p.edges[2].r, p.edges[3].r, p.offsets[0].r, p.offsets[1].r), fraction);
+    color.g = particleCurve(float4(p.edges[2].g, p.edges[3].g, p.offsets[0].g, p.offsets[1].g), fraction);
+    color.b = particleCurve(float4(p.edges[2].b, p.edges[3].b, p.offsets[0].b, p.offsets[1].b), fraction);
+    color.a = particleCurve(float4(p.edges[2].a, p.edges[3].a, p.offsets[0].a, p.offsets[1].a), fraction);
+    float angle = (lerp(turn.x, turn.y, particleRandom(seed, id, DrawAngle)) +
+                   lerp(forces.z, forces.w, particleRandom(seed, id, DrawSpin)) * age) *
+                  DegreesToRadians;
+    if (sprite.w != SpriteNone) {
+        // Its frame, in integers: a GPU's float division need not round correctly.
+        uint frames = (uint)sprite.x * (uint)sprite.y;
+        uint pick = 0;
+        if (frames > 1) {
+            pick = (uint)(sprite.z > 0 ? floor(age * sprite.z) : floor(particleRandom(seed, id, DrawFrame) * frames)) %
+                   frames;
+        }
+        float2 extent = p.uv.zw / sprite.xy;
+        v.frame = float4(p.uv.xy + float2(pick % (uint)sprite.x, pick / (uint)sprite.x) * extent, extent);
+    }
+    if (!(size > 0)) {
+        return v;
+    }
+    // The quad: the size across, turned by the angle, and for a disc a device px more around its rim.
+    float3 mapX = p.stops[0].xyz;
+    float3 mapY = p.stops[1].xyz;
+    float stretch = sqrt(abs(mapX.x * mapY.y - mapX.y * mapY.x)) * scale;
+    float half = size * .5;
+    float reach = half + (sprite.w == SpriteNone ? ParticleRimPixels / max(stretch, MinimumRadius) : 0);
+    float2 corner = corners[vertex % 6] * reach;
+    v.local = corner / half;
+    float c = cos(angle);
+    float s = sin(angle);
+    float2 item = position + float2(corner.x * c - corner.y * s, corner.x * s + corner.y * c);
+    float2 world = float2(dot(mapX, float3(item, 1)), dot(mapY, float3(item, 1)));
+    v.position = float4(world * scale / target * float2(2, -2) + float2(-1, 1), 0, 1);
+    v.color = color;
+    return v;
+}
+
+// A disc antialiased across a device px at its rim or softened inward over softness of its radius, or a sprite frame
+// tinted by the color; clipped as an image, then the item's opacity.
+float4 ps_main(ParticleVertex v) : SV_Target {
+    Paint p = paints[v.index];
+    float2 world = v.position.xy / scale;
+#if SPACE_LINEAR
+    float coverage = world.x < p.clip.x || world.y < p.clip.y || world.x >= p.clip.z || world.y >= p.clip.w
+                         ? 0
+                         : clipChain(p, world);
+#else
+    if (world.x < p.clip.x || world.y < p.clip.y || world.x >= p.clip.z || world.y >= p.clip.w) {
+        discard;
+    }
+    float coverage = clipChain(p, world);
+#endif
+    float4 color = float4(v.color.rgb * v.color.a, v.color.a);
+    if (p.tile.w == SpriteNone) {
+        float d = length(v.local);
+        float aa = max(pixelWidth(d), MinimumAntialiasWidth);
+        float softness = p.stops[6].w;
+        color *= softness > 0 ? saturate((1 - d) / max(softness, aa)) : saturate(.5 - (d - 1) / aa);
+    } else {
+        // Texels of the frame only, never its neighbours': half a texel in from its edges.
+        float width;
+        float height;
+        particleSprite.GetDimensions(width, height);
+        float2 texel = .5 / float2(width, height);
+        float2 uv = clamp(v.frame.xy + (v.local * .5 + .5) * v.frame.zw, v.frame.xy + texel,
+                          v.frame.xy + v.frame.zw - texel);
+        float4 sample = particleSprite.Sample(linearClamp, uv);
+        color *= p.tile.w == SpriteCoverage ? sample.r : sample;
+    }
+#if !SPACE_LINEAR
+    // An encoded pass composites encoded premultiplied colors, unquantized.
+    color = color.a > 0 ? float4(effectEncoded(saturate(color.rgb / color.a)) * color.a, color.a) : float4(0, 0, 0, 0);
+#endif
+    return color * p.extra.y * coverage;
+}
+#elif WEFT_EFFECT
 // UI shader effects (docs/architecture.md, "UI 着色器效果、粒子与背景拷贝"). An effect reads only its EffectInput and
 // the textures and sampler declared here; cmake/check_effect.cmake refuses sources that declare resources.
 static const uint EffectParameters = 16;
@@ -253,24 +498,6 @@ struct EffectInput {
     float time;
     float4 parameters[EffectParameters];
 };
-
-// The sRGB transfer, for effects that work with CSS colors: an encoded channel to linear light, and back. Scalar
-// conditions: HLSL 2021 (DXC) takes no vector condition in ?:, and FXC has no select().
-float effectLinear(float c) {
-    return c <= .04045 ? c / 12.92 : pow((c + .055) / 1.055, 2.4);
-}
-
-float3 effectLinear(float3 c) {
-    return float3(effectLinear(c.r), effectLinear(c.g), effectLinear(c.b));
-}
-
-float effectEncoded(float c) {
-    return c <= .0031308 ? c * 12.92 : 1.055 * pow(c, 1 / 2.4) - .055;
-}
-
-float3 effectEncoded(float3 c) {
-    return float3(effectEncoded(c.r), effectEncoded(c.g), effectEncoded(c.b));
-}
 
 // The effect's linear premultiplied color at one pixel, defined by the effect's source.
 float4 effect(EffectInput input);

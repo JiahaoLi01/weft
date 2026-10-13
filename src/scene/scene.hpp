@@ -3,6 +3,7 @@
 #include "dom/geometry.hpp"
 #include "scene/scene_effects.hpp"
 #include "scene/scene_paint.hpp"
+#include "scene/scene_particles.hpp"
 #include "scene/scene_text.hpp"
 #include <functional>
 #include <memory>
@@ -50,13 +51,16 @@ namespace weft {
         std::optional<ScenePaintValues> paint; // Derived numeric cache, not DOM/style identity.
         // The -weft-effect() background and its parameters, resolved from the custom properties.
         std::shared_ptr<const SceneEffect> effect;
+        // The particle emissions the element shows at the frame, drawn after its background and borders, before its
+        // content.
+        std::vector<SceneEmission> particles;
 
         friend bool operator==(const SceneNode& a, const SceneNode& b) {
             return a.identity == b.identity && a.tag == b.tag && a.space == b.space && a.text == b.text &&
                    a.attributes == b.attributes && a.style == b.style && a.box == b.box && a.lines == b.lines &&
                    a.fragments == b.fragments &&
                    (a.effect == b.effect || (a.effect && b.effect && *a.effect == *b.effect)) &&
-                   a.children == b.children;
+                   a.particles == b.particles && a.children == b.children;
         }
     };
 

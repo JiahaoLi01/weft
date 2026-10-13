@@ -325,8 +325,8 @@ namespace weft::render::vulkan {
         for (const auto& item : list->items) {
             ensure(item.kind != paint::Item::Kind::Text && item.kind != paint::Item::Kind::Layer &&
                        item.kind != paint::Item::Kind::Shadow && item.kind != paint::Item::Kind::Path &&
-                       item.kind != paint::Item::Kind::Plane,
-                   "the display list pass draws no scene rasters, shadows, paths or planes");
+                       item.kind != paint::Item::Kind::Plane && item.kind != paint::Item::Kind::Particles,
+                   "the display list pass draws no scene rasters, shadows, paths, planes or particles");
             if (item.kind == paint::Item::Kind::Image) {
                 const auto& image = list->images[item.payload];
                 ensure(image.stroke >= 0 && (image.asset >= list->assets.size() ||
@@ -725,6 +725,9 @@ namespace weft::render::vulkan {
                             effect_pipeline(list.programs[effect.program], open ? layer_format_ : target.format));
                         break;
                     }
+                    case ScenePass::Step::Particles:
+                        // prepare refuses particles: they draw in the scene pass alone.
+                        break;
                 }
             }
             std::vector<VkDescriptorSet> sets(images.size());
@@ -869,6 +872,8 @@ namespace weft::render::vulkan {
                             begin(depth ? layers_[depth - 1].framebuffer : resources.framebuffer,
                                   depth ? layer_passes : target_passes, false, paint::Color{});
                             draw_records(batch.first, 1);
+                            break;
+                        case ScenePass::Step::Particles:
                             break;
                     }
                 }

@@ -374,8 +374,8 @@ namespace weft::render::d3d11 {
         for (const auto& item : list->items) {
             ensure(item.kind != paint::Item::Kind::Text && item.kind != paint::Item::Kind::Layer &&
                        item.kind != paint::Item::Kind::Shadow && item.kind != paint::Item::Kind::Path &&
-                       item.kind != paint::Item::Kind::Plane,
-                   "the display list pass draws no scene rasters, shadows, paths or planes");
+                       item.kind != paint::Item::Kind::Plane && item.kind != paint::Item::Kind::Particles,
+                   "the display list pass draws no scene rasters, shadows, paths, planes or particles");
             if (item.kind == paint::Item::Kind::Image) {
                 const auto& image = list->images[item.payload];
                 ensure(image.stroke >= 0 && (image.asset >= list->assets.size() ||
@@ -831,6 +831,9 @@ namespace weft::render::d3d11 {
                     context->PSSetShader(display_ps.Get(), nullptr, 0);
                     break;
                 }
+                case ScenePass::Step::Particles:
+                    // prepare refuses particles: they draw in the scene pass alone.
+                    break;
             }
         }
         std::array<ID3D11ShaderResourceView*, effect_texture_slot + weft::constants::max_effect_textures> empty{};

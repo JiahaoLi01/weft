@@ -102,8 +102,9 @@ namespace weft {
 
     // A display list's pass ready to draw on a width x height device px target: its plan, and per item the image a
     // text, shadow or path item samples (null for a path with nothing in its clip), the pass of a plane's content
-    // (drawn into an image of plane_pixels), or a layer's image; and per effect of the list (DisplayList::effects, as
-    // Effect batches name them) its program and textures.
+    // (drawn into an image of plane_pixels), or a layer's image; per effect of the list (DisplayList::effects, as
+    // Effect batches name them) its program and textures; and per emission (DisplayList::particles, as Particles
+    // batches name them) its sprite's image, as an effect's texture, or null for discs.
     struct ScenePrepared {
         render::ScenePass pass;
         unsigned width{};
@@ -112,6 +113,7 @@ namespace weft {
         std::vector<std::unique_ptr<ScenePrepared>> planes;
         std::vector<std::shared_ptr<const SceneLayerImage>> layers;
         std::vector<ScenePreparedEffect> effects;
+        std::vector<std::shared_ptr<const SceneImage>> sprites;
     };
 
     // Scratch bytes the targets of a prepared pass and of its planes' passes take: their groups, and a plane's pass

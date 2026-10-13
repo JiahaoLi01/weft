@@ -179,6 +179,28 @@ int main(int argc, char** argv) {
             }
             CHECK(result == WEFT_RENDER_UNSUPPORTED_FEATURE && !refused.renderer_id);
         }
+        // So do particles.
+        {
+            weft::paint::DisplayList list;
+            weft::paint::Particles p;
+            p.emission.kind = weft::paint::ParticleEmission::Kind::Burst;
+            p.emission.count = 4;
+            list.particles.push_back(p);
+            weft::paint::Item item;
+            item.kind = weft::paint::Item::Kind::Particles;
+            item.width = 10;
+            item.height = 10;
+            item.clip = {0, 0, 96, 64};
+            list.items.push_back(item);
+            const weft_paint_list particle_list{std::make_shared<const weft::paint::DisplayList>(std::move(list))};
+            const weft_render_list_frame input{sizeof(input), WEFT_RENDER_ABI_VERSION, &particle_list, 0, 0, nullptr};
+            weft_render_handle refused{};
+            const auto result = weft_renderer_prepare_list(framed.ensure_backend().renderer, &input, &refused);
+            if (refused.renderer_id) {
+                weft_renderer_release_prepared(framed.ensure_backend().renderer, refused);
+            }
+            CHECK(result == WEFT_RENDER_UNSUPPORTED_FEATURE && !refused.renderer_id);
+        }
         framed.check_debug_messages();
 
         // Isolated groups composite once at their opacity: red under blue at half opacity shows half blue where they

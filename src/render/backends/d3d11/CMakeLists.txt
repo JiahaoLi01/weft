@@ -14,3 +14,6 @@ weft_add_library(scene_d3d11
     SOURCES scene_renderer.cpp
     PUBLIC weft::render_d3d11 weft::scene_d2d weft::scene_native)
 weft_add_hlsl(weft_scene_d3d11 scene_native "${PROJECT_SOURCE_DIR}/src/render/shaders/scene.hlsl" ALWAYS_OPTIMIZE)
+# Its particle pass: both stages of the same shader's WEFT_PARTICLES variant.
+weft_add_hlsl(weft_scene_d3d11 scene_particles "${PROJECT_SOURCE_DIR}/src/render/shaders/scene.hlsl" ALWAYS_OPTIMIZE
+    DEFINES WEFT_PARTICLES=1)
