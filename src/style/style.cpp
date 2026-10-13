@@ -441,7 +441,8 @@ namespace weft {
                                              "border-bottom-right-radius", "border-bottom-left-radius"}) {
                         result.push_back({name, tokens, important, false, -1, corner++});
                     }
-                } else if (profile.flow_shorthands && key == "overflow") {
+                } else if ((profile.flow_shorthands || profile.properties.contains("overflow-x")) &&
+                           key == "overflow") {
                     result.push_back({"overflow-x", tokens, important, false, -1, -1, 0});
                     result.push_back({"overflow-y", tokens, important, false, -1, -1, 1});
                 } else {

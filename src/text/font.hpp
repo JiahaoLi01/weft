@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -94,6 +95,12 @@ namespace weft {
         Fixed16_16
     };
 
+    // An OpenType feature over the whole text, e.g. {'tnum', 1}.
+    struct FontFeature {
+        std::uint32_t tag{};
+        std::uint32_t value{};
+    };
+
     // Variable font axis value in design coordinates, e.g. {'wght', 700}.
     struct FontVariation {
         std::uint32_t tag{};
@@ -150,20 +157,23 @@ namespace weft {
         bool has_color_glyphs() const;
         // Glyph of a Unicode code point, 0 when the face has none.
         std::uint32_t glyph_index(char32_t codepoint) const;
-        ShapedText shape(std::string_view utf8, float pixels,
-                         ShapePrecision precision = ShapePrecision::Fixed26_6) const;
+        // HarfBuzz's default features, and `features` over the whole text.
+        ShapedText shape(std::string_view utf8, float pixels, ShapePrecision precision = ShapePrecision::Fixed26_6,
+                         std::span<const FontFeature> features = {}) const;
         GlyphBitmap rasterize(std::uint32_t glyph_id, float pixels);
         // Coverage of the outline with its origin offset_x right of and offset_y below a whole pixel origin
-        // (subpixel positioning, y down); left/top stay relative to that whole pixel origin.
-        GlyphBitmap rasterize(std::uint32_t glyph_id, float pixels, float offset_x, float offset_y);
+        // (subpixel positioning, y down); left/top stay relative to that whole pixel origin. skew slants the outline
+        // about its baseline: x moves right by skew times the height above it (a synthetic oblique).
+        GlyphBitmap rasterize(std::uint32_t glyph_id, float pixels, float offset_x, float offset_y, float skew = 0);
         GlyphBitmap rasterize(const Glyph& glyph, float pixels);
-        // The unhinted outline at pixels per em, as rasterize draws it; empty for a glyph without one.
-        GlyphOutline outline(std::uint32_t glyph_id, float pixels);
+        // The unhinted outline at pixels per em, as rasterize draws it (skew too); empty for a glyph without one.
+        GlyphOutline outline(std::uint32_t glyph_id, float pixels, float skew = 0);
         // The glyph's color paint (a COLRv1 graph or COLRv0 layers; an outline without one is the foreground) at
         // pixels per em, its origin offset like rasterize's; foreground is the text's straight color. Empty when the
         // glyph paints nothing; none for paint the canvas cannot draw (PNG or SVG images, ColorCanvas bounds).
         std::optional<ColorGlyphBitmap> rasterize_color(std::uint32_t glyph_id, float pixels, float offset_x,
-                                                        float offset_y, const std::array<float, 4>& foreground);
+                                                        float offset_y, const std::array<float, 4>& foreground,
+                                                        float skew = 0);
         SdfBitmap rasterize_sdf(std::uint32_t glyph_id,
                                 std::uint32_t base_ppem = constants::text::sdf_default_base_ppem,
                                 std::uint32_t spread = constants::text::sdf_default_spread,
@@ -197,7 +207,8 @@ namespace weft {
     // that covers it; adjacent clusters of one font are shaped together. Glyph font_id is the index in
     // fonts. Bounded LTR Latin/Han/Common/Inherited profile (no bidi or script itemization yet).
     FallbackText shape_with_fallback(const std::vector<Font*>& fonts, std::string_view utf8, float pixels,
-                                     ShapePrecision precision = ShapePrecision::Fixed26_6);
+                                     ShapePrecision precision = ShapePrecision::Fixed26_6,
+                                     std::span<const FontFeature> features = {});
 
     // Owner-only font resource collection. Bounded LTR Latin/Han/Common/Inherited
     // profile, HarfBuzz clusters for fallback; paragraph bidi/line breaking pending.

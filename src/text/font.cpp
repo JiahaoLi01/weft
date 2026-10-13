@@ -226,7 +226,8 @@ namespace weft {
         return FT_Get_Char_Index(impl_->face, static_cast<FT_ULong>(codepoint));
     }
 
-    ShapedText Font::shape(std::string_view utf8, float pixels, ShapePrecision precision) const {
+    ShapedText Font::shape(std::string_view utf8, float pixels, ShapePrecision precision,
+                           std::span<const FontFeature> features) const {
         impl_->check(pixels);
         if (utf8.size() > constants::text::max_shape_input_bytes) {
             throw std::invalid_argument("WEFT_TEXT_LIMIT: probe input exceeds 1 MiB");
@@ -248,7 +249,12 @@ namespace weft {
         hb_font_set_scale(font, scale, scale);
         hb_buffer_add_utf8(buffer.get(), utf8.data(), static_cast<int>(utf8.size()), 0, static_cast<int>(utf8.size()));
         hb_buffer_guess_segment_properties(buffer.get());
-        hb_shape(font, buffer.get(), nullptr, 0);
+        std::vector<hb_feature_t> settings;
+        settings.reserve(features.size());
+        for (const auto& f : features) {
+            settings.push_back({f.tag, f.value, HB_FEATURE_GLOBAL_START, HB_FEATURE_GLOBAL_END});
+        }
+        hb_shape(font, buffer.get(), settings.data(), unsigned(settings.size()));
         if (!hb_buffer_allocation_successful(buffer.get())) {
             throw std::bad_alloc();
         }
@@ -271,7 +277,7 @@ namespace weft {
         return rasterize(glyph_id, pixels, 0, 0);
     }
 
-    GlyphBitmap Font::rasterize(std::uint32_t glyph_id, float pixels, float offset_x, float offset_y) {
+    GlyphBitmap Font::rasterize(std::uint32_t glyph_id, float pixels, float offset_x, float offset_y, float skew) {
         impl_->check(pixels);
         if (glyph_id >= static_cast<std::uint32_t>(impl_->face->num_glyphs)) {
             throw std::invalid_argument("WEFT_GLYPH_ID: out of range");
@@ -287,6 +293,13 @@ namespace weft {
             throw std::runtime_error("WEFT_GLYPH_RASTER: FreeType failure");
         }
         if (impl_->face->glyph->format == FT_GLYPH_FORMAT_OUTLINE) {
+            if (skew != 0) {
+                // FreeType's outlines are y up: x += skew y.
+                FT_Matrix slant{constants::text::fixed_16_16_one,
+                                static_cast<FT_Fixed>(std::lround(skew * constants::text::fixed_16_16_one)), 0,
+                                constants::text::fixed_16_16_one};
+                FT_Outline_Transform(&impl_->face->glyph->outline, &slant);
+            }
             FT_Outline_Translate(
                 &impl_->face->glyph->outline,
                 static_cast<FT_Pos>(std::lround(offset_x * constants::text::fixed_26_6_units_per_pixel)),
@@ -330,7 +343,7 @@ namespace weft {
         };
     } // namespace
 
-    GlyphOutline Font::outline(std::uint32_t glyph_id, float pixels) {
+    GlyphOutline Font::outline(std::uint32_t glyph_id, float pixels, float skew) {
         impl_->check(pixels);
         if (glyph_id >= static_cast<std::uint32_t>(impl_->face->num_glyphs)) {
             throw std::invalid_argument("WEFT_GLYPH_ID: out of range");
@@ -347,6 +360,12 @@ namespace weft {
             return out;
         }
         out.evenodd = (glyph->outline.flags & FT_OUTLINE_EVEN_ODD_FILL) != 0;
+        if (skew != 0) {
+            FT_Matrix slant{constants::text::fixed_16_16_one,
+                            static_cast<FT_Fixed>(std::lround(skew * constants::text::fixed_16_16_one)), 0,
+                            constants::text::fixed_16_16_one};
+            FT_Outline_Transform(&glyph->outline, &slant);
+        }
         OutlineSink sink{out};
         FT_Outline_Funcs funcs{};
         funcs.move_to = [](const FT_Vector* to, void* user) {
@@ -563,7 +582,8 @@ namespace weft {
     } // namespace
 
     std::optional<ColorGlyphBitmap> Font::rasterize_color(std::uint32_t glyph_id, float pixels, float offset_x,
-                                                          float offset_y, const std::array<float, 4>& foreground) {
+                                                          float offset_y, const std::array<float, 4>& foreground,
+                                                          float skew) {
         impl_->check(pixels);
         if (glyph_id >= static_cast<std::uint32_t>(impl_->face->num_glyphs)) {
             throw std::invalid_argument("WEFT_GLYPH_ID: out of range");
@@ -579,8 +599,14 @@ namespace weft {
         }
         const double scale = double(pixels) / em;
         const double margin = constants::text::color_glyph_margin;
-        const double left = std::floor(offset_x + extents.x_bearing * scale) - margin;
-        const double right = std::ceil(offset_x + (extents.x_bearing + extents.width) * scale) + margin;
+        // A slant moves the top and bottom of the extents right by skew times their heights.
+        const double top_shift = skew * std::max<double>(extents.y_bearing, extents.y_bearing + extents.height);
+        const double bottom_shift = skew * std::min<double>(extents.y_bearing, extents.y_bearing + extents.height);
+        const double left =
+            std::floor(offset_x + (extents.x_bearing + std::min(top_shift, bottom_shift)) * scale) - margin;
+        const double right =
+            std::ceil(offset_x + (extents.x_bearing + extents.width + std::max(top_shift, bottom_shift)) * scale) +
+            margin;
         const double top = std::floor(offset_y - extents.y_bearing * scale) - margin;
         const double bottom = std::ceil(offset_y - (extents.y_bearing + extents.height) * scale) + margin;
         const double area = (right - left) * (bottom - top);
@@ -589,7 +615,7 @@ namespace weft {
         }
         const auto width = static_cast<std::uint32_t>(right - left);
         const auto height = static_cast<std::uint32_t>(bottom - top);
-        ColorCanvas canvas(width, height, {scale, 0, 0, -scale, offset_x - left, offset_y - top});
+        ColorCanvas canvas(width, height, {scale, 0, skew * scale, -scale, offset_x - left, offset_y - top});
         ColorPainter painter{canvas};
         const auto channel = [](float v) {
             return static_cast<std::uint8_t>(
@@ -717,7 +743,7 @@ namespace weft {
     }
 
     FallbackText shape_with_fallback(const std::vector<Font*>& fonts, std::string_view text, float pixels,
-                                     ShapePrecision precision) {
+                                     ShapePrecision precision, std::span<const FontFeature> features) {
         if (fonts.empty() || fonts.size() > constants::text::max_fallback_fonts) {
             throw std::invalid_argument("WEFT_FONT_SET: expected 1..8 ordered fonts");
         }
@@ -757,7 +783,7 @@ namespace weft {
                     "WEFT_TEXT_SCRIPT: LTR Latin/Han profile; paragraph bidi/script itemization required");
             }
         }
-        auto primary = fonts.front()->shape(text, pixels, precision);
+        auto primary = fonts.front()->shape(text, pixels, precision, features);
         FallbackText result;
         if (primary.glyphs.empty()) {
             return result;
@@ -783,7 +809,9 @@ namespace weft {
             std::uint32_t selected{};
             if (i->second) {
                 for (std::uint32_t f = 1; f < fonts.size(); ++f) {
-                    if (!fonts[f]->shape(text.substr(i->first, end - i->first), pixels, precision).missing_glyph) {
+                    if (!fonts[f]
+                             ->shape(text.substr(i->first, end - i->first), pixels, precision, features)
+                             .missing_glyph) {
                         selected = f;
                         break;
                     }
@@ -796,7 +824,8 @@ namespace weft {
             }
         }
         for (const auto& span : spans) {
-            auto shaped = fonts[span.font]->shape(text.substr(span.start, span.end - span.start), pixels, precision);
+            auto shaped =
+                fonts[span.font]->shape(text.substr(span.start, span.end - span.start), pixels, precision, features);
             result.shaped.missing_glyph |= shaped.missing_glyph;
             result.shaped.advance += shaped.advance;
             for (auto g : shaped.glyphs) {

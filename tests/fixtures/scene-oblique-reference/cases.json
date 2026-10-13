@@ -1,0 +1,17 @@
+{
+ "browser": "Chrome/155.0.8059.40",
+ "width": 400,
+ "height": 140,
+ "text": "HIJ Slanted",
+ "left": 20,
+ "lines": [
+  {
+   "y": 0,
+   "style": "font-family:Impact;font-size:40px;line-height:60px;color:#ffffff"
+  },
+  {
+   "y": 70,
+   "style": "font-family:Impact;font-size:40px;line-height:60px;color:#ffffff;font-style:italic"
+  }
+ ]
+}

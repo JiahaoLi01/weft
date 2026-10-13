@@ -109,6 +109,27 @@ CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后�
   - 原生 pass 的圆点外有一圈约 9% 覆盖的淡晕（距离场的抗锯齿）；
   - 实线边框宽度不按设备像素取整，离格盒子也不像 Chrome 那样对齐像素，所以离格时比 Chrome 虚一些。
 
+2026-10-13 重构第 11.3c 步之二：scene 的文字样式与相关 CSS。
+- `text-transform`（继承）：
+  - `uppercase`、`lowercase` 按 Unicode 完整大小写映射：ß → SS、ﬁ → FI、İ → i̇，小写 Σ 按 Final_Sigma；
+  - 不做语言定制；映射表来自固定版本 QuickJS-NG 的 libunicode；
+  - `capitalize`、`full-width`、`full-size-kana` 报 `WEFT_SCENE_PROFILE`。
+- `font-style`（继承）：`italic`、`oblique` 选用字体自带的斜体。字体没有斜体时，与 Chrome 一样合成倾斜：字形绕基线向右倾，水平偏移为基线以上高度的 1/4，字宽不变。原生 pass、参考光栅、SVG 文字轮廓都画出倾斜；斜体文字的图像四周多留 0.35em，倾出盒子的笔画不被裁掉。
+- `font-variant-numeric`（继承）：`lining-nums`/`oldstyle-nums`、`proportional-nums`/`tabular-nums`、`diagonal-fractions`/`stacked-fractions`、`ordinal`、`slashed-zero` 作为 OpenType 特性交给 HarfBuzz；同组两值或未知词报诊断。
+- 视口长度：
+  - `vw`、`vh`、`vmin`、`vmax` 及其 `s`/`l`/`d` 前缀形式（scene 只有一个视口，三种相同），按帧的视口换算成 px；
+  - 视口变化而 DOM 不变时，只重新展开用到它们的元素；
+  - 关键帧里的视口长度报诊断（关键帧只解析一次）。
+- `overflow-x`、`overflow-y`：
+  - scene 只能两轴一起裁剪，所以一轴裁剪即整体裁剪；
+  - 如 CSS，与裁剪轴并存的 `visible` 计为 `auto`，内容须能放下；
+  - `clip`、`scroll` 仍报诊断；`overflow` 简写在层叠前展开到两轴，先后顺序按 CSS。
+- `-webkit-user-select`：接受，无效果（与 `user-select` 相同）。
+- 验证：
+  - Chrome 的行几何新增 6 个用例：大写（含 ß、ﬁ、İ）、继承的大写、斜体、Impact 的合成倾斜、Constantia 的数字变体、Segoe UI 的等宽数字。与 Chrome 逐一相同，最大差 0 px；
+  - 合成倾斜的斜率与 Chrome 截图相差不到 0.02：Chrome −0.266、参考光栅 −0.254、原生 −0.248 px/行。
+- 限制：Final_Sigma 只看同一个文字节点；没有按 `lang` 的大小写规则；`shape_with_fallback` 的文字仍限于拉丁、汉字与通用字符，希腊、西里尔等字母的文字本来就报诊断。
+
 | 能力 | P0 探针 | v0.1 目标 | 后续 |
 | --- | --- | --- | --- |
 | 层叠 | UA/author/inline、important、继承与 source order | 同左，配套 CSSOM 更新 | cascade layers、复杂 at-rule |

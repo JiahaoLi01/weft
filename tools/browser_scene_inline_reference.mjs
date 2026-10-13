@@ -75,6 +75,24 @@ const cases = [
     children: ['Fire \u{1F525} and 进度 42% with fallback faces in a normal line height']},
   {name: 'emoji', width: 120, style: tailwind + 'font-size:14px;line-height:1.625',
     children: ['Fire \u{1F525} and ice \u2744\uFE0F and shield \u{1F6E1} and dagger \u{1F5E1} here']},
+  // text-transform: full case mappings (\u00DF, the \uFB01 ligature and \u0130 become two characters).
+  {name: 'uppercase', width: 260, style: sans + 'font-size:14px;line-height:1.5',
+    children: ['Rarity: ', span('text-transform:uppercase;letter-spacing:0.05em', 'legendary stra\u00DFe \uFB01nale \u00E9clair'),
+      ' then ', span('text-transform:lowercase', 'LOUD \u00C9CLAT \u0130STANBUL'), ' end.']},
+  {name: 'uppercase block', width: 120, style: tailwind + 'font-size:9px;text-transform:uppercase;letter-spacing:0.05em',
+    children: ['Rare item with a long name that wraps', span('text-transform:none', ' kept')]},
+  // font-style: the face's italics, or a slanted upright face where it has none (Impact).
+  {name: 'italic', width: 180, style: sans + 'font-size:14px',
+    children: ['Upright then ', span('font-style:italic', 'italic words that wrap onto the next line'), ' and upright.']},
+  {name: 'synthetic oblique', width: 300, style: 'font-family:Impact;font-size:16px',
+    children: ['Upright ', span('font-style:italic', 'Slanted text'), ' end']},
+  // font-variant-numeric: Constantia's figures are oldstyle and proportional by default.
+  {name: 'numeric variants', width: 300, style: 'font-family:Constantia;font-size:16px;line-height:24px',
+    children: ['1111 7777 0000', el('br', ''), span('font-variant-numeric:tabular-nums', '1111 7777 0000'), el('br', ''),
+      span('font-variant-numeric:lining-nums tabular-nums', '1111 7777 0000'), el('br', ''),
+      span('font-variant-numeric:oldstyle-nums proportional-nums slashed-zero', '1111 7777 0000')]},
+  {name: 'tabular nums', width: 300, style: tailwind + 'font-size:12px',
+    children: ['Damage 1,234 / ', span('font-variant-numeric:tabular-nums', '1,111 / 9,999 / 1.0s')]},
 ];
 // The svg case: a 20 x 20 replaced inline element on the baseline.
 cases.find((c) => c.name === 'inline svg').children[0] = {tag: 'svg', style: '', attributes: {width: '20', height: '20'},

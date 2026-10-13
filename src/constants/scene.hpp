@@ -96,6 +96,9 @@ namespace weft::constants::scene {
     // Layouts of one inline formatting context kept per frame layout, by available width (the widths Yoga measures it
     // at, and the final one).
     inline constexpr int inline_layout_memo_entries = 8;
+    // Room around italic and oblique text's images, in ems of its font size: a synthetic oblique's top leans a quarter
+    // of the ascent right, and italic faces overhang as far.
+    inline constexpr float italic_overhang_em = .35f;
     // Device px within which the reference raster flattens the round dots of dotted borders: D2D's own quarter pixel
     // takes a tenth of a 4 px dot's area.
     inline constexpr float round_dot_flattening_px = .01f;

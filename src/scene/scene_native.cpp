@@ -165,14 +165,15 @@ namespace weft {
         // The node image_margin px in from the edges of a transparent frame of its size and margins: an explicit
         // layer's content, which a backend draws into the layer's image, and what the reference raster draws of text
         // whose color glyphs are images. Other text is a portable image.
+        const float margin = limits::image_margin + raster.overhang;
         const auto framed = [&] {
             SceneFrame frame;
             frame.root.tag = "div";
             frame.root.identity = {UINT32_MAX, 1, n.identity.view_epoch};
-            frame.root.box = {0, 0, n.box[2] + limits::image_margins, n.box[3] + limits::image_margins};
+            frame.root.box = {0, 0, n.box[2] + 2 * margin, n.box[3] + 2 * margin};
             frame.root.style = {{"background-color", "transparent"}};
             auto child = n;
-            child.box[0] = child.box[1] = limits::image_margin;
+            child.box[0] = child.box[1] = margin;
             frame.root.children.push_back(std::move(child));
             return frame;
         };
@@ -203,7 +204,7 @@ namespace weft {
             ++work_.layer_builds;
         } else {
             SceneBitmap bitmap;
-            auto text = scene_text_image(text_, n, scale, limits::image_margin);
+            auto text = scene_text_image(text_, n, scale, margin);
             if (!text.color_glyphs) {
                 bitmap = std::move(text.bitmap);
                 ++work_.text_portable_builds;

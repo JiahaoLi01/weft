@@ -2079,6 +2079,540 @@
      ]
     ]
    }
+  },
+  {
+   "name": "uppercase",
+   "width": 260,
+   "style": "font-family:system-ui;font-size:14px;line-height:1.5",
+   "children": [
+    "Rarity: ",
+    {
+     "tag": "span",
+     "style": "text-transform:uppercase;letter-spacing:0.05em",
+     "children": [
+      "legendary straße ﬁnale éclair"
+     ]
+    },
+    " then ",
+    {
+     "tag": "span",
+     "style": "text-transform:lowercase",
+     "children": [
+      "LOUD ÉCLAT İSTANBUL"
+     ]
+    },
+    " end."
+   ],
+   "chrome": {
+    "width": 260,
+    "height": 42,
+    "elements": [
+     {
+      "tag": "span",
+      "rects": [
+       [
+        46.09375,
+        1,
+        213.65625,
+        18
+       ],
+       [
+        0,
+        22,
+        52,
+        18
+       ]
+      ]
+     },
+     {
+      "tag": "span",
+      "rects": [
+       [
+        90.703125,
+        22,
+        123.34375,
+        18
+       ]
+      ]
+     }
+    ],
+    "texts": [
+     [
+      {
+       "text": "Rarity:",
+       "left": 0,
+       "right": 41.953125,
+       "top": 1,
+       "height": 18
+      }
+     ],
+     [
+      {
+       "text": "legendary straße ﬁnale",
+       "left": 46.09375,
+       "right": 259.75,
+       "top": 1,
+       "height": 18
+      },
+      {
+       "text": "éclair",
+       "left": 0,
+       "right": 52,
+       "top": 22,
+       "height": 18
+      }
+     ],
+     [
+      {
+       "text": "then",
+       "left": 52,
+       "right": 86.5625,
+       "top": 22,
+       "height": 18
+      }
+     ],
+     [
+      {
+       "text": "LOUD ÉCLAT İSTANBUL",
+       "left": 90.703125,
+       "right": 214.046875,
+       "top": 22,
+       "height": 18
+      }
+     ],
+     [
+      {
+       "text": "end.",
+       "left": 214.046875,
+       "right": 247.09375,
+       "top": 22,
+       "height": 18
+      }
+     ]
+    ]
+   }
+  },
+  {
+   "name": "uppercase block",
+   "width": 120,
+   "style": "font-family:ui-sans-serif, system-ui, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\";font-size:9px;text-transform:uppercase;letter-spacing:0.05em",
+   "children": [
+    "Rare item with a long name that wraps",
+    {
+     "tag": "span",
+     "style": "text-transform:none",
+     "children": [
+      " kept"
+     ]
+    }
+   ],
+   "chrome": {
+    "width": 120,
+    "height": 33,
+    "elements": [
+     {
+      "tag": "span",
+      "rects": [
+       [
+        34.328125,
+        22,
+        23.828125,
+        11
+       ]
+      ]
+     }
+    ],
+    "texts": [
+     [
+      {
+       "text": "Rare item with a",
+       "left": 0,
+       "right": 90.03125,
+       "top": 0,
+       "height": 11
+      },
+      {
+       "text": "long name that",
+       "left": 0,
+       "right": 87.5625,
+       "top": 11,
+       "height": 11
+      },
+      {
+       "text": "wraps",
+       "left": 0,
+       "right": 34.328125,
+       "top": 22,
+       "height": 11
+      }
+     ],
+     [
+      {
+       "text": "kept",
+       "left": 34.328125,
+       "right": 58.15625,
+       "top": 22,
+       "height": 11
+      }
+     ]
+    ]
+   }
+  },
+  {
+   "name": "italic",
+   "width": 180,
+   "style": "font-family:system-ui;font-size:14px",
+   "children": [
+    "Upright then ",
+    {
+     "tag": "span",
+     "style": "font-style:italic",
+     "children": [
+      "italic words that wrap onto the next line"
+     ]
+    },
+    " and upright."
+   ],
+   "chrome": {
+    "width": 180,
+    "height": 54,
+    "elements": [
+     {
+      "tag": "span",
+      "rects": [
+       [
+        89.953125,
+        0,
+        75.796875,
+        18
+       ],
+       [
+        0,
+        18,
+        158.640625,
+        18
+       ],
+       [
+        0,
+        36,
+        24.03125,
+        18
+       ]
+      ]
+     }
+    ],
+    "texts": [
+     [
+      {
+       "text": "Upright then",
+       "left": 0,
+       "right": 85.8125,
+       "top": 0,
+       "height": 18
+      }
+     ],
+     [
+      {
+       "text": "italic words",
+       "left": 89.953125,
+       "right": 165.75,
+       "top": 0,
+       "height": 18
+      },
+      {
+       "text": "that wrap onto the next",
+       "left": 0,
+       "right": 158.640625,
+       "top": 18,
+       "height": 18
+      },
+      {
+       "text": "line",
+       "left": 0,
+       "right": 24.03125,
+       "top": 36,
+       "height": 18
+      }
+     ],
+     [
+      {
+       "text": "and upright.",
+       "left": 24.03125,
+       "right": 110.4375,
+       "top": 36,
+       "height": 18
+      }
+     ]
+    ]
+   }
+  },
+  {
+   "name": "synthetic oblique",
+   "width": 300,
+   "style": "font-family:Impact;font-size:16px",
+   "children": [
+    "Upright ",
+    {
+     "tag": "span",
+     "style": "font-style:italic",
+     "children": [
+      "Slanted text"
+     ]
+    },
+    " end"
+   ],
+   "chrome": {
+    "width": 300,
+    "height": 19,
+    "elements": [
+     {
+      "tag": "span",
+      "rects": [
+       [
+        51.546875,
+        0,
+        78.140625,
+        19
+       ]
+      ]
+     }
+    ],
+    "texts": [
+     [
+      {
+       "text": "Upright",
+       "left": 0,
+       "right": 48.71875,
+       "top": 0,
+       "height": 19
+      }
+     ],
+     [
+      {
+       "text": "Slanted text",
+       "left": 51.546875,
+       "right": 129.6875,
+       "top": 0,
+       "height": 19
+      }
+     ],
+     [
+      {
+       "text": "end",
+       "left": 129.6875,
+       "right": 157.375,
+       "top": 0,
+       "height": 19
+      }
+     ]
+    ]
+   }
+  },
+  {
+   "name": "numeric variants",
+   "width": 300,
+   "style": "font-family:Constantia;font-size:16px;line-height:24px",
+   "children": [
+    "1111 7777 0000",
+    {
+     "tag": "br",
+     "style": "",
+     "children": []
+    },
+    {
+     "tag": "span",
+     "style": "font-variant-numeric:tabular-nums",
+     "children": [
+      "1111 7777 0000"
+     ]
+    },
+    {
+     "tag": "br",
+     "style": "",
+     "children": []
+    },
+    {
+     "tag": "span",
+     "style": "font-variant-numeric:lining-nums tabular-nums",
+     "children": [
+      "1111 7777 0000"
+     ]
+    },
+    {
+     "tag": "br",
+     "style": "",
+     "children": []
+    },
+    {
+     "tag": "span",
+     "style": "font-variant-numeric:oldstyle-nums proportional-nums slashed-zero",
+     "children": [
+      "1111 7777 0000"
+     ]
+    }
+   ],
+   "chrome": {
+    "width": 300,
+    "height": 96,
+    "elements": [
+     {
+      "tag": "br",
+      "rects": [
+       [
+        93.703125,
+        2,
+        0,
+        19
+       ]
+      ]
+     },
+     {
+      "tag": "span",
+      "rects": [
+       [
+        0,
+        26,
+        113.96875,
+        19
+       ]
+      ]
+     },
+     {
+      "tag": "br",
+      "rects": [
+       [
+        113.96875,
+        26,
+        0,
+        19
+       ]
+      ]
+     },
+     {
+      "tag": "span",
+      "rects": [
+       [
+        0,
+        50,
+        113.96875,
+        19
+       ]
+      ]
+     },
+     {
+      "tag": "br",
+      "rects": [
+       [
+        113.96875,
+        50,
+        0,
+        19
+       ]
+      ]
+     },
+     {
+      "tag": "span",
+      "rects": [
+       [
+        0,
+        74,
+        93.703125,
+        19
+       ]
+      ]
+     }
+    ],
+    "texts": [
+     [
+      {
+       "text": "1111 7777 0000",
+       "left": 0,
+       "right": 93.703125,
+       "top": 2,
+       "height": 19
+      }
+     ],
+     [
+      {
+       "text": "1111 7777 0000",
+       "left": 0,
+       "right": 113.96875,
+       "top": 26,
+       "height": 19
+      }
+     ],
+     [
+      {
+       "text": "1111 7777 0000",
+       "left": 0,
+       "right": 113.96875,
+       "top": 50,
+       "height": 19
+      }
+     ],
+     [
+      {
+       "text": "1111 7777 0000",
+       "left": 0,
+       "right": 93.703125,
+       "top": 74,
+       "height": 19
+      }
+     ]
+    ]
+   }
+  },
+  {
+   "name": "tabular nums",
+   "width": 300,
+   "style": "font-family:ui-sans-serif, system-ui, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\";font-size:12px",
+   "children": [
+    "Damage 1,234 / ",
+    {
+     "tag": "span",
+     "style": "font-variant-numeric:tabular-nums",
+     "children": [
+      "1,111 / 9,999 / 1.0s"
+     ]
+    }
+   ],
+   "chrome": {
+    "width": 300,
+    "height": 15,
+    "elements": [
+     {
+      "tag": "span",
+      "rects": [
+       [
+        94.953125,
+        0,
+        109.0625,
+        15
+       ]
+      ]
+     }
+    ],
+    "texts": [
+     [
+      {
+       "text": "Damage 1,234 /",
+       "left": 0,
+       "right": 91.40625,
+       "top": 0,
+       "height": 15
+      }
+     ],
+     [
+      {
+       "text": "1,111 / 9,999 / 1.0s",
+       "left": 94.953125,
+       "right": 204.015625,
+       "top": 0,
+       "height": 15
+      }
+     ]
+    ]
+   }
   }
  ]
 }

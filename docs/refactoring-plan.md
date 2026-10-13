@@ -1462,6 +1462,39 @@ CMake 拆分：
 
 ## 第 11 步记录（2026-10-12）
 
+**11.3c 之二：文字样式与相关 CSS**（2026-10-13）：
+- 属性表：`-webkit-user-select`、`font-variant-numeric`、`text-transform`；scene 接受 `overflow-x`、`overflow-y`，`font-style`、`font-variant-numeric`、`text-transform` 为继承属性。
+- `text-transform`：
+  - `text/case_mapping.{hpp,cpp}`（新）：UTF-8 文字按 Unicode 完整映射转大写或小写，小写的 Σ 按 Final_Sigma；非 UTF-8 字节原样保留。
+  - 映射表取自 QuickJS-NG 的 libunicode：同一份未修改的源码另编成 `weft_unicode_case`，不链接引擎。
+  - 求解器在继承之后变换元素自身的文字与匿名文字节点，排版、绘制、命中都看到变换后的文字；其他取值报诊断。
+- `font-variant-numeric`：
+  - `SceneFont::numeric` 为八个取值的位；`Font::shape` 与 `shape_with_fallback` 接受整段的 OpenType 特性，SceneText 按位传入 `lnum`、`onum`、`pnum`、`tnum`、`frac`、`afrc`、`ordn`、`zero`；
+  - 文字段缓存键带上这些位；同组两值或未知词报诊断。
+- 合成倾斜：
+  - 字体目录标为非斜体的字面遇到斜体请求时，字形带 `oblique` 标记；
+  - `Font::rasterize`、`rasterize_color`、`outline` 接受 skew（FreeType 轮廓变换、彩色画布的仿射）；D2D 参考光栅对该段字形加绕基线的错切；
+  - 斜度为 Skia 的 1/4（`constants::text::synthetic_oblique_skew`）。
+- 文字图像留白：`paint::Raster::overhang`。斜体与倾斜文字四周多留 0.35em（`italic_overhang_em`），预处理器与 scene pass 按它放置图像。此前倾出盒子的笔画超过 2px 留白就被裁掉，真斜体字面也一样。
+- 视口长度：
+  - `expand` 接受视口，把 vw、vh、vmin、vmax 及 s/l/d 形式换成 px；
+  - 节点状态记下是否用过视口长度，视口变化时只把这些节点标脏，即使 DOM 没变也重新展开；
+  - 关键帧里出现即报诊断。
+- `overflow-x`、`overflow-y`：scene 的 `overflow` 简写在层叠前展开到两轴，`expand` 再合成一个值：两轴相同取该值，有 clip 或 scroll 时保留以便诊断，都为 hidden 时为 hidden，其余为 auto。
+- `scene_inline_browser_contract`：新增 6 个 Chrome 用例（共 29 个、126 行，最大差 0 px）；测试把 Chrome 记录的 DOM 字符按同样的映射变换后再比较行文字。
+- `scene_text_style_contract`（新）：
+  - Impact 的正体与合成倾斜在参考光栅、原生 pass、Chrome 截图（`tools/browser_scene_oblique_reference.mjs`）上的斜率；字体自带斜体时不再倾斜；
+  - 大小写映射的边界情形；视口变化而 DOM 不变时长度跟随；溢出两轴合成与先后顺序；`-webkit-user-select`；
+  - 七种诊断。
+- 产物与 11.3c 之一相同（只有按时序变化的窗口与计数类产物不同）。
+- 变异检查 20 个全部被发现：
+  - 文字变换 5 个：元素文字不变换、匿名文字不变换、每个映射只取一个字符、没有 Final_Sigma、不继承；
+  - 数字变体 3 个：不传特性、缓存键不带变体、接受同组两值；
+  - 合成倾斜 5 个：从不倾斜、原生不倾斜、参考光栅不倾斜、自带斜体又倾斜、不留白；
+  - 视口长度 4 个：视口变化不重新展开、vmin 当 vmax、不认 s/l/d 形式、关键帧接受视口长度；
+  - 溢出两轴 2 个：混合时取 hidden、简写不展开；
+  - `-webkit-user-select` 被拒 1 个。
+
 **11.3c 之一：点线与虚线边框**（2026-10-13）：
 - `scene_border.{hpp,cpp}`（新）：一条点线或虚线边在设备像素上的形状，按 Chromium 的 `BoxBorderPainter::DrawDashedOrDottedBoxSide` 与 `StyledStrokeData`：边框盒按 `ToPixelSnappedRect` 对齐，边宽向下取整；虚线 3:2 或 2:1、间隔取 `SelectBestDashGap`；1–3 设备像素的点为方点，两端按 `EnforceDotsAtEndpoints` 补点；更宽为圆点（零长段加圆头，线两端内缩半个宽度，周期减 0.01 以保住末点）；只容得下一个间隔的线整条画出。结果映回盒子坐标。
 - 样式：

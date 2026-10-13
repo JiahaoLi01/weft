@@ -175,11 +175,12 @@ namespace weft::render {
                 r.size = {float(w) / scale, float(h) / scale, 0, 0};
                 r.extra = {0, item.opacity, scene_limits::flag_enabled, scene_limits::flag_disabled};
             } else if (item.kind == Kind::Text || item.kind == Kind::Layer) {
-                // Scene rasters keep a transparent margin around the node.
-                m[4] -= scene_limits::image_margin * (m[0] + m[2]);
-                m[5] -= scene_limits::image_margin * (m[1] + m[3]);
-                r.size[0] += scene_limits::image_margins;
-                r.size[1] += scene_limits::image_margins;
+                // Scene rasters keep a transparent margin around the node, more where ink leaves it.
+                const float margin = scene_limits::image_margin + list.rasters[item.payload].overhang;
+                m[4] -= margin * (m[0] + m[2]);
+                m[5] -= margin * (m[1] + m[3]);
+                r.size[0] += 2 * margin;
+                r.size[1] += 2 * margin;
             } else if (item.kind == Kind::Path) {
                 // The mask lies in device pixels, texel for pixel.
                 m = {1, 0, 0, 1, mask[0] / scale, mask[1] / scale};

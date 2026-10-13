@@ -1,6 +1,7 @@
 #include "constants/common.hpp"
 #include "scene/scene.hpp"
 #include "scene/scene_text.hpp"
+#include "text/case_mapping.hpp"
 #include "support/check.hpp"
 #include "support/files.hpp"
 #include "support/json_value.hpp"
@@ -216,8 +217,15 @@ int main() {
                     const auto& line = *visible[l];
                     const auto& x = expected[l];
                     const auto at = what + " line " + std::to_string(l);
-                    if (trimmed(line.text) != x["text"].string) {
-                        failures.list.push_back(at + ": [" + line.text + "], Chrome [" + x["text"].string + "]");
+                    // Chrome's lines are the DOM's characters; the scene's are as text-transform shows them.
+                    auto chrome_text = x["text"].string;
+                    const auto transform = owner.style.text(weft::PropertyId::TextTransform, "none");
+                    if (transform == "uppercase" || transform == "lowercase") {
+                        chrome_text = weft::case_mapped(chrome_text, transform == "uppercase" ? weft::TextCase::Upper
+                                                                                              : weft::TextCase::Lower);
+                    }
+                    if (trimmed(line.text) != chrome_text) {
+                        failures.list.push_back(at + ": [" + line.text + "], Chrome [" + chrome_text + "]");
                         continue;
                     }
                     // Chrome's end is the last visible character's; a line's text may end in a space where another

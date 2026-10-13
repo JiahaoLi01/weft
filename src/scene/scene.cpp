@@ -4,6 +4,7 @@
 #include "constants/scene.hpp"
 #include "layout/flex.hpp"
 #include "scene/scene_inline.hpp"
+#include "text/case_mapping.hpp"
 #include <chrono>
 #include <algorithm>
 #include <cmath>
@@ -68,7 +69,10 @@ namespace weft {
                                                     PropertyId::DominantBaseline,
                                                     PropertyId::PointerEvents,
                                                     PropertyId::TextAlign,
-                                                    PropertyId::WhiteSpace};
+                                                    PropertyId::WhiteSpace,
+                                                    PropertyId::FontStyle,
+                                                    PropertyId::FontVariantNumeric,
+                                                    PropertyId::TextTransform};
 
         bool specified(const ComputedStyle& c, PropertyId k) {
             return std::find(c.specified_properties.begin(), c.specified_properties.end(), property_name(k)) !=
@@ -128,7 +132,93 @@ namespace weft {
             return out;
         }
 
-        Style expand(Style s) {
+        bool ident_char(char c) {
+            return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-' || c == '#' || c == '.';
+        }
+
+        // Viewport-percentage lengths in a value (vw, vh, vmin, vmax and their small, large and dynamic forms: a scene
+        // has one viewport) as px of `viewport`; none when the value has none.
+        std::optional<std::string> viewport_lengths(std::string_view value, std::array<float, 2> viewport) {
+            if (value.find('v') == value.npos) {
+                return std::nullopt;
+            }
+            std::string out;
+            bool found{};
+            std::size_t copied{};
+            const auto digit = [&](std::size_t k) {
+                return k < value.size() && std::isdigit(static_cast<unsigned char>(value[k]));
+            };
+            // A number starts at a digit, or a point before one, optionally signed, and not inside an identifier.
+            const auto number_at = [&](std::size_t k) {
+                return digit(k) || (k < value.size() && value[k] == '.' && digit(k + 1));
+            };
+            for (std::size_t i = 0; i < value.size();) {
+                const std::size_t start = i;
+                std::size_t at = start;
+                if ((value[at] == '+' || value[at] == '-') && number_at(at + 1)) {
+                    ++at;
+                }
+                if (!number_at(at) || (start > 0 && ident_char(value[start - 1]))) {
+                    i = start + 1;
+                    continue;
+                }
+                i = at;
+                while (i < value.size() && (digit(i) || value[i] == '.')) {
+                    ++i;
+                }
+                std::size_t unit = i;
+                while (i < value.size() && std::isalpha(static_cast<unsigned char>(value[i]))) {
+                    ++i;
+                }
+                if (i < value.size() && ident_char(value[i]) && value[i] != '.') {
+                    continue;
+                }
+                auto name = std::string(value.substr(unit, i - unit));
+                std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) {
+                    return char(std::tolower(c));
+                });
+                if (name.size() > 2 && (name[0] == 's' || name[0] == 'l' || name[0] == 'd') && name[1] == 'v') {
+                    name.erase(0, 1);
+                }
+                double basis{};
+                if (name == "vw") {
+                    basis = viewport[0];
+                } else if (name == "vh") {
+                    basis = viewport[1];
+                } else if (name == "vmin") {
+                    basis = std::min(viewport[0], viewport[1]);
+                } else if (name == "vmax") {
+                    basis = std::max(viewport[0], viewport[1]);
+                } else {
+                    continue;
+                }
+                found = true;
+                out.append(value.substr(copied, start - copied));
+                out += numeric(number(value.substr(start, unit - start)) * basis / constants::percent_scale) + "px";
+                copied = i;
+            }
+            if (!found) {
+                return std::nullopt;
+            }
+            out.append(value.substr(copied));
+            return out;
+        }
+
+        // Text as text-transform shows it; the transforms beyond upper and lower case are outside the profile.
+        std::string transformed(std::string text, const SceneStyle& style) {
+            const auto transform = style.text(PropertyId::TextTransform, "none");
+            if (transform == "none" || text.empty()) {
+                return text;
+            }
+            if (transform == "uppercase" || transform == "lowercase") {
+                return case_mapped(text, transform == "uppercase" ? TextCase::Upper : TextCase::Lower);
+            }
+            fail("text-transform " + std::string(transform) + " outside scene profile");
+        }
+
+        // A scene element's computed values from its cascaded ones: shorthands and aliases expanded, viewport
+        // lengths in px of `viewport`. `viewport_units` is set when some value used one.
+        Style expand(Style s, std::array<float, 2> viewport, bool* viewport_units = nullptr) {
             if (s.contains(PropertyId::Rotate)) {
                 s[PropertyId::Transform] =
                     "rotate(" + s.at(PropertyId::Rotate) + ") " +
@@ -173,6 +263,33 @@ namespace weft {
                 if (style == "none" || style == "hidden") {
                     s[border_width_edges[side]] = "0";
                 }
+            }
+            // The scene clips both axes or neither: one axis that clips makes the box clip. As in CSS, visible beside
+            // an axis that clips is auto, so auto wins (its content must fit); scroll and clip stay for the
+            // diagnostic.
+            if (s.contains(PropertyId::OverflowX) || s.contains(PropertyId::OverflowY)) {
+                const auto both = std::string(s.text(PropertyId::Overflow, "visible"));
+                const auto x = std::string(s.text(PropertyId::OverflowX, both));
+                const auto y = std::string(s.text(PropertyId::OverflowY, both));
+                s[PropertyId::Overflow] = x == y                                           ? x
+                                          : x != "visible" && x != "auto" && x != "hidden" ? x
+                                          : y != "visible" && y != "auto" && y != "hidden" ? y
+                                          : x == "hidden" && y == "hidden"                 ? "hidden"
+                                                                                           : "auto";
+                s.erase(PropertyId::OverflowX);
+                s.erase(PropertyId::OverflowY);
+            }
+            std::vector<std::pair<PropertyId, std::string>> resolved;
+            for (const auto& [id, value] : s) {
+                if (auto px = viewport_lengths(value.text(), viewport)) {
+                    resolved.emplace_back(id, std::move(*px));
+                }
+            }
+            for (auto& [id, px] : resolved) {
+                s.set(id, std::move(px));
+            }
+            if (viewport_units && !resolved.empty()) {
+                *viewport_units = true;
             }
             return s;
         }
@@ -545,7 +662,11 @@ namespace weft {
                     if (end == body.npos) {
                         fail("keyframe block");
                     }
-                    auto style = expand(declarations(body.substr(start + 1, end - start - 1)));
+                    bool viewport_units{};
+                    auto style = expand(declarations(body.substr(start + 1, end - start - 1)), {}, &viewport_units);
+                    if (viewport_units) {
+                        fail("viewport length in keyframes outside scene profile");
+                    }
                     for (auto key : split(body.substr(q, start - q), ',')) {
                         double fraction = key == "from" ? 0 : key == "to" ? 1 : length(key);
                         if (fraction < 0 || fraction > 1) {
@@ -638,6 +759,8 @@ namespace weft {
             Style target;
             Style current;
             bool expand_dirty = true;
+            // The expanded values used viewport lengths: a new viewport expands them again.
+            bool viewport_units{};
             ScenePaintValues paint;
             std::vector<AnimationPlan> plans;
             bool plans_valid{};
@@ -737,6 +860,9 @@ namespace weft {
                               "z-index",
                               "touch-action",
                               "user-select",
+                              "-webkit-user-select",
+                              "overflow-x",
+                              "overflow-y",
                               "vertical-align",
                               "will-change"}) {
             p.properties[k] = {"", false, CssGrammar::Tokens, {}};
@@ -760,7 +886,10 @@ namespace weft {
                               "text-anchor",
                               "dominant-baseline",
                               "text-align",
-                              "white-space"}) {
+                              "white-space",
+                              "font-style",
+                              "font-variant-numeric",
+                              "text-transform"}) {
             p.properties[k] = {"", true, CssGrammar::Tokens, {}};
         }
         p.properties["pointer-events"] = {"auto", true, CssGrammar::Tokens, {}};
@@ -805,6 +934,9 @@ namespace weft {
         Reused<ComputedStyle> reused_styles;
         float previous_width{};
         float previous_height{};
+        // The frame's viewport, which viewport lengths resolve against, and the one the computed styles last used.
+        std::array<float, 2> viewport{};
+        std::array<float, 2> expanded_viewport{};
         Keyframes keyframes;
         InterpolationCache interpolation;
         PaintCache paint_cache;
@@ -824,7 +956,8 @@ namespace weft {
         void expand_into(const ComputedStyle& raw, ComputedStyle& out) {
             auto& state = states[identity(raw.identity)];
             if (out.identity != raw.identity || state.expand_dirty) {
-                out.values = expand(raw.values);
+                state.viewport_units = false;
+                out.values = expand(raw.values, viewport, &state.viewport_units);
                 state.expand_dirty = false;
             }
             out.identity = raw.identity;
@@ -944,7 +1077,7 @@ namespace weft {
             if (reuse_style) {
                 out.style = std::move(output.style);
             } else {
-                out.style = incremental ? c.values : expand(c.values);
+                out.style = incremental ? c.values : expand(c.values, viewport);
             }
             if ((d.scroll_left != 0 || d.scroll_top != 0) && get(out.style, PropertyId::Overflow) == "auto") {
                 fail("scene scrolling outside supported non-overflowing auto profile");
@@ -979,6 +1112,7 @@ namespace weft {
                     }
                 }
             }
+            out.text = transformed(std::move(out.text), out.style);
             if ((out.tag == "b" || out.tag == "strong") &&
                 std::find(c.specified_properties.begin(), c.specified_properties.end(), "font-weight") ==
                     c.specified_properties.end()) {
@@ -1217,7 +1351,7 @@ namespace weft {
                     SceneNode run;
                     run.identity = child.identity;
                     run.tag = "#text";
-                    run.text = css::collapse_spaces(child.data);
+                    run.text = transformed(css::collapse_spaces(child.data), out.style);
                     for (const auto k : inherited_properties) {
                         if (const auto* v = out.style.find(k)) {
                             run.style.set(k, *v);
@@ -1986,7 +2120,20 @@ namespace weft {
         i.live.clear();
         i.animated = false;
         i.work.geometry_changed = i.work.paint_changed = false;
-        if (!i.incremental || i.compiled->refresh_input(d, i.style_input)) {
+        // Viewport lengths follow the viewport: the values that used one are expanded again, though the cascade
+        // stands.
+        i.viewport = {w, h};
+        bool viewport_moved{};
+        if (i.incremental && i.computed && i.expanded_viewport != i.viewport) {
+            for (auto& [id, state] : i.states) {
+                if (state.viewport_units) {
+                    state.expand_dirty = true;
+                    viewport_moved = true;
+                }
+            }
+        }
+        const bool input_changed = !i.incremental || i.compiled->refresh_input(d, i.style_input);
+        if (input_changed || viewport_moved) {
             if (i.incremental) {
                 if (!i.cascade) {
                     i.cascade.emplace();
@@ -1995,12 +2142,15 @@ namespace weft {
                     i.computed.emplace();
                 }
                 try {
-                    std::vector<NodeIdentity> changed;
-                    i.compiled->update(d, *i.cascade, i.style_memo, &changed);
-                    for (auto id : changed) {
-                        i.states[identity(id)].expand_dirty = true;
+                    if (input_changed) {
+                        std::vector<NodeIdentity> changed;
+                        i.compiled->update(d, *i.cascade, i.style_memo, &changed);
+                        for (auto id : changed) {
+                            i.states[identity(id)].expand_dirty = true;
+                        }
                     }
                     i.expand_into(*i.cascade, *i.computed);
+                    i.expanded_viewport = i.viewport;
                 } catch (...) {
                     i.cascade.reset();
                     i.computed.reset();

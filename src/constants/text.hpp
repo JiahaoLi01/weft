@@ -29,6 +29,9 @@ namespace weft::constants::text {
     inline constexpr int os2_use_typo_metrics = 128;
     // num_grays of FreeType's 8-bit coverage renderer and of its SDF renderer.
     inline constexpr int coverage_num_grays = 256;
+    // A synthetic oblique's slant, as Chrome draws italic text in a face without italics (Skia's fake italic): x
+    // moves right by a quarter of the height above the baseline.
+    inline constexpr float synthetic_oblique_skew = .25f;
     inline constexpr int sdf_num_grays = 255;
 
     // Explicit bidi formatting characters, rejected until paragraph bidi exists:

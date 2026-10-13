@@ -882,6 +882,12 @@ namespace weft {
                     source->box[0] = source->box[1] = 0;
                     paint::Raster raster;
                     raster.part = part;
+                    const auto style = source->style.text(PropertyId::FontStyle, "normal");
+                    if (style == "italic" || style.starts_with("oblique")) {
+                        raster.overhang =
+                            std::ceil(len(get(source->style, PropertyId::FontSize, constants::default_font_size)) *
+                                      constants::scene::italic_overhang_em);
+                    }
                     raster.mask = std::all_of(source->text.begin(), source->text.end(), [](unsigned char c) {
                         return c >= constants::scene::printable_ascii_first &&
                                c < constants::scene::printable_ascii_end;

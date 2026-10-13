@@ -1,6 +1,7 @@
 // Properties of every style profile (style.cpp, scene_style_profile) and the scene shorthand expansions, as
 // WEFT_PROPERTY(identifier, "css-name"). Sorted by CSS name: PropertyId order is name order, so StyleValues
 // iterates as a name-keyed map would.
+WEFT_PROPERTY(WebkitUserSelect, "-webkit-user-select")
 WEFT_PROPERTY(AlignContent, "align-content")
 WEFT_PROPERTY(AlignItems, "align-items")
 WEFT_PROPERTY(AlignSelf, "align-self")
@@ -54,6 +55,7 @@ WEFT_PROPERTY(FlexWrap, "flex-wrap")
 WEFT_PROPERTY(FontFamily, "font-family")
 WEFT_PROPERTY(FontSize, "font-size")
 WEFT_PROPERTY(FontStyle, "font-style")
+WEFT_PROPERTY(FontVariantNumeric, "font-variant-numeric")
 WEFT_PROPERTY(FontWeight, "font-weight")
 WEFT_PROPERTY(Gap, "gap")
 WEFT_PROPERTY(GridTemplateColumns, "grid-template-columns")
@@ -98,6 +100,7 @@ WEFT_PROPERTY(StrokeOpacity, "stroke-opacity")
 WEFT_PROPERTY(StrokeWidth, "stroke-width")
 WEFT_PROPERTY(TextAlign, "text-align")
 WEFT_PROPERTY(TextAnchor, "text-anchor")
+WEFT_PROPERTY(TextTransform, "text-transform")
 WEFT_PROPERTY(Top, "top")
 WEFT_PROPERTY(TouchAction, "touch-action")
 WEFT_PROPERTY(Transform, "transform")

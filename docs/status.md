@@ -13,6 +13,19 @@
 
 ## 本次已实现
 
+重构第 11 步之三（c）之二：scene 文字样式与相关 CSS（2026-10-13）。详见 [重构计划](refactoring-plan.md#第-11-步记录2026-10-12)。
+- **结果**：
+  - scene 页面支持 `text-transform: uppercase/lowercase`（Unicode 完整映射，ß → SS 等）、`font-style: italic`（字体没有斜体时像 Chrome 一样合成倾斜）、`font-variant-numeric`（`tabular-nums` 等，作为 OpenType 特性）；
+  - 支持 `vw`/`vh`/`vmin`/`vmax`（含 `dvh` 等形式），视口变化时跟随；`overflow-x`/`overflow-y`；`-webkit-user-select`（无效果）；
+  - 斜体文字的图像四周多留空间，倾出盒子的笔画不再被裁掉（真斜体字面此前也会被裁）。
+- **验证**：
+  - Chrome 行几何新增 6 个用例（大写、斜体、合成倾斜、数字变体），29 个用例全部与 Chrome 相同（最大差 0 px）；
+  - 合成倾斜的斜率：Chrome −0.266、参考光栅 −0.254、原生 −0.248 px/行；
+  - 20 个变异全部被发现；
+  - `ctest`：Release 130/130，Debug 130/130；Android 零警告；产物与上一阶段相同（只有按时序变化的窗口与计数类产物不同）。
+- **限制**：`capitalize` 等其他 `text-transform` 值是诊断；没有按 `lang` 的大小写规则；关键帧里的视口长度是诊断；scene 只能两轴一起裁剪。
+- **下一步**：11.3c 最后一项 `position: fixed`。
+
 重构第 11 步之三（c）之一：scene 点线与虚线边框（2026-10-13）。详见 [重构计划](refactoring-plan.md#第-11-步记录2026-10-12)。
 - **结果**：
   - scene 页面可以画 `dotted`、`dashed` 边框：点与段的位置、长度、两端补点都按 Chrome 的画法，在设备像素上排列。CRPG 页面关键词下的 `border-b border-dotted` 由此可画。

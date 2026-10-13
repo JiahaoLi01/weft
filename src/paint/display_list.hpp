@@ -96,6 +96,9 @@ namespace weft::paint {
         Color tint{};
         // Which of its source node's images this is: a line of its text. Images of one node are cached apart.
         std::uint32_t part{};
+        // Room the image keeps beyond its usual transparent margin, px on each side, for ink that leaves the box:
+        // the glyphs of slanted text lean out of it.
+        float overhang{};
     };
 
     // An outer box-shadow of the item's box [0, width] x [0, height]: the box grown by spread on each side (its radii

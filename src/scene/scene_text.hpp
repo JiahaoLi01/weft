@@ -33,14 +33,28 @@ namespace weft {
         float size{16};
         int weight{400};
         bool italic{};
+        // font-variant-numeric as SceneNumeric bits.
+        std::uint8_t numeric{};
         // Extra advance after each character cluster, in px.
         float letter_spacing{};
         // Used line height in px; empty for 'normal'.
         std::optional<float> line_height;
     };
 
-    // font-family, font-size (px), font-weight (normal/bold/number), font-style, letter-spacing (px or em of the
-    // font size) and line-height (normal, px or a multiple of the font size).
+    // The numeric glyph variants of font-variant-numeric, each an OpenType feature.
+    enum SceneNumeric : std::uint8_t {
+        LiningNums = 1,
+        OldstyleNums = 2,
+        ProportionalNums = 4,
+        TabularNums = 8,
+        DiagonalFractions = 16,
+        StackedFractions = 32,
+        Ordinal = 64,
+        SlashedZero = 128,
+    };
+
+    // font-family, font-size (px), font-weight (normal/bold/number), font-style, font-variant-numeric, letter-spacing
+    // (px or em of the font size) and line-height (normal, px or a multiple of the font size).
     SceneFont scene_font(const SceneStyle& style);
 
     struct SceneGlyph {
@@ -53,6 +67,9 @@ namespace weft {
         // Advance including letter-spacing.
         float advance{};
         std::uint32_t utf8_cluster{};
+        // The run asks for italics and the face has none: drawn slanted (constants::text::synthetic_oblique_skew),
+        // as Chrome synthesizes it.
+        bool oblique{};
     };
 
     struct SceneTextRun {

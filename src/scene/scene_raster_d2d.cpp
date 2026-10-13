@@ -9,6 +9,7 @@
 #include "render/shadow_image.hpp"
 #include "base/owner_thread.hpp"
 #include "constants/scene.hpp"
+#include "constants/text.hpp"
 #include <d2d1_1.h>
 #include <dwrite_3.h>
 #include <wincodec.h>
@@ -281,8 +282,15 @@ namespace weft {
             }
             for (std::size_t i = 0; i < glyphs.size();) {
                 auto j = i;
-                while (j < glyphs.size() && glyphs[j].face == glyphs[i].face) {
+                while (j < glyphs.size() && glyphs[j].face == glyphs[i].face &&
+                       glyphs[j].oblique == glyphs[i].oblique) {
                     ++j;
+                }
+                // A synthetic oblique slants the glyphs about the baseline, as Skia slants Chrome's.
+                const auto upright = matrix();
+                if (glyphs[i].oblique) {
+                    const float skew = constants::text::synthetic_oblique_skew;
+                    target->SetTransform(D2D1::Matrix3x2F(1, 0, -skew, 1, skew * y, 0) * upright);
                 }
                 if (text.color_face(glyphs[i].face)) {
                     draw_color_glyphs(run, value, i, j, x + pens[i], y);
@@ -305,6 +313,7 @@ namespace weft {
                                                      0};
                     target->DrawGlyphRun({x + pens[i], y}, &glyph_run, brush.Get(), DWRITE_MEASURING_MODE_NATURAL);
                 }
+                target->SetTransform(upright);
                 i = j;
             }
         }

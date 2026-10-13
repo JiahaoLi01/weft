@@ -5,6 +5,11 @@ set(QJS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 add_subdirectory("${PROJECT_SOURCE_DIR}/third_party/quickjs-ng/source" third_party/quickjs-ng EXCLUDE_FROM_ALL)
 
+# QuickJS-NG's Unicode tables without the engine: the case mappings of CSS text-transform (weft::text). Its utilities
+# (cutils.h) are header-only; the same unmodified source as the engine's.
+add_library(weft_unicode_case STATIC "${PROJECT_SOURCE_DIR}/third_party/quickjs-ng/source/libunicode.c")
+target_include_directories(weft_unicode_case SYSTEM PUBLIC "${PROJECT_SOURCE_DIR}/third_party/quickjs-ng/source")
+
 add_subdirectory("${PROJECT_SOURCE_DIR}/third_party/yoga/source/yoga" third_party/yoga EXCLUDE_FROM_ALL)
 
 foreach(feature ZLIB BZIP2 PNG HARFBUZZ BROTLI)

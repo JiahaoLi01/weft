@@ -104,6 +104,40 @@ namespace weft {
                                            : int(number(weight));
         const auto italic = std::string(style.text(PropertyId::FontStyle, "normal"));
         font.italic = italic == "italic" || italic.starts_with("oblique");
+        // font-variant-numeric: normal, or at most one value of each group (figures, spacing, fractions) with ordinal
+        // and slashed-zero.
+        const auto numeric = css::trim(style.text(PropertyId::FontVariantNumeric, "normal"));
+        if (numeric != "normal") {
+            constexpr std::array<std::pair<std::string_view, std::uint8_t>, 8> values{{
+                {"lining-nums", LiningNums},
+                {"oldstyle-nums", OldstyleNums},
+                {"proportional-nums", ProportionalNums},
+                {"tabular-nums", TabularNums},
+                {"diagonal-fractions", DiagonalFractions},
+                {"stacked-fractions", StackedFractions},
+                {"ordinal", Ordinal},
+                {"slashed-zero", SlashedZero},
+            }};
+            for (const auto& word : css::split(numeric, ' ').parts) {
+                const auto w = css::trim(word);
+                if (w.empty()) {
+                    continue;
+                }
+                const auto it = std::find_if(values.begin(), values.end(), [&](const auto& v) {
+                    return v.first == w;
+                });
+                if (it == values.end() || (font.numeric & it->second)) {
+                    throw_diagnostic(Diag::SceneProfile, "font-variant-numeric " + std::string(numeric));
+                }
+                font.numeric |= it->second;
+            }
+            for (const auto pair :
+                 {LiningNums | OldstyleNums, ProportionalNums | TabularNums, DiagonalFractions | StackedFractions}) {
+                if ((font.numeric & pair) == pair) {
+                    throw_diagnostic(Diag::SceneProfile, "font-variant-numeric " + std::string(numeric));
+                }
+            }
+        }
         const auto spacing = std::string(style.text(PropertyId::LetterSpacing, "0"));
         font.letter_spacing = spacing == "normal" ? 0 : length(spacing, font.size);
         const auto line = std::string(style.text(PropertyId::LineHeight, "normal"));
@@ -127,6 +161,8 @@ namespace weft {
             FontFaceSource source;
             std::unique_ptr<Font> font;
             bool color{};
+            // The catalog lists the face as italic.
+            bool italic{};
         };
 
         std::vector<Face> faces;
@@ -134,7 +170,7 @@ namespace weft {
         std::map<std::filesystem::path, std::shared_ptr<const FontFile>> files;
         std::size_t file_bytes{};
         std::map<std::tuple<std::string, int, bool>, std::vector<std::uint32_t>> matches;
-        using RunKey = std::tuple<std::string, std::string, float, int, bool, float, float>;
+        using RunKey = std::tuple<std::string, std::string, float, int, bool, std::uint8_t, float, float>;
         std::map<RunKey, std::shared_ptr<const SceneTextRun>> runs;
         std::size_t run_bytes{};
         // Run outlines by the run's key; null for runs with color glyphs.
@@ -164,7 +200,10 @@ namespace weft {
             }
             auto font = std::make_unique<Font>(file, source.face_index, source.variations);
             const bool color = font->has_color_glyphs();
-            faces.push_back({source, std::move(font), color});
+            const bool italic = std::any_of(catalog.faces.begin(), catalog.faces.end(), [&](const FontFaceEntry& e) {
+                return e.italic && e.source == source;
+            });
+            faces.push_back({source, std::move(font), color, italic});
             const auto id = std::uint32_t(faces.size() - 1);
             face_ids.emplace(source, id);
             return id;
@@ -230,8 +269,8 @@ namespace weft {
             if (text.size() > constants::max_text_bytes) {
                 throw_diagnostic(Diag::SceneRaster, "scene text byte bound");
             }
-            RunKey key{std::string(text),         f.families, f.size, f.weight, f.italic, f.letter_spacing,
-                       f.line_height.value_or(-1)};
+            RunKey key{std::string(text), f.families, f.size,           f.weight,
+                       f.italic,          f.numeric,  f.letter_spacing, f.line_height.value_or(-1)};
             if (auto i = runs.find(key); i != runs.end()) {
                 ++hits;
                 return i->second;
@@ -246,10 +285,29 @@ namespace weft {
             run->size = f.size;
             float pen{};
             std::set<std::uint32_t> used{ids.front()};
+            // font-variant-numeric's OpenType features.
+            std::vector<FontFeature> features;
+            constexpr std::array<std::pair<std::uint8_t, std::array<char, 4>>, 8> tags{{
+                {LiningNums, {'l', 'n', 'u', 'm'}},
+                {OldstyleNums, {'o', 'n', 'u', 'm'}},
+                {ProportionalNums, {'p', 'n', 'u', 'm'}},
+                {TabularNums, {'t', 'n', 'u', 'm'}},
+                {DiagonalFractions, {'f', 'r', 'a', 'c'}},
+                {StackedFractions, {'a', 'f', 'r', 'c'}},
+                {Ordinal, {'o', 'r', 'd', 'n'}},
+                {SlashedZero, {'z', 'e', 'r', 'o'}},
+            }};
+            for (const auto& [bit, tag] : tags) {
+                if (f.numeric & bit) {
+                    features.push_back({std::uint32_t(tag[0]) << 24 | std::uint32_t(tag[1]) << 16 |
+                                            std::uint32_t(tag[2]) << 8 | std::uint32_t(tag[3]),
+                                        1});
+                }
+            }
             for (const auto& [begin, end] : words(text)) {
                 // Chrome positions glyphs in HarfBuzz 16.16 units.
-                const auto shaped =
-                    shape_with_fallback(fonts, text.substr(begin, end - begin), f.size, ShapePrecision::Fixed16_16);
+                const auto shaped = shape_with_fallback(fonts, text.substr(begin, end - begin), f.size,
+                                                        ShapePrecision::Fixed16_16, features);
                 const auto& glyphs = shaped.shaped.glyphs;
                 for (std::size_t i = 0; i < glyphs.size(); ++i) {
                     const auto& g = glyphs[i];
@@ -259,7 +317,7 @@ namespace weft {
                     const bool cluster_end = i + 1 == glyphs.size() || glyphs[i + 1].utf8_cluster != g.utf8_cluster;
                     const float advance = g.advance_x + (cluster_end ? f.letter_spacing : 0);
                     run->glyphs.push_back({face, g.glyph_id, pen + g.offset_x, -g.offset_y, advance,
-                                           std::uint32_t(begin + g.utf8_cluster)});
+                                           std::uint32_t(begin + g.utf8_cluster), f.italic && !faces[face].italic});
                     pen += advance;
                 }
             }
@@ -279,8 +337,8 @@ namespace weft {
     std::shared_ptr<const paint::Path> SceneText::outline(std::string_view text, const SceneStyle& style) {
         impl_->require_owner();
         const auto f = scene_font(style);
-        Impl::RunKey key{std::string(text),         f.families, f.size, f.weight, f.italic, f.letter_spacing,
-                         f.line_height.value_or(-1)};
+        Impl::RunKey key{std::string(text), f.families, f.size,           f.weight,
+                         f.italic,          f.numeric,  f.letter_spacing, f.line_height.value_or(-1)};
         if (auto i = impl_->outlines.find(key); i != impl_->outlines.end()) {
             return i->second;
         }
@@ -295,7 +353,8 @@ namespace weft {
                 color = true;
                 break;
             }
-            const auto glyph = face.font->outline(g.glyph_id, run->size * oversample);
+            const auto glyph = face.font->outline(g.glyph_id, run->size * oversample,
+                                                  g.oblique ? constants::text::synthetic_oblique_skew : 0);
             const float ox = g.x;
             const float oy = run->metrics.baseline + g.y;
             const auto at = [&](std::size_t i) {

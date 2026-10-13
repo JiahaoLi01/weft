@@ -1,5 +1,6 @@
 #include "scene/scene_text_image.hpp"
 
+#include "constants/text.hpp"
 #include "scene/scene_values.hpp"
 #include "style/style.hpp"
 
@@ -76,7 +77,9 @@ namespace weft {
             const auto [ix, fx] = split((margin + origin[0] + g.x) * scale);
             const auto [iy, fy] = split((margin + origin[1] + run->metrics.baseline + g.y) * scale);
             if (text.color_face(g.face)) {
-                const auto glyph = text.face(g.face).rasterize_color(g.glyph_id, run->size * scale, fx, fy, color);
+                const auto glyph =
+                    text.face(g.face).rasterize_color(g.glyph_id, run->size * scale, fx, fy, color,
+                                                      g.oblique ? constants::text::synthetic_oblique_skew : 0);
                 if (!glyph) {
                     out.color_glyphs = true;
                     continue;
@@ -103,7 +106,8 @@ namespace weft {
                 }
                 continue;
             }
-            const auto glyph = text.face(g.face).rasterize(g.glyph_id, run->size * scale, fx, fy);
+            const auto glyph = text.face(g.face).rasterize(g.glyph_id, run->size * scale, fx, fy,
+                                                           g.oblique ? constants::text::synthetic_oblique_skew : 0);
             const int left = int(ix) + glyph.left;
             const int top = int(iy) - glyph.top;
             for (std::uint32_t row = 0; row < glyph.height; ++row) {
