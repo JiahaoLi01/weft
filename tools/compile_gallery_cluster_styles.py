@@ -4,6 +4,11 @@ Select utilities referenced by the original CSS/D3 component source, preserve
 stylesheet order, resolve its fixed theme constants and arithmetic, and retain
 the original keyframes. Unsupported syntax fails instead of inventing a style.
 Normal builds consume checked-in outputs; this script never reads the live game.
+
+A second output serves the nested tooltip page (examples/crpg-gallery/src/tooltip, tools/build_tooltip_page.mjs): its
+utilities are those of every token of its sources that names one, as Tailwind's candidate scan of the captured sources
+found them for gallery.css (class names that its code builds at run time stay unstyled there too), with the page's
+base rules.
 """
 from pathlib import Path
 import re, json, hashlib, ast, operator
@@ -116,14 +121,16 @@ def declarations(body):
     variables.clear();variables.update(saved)
     return result
 
-rules=[]; found=set(); animations=[]
 # Base-layer (preflight) rules that the scene's UA sheet does not already give: replaced elements are blocks. The scene
 # UA sheet has preflight's border-box, zero borders and no UA margins or heading sizes; other base rules are unused.
 PREFLIGHT={'img, svg, video, canvas, audio, iframe, embed, object'}
-def walk(text):
+def select(classes, base=frozenset()):
+  """The sheet's rules for these class tokens, in sheet order, with the preflight rules and the named base rules."""
+  rules=[]; found=set(); animations=[]
+  def walk(text):
     for head,body in blocks(text):
         if head.startswith('@layer'): walk(body)
-        elif head in PREFLIGHT:
+        elif head in PREFLIGHT or head in base:
             rules.append(head+' {'+' '.join(k+': '+v+';' for k,v in declarations(body))+'}')
         elif head.startswith('@keyframes'):
             # All original keyframes are generic input, including unused ones.
@@ -142,11 +149,17 @@ def walk(text):
             ds = declarations(body)
             expanded=[]
             for k,v in ds:
+                # Logical edges of a left-to-right horizontal page.
                 pairs = {'margin-inline':['margin-left','margin-right'], 'margin-block':['margin-top','margin-bottom'],
-                         'padding-inline':['padding-left','padding-right'], 'padding-block':['padding-top','padding-bottom']}
+                         'padding-inline':['padding-left','padding-right'], 'padding-block':['padding-top','padding-bottom'],
+                         'inset-inline':['left','right'], 'inset-block':['top','bottom'],
+                         'inset-inline-start':['left'], 'inset-inline-end':['right'],
+                         'inset-block-start':['top'], 'inset-block-end':['bottom']}
                 for key in pairs.get(k,[k]): expanded.append((key,v))
             rules.append(head+' {'+' '.join(k+': '+v+';' for k,v in expanded)+'}')
-walk(sheet)
+  walk(sheet)
+  return rules, found, animations
+rules, found, animations = select(classes)
 markers=set(re.findall(r"querySelector(?:All)?\(['\"]\.([\w-]+)['\"]\)",source))
 if classes-found-markers: raise ValueError('Missing original utilities: '+repr(classes-found-markers))
 out=ROOT/'examples/crpg-gallery'
@@ -160,3 +173,25 @@ sha=lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
     'output_sha256':{str(p.relative_to(ROOT)).replace('\\','/'):sha(p) for p in (out/'cluster-utilities.css',out/'cluster-keyframes.css')},
     'utility_count':len(found),'utilities':sorted(found),'unstyled_selector_markers':sorted(classes-found), 'adapter':'fixed theme/arithmetic/logical edges; fixed OKLCH quantized to sRGB, hover/active mouse conditions; no browser computed-style capture'},indent=2)+'\n',encoding='utf-8')
 print(f'Compiled {len(found)} original utilities, {len(animations)} original keyframe blocks')
+
+# The nested tooltip page: every token of its sources, split as tools/build_gallery.mjs splits the candidates it gives
+# Tailwind; the page's base rules (sizes of html, body and #root, its font and color; inert user-select). The base rule
+# that only sets the cursor of enabled buttons is left out: its :not() is outside the scene's selectors and the cursor
+# draws nothing.
+page_sources = [ROOT/'tests/fixtures/crpg-gallery/UI/src/components/NestedTooltip.tsx',
+                ROOT/'examples/crpg-gallery/src/tooltip/NestedTooltipDemo.tsx',
+                ROOT/'examples/crpg-gallery/src/tooltip/SmokeBg.tsx']
+page_tokens = set(t for f in page_sources for t in re.split(r'[\s"\'`<>=;{},()]+', f.read_text(encoding='utf-8')) if t)
+PAGE_BASE = {'html, body, #root', 'input, textarea, [contenteditable], .selectable'}
+OMITTED = {'button:not(:disabled), [role="button"]:not(:disabled)': 'sets only the cursor; :not() is outside the scene profile'}
+page_rules, page_found, page_animations = select(page_tokens, PAGE_BASE)
+if len([r for r in page_rules if r.split(' {')[0] in PAGE_BASE]) != len(PAGE_BASE): raise ValueError('page base rules')
+page_css = '/* Compiled from pinned Tailwind for the nested tooltip page; explicit utility adapter, 16px root. */\n' + '\n'.join(page_rules) + '\n'
+(out/'tooltip-utilities.css').write_text(page_css, encoding='utf-8')
+(out/'tooltip-keyframes.css').write_text('\n'.join(page_animations)+'\n', encoding='utf-8')
+(out/'tooltip-style-manifest.json').write_text(json.dumps({'format':'gallery-scene-styles-v1','compiler':'tools/compile_gallery_cluster_styles.py',
+    'root_font_px':16,'input_sha256':{str(p.relative_to(ROOT)).replace('\\','/'):sha(p) for p in (sheet_path,*page_sources,Path(__file__))},
+    'output_sha256':{str(p.relative_to(ROOT)).replace('\\','/'):sha(p) for p in (out/'tooltip-utilities.css',out/'tooltip-keyframes.css')},
+    'utility_count':len(page_found),'utilities':sorted(page_found),'base_rules':sorted(PAGE_BASE),'omitted_base_rules':OMITTED,
+    'adapter':'tokens of the page sources as Tailwind candidates; fixed theme/arithmetic/logical edges; fixed OKLCH quantized to sRGB, hover/active mouse conditions'},indent=2)+'\n',encoding='utf-8')
+print(f'Compiled {len(page_found)} utilities and {len(PAGE_BASE)} base rules for the nested tooltip page')

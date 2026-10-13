@@ -1,0 +1,42 @@
+{
+  "format": "gallery-tooltip-bundle-v1",
+  "node": "v24.19.0",
+  "esbuild": "0.25.12",
+  "group": "TOOLTIP_TESTS",
+  "label": "CRPG: Nested Tooltip + Smoke",
+  "options": {
+    "target": "es2020",
+    "format": "iife",
+    "production": true,
+    "original_component": "unchanged NestedTooltip.tsx",
+    "page": "NestedTooltipDemo.tsx without the smoke tuning panel",
+    "smoke": {
+      "TOOLTIP_TESTS": "crpg-smoke effect",
+      "TOOLTIP_REFERENCE": "original canvas"
+    }
+  },
+  "inputs": {
+    "examples/crpg-gallery/src/harness.tsx": "682d4e249f470d82245bb8d18f78c499897da77a365d58f398965f113ffcd8ad",
+    "tools/build_tooltip_page.mjs": "af5f3057181c7978e8b49d1473e09d885fa967ce7b07046207079ba662cde1e0",
+    "tools/gallery_runtime.mjs": "71cfbc6b1179d5d16cc192ebe17d24c45dac123331b8a5d778f470e7314036d0",
+    "third_party/gallery-runtime/manifest.json": "2940b69af5ec10a466af4b1f3aed84a53015c026895daf06893d66ba57383b25",
+    "third_party/gallery-runtime/source/scheduler-0.27.0-a02ba163/cjs/scheduler.production.js": "679adff761d31e9426604f80c0e99be44a3e6f4c6834b0218ecf0312a67c171f",
+    "third_party/gallery-runtime/source/scheduler-0.27.0-a02ba163/index.js": "145965504d60007bc25486ab930b0367867dcd5d579ccd343c148d69349a7cfb",
+    "third_party/gallery-runtime/source/react-19.2.4-27597608/cjs/react.production.js": "6a3554a5287116df819640334924348287618dcdcd7124a05eb126dcbbecd5f9",
+    "third_party/gallery-runtime/source/react-19.2.4-27597608/index.js": "60caffdecbdc5db3bc4ec4e83df9488345ccb271d07533b9210bf5750918d97e",
+    "third_party/gallery-runtime/source/react-dom-19.2.4-de7f2df9/cjs/react-dom.production.js": "7a5e56724be242e34ddc14f9d0dc7fc6a32f1367ae994f02d3699b00c085eff4",
+    "third_party/gallery-runtime/source/react-dom-19.2.4-de7f2df9/index.js": "ba1a3e33489f868371561777607e3ee5091df0f7ea3f1a10f789d6b86e4c1505",
+    "third_party/gallery-runtime/source/react-dom-19.2.4-de7f2df9/cjs/react-dom-client.production.js": "764ffa6adc2c9b02b4dc00f4a58ef13d050e7825898bd9e5dc808d3a3f9d4bb9",
+    "third_party/gallery-runtime/source/react-dom-19.2.4-de7f2df9/client.js": "00e348ab3d6bc2eef908345d0bc4e008c95bcfecec060dfda5c4967953761396",
+    "third_party/gallery-runtime/source/react-19.2.4-27597608/cjs/react-jsx-runtime.production.js": "1e46f15002696985e80c61d47aaa30dabb03c954270a690f5f7dfbbacfa9002b",
+    "third_party/gallery-runtime/source/react-19.2.4-27597608/jsx-runtime.js": "b392951a77d0a2e6a6bd017e49d768481ae5b63c4109c6c31f622cf7b2433edc",
+    "examples/crpg-gallery/src/tooltip/SmokeBg.tsx": "a61a8681b4360a3c182542ce89e5549301577b3ad5d57cecb0082d5b01eecff3",
+    "tests/fixtures/crpg-gallery/UI/src/components/NestedTooltip.tsx": "680d399b27a7eb3aa66e1bc956c4186f6a5582729dd19c7f3a245b1dc247b679",
+    "examples/crpg-gallery/src/tooltip/NestedTooltipDemo.tsx": "15af5a31d0f88a042735931a144154808d28ce6ee3da8d0aaed193aa7c002ab4",
+    "tests/fixtures/crpg-gallery/UI/src/components/SmokeBg.tsx": "898c5b54587351e9c9e92d6f78ef85d227c432812a20c10dc9b4345bc85fe108"
+  },
+  "outputs": {
+    "examples/crpg-gallery/native/TOOLTIP_TESTS.js": "1f574c7dbea5a2f0cb15f17cf8c81a38dbd4b55bb4979d1b97d1c9a4f4adaa51",
+    "examples/crpg-gallery/native/TOOLTIP_REFERENCE.js": "1e9f83b920cea740d0a667afdda2b8c0e03c4be2fb0ebdee08c52ae95dfaccdb"
+  }
+}

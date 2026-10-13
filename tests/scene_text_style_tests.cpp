@@ -221,6 +221,37 @@ int main() {
             refused("overflow-x:clip", "height:20px", "overflow:clip");
         }
 
+        // The background shorthand cascades as its color and image: an inline background-color beats a sheet's
+        // background (the CRPG page's body over the gallery's backdrop), a later shorthand beats an earlier longhand,
+        // and which part a var() gives is known once it is substituted.
+        {
+            const auto background = [&](const std::string& sheet, const std::string& inline_style) {
+                weft::testing::NativeScene s;
+                auto& box = s.html("div");
+                s.set(box, "class", "page");
+                if (!inline_style.empty()) {
+                    s.set(box, "style", inline_style);
+                }
+                s.tree.insert(*s.root, box, nullptr);
+                weft::SceneSolver solver(sheet, "", scene_text);
+                const auto frame = solver.frame(s.tree.snapshot(*s.root), 100, 100, 0);
+                const auto& style = frame.root.children.at(0).style;
+                return std::string(style.text(weft::PropertyId::BackgroundColor, "")) + " / " +
+                       std::string(style.text(weft::PropertyId::BackgroundImage, ""));
+            };
+            const auto cases = std::vector<std::pair<std::string, std::string>>{
+                {background(".page{background:transparent}", "background-color:#050403"), "#050403 / none"},
+                {background(".page{background-color:#ff0000;background:#00ff00}", ""), "#00ff00 / none"},
+                {background(".page{background:#00ff00;background-color:#ff0000}", ""), "#ff0000 / none"},
+                {background(".page{--g:linear-gradient(red, blue);background:var(--g)}", ""),
+                 "transparent / linear-gradient(red, blue)"},
+                {background(".page{--c:#123456;background:var(--c)}", ""), "#123456 / none"},
+                {background(".page{background:none}", ""), "transparent / none"}};
+            for (const auto& [got, expected] : cases) {
+                require(got == expected, "background cascade: " + got + ", expected " + expected);
+            }
+        }
+
         // Outside the profile: text-transform beyond upper and lower case, impossible numeric variants.
         {
             const auto refused = [&](const std::string& style, const std::string& expected) {

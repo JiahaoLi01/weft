@@ -308,6 +308,8 @@ namespace weft {
             int corner{-1};
             int axis{-1};
             bool solid_background{};
+            // A part of a scene background shorthand: 0 its color, 1 its image, which take the value or none.
+            int background_layer{-1};
             // The registered property of a non-custom key.
             PropertyId id{};
         };
@@ -418,6 +420,13 @@ namespace weft {
                     result.push_back({"flex-grow", tokens, important});
                     result.push_back({"flex-shrink", {{Kind::Number, "1", {}}}, important});
                     result.push_back({"flex-basis", {{Kind::Percentage, "0%", {}}}, important});
+                } else if (key == "background" && profile.scene_syntax) {
+                    // The color and the image as longhands, so they cascade with the others; which one the value
+                    // gives is known once var() is substituted.
+                    result.push_back({"background-color", tokens, important});
+                    result.back().background_layer = 0;
+                    result.push_back({"background-image", std::move(tokens), important});
+                    result.back().background_layer = 1;
                 } else if (key == "background" && !profile.scene_syntax) {
                     result.push_back({"background-color", std::move(tokens), important});
                     result.back().solid_background = true;
@@ -1249,6 +1258,20 @@ namespace weft {
                                 tokens = Tokens{(*tokens)[tokens->size() == 1 ? 0 : d.axis]};
                             } else {
                                 tokens = std::nullopt;
+                            }
+                        }
+                        if (tokens && d.background_layer >= 0 && !wide(keyword(*tokens))) {
+                            // A gradient or an effect is the image; anything else the color.
+                            const bool image = std::any_of(tokens->begin(), tokens->end(), [](const Token& t) {
+                                const auto name = lower(t.text);
+                                return t.kind == Kind::Function &&
+                                       (name.ends_with("gradient") || name == "-weft-effect");
+                            });
+                            const bool none = keyword(*tokens) == "none";
+                            if (d.background_layer == 0 && (image || none)) {
+                                tokens = Tokens{{Kind::Ident, "transparent", {}}};
+                            } else if (d.background_layer == 1 && !image) {
+                                tokens = Tokens{{Kind::Ident, "none", {}}};
                             }
                         }
                         std::string word = tokens ? keyword(*tokens) : "";

@@ -132,6 +132,8 @@ CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后�
 
 2026-10-13 重构第 11.3d 步之一：JS 的 `Element.closest(selectors)`：元素自身或最近的匹配祖先元素，没有时为 null；与 querySelector/matches 共用选择器文法与诊断。
 
+2026-10-13 重构第 11.3d 步之二：scene 的 `background` 简写在层叠中展开为 `background-color` 与 `background-image` 两个分量，各自参与层叠；值是渐变或 `-weft-effect()` 时给图像，其余给颜色，`var()` 代换后才判断。此前简写在层叠之后才拆分，会盖过优先级更高的分量（如内联的 `background-color`）。关键帧里的简写仍在展开时拆分。
+
 2026-10-13 重构第 11.3c 步之三：scene 的 `position: fixed`。
 - 包含块：视口（scene 根），或最近的带 `transform`、`will-change: transform` 的祖先。`will-change: transform` 的盒子此后也是绝对定位后代的包含块，与 Chrome 相同。
 - 布局：按绝对定位排进包含块（px 与百分比按包含块，宽高自适应时为收缩适配），再换回父元素的坐标。绘制与命中仍在它在树中的位置；z-index 仍只在兄弟之间排序（门户到 body 的浮层是 body 的子元素，不受影响）。

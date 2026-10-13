@@ -37,4 +37,13 @@ if metadata.exists():
         for name, digest in build[category].items():
             if hashlib.sha256((root / name).read_bytes()).hexdigest() != digest:
                 raise SystemExit('Gallery bundle drift: ' + name)
+# The nested tooltip page: its bundles (tools/build_tooltip_page.mjs) and stylesheet
+# (tools/compile_gallery_cluster_styles.py), from the captured component and the page's copy.
+for built, keys in (('examples/crpg-gallery/native/tooltip-metadata.json', ('inputs', 'outputs')),
+                    ('examples/crpg-gallery/tooltip-style-manifest.json', ('input_sha256', 'output_sha256'))):
+    record = json.loads((root / built).read_text(encoding='utf-8'))
+    for category in keys:
+        for name, digest in record[category].items():
+            if hashlib.sha256((root / name).read_bytes()).hexdigest() != digest:
+                raise SystemExit('Tooltip page drift: ' + name)
 print(f'PASS immutable gallery source, {len(asset_manifest["files"])} bitmaps and {len(cases)} original case records')

@@ -18,6 +18,20 @@ inline std::string scene_read(const std::string& path) {
     return weft::testing::read_file(path);
 }
 
+// How a gallery case runs as a scene beyond its group and size.
+struct GallerySceneOptions {
+    // In examples/crpg-gallery; its keyframes are the file of the same family (scene-, cluster-, tooltip-keyframes.css).
+    std::string stylesheet = "scene-utilities.css";
+    // In examples/crpg-gallery/native; empty for the group's.
+    std::string bundle;
+    // The scene's root, as a selector: the case's #root, or body for a page whose portals go there.
+    std::string root = "#root";
+    // The root's style attribute; empty for the gallery card's (set on #root).
+    std::string root_style;
+    // The UI shader effects the page names with -weft-effect(); none when null.
+    const weft::SceneEffects* effects{};
+};
+
 // One owner VM per original case. The fixture and its React/D3 bundles are
 // unchanged. The declared host is the same body formatting context as gallery.
 struct GallerySceneSession {
@@ -75,6 +89,8 @@ struct GallerySceneSession {
     };
 
     weft::NodeIdentity root_id{};
+    // The scene's root: #root, or body (whose children include #root and the page's portals).
+    std::string root_selector = "#root";
     std::uint64_t dom_revision{};
     std::size_t snapshots{};
     std::size_t snapshot_reuses{};
@@ -103,16 +119,22 @@ struct GallerySceneSession {
 
     GallerySceneSession(std::string group, unsigned index, float w, float h,
                         std::string stylesheet = "scene-utilities.css")
-        : scene{scene_read(std::string(WEFT_SOURCE_DIR) + "/examples/crpg-gallery/" + stylesheet),
+        : GallerySceneSession(std::move(group), index, w, h, GallerySceneOptions{std::move(stylesheet)}) {
+    }
+
+    GallerySceneSession(std::string group, unsigned index, float w, float h, const GallerySceneOptions& options)
+        : scene{scene_read(std::string(WEFT_SOURCE_DIR) + "/examples/crpg-gallery/" + options.stylesheet),
                 scene_read(std::string(WEFT_SOURCE_DIR) + "/examples/crpg-gallery/" +
-                           (stylesheet == "cluster-utilities.css" ? "cluster-keyframes.css" : "scene-keyframes.css")),
+                           options.stylesheet.substr(0, options.stylesheet.rfind("-utilities.css")) + "-keyframes.css"),
                 weft::testing::thread_scene_text()},
           vm{{std::size_t(group == "CSS_TESTS" || group == "D3_TESTS"
                               ? weft::probe_constants::gallery::vm_stack_bytes
                               : weft::probe_constants::gallery::cluster_vm_stack_bytes),
               weft::probe_constants::gallery::scene_vm_execution_budget_ms}},
+          root_selector(options.root),
           width(w),
           height(h) {
+        scene.set_effects(options.effects);
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         weft::install_script_platform(vm, weft::ScriptPlatformModule::AnimationFrame);
         vm.eval(scene_read(WEFT_SOURCE_DIR "/examples/crpg-gallery/native/platform.js"));
@@ -146,10 +168,17 @@ struct GallerySceneSession {
         }
         vm.eval(
             "(()=>{let seed=0xce202610;Math.random=()=>((seed=(Math.imul(seed,1664525)+1013904223)>>>0)/4294967296)})()");
-        vm.eval(scene_read(std::string(WEFT_SOURCE_DIR) + "/examples/crpg-gallery/native/" + group + ".js"));
-        vm.eval(
-            "document.getElementById('root').setAttribute('style','position:relative;overflow:hidden;background-color:#050403;color:#f5e6c8;font-family:system-ui;font-size:16px;line-height:1.5;" +
-            std::string(group == "D3_TESTS" ? "display:flex;align-items:center;justify-content:center;" : "") + "')");
+        vm.eval(scene_read(std::string(WEFT_SOURCE_DIR) + "/examples/crpg-gallery/native/" +
+                           (options.bundle.empty() ? group + ".js" : options.bundle)));
+        if (options.root_style.empty()) {
+            vm.eval(
+                "document.getElementById('root').setAttribute('style','position:relative;overflow:hidden;background-color:#050403;color:#f5e6c8;font-family:system-ui;font-size:16px;line-height:1.5;" +
+                std::string(group == "D3_TESTS" ? "display:flex;align-items:center;justify-content:center;" : "") +
+                "')");
+        } else {
+            vm.eval("document.querySelector('" + root_selector + "').setAttribute('style','" + options.root_style +
+                    "')");
+        }
         vm.install_layout_cache_host([this] {
             if (cache_time != time || cache_width != width || cache_height != height) {
                 if (layout_epoch == UINT64_MAX) {
@@ -162,9 +191,11 @@ struct GallerySceneSession {
             }
             return layout_epoch;
         });
-        auto root = [](const auto& document) {
+        auto root = [this](const auto& document) {
             auto find = [&](auto&& self, const auto& n) -> const weft::DomSnapshot* {
-                if (n.attributes.contains("id") && n.attributes.at("id") == "root") {
+                if (root_selector.starts_with('#')
+                        ? n.attributes.contains("id") && n.attributes.at("id") == root_selector.substr(1)
+                        : n.local_name == root_selector) {
                     return &n;
                 }
                 for (const auto& c : n.children) {
@@ -342,7 +373,7 @@ struct GallerySceneSession {
             return std::chrono::duration<double, std::milli>(clock() - start).count();
         };
         if (!root_id.generation) {
-            root_id = vm.node_identity("#root");
+            root_id = vm.node_identity(root_selector);
         }
         // One snapshot of the scene root, refreshed in place: only subtrees that changed are copied.
         const auto revision = vm.subtree_revision(root_id);

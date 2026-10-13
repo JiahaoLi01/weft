@@ -1,0 +1,113 @@
+/* Compiled from pinned Tailwind for the nested tooltip page; explicit utility adapter, 16px root. */
+img, svg, video, canvas, audio, iframe, embed, object {display: block; vertical-align: middle;}
+.pointer-events-none {pointer-events: none;}
+.absolute {position: absolute;}
+.fixed {position: fixed;}
+.relative {position: relative;}
+.inset-0 {inset: 0px;}
+.start {left: 4px;}
+.top-0 {top: 0px;}
+.top-1\.5 {top: 6px;}
+.right-0 {right: 0px;}
+.right-1\.5 {right: 6px;}
+.left-0 {left: 0px;}
+.z-10 {z-index: 10;}
+.z-20 {z-index: 20;}
+.mt-1 {margin-top: 4px;}
+.mt-2 {margin-top: 8px;}
+.mt-3 {margin-top: 12px;}
+.mt-4 {margin-top: 16px;}
+.mr-1 {margin-right: 4px;}
+.mb-1 {margin-bottom: 4px;}
+.mb-2 {margin-bottom: 8px;}
+.mb-3 {margin-bottom: 12px;}
+.flex {display: flex;}
+.inline {display: inline;}
+.h-7 {height: 28px;}
+.h-full {height: 100%;}
+.h-px {height: 1px;}
+.w-1 {width: 4px;}
+.w-64 {width: 256px;}
+.w-72 {width: 288px;}
+.w-80 {width: 320px;}
+.w-full {width: 100%;}
+.min-w-0 {min-width: 0px;}
+.flex-1 {flex: 1;}
+.shrink-0 {flex-shrink: 0;}
+.rotate-\[-90deg\] {rotate: -90deg;}
+.animate-\[fadeIn_0\.15s_ease-out\] {animation: fadeIn 0.15s ease-out;}
+.cursor-grab {cursor: grab;}
+.cursor-help {cursor: help;}
+.flex-col {flex-direction: column;}
+.flex-wrap {flex-wrap: wrap;}
+.items-baseline {align-items: baseline;}
+.items-center {align-items: center;}
+.justify-between {justify-content: space-between;}
+.justify-center {justify-content: center;}
+.gap-0\.5 {gap: 2px;}
+.gap-2 {gap: 8px;}
+.gap-3 {gap: 12px;}
+.gap-6 {gap: 24px;}
+.overflow-hidden {overflow: hidden;}
+.rounded-lg {border-radius: 8px;}
+.border {border-style: solid; border-width: 1px;}
+.border-t {border-top-style: solid; border-top-width: 1px;}
+.border-b {border-bottom-style: solid; border-bottom-width: 1px;}
+.border-dotted {border-style: dotted;}
+.border-amber-400 {border-color: #ffb900;}
+.border-blue-400 {border-color: #51a2ff;}
+.border-current {border-color: currentcolor;}
+.border-purple-400 {border-color: #c27aff;}
+.border-zinc-500 {border-color: #71717b;}
+.border-zinc-800 {border-color: #27272a;}
+.bg-zinc-700 {background-color: #3f3f46;}
+.bg-zinc-950 {background-color: #09090b;}
+.p-3 {padding: 12px;}
+.p-4 {padding: 16px;}
+.p-8 {padding: 32px;}
+.px-1 {padding-left: 4px; padding-right: 4px;}
+.px-2 {padding-left: 8px; padding-right: 8px;}
+.pt-1\.5 {padding-top: 6px;}
+.pt-2 {padding-top: 8px;}
+.text-center {text-align: center;}
+.text-2xl {font-size: 24px; line-height: 1.33333;}
+.text-lg {font-size: 18px; line-height: 1.55556;}
+.text-sm {font-size: 14px; line-height: 1.42857;}
+.text-xl {font-size: 20px; line-height: 1.4;}
+.text-xs {font-size: 12px; line-height: 1.33333;}
+.text-\[8px\] {font-size: 8px;}
+.text-\[9px\] {font-size: 9px;}
+.text-\[10px\] {font-size: 10px;}
+.text-\[11px\] {font-size: 11px;}
+.leading-relaxed {line-height: 1.625;}
+.font-bold {font-weight: 700;}
+.font-semibold {font-weight: 600;}
+.tracking-wider {letter-spacing: 0.05em;}
+.whitespace-nowrap {white-space: nowrap;}
+.text-amber-400 {color: #ffb900;}
+.text-blue-400 {color: #51a2ff;}
+.text-emerald-400 {color: #00d492;}
+.text-indigo-400 {color: #7c86ff;}
+.text-orange-300 {color: #ffb86a;}
+.text-orange-400 {color: #ff8904;}
+.text-purple-400 {color: #c27aff;}
+.text-red-400 {color: #ff6467;}
+.text-sky-400 {color: #00bcff;}
+.text-violet-400 {color: #a684ff;}
+.text-yellow-400 {color: #fdc700;}
+.text-zinc-200 {color: #e4e4e7;}
+.text-zinc-300 {color: #d4d4d8;}
+.text-zinc-400 {color: #9f9fa9;}
+.text-zinc-500 {color: #71717b;}
+.text-zinc-600 {color: #52525c;}
+.uppercase {text-transform: uppercase;}
+.italic {font-style: italic;}
+.tabular-nums {font-variant-numeric:    tabular-nums ;}
+.opacity-30 {opacity: 30%;}
+.opacity-60 {opacity: 60%;}
+.shadow-lg {box-shadow: 0 0 #0000, 0 0 #0000, 0 0 #0000, 0 0 #0000, 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);}
+.select-none {-webkit-user-select: none; user-select: none;}
+.hover\:text-zinc-200:hover {color: #e4e4e7;}
+.active\:cursor-grabbing:active {cursor: grabbing;}
+html, body, #root {width: 100%; height: 100%; overflow: hidden; font-family: "Segoe UI", system-ui, sans-serif; color: #f5e6c8; background: transparent; user-select: none; -webkit-user-select: none;}
+input, textarea, [contenteditable], .selectable {user-select: text; -webkit-user-select: text;}

@@ -175,6 +175,12 @@ if(WIN32)
         LINK ${scene_libraries}
         SOURCE_DIR LARGE_STACK)
     weft_add_test(NAME scene_cluster_platform COMMAND weft_scene_cluster_contract_tests TIMEOUT 180)
+    # The CRPG UI's nested tooltip page as a scene: body portals, nested tooltips, pin and drag, the smoke as an effect.
+    weft_add_executable(weft_scene_tooltip_page_tests
+        SOURCES scene_tooltip_page_tests.cpp
+        LINK ${scene_libraries} weft::scene_d3d11 weft_gallery_effects windowscodecs ole32
+        SOURCE_DIR LARGE_STACK)
+    weft_add_test(NAME scene_tooltip_page COMMAND weft_scene_tooltip_page_tests TIMEOUT 300)
 
     weft_add_executable(weft_scene_gallery_tests
         SOURCES scene_gallery_tests.cpp

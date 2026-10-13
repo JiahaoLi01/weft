@@ -5,7 +5,7 @@
   "input_sha256": {
     "examples/crpg-gallery/native/gallery.css": "f42c7851baffa4ad7d6c779fe1403cf46dd434cee7a1e7535b83da44f05364d9",
     "tests/fixtures/crpg-gallery/UI/src/components/debug/TestGallery.tsx": "4d3351e1465275161e8cafdfb82d8eac1374db119f2321c77917c690d614c320",
-    "tools/compile_gallery_cluster_styles.py": "2a23f7e31d5a7515ec8100bfb039ec9371e120123c2c15c8afba5d4edae70ad3"
+    "tools/compile_gallery_cluster_styles.py": "fa2b90225c40d615437361ed151fabfbf62ed301831aa4992212837c8c5e6df6"
   },
   "output_sha256": {
     "examples/crpg-gallery/cluster-utilities.css": "4957c4221f7f9a36238930d18c83646a86e2ada7a79bb09c80306e38ceb155e3",

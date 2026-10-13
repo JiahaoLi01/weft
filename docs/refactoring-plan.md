@@ -1462,6 +1462,25 @@ CMake 拆分：
 
 ## 第 11 步记录（2026-10-12）
 
+**11.3d 之二：嵌套提示页面在 scene 中运行**（2026-10-13）：
+- 页面源码：
+  - `examples/crpg-gallery/src/tooltip/NestedTooltipDemo.tsx`：捕获的页面去掉烟雾调参面板（连同它的状态与滑块函数），其余照抄；
+  - `examples/crpg-gallery/src/tooltip/SmokeBg.tsx`：原版的导出与参数不变，画布换成带 `-weft-effect(crpg-smoke)` 背景的同类名盒子，画布参数作为效果的自定义属性，时钟起点为挂载时刻。
+- `tools/build_tooltip_page.mjs`（新）：
+  - 用不变的 harness 打包一个组 `TOOLTIP_TESTS`，唯一的用例渲染该页面；`./NestedTooltip` 解析到捕获的组件（不改），`./SmokeBg` 按包选择；
+  - `TOOLTIP_TESTS.js` 用效果版（原生），`TOOLTIP_REFERENCE.js` 用原版画布（Chrome）；
+  - 输入输出哈希写入 `native/tooltip-metadata.json`。已有的包与 `metadata.json` 不变。
+- 样式：`tools/compile_gallery_cluster_styles.py` 的选择逻辑改为函数，并多输出 `tooltip-utilities.css`、`tooltip-keyframes.css` 与清单：
+  - 页面源码的每个词都当候选，与 Tailwind 对捕获源码的候选扫描一致，所以模板字符串与数据里的类名都有（运行时拼出的类名在 Chrome 里同样没有样式）；
+  - 带上页面的基础规则（html、body、#root 的尺寸、字体、颜色，惰性的 user-select），略去只设光标且用了 `:not()` 的按钮规则（记入清单）；
+  - 逻辑方向的 inset 按从左到右映射为物理边。
+  - cluster 的输出逐字节不变，只是清单里编译脚本的哈希更新。
+- 会话：`GallerySceneOptions`（样式表及同族关键帧、包、scene 根 `#root` 或 `body`、根的样式、UI 着色器效果）；`body` 为根时页面门户到 body 的浮层进入 scene。
+- 层叠：scene 的 `background` 简写在层叠中拆为颜色与图像两个分量（`var()` 代换后判断归属）。此前在层叠之后拆分，页面样式表里 body 的 `background: transparent` 盖过了内联的 `background-color`。
+- `verify_gallery_fixture.py` 加查页面包与样式的输入输出哈希。
+- `scene_tooltip_page`（新）：页面挂载后三张物品卡的烟雾都是效果；悬停关键词，浮层在 body 上、位于关键词右侧 8px 且上移 4px、宽 16rem；进入浮层再悬停其中的关键词，第二层浮层打开；停留 3 秒后钉住为窗口；按标题拖动后窗口精确跟随；原生 pass 画出浮层与 body 上的画廊底色。
+- 变异检查 6 个全部被发现：根固定为 `#root`、不注册效果、不设根样式、背景从不归为图像、背景简写不拆、不映射逻辑 inset。
+
 **11.3d 之一：`Element.closest` 与固定盒子的裁剪检查**（2026-10-13）：
 - `script_dom.cpp`：`closest(selectors)` 从元素自身沿祖先元素向上找第一个匹配的，没有时为 null；选择器列表先编译，不支持的选择器即使无匹配也报诊断。CRPG 页面的钉住窗口用它判断 mousedown 是否落在窗口或关键词上。
 - 固定盒子的裁剪检查改为只要求逃出的裁剪容纳包含块显示出的部分（根上是视口；包含块自身裁剪时是它的内边距盒）。拖动钉住的窗口不夹在视口内，可以拖出一半；`#root` 与视口同大，两者画出来相同，此前却报诊断。
