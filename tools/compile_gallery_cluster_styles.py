@@ -6,9 +6,9 @@ the original keyframes. Unsupported syntax fails instead of inventing a style.
 Normal builds consume checked-in outputs; this script never reads the live game.
 
 A second output serves the nested tooltip page (examples/crpg-gallery/src/tooltip, tools/build_tooltip_page.mjs): its
-utilities are those of every token of its sources that names one, as Tailwind's candidate scan of the captured sources
-found them for gallery.css (class names that its code builds at run time stay unstyled there too), with the page's
-base rules.
+utilities are those of every token of its sources that names one, and of every class name its code builds from such a
+token by replacing a part of it, as Tailwind's candidate scan of the captured sources found them for gallery.css (a
+built name is styled only where some source spells it), with the page's base rules.
 """
 from pathlib import Path
 import re, json, hashlib, ast, operator
@@ -124,14 +124,21 @@ def declarations(body):
 # Base-layer (preflight) rules that the scene's UA sheet does not already give: replaced elements are blocks. The scene
 # UA sheet has preflight's border-box, zero borders and no UA margins or heading sizes; other base rules are unused.
 PREFLIGHT={'img, svg, video, canvas, audio, iframe, embed, object'}
-def select(classes, base=frozenset()):
-  """The sheet's rules for these class tokens, in sheet order, with the preflight rules and the named base rules."""
+def select(classes, base=frozenset(), rename={}, inert={}, dropped=None):
+  """The sheet's rules for these class tokens, in sheet order, with the preflight rules and the named base rules;
+  renamed base rules under their new selector, without the inert declarations (recorded in dropped)."""
   rules=[]; found=set(); animations=[]
   def walk(text):
     for head,body in blocks(text):
         if head.startswith('@layer'): walk(body)
-        elif head in PREFLIGHT or head in base:
-            rules.append(head+' {'+' '.join(k+': '+v+';' for k,v in declarations(body))+'}')
+        elif head in PREFLIGHT or head in base or head in rename:
+            kept=[]
+            for k,v in declarations(body):
+                if k in inert and inert[k]==v:
+                    dropped.append(rename.get(head,head)+' { '+k+': '+v+' }')
+                    continue
+                kept.append((k,v))
+            rules.append(rename.get(head,head)+' {'+' '.join(k+': '+v+';' for k,v in kept)+'}')
         elif head.startswith('@keyframes'):
             # All original keyframes are generic input, including unused ones.
             animations.append(head+' {'+body+'}')
@@ -182,9 +189,25 @@ page_sources = [ROOT/'tests/fixtures/crpg-gallery/UI/src/components/NestedToolti
                 ROOT/'examples/crpg-gallery/src/tooltip/NestedTooltipDemo.tsx',
                 ROOT/'examples/crpg-gallery/src/tooltip/SmokeBg.tsx']
 page_tokens = set(t for f in page_sources for t in re.split(r'[\s"\'`<>=;{},()]+', f.read_text(encoding='utf-8')) if t)
+# Class names the page's code builds by replacing the first occurrence of a part of a token, as String.replace does:
+# ItemCard's and a tooltip's divider take the rarity's border class with border made bg, a keyword's accent bar its
+# text color with text- made bg-. gallery.css styles those of them that some source spells.
+PAGE_REPLACEMENTS = sorted(set(re.findall(r"\.replace\('([^']+)', '([^']+)'\)",
+                                          ''.join(f.read_text(encoding='utf-8') for f in page_sources))))
+if PAGE_REPLACEMENTS != [('border', 'bg'), ('text-', 'bg-')]: raise ValueError('page class replacements')
+page_tokens |= {t.replace(a, b, 1) for t in page_tokens for a, b in PAGE_REPLACEMENTS if a in t}
 PAGE_BASE = {'html, body, #root', 'input, textarea, [contenteditable], .selectable'}
 OMITTED = {'button:not(:disabled), [role="button"]:not(:disabled)': 'sets only the cursor; :not() is outside the scene profile'}
-page_rules, page_found, page_animations = select(page_tokens, PAGE_BASE)
+# The page is the whole document: preflight's html rule gives the line height the page inherits. Its :host matches
+# nothing in a document. Its declarations the scene does not have do nothing here at these values: no text inflation
+# (desktop), no tabs (white-space collapses them), no tap highlight, and font settings at their initial normal.
+PAGE_RENAME = {'html, :host': 'html'}
+PAGE_INERT = {'-webkit-text-size-adjust': '100%', 'tab-size': '4', 'font-feature-settings': 'normal',
+              'font-variation-settings': 'normal', '-webkit-tap-highlight-color': 'transparent'}
+page_dropped = []
+page_rules, page_found, page_animations = select(page_tokens, PAGE_BASE, PAGE_RENAME, PAGE_INERT, page_dropped)
+if not any(r.startswith('html {') for r in page_rules) or len(page_dropped) != len(PAGE_INERT):
+    raise ValueError('preflight html rule')
 if len([r for r in page_rules if r.split(' {')[0] in PAGE_BASE]) != len(PAGE_BASE): raise ValueError('page base rules')
 page_css = '/* Compiled from pinned Tailwind for the nested tooltip page; explicit utility adapter, 16px root. */\n' + '\n'.join(page_rules) + '\n'
 (out/'tooltip-utilities.css').write_text(page_css, encoding='utf-8')
@@ -192,6 +215,6 @@ page_css = '/* Compiled from pinned Tailwind for the nested tooltip page; explic
 (out/'tooltip-style-manifest.json').write_text(json.dumps({'format':'gallery-scene-styles-v1','compiler':'tools/compile_gallery_cluster_styles.py',
     'root_font_px':16,'input_sha256':{str(p.relative_to(ROOT)).replace('\\','/'):sha(p) for p in (sheet_path,*page_sources,Path(__file__))},
     'output_sha256':{str(p.relative_to(ROOT)).replace('\\','/'):sha(p) for p in (out/'tooltip-utilities.css',out/'tooltip-keyframes.css')},
-    'utility_count':len(page_found),'utilities':sorted(page_found),'base_rules':sorted(PAGE_BASE),'omitted_base_rules':OMITTED,
+    'utility_count':len(page_found),'utilities':sorted(page_found),'built_class_replacements':PAGE_REPLACEMENTS,'base_rules':sorted(PAGE_BASE),'omitted_base_rules':OMITTED,'renamed_base_rules':PAGE_RENAME,'inert_declarations':page_dropped,
     'adapter':'tokens of the page sources as Tailwind candidates; fixed theme/arithmetic/logical edges; fixed OKLCH quantized to sRGB, hover/active mouse conditions'},indent=2)+'\n',encoding='utf-8')
 print(f'Compiled {len(page_found)} utilities and {len(PAGE_BASE)} base rules for the nested tooltip page')

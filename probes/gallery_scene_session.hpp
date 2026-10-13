@@ -24,10 +24,10 @@ struct GallerySceneOptions {
     std::string stylesheet = "scene-utilities.css";
     // In examples/crpg-gallery/native; empty for the group's.
     std::string bundle;
-    // The scene's root, as a selector: the case's #root, or body for a page whose portals go there.
+    // The scene's root, as a selector: the case's #root, or html for a whole page (whose portals go to body).
     std::string root = "#root";
-    // The root's style attribute; empty for the gallery card's (set on #root).
-    std::string root_style;
+    // Script run before the case mounts, as the page's host; empty for the gallery card's style on #root.
+    std::string setup;
     // The UI shader effects the page names with -weft-effect(); none when null.
     const weft::SceneEffects* effects{};
 };
@@ -170,14 +170,13 @@ struct GallerySceneSession {
             "(()=>{let seed=0xce202610;Math.random=()=>((seed=(Math.imul(seed,1664525)+1013904223)>>>0)/4294967296)})()");
         vm.eval(scene_read(std::string(WEFT_SOURCE_DIR) + "/examples/crpg-gallery/native/" +
                            (options.bundle.empty() ? group + ".js" : options.bundle)));
-        if (options.root_style.empty()) {
+        if (options.setup.empty()) {
             vm.eval(
                 "document.getElementById('root').setAttribute('style','position:relative;overflow:hidden;background-color:#050403;color:#f5e6c8;font-family:system-ui;font-size:16px;line-height:1.5;" +
                 std::string(group == "D3_TESTS" ? "display:flex;align-items:center;justify-content:center;" : "") +
                 "')");
         } else {
-            vm.eval("document.querySelector('" + root_selector + "').setAttribute('style','" + options.root_style +
-                    "')");
+            vm.eval(options.setup);
         }
         vm.install_layout_cache_host([this] {
             if (cache_time != time || cache_width != width || cache_height != height) {

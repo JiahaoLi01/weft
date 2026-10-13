@@ -132,6 +132,14 @@ CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后�
 
 2026-10-13 重构第 11.3d 步之一：JS 的 `Element.closest(selectors)`：元素自身或最近的匹配祖先元素，没有时为 null；与 querySelector/matches 共用选择器文法与诊断。
 
+2026-10-13 重构第 11.3e 步之一：
+- 字体回退按 emoji 呈现选择系统回退字体，与 Chrome 相同：
+  - `font-family` 列表里的字体按顺序优先，不论呈现；
+  - 列表之外的系统回退中，默认按文字呈现的 emoji（如 🗡 U+1F5E1、☠ U+2620）或后跟 VS15 的取单色字体（Windows 上是 Segoe UI Symbol），默认按 emoji 呈现的（如 📜）或后跟 VS16 的取彩色字体（Segoe UI Emoji）；该类没有字体覆盖时取任一覆盖它的回退字体；
+  - Emoji 与 Emoji_Presentation 属性取自 QuickJS-NG 的 libunicode。
+- scene 的 UA 样式中 `html`、`body` 为块，scene 可以以 html 为根运行整页。
+- UI 着色器效果（`-weft-effect()`）像 Chrome 画图像与画布内容那样，画进对齐到设备像素的矩形（各边取最近的像素）；旋转、斜切或镜像的盒子不对齐。盒子的背景与边框仍按小数位置的覆盖率绘制（Chrome 也先对齐，见 11.2 的 css-19-63 记录），小数位置的 1px 边框比 Chrome 略虚。
+
 2026-10-13 重构第 11.3d 步之二：scene 的 `background` 简写在层叠中展开为 `background-color` 与 `background-image` 两个分量，各自参与层叠；值是渐变或 `-weft-effect()` 时给图像，其余给颜色，`var()` 代换后才判断。此前简写在层叠之后才拆分，会盖过优先级更高的分量（如内联的 `background-color`）。关键帧里的简写仍在展开时拆分。
 
 2026-10-13 重构第 11.3c 步之三：scene 的 `position: fixed`。

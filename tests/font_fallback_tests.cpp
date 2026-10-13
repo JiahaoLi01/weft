@@ -2,8 +2,10 @@
 #include "support/check.hpp"
 #include "constants/text.hpp"
 #include "test_constants/style_text.hpp"
+#include <array>
 #include <cmath>
 #include <iostream>
+#include <span>
 #include <stdexcept>
 #include <thread>
 using namespace weft;
@@ -20,6 +22,50 @@ namespace {
             return;
         }
         throw std::runtime_error("unexpected acceptance");
+    }
+
+    // With roles, as Chrome's system fallback chooses: the font-family list's fonts first; then a monochrome fallback
+    // font for an emoji shown as text (by default, or asked with VS15) and a color one for an emoji shown as emoji (by
+    // default, or asked with VS16); any fallback font covering it when none of that role does. The installed Segoe UI,
+    // Segoe UI Emoji (color) and Segoe UI Symbol (monochrome).
+    void emoji_presentation() {
+        const std::filesystem::path installed = "C:/Windows/Fonts";
+        if (!std::filesystem::exists(installed / "segoeui.ttf") ||
+            !std::filesystem::exists(installed / "seguiemj.ttf") ||
+            !std::filesystem::exists(installed / "seguisym.ttf")) {
+            std::cout << "skip emoji presentation: no Segoe UI, Segoe UI Emoji and Segoe UI Symbol\n";
+            return;
+        }
+        Font ui(installed / "segoeui.ttf");
+        Font color(installed / "seguiemj.ttf");
+        Font symbol(installed / "seguisym.ttf");
+        const std::vector<Font*> fonts{&ui, &color, &symbol};
+        const auto font_of = [&](std::string_view text, std::span<const FontRole> roles) {
+            const auto r = shape_with_fallback(fonts, text, 16, ShapePrecision::Fixed26_6, {}, roles);
+            require(!r.shaped.missing_glyph && r.runs.size() == 1, "one run of one font");
+            return r.runs[0].font_id;
+        };
+        const std::array system{FontRole::Listed, FontRole::FallbackColor, FontRole::FallbackText};
+        const auto dagger = "\xF0\x9F\x97\xA1"; // U+1F5E1, text by default
+        const auto scroll = "\xF0\x9F\x93\x9C"; // U+1F4DC, emoji by default
+        const auto as_emoji = "\xEF\xB8\x8F";   // VS16
+        const auto as_text = "\xEF\xB8\x8E";    // VS15
+        require(font_of("A", system) == 0, "the listed font covers Latin");
+        require(font_of(dagger, system) == 2, "a text emoji in the monochrome fallback");
+        require(font_of(std::string(dagger) + as_emoji, system) == 1, "VS16 asks for the color fallback");
+        require(font_of(scroll, system) == 1, "an emoji in the color fallback");
+        require(font_of(std::string(scroll) + as_text, system) == 2, "VS15 asks for the monochrome fallback");
+        const std::array listed{FontRole::Listed, FontRole::Listed, FontRole::FallbackText};
+        require(font_of(dagger, listed) == 1, "a listed color font before the monochrome fallback");
+        const std::array color_only{FontRole::Listed, FontRole::FallbackColor, FontRole::FallbackColor};
+        require(font_of(dagger, color_only) == 1, "a color fallback when no monochrome one covers it");
+        require(font_of(dagger, {}) == 1, "without roles, the first font that covers it");
+        rejects(
+            [&] {
+                const std::array one{FontRole::Listed};
+                (void)shape_with_fallback(fonts, dagger, 16, ShapePrecision::Fixed26_6, {}, one);
+            },
+            "WEFT_FONT_SET:");
     }
 } // namespace
 
@@ -132,8 +178,9 @@ int main() {
         });
         other.join();
         require(owner_rejected, "font owner violation");
+        emoji_presentation();
         std::cout
-            << "PASS real CJK fallback, source clusters, combining cluster, Latin ligatures, missing glyph, UTF8/script/owner/resource diagnostics\n";
+            << "PASS real CJK fallback, source clusters, combining cluster, Latin ligatures, emoji presentation, missing glyph, UTF8/script/owner/resource diagnostics\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL " << e.what() << '\n';

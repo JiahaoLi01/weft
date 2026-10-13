@@ -1,0 +1,225 @@
+{
+ "format": "gallery-tooltip-reference-v1",
+ "browser": "Chrome/155.0.8059.40",
+ "dpr": 1,
+ "id": "tooltip-00",
+ "width": 1596,
+ "height": 800,
+ "frames": 361,
+ "captures": [
+  {
+   "frame": 24,
+   "time": 400,
+   "state": {
+    "gallery": {
+     "active": {
+      "group": "TOOLTIP_TESTS",
+      "index": 0,
+      "label": "CRPG: Nested Tooltip + Smoke"
+     },
+     "errors": [],
+     "bridge": []
+    },
+    "body": 3,
+    "pinned": 0
+   }
+  },
+  {
+   "frame": 48,
+   "time": 800,
+   "state": {
+    "gallery": {
+     "active": {
+      "group": "TOOLTIP_TESTS",
+      "index": 0,
+      "label": "CRPG: Nested Tooltip + Smoke"
+     },
+     "errors": [],
+     "bridge": []
+    },
+    "body": 4,
+    "pinned": 0
+   }
+  },
+  {
+   "frame": 80,
+   "time": 1333.3333333333335,
+   "state": {
+    "gallery": {
+     "active": {
+      "group": "TOOLTIP_TESTS",
+      "index": 0,
+      "label": "CRPG: Nested Tooltip + Smoke"
+     },
+     "errors": [],
+     "bridge": []
+    },
+    "body": 5,
+    "pinned": 0
+   }
+  },
+  {
+   "frame": 160,
+   "time": 2666.666666666667,
+   "state": {
+    "gallery": {
+     "active": {
+      "group": "TOOLTIP_TESTS",
+      "index": 0,
+      "label": "CRPG: Nested Tooltip + Smoke"
+     },
+     "errors": [],
+     "bridge": []
+    },
+    "body": 5,
+    "pinned": 0
+   }
+  },
+  {
+   "frame": 248,
+   "time": 4133.333333333334,
+   "state": {
+    "gallery": {
+     "active": {
+      "group": "TOOLTIP_TESTS",
+      "index": 0,
+      "label": "CRPG: Nested Tooltip + Smoke"
+     },
+     "errors": [],
+     "bridge": []
+    },
+    "body": 3,
+    "pinned": 1
+   }
+  },
+  {
+   "frame": 280,
+   "time": 4666.666666666667,
+   "state": {
+    "gallery": {
+     "active": {
+      "group": "TOOLTIP_TESTS",
+      "index": 0,
+      "label": "CRPG: Nested Tooltip + Smoke"
+     },
+     "errors": [],
+     "bridge": []
+    },
+    "body": 3,
+    "pinned": 1
+   }
+  },
+  {
+   "frame": 300,
+   "time": 5000,
+   "state": {
+    "gallery": {
+     "active": {
+      "group": "TOOLTIP_TESTS",
+      "index": 0,
+      "label": "CRPG: Nested Tooltip + Smoke"
+     },
+     "errors": [],
+     "bridge": []
+    },
+    "body": 3,
+    "pinned": 1
+   }
+  },
+  {
+   "frame": 336,
+   "time": 5600,
+   "state": {
+    "gallery": {
+     "active": {
+      "group": "TOOLTIP_TESTS",
+      "index": 0,
+      "label": "CRPG: Nested Tooltip + Smoke"
+     },
+     "errors": [],
+     "bridge": []
+    },
+    "body": 4,
+    "pinned": 1
+   }
+  },
+  {
+   "frame": 360,
+   "time": 6000,
+   "state": {
+    "gallery": {
+     "active": {
+      "group": "TOOLTIP_TESTS",
+      "index": 0,
+      "label": "CRPG: Nested Tooltip + Smoke"
+     },
+     "errors": [],
+     "bridge": []
+    },
+    "body": 4,
+    "pinned": 1
+   }
+  }
+ ],
+ "input_trace": [
+  {
+   "frame": 30,
+   "x": 388.421875,
+   "y": 384.875,
+   "target": "span"
+  },
+  {
+   "frame": 52,
+   "x": 564.40625,
+   "y": 382.625,
+   "target": "div"
+  },
+  {
+   "frame": 60,
+   "x": 553.6015625,
+   "y": 445.875,
+   "target": "span"
+  },
+  {
+   "frame": 252,
+   "x": 580.4,
+   "y": 387.4,
+   "target": "div"
+  },
+  {
+   "frame": 256,
+   "x": 640.4,
+   "y": 417.4,
+   "target": "div"
+  },
+  {
+   "frame": 260,
+   "x": 700.4,
+   "y": 457.4,
+   "target": "span"
+  },
+  {
+   "frame": 264,
+   "x": 700.4,
+   "y": 457.4,
+   "target": "div"
+  },
+  {
+   "frame": 304,
+   "x": 356.3359375,
+   "y": 430.375,
+   "target": "span"
+  }
+ ],
+ "source_files": {
+  "examples/crpg-gallery/native/TOOLTIP_REFERENCE.js": "1e9f83b920cea740d0a667afdda2b8c0e03c4be2fb0ebdee08c52ae95dfaccdb",
+  "examples/crpg-gallery/native/gallery.css": "f42c7851baffa4ad7d6c779fe1403cf46dd434cee7a1e7535b83da44f05364d9",
+  "examples/crpg-gallery/native/platform.js": "726eb6e00c9f4a231b3cfda8910b4fc48440aedd88c5cf8b421334e9c1ff4a24",
+  "examples/crpg-gallery/tooltip-cases.json": "42d3f2f92eb02eaf973ba15716f0e0f2687130407647c490069eaff9ec0a26e7",
+  "probes/cluster_reference_clock.js": "95732e8c622a1902447ab4b9a04e669288d112a4a6155c82198349038d6a372d",
+  "probes/page_reference_clock.js": "adadd7dfa6fd5c1861dd8ab9d590d0608077eeaa09a849c30d46a199e494568d",
+  "tests/fixtures/crpg-gallery-assets/UI/public/cloud.png": "b6031ead400db2c1548122d1740bb862332f38bf328bd5adecca8d28b99ab21a",
+  "tests/fixtures/crpg-gallery-assets/UI/public/tiling-noise.png": "f55ca12070760bf5e0155ab9518edb6ba3c4a3c5e92588599a1d75c0d405fcf4",
+  "tools/browser_tooltip_page_reference.mjs": "b75e860cb604849b499aadb992dc3b9a11436dba3d568fb51c5313412d3f8c58"
+ }
+}

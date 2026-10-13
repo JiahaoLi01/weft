@@ -823,6 +823,18 @@ namespace weft {
                     effect.radii = box.radii;
                     auto shape = item;
                     shape.kind = paint::Item::Kind::Effect;
+                    // As Chrome draws an image (or a canvas's content): into the rect snapped to device pixels, each
+                    // edge to the nearest, unless the box rotates, skews or mirrors.
+                    if (axis_aligned(m) && m[0] > 0 && m[3] > 0) {
+                        const auto snap = [&](float px) {
+                            return std::round(px * scale) / scale;
+                        };
+                        const float left = snap(m[4]);
+                        const float top = snap(m[5]);
+                        shape.transform = {m[0], 0, 0, m[3], left, top};
+                        shape.width = (snap(m[4] + m[0] * item.width) - left) / m[0];
+                        shape.height = (snap(m[5] + m[3] * item.height) - top) / m[3];
+                    }
                     shape.payload = std::uint32_t(list.effects.size());
                     list.effects.push_back(std::move(effect));
                     list.items.push_back(shape);

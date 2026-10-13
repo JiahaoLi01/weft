@@ -266,7 +266,7 @@ namespace weft {
     }
 
     std::vector<FontFaceSource> match_font_faces(const FontCatalog& catalog, std::string_view families, int weight,
-                                                 bool italic) {
+                                                 bool italic, std::size_t* listed) {
         std::vector<FontFaceSource> out;
         auto add = [&](std::string_view family) {
             if (auto face = match_family(catalog, family, weight, italic)) {
@@ -286,6 +286,9 @@ namespace weft {
             if (!mapped && !generic(family)) {
                 add(family);
             }
+        }
+        if (listed) {
+            *listed = out.size();
         }
         for (const auto& family : catalog.fallback_families) {
             add(family);

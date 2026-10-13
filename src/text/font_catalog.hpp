@@ -39,6 +39,7 @@ namespace weft {
     // Throws std::runtime_error("WEFT_FONT_FILE: ...") for a file or face FreeType cannot open.
     std::vector<std::string> font_family_names(const FontFaceSource& face);
 
+    // listed, when given, receives how many of the faces come from the font-family list (the rest are fallback).
     std::vector<FontFaceSource> match_font_faces(const FontCatalog& catalog, std::string_view families, int weight,
-                                                 bool italic);
+                                                 bool italic, std::size_t* listed = nullptr);
 } // namespace weft

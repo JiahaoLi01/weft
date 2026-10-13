@@ -46,4 +46,10 @@ for built, keys in (('examples/crpg-gallery/native/tooltip-metadata.json', ('inp
         for name, digest in record[category].items():
             if hashlib.sha256((root / name).read_bytes()).hexdigest() != digest:
                 raise SystemExit('Tooltip page drift: ' + name)
+# Its Chrome reference (tools/browser_tooltip_page_reference.mjs) was recorded from these bundles, sheet, clocks and
+# case.
+reference = json.loads((root / 'tests/fixtures/tooltip-reference/report.json').read_text(encoding='utf-8'))
+for name, digest in reference['source_files'].items():
+    if hashlib.sha256((root / name).read_bytes()).hexdigest() != digest:
+        raise SystemExit('Tooltip reference drift: ' + name)
 print(f'PASS immutable gallery source, {len(asset_manifest["files"])} bitmaps and {len(cases)} original case records')

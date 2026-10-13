@@ -177,6 +177,37 @@ int main() {
                              }) &&
                     layered.list.effects.size() == 2,
                 "a layer with an effect draws in the pass");
+        // As Chrome draws an image or a canvas's content, an effect fills its box's rect snapped to device pixels, each
+        // edge to the nearest; a rotated box's is not snapped.
+        s.set(card, "style",
+              "position:absolute;left:10.375px;top:20.625px;width:100.5px;height:60.25px;"
+              "background-image:-weft-effect(glow)");
+        s.set(twin, "style",
+              "position:absolute;left:120.5px;top:20.5px;width:40px;height:40px;transform:rotate(30deg);"
+              "background-image:-weft-effect(glow)");
+        const auto fractional = solver.frame(s.tree.snapshot(*s.root), 200, 120, 1600);
+        const auto effect_items = [&](float scale) {
+            std::vector<weft::paint::Item> items;
+            for (const auto& item :
+                 weft::scene_display_list(fractional, {}, &weft::testing::thread_scene_text(), scale).list.items) {
+                if (item.kind == Kind::Effect) {
+                    items.push_back(item);
+                }
+            }
+            require(items.size() == 2, "the card's and the twin's effects");
+            return items;
+        };
+        const auto at1 = effect_items(1);
+        const auto at2 = effect_items(2);
+        require(at1[0].transform == weft::paint::Affine{1, 0, 0, 1, 10, 21} && at1[0].width == 101 &&
+                    at1[0].height == 60,
+                "an effect snapped to pixels");
+        require(at2[0].transform == weft::paint::Affine{1, 0, 0, 1, 10.5f, 20.5f} && at2[0].width == 100.5f &&
+                    at2[0].height == 60.5f,
+                "an effect snapped to device pixels");
+        require(at1[1].transform == at2[1].transform && at1[1].width == 40 && at1[1].height == 40 &&
+                    at1[1].transform[1] != 0,
+                "a rotated effect not snapped");
 
         // An effect that ignores the time lets the frames stop; a custom property that script sets repaints without a
         // new layout, and the effect takes the value.

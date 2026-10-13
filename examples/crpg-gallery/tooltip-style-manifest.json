@@ -7,18 +7,20 @@
     "tests/fixtures/crpg-gallery/UI/src/components/NestedTooltip.tsx": "680d399b27a7eb3aa66e1bc956c4186f6a5582729dd19c7f3a245b1dc247b679",
     "examples/crpg-gallery/src/tooltip/NestedTooltipDemo.tsx": "15af5a31d0f88a042735931a144154808d28ce6ee3da8d0aaed193aa7c002ab4",
     "examples/crpg-gallery/src/tooltip/SmokeBg.tsx": "a61a8681b4360a3c182542ce89e5549301577b3ad5d57cecb0082d5b01eecff3",
-    "tools/compile_gallery_cluster_styles.py": "fa2b90225c40d615437361ed151fabfbf62ed301831aa4992212837c8c5e6df6"
+    "tools/compile_gallery_cluster_styles.py": "7697949b0ec0c104ed5def437df075043575232fe8b682160775e7d8402ec4ab"
   },
   "output_sha256": {
-    "examples/crpg-gallery/tooltip-utilities.css": "05f7ee95160b2d4025c869de485f0b0acecc58071231eb08aaff927482956ecb",
+    "examples/crpg-gallery/tooltip-utilities.css": "14acae61f5f39cf8eb920d34643ab78ae8cb19e9e4da41407531cea7c58bf249",
     "examples/crpg-gallery/tooltip-keyframes.css": "df9e90954e562d1220014351310a642d7da84e02b8bc305758b6428438c09762"
   },
-  "utility_count": 109,
+  "utility_count": 111,
   "utilities": [
     "absolute",
     "active:cursor-grabbing",
     "animate-[fadeIn_0.15s_ease-out]",
+    "bg-amber-400",
     "bg-zinc-700",
+    "bg-zinc-800",
     "bg-zinc-950",
     "border",
     "border-amber-400",
@@ -125,6 +127,16 @@
     "z-10",
     "z-20"
   ],
+  "built_class_replacements": [
+    [
+      "border",
+      "bg"
+    ],
+    [
+      "text-",
+      "bg-"
+    ]
+  ],
   "base_rules": [
     "html, body, #root",
     "input, textarea, [contenteditable], .selectable"
@@ -132,5 +144,15 @@
   "omitted_base_rules": {
     "button:not(:disabled), [role=\"button\"]:not(:disabled)": "sets only the cursor; :not() is outside the scene profile"
   },
+  "renamed_base_rules": {
+    "html, :host": "html"
+  },
+  "inert_declarations": [
+    "html { -webkit-text-size-adjust: 100% }",
+    "html { tab-size: 4 }",
+    "html { font-feature-settings: normal }",
+    "html { font-variation-settings: normal }",
+    "html { -webkit-tap-highlight-color: transparent }"
+  ],
   "adapter": "tokens of the page sources as Tailwind candidates; fixed theme/arithmetic/logical edges; fixed OKLCH quantized to sRGB, hover/active mouse conditions"
 }

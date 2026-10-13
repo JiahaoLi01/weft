@@ -1,6 +1,7 @@
 #include "text/font.hpp"
 #include "base/owner_thread.hpp"
 #include "text/color_canvas.hpp"
+#include "text/unicode_properties.hpp"
 #include "constants/common.hpp"
 #include "constants/text.hpp"
 #include <ft2build.h>
@@ -742,8 +743,41 @@ namespace weft {
         return result;
     }
 
+    namespace {
+        // A cluster's emoji presentation: VS16 shows it as emoji and VS15 as text; otherwise its first character's
+        // default.
+        EmojiPresentation cluster_presentation(std::string_view utf8) {
+            char32_t first{};
+            bool started{};
+            for (std::size_t i = 0; i < utf8.size();) {
+                const auto lead = static_cast<unsigned char>(utf8[i]);
+                const std::size_t length = lead < 0x80 ? 1 : lead < 0xe0 ? 2 : lead < 0xf0 ? 3 : 4;
+                char32_t c = length == 1 ? lead : length == 2 ? lead & 0x1f : length == 3 ? lead & 0x0f : lead & 0x07;
+                for (std::size_t k = 1; k < length && i + k < utf8.size(); ++k) {
+                    c = c << 6 | (static_cast<unsigned char>(utf8[i + k]) & 0x3f);
+                }
+                i += length;
+                if (c == constants::text::emoji_variation_selector) {
+                    return EmojiPresentation::Emoji;
+                }
+                if (c == constants::text::text_variation_selector) {
+                    return EmojiPresentation::Text;
+                }
+                if (!started) {
+                    first = c;
+                    started = true;
+                }
+            }
+            return started ? emoji_presentation(first) : EmojiPresentation::None;
+        }
+    } // namespace
+
     FallbackText shape_with_fallback(const std::vector<Font*>& fonts, std::string_view text, float pixels,
-                                     ShapePrecision precision, std::span<const FontFeature> features) {
+                                     ShapePrecision precision, std::span<const FontFeature> features,
+                                     std::span<const FontRole> roles) {
+        if (!roles.empty() && roles.size() != fonts.size()) {
+            throw std::invalid_argument("WEFT_FONT_SET: one role per font");
+        }
         if (fonts.empty() || fonts.size() > constants::text::max_fallback_fonts) {
             throw std::invalid_argument("WEFT_FONT_SET: expected 1..8 ordered fonts");
         }
@@ -808,12 +842,30 @@ namespace weft {
             const auto end = next == clusters.end() ? std::uint32_t(text.size()) : next->first;
             std::uint32_t selected{};
             if (i->second) {
-                for (std::uint32_t f = 1; f < fonts.size(); ++f) {
-                    if (!fonts[f]
-                             ->shape(text.substr(i->first, end - i->first), pixels, precision, features)
-                             .missing_glyph) {
+                const auto cluster = text.substr(i->first, end - i->first);
+                const auto covers = [&](std::uint32_t f) {
+                    return !fonts[f]->shape(cluster, pixels, precision, features).missing_glyph;
+                };
+                // The fallback fonts this cluster prefers: any, the monochrome ones or the color ones.
+                auto preferred = FontRole::Listed;
+                if (!roles.empty()) {
+                    const auto presentation = cluster_presentation(cluster);
+                    preferred = presentation == EmojiPresentation::Text    ? FontRole::FallbackText
+                                : presentation == EmojiPresentation::Emoji ? FontRole::FallbackColor
+                                                                           : FontRole::Listed;
+                }
+                bool found{};
+                for (std::uint32_t f = 1; !found && f < fonts.size(); ++f) {
+                    if ((preferred == FontRole::Listed || roles[f] == FontRole::Listed || roles[f] == preferred) &&
+                        covers(f)) {
                         selected = f;
-                        break;
+                        found = true;
+                    }
+                }
+                for (std::uint32_t f = 1; !found && f < fonts.size(); ++f) {
+                    if (covers(f)) {
+                        selected = f;
+                        found = true;
                     }
                 }
             }

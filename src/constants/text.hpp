@@ -32,6 +32,9 @@ namespace weft::constants::text {
     // A synthetic oblique's slant, as Chrome draws italic text in a face without italics (Skia's fake italic): x
     // moves right by a quarter of the height above the baseline.
     inline constexpr float synthetic_oblique_skew = .25f;
+    // The variation selectors that ask for an emoji's presentation as emoji (VS16) or as text (VS15).
+    inline constexpr char32_t emoji_variation_selector = 0xfe0f;
+    inline constexpr char32_t text_variation_selector = 0xfe0e;
     inline constexpr int sdf_num_grays = 255;
 
     // Explicit bidi formatting characters, rejected until paragraph bidi exists:

@@ -169,7 +169,15 @@ namespace weft {
         std::map<FontFaceSource, std::uint32_t> face_ids;
         std::map<std::filesystem::path, std::shared_ptr<const FontFile>> files;
         std::size_t file_bytes{};
-        std::map<std::tuple<std::string, int, bool>, std::vector<std::uint32_t>> matches;
+
+        // A font-family list's faces in fallback order, and where each comes from: the list, or the system's
+        // fallback (monochrome or color).
+        struct Match {
+            std::vector<std::uint32_t> ids;
+            std::vector<FontRole> roles;
+        };
+
+        std::map<std::tuple<std::string, int, bool>, Match> matches;
         using RunKey = std::tuple<std::string, std::string, float, int, bool, std::uint8_t, float, float>;
         std::map<RunKey, std::shared_ptr<const SceneTextRun>> runs;
         std::size_t run_bytes{};
@@ -209,26 +217,30 @@ namespace weft {
             return id;
         }
 
-        const std::vector<std::uint32_t>& matched(const SceneFont& f) {
+        const Match& matched(const SceneFont& f) {
             auto key = std::tuple{f.families, f.weight, f.italic};
             if (auto i = matches.find(key); i != matches.end()) {
                 return i->second;
             }
-            auto sources = match_font_faces(catalog, f.families, f.weight, f.italic);
+            std::size_t listed{};
+            auto sources = match_font_faces(catalog, f.families, f.weight, f.italic, &listed);
             if (sources.empty()) {
                 throw_diagnostic(Diag::SceneRaster, "no font for font-family " + f.families);
             }
             if (sources.size() > constants::text::max_fallback_fonts) {
                 sources.resize(constants::text::max_fallback_fonts);
             }
-            std::vector<std::uint32_t> ids;
+            Match match;
             for (const auto& source : sources) {
-                ids.push_back(face(source));
+                match.ids.push_back(face(source));
+                match.roles.push_back(match.roles.size() < listed     ? FontRole::Listed
+                                      : faces[match.ids.back()].color ? FontRole::FallbackColor
+                                                                      : FontRole::FallbackText);
             }
             if (matches.size() >= constants::scene::text_cache_max_entries) {
                 matches.clear();
             }
-            return matches.emplace(std::move(key), std::move(ids)).first->second;
+            return matches.emplace(std::move(key), std::move(match)).first->second;
         }
 
         // The extents of one face's line box at the font's size and line-height: rounded ascent and descent, and
@@ -276,7 +288,7 @@ namespace weft {
                 return i->second;
             }
             ++misses;
-            const auto ids = matched(f);
+            const auto [ids, roles] = matched(f);
             std::vector<Font*> fonts;
             for (auto id : ids) {
                 fonts.push_back(faces[id].font.get());
@@ -307,7 +319,7 @@ namespace weft {
             for (const auto& [begin, end] : words(text)) {
                 // Chrome positions glyphs in HarfBuzz 16.16 units.
                 const auto shaped = shape_with_fallback(fonts, text.substr(begin, end - begin), f.size,
-                                                        ShapePrecision::Fixed16_16, features);
+                                                        ShapePrecision::Fixed16_16, features, roles);
                 const auto& glyphs = shaped.shaped.glyphs;
                 for (std::size_t i = 0; i < glyphs.size(); ++i) {
                     const auto& g = glyphs[i];
@@ -442,7 +454,7 @@ namespace weft {
     SceneTextMetrics SceneText::slice(const SceneTextRun& run, const SceneFont& font, std::uint32_t begin,
                                       std::uint32_t end) {
         impl_->require_owner();
-        const auto primary = impl_->matched(font).front();
+        const auto primary = impl_->matched(font).ids.front();
         std::set<std::uint32_t> used{primary};
         float pen{};
         for (const auto& g : run.glyphs) {
@@ -456,7 +468,7 @@ namespace weft {
 
     SceneStrut SceneText::strut(const SceneFont& font) {
         impl_->require_owner();
-        return impl_->face_strut(impl_->matched(font).front(), font);
+        return impl_->face_strut(impl_->matched(font).ids.front(), font);
     }
 
     const FontFaceSource& SceneText::face_source(std::uint32_t face) const {

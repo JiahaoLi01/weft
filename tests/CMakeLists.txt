@@ -180,7 +180,8 @@ if(WIN32)
         SOURCES scene_tooltip_page_tests.cpp
         LINK ${scene_libraries} weft::scene_d3d11 weft_gallery_effects windowscodecs ole32
         SOURCE_DIR LARGE_STACK)
-    weft_add_test(NAME scene_tooltip_page COMMAND weft_scene_tooltip_page_tests TIMEOUT 300)
+    weft_add_test(NAME scene_tooltip_page COMMAND weft_scene_tooltip_page_tests "${artifacts}/tooltip-page-$<CONFIG>"
+        TIMEOUT 300)
 
     weft_add_executable(weft_scene_gallery_tests
         SOURCES scene_gallery_tests.cpp

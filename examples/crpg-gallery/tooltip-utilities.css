@@ -1,4 +1,6 @@
 /* Compiled from pinned Tailwind for the nested tooltip page; explicit utility adapter, 16px root. */
+html {line-height: 1.5; font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
+      "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";}
 img, svg, video, canvas, audio, iframe, embed, object {display: block; vertical-align: middle;}
 .pointer-events-none {pointer-events: none;}
 .absolute {position: absolute;}
@@ -60,7 +62,9 @@ img, svg, video, canvas, audio, iframe, embed, object {display: block; vertical-
 .border-purple-400 {border-color: #c27aff;}
 .border-zinc-500 {border-color: #71717b;}
 .border-zinc-800 {border-color: #27272a;}
+.bg-amber-400 {background-color: #ffb900;}
 .bg-zinc-700 {background-color: #3f3f46;}
+.bg-zinc-800 {background-color: #27272a;}
 .bg-zinc-950 {background-color: #09090b;}
 .p-3 {padding: 12px;}
 .p-4 {padding: 16px;}

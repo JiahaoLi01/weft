@@ -480,8 +480,9 @@ namespace probes {
         double plane_mean{};
         int plane_solid{};
         unsigned plane_outliers{};
-        // Color glyphs (COLRv1 emoji of Segoe UI Emoji) drawn natively match the reference raster's DirectWrite: the
-        // same paint, antialiased differently.
+        // Color glyphs (COLRv1 emoji of Segoe UI Emoji; crossed swords and skull show as text by default, VS16 asks
+        // for them as emoji) drawn natively match the reference raster's DirectWrite: the same paint, antialiased
+        // differently.
         double color_mean{};
         int color_solid{};
         unsigned color_outliers{};
@@ -495,7 +496,7 @@ namespace probes {
             label.identity = {1, 1, 961};
             label.tag = "div";
             label.box = {6, 8, 208, 32};
-            label.text = "A\xF0\x9F\x94\xA5\xE2\x9A\x94\xF0\x9F\x92\x8E\xE2\x98\xA0 42";
+            label.text = "A\xF0\x9F\x94\xA5\xE2\x9A\x94\xEF\xB8\x8F\xF0\x9F\x92\x8E\xE2\x98\xA0\xEF\xB8\x8F 42";
             label.style = {{"font-size", "22px"}, {"color", "#303030"}};
             frame.root.children = {label};
             const auto scale = weft::probe_constants::gallery::scene_raster_scale;

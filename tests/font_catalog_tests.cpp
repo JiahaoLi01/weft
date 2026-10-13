@@ -70,6 +70,11 @@ namespace {
         CHECK((weft::match_font_faces(c, "cursive", 400, false) ==
                std::vector<weft::FontFaceSource>{face("han.ttc", 1), face("body.ttf", 400)}));
         CHECK(weft::match_font_faces(weft::FontCatalog{}, "Body", 400, false).empty());
+        // How many faces the list gives, before the fallback families' (a fallback family it names counts as listed).
+        std::size_t listed{99};
+        CHECK(weft::match_font_faces(c, "Missing, monospace, Body", 700, false, &listed).size() == 3 && listed == 2);
+        CHECK(weft::match_font_faces(c, "cursive", 400, false, &listed).size() == 2 && listed == 0);
+        CHECK(weft::match_font_faces(c, "Body", 400, false, &listed).size() == 2 && listed == 1);
     }
 
     // Family names read from the name table, for platform font lists that report only files.

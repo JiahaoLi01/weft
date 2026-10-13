@@ -797,7 +797,8 @@ namespace weft {
         p.single_value_inset = true;
         p.four_value_edges = true;
         p.ua_stylesheet =
-            "div,p,h1,h2,h3,h4,h5,h6,ul,ol,li,dl,dt,dd,section,article,header,footer,nav,main,aside,form,blockquote,"
+            "html,body,div,p,h1,h2,h3,h4,h5,h6,ul,ol,li,dl,dt,dd,section,article,header,footer,nav,main,aside,form,"
+            "blockquote,"
             "figure,figcaption,address,hr{display:block}button{display:inline-block;text-align:center}"
             "span,b,strong{display:inline}"
             "svg{display:inline}*{box-sizing:border-box;border-style:solid;border-width:0}";

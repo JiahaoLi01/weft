@@ -203,12 +203,23 @@ namespace weft {
         std::size_t misses{};
     };
 
+    // Where a font of a fallback list comes from: the CSS font-family list, or the system's fallback, monochrome or
+    // color.
+    enum class FontRole : std::uint8_t {
+        Listed,
+        FallbackText,
+        FallbackColor,
+    };
+
     // Shapes text with the first font and moves every cluster it cannot render to the first later font
     // that covers it; adjacent clusters of one font are shaped together. Glyph font_id is the index in
     // fonts. Bounded LTR Latin/Han/Common/Inherited profile (no bidi or script itemization yet).
+    // With roles (one per font), the listed fonts are tried in order first; then, as Chrome's system fallback
+    // chooses, an emoji shown as text (by default, or with VS15) prefers a monochrome fallback font and one shown as
+    // emoji (by default, or with VS16) a color one.
     FallbackText shape_with_fallback(const std::vector<Font*>& fonts, std::string_view utf8, float pixels,
                                      ShapePrecision precision = ShapePrecision::Fixed26_6,
-                                     std::span<const FontFeature> features = {});
+                                     std::span<const FontFeature> features = {}, std::span<const FontRole> roles = {});
 
     // Owner-only font resource collection. Bounded LTR Latin/Han/Common/Inherited
     // profile, HarfBuzz clusters for fallback; paragraph bidi/line breaking pending.
