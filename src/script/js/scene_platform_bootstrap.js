@@ -26,6 +26,17 @@
   Object.defineProperty(svgPrototype,'ownerSVGElement',{get(){let n=this.parentNode;while(n && !(n instanceof SVGSVGElement))n=n.parentNode;return n;}});
   p.remove = function(){this.parentNode?.removeChild(this);};
   globalThis.navigator = Object.freeze({maxTouchPoints:0}); // Current primary mouse host.
+  // UI particles (docs/architecture.md, "粒子"): a burst of the host's registered particles from an element at the next
+  // frame, options.count of them (1 by default) over options.duration seconds, flying to options.target (an element's
+  // centre, or {x, y} in viewport px) when given. Throws without a particle host, for an unknown name, a bad count or
+  // duration, or a target that is neither.
+  globalThis.weft = Object.freeze({emitParticles(element, name, options = {}) {
+    if (!(element instanceof Element)) throw new TypeError('weft.emitParticles: an element');
+    const target = options.target ?? null, node = target instanceof Element ? target : null;
+    const x = target && !node ? Number(target.x) : NaN, y = target && !node ? Number(target.y) : NaN;
+    if (target && !node && !(Number.isFinite(x) && Number.isFinite(y))) throw new TypeError('weft.emitParticles: a target element or {x, y}');
+    element.__ceEmitParticles(String(name), options.count ?? 1, options.duration ?? 0, node, x, y);
+  }});
   Date.now = () => Math.floor(performance.now()); // Host logical clock, epoch 0.
   Number.prototype.toLocaleString=function(locales,options){if(locales!==undefined&&locales!=='en-US'||options!==undefined&&Object.keys(options).length)throw Error('WEFT_NUMBER_FORMAT_PROFILE: en-US default integer format');return document.__ceFormatInteger(Number.prototype.valueOf.call(this));};
   globalThis.getComputedStyle = (n,pseudo) => {

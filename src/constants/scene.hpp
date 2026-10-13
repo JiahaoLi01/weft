@@ -72,6 +72,11 @@ namespace weft::constants::scene {
     inline constexpr int max_display_list_items = 2048;
     // Deepest nesting of isolated opacity groups.
     inline constexpr int max_opacity_group_depth = 4;
+    // UI particles a scene frame may draw at once, across its emissions (each at most
+    // constants::max_particles_per_emission); past it the frame is a scene profile diagnostic.
+    inline constexpr unsigned max_particles_per_frame = 262144;
+    // weft.emitParticles bursts waiting for the next frame.
+    inline constexpr unsigned max_pending_particle_bursts = 1024;
     // Elements whose transform determinant is smaller than this paint nothing.
     inline constexpr double singular_determinant_epsilon = 1e-8;
     // Largest sum of the transform's column lengths drawn by native passes and border geometry.

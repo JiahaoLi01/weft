@@ -229,6 +229,11 @@ if(WIN32)
     weft_add_executable(weft_scene_effect_tests SOURCES scene_effect_tests.cpp
         LINK weft::scene weft::platform_win32 weft_test_effects)
     weft_add_test(NAME scene_effect_contract COMMAND weft_scene_effect_tests)
+    # UI particles as scene elements show them: registration, overrides, streams, bursts, flights, bounds, damage,
+    # and weft.emitParticles.
+    weft_add_executable(weft_scene_particles_tests SOURCES scene_particles_tests.cpp
+        LINK weft::scene weft::script weft::platform_win32)
+    weft_add_test(NAME scene_particles_contract COMMAND weft_scene_particles_tests)
     # UI shader effects in the native scene passes: D3D11 on WARP, and Vulkan on this machine's device when built.
     set(scene_effect_links weft::scene_d3d11 weft::platform_win32 weft_test_effects)
     if(WEFT_RENDER_VULKAN)

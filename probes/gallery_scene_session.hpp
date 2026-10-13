@@ -30,6 +30,8 @@ struct GallerySceneOptions {
     std::string setup;
     // The UI shader effects the page names with -weft-effect(); none when null.
     const weft::SceneEffects* effects{};
+    // The UI particles it names with -weft-particles and weft.emitParticles; none when null.
+    const weft::SceneParticles* particles{};
 };
 
 // One owner VM per original case. The fixture and its React/D3 bundles are
@@ -101,6 +103,8 @@ struct GallerySceneSession {
     double time{};
     bool dirty = true;
     bool svg_geometry{};
+    // weft.emitParticles asked for a burst, which the next scene update starts.
+    bool particles_pending{};
     std::optional<weft::DomSnapshot> last_dom;
     weft::SceneBitmap cached;
     float cached_scale{};
@@ -135,6 +139,7 @@ struct GallerySceneSession {
           width(w),
           height(h) {
         scene.set_effects(options.effects);
+        scene.set_particles(options.particles);
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         weft::install_script_platform(vm, weft::ScriptPlatformModule::AnimationFrame);
         vm.eval(scene_read(WEFT_SOURCE_DIR "/examples/crpg-gallery/native/platform.js"));
@@ -163,6 +168,15 @@ struct GallerySceneSession {
                 return result;
             });
             weft::install_script_platform(vm, weft::ScriptPlatformModule::ScenePlatform);
+            vm.install_particle_host([this](weft::NodeIdentity element, const weft::ParticleRequest& request) {
+                std::optional<std::array<float, 2>> point;
+                if (request.point) {
+                    point = std::array<float, 2>{float((*request.point)[0]), float((*request.point)[1])};
+                }
+                scene.emit_particles(element, request.name,
+                                     {request.count, float(request.duration), request.target, point});
+                particles_pending = true;
+            });
             vm.eval("globalThis.innerWidth=" + weft::testing::format_host_time(w) +
                     ";globalThis.innerHeight=" + weft::testing::format_host_time(h));
         }
@@ -327,7 +341,7 @@ struct GallerySceneSession {
         } else {
             ++snapshot_reuses;
         }
-        if (!changed && !resized && (!current.animated || last_scene_time == time)) {
+        if (!changed && !resized && !particles_pending && (!current.animated || last_scene_time == time)) {
             current.time_ms = time;
             last_scene_time = time;
             return;
@@ -344,6 +358,7 @@ struct GallerySceneSession {
                 geometry_valid = false;
                 throw;
             }
+            particles_pending = false;
             const auto work = scene.work();
             geometry_valid = geometry_valid && !work.geometry_changed;
             if (geometry_valid) {

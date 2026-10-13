@@ -3,7 +3,9 @@
 #include "base/owner_thread.hpp"
 #include "constants/scene.hpp"
 #include "layout/flex.hpp"
+#include "paint/particles.hpp"
 #include "scene/scene_inline.hpp"
+#include "scene/scene_transform.hpp"
 #include "text/case_mapping.hpp"
 #include <chrono>
 #include <algorithm>
@@ -777,12 +779,44 @@ namespace weft {
             };
 
             std::map<std::string, Transition> transitions;
+
+            // A particle emission the element shows (SceneSolver::set_particles): a -weft-particles stream from its
+            // start until its stop, or a burst, at the frame times in ms; its seed; and where a burst flies: a target
+            // element's centre or a viewport point, which the layout of its first frame places in the element's border
+            // box px.
+            struct Emission {
+                std::shared_ptr<const SceneEmitter> emitter;
+                paint::ParticleEmission::Kind kind{};
+                double start{};
+                std::optional<double> stop;
+                std::uint32_t count{};
+                float duration{};
+                std::uint32_t seed{};
+                std::optional<NodeIdentity> target;
+                std::optional<std::array<float, 2>> point;
+                bool placed{};
+                std::optional<std::array<float, 2>> local;
+            };
+
+            // Emissions until their particles die, and how many the element has started (their seeds).
+            std::vector<Emission> emissions;
+            std::uint32_t emitted{};
         };
 
         using SceneId = std::array<std::uint64_t, 3>;
 
         SceneId identity(NodeIdentity n) {
             return {n.view_epoch, n.slot, n.generation};
+        }
+
+        // The seed of an element's emission: its identity and how many emissions it started before, mixed.
+        std::uint32_t emission_seed(const SceneId& id, std::uint32_t emitted) {
+            std::uint64_t h = id[0] * 0x9e3779b97f4a7c15ull ^ id[1] * 0xc2b2ae3d27d4eb4full ^
+                              id[2] * 0x165667b19e3779f9ull ^ emitted * 0xd6e8feb86659fd93ull;
+            h ^= h >> 31;
+            h *= 0xbf58476d1ce4e5b9ull;
+            h ^= h >> 29;
+            return std::uint32_t(h);
         }
 
         // Pairs of a node of the current build and the previous-frame node it was taken from; taken_from needs them
@@ -863,6 +897,7 @@ namespace weft {
                               "touch-action",
                               "user-select",
                               "-webkit-user-select",
+                              "-weft-particles",
                               "overflow-x",
                               "overflow-y",
                               "vertical-align",
@@ -944,6 +979,21 @@ namespace weft {
         PaintCache paint_cache;
         SceneText* text{};
         const SceneEffects* effects{};
+        const SceneParticles* particles{};
+
+        // Bursts emit_particles asked for since the last update, by element, and how many.
+        struct Burst {
+            std::string name;
+            SceneBurst burst;
+        };
+
+        std::map<SceneId, std::vector<Burst>> pending;
+        std::size_t pending_count{};
+        // While a frame is built: whether a display: none ancestor hides the element, the particles its emissions
+        // draw, and the elements with bursts whose flights its layout places.
+        bool hidden{};
+        std::uint64_t frame_particles{};
+        std::vector<SceneId> flights;
         // While a frame is laid out: the extents of the atomic inlines measured, by node and available width, and
         // the last line's baseline of each inline formatting context root placed, from its border box top.
         std::map<std::pair<const SceneNode*, float>, SceneAtomicExtent> atomic_memo;
@@ -997,10 +1047,18 @@ namespace weft {
             if (n.effect && n.effect->program->animated) {
                 return false;
             }
+            // Particles move every frame; an element that names them may start a stream, and one asked for a burst
+            // starts it.
+            if (!n.particles.empty()) {
+                return false;
+            }
             if (n.tag != "#text") {
                 auto it = states.find(identity(n.identity));
+                const auto* stream = n.style.find(PropertyId::WeftParticles);
                 if (it == states.end() || !it->second.plans_valid || !it->second.transitions.empty() ||
-                    !it->second.plans.empty() || it->second.current != n.style) {
+                    !it->second.plans.empty() || it->second.current != n.style || !it->second.emissions.empty() ||
+                    (!pending.empty() && pending.contains(it->first)) ||
+                    (stream && !trim(stream->text()).empty() && trim(stream->text()) != "none")) {
                     return false;
                 }
             }
@@ -1274,13 +1332,15 @@ namespace weft {
                     work.paint_changed = true;
                 }
             }
+            const bool shown = !hidden && get(out.style, PropertyId::Display) != "none";
+            emit(out, st, id, c, shown);
             work.geometry_changed |= !scene_geometry_own_equal(output, out, reuse_style);
             work.paint_changed |= output.identity != out.identity || output.tag != out.tag ||
                                   output.space != out.space || output.text != out.text ||
                                   output.attributes != out.attributes || (!reuse_style && output.style != out.style) ||
                                   bool(output.paint) != bool(out.paint) ||
                                   (output.paint && out.paint && output.paint->values != out.paint->values) ||
-                                  !scene_effect_equal(output.effect, out.effect);
+                                  !scene_effect_equal(output.effect, out.effect) || output.particles != out.particles;
             auto retained = std::move(output.children);
             std::size_t ci{};
             // Text beside elements becomes #text children. In an inline formatting context (an element that is not
@@ -1326,6 +1386,8 @@ namespace weft {
             // At most one scene child per DOM child. SceneNode's move may throw (std::map), so a reallocation
             // would copy every subtree built so far.
             out.children.reserve(d.children.size());
+            const bool hidden_before = hidden;
+            hidden = !shown;
             std::size_t di{};
             for (const auto& child : d.children) {
                 const auto dom_index = di++;
@@ -1364,6 +1426,7 @@ namespace weft {
                     out.children.push_back(std::move(run));
                 }
             }
+            hidden = hidden_before;
             if (out.style.contains(PropertyId::FontWeight) && (out.tag == "b" || out.tag == "strong") &&
                 std::find(c.specified_properties.begin(), c.specified_properties.end(), "font-weight") ==
                     c.specified_properties.end()) {
@@ -1381,6 +1444,185 @@ namespace weft {
                 }
             }
             output = std::move(out);
+        }
+
+        // The element's particles at the frame (SceneSolver::set_particles): its -weft-particles stream started,
+        // kept or stopped, the bursts asked of it since the last frame started, and the emissions whose particles may
+        // live; none while it does not show.
+        void emit(SceneNode& out, State& st, const SceneId& id, const ComputedStyle& c, bool shown) {
+            using Kind = paint::ParticleEmission::Kind;
+            const auto bursts = pending.empty() ? pending.end() : pending.find(id);
+            const auto* property = out.style.find(PropertyId::WeftParticles);
+            if (!property && st.emissions.empty() && bursts == pending.end()) {
+                return;
+            }
+            auto value = property ? trim(property->text()) : std::string();
+            if (value.empty()) {
+                value = "none";
+            }
+            if (value == "none" && st.emissions.empty() && bursts == pending.end()) {
+                return;
+            }
+            // They show in an HTML element's box or an svg root's (scene_display_list).
+            if (!out.space.empty() && out.space != constants::xhtml_namespace_uri && out.tag != "svg") {
+                fail("particles on an SVG element inside svg");
+            }
+            // Emissions that started live out their particles without the registry.
+            if (!particles && (value != "none" || bursts != pending.end())) {
+                fail("particles " + (value != "none" ? value : bursts->second.front().name) +
+                     " without registered particles");
+            }
+            std::shared_ptr<const SceneEmitter> stream;
+            if (value != "none") {
+                if (!std::all_of(value.begin(), value.end(), [](char ch) {
+                        return std::isalnum(static_cast<unsigned char>(ch)) || ch == '-' || ch == '_';
+                    })) {
+                    fail("-weft-particles takes none or one particle name");
+                }
+                stream = particles->resolve(value, c.custom_properties);
+                // A stream of no particles is none.
+                if (!(stream->emitter.rate > 0)) {
+                    stream.reset();
+                }
+            }
+            if (!shown) {
+                st.emissions.clear();
+                return;
+            }
+            const auto running = std::find_if(st.emissions.begin(), st.emissions.end(), [](const State::Emission& e) {
+                return e.kind == Kind::Stream && !e.stop;
+            });
+            const bool keep =
+                running != st.emissions.end() && stream && (running->emitter == stream || *running->emitter == *stream);
+            if (running != st.emissions.end() && !keep) {
+                running->stop = now;
+            }
+            if (stream && !keep) {
+                State::Emission e;
+                e.emitter = std::move(stream);
+                e.kind = Kind::Stream;
+                e.start = now;
+                e.seed = emission_seed(id, st.emitted++);
+                e.placed = true;
+                st.emissions.push_back(std::move(e));
+            }
+            if (bursts != pending.end()) {
+                bool flies{};
+                for (const auto& b : bursts->second) {
+                    State::Emission e;
+                    e.emitter = particles->resolve(b.name, c.custom_properties);
+                    e.kind = Kind::Burst;
+                    e.start = now;
+                    e.count = b.burst.count;
+                    e.duration = b.burst.duration;
+                    e.seed = emission_seed(id, st.emitted++);
+                    e.target = b.burst.target;
+                    e.point = b.burst.point;
+                    e.placed = !e.target && !e.point;
+                    flies = flies || !e.placed;
+                    st.emissions.push_back(std::move(e));
+                }
+                if (flies) {
+                    flights.push_back(id);
+                }
+            }
+            // A stopped stream's particles live out the longest life after its stop, a burst's after its duration.
+            constexpr double ms = constants::milliseconds_per_second;
+            std::erase_if(st.emissions, [&](const State::Emission& e) {
+                const auto& life = e.emitter->emitter.life;
+                const double longest = double(std::max(life[0], life[1])) * ms;
+                const double end = e.kind == Kind::Burst ? e.start + double(e.duration) * ms + longest
+                                   : e.stop              ? *e.stop + longest
+                                                         : std::numeric_limits<double>::infinity();
+                return now >= end;
+            });
+            for (const auto& e : st.emissions) {
+                paint::ParticleEmission emission;
+                emission.kind = e.kind;
+                emission.elapsed = (now - e.start) / ms;
+                if (e.stop) {
+                    emission.stopped = (*e.stop - e.start) / ms;
+                }
+                emission.count = e.count;
+                emission.duration = e.duration;
+                emission.seed = e.seed;
+                emission.target = e.local;
+                frame_particles += paint::particle_timing({e.emitter->emitter, emission}).count;
+                out.particles.push_back({e.emitter, emission});
+            }
+            if (!out.particles.empty()) {
+                animated = true;
+            }
+        }
+
+        // Places the flights of the bursts that started at the laid out frame f: a target element's centre, or a
+        // point, in the emitting element's border box px. A burst whose target the frame does not show (absent, or
+        // display: none), or whose element maps the plane to a line, flies nowhere.
+        void place_flights(SceneFrame& f) {
+            std::set<SceneId> wanted(flights.begin(), flights.end());
+            for (const auto& id : flights) {
+                for (const auto& e : states.at(id).emissions) {
+                    if (!e.placed && e.target) {
+                        wanted.insert(identity(*e.target));
+                    }
+                }
+            }
+
+            struct Placed {
+                SceneNode* node{};
+                ScenePlane plane;
+            };
+
+            std::map<SceneId, Placed> found;
+            // Each element's border box px to the viewport, as SceneGeometry maps them.
+            const auto walk = [&](auto&& self, SceneNode& n, const ScenePlane& parent) -> void {
+                if (n.tag == "#text" || get(n.style, PropertyId::Display) == "none") {
+                    return;
+                }
+                const auto plane =
+                    parent *
+                    (n.fragments.empty() ? scene_plane(n) : affine_plane(SceneAffine::translation(n.box[0], n.box[1])));
+                if (const auto id = identity(n.identity); wanted.contains(id)) {
+                    found[id] = {&n, plane};
+                }
+                if (n.space == constants::svg_namespace_uri) {
+                    return;
+                }
+                for (auto& c : n.children) {
+                    self(self, c, plane);
+                }
+            };
+            walk(walk, f.root, ScenePlane{});
+            for (const auto& id : flights) {
+                const auto emitter = found.find(id);
+                ScenePlane inverse;
+                const bool mapped = emitter != found.end() && emitter->second.plane.inverse(inverse);
+                auto& emissions = states.at(id).emissions;
+                for (std::size_t k = 0; k < emissions.size(); ++k) {
+                    auto& e = emissions[k];
+                    if (e.placed) {
+                        continue;
+                    }
+                    e.placed = true;
+                    std::optional<std::array<double, 2>> at;
+                    if (e.point) {
+                        at = std::array<double, 2>{(*e.point)[0], (*e.point)[1]};
+                    } else if (const auto t = found.find(identity(*e.target)); t != found.end()) {
+                        const auto& box = t->second.node->box;
+                        at = t->second.plane.point(box[2] / 2., box[3] / 2.);
+                    }
+                    if (!at || !mapped) {
+                        continue;
+                    }
+                    const auto local = inverse.point((*at)[0], (*at)[1]);
+                    if (std::abs(local[0]) <= constants::max_logical_px_magnitude &&
+                        std::abs(local[1]) <= constants::max_logical_px_magnitude) {
+                        e.local = std::array<float, 2>{float(local[0]), float(local[1])};
+                        emitter->second.node->particles.at(k).emission.target = e.local;
+                    }
+                }
+            }
+            flights.clear();
         }
 
         // viewBox width over height; NaN when the viewBox is not four numbers with a positive size.
@@ -2155,6 +2397,9 @@ namespace weft {
             if (!scene_effect_equal(to.effect, from.effect)) {
                 to.effect = from.effect;
             }
+            if (to.particles != from.particles) {
+                to.particles = from.particles;
+            }
             follow_children(to, from, [&](SceneNode& a, const SceneNode& b) {
                 follow(a, b, reused);
             });
@@ -2203,10 +2448,41 @@ namespace weft {
         impl_->effects = effects;
     }
 
+    void SceneSolver::set_particles(const SceneParticles* particles) {
+        impl_->owner.require(Diag::SceneOwner);
+        impl_->particles = particles;
+    }
+
+    void SceneSolver::emit_particles(NodeIdentity element, std::string_view name, const SceneBurst& burst) {
+        auto& i = *impl_;
+        i.owner.require(Diag::SceneOwner);
+        if (!i.particles) {
+            fail("weft.emitParticles: " + std::string(name) + " without registered particles");
+        }
+        // An unknown name throws.
+        i.particles->resolve(name, {});
+        if (burst.count < 1 || burst.count > constants::max_particles_per_emission || !std::isfinite(burst.duration) ||
+            burst.duration < 0 ||
+            (burst.point && (!std::isfinite((*burst.point)[0]) || !std::isfinite((*burst.point)[1])))) {
+            fail("weft.emitParticles: a count of 1 to " + std::to_string(constants::max_particles_per_emission) +
+                 ", a duration of 0 or more and a finite point");
+        }
+        if (i.pending_count >= constants::scene::max_pending_particle_bursts) {
+            fail("weft.emitParticles: more than " + std::to_string(constants::scene::max_pending_particle_bursts) +
+                 " bursts before a frame");
+        }
+        i.pending[identity(element)].push_back({std::string(name), burst});
+        ++i.pending_count;
+    }
+
     void SceneSolver::reset() {
         impl_->owner.require(Diag::SceneOwner);
         impl_->style_memo.clear();
         impl_->states.clear();
+        impl_->pending.clear();
+        impl_->pending_count = 0;
+        impl_->flights.clear();
+        impl_->hidden = false;
         impl_->interpolation = {};
         impl_->paint_cache = {};
         impl_->style_input = {};
@@ -2244,6 +2520,9 @@ namespace weft {
         i.now = time;
         i.live.clear();
         i.animated = false;
+        i.hidden = false;
+        i.frame_particles = 0;
+        i.flights.clear();
         i.work.geometry_changed = i.work.paint_changed = false;
         // Viewport lengths follow the viewport: the values that used one are expanded again, though the cascade
         // stands.
@@ -2295,6 +2574,13 @@ namespace weft {
         i.reused_styles.clear();
         i.build_into(f.root, d, *i.computed, nullptr, i.previous_dom ? &*i.previous_dom : nullptr,
                      i.previous_computed ? &*i.previous_computed : nullptr, i.previous ? &i.previous->root : nullptr);
+        // Bursts on elements the frame did not show are dropped.
+        i.pending.clear();
+        i.pending_count = 0;
+        if (i.frame_particles > constants::scene::max_particles_per_frame) {
+            fail("particles: " + std::to_string(i.frame_particles) + " in a frame, more than " +
+                 std::to_string(constants::scene::max_particles_per_frame));
+        }
         f.elements.clear();
         f.time_ms = time;
         f.animated = i.animated;
@@ -2317,6 +2603,9 @@ namespace weft {
             i.work.geometry_changed = i.work.paint_changed = true;
             i.layout_frame(f, w, h);
             ++i.work.layout_evaluations;
+        }
+        if (!i.flights.empty()) {
+            i.place_flights(f);
         }
         // The retained frame is a layout reference only. Paint-only animation does
         // not change its boxes/signature, so it needs no deep copy on a reuse.

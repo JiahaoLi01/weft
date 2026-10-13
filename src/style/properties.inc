@@ -2,6 +2,7 @@
 // WEFT_PROPERTY(identifier, "css-name"). Sorted by CSS name: PropertyId order is name order, so StyleValues
 // iterates as a name-keyed map would.
 WEFT_PROPERTY(WebkitUserSelect, "-webkit-user-select")
+WEFT_PROPERTY(WeftParticles, "-weft-particles")
 WEFT_PROPERTY(AlignContent, "align-content")
 WEFT_PROPERTY(AlignItems, "align-items")
 WEFT_PROPERTY(AlignSelf, "align-self")

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <map>
 #include <string>
 #include <string_view>
@@ -42,6 +43,18 @@ namespace weft {
     using ComputedStyleHost = std::function<std::map<std::string, std::string>(const DomSnapshot&, NodeIdentity)>;
     using LayoutEpochHost = std::function<std::uint64_t()>;
     using IntegerFormatHost = std::function<std::string(std::int64_t)>;
+
+    // A burst weft.emitParticles asks of an element (the scene's particles): the registered particles' name, how many,
+    // over how long (seconds), and where they fly to: a target element's centre, or a point in the viewport's CSS px.
+    struct ParticleRequest {
+        std::string name;
+        std::uint32_t count{};
+        double duration{};
+        std::optional<NodeIdentity> target;
+        std::optional<std::array<double, 2>> point;
+    };
+
+    using ParticleHost = std::function<void(NodeIdentity element, const ParticleRequest&)>;
 
     struct ScriptConfig {
         std::size_t max_stack_bytes{
@@ -186,6 +199,9 @@ namespace weft {
         // Without this opt-in each read continues through the full host path.
         void install_layout_cache_host(LayoutEpochHost);
         void install_integer_format_host(IntegerFormatHost);
+        // The owner's particles: weft.emitParticles (the scene platform) hands each burst to the host, which records it
+        // for the next frame and cannot enter JS; what it throws becomes the call's exception.
+        void install_particle_host(ParticleHost);
         DispatchResult dispatch_wheel(NodeIdentity target, double delta_x, double delta_y);
         DispatchResult dispatch_wheel(NodeIdentity target, const WheelEvent& event);
 

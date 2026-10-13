@@ -4,6 +4,7 @@
 #include "scene/scene_display_list.hpp"
 #include "support/check.hpp"
 #include "support/d3d11_scene.hpp"
+#include "support/native_scene.hpp"
 #include "support/scene_fonts.hpp"
 #ifdef WEFT_TEST_VULKAN
 #include "render/backends/vulkan/scene_renderer.hpp"
@@ -20,7 +21,8 @@
 // Vulkan pass on this machine's device (skipped without one), against a CPU raster of the shared model
 // (paint/particles.hpp) over the same display list: soft discs of a burst under gravity and drag, a stream and a
 // flight to a target, at scale 1 and 2; hard discs under a rotation, a scale and opacity inside a rounded overflow
-// clip; sprite frames of a color atlas and a coverage sprite; the two passes against each other.
+// clip; sprite frames of a color atlas and a coverage sprite; a -weft-particles stream and a burst flying to an element
+// as the scene solver shows them at a fixed clock; the two passes against each other.
 namespace {
     using weft::testing::require;
     namespace paint = weft::paint;
@@ -63,7 +65,8 @@ namespace {
         f.root = node(1, {0, 0, float(width), float(height)}, {});
         paint::ParticleEmitter fire;
         fire.shape = paint::ParticleEmitter::Shape::Circle;
-        fire.area = {20, 15, 6, 0};
+        // At (20, 15), radius 6 px of the 40 x 30 box.
+        fire.area = {.5f, .5f, .4f, 0};
         fire.life = {1.2f, 1.6f};
         fire.speed = {15, 35};
         fire.direction = -90;
@@ -79,7 +82,8 @@ namespace {
         a.particles = {emission(fire, burst(24, .7, 0x89abcdefu))};
         paint::ParticleEmitter mist;
         mist.shape = paint::ParticleEmitter::Shape::Rect;
-        mist.area = {0, 18, 36, 6};
+        // The box's bottom quarter.
+        mist.area = {0, .75f, 1, .25f};
         mist.rate = 40;
         mist.life = {.4f, .6f};
         mist.speed = {10, 30};
@@ -96,7 +100,7 @@ namespace {
         b.particles = {emission(mist, stream)};
         paint::ParticleEmitter coins;
         coins.shape = paint::ParticleEmitter::Shape::Point;
-        coins.area = {10, 10, 0, 0};
+        coins.area = {.5f, .5f, 0, 0};
         coins.life = {1, 1};
         coins.speed = {30, 50};
         coins.direction = -45;
@@ -127,7 +131,7 @@ namespace {
         auto spinning = node(3, {5, 5, 30, 20}, {{"transform", "rotate(25deg) scale(1.5)"}, {"opacity", "0.6"}});
         paint::ParticleEmitter sparks;
         sparks.shape = paint::ParticleEmitter::Shape::Edge;
-        sparks.area = {0, 0, 30, 20};
+        sparks.area = {0, 0, 1, 1};
         sparks.life = {2, 2};
         sparks.speed = {20, 60};
         sparks.spread = 360;
@@ -173,7 +177,7 @@ namespace {
         weft::SceneFrame f;
         f.root = node(1, {0, 0, float(width), float(height)}, {});
         paint::ParticleEmitter still;
-        still.area = {8, 8, 0, 0};
+        still.area = {.5f, .5f, 0, 0};
         still.life = {10, 10};
         still.size = {12, 12, 12, 12};
         still.frames = {2, 2};
@@ -201,6 +205,63 @@ namespace {
         f.root.children.push_back(t);
         // A box after the particles, in the same pass: drawn as a box.
         f.root.children.push_back(node(8, {44, 30, 8, 8}, {{"background-color", "#0000ff"}}));
+        return f;
+    }
+
+    // The scene's hooks at a fixed clock: an element's -weft-particles stream, its color overridden, and a burst
+    // (weft.emitParticles) flying from one element to another's centre, as the solver shows them 0.9 s in.
+    weft::SceneFrame hooked() {
+        static const auto registry = [] {
+            auto r = std::make_unique<weft::SceneParticles>();
+            paint::ParticleEmitter mist;
+            mist.shape = paint::ParticleEmitter::Shape::Rect;
+            mist.area = {0, 0, 1, 1};
+            mist.rate = 30;
+            mist.life = {.5f, .8f};
+            mist.speed = {8, 20};
+            mist.direction = -90;
+            mist.spread = 40;
+            mist.size = {3, 5, 5, 2};
+            mist.color = {paint::Color{1, 1, 1, .9f}, paint::Color{1, 1, 1, .7f}, paint::Color{1, 1, 1, .4f},
+                          paint::Color{1, 1, 1, 0}};
+            mist.softness = 1;
+            require(bool(r->add("mist", mist)), "register the stream's particles");
+            paint::ParticleEmitter coins;
+            coins.area = {.5f, .5f, 0, 0};
+            coins.life = {.8f, .8f};
+            coins.speed = {30, 50};
+            coins.direction = -90;
+            coins.spread = 90;
+            coins.size = {5, 5, 5, 5};
+            coins.color = {paint::Color{1, .8f, .1f, 1}, paint::Color{1, .8f, .1f, 1}, paint::Color{1, .8f, .1f, 1},
+                           paint::Color{1, .8f, .1f, 1}};
+            coins.softness = .5f;
+            require(bool(r->add("coins", coins)), "register the burst's particles");
+            return r;
+        }();
+        weft::testing::NativeScene s;
+        s.set(*s.root, "style", "position:relative;width:96px;height:64px");
+        auto& streaming = s.html("div");
+        s.set(streaming, "style",
+              "position:absolute;left:8px;top:34px;width:30px;height:20px;-weft-particles:mist;"
+              "--particles-color:#ff8800");
+        s.tree.insert(*s.root, streaming, nullptr);
+        auto& from = s.html("div");
+        s.set(from, "style", "position:absolute;left:50px;top:44px;width:10px;height:10px");
+        s.tree.insert(*s.root, from, nullptr);
+        auto& to = s.html("div");
+        s.set(to, "style", "position:absolute;left:80px;top:6px;width:10px;height:10px");
+        s.tree.insert(*s.root, to, nullptr);
+        weft::SceneSolver solver("", "", weft::testing::thread_scene_text());
+        solver.set_particles(registry.get());
+        weft::SceneFrame f;
+        solver.update(s.tree.snapshot(*s.root), f, float(width), float(height), 0);
+        solver.emit_particles(from.identity, "coins", {10, .2f, to.identity});
+        solver.update(s.tree.snapshot(*s.root), f, float(width), float(height), 300);
+        solver.update(s.tree.snapshot(*s.root), f, float(width), float(height), 900);
+        require(f.root.children[0].particles.size() == 1 && f.root.children[1].particles.size() == 1 &&
+                    f.root.children[1].particles[0].emission.target == std::array<float, 2>{35, -33},
+                "the solver's stream and flight");
         return f;
     }
 
@@ -411,6 +472,13 @@ namespace {
                     close(pixel(s, width, 32, 43), {0, quarter, 0, quarter}, 2),
                 std::string(pass) + " a sprite turned by its angle");
         require(close(pixel(s, width, 48, 34), {255, 0, 0, 255}, 0), std::string(pass) + " a box after particles");
+        // The scene's hooks through the solver.
+        const auto h = hooked();
+        drawn.push_back(draw(h, 1));
+        const auto through = matches(pass, drawn.back(), raster(h, width, height, 1), width);
+        std::cout << pass << " a CSS stream and a burst flying to an element, through the solver: " << through
+                  << " pixels as the model\n";
+        require(through > 100, std::string(pass) + " the solver's particles drawn");
         return drawn;
     }
 } // namespace
@@ -449,8 +517,8 @@ int main() {
             std::cout << "Vulkan skipped: " << unavailable << '\n';
         }
 #endif
-        // A subtree with particles draws in the pass, never as a cached layer; changed emissions damage the whole
-        // target (particles reach past their element); the reference raster refuses particles.
+        // A subtree with particles draws in the pass, never as a cached layer; changed emissions damage what their
+        // particles reach (here past the whole target); the reference raster refuses particles.
         {
             const auto f = soft();
             const auto listed =
@@ -482,7 +550,8 @@ int main() {
             require(refused, "the reference raster refuses particles");
         }
         std::cout << "PASS UI particles in native scene passes: D3D11 WARP, Vulkan " << vulkan
-                  << "; soft and hard discs, stream, burst, flight, transform, opacity, rounded clip, sprites\n";
+                  << "; soft and hard discs, stream, burst, flight, transform, opacity, rounded clip, sprites, the "
+                     "solver's stream and flight\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

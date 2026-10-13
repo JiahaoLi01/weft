@@ -1,4 +1,5 @@
 #include "script/script_dom.hpp"
+#include "constants/common.hpp"
 #include "base/diagnostic.hpp"
 #include "base/owner_thread.hpp"
 #include "constants/dom.hpp"
@@ -142,6 +143,7 @@ namespace weft {
         JSValue event_prototype{JS_UNDEFINED};
         LayoutHost layout_host;
         ComputedStyleHost computed_style_host;
+        ParticleHost particle_host;
         LayoutEpochHost layout_epoch_host;
         std::uint64_t read_revision{};
         std::uint64_t read_epoch{};
@@ -1264,6 +1266,7 @@ namespace weft {
             ClientRects,
             SceneGeometry,
             GetComputedStyle,
+            EmitParticles,
             FormatInteger
         };
 
@@ -1454,6 +1457,44 @@ namespace weft {
                             }
                         }
                         return JS_DupValue(c, result.value);
+                    }
+                    case EmitParticles: {
+                        // weft.emitParticles(element, name, options) of the scene platform: the name, a whole count of
+                        // at least one, a duration in seconds, and a target element or a point (x, y).
+                        if (!owner.particle_host) {
+                            throw std::runtime_error("WEFT_PARTICLES: no particle host");
+                        }
+                        ParticleRequest request;
+                        request.name = string_value(c, arg(argc, argv, 0));
+                        double count{};
+                        double duration{};
+                        if (JS_ToFloat64(c, &count, arg(argc, argv, 1)) < 0 ||
+                            JS_ToFloat64(c, &duration, arg(argc, argv, 2)) < 0) {
+                            throw PendingJsException{};
+                        }
+                        if (!(count >= 1) || count != std::floor(count) ||
+                            count > double(constants::max_particles_per_emission) || !std::isfinite(duration) ||
+                            duration < 0) {
+                            throw std::invalid_argument(
+                                "WEFT_PARTICLES: a whole count of at least 1 and a duration of 0 or more");
+                        }
+                        request.count = std::uint32_t(count);
+                        request.duration = duration;
+                        if (node_unchecked(c, arg(argc, argv, 3))) {
+                            request.target = node(c, arg(argc, argv, 3)).identity;
+                        } else {
+                            double x{};
+                            double y{};
+                            if (JS_ToFloat64(c, &x, arg(argc, argv, 4)) < 0 ||
+                                JS_ToFloat64(c, &y, arg(argc, argv, 5)) < 0) {
+                                throw PendingJsException{};
+                            }
+                            if (std::isfinite(x) && std::isfinite(y)) {
+                                request.point = std::array<double, 2>{x, y};
+                            }
+                        }
+                        owner.particle_host(n.identity, request);
+                        return JS_UNDEFINED;
                     }
                     case FormatInteger: {
                         double value{};
@@ -1920,6 +1961,7 @@ namespace weft {
                 property(prototype.value, "offsetParent", OffsetParent);
                 method(prototype.value, "__ceGeometry", SceneGeometry, 0);
                 method(prototype.value, "__ceComputedStyle", GetComputedStyle, 0);
+                method(prototype.value, "__ceEmitParticles", EmitParticles, 6);
                 method(prototype.value, "__ceFormatInteger", FormatInteger, 1);
                 JS_SetClassProto(context, node_class, JS_DupValue(context, prototype.value));
 
@@ -2008,6 +2050,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             event_prototype = JS_UNDEFINED;
             layout_host = {};
             computed_style_host = {};
+            particle_host = {};
             layout_epoch_host = {};
             clear_host_reads();
             read_snapshot.reset();
@@ -2483,6 +2526,11 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         impl_->require_runtime();
         impl_->computed_style_host = std::move(host);
         impl_->clear_host_reads();
+    }
+
+    void ScriptDom::install_particle_host(ParticleHost host) {
+        impl_->require_runtime();
+        impl_->particle_host = std::move(host);
     }
 
     void ScriptDom::install_layout_cache_host(LayoutEpochHost host) {

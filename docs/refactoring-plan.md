@@ -1477,6 +1477,20 @@ CMake 拆分：
 
 ## 第 11 步记录（2026-10-12）
 
+**11.4b：粒子的 CSS 与 JS 挂接**（2026-10-13）：
+- 注册表（`src/scene/scene_particles.hpp/.cpp`）：`SceneParticles::add`（名字唯一；精灵为覆盖率或 sRGB 颜色，距离场拒绝；值经 `paint::check`）、`resolve`（`--particles-*` 覆盖值；没有覆盖时返回注册的同一对象，覆盖后再检查）；`scene_emitter_area` 把相对区域换成元素 px；`scene_particle_reach` 给出一次发射在任何时刻可能画到的范围。
+- 求解器（`src/scene/scene.cpp`）：
+  - 每个元素的状态记着发射记录（流或爆发、开始与停止时刻、数量与时长、种子、飞行目标），每帧按 `-weft-particles` 开始、保留或停止流，取出等待的爆发，删掉粒子已全部死亡的记录，输出 `SceneNode::particles`（已过时间按帧时间算）；
+  - `display: none` 的元素与其子孙丢弃发射记录与等待的爆发；SVG 内部元素上的粒子为诊断；
+  - 静态子树：画着粒子、有发射记录、有等待的爆发或写了 `-weft-particles` 的元素不整棵复用（求解器的参考帧在布局不变时不更新，可能还带着旧粒子）；
+  - 飞行：带目标的爆发在它第一帧的布局（或复用的布局）之后定位：按 SceneGeometry 的方式求两个元素的平面（`scene_plane`），目标中心或点经发射元素平面的逆映射到它的 px；
+  - API：`set_particles`、`emit_particles`（立即校验名字、数量、时长、点与等待上限）；`reset` 清空等待的爆发。
+- 显示列表：发射区域按元素的盒换成 px。损伤（`scene_damage`）：带粒子的元素加入每次发射的可达范围，经元素几何的映射（求解器自己的几何没有映射，按 rect 平移）；祖先是透视平面时整幅。
+- 脚本：`ScriptDom::install_particle_host` 与元素方法 `__ceEmitParticles`，scene 平台的 `weft.emitParticles`。画廊会话（`GallerySceneOptions::particles`）安装宿主；有等待的爆发时，下一次 flush 更新 scene。
+- 验证：
+  - `scene_particles_contract`（新）：注册与拒绝、全部覆盖值与写错的值；流的开始、保持、因覆盖值重启、`none` 停止、按最长寿命消失；速率 0；隐藏的祖先与重新显示；移除与重新加入；静态子树复用，参考帧带着旧粒子时不取回；爆发的开始、覆盖值与结束；飞向目标中心、点、经旋转、隐藏的目标、之后不变；等待上限与每帧上限；同输入同帧；脚本 API 与错误；可达范围的性质测试（160 个随机发射器、约 27 万个粒子位置全部在内）与紧致性；损伤（平移、旋转、透视）；
+  - `render_scene_particles_contract`：求解器给出的流与飞向元素的爆发（固定时钟），D3D11 WARP 与 Vulkan 对 CPU 参考光栅相差不超过 3 级，Vulkan 对 D3D11 最大差 2。
+
 **11.4a：粒子绘制项与渲染器**（2026-10-13）：
 - paint IR（`src/paint/display_list.hpp`）：`ParticleEmitter`、`ParticleEmission`（流或爆发；已过时间与停止时间用 double）、`Particles`、`Item::Kind::Particles`、`DisplayList::particles`。`check` 拒绝非有限值、颠倒的范围、非正寿命、负的速率/速度/阻力/尺寸/通道、超过 1 的 alpha 与柔和度、越界或距离场的精灵、0 帧或超过 1024 帧、停止晚于已过时间、空爆发、超过 65536 个粒子的发射（流按最长寿命 × 速率 + 1 算）；`append` 重编号载荷与精灵。
 - 模型（`src/paint/particles.hpp/.cpp`，新）：`particle_timing`（流：可能存活的个数、最新粒子的序号模 2²⁴、它的年龄与发射间隔，双精度算出；爆发：个数与已过时间）、`particle_random`（lowbias32 整数哈希）、`particle_state`（是否存活、位置、尺寸、角度、颜色、帧）。运动：无阻力时抛物线，有阻力时线性阻力的解析解，飞向目标时沿二次曲线、缓入缓出。

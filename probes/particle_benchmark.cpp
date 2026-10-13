@@ -47,6 +47,7 @@ namespace probes {
             f.root.style["background-color"] = "#050403";
             paint::ParticleEmitter e;
             e.shape = paint::ParticleEmitter::Shape::Rect;
+            e.area = {0, 0, 1, 1};
             e.life = {1000, 1000};
             e.speed = {10, 40};
             e.spread = 360;
@@ -61,7 +62,6 @@ namespace probes {
             const float h = target_height / scale / rows;
             for (unsigned i = 0; i < emissions; ++i) {
                 auto n = node(2 + i, {w * (i % columns), h * (i / columns), w, h});
-                e.area = {0, 0, w, h};
                 paint::ParticleEmission at;
                 at.kind = paint::ParticleEmission::Kind::Burst;
                 at.count = std::min(per_emission, count - i * per_emission);

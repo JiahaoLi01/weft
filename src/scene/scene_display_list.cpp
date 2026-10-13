@@ -847,9 +847,10 @@ namespace weft {
                     }
                 }
                 // The element's particles over its background and borders, under its content, unclipped by its own
-                // overflow; a sprite is an asset of the list.
+                // overflow; the emitter's area in the box's px, a sprite an asset of the list.
                 for (const auto& emission : n.particles) {
                     paint::Particles particles{emission.emitter->emitter, emission.emission};
+                    particles.emitter.area = scene_emitter_area(particles.emitter, item.width, item.height);
                     particles.emitter.sprite.reset();
                     if (emission.emitter->sprite) {
                         particles.emitter.sprite = index_of(list.assets, emission.emitter->sprite);

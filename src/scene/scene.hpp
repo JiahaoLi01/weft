@@ -137,7 +137,8 @@ namespace weft {
         if (a.identity != b.identity || a.tag != b.tag || a.space != b.space || a.text != b.text ||
             a.attributes != b.attributes || a.style != b.style || a.box != b.box || a.lines != b.lines ||
             a.fragments != b.fragments || a.children.size() != b.children.size() || bool(a.paint) != bool(b.paint) ||
-            (a.paint && a.paint->values != b.paint->values) || !scene_effect_equal(a.effect, b.effect)) {
+            (a.paint && a.paint->values != b.paint->values) || !scene_effect_equal(a.effect, b.effect) ||
+            a.particles != b.particles) {
             return false;
         }
         for (std::size_t i = 0; i < a.children.size(); ++i) {
@@ -175,6 +176,24 @@ namespace weft {
         // The effects background-image: -weft-effect(name) names; the host keeps them alive. Without them such a
         // background is a scene profile diagnostic.
         void set_effects(const SceneEffects* effects);
+        // The particles -weft-particles: name and emit_particles name; the host keeps them alive. Without them such a
+        // name is a scene profile diagnostic.
+        //
+        // An element streams its -weft-particles while it shows (it and its ancestors are not display: none): from
+        // the frame its value names the particles, until a frame where it names none, other particles or other
+        // override values (SceneParticles::resolve), or the element hides; a stopped stream's particles live out
+        // their lives. A hidden element, and one the frame no longer has, drops its particles. Frames keep coming
+        // while an element shows particles. More than constants::scene::max_particles_per_frame particles in a frame
+        // is a scene profile diagnostic.
+        void set_particles(const SceneParticles* particles);
+        // A burst of the particles registered as name from element (weft.emitParticles), which starts at the next
+        // update's time with the element's override values then; a target element is placed in that frame's layout,
+        // its centre and a point mapped into the element's border box px. The next frame drops a burst on an element
+        // it does not show. Throws DiagnosticError (Diag::SceneProfile) without registered particles, for a name
+        // nobody registered, a count outside [1, constants::max_particles_per_emission], a duration that is negative
+        // or not finite, a point that is not finite, or more than constants::scene::max_pending_particle_bursts
+        // bursts before an update.
+        void emit_particles(NodeIdentity element, std::string_view name, const SceneBurst& burst);
 
         struct Work {
             std::size_t style_evaluations{};
