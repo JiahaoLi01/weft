@@ -124,7 +124,8 @@ namespace probes {
             std::array<bool, gallery_scene_count> pair{};
             pair[weft::probe_constants::gallery::sunburst_scene] =
                 pair[weft::probe_constants::gallery::sunburst_scene + 1] = true;
-            for (unsigned update = 0; update < 8; ++update) {
+            constexpr unsigned pair_updates = 8;
+            for (unsigned update = 0; update < pair_updates; ++update) {
                 pipeline.begin_frame_timing();
                 surfaces.retire_hidden(pair);
                 FramePacket packet;
@@ -164,7 +165,10 @@ namespace probes {
             evictions = surfaces.hidden_retirements;
             peak_slots = surfaces.peak_live_slots;
             peak_bytes = surfaces.peak_imported_bytes;
-            require(submissions == 206 && completions == 206 && peak_slots <= 6 &&
+            // Each visit's versions, then the pair's updates.
+            constexpr std::size_t expected =
+                (gallery_scene_count + 2) * weft::probe_constants::gallery::surface_versions_per_card + pair_updates;
+            require(submissions == expected && completions == expected && peak_slots <= 6 &&
                         peak_bytes <= weft::probe_constants::gallery::external_import_budget_bytes && evictions > 100,
                     "scroll resource bound/completion coverage");
             surfaces.release();

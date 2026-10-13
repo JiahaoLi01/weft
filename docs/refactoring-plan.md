@@ -1462,6 +1462,16 @@ CMake 拆分：
 
 ## 第 11 步记录（2026-10-12）
 
+**11.3e 之二：嵌套提示页面进画廊窗口**（2026-10-13）：
+- 窗口的目录：原始目录（`case-list.js` 的 72 例，其清单、观察审计与 Chrome 参照都不变）去掉两例 Three.js（webgl-02/03），最后加一组 “CRPG Tooltip”，即嵌套提示页面，共 71 例、11 组；`preview.js` 与 `gallery_preview_observe` 各自按同一规则生成，窗口自测核对两者的每张卡与标签。
+- scene 清单：页面是第 65 个 scene（cluster 之后，尺寸同 Chrome 参照的 1596×800），`catalog_index` 仍指原始目录（页面不在其中，取目录末尾）；窗口按组与序号找每个 scene 的卡片。cluster GPU 探针与交互剖析只跑 cluster scene（`cluster_scene_end`）。
+- `probes/gallery_scene_options.hpp`（新）：每个 scene 的运行方式，页面用自己的样式表、包、html 为根、body 的底色与 UI 着色器效果；测试、窗口与 owner 线程共用。
+- 窗口自测（`d3d11_warp_gallery_preview`）：
+  - 十组走完后，在空闲的第 40–54 帧跳到页面一组：像素 oracle 与截图（`group-10.png`），真实排队的鼠标移动悬停第一个关键词，owner 审计页面 body 上打开的浮层，截图（`tooltip-hover.png`）里第一张卡的烟雾像素不是卡片底色；再移开指针、回到第一组，后续步骤与此前相同；
+  - 第 1 帧另查每个 scene 的尺寸等于它的槽位；卡片几何 71×4 = 284 项。
+  - 自测为每个可见 scene 另做的 CPU 参考光栅不画效果（报诊断），页面的槽位保留占位图；oracle 本来就用 GPU 读回的图。
+- 计数：窗口 71 例，原生绘制 67 例（64 个 scene、2 例 Canvas、页面），诊断卡片 4 例（Lottie）；HUD、标题、报告与 `tools/gallery.bat` 的文字随之更新。surface 退休探针按 scene 数计算提交次数（209）。
+
 **11.3e 之一：嵌套提示页面与 Chrome 逐帧对照**（2026-10-13）：
 - 用例 `examples/crpg-gallery/tooltip-cases.json`（新）：
   - 视口 1596×800，361 帧（60 Hz）；

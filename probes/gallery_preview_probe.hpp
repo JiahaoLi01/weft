@@ -2,7 +2,7 @@
 
 #include "probe_common.hpp"
 #include "gallery_scene_manifest.hpp"
-#include "gallery_scene_session.hpp"
+#include "gallery_scene_options.hpp"
 #include "cheetah_probe.hpp"
 #include "gallery_canvas_probe.hpp"
 #include "gallery_live_profiler.hpp"
@@ -48,6 +48,9 @@ namespace probes {
         if (gallery_cluster_group(group)) {
             return "Native original scene; shared SVG/input/layout/animation profile; browser captures and input trace";
         }
+        if (group == "TOOLTIP_TESTS") {
+            return "Native CRPG nested tooltip page; smoke as a UI shader effect; Chrome frame-by-frame reference";
+        }
         if (group == "WEBGL_TESTS") {
             return "WebGL context / Three.js GPU path not implemented";
         }
@@ -75,7 +78,8 @@ namespace probes {
                 << ",\"reason\":" << json_string(c.reason) << ",\"pixels\":"
                 << json_string(c.group == "WEBGL_TESTS" && c.index < weft::probe_constants::gallery::canvas_case_count
                                    ? "native_canvas_profile"
-                               : c.group == "CSS_TESTS" || c.group == "D3_TESTS" || gallery_cluster_group(c.group)
+                               : c.group == "CSS_TESTS" || c.group == "D3_TESTS" || gallery_cluster_group(c.group) ||
+                                       c.group == "TOOLTIP_TESTS"
                                    ? "native_scene_profile"
                                    : "not_passed")
                 << '}';
@@ -83,6 +87,12 @@ namespace probes {
         return out.str() + ']';
     }
 
+    // The catalogue's cases the window leaves out: its Three.js cases (WebGL is not a product target), whose place the
+    // nested tooltip page takes.
+    inline constexpr std::array<std::string_view, weft::probe_constants::gallery::retired_case_count>
+        gallery_retired_cases{"webgl-02", "webgl-03"};
+
+    // The window's catalogue: the original cases in their order, less the retired ones, then the nested tooltip page.
     inline std::vector<GalleryPreviewCase> gallery_preview_observe() {
         weft::ScriptDom registry({weft::probe_constants::gallery::vm_stack_bytes,
                                   weft::probe_constants::gallery::host_vm_execution_budget_ms});
@@ -95,6 +105,10 @@ namespace probes {
             const auto lookup = "__ceGalleryCases[" + std::to_string(i) + "]";
             GalleryPreviewCase c;
             c.id = registry.eval(lookup + ".id");
+            if (std::find(gallery_retired_cases.begin(), gallery_retired_cases.end(), c.id) !=
+                gallery_retired_cases.end()) {
+                continue;
+            }
             c.group = registry.eval(lookup + ".group");
             c.label = registry.eval(lookup + ".label");
             c.index = unsigned(std::stoul(registry.eval(lookup + ".index")));
@@ -196,6 +210,25 @@ namespace probes {
 #endif
             cases.push_back(std::move(c));
         }
+        GalleryPreviewCase page{"tooltip-00", "TOOLTIP_TESTS", "CRPG: Nested Tooltip + Smoke"};
+        page.reason = gallery_preview_gap(page.group);
+#ifdef WEFT_REACT_GC_STRESS
+        page.execution = "not_run_gc_instrumentation";
+#else
+        {
+            auto session = gallery_scene_session(weft::probe_constants::gallery::tooltip_page_scene);
+            for (unsigned f = 0; f < weft::probe_constants::gallery::observation_frames; ++f) {
+                session->step(f * weft::probe_constants::gallery::observation_step_ms +
+                              weft::probe_constants::gallery::host_clock_offset_ms);
+            }
+            require(session->vm.eval("__ceGallery.state().active.label") == page.label, "nested tooltip page label");
+            page.execution = "no_error_observed";
+            session->unmount();
+        }
+#endif
+        cases.push_back(std::move(page));
+        require(cases.size() == std::size_t(weft::probe_constants::gallery::window_case_count),
+                "gallery window catalogue");
         return cases;
     }
 
@@ -263,7 +296,8 @@ namespace probes {
         } else {
             fps << "warming up";
         }
-        text(fps.str() + "  |  LIVE " + std::to_string(live) + " / 66", 58, 32);
+        text(fps.str() + "  |  LIVE " + std::to_string(live) + " / " + std::to_string(gallery_native_case_count), 58,
+             32);
         if (!detailed) {
             text(std::string(vsync ? "VSync on" : "VSync off") + " (F7) | F8 / sidebar: detailed profiler", 95, 22);
             return cheetah_packet(page, fonts, {});
@@ -275,7 +309,12 @@ namespace probes {
             << GalleryPreviewSamples::percentile(samples.cpu, .99) << " ms";
         text(cpu.str(), 99, 24);
         text("3840 x 2160 | D3D11 | CSS / SVG GPU at 2x", 137, 24);
-        text(owner_label.empty() ? "66 native cases / 6 diagnostic cases; GPU vector raster" : owner_label, 177, 21);
+        text(owner_label.empty()
+                 ? std::to_string(gallery_native_case_count) + " native cases / " +
+                       std::to_string(weft::probe_constants::gallery::window_case_count - gallery_native_case_count) +
+                       " diagnostic cases; GPU vector raster"
+                 : owner_label,
+             177, 21);
         return cheetah_packet(page, fonts, {});
     }
 

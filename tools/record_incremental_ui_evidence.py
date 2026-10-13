@@ -102,7 +102,7 @@ record = {"format": "incremental-ui-profiler-seal-v1", "recorded_utc": datetime.
           "tests": runs, "comparison": comparison, "source_drift": drift, "sources": sources, "artifacts": artifacts,
           "previous_seal": {"path": prior_path.relative_to(root).as_posix(), "sha256": sha(prior_path), "verified_sources": len(prior["sources"]), "verified_artifacts": len(prior["artifacts"]), "independent_baseline_source": True},
           "environment": prior["environment"] | {"sampling": "quiet serial alternating three pairs CPU+Kline/Anime/Scatter; one Framer/Spring pair; default affinity/priority; 240 fixed60Hz,16/224 warm; instrumentation on, heavy curve HUD off; no GPU readback"},
-          "native_cases": 66, "catalogue_cases": 72, "pending_cases": 6,
+          "native_cases": 67, "catalogue_cases": 71, "pending_cases": 4,
           "limits": ["K-Line/Anime still exceed game UI millisecond budget", "timing/trace overhead included; old trace per-event writes/new memory ring", "old eight D3 hidden rAF continues/new uniform host hidden rAF pause; timers still pump", "GPU elapsed includes queue gaps and is not pure busy time", "physical mouse-to-display, long-run game and fair Ultralight comparison unverified", "ASan acceptance is two owner contracts and 4K window only; no full87/GC repeat", "mobile and 2 WebGL/4 Lottie remain unverified"],
           "historical_failures": "Preserved separately: first overlay capacity fault, missing ASan DLL/target configuration, exploratory and phase1 samples. Only specified final runs count as acceptance."}
 (out / "run-metadata.json").write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")

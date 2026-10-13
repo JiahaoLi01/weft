@@ -3,12 +3,14 @@
 #include <cstddef>
 #include <string>
 #include "gallery_constants.hpp"
-inline constexpr unsigned gallery_scene_count = 64;
-inline constexpr unsigned gallery_native_case_count = 66;
+// The CSS_TESTS and D3_TESTS cards, the cluster groups' cases and the CRPG UI's nested tooltip page.
+inline constexpr unsigned gallery_scene_count = 65;
+inline constexpr unsigned gallery_native_case_count = 67;
 
 struct GallerySceneDescriptor {
     const char* group;
     unsigned index;
+    // The case's entry in examples/crpg-gallery/native/case-list.js; the page, not in the catalogue, has its end.
     unsigned catalog_index;
     float width;
     float height;
@@ -36,11 +38,14 @@ inline constexpr auto gallery_scene_descriptors = [] {
             out[n++] = {groups[g], i, catalog[g] + i, widths[g], heights[g]};
         }
     }
+    // The page at the size of its Chrome reference (examples/crpg-gallery/tooltip-cases.json).
+    out[n++] = {"TOOLTIP_TESTS", 0, weft::probe_constants::gallery::catalog_case_count, 1596, 800};
     return out;
 }();
 
 inline bool gallery_cluster_group(const std::string& group) {
-    for (unsigned i = weft::probe_constants::gallery::core_scene_count; i < gallery_scene_count; ++i) {
+    for (unsigned i = weft::probe_constants::gallery::core_scene_count;
+         i < weft::probe_constants::gallery::cluster_scene_end; ++i) {
         if (group == gallery_scene_descriptors[i].group) {
             return true;
         }

@@ -15,7 +15,7 @@
 | Icons | 2 | SVG stroke cap/join、真实 namespace/品牌检测、Framer 动画 |
 | Anime.js | 14 | DOM/CSS 属性检测、offset/矩阵、拖拽/吸附/轴约束、SVG morph/dash、Flex/Grid 与 FLIP |
 
-64 个 scene 加两例 Canvas，共 66/72 原例可绘制。WebGL 两例和 Lottie 四例仍为诊断卡片。目录保留全部 72 标签、十组和原始尺寸。真实场景 VM 全部在同一 UI worker 创建、访问和关闭，render 消费不可变完整 owned 快照；每卡最多三份 backing，资源按实际 submission completion 退休。没有并行 DOM 或自动图层提升。
+64 个 scene 加两例 Canvas，共 66/72 原例可绘制。WebGL 两例和 Lottie 四例仍为诊断卡片。目录保留全部 72 标签、十组和原始尺寸（2026-10-13 起窗口去掉 webgl-02/03，另加嵌套提示页面一组，见 [当前状态](status.md)）。真实场景 VM 全部在同一 UI worker 创建、访问和关闭，render 消费不可变完整 owned 快照；每卡最多三份 backing，资源按实际 submission completion 退休。没有并行 DOM 或自动图层提升。
 
 ## 可运行入口
 

@@ -1,7 +1,6 @@
 #define NOMINMAX
 #include "../probes/gallery_cluster_input.hpp"
-#include "../probes/gallery_effects.hpp"
-#include "../probes/gallery_scene_session.hpp"
+#include "../probes/gallery_scene_options.hpp"
 #include "scene_test_image.hpp"
 #include "support/check.hpp"
 #include "support/d3d11_scene.hpp"
@@ -259,22 +258,13 @@ namespace {
     }
 } // namespace
 
-// The page as a whole document, html the scene's root: body over the gallery's backdrop, as the Chrome reference's
-// page has it.
-GallerySceneOptions tooltip_options() {
-    return {"tooltip-utilities.css", "TOOLTIP_TESTS.js", "html",
-            "document.body.setAttribute('style','margin:0;position:relative;overflow:hidden;"
-            "background-color:#050403')",
-            &probes::gallery_effects()};
-}
-
 // The frames and inputs of the case, compared with Chrome at its captures.
 void replay(const std::filesystem::path& out) {
     const auto directory = weft::testing::source_path("tests/fixtures/tooltip-reference");
     const auto report = weft::testing::parse_json(weft::testing::read_file(directory / "report.json"));
     const auto spec = scene_read(WEFT_SOURCE_DIR "/examples/crpg-gallery/tooltip-cases.json");
     const auto id = report["id"].string;
-    GallerySceneSession s("TOOLTIP_TESTS", 0, width, height, tooltip_options());
+    GallerySceneSession s("TOOLTIP_TESTS", 0, width, height, probes::gallery_page_options());
     s.vm.eval("globalThis.__ceClusterSpec=" + spec + ";globalThis.__ceClusterInputs=__ceClusterSpec.inputs['" + id +
               "']||[]");
     weft::testing::D3D11Scene d3d11{unsigned(width), unsigned(height)};
@@ -346,7 +336,7 @@ void replay(const std::filesystem::path& out) {
 int main(int argc, char** argv) {
     try {
         require(SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED)), "COM init");
-        GallerySceneSession s("TOOLTIP_TESTS", 0, width, height, tooltip_options());
+        GallerySceneSession s("TOOLTIP_TESTS", 0, width, height, probes::gallery_page_options());
         run(s, 500);
         require(s.vm.eval("document.querySelectorAll('[data-keyword-span]').length") != "0", "keywords on the page");
         std::cout << "smoke effects " << effects(s.current.root) << ", keywords "

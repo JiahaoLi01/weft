@@ -22,7 +22,8 @@ namespace probes {
         double worst{};
         std::ostringstream report;
         report << "{\"format\":\"gallery-cluster-gpu-v1\",\"captures\":[";
-        for (unsigned index = weft::probe_constants::gallery::core_scene_count; index < gallery_scene_count; ++index) {
+        for (unsigned index = weft::probe_constants::gallery::core_scene_count;
+             index < unsigned(weft::probe_constants::gallery::cluster_scene_end); ++index) {
             const auto d = gallery_scene_descriptors[index];
             GallerySceneSession session(d.group, d.index, d.width, d.height, "cluster-utilities.css");
             session.vm.eval(scene_read(WEFT_SOURCE_DIR "/examples/crpg-gallery/native/case-list.js"));

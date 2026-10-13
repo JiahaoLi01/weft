@@ -1,7 +1,7 @@
 #pragma once
 
 #include "probe_common.hpp"
-#include "gallery_scene_session.hpp"
+#include "gallery_scene_options.hpp"
 #include "gallery_canvas_probe.hpp"
 #include "gallery_scene_manifest.hpp"
 #include "gallery_constants.hpp"
@@ -58,6 +58,8 @@ namespace probes {
         std::string hover_transform;
         std::string toggle_width;
         std::string anime_drag_transform;
+        // The nested tooltip page's portals on body (its open tooltips), when the page runs.
+        std::string tooltip_portals;
         std::size_t snapshots{};
         std::size_t snapshot_reuses{};
         std::size_t evals{};
@@ -117,11 +119,7 @@ namespace probes {
               profile_control_(std::move(control)),
               count_(expanded ? gallery_scene_count : weft::probe_constants::gallery::core_scene_count) {
             for (unsigned i = 0; i < count_; ++i) {
-                const auto d = gallery_scene_descriptors[i];
-                scenes_.push_back(std::make_unique<GallerySceneSession>(
-                    d.group, d.index, d.width, d.height,
-                    i < weft::probe_constants::gallery::core_scene_count ? "scene-utilities.css"
-                                                                         : "cluster-utilities.css"));
+                scenes_.push_back(gallery_scene_session(i));
             }
             for (unsigned i = 0; i < weft::probe_constants::gallery::canvas_case_count; ++i) {
                 canvas_[i] = std::make_unique<GalleryCanvasSession>(i);
@@ -459,6 +457,10 @@ namespace probes {
                 if (count_ > weft::probe_constants::gallery::anime_drag_scene) {
                     out->anime_drag_transform = scenes_[weft::probe_constants::gallery::anime_drag_scene]->vm.eval(
                         "document.querySelector('.drag-item').style.transform");
+                }
+                if (count_ > weft::probe_constants::gallery::tooltip_page_scene) {
+                    out->tooltip_portals = scenes_[weft::probe_constants::gallery::tooltip_page_scene]->vm.eval(
+                        "String(document.body.children.length-1)");
                 }
             }
             last_frame_ = out;

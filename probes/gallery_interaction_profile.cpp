@@ -45,7 +45,8 @@ namespace probes {
         report
             << "{\"format\":\"gallery-owner-interaction-profile-v1\",\"clock_hz\":60,\"frames_per_case\":240,\"warmup\":16,\"gpu_included\":false,\"cases\":[";
         unsigned count{};
-        for (unsigned index = weft::probe_constants::gallery::core_scene_count; index < gallery_scene_count; ++index) {
+        for (unsigned index = weft::probe_constants::gallery::core_scene_count;
+             index < unsigned(weft::probe_constants::gallery::cluster_scene_end); ++index) {
             const auto d = gallery_scene_descriptors[index];
             const bool scatter = index == weft::probe_constants::gallery::scatter_scene;
             const bool kline = index == weft::probe_constants::gallery::kline_scene;

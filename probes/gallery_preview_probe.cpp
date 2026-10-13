@@ -176,7 +176,9 @@ namespace probes {
         }
         std::filesystem::create_directories(folder);
         const auto startup = std::chrono::steady_clock::now();
-        std::cout << "Observing 72 fixed original cases (isolated, 12 opportunities; no full CSS/pixel pass)...\n";
+        std::cout
+            << "Observing the window's 71 cases, 70 fixed original cases and the nested tooltip page (isolated, 12 "
+               "opportunities; no full CSS/pixel pass)...\n";
         auto profile_control = std::make_shared<TraceControl>();
         profile_control->enabled = profile || !benchmark.empty();
         GalleryLiveProfiler live_profiler;
@@ -192,7 +194,10 @@ namespace probes {
         const auto records = gallery_preview_json(cases);
         write_text(
             folder / "preview-cases.json",
-            "{\"format\":\"gallery-preview-cases-v1\",\"case_count\":72,\"native_pixel_cases\":66,\"original_full_gallery_rendered\":false,\"conditions\":{\"isolated_opportunities\":12,\"canvas_host\":true,\"css\":\"Fixed Tailwind utilities, 64 original CSS/SVG/animation scenes and two original Canvas cases\",\"input_dispatched\":false},\"cases\":" +
+            "{\"format\":\"gallery-preview-cases-v1\",\"case_count\":" +
+                std::to_string(weft::probe_constants::gallery::window_case_count) +
+                ",\"native_pixel_cases\":" + std::to_string(gallery_native_case_count) +
+                ",\"retired_cases\":[\"webgl-02\",\"webgl-03\"],\"original_full_gallery_rendered\":false,\"conditions\":{\"isolated_opportunities\":12,\"canvas_host\":true,\"css\":\"Fixed Tailwind utilities, 64 original CSS/SVG/animation scenes, two original Canvas cases and the nested tooltip page\",\"input_dispatched\":false},\"cases\":" +
                 records + "}");
         // Live benchmarks show the window, so presents go through the same DWM composition as the interactive window.
         NativeReactWindow window(!self_test && (benchmark.empty() || live), true);
@@ -341,20 +346,22 @@ namespace probes {
         std::array<int, gallery_scene_count> scene_asset_indices{};
         scene_asset_indices.fill(-1);
         std::array<bool, gallery_scene_count> scene_visible{};
+        // Each scene's case in the window's catalogue.
+        std::array<std::size_t, gallery_scene_count> scene_case{};
         for (unsigned i = 0; i < gallery_scene_count; ++i) {
             const auto d = gallery_scene_descriptors[i];
-            require(cases[d.catalog_index].group == d.group && cases[d.catalog_index].index == d.index,
-                    "scene/catalog manifest drift");
+            const auto it = std::find_if(cases.begin(), cases.end(), [&](const GalleryPreviewCase& c) {
+                return c.group == d.group && c.index == d.index;
+            });
+            require(it != cases.end(), "scene/catalog manifest drift");
+            scene_case[i] = std::size_t(it - cases.begin());
             if (!owner) {
-                scenes.push_back(std::make_unique<GallerySceneSession>(
-                    d.group, d.index, d.width, d.height,
-                    i < weft::probe_constants::gallery::core_scene_count ? "scene-utilities.css"
-                                                                         : "cluster-utilities.css"));
+                scenes.push_back(gallery_scene_session(i));
             }
             if (!owner) {
                 scenes.back()->set_profiling(profile || !benchmark.empty());
             }
-            scene_slots.push_back(shell.node_identity("#slot-" + cases[d.catalog_index].id));
+            scene_slots.push_back(shell.node_identity("#slot-" + it->id));
         }
         const auto started = std::chrono::steady_clock::now();
         auto seconds = [&] {
@@ -393,9 +400,17 @@ namespace probes {
         unsigned captures{};
         unsigned seen_cases{};
         std::array<unsigned, weft::probe_constants::gallery::canvas_case_count> raf_calls{};
-        const char* groups[]{"CSS_TESTS",    "D3_TESTS",     "D3_INTERACTIVE_TESTS", "KLINE_TESTS", "WEBGL_TESTS",
-                             "FRAMER_TESTS", "SPRING_TESTS", "ICON_TESTS",           "ANIME_TESTS", "LOTTIE_TESTS"};
-        std::array<bool, weft::probe_constants::gallery::catalog_case_count> seen{};
+        const char* groups[]{"CSS_TESTS",   "D3_TESTS",     "D3_INTERACTIVE_TESTS", "KLINE_TESTS",
+                             "WEBGL_TESTS", "FRAMER_TESTS", "SPRING_TESTS",         "ICON_TESTS",
+                             "ANIME_TESTS", "LOTTIE_TESTS", "TOOLTIP_TESTS"};
+        std::array<bool, weft::probe_constants::gallery::window_case_count> seen{};
+        // The window's steps on the nested tooltip page: the frame the walk captures its section at, its first
+        // keyword's centre and a point of the first item card's smoke, in page px (tests/fixtures/tooltip-reference
+        // has the page's geometry), and the least red the smoke has there (the card's own background is #09090b).
+        constexpr unsigned page_capture_frame = 42;
+        constexpr float page_keyword[]{388.4f, 384.9f};
+        constexpr float page_smoke[]{330, 305};
+        constexpr int page_smoke_red = 100;
         std::array<bool, weft::probe_constants::gallery::canvas_case_count> visible{};
         const std::array<weft::NodeIdentity, weft::probe_constants::gallery::canvas_case_count> slot_ids{
             shell.node_identity("#slot-webgl-00"), shell.node_identity("#slot-webgl-01")};
@@ -812,7 +827,8 @@ namespace probes {
             if (owner) {
                 GalleryOwnerRequest request;
                 request.time = time;
-                request.audit = self_test && !scroll_test && (frames == 21 || frames == 34);
+                request.audit =
+                    self_test && !scroll_test && (frames == 21 || frames == 34 || frames == page_capture_frame + 11);
                 for (unsigned i = 0; i < gallery_scene_count; ++i) {
                     auto r = scene_rect(i);
                     request.scenes[i] = r[1] < weft::probe_constants::gallery::shell_viewport_bottom &&
@@ -948,19 +964,19 @@ namespace probes {
                     raster_ms += paint_ms;
                     if (render_trace.enabled()) {
                         render_trace.emit(
-                            "paint " + cases[gallery_scene_descriptors[i].catalog_index].id, paint_trace_start,
-                            paint_ms,
+                            "paint " + cases[scene_case[i]].id, paint_trace_start, paint_ms,
                             "{\"native\":" +
                                 (scene_gpu.image(i)->last_native ? std::string("true") : std::string("false")) + "}");
                     }
                     if (!benchmark.empty() && frames >= weft::probe_constants::gallery::warmup_frames) {
-                        GalleryPreviewSamples::add(
-                            stages["paint-" + cases[gallery_scene_descriptors[i].catalog_index].id], paint_ms);
+                        GalleryPreviewSamples::add(stages["paint-" + cases[scene_case[i]].id], paint_ms);
                     }
                 }
                 if (scene_visible[i] && (dirty || !scene_images[i])) {
                     const auto raster_start = phase_seconds();
-                    if (self_test) {
+                    // The reference raster reports UI shader effects instead of drawing them, so the page's slot
+                    // keeps the placeholder; the oracle samples every scene as the GPU drew it.
+                    if (self_test && i != unsigned(weft::probe_constants::gallery::tooltip_page_scene)) {
                         const auto b =
                             owner
                                 ? scene_reference[i]->raster(frame, weft::probe_constants::gallery::scene_raster_scale)
@@ -1005,8 +1021,7 @@ namespace probes {
                     scene_asset_indices.fill(-1);
                     for (unsigned i = 0; i < gallery_scene_count; ++i) {
                         if (scene_visible[i]) {
-                            images.emplace("slot-" + cases[gallery_scene_descriptors[i].catalog_index].id,
-                                           scene_images[i]);
+                            images.emplace("slot-" + cases[scene_case[i]].id, scene_images[i]);
                         }
                     }
                     for (unsigned i = 0; i < weft::probe_constants::gallery::canvas_case_count; ++i) {
@@ -1077,7 +1092,7 @@ namespace probes {
                 std::map<std::string, std::shared_ptr<const Asset>> images;
                 for (unsigned i = 0; i < gallery_scene_count; ++i) {
                     if (scene_visible[i]) {
-                        images.emplace("slot-" + cases[gallery_scene_descriptors[i].catalog_index].id, scene_images[i]);
+                        images.emplace("slot-" + cases[scene_case[i]].id, scene_images[i]);
                     }
                 }
                 for (unsigned i = 0; i < weft::probe_constants::gallery::canvas_case_count; ++i) {
@@ -1199,12 +1214,17 @@ namespace probes {
                 window.state.close_requested = true;
             }
             if (self_test && !scroll_test) {
-                // Pixel oracle and every original registry id, across the ten sections. The oracle checks the
+                // Pixel oracle and every registry id, across the eleven sections: the ten original ones in the
+                // first frames, the nested tooltip page's later (its own steps below). The oracle checks the
                 // shell's composition: it samples every visible scene as the GPU drew it (read back), core scenes
                 // included. Their CPU reference rasters are another rasterizer, whose antialiased edges differ from
                 // the native pass's by more than the oracle's tolerance; scene pixels have reference tests of their
                 // own.
-                if (frames <= weft::probe_constants::gallery::catalog_group_count) {
+                const int walk = frames <= unsigned(weft::probe_constants::gallery::catalog_group_count)
+                                     ? int(frames) - 1
+                                 : frames == page_capture_frame ? weft::probe_constants::gallery::catalog_group_count
+                                                                : -1;
+                if (walk >= 0) {
                     pipeline.drain();
                     auto oracle_list = std::make_shared<weft::paint::DisplayList>(*packet.list);
                     for (unsigned i = 0; i < gallery_scene_count; ++i) {
@@ -1251,7 +1271,7 @@ namespace probes {
                     if (failed_at) {
                         // Evidence: the frame, the oracle (left) beside the frame (right) around the first failing
                         // point, and the scene images the oracle sampled.
-                        const auto stem = "group-" + std::to_string(frames - 1) + "-failed";
+                        const auto stem = "group-" + std::to_string(walk) + "-failed";
                         save_png(folder / (stem + ".png"), pixels, weft::constants::uhd_width,
                                  weft::constants::uhd_height);
                         constexpr int side = weft::probe_constants::gallery::oracle_evidence_side;
@@ -1279,10 +1299,10 @@ namespace probes {
                     require(pixel_error <= weft::probe_constants::gallery::max_cpu_oracle_difference &&
                                 edge_pixel_error <= weft::probe_constants::rounded_clip_edge_linear_tolerance,
                             "4K gallery shell/canvas pixel oracle");
-                    save_png(folder / ("group-" + std::to_string(frames - 1) + ".png"), presenter.pixels(),
+                    save_png(folder / ("group-" + std::to_string(walk) + ".png"), presenter.pixels(),
                              weft::constants::uhd_width, weft::constants::uhd_height);
                     ++captures;
-                    for (unsigned i = 0; i < weft::probe_constants::gallery::catalog_case_count; ++i) {
+                    for (unsigned i = 0; i < weft::probe_constants::gallery::window_case_count; ++i) {
                         const auto identity = shell.node_identity("#case-" + cases[i].id);
                         for (const auto& e : current->elements) {
                             if (e.identity == identity &&
@@ -1294,8 +1314,10 @@ namespace probes {
                     }
                     // Count registration separately from viewport visibility (tall groups scroll).
                     if (frames == 1) {
-                        require(shell.eval("Object.keys(__cePreview.cards).length") == "72" &&
-                                    shell.eval("__cePreview.groups.length") == "10",
+                        require(shell.eval("Object.keys(__cePreview.cards).length") ==
+                                        std::to_string(weft::probe_constants::gallery::window_case_count) &&
+                                    shell.eval("__cePreview.groups.length") ==
+                                        std::to_string(weft::probe_constants::gallery::window_group_count),
                                 "gallery catalogue dropped cases/groups");
                         for (const auto& c : cases) {
                             require(shell.eval("document.getElementById(" + json_string("case-" + c.id) +
@@ -1303,10 +1325,10 @@ namespace probes {
                                     "gallery changed original label");
                         }
                         // Independent expected card geometry from fixed TestGallery:
-                        // four/three/two/one columns, original heights and gaps.
-                        const unsigned columns[]{4, 4, 1, 1, 1, 3, 3, 2, 4, 4};
-                        const unsigned heights[]{288, 384, 1500, 800, 600, 320, 288, 288, 288, 288};
-                        const unsigned gaps[]{12, 16, 16, 16, 16, 16, 16, 16, 12, 12};
+                        // four/three/two/one columns, original heights and gaps; the page at its reference size.
+                        const unsigned columns[]{4, 4, 1, 1, 1, 3, 3, 2, 4, 4, 1};
+                        const unsigned heights[]{288, 384, 1500, 800, 600, 320, 288, 288, 288, 288, 800};
+                        const unsigned gaps[]{12, 16, 16, 16, 16, 16, 16, 16, 12, 12, 16};
                         double offset{};
                         double scroll{};
                         for (const auto& e : current->elements) {
@@ -1314,7 +1336,7 @@ namespace probes {
                                 scroll = e.scroll_top;
                             }
                         }
-                        for (unsigned group = 0; group < weft::probe_constants::gallery::catalog_group_count; ++group) {
+                        for (unsigned group = 0; group < weft::probe_constants::gallery::window_group_count; ++group) {
                             unsigned count{};
                             const double w = (1600. - gaps[group] * (columns[group] - 1)) / columns[group];
                             for (const auto& c : cases) {
@@ -1346,13 +1368,54 @@ namespace probes {
                                       std::ceil(double(count) / columns[group]) * (heights[group] + 40 + gaps[group]) +
                                       40;
                         }
-                        require(geometry_checks == 288, "gallery geometry coverage");
+                        require(geometry_checks == 4 * weft::probe_constants::gallery::window_case_count,
+                                "gallery geometry coverage");
+                        // Each scene runs at its slot's size.
+                        for (unsigned i = 0; i < gallery_scene_count; ++i) {
+                            const auto r = scene_rect(i);
+                            require(std::abs(r[2] - gallery_scene_descriptors[i].width) <= .02 &&
+                                        std::abs(r[3] - gallery_scene_descriptors[i].height) <= .02,
+                                    "gallery scene size differs from its slot");
+                        }
                     }
-                    if (frames < weft::probe_constants::gallery::catalog_group_count) {
+                    if (frames < unsigned(weft::probe_constants::gallery::catalog_group_count)) {
                         jump(frames);
-                    } else {
+                    } else if (frames == unsigned(weft::probe_constants::gallery::catalog_group_count)) {
                         jump(4);
                     }
+                }
+                // The nested tooltip page in its section: captured by the walk above, then a real queued move onto
+                // its first keyword opens that keyword's tooltip on the page's body, over the item cards' smoke.
+                if (frames == page_capture_frame - 2) {
+                    jump(weft::probe_constants::gallery::catalog_group_count);
+                }
+                if (frames == page_capture_frame) {
+                    const auto r = scene_rect(weft::probe_constants::gallery::tooltip_page_scene);
+                    const auto pt =
+                        MAKELPARAM(int((r[0] + page_keyword[0]) * weft::probe_constants::gallery::shell_device_scale),
+                                   int((r[1] + page_keyword[1]) * weft::probe_constants::gallery::shell_device_scale));
+                    require(PostMessageW(window.state.hwnd, WM_MOUSEMOVE, 0, pt), "page keyword queued hover");
+                }
+                if (frames == page_capture_frame + 12) {
+                    require((owner ? owner_frame->tooltip_portals
+                                   : scenes[weft::probe_constants::gallery::tooltip_page_scene]->vm.eval(
+                                         "String(document.body.children.length-1)")) != "0",
+                            "window hover did not open the page's tooltip");
+                    pipeline.drain();
+                    const auto pixels = presenter.pixels();
+                    save_png(folder / "tooltip-hover.png", pixels, weft::constants::uhd_width,
+                             weft::constants::uhd_height);
+                    // The first item card's smoke, where the card's own background is #09090b.
+                    const auto r = scene_rect(weft::probe_constants::gallery::tooltip_page_scene);
+                    const auto smoke = pixels
+                        [std::size_t((r[1] + page_smoke[1]) * weft::probe_constants::gallery::shell_device_scale) *
+                             weft::constants::uhd_width +
+                         std::size_t((r[0] + page_smoke[0]) * weft::probe_constants::gallery::shell_device_scale)];
+                    require(smoke[0] > page_smoke_red, "the page's smoke drawn in the window");
+                    const auto away = MAKELPARAM(int(r[0] * weft::probe_constants::gallery::shell_device_scale) / 2,
+                                                 int(r[1] * weft::probe_constants::gallery::shell_device_scale));
+                    require(PostMessageW(window.state.hwnd, WM_MOUSEMOVE, 0, away), "page pointer leaves");
+                    jump(0);
                 }
                 if (frames == 11) { // Real queued mouse input, with scaled canvas coordinates.
                     const auto r = slot_rect(0);
@@ -1727,7 +1790,8 @@ namespace probes {
                 }
             }
             std::ostringstream title;
-            title << "CaseElephant / 72 cases, 66 native / LIVE " << live_count << " / 3840x2160 / FPS " << std::fixed
+            title << "CaseElephant / " << weft::probe_constants::gallery::window_case_count << " cases, "
+                  << gallery_native_case_count << " native / LIVE " << live_count << " / 3840x2160 / FPS " << std::fixed
                   << std::setprecision(1) << fps.fps << " / VSync " << (presenter.vsync ? "on" : "off") << " (F7)";
             // WM_SETTEXT redraws the caption: only when the text changes (about once a second).
             if (auto value = title.str(); value != window_title) {
@@ -1882,7 +1946,10 @@ namespace probes {
         }
         write_text(
             folder / "preview-session.json",
-            "{\"format\":\"gallery-preview-session-v1\",\"case_count\":72,\"native_pixel_cases\":66,\"original_full_gallery_rendered\":false,\"surface\":[3840,2160],\"logical_shell\":[1920,1080],\"canvas_backing\":[800,600],\"adapter\":" +
+            "{\"format\":\"gallery-preview-session-v1\",\"case_count\":" +
+                std::to_string(weft::probe_constants::gallery::window_case_count) +
+                ",\"native_pixel_cases\":" + std::to_string(gallery_native_case_count) +
+                ",\"original_full_gallery_rendered\":false,\"surface\":[3840,2160],\"logical_shell\":[1920,1080],\"canvas_backing\":[800,600],\"adapter\":" +
                 json_string(gpu.adapter) + ",\"frames\":" + std::to_string(frames) +
                 ",\"successful_visible_present_fps\":" + (fps.ready ? format_host_time(fps.fps) : "null") +
                 ",\"last_visible_native_case_count\":" + std::to_string(live_count) +
@@ -1890,7 +1957,7 @@ namespace probes {
                 GalleryPreviewSamples::json(samples.cpu) +
                 ",\"gpu_producer_and_ui_elapsed_ms\":" + GalleryPreviewSamples::json(samples.gpu) +
                 ",\"present_interval_ms\":" + GalleryPreviewSamples::json(samples.interval) +
-                ",\"startup_including_72_observations_ms\":" + format_host_time(startup_ms) +
+                ",\"startup_including_71_observations_ms\":" + format_host_time(startup_ms) +
                 ",\"gpu_cached_peak_bytes\":" + std::to_string(gpu.cache.peak_bytes) +
                 ",\"gpu_cache_budget_bytes\":536870912,\"retired_textures\":" + std::to_string(gpu.native_releases) +
                 ",\"actual_completed_submissions\":" + std::to_string(pipeline.completions) +
@@ -1916,7 +1983,8 @@ namespace probes {
                 ",\"scene_raster\":\"native D3D11 shapes/cached sources + D2D GPU fallback / linear RGBA16F external leases\",\"canvas_raster\":\"Direct2D SOFTWARE WIC\",\"ultralight_comparable\":false,\"mobile_verified\":false,\"debug_warning_error_count\":" +
                 (gpu.debug_layer ? "0" : "null") + "}");
         std::cout
-            << "PASS gallery preview: 72 catalogue cards, 64 original scene cases + 2 original Canvas, 4K, exact host clock, bounded two-frame completion\n";
+            << "PASS gallery preview: 71 window cards, 64 original scene cases + 2 original Canvas + the nested tooltip "
+               "page (hover, smoke), 4K, exact host clock, bounded two-frame completion\n";
         return 0;
     }
 } // namespace probes
