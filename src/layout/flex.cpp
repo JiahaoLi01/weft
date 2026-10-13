@@ -729,8 +729,9 @@ namespace weft {
                     YGNodeStyleSetAlignItems(y, line ? YGAlignFlexStart : YGAlignStretch);
                     YGNodeStyleSetJustifyContent(y, YGJustifyFlexStart);
                 }
-                // A transformed box contains its absolute descendants.
-                if (s.text(P::Transform, "none") != "none") {
+                // A transformed box, or one about to be, contains its absolute descendants.
+                if (s.text(P::Transform, "none") != "none" ||
+                    s.text(P::WillChange, "auto").find("transform") != std::string_view::npos) {
                     YGNodeSetAlwaysFormsContainingBlock(y, true);
                 }
             }

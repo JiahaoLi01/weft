@@ -15,6 +15,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <charconv>
+#include <deque>
 #include <set>
 #include <thread>
 #include <type_traits>
@@ -1413,7 +1414,18 @@ namespace weft {
             // The node of each box; null for an anonymous block.
             std::vector<SceneNode*> targets;
             std::map<std::size_t, Context> contexts;
+            // Fixed boxes, laid out as absolute ones in their containing block (with these styles) and then placed in
+            // their parent's coordinates: each box with its parent's.
+            std::deque<SceneStyle> fixed_styles;
+            std::vector<std::pair<std::size_t, std::size_t>> fixed;
         };
+
+        // A box that contains its fixed descendants (and absolute ones): one with a transform, or one about to have
+        // one.
+        static bool contains_fixed(const SceneStyle& s) {
+            return s.text(PropertyId::Transform, "none") != "none" ||
+                   s.text(PropertyId::WillChange, "auto").find("transform") != std::string_view::npos;
+        }
 
         // The anonymous block box that holds an element's inline children.
         static const SceneStyle& anonymous_block() {
@@ -1440,7 +1452,10 @@ namespace weft {
             }
         }
 
-        static void collect_boxes(SceneNode& n, std::size_t parent, LayoutRun& run) {
+        // `fixed_block` is the box of the containing block of fixed boxes here: the run's top when it is the scene's
+        // root (the viewport), or the nearest box with a transform; none inside an inline-block without one.
+        static void collect_boxes(SceneNode& n, std::size_t parent, LayoutRun& run,
+                                  std::optional<std::size_t> fixed_block) {
             bool dashed{};
             for (std::size_t side = 0; side < border_style_edges.size(); ++side) {
                 const auto style = n.style.text(border_style_edges[side], "solid");
@@ -1467,6 +1482,27 @@ namespace weft {
             LayoutBox box;
             box.style = &n.style;
             box.parent = parent;
+            // A fixed box is an absolute box of its containing block. Away from its parent, a static position (both
+            // insets of an axis auto) would be the parent's: outside the profile.
+            if (n.style.text(PropertyId::Position, "static") == "fixed" &&
+                n.style.text(PropertyId::Display, "inline") != "none") {
+                if (!fixed_block) {
+                    fail("position: fixed inside an inline-block outside scene profile");
+                }
+                const auto automatic = [&](PropertyId a, PropertyId b) {
+                    return n.style.text(a, "auto") == "auto" && n.style.text(b, "auto") == "auto";
+                };
+                if (*fixed_block != parent && (automatic(PropertyId::Left, PropertyId::Right) ||
+                                               automatic(PropertyId::Top, PropertyId::Bottom))) {
+                    fail("position: fixed with a static position outside scene profile");
+                }
+                auto& style = run.fixed_styles.emplace_back(n.style);
+                style[PropertyId::Position] = "absolute";
+                box.style = &style;
+                box.parent = *fixed_block;
+                run.fixed.emplace_back(index, parent);
+            }
+            const auto inner_block = contains_fixed(n.style) ? std::optional<std::size_t>(index) : fixed_block;
             if (n.space == constants::svg_namespace_uri) {
                 box.replaced = true;
                 if (const auto it = n.attributes.find("width"); it != n.attributes.end()) {
@@ -1505,7 +1541,7 @@ namespace weft {
                 // Positioned children stay boxes of the element; the lines place the others.
                 for (auto& c : n.children) {
                     if (out_of_flow(c) && c.style.text(PropertyId::Display) != "none") {
-                        collect_boxes(c, index, run);
+                        collect_boxes(c, index, run, inner_block);
                     } else {
                         clear_layout(c);
                     }
@@ -1513,7 +1549,67 @@ namespace weft {
                 return;
             }
             for (auto& c : n.children) {
-                collect_boxes(c, index, run);
+                collect_boxes(c, index, run, inner_block);
+            }
+        }
+
+        // A fixed box is painted and hit where it sits in the tree, inside the clips of the boxes between it and its
+        // containing block, which CSS does not apply to it: they must hold all of it, so they change nothing. `at` is
+        // n's origin in its containing block, `clips` the clips there (padding boxes, less their corners' radii).
+        static void check_fixed_clips(const SceneNode& n, std::array<float, 2> at,
+                                      std::vector<std::array<float, 4>>& clips) {
+            const auto bounds = [](auto&& self, const SceneNode& c, std::array<float, 2> origin,
+                                   std::array<float, 4>& out) -> void {
+                if (c.style.text(PropertyId::Display, "inline") == "none") {
+                    return;
+                }
+                out = {std::min(out[0], origin[0]), std::min(out[1], origin[1]), std::max(out[2], origin[0] + c.box[2]),
+                       std::max(out[3], origin[1] + c.box[3])};
+                for (const auto& child : c.children) {
+                    self(self, child, {origin[0] + child.box[0], origin[1] + child.box[1]}, out);
+                }
+            };
+            for (const auto& c : n.children) {
+                if (c.style.text(PropertyId::Display, "inline") == "none") {
+                    continue;
+                }
+                const std::array<float, 2> origin{at[0] + c.box[0], at[1] + c.box[1]};
+                if (c.style.text(PropertyId::Position, "static") == "fixed") {
+                    std::array<float, 4> extent{origin[0], origin[1], origin[0], origin[1]};
+                    bounds(bounds, c, origin, extent);
+                    constexpr float tolerance = constants::scene::overflow_tolerance_px;
+                    for (const auto& clip : clips) {
+                        if (extent[0] < clip[0] - tolerance || extent[1] < clip[1] - tolerance ||
+                            extent[2] > clip[2] + tolerance || extent[3] > clip[3] + tolerance) {
+                            fail("position: fixed beyond the overflow clip of a box it escapes outside scene profile");
+                        }
+                    }
+                }
+                if (contains_fixed(c.style)) {
+                    std::vector<std::array<float, 4>> inner;
+                    check_fixed_clips(c, {0, 0}, inner);
+                    continue;
+                }
+                if (c.space == constants::svg_namespace_uri) {
+                    continue;
+                }
+                const bool clips_overflow = c.style.text(PropertyId::Overflow, "visible") != "visible";
+                if (clips_overflow) {
+                    const float base = c.box[2];
+                    float radius{};
+                    for (const auto k : radius_corners) {
+                        radius = std::max(radius, float(length(c.style.text(k, "0"), base)));
+                    }
+                    clips.push_back(
+                        {origin[0] + edge_length(c.style, PropertyId::BorderLeftWidth, base) + radius,
+                         origin[1] + edge_length(c.style, PropertyId::BorderTopWidth, base) + radius,
+                         origin[0] + c.box[2] - edge_length(c.style, PropertyId::BorderRightWidth, base) - radius,
+                         origin[1] + c.box[3] - edge_length(c.style, PropertyId::BorderBottomWidth, base) - radius});
+                }
+                check_fixed_clips(c, origin, clips);
+                if (clips_overflow) {
+                    clips.pop_back();
+                }
             }
         }
 
@@ -1690,9 +1786,10 @@ namespace weft {
         }
 
         // Lays out the subtree of `top` and writes the boxes, lines and fragments of its nodes; options size `top`.
-        void layout_run(SceneNode& top, const LayoutOptions& options) {
+        // `scene_root`: top is the scene's root, the containing block of fixed boxes without a transformed ancestor.
+        void layout_run(SceneNode& top, const LayoutOptions& options, bool scene_root = false) {
             LayoutRun run;
-            collect_boxes(top, LayoutBox::root, run);
+            collect_boxes(top, LayoutBox::root, run, scene_root ? std::optional<std::size_t>(0) : std::nullopt);
             const auto atomic = [&](const SceneNode& node, float available) {
                 return atomic_extent(const_cast<SceneNode&>(node), available);
             };
@@ -1732,6 +1829,12 @@ namespace weft {
                     const auto& g = geometry[i];
                     n->box = {g.left, g.top, g.width, g.height};
                 }
+            }
+            // Fixed boxes in their parent's coordinates: no box between them and their containing block has a
+            // transform.
+            for (const auto& [i, parent] : run.fixed) {
+                run.targets[i]->box[0] = geometry[i].x - geometry[parent].x;
+                run.targets[i]->box[1] = geometry[i].y - geometry[parent].y;
             }
             constexpr float unbounded = std::numeric_limits<float>::infinity();
             for (auto& [i, c] : run.contexts) {
@@ -1785,10 +1888,13 @@ namespace weft {
                 if (!child || !parent || get(parent->style, PropertyId::Overflow) != "auto") {
                     continue;
                 }
-                if (child->box[0] < -constants::scene::overflow_tolerance_px ||
-                    child->box[1] < -constants::scene::overflow_tolerance_px ||
-                    child->box[0] + child->box[2] > parent->box[2] + constants::scene::overflow_tolerance_px ||
-                    child->box[1] + child->box[3] > parent->box[3] + constants::scene::overflow_tolerance_px) {
+                // In the layout's coordinates: a fixed box against its containing block.
+                const auto& g = geometry[i];
+                const auto& p = geometry[run.boxes[i].parent];
+                if (g.left < -constants::scene::overflow_tolerance_px ||
+                    g.top < -constants::scene::overflow_tolerance_px ||
+                    g.left + g.width > p.width + constants::scene::overflow_tolerance_px ||
+                    g.top + g.height > p.height + constants::scene::overflow_tolerance_px) {
                     fail("scene scrolling outside supported non-overflowing auto profile");
                 }
             }
@@ -1831,7 +1937,9 @@ namespace weft {
             context_baselines.clear();
             LayoutOptions options;
             options.viewport = std::array{w, h};
-            layout_run(f.root, options);
+            layout_run(f.root, options, true);
+            std::vector<std::array<float, 4>> clips;
+            check_fixed_clips(f.root, {0, 0}, clips);
             atomic_memo.clear();
             f.elements.clear();
             list_elements(f.root, 0, 0, f.elements);

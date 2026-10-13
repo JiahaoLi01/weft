@@ -13,6 +13,21 @@
 
 ## 本次已实现
 
+重构第 11 步之三（c）之三：scene `position: fixed`（2026-10-13）。详见 [重构计划](refactoring-plan.md#第-11-步记录2026-10-12)。
+- **结果**：
+  - scene 页面支持 `position: fixed`：相对视口定位，或相对最近的带 `transform`、`will-change: transform` 的祖先，与 Chrome 相同；CRPG 页面的悬停浮层与钉住的窗口由此可放；
+  - `will-change: transform` 的盒子现在也是绝对定位后代的包含块。
+- **验证**：
+  - 一页 18 个元素的 client rect 与 Chrome 155 全部相同；命中与原生 pass 的像素都在固定盒子所在处；
+  - 10 个变异全部被发现（首轮 1 个存活，已补用例）；
+  - `ctest`：Release 131/131，Debug 131/131；Android 零警告；产物与上一阶段相同（只有按时序变化的窗口与计数类产物不同）。
+- **限制**（都是诊断，不会悄悄画错）：
+  - 固定盒子仍在树中的位置绘制与命中，所以它在 CSS 中逃出的裁剪必须完整容纳它；
+  - 要用静态位置（某轴 inset 全为 auto）时，父元素必须是包含块；
+  - 不能在没有变换祖先的 inline-block 里。
+  - z-index 仍只在兄弟之间排序。
+- **下一步**：11.3d 运行时：scene 根改为 body（`#root` 之外的 portal）、`Element.closest`、页面样式表、模板字符串与数据里的 Tailwind 类名提取。
+
 重构第 11 步之三（c）之二：scene 文字样式与相关 CSS（2026-10-13）。详见 [重构计划](refactoring-plan.md#第-11-步记录2026-10-12)。
 - **结果**：
   - scene 页面支持 `text-transform: uppercase/lowercase`（Unicode 完整映射，ß → SS 等）、`font-style: italic`（字体没有斜体时像 Chrome 一样合成倾斜）、`font-variant-numeric`（`tabular-nums` 等，作为 OpenType 特性）；

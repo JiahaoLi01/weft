@@ -1462,6 +1462,18 @@ CMake 拆分：
 
 ## 第 11 步记录（2026-10-12）
 
+**11.3c 之三：`position: fixed`**（2026-10-13）：
+- 求解器：
+  - 收集布局盒时带上固定盒子的包含块：主运行的顶层（视口），或最近的带 `transform`、`will-change: transform` 的盒子；inline-block 的子运行里没有时为空，遇到固定盒子即诊断。
+  - 固定盒子以 `position: absolute` 的样式副本挂到包含块下由 Yoga 排；之后用布局原点坐标换回父元素坐标（二者之间没有变换）。
+  - “内容须放下”的 auto 溢出检查改用布局坐标，固定盒子对照其包含块。
+  - 布局后检查固定盒子逃出的裁剪是否完整容纳它；某轴 inset 全为 auto 而父元素不是包含块时诊断。
+- Yoga 适配器：`will-change: transform` 与 `transform` 一样构成包含块。
+- 绘制、命中、几何不变：固定盒子留在树中的位置。
+- `tools/browser_scene_fixed_reference.mjs`（新）与 `scene_fixed_browser_contract`（新）：一页 18 个元素的 client rect 与 Chrome 相同；命中与原生 pass 像素；三种诊断、两种应接受的结构。
+- 产物与 11.3c 之一相同（只有按时序变化的窗口与计数类产物不同）。
+- 变异检查 10 个全部被发现：排在父元素里、不换回父元素坐标、变换不构成包含块、求解器忽略 `will-change`、适配器忽略 `will-change`、接受静态位置、inline-block 的父元素当包含块、不检查裁剪、跨包含块累积裁剪、在父元素坐标里检查是否放下。首轮存活 1 个（适配器的 `will-change`：参照里该盒子本身是绝对定位），补了静态的 `will-change` 盒子。
+
 **11.3c 之二：文字样式与相关 CSS**（2026-10-13）：
 - 属性表：`-webkit-user-select`、`font-variant-numeric`、`text-transform`；scene 接受 `overflow-x`、`overflow-y`，`font-style`、`font-variant-numeric`、`text-transform` 为继承属性。
 - `text-transform`：

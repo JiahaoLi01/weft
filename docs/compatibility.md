@@ -130,6 +130,17 @@ CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后�
   - 合成倾斜的斜率与 Chrome 截图相差不到 0.02：Chrome −0.266、参考光栅 −0.254、原生 −0.248 px/行。
 - 限制：Final_Sigma 只看同一个文字节点；没有按 `lang` 的大小写规则；`shape_with_fallback` 的文字仍限于拉丁、汉字与通用字符，希腊、西里尔等字母的文字本来就报诊断。
 
+2026-10-13 重构第 11.3c 步之三：scene 的 `position: fixed`。
+- 包含块：视口（scene 根），或最近的带 `transform`、`will-change: transform` 的祖先。`will-change: transform` 的盒子此后也是绝对定位后代的包含块，与 Chrome 相同。
+- 布局：按绝对定位排进包含块（px 与百分比按包含块，宽高自适应时为收缩适配），再换回父元素的坐标。绘制与命中仍在它在树中的位置；z-index 仍只在兄弟之间排序（门户到 body 的浮层是 body 的子元素，不受影响）。
+- 诊断（`WEFT_SCENE_PROFILE`）：
+  - CSS 中它不受包含块与它之间那些盒子的 `overflow` 裁剪；scene 在树中位置绘制，会受这些裁剪。所以这些裁剪必须完整容纳它及其后代，否则报诊断（裁剪区域按内边距盒，带圆角时再内缩最大半径）；
+  - 某一轴两侧 inset 都是 auto（要用静态位置）而父元素不是包含块；
+  - 在没有变换祖先的 inline-block 里。
+- 验证：
+  - Chrome 155 的 18 个元素 client rect 全部相同：视口与百分比、收缩适配的文字、变换与 `will-change` 的包含块（含静态的 `will-change` 盒子）、被容纳在裁剪内的固定盒子；
+  - 命中与原生 pass 的像素都在固定盒子所在处；三种诊断，以及两种应接受的结构。
+
 | 能力 | P0 探针 | v0.1 目标 | 后续 |
 | --- | --- | --- | --- |
 | 层叠 | UA/author/inline、important、继承与 source order | 同左，配套 CSSOM 更新 | cascade layers、复杂 at-rule |
