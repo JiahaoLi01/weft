@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include "scene/scene.hpp"
+#include "scene/scene_inline.hpp"
 #include "scene/scene_geometry.hpp"
 #include "scene/scene_text_image.hpp"
 #include "scene/scene_values.hpp"
@@ -878,10 +879,11 @@ namespace weft {
             std::size_t bytes{};
         };
 
-        std::map<std::array<std::uint64_t, 3>, ColorText> color_text;
+        // By node and line.
+        std::map<std::array<std::uint64_t, 4>, ColorText> color_text;
         std::size_t color_text_bytes{};
 
-        bool color_text_bitmap(const SceneNode& n) {
+        bool color_text_bitmap(const SceneNode& n, std::uint32_t part) {
             // System color glyphs otherwise regenerate their SVG/bitmap at every
             // animated scale. Keep bounded device-ppem text images, like a glyph
             // cache; geometry/opacity/transform remain live and are applied outside.
@@ -901,7 +903,7 @@ namespace weft {
             for (const auto* side : {"top", "right", "bottom", "left"}) {
                 content.style[std::string("border-") + side + "-color"] = "transparent";
             }
-            const std::array<std::uint64_t, 3> id{n.identity.view_epoch, n.identity.slot, n.identity.generation};
+            const std::array<std::uint64_t, 4> id{n.identity.view_epoch, n.identity.slot, n.identity.generation, part};
             auto it = color_text.find(id);
             if (it == color_text.end() || it->second.key != content || it->second.scale != scale) {
                 if (std::ceil(n.box[2] * scale) * std::ceil(n.box[3] * scale) >
@@ -944,11 +946,28 @@ namespace weft {
             return true;
         }
 
+        // HTML text a line at a time, each a single-line text node over its line box; text without lines (a frame
+        // that no solver laid out) is one line in the node's box.
         void draw_text(const SceneNode& n, bool svg_text = false) {
+            if (svg_text || n.lines.empty()) {
+                draw_line(n, svg_text, 0);
+                return;
+            }
+            const auto current = matrix();
+            for (std::size_t i = 0; i < n.lines.size(); ++i) {
+                auto line = scene_text_line(n, i);
+                target->SetTransform(D2D1::Matrix3x2F::Translation(line.box[0], line.box[1]) * current);
+                line.box[0] = line.box[1] = 0;
+                draw_line(line, false, std::uint32_t(i));
+            }
+            target->SetTransform(current);
+        }
+
+        void draw_line(const SceneNode& n, bool svg_text, std::uint32_t part) {
             if (n.text.empty()) {
                 return;
             }
-            if (!svg_text && color_text_bitmap(n)) {
+            if (!svg_text && color_text_bitmap(n, part)) {
                 return;
             }
             const auto run = text.shape(n.text, n.style);
@@ -1689,6 +1708,14 @@ namespace weft {
 
         void paint(const SceneNode& n) {
             if (get(n.style, PropertyId::Display) == "none" || n.box[2] <= 0 || n.box[3] <= 0) {
+                return;
+            }
+            // An inline element in lines: its box a fragment at a time, then its text and children.
+            if (!n.fragments.empty()) {
+                for (const auto& box : scene_fragment_boxes(n)) {
+                    paint(box);
+                }
+                paint(scene_without_box(n));
                 return;
             }
             const auto old = matrix();

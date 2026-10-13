@@ -29,7 +29,7 @@ GPU 后端已有可注册的实验 C ABI 与实际 D3D11 reference/window 接入
 
 2026-10-09 固定 gallery 的 **26 CSS + 8 D3** 新增 native 像素验收，连同已有两个 Canvas 共 36/72，详见 [scene 实际支持与诊断](scene-gallery.md)。SceneSolver 单独支持固定 utility sheet 的有界 block/Flex/absolute、圆角/边框、三类 gradient、2D transform、group opacity、关键帧/transition 与单个 perspective/rotateY 平面子树；8 个 D3 原例所需 SVG rect/circle/line/polygon/path/g/text 已在真实 JS→native DOM→绘制链路通过。`setInterval` 增加 function-only、有界容量/暂停合并的宿主调度，full HTML timer nesting/clamp 仍未实现。
 
-这不提升完整 Tailwind/Grid、通用 SVG viewport/viewBox/clipPath、SVG geometry/hit、CSSOM/computed style、D3 drag/zoom/brush 或 gallery 的另外四例 D3 Interactive。SceneSolver 遇到未支持 CSS 属性/选择器/布局值、SVG 元素/path command、viewBox/clip-path/filter/mask、SVG descendant opacity 或 SVG text stroke 会诊断；HTML mixed inline 和 general 3D 也在范围外。原始 34 函数、React/D3 包、bundle 不变，固定 theme/rem/calc/logical utilities 的离线编译适配器是显式范围，运行不读取浏览器截图/几何。字体由 Windows OS DirectWrite 负责，移动/字体稳定打包与生产性能预算待验收。Windows 固定 scene 的 D2D GPU 绘制、颜色字体缓存与现有 external texture 接口已接通，沿用 102 个 Chrome reference 的阈值；没有扩大 HTML/CSS/SVG 语义范围，见 [性能证据](gallery-performance.md)。
+这不提升完整 Tailwind/Grid、通用 SVG viewport/viewBox/clipPath、SVG geometry/hit、CSSOM/computed style、D3 drag/zoom/brush 或 gallery 的另外四例 D3 Interactive。SceneSolver 遇到未支持 CSS 属性/选择器/布局值、SVG 元素/path command、viewBox/clip-path/filter/mask、SVG descendant opacity 或 SVG text stroke 会诊断；general 3D 也在范围外（HTML 混合行内内容 11.3b 起支持）。原始 34 函数、React/D3 包、bundle 不变，固定 theme/rem/calc/logical utilities 的离线编译适配器是显式范围，运行不读取浏览器截图/几何。字体由 Windows OS DirectWrite 负责，移动/字体稳定打包与生产性能预算待验收。Windows 固定 scene 的 D2D GPU 绘制、颜色字体缓存与现有 external texture 接口已接通，沿用 102 个 Chrome reference 的阈值；没有扩大 HTML/CSS/SVG 语义范围，见 [性能证据](gallery-performance.md)。
 
 2026-10-09 固定 gallery scene 接入 owner 直接 task/rAF 调用、弱身份 mutation journal/subtree revision、API 无关数值 paint 参数与有界静态绘制参数缓存。owner/renderer 线程边界、完整 packet、group opacity/clip 和真实 completion 退休不变；同步 geometry read 仍全量 fresh layout，未实现一般增量 DOM patch、后台 UI 线程或生产 retained display list。实际接口、参考路径与限制见 [本轮合同](owner-hotpath-performance.md)。
 
@@ -78,7 +78,18 @@ CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后�
 
 2026-10-11 重构第 8.3a 步：scene 的 transform 只有一个文法。SVG transform 属性里无单位的角度按规范当作度（此前当作弧度，gallery 的 D3 径向标签因此画错）；SVG 列表可以用逗号分隔函数，rotate 可带中心；perspective(px) rotateY() 平面也接受函数间不留空格等 CSS 合法写法。CSS transform 中无单位的角度仍按弧度接受（CSS 规定只有 0 合法）。
 
-2026-10-11 重构第 8.2 步：文档与 scene 共用一个 Yoga 适配器。scene 布局因此改用文档已有的 CSS 语义：flex item 默认收缩并有自动最小尺寸；block 的子项不 flex，align-self 不起作用；display:none 盒子的几何为 0；grid 的 display:none 子项不占格，行、列间距分别取 row-gap、column-gap。scene 也接受适配器支持的 space-between、baseline、content-box、inline-flex 等值。scene 的 102 个 Chrome 几何采集与 cluster 的 210 个采集不变。仍是近似的部分：scene 文字不换行；子项全是行内级的块按单行、顶对齐排列；自动最小尺寸不考虑百分比的指定尺寸。
+2026-10-11 重构第 8.2 步：文档与 scene 共用一个 Yoga 适配器。scene 布局因此改用文档已有的 CSS 语义：flex item 默认收缩并有自动最小尺寸；block 的子项不 flex，align-self 不起作用；display:none 盒子的几何为 0；grid 的 display:none 子项不占格，行、列间距分别取 row-gap、column-gap。scene 也接受适配器支持的 space-between、baseline、content-box、inline-flex 等值。scene 的 102 个 Chrome 几何采集与 cluster 的 210 个采集不变。仍是近似的部分：scene 文字不换行；子项全是行内级的块按单行、顶对齐排列；自动最小尺寸不考虑百分比的指定尺寸。（前两项 11.3b 起已改，见下段。）
+
+2026-10-13 重构第 11.3b 步：scene 有了内联格式化上下文，按 Blink LayoutNG 的规则排行。
+- 范围：块容器（非 flex/grid）里的文字、行内元素（可嵌套、带内边距/边框/外边距）、`<br>`，以及原子内联（`inline-block`、`inline-flex`、`inline-grid` 与 svg，按收缩适配宽度排，按其最后一行的基线对齐，没有行时按下外边距边）。
+- 空白：`white-space: normal`、`nowrap`；空格、制表、换行跨元素折叠，行首行尾空格去掉，`<br>` 之后的行首空格也去掉；软换行机会用 libunibreak（UAX 14）在整个上下文上算，两字符之间能否换行看它们最近公共祖先的 `white-space`；行内元素的起始边随后面的内容、结束边随前面的内容。
+- 行盒：根的 strut、行上每个行内框的 strut、每段文字（`line-height: normal` 时含回退字体）与原子内联的外边距盒，共用一条基线；`text-align` 支持 left、right、center、start、end，溢出时按起始对齐；各段宽度按 LayoutUnit 向上取整。
+- 行内元素按行分片：背景与边框逐片画，左边与左侧圆角只在首片、右边只在末片（`box-decoration-break: slice`）；命中与 `getClientRects` 按片，非原子行内元素的 `clientWidth/Height` 为 0，transform 不作用于它。
+- `text-align`、`white-space` 改为继承；scene 的 UA 表补上常见块元素（`p`、`h1`–`h6`、`ul`、`li`、`section` 等）为 block、`button` 为 inline-block 并居中；仍没有 UA 外边距与标题字号（页面自带，Tailwind preflight 就是这样）。
+- 画廊的原生样式表补上 Tailwind preflight 的替换元素规则（`svg` 等为 block、`vertical-align: middle`），与浏览器参照一致。
+- 验证：23 个用例（段落、富文本、嵌套框、空白、`<br>`、长词、连字符、居中/右对齐与继承、匿名 flex 项、字距、inline-block、行内 svg、中文、混合字号、行内框 strut、nowrap、回退字体、emoji）与 Chrome 的每个元素片段、每行文字与位置逐一相同（最大差 0 px）。
+- 列方向 flex 项里会换行的文字，宽度要由布局决定时，只在 flex-basis 与 height 都是 auto 时支持（自动最小高度等于 basis）；其他组合仍报 `WEFT_UNSUPPORTED_INTRINSIC`。
+- 诊断：其他 `white-space` 值、`text-align: justify`、行内级盒子的非 baseline `vertical-align`、行内元素里的块级盒子与定位元素都报 `WEFT_SCENE_PROFILE`；float 与 bidi 不支持。
 
 | 能力 | P0 探针 | v0.1 目标 | 后续 |
 | --- | --- | --- | --- |

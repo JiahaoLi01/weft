@@ -106,7 +106,8 @@ namespace weft {
     ScenePreparer::Built ScenePreparer::image(const paint::Item& item, const paint::Raster& raster, float scale,
                                               unsigned view_index) {
         const auto& n = *raster.source;
-        std::array<std::uint64_t, 4> id{view_index, n.identity.view_epoch, n.identity.slot, n.identity.generation};
+        std::array<std::uint64_t, 5> id{view_index, n.identity.view_epoch, n.identity.slot, n.identity.generation,
+                                        raster.part};
         if (const auto* cached = images_.find(id);
             cached && scene_paint_source_equal(cached->key, n) && cached->scale == scale) {
             if (item.kind == Kind::Layer) {

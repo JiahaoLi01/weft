@@ -1,6 +1,7 @@
 #include "scene/scene_display_list.hpp"
 #include "scene/scene_geometry.hpp"
 #include "scene/scene_path.hpp"
+#include "scene/scene_inline.hpp"
 #include "scene/scene_text.hpp"
 #include "scene/scene_transform.hpp"
 #include "scene/scene_values.hpp"
@@ -561,6 +562,14 @@ namespace weft {
                 if (list.items.size() > constants::scene::max_display_list_items) {
                     throw std::invalid_argument("native command bound");
                 }
+                // An inline element in lines: its box a fragment at a time, then its text and children.
+                if (!n.fragments.empty()) {
+                    for (const auto& box : scene_fragment_boxes(n)) {
+                        self(self, box, parent, clip, chain);
+                    }
+                    self(self, scene_without_box(n), parent, clip, chain);
+                    return;
+                }
                 // A perspective plane, as the reference raster draws it: the subtree flat in the node's own px, then
                 // projected through the node's plane.
                 if (get(n.style, PropertyId::Transform, "none").find("perspective(") != std::string::npos) {
@@ -799,14 +808,44 @@ namespace weft {
                         chain = add_local(chain, m, padding.rect, padding.radius_x, padding.radius_y);
                     }
                 }
-                if (!n.text.empty()) {
+                // Text a line at a time, each a single-line text node over its line box. Text without lines (a frame
+                // that no solver laid out) is one line in the node's box.
+                const auto add_text = [&](std::shared_ptr<SceneNode> source, const Matrix& at, float width,
+                                          float height, std::uint32_t part) {
                     auto t = item;
                     t.kind = paint::Item::Kind::Text;
+                    t.transform = at;
+                    t.width = width;
+                    t.height = height;
                     t.clip = clip;
                     t.clips_begin = chain.begin;
                     t.clips_count = chain.count;
-                    auto source = own(n);
                     source->box[0] = source->box[1] = 0;
+                    paint::Raster raster;
+                    raster.part = part;
+                    raster.mask = std::all_of(source->text.begin(), source->text.end(), [](unsigned char c) {
+                        return c >= constants::scene::printable_ascii_first &&
+                               c < constants::scene::printable_ascii_end;
+                    });
+                    if (raster.mask) {
+                        raster.tint =
+                            paint_color(constants::scene::paint_slot_color, "color", constants::default_color);
+                        source->style[PropertyId::Color] = "#ffffff";
+                        source->paint.reset();
+                    }
+                    raster.source = std::move(source);
+                    t.payload = std::uint32_t(list.rasters.size());
+                    list.rasters.push_back(std::move(raster));
+                    list.items.push_back(t);
+                };
+                for (std::size_t line = 0; line < n.lines.size(); ++line) {
+                    auto source = std::make_shared<SceneNode>(scene_text_line(n, line));
+                    const auto at = source->box;
+                    add_text(std::move(source), multiply(item.transform, {1, 0, 0, 1, at[0], at[1]}), at[2], at[3],
+                             std::uint32_t(line));
+                }
+                if (n.lines.empty() && !n.text.empty()) {
+                    auto source = own(n);
                     source->style.erase(PropertyId::Transform);
                     source->style.erase(PropertyId::Opacity);
                     // Computed source values below are authoritative. Authored style
@@ -819,24 +858,12 @@ namespace weft {
                         source->style[std::string("border-") + edge + "-color"] = "transparent";
                     }
                     source->paint.reset();
-                    paint::Raster raster;
-                    raster.mask = std::all_of(n.text.begin(), n.text.end(), [](unsigned char c) {
-                        return c >= constants::scene::printable_ascii_first &&
-                               c < constants::scene::printable_ascii_end;
-                    });
-                    if (raster.mask) {
-                        raster.tint =
-                            paint_color(constants::scene::paint_slot_color, "color", constants::default_color);
-                        source->style[PropertyId::Color] = "#ffffff";
-                    } else if (n.paint) {
+                    if (n.paint) {
                         source->paint.emplace();
                         source->paint->values[constants::scene::paint_slot_color] =
                             n.paint->values[constants::scene::paint_slot_color];
                     }
-                    raster.source = std::move(source);
-                    t.payload = std::uint32_t(list.rasters.size());
-                    list.rasters.push_back(std::move(raster));
-                    list.items.push_back(t);
+                    add_text(std::move(source), item.transform, item.width, item.height, 0);
                 }
                 if (svg_root) {
                     const auto v = scene_svg_viewport(n);

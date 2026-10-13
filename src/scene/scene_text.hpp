@@ -61,6 +61,15 @@ namespace weft {
         SceneTextMetrics metrics;
     };
 
+    // A font's strut: its primary face's ascent and descent as Blink rounds them (the content area of an inline box),
+    // and the extents above and below the baseline that its line-height gives a line box.
+    struct SceneStrut {
+        float ascent{};
+        float descent{};
+        float above{};
+        float below{};
+    };
+
     class SceneText {
     public:
         explicit SceneText(FontCatalog catalog);
@@ -72,6 +81,10 @@ namespace weft {
         // Shaped single line; the run stays valid while the caller holds it, also after cache eviction.
         std::shared_ptr<const SceneTextRun> shape(std::string_view text, const SceneStyle& style);
         std::shared_ptr<const SceneTextRun> shape(std::string_view text, const SceneFont& font);
+        // The line box of the run's bytes [begin, end) alone, as measure() of just those bytes gives it when the
+        // run's words break there: the advances of the glyphs whose cluster lies in the range, and the faces they use.
+        SceneTextMetrics slice(const SceneTextRun& run, const SceneFont& font, std::uint32_t begin, std::uint32_t end);
+        SceneStrut strut(const SceneFont& font);
 
         // The run's glyph outlines as one path, its origin the top left of the line box (the baseline at
         // metrics.baseline); null when a glyph comes from a color face. Kept while the cache holds it.

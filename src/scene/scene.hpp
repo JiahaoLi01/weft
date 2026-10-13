@@ -13,7 +13,26 @@ struct ID2D1RenderTarget;
 namespace weft {
     // Owner-only scene formatting/animation probe. Render adapters consume these
     // owned values; neither DOM pointers nor VM handles cross the boundary.
-    using SceneMeasure = std::function<SceneTextMetrics(std::string_view, const SceneStyle&)>;
+    // A line of a node's text in an inline formatting context, in the node's own coordinates: the text on that line
+    // (collapsed, without the spaces the line ends with) and the line box of that text alone, its baseline `baseline`
+    // below the line box's top.
+    struct SceneLine {
+        std::string text;
+        std::array<float, 4> rect{};
+        float baseline{};
+
+        friend bool operator==(const SceneLine&, const SceneLine&) = default;
+    };
+
+    // A fragment of an inline element's border box on one line, in the element's own coordinates; first and last tell
+    // whether the box starts and ends on that line (its start and end edges are drawn only there).
+    struct SceneFragment {
+        std::array<float, 4> rect{};
+        bool first{};
+        bool last{};
+
+        friend bool operator==(const SceneFragment&, const SceneFragment&) = default;
+    };
 
     struct SceneNode {
         NodeIdentity identity;
@@ -23,6 +42,10 @@ namespace weft {
         AttributeMap attributes;
         SceneStyle style;
         std::array<float, 4> box{}; // Parent-local border box, before transform.
+        // Layout of inline formatting contexts: the lines of the node's text, and the fragments of an inline element's
+        // box (its box is their bounding box). Empty outside a context.
+        std::vector<SceneLine> lines;
+        std::vector<SceneFragment> fragments;
         std::vector<SceneNode> children;
         std::optional<ScenePaintValues> paint; // Derived numeric cache, not DOM/style identity.
         // The -weft-effect() background and its parameters, resolved from the custom properties.
@@ -30,7 +53,8 @@ namespace weft {
 
         friend bool operator==(const SceneNode& a, const SceneNode& b) {
             return a.identity == b.identity && a.tag == b.tag && a.space == b.space && a.text == b.text &&
-                   a.attributes == b.attributes && a.style == b.style && a.box == b.box &&
+                   a.attributes == b.attributes && a.style == b.style && a.box == b.box && a.lines == b.lines &&
+                   a.fragments == b.fragments &&
                    (a.effect == b.effect || (a.effect && b.effect && *a.effect == *b.effect)) &&
                    a.children == b.children;
         }
@@ -52,7 +76,8 @@ namespace weft {
     // Exact dependency projection for the current geometry adapter. Paint color,
     // opacity and pseudo state do not change geometry; transforms still do.
     inline bool scene_geometry_own_equal(const SceneNode& a, const SceneNode& b, bool identical_style = false) {
-        if (a.identity != b.identity || a.tag != b.tag || a.space != b.space || a.text != b.text || a.box != b.box) {
+        if (a.identity != b.identity || a.tag != b.tag || a.space != b.space || a.text != b.text || a.box != b.box ||
+            a.fragments != b.fragments) {
             return false;
         }
         auto equal_keys = [](const auto& x, const auto& y, const auto& keys) {
@@ -106,8 +131,8 @@ namespace weft {
     // above intentionally excludes this derived cache.
     inline bool scene_paint_source_equal(const SceneNode& a, const SceneNode& b) {
         if (a.identity != b.identity || a.tag != b.tag || a.space != b.space || a.text != b.text ||
-            a.attributes != b.attributes || a.style != b.style || a.box != b.box ||
-            a.children.size() != b.children.size() || bool(a.paint) != bool(b.paint) ||
+            a.attributes != b.attributes || a.style != b.style || a.box != b.box || a.lines != b.lines ||
+            a.fragments != b.fragments || a.children.size() != b.children.size() || bool(a.paint) != bool(b.paint) ||
             (a.paint && a.paint->values != b.paint->values) || !scene_effect_equal(a.effect, b.effect)) {
             return false;
         }
@@ -131,7 +156,8 @@ namespace weft {
 
     class SceneSolver {
     public:
-        SceneSolver(std::string stylesheet, std::string keyframes, SceneMeasure measure, bool incremental = true);
+        // Text is shaped and laid out in lines by `text`, which outlives the solver.
+        SceneSolver(std::string stylesheet, std::string keyframes, SceneText& text, bool incremental = true);
         ~SceneSolver();
         SceneSolver(const SceneSolver&) = delete;
         SceneSolver& operator=(const SceneSolver&) = delete;

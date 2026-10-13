@@ -3,6 +3,7 @@
 #include "base/owner_thread.hpp"
 #include "constants/scene.hpp"
 #include "layout/flex.hpp"
+#include "scene/scene_inline.hpp"
 #include <chrono>
 #include <algorithm>
 #include <cmath>
@@ -37,12 +38,6 @@ namespace weft {
 
         // Edge and corner longhands in top, right, bottom, left (corners: top-left first, clockwise) order.
         using Edges = std::array<PropertyId, 4>;
-        constexpr Edges margin_edges{PropertyId::MarginTop, PropertyId::MarginRight, PropertyId::MarginBottom,
-                                     PropertyId::MarginLeft};
-        constexpr Edges padding_edges{PropertyId::PaddingTop, PropertyId::PaddingRight, PropertyId::PaddingBottom,
-                                      PropertyId::PaddingLeft};
-        constexpr Edges border_width_edges{PropertyId::BorderTopWidth, PropertyId::BorderRightWidth,
-                                           PropertyId::BorderBottomWidth, PropertyId::BorderLeftWidth};
         constexpr Edges border_color_edges{PropertyId::BorderTopColor, PropertyId::BorderRightColor,
                                            PropertyId::BorderBottomColor, PropertyId::BorderLeftColor};
         constexpr Edges border_style_edges{PropertyId::BorderTopStyle, PropertyId::BorderRightStyle,
@@ -69,7 +64,9 @@ namespace weft {
                                                     PropertyId::StrokeDashoffset,
                                                     PropertyId::TextAnchor,
                                                     PropertyId::DominantBaseline,
-                                                    PropertyId::PointerEvents};
+                                                    PropertyId::PointerEvents,
+                                                    PropertyId::TextAlign,
+                                                    PropertyId::WhiteSpace};
 
         bool specified(const ComputedStyle& c, PropertyId k) {
             return std::find(c.specified_properties.begin(), c.specified_properties.end(), property_name(k)) !=
@@ -667,7 +664,10 @@ namespace weft {
         p.single_value_inset = true;
         p.four_value_edges = true;
         p.ua_stylesheet =
-            "div{display:block}span,b,strong{display:inline}svg{display:inline}*{box-sizing:border-box;border-style:solid;border-width:0}";
+            "div,p,h1,h2,h3,h4,h5,h6,ul,ol,li,dl,dt,dd,section,article,header,footer,nav,main,aside,form,blockquote,"
+            "figure,figcaption,address,hr{display:block}button{display:inline-block;text-align:center}"
+            "span,b,strong{display:inline}"
+            "svg{display:inline}*{box-sizing:border-box;border-style:solid;border-width:0}";
         for (const auto* k : {"display",
                               "position",
                               "width",
@@ -726,17 +726,32 @@ namespace weft {
                               "pointer-events",
                               "cursor",
                               "z-index",
-                              "text-align",
-                              "white-space",
                               "touch-action",
                               "user-select",
+                              "vertical-align",
                               "will-change"}) {
             p.properties[k] = {"", false, CssGrammar::Tokens, {}};
         }
-        for (const auto* k :
-             {"font-size", "font-weight", "font-family", "line-height", "letter-spacing", "color", "fill",
-              "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-opacity", "stroke-linecap",
-              "stroke-linejoin", "stroke-dasharray", "stroke-dashoffset", "text-anchor", "dominant-baseline"}) {
+        for (const auto* k : {"font-size",
+                              "font-weight",
+                              "font-family",
+                              "line-height",
+                              "letter-spacing",
+                              "color",
+                              "fill",
+                              "fill-opacity",
+                              "fill-rule",
+                              "stroke",
+                              "stroke-width",
+                              "stroke-opacity",
+                              "stroke-linecap",
+                              "stroke-linejoin",
+                              "stroke-dasharray",
+                              "stroke-dashoffset",
+                              "text-anchor",
+                              "dominant-baseline",
+                              "text-align",
+                              "white-space"}) {
             p.properties[k] = {"", true, CssGrammar::Tokens, {}};
         }
         p.properties["pointer-events"] = {"auto", true, CssGrammar::Tokens, {}};
@@ -784,8 +799,12 @@ namespace weft {
         Keyframes keyframes;
         InterpolationCache interpolation;
         PaintCache paint_cache;
-        SceneMeasure measure;
+        SceneText* text{};
         const SceneEffects* effects{};
+        // While a frame is laid out: the extents of the atomic inlines measured, by node and available width, and
+        // the last line's baseline of each inline formatting context root placed, from its border box top.
+        std::map<std::pair<const SceneNode*, float>, SceneAtomicExtent> atomic_memo;
+        std::map<const SceneNode*, float> context_baselines;
         std::map<SceneId, State> states;
         std::set<SceneId> live;
         double now = -1;
@@ -905,7 +924,10 @@ namespace weft {
                 }
             }
             SceneNode out;
+            // Layout outputs stay until layout runs again.
             out.box = output.box;
+            out.lines = output.lines;
+            out.fragments = output.fragments;
             out.identity = d.identity;
             out.tag = d.local_name;
             out.space = d.namespace_uri;
@@ -1116,11 +1138,31 @@ namespace weft {
                                   !scene_effect_equal(output.effect, out.effect);
             auto retained = std::move(output.children);
             std::size_t ci{};
-            const bool mixed = std::any_of(d.children.begin(), d.children.end(),
-                                           [](const auto& n) {
-                                               return n.type == constants::element_node_type;
-                                           }) &&
-                               !trim(out.text).empty();
+            // Text beside elements becomes #text children. In an inline formatting context (an element that is not
+            // flex or grid, whose in-flow element children are all inline-level) every text node does, spaces too:
+            // they collapse with their neighbours in the lines. Elsewhere spaces-only text between boxes goes.
+            bool elements{};
+            const auto own_display = get(out.style, PropertyId::Display, "inline");
+            bool inline_context = own_display != "flex" && own_display != "inline-flex" && own_display != "grid" &&
+                                  own_display != "inline-grid";
+            {
+                std::size_t k{};
+                for (const auto& n : d.children) {
+                    if (n.type != constants::element_node_type) {
+                        continue;
+                    }
+                    elements = true;
+                    const auto& values = c.children.at(k++).values;
+                    const auto display = values.text(PropertyId::Display, "inline");
+                    const auto position = values.text(PropertyId::Position, "static");
+                    if (display != "none" && position != "absolute" && position != "fixed" && display != "inline" &&
+                        display != "inline-block" && display != "inline-flex" && display != "inline-grid") {
+                        inline_context = false;
+                    }
+                }
+            }
+            inline_context = inline_context && elements;
+            const bool mixed = elements && (inline_context || !trim(out.text).empty());
             if (mixed) {
                 out.text.clear();
             }
@@ -1160,24 +1202,21 @@ namespace weft {
                                                                            : SceneNode{});
                     build_into(out.children.back(), child, c.children.at(ci++), &out.style, od, oc, on,
                                old_node ? &old_node->style : nullptr);
-                } else if (mixed && child.type == constants::text_node_type && !trim(child.data).empty()) {
-                    SceneNode text;
-                    text.identity = child.identity;
-                    text.tag = "#text";
-                    text.text = css::collapse_spaces(child.data);
-                    text.style = out.style;
-                    text.style[PropertyId::Display] = "inline";
-                    text.style[PropertyId::Position] = "static";
-                    text.style.erase(PropertyId::Width);
-                    text.style.erase(PropertyId::Height);
-                    text.style[PropertyId::BackgroundColor] = "transparent";
-                    for (std::size_t side = 0; side < padding_edges.size(); ++side) {
-                        text.style[padding_edges[side]] = "0";
-                        text.style[border_width_edges[side]] = "0";
-                        text.style[margin_edges[side]] = "0";
+                } else if (mixed && child.type == constants::text_node_type &&
+                           (inline_context || !trim(child.data).empty())) {
+                    // Anonymous inline text: the element's inherited properties and initial others.
+                    SceneNode run;
+                    run.identity = child.identity;
+                    run.tag = "#text";
+                    run.text = css::collapse_spaces(child.data);
+                    for (const auto k : inherited_properties) {
+                        if (const auto* v = out.style.find(k)) {
+                            run.style.set(k, *v);
+                        }
                     }
-                    text.paint.reset();
-                    out.children.push_back(std::move(text));
+                    run.style[PropertyId::Display] = "inline";
+                    run.style[PropertyId::Position] = "static";
+                    out.children.push_back(std::move(run));
                 }
             }
             if (out.style.contains(PropertyId::FontWeight) && (out.tag == "b" || out.tag == "strong") &&
@@ -1213,10 +1252,52 @@ namespace weft {
             return w / h;
         }
 
-        // The boxes of the shared Yoga adapter: each HTML element and anonymous text run. An svg element is a
-        // replaced box; the scene draws its content in its own coordinates.
-        static void collect_boxes(SceneNode& n, std::size_t parent, std::vector<LayoutBox>& boxes,
-                                  std::vector<SceneNode*>& targets) {
+        // One run of the shared Yoga adapter over a subtree. Each HTML element is a box, except inline content: the
+        // lines of an inline formatting context place inline elements and text, and an atomic inline is laid out by
+        // a run of its own. The scene's inline layout measures a context: an element's own text in the element's
+        // box, or its inline children in an anonymous block box. An svg element is a replaced box; the scene draws
+        // its content in its own coordinates.
+        struct LayoutRun {
+            struct Context {
+                SceneNode* root{};
+                bool anonymous{};
+                std::unique_ptr<SceneInlineContent> content;
+                // Layouts by available width, the most recent last.
+                std::vector<std::pair<float, SceneInlineLayout>> memo;
+            };
+
+            std::vector<LayoutBox> boxes;
+            // The node of each box; null for an anonymous block.
+            std::vector<SceneNode*> targets;
+            std::map<std::size_t, Context> contexts;
+        };
+
+        // The anonymous block box that holds an element's inline children.
+        static const SceneStyle& anonymous_block() {
+            static const SceneStyle style = [] {
+                SceneStyle s;
+                s[PropertyId::Display] = "block";
+                return s;
+            }();
+            return style;
+        }
+
+        static bool out_of_flow(const SceneNode& n) {
+            const auto p = n.style.text(PropertyId::Position, "static");
+            return p == "absolute" || p == "fixed";
+        }
+
+        // Clears the layout of a subtree whose boxes the lines of an inline formatting context place.
+        static void clear_layout(SceneNode& n) {
+            n.box = {};
+            n.lines.clear();
+            n.fragments.clear();
+            for (auto& c : n.children) {
+                clear_layout(c);
+            }
+        }
+
+        static void collect_boxes(SceneNode& n, std::size_t parent, LayoutRun& run) {
             for (const auto k : border_style_edges) {
                 if (n.style.text(k, "solid") != "solid") {
                     fail("scene border requires solid style");
@@ -1227,12 +1308,13 @@ namespace weft {
             if (overflow != "visible" && overflow != "hidden" && overflow != "auto") {
                 fail("unsupported scene value overflow:" + std::string(overflow));
             }
-            const auto index = boxes.size();
+            n.lines.clear();
+            n.fragments.clear();
+            const auto index = run.boxes.size();
             LayoutBox box;
             box.style = &n.style;
             box.parent = parent;
-            const bool svg = n.space == constants::svg_namespace_uri;
-            if (svg) {
+            if (n.space == constants::svg_namespace_uri) {
                 box.replaced = true;
                 if (const auto it = n.attributes.find("width"); it != n.attributes.end()) {
                     box.replaced_width = it->second;
@@ -1243,78 +1325,363 @@ namespace weft {
                 if (const auto it = n.attributes.find("viewBox"); n.tag == "svg" && it != n.attributes.end()) {
                     box.ratio = view_box_ratio(it->second);
                 }
-            } else {
-                if (!n.text.empty() && !n.children.empty()) {
-                    fail("mixed inline content outside scene formatting profile");
-                }
-                box.text = n.children.empty() && !n.text.empty();
+                run.boxes.push_back(box);
+                run.targets.push_back(&n);
+                return;
             }
-            boxes.push_back(box);
-            targets.push_back(&n);
-            if (!svg) {
+            if (!n.text.empty() && !n.children.empty()) {
+                fail("mixed inline content outside scene formatting profile");
+            }
+            box.text = !n.text.empty();
+            run.boxes.push_back(box);
+            run.targets.push_back(&n);
+            if (box.text) {
+                run.contexts[index].root = &n;
+                return;
+            }
+            if (scene_inline_children(n)) {
+                LayoutBox anonymous;
+                anonymous.style = &anonymous_block();
+                anonymous.parent = index;
+                anonymous.text = true;
+                auto& context = run.contexts[run.boxes.size()];
+                context.root = &n;
+                context.anonymous = true;
+                run.boxes.push_back(anonymous);
+                run.targets.push_back(nullptr);
+                // Positioned children stay boxes of the element; the lines place the others.
                 for (auto& c : n.children) {
-                    collect_boxes(c, index, boxes, targets);
+                    if (out_of_flow(c) && c.style.text(PropertyId::Display) != "none") {
+                        collect_boxes(c, index, run);
+                    } else {
+                        clear_layout(c);
+                    }
+                }
+                return;
+            }
+            for (auto& c : n.children) {
+                collect_boxes(c, index, run);
+            }
+        }
+
+        // An edge length of a box in px: px, em of its font size, or a percentage of `base`.
+        static float edge_length(const SceneStyle& s, PropertyId id, float base) {
+            const auto v = css::trim(s.text(id, "0"));
+            if (v == "auto") {
+                return 0;
+            }
+            if (v.ends_with('%')) {
+                return float(length(v, base));
+            }
+            const auto [digits, unit] = css::split_unit(v, {.px = true, .em = true});
+            const auto n = float(number(digits));
+            return unit == css::Unit::Em ? n * float(length(s.text(PropertyId::FontSize, constants::default_font_size)))
+                                         : n;
+        }
+
+        // A laid-out box's baseline from its border box top: the last line box of its content (CSS 2.1 10.8.1; a flex
+        // container's first item's), none for a replaced element, a box that clips its overflow, or a box without
+        // lines.
+        std::optional<float> baseline_of(const SceneNode& n) const {
+            if (n.space == constants::svg_namespace_uri || n.style.text(PropertyId::Overflow, "visible") != "visible") {
+                return std::nullopt;
+            }
+            if (const auto it = context_baselines.find(&n); it != context_baselines.end()) {
+                return it->second;
+            }
+            const auto d = n.style.text(PropertyId::Display, "inline");
+            const auto in_flow = [](const SceneNode& c) {
+                return c.style.text(PropertyId::Display) != "none" && !out_of_flow(c);
+            };
+            if (d == "flex" || d == "inline-flex") {
+                for (const auto& c : n.children) {
+                    if (in_flow(c)) {
+                        const auto b = baseline_of(c);
+                        return b ? std::optional<float>(c.box[1] + *b) : std::nullopt;
+                    }
+                }
+                return std::nullopt;
+            }
+            for (auto c = n.children.rbegin(); c != n.children.rend(); ++c) {
+                if (in_flow(*c)) {
+                    if (const auto b = baseline_of(*c)) {
+                        return c->box[1] + *b;
+                    }
+                }
+            }
+            return std::nullopt;
+        }
+
+        // Lays out an atomic inline's subtree, shrunk to fit the available width, and returns its extents; its box
+        // is placed later.
+        SceneAtomicExtent lay_out_atomic(SceneNode& node, float available) {
+            SceneAtomicExtent e;
+            const float base = std::isfinite(available) ? available : 0;
+            e.margin = {edge_length(node.style, PropertyId::MarginTop, base),
+                        edge_length(node.style, PropertyId::MarginRight, base),
+                        edge_length(node.style, PropertyId::MarginBottom, base),
+                        edge_length(node.style, PropertyId::MarginLeft, base)};
+            LayoutOptions options;
+            if (std::isfinite(available)) {
+                options.fit_width = available;
+            }
+            layout_run(node, options);
+            e.width = node.box[2];
+            e.height = node.box[3];
+            // Without lines, the bottom margin edge.
+            e.baseline = baseline_of(node).value_or(e.height + e.margin[2]);
+            return e;
+        }
+
+        SceneAtomicExtent atomic_extent(SceneNode& node, float available) {
+            const auto key = std::pair{static_cast<const SceneNode*>(&node), available};
+            if (const auto it = atomic_memo.find(key); it != atomic_memo.end()) {
+                return it->second;
+            }
+            const auto e = lay_out_atomic(node, available);
+            atomic_memo.emplace(key, e);
+            return e;
+        }
+
+        // Places a context's lines at its final width: text lines on their owners, inline box fragments, atomic
+        // inlines (laid out again at that width), and each node's box around its pieces, relative to its parent.
+        // origin is the top left of the content box in root's border box.
+        void place(SceneNode& root, const SceneInlineLayout& layout, std::array<float, 2> origin, float available) {
+            struct Bounds {
+                float left = std::numeric_limits<float>::infinity();
+                float top = std::numeric_limits<float>::infinity();
+                float right = -std::numeric_limits<float>::infinity();
+                float bottom = -std::numeric_limits<float>::infinity();
+
+                void add(const std::array<float, 4>& r) {
+                    left = std::min(left, r[0]);
+                    top = std::min(top, r[1]);
+                    right = std::max(right, r[0] + r[2]);
+                    bottom = std::max(bottom, r[1] + r[3]);
+                }
+            };
+
+            std::map<const SceneNode*, Bounds> bounds;
+            std::map<const SceneNode*, std::vector<SceneLine>> lines;
+            std::map<const SceneNode*, std::vector<SceneFragment>> fragments;
+            for (const auto& p : layout.pieces) {
+                const std::array<float, 4> r{origin[0] + p.rect[0], origin[1] + p.rect[1], p.rect[2], p.rect[3]};
+                switch (p.kind) {
+                    case SceneInlinePiece::Kind::Text:
+                        if (p.node == &root) {
+                            root.lines.push_back({p.text, r, p.baseline});
+                        } else {
+                            lines[p.node].push_back({p.text, r, p.baseline});
+                            // An inline element's box is its fragments'; a text node's its lines'.
+                            if (p.node->tag == "#text") {
+                                bounds[p.node].add(r);
+                            }
+                        }
+                        break;
+                    case SceneInlinePiece::Kind::Box:
+                        fragments[p.node].push_back({r, p.first, p.last});
+                        bounds[p.node].add(r);
+                        break;
+                    case SceneInlinePiece::Kind::Atomic:
+                        lay_out_atomic(const_cast<SceneNode&>(*p.node), available);
+                        bounds[p.node].add(r);
+                        break;
+                }
+            }
+            const auto assign = [&](auto&& self, SceneNode& parent, float px, float py) -> void {
+                for (auto& c : parent.children) {
+                    if (c.style.text(PropertyId::Display) == "none" || (&parent == &root && out_of_flow(c))) {
+                        continue;
+                    }
+                    // A node without pieces (an empty inline element) sits at its parent's origin.
+                    std::array<float, 4> at{px, py, 0, 0};
+                    if (const auto b = bounds.find(&c); b != bounds.end()) {
+                        at = {b->second.left, b->second.top, b->second.right - b->second.left,
+                              b->second.bottom - b->second.top};
+                    }
+                    if (scene_atomic_inline(c)) {
+                        c.box[0] = at[0] - px;
+                        c.box[1] = at[1] - py;
+                        continue;
+                    }
+                    c.box = {at[0] - px, at[1] - py, at[2], at[3]};
+                    if (const auto l = lines.find(&c); l != lines.end()) {
+                        for (auto line : l->second) {
+                            line.rect[0] -= at[0];
+                            line.rect[1] -= at[1];
+                            c.lines.push_back(std::move(line));
+                        }
+                    }
+                    if (const auto f = fragments.find(&c); f != fragments.end()) {
+                        for (auto fragment : f->second) {
+                            fragment.rect[0] -= at[0];
+                            fragment.rect[1] -= at[1];
+                            c.fragments.push_back(fragment);
+                        }
+                    }
+                    // A relatively positioned inline element moves with its content.
+                    if (c.style.text(PropertyId::Position, "static") == "relative") {
+                        const auto left = c.style.text(PropertyId::Left, "auto");
+                        const auto top = c.style.text(PropertyId::Top, "auto");
+                        if (left != "auto") {
+                            c.box[0] += edge_length(c.style, PropertyId::Left, available);
+                        }
+                        if (top != "auto") {
+                            c.box[1] += edge_length(c.style, PropertyId::Top, available);
+                        }
+                    }
+                    self(self, c, at[0], at[1]);
+                }
+            };
+            assign(assign, root, 0, 0);
+        }
+
+        // Lays out the subtree of `top` and writes the boxes, lines and fragments of its nodes; options size `top`.
+        void layout_run(SceneNode& top, const LayoutOptions& options) {
+            LayoutRun run;
+            collect_boxes(top, LayoutBox::root, run);
+            const auto atomic = [&](const SceneNode& node, float available) {
+                return atomic_extent(const_cast<SceneNode&>(node), available);
+            };
+            const auto content = [&](std::size_t i) -> LayoutRun::Context& {
+                auto& c = run.contexts.at(i);
+                if (!c.content) {
+                    c.content = std::make_unique<SceneInlineContent>(*text, *c.root);
+                }
+                return c;
+            };
+            const auto at = [&](std::size_t i, float available) -> const SceneInlineLayout& {
+                auto& c = content(i);
+                for (const auto& [width, layout] : c.memo) {
+                    if (width == available) {
+                        return layout;
+                    }
+                }
+                if (c.memo.size() >= std::size_t(constants::scene::inline_layout_memo_entries)) {
+                    c.memo.erase(c.memo.begin());
+                }
+                c.memo.emplace_back(available, c.content->layout(available, atomic));
+                return c.memo.back().second;
+            };
+            const auto lines = [&](std::size_t i, float available) {
+                const auto& l = at(i, available);
+                return TextMetrics{l.width, l.height, l.baseline, l.lines};
+            };
+            const auto min_content = [&](std::size_t i) {
+                return at(i, 0).width;
+            };
+            const auto wraps = [&](std::size_t i) {
+                return content(i).content->breakable();
+            };
+            const auto geometry = layout_boxes(run.boxes, {lines, min_content, wraps}, options);
+            for (std::size_t i = 0; i < run.boxes.size(); ++i) {
+                if (auto* n = run.targets[i]) {
+                    const auto& g = geometry[i];
+                    n->box = {g.left, g.top, g.width, g.height};
+                }
+            }
+            constexpr float unbounded = std::numeric_limits<float>::infinity();
+            for (auto& [i, c] : run.contexts) {
+                auto& root = *c.root;
+                std::array<float, 2> origin{};
+                float available{};
+                float shift_x{};
+                float shift_y{};
+                if (c.anonymous) {
+                    origin = {geometry[i].left, geometry[i].top};
+                    available = geometry[i].width;
+                } else {
+                    const auto& s = root.style;
+                    const float base = root.box[2];
+                    const float left = edge_length(s, PropertyId::BorderLeftWidth, base) +
+                                       edge_length(s, PropertyId::PaddingLeft, base);
+                    const float right = edge_length(s, PropertyId::BorderRightWidth, base) +
+                                        edge_length(s, PropertyId::PaddingRight, base);
+                    const float over =
+                        edge_length(s, PropertyId::BorderTopWidth, base) + edge_length(s, PropertyId::PaddingTop, base);
+                    const float bottom = edge_length(s, PropertyId::BorderBottomWidth, base) +
+                                         edge_length(s, PropertyId::PaddingBottom, base);
+                    origin = {left, over};
+                    available = std::max(0.f, root.box[2] - left - right);
+                    const auto d = s.text(PropertyId::Display, "block");
+                    if (d == "flex" || d == "inline-flex") {
+                        // The text is an anonymous flex item: as wide as its widest line up to the content box,
+                        // placed by justify-content and align-items.
+                        available = std::min(available, at(i, unbounded).width);
+                        const float free_x = std::max(0.f, root.box[2] - left - right) - available;
+                        const float free_y = std::max(0.f, root.box[3] - over - bottom) - at(i, available).height;
+                        const auto justify = s.text(PropertyId::JustifyContent, "flex-start");
+                        const auto align = s.text(PropertyId::AlignItems, "stretch");
+                        shift_x = justify == "center"                         ? free_x / 2
+                                  : justify == "flex-end" || justify == "end" ? free_x
+                                                                              : 0;
+                        shift_y = align == "center" ? free_y / 2 : align == "flex-end" || align == "end" ? free_y : 0;
+                    }
+                }
+                const auto& layout = at(i, available);
+                origin[0] += shift_x;
+                origin[1] += shift_y;
+                if (layout.lines) {
+                    context_baselines[&root] = origin[1] + layout.last_baseline;
+                }
+                place(root, layout, origin, available);
+            }
+            for (std::size_t i = 1; i < run.boxes.size(); ++i) {
+                const auto* child = run.targets[i];
+                const auto* parent = run.targets[run.boxes[i].parent];
+                if (!child || !parent || get(parent->style, PropertyId::Overflow) != "auto") {
+                    continue;
+                }
+                if (child->box[0] < -constants::scene::overflow_tolerance_px ||
+                    child->box[1] < -constants::scene::overflow_tolerance_px ||
+                    child->box[0] + child->box[2] > parent->box[2] + constants::scene::overflow_tolerance_px ||
+                    child->box[1] + child->box[3] > parent->box[3] + constants::scene::overflow_tolerance_px) {
+                    fail("scene scrolling outside supported non-overflowing auto profile");
                 }
             }
         }
 
-        // Lays out the frame's boxes in the viewport: parent-local boxes on the scene nodes and element geometry
-        // in tree order.
-        void layout_frame(SceneFrame& f, float w, float h) {
-            std::vector<LayoutBox> boxes;
-            std::vector<SceneNode*> targets;
-            collect_boxes(f.root, LayoutBox::root, boxes, targets);
-            // Scene text is one line at its natural width: it does not wrap.
-            std::vector<std::optional<SceneTextMetrics>> metrics(boxes.size());
-            const auto natural = [&](std::size_t i) -> const SceneTextMetrics& {
-                if (!metrics[i]) {
-                    metrics[i] = measure(targets[i]->text, targets[i]->style);
-                }
-                return *metrics[i];
-            };
-            const auto lines = [&](std::size_t i, float) {
-                const auto& m = natural(i);
-                return TextMetrics{m.width, m.height, m.baseline, 1};
-            };
-            const auto min_content = [&](std::size_t i) {
-                return natural(i).width;
-            };
-            const auto wraps = [](std::size_t) {
-                return false;
-            };
-            LayoutOptions options;
-            options.viewport = std::array{w, h};
-            const auto geometry = layout_boxes(boxes, {lines, min_content, wraps}, options);
-            for (std::size_t i = 0; i < boxes.size(); ++i) {
-                auto& n = *targets[i];
-                const auto& g = geometry[i];
-                n.box = {g.left, g.top, g.width, g.height};
-                if (n.tag == "#text") {
-                    continue;
-                }
+        // Element geometry in tree order: border boxes in layout coordinates (SceneGeometry applies transforms), an
+        // inline element's fragments as its client rects.
+        static void list_elements(const SceneNode& n, float x, float y, std::vector<ElementGeometry>& out) {
+            const float ax = x + n.box[0];
+            const float ay = y + n.box[1];
+            if (n.tag != "#text") {
                 ElementGeometry e;
                 e.identity = n.identity;
-                e.rect = {g.x, g.y, g.width, g.height};
-                e.client_rects = {e.rect};
-                e.client_width = g.width;
-                e.client_height = g.height;
+                e.rect = {ax, ay, n.box[2], n.box[3]};
+                if (n.fragments.empty()) {
+                    e.client_rects = {e.rect};
+                    e.client_width = n.box[2];
+                    e.client_height = n.box[3];
+                } else {
+                    for (const auto& f : n.fragments) {
+                        e.client_rects.push_back({ax + f.rect[0], ay + f.rect[1], f.rect[2], f.rect[3]});
+                    }
+                }
                 e.scroll_width = e.client_width;
                 e.scroll_height = e.client_height;
-                f.elements.push_back(e);
+                out.push_back(e);
             }
-            for (std::size_t i = 1; i < boxes.size(); ++i) {
-                const auto& parent = *targets[boxes[i].parent];
-                if (get(parent.style, PropertyId::Overflow) != "auto") {
-                    continue;
-                }
-                const auto& child = *targets[i];
-                if (child.box[0] < -constants::scene::overflow_tolerance_px ||
-                    child.box[1] < -constants::scene::overflow_tolerance_px ||
-                    child.box[0] + child.box[2] > parent.box[2] + constants::scene::overflow_tolerance_px ||
-                    child.box[1] + child.box[3] > parent.box[3] + constants::scene::overflow_tolerance_px) {
-                    fail("scene scrolling outside supported non-overflowing auto profile");
-                }
+            if (n.space == constants::svg_namespace_uri) {
+                return;
             }
+            for (const auto& c : n.children) {
+                list_elements(c, ax, ay, out);
+            }
+        }
+
+        // Lays out the frame in the viewport: parent-local boxes, lines and fragments on the scene nodes, and element
+        // geometry in tree order.
+        void layout_frame(SceneFrame& f, float w, float h) {
+            atomic_memo.clear();
+            context_baselines.clear();
+            LayoutOptions options;
+            options.viewport = std::array{w, h};
+            layout_run(f.root, options);
+            atomic_memo.clear();
+            f.elements.clear();
+            list_elements(f.root, 0, 0, f.elements);
         }
     };
 
@@ -1413,6 +1780,8 @@ namespace weft {
 
         void copy_boxes(SceneNode& a, const SceneNode& b) {
             a.box = b.box;
+            a.lines = b.lines;
+            a.fragments = b.fragments;
             if (a.space != constants::svg_namespace_uri) {
                 for (std::size_t i = 0; i < a.children.size(); ++i) {
                     copy_boxes(a.children[i], b.children[i]);
@@ -1500,6 +1869,8 @@ namespace weft {
             assign_changed(to.attributes, from.attributes);
             assign_changed(to.style, from.style);
             to.box = from.box;
+            assign_changed(to.lines, from.lines);
+            assign_changed(to.fragments, from.fragments);
             if (bool(to.paint) != bool(from.paint) || (to.paint && to.paint->values != from.paint->values)) {
                 to.paint = from.paint;
             }
@@ -1533,13 +1904,13 @@ namespace weft {
         return impl_->work;
     }
 
-    SceneSolver::SceneSolver(std::string s, std::string k, SceneMeasure measure, bool incremental)
+    SceneSolver::SceneSolver(std::string s, std::string k, SceneText& text, bool incremental)
         : impl_(std::make_unique<Impl>()) {
         impl_->sheet = std::move(s);
         impl_->incremental = incremental;
         impl_->compiled = std::make_unique<CompiledStyle>(impl_->sheet, scene_style_profile());
         impl_->keyframes = parse_keyframes(std::move(k));
-        impl_->measure = std::move(measure);
+        impl_->text = &text;
     }
 
     SceneSolver::~SceneSolver() = default;

@@ -129,10 +129,8 @@ int main() {
         s.set(twin, "style",
               "position:absolute;left:120px;top:20px;width:40px;height:40px;background:-weft-effect(glow)");
         s.tree.insert(*s.root, twin, nullptr);
-        const auto measure = [](auto text, const auto& style) {
-            return weft::testing::thread_scene_text().measure(text, style);
-        };
-        weft::SceneSolver solver("", "", measure);
+        auto& scene_text = weft::testing::thread_scene_text();
+        weft::SceneSolver solver("", "", scene_text);
         const auto without = diagnostic([&] {
             solver.frame(s.tree.snapshot(*s.root), 200, 120, 0);
         });
@@ -191,7 +189,7 @@ int main() {
         s.set(twin, "style", "position:absolute;left:120px;top:20px;width:40px;height:40px");
         still_card("0.75");
         // The retained frame of a host, which update() changes in place.
-        weft::SceneSolver quiet("div:hover{--amount:1}", "", measure);
+        weft::SceneSolver quiet("div:hover{--amount:1}", "", scene_text);
         quiet.set_effects(&effects);
         weft::SceneFrame retained;
         quiet.update(s.tree.snapshot(*s.root), retained, 200, 120, 0);
@@ -244,7 +242,7 @@ int main() {
                  {"-weft-effect(glow, still)", "-weft-effect() takes one effect name"},
                  {"-weft-effect(nope)", "unknown effect nope"}}) {
             s.set(twin, "style", "width:40px;height:40px;background-image:" + value);
-            weft::SceneSolver refused("", "", measure);
+            weft::SceneSolver refused("", "", scene_text);
             refused.set_effects(&effects);
             const auto d = diagnostic([&] {
                 refused.frame(s.tree.snapshot(*s.root), 200, 120, 0);

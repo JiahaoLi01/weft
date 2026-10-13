@@ -1,4 +1,5 @@
 /* Compiled from pinned Tailwind; explicit utility adapter, 16px root. */
+img, svg, video, canvas, audio, iframe, embed, object {display: block; vertical-align: middle;}
 .pointer-events-none {pointer-events: none;}
 .absolute {position: absolute;}
 .relative {position: relative;}

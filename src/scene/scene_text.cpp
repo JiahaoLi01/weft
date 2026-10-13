@@ -192,6 +192,39 @@ namespace weft {
             return matches.emplace(std::move(key), std::move(ids)).first->second;
         }
 
+        // The extents of one face's line box at the font's size and line-height: rounded ascent and descent, and
+        // the leading split around them.
+        SceneStrut face_strut(std::uint32_t id, const SceneFont& f) {
+            const auto m = faces[id].font->line_metrics(f.size);
+            SceneStrut s;
+            s.ascent = std::round(m.ascent);
+            s.descent = std::round(m.descent);
+            const float leading = f.line_height ? *f.line_height - (s.ascent + s.descent) : std::round(m.line_gap);
+            const auto [top, bottom] = split_leading(leading);
+            s.above = s.ascent + top;
+            s.below = s.descent + bottom;
+            return s;
+        }
+
+        // Line box of one line of advances `pen` wide that uses the faces `used`: the primary font's strut, plus the
+        // fonts actually used when line-height is normal (Blink includes fallback font metrics only then). The inline
+        // size is a LayoutUnit rounded up from the summed advances.
+        SceneTextMetrics line_box(const std::set<std::uint32_t>& used, std::uint32_t primary, const SceneFont& f,
+                                  float pen) {
+            float above{};
+            float below{};
+            for (auto id : used) {
+                if (f.line_height && id != primary) {
+                    continue;
+                }
+                const auto s = face_strut(id, f);
+                above = std::max(above, s.above);
+                below = std::max(below, s.below);
+            }
+            const float width = std::ceil(pen * layout_units_per_px) / layout_units_per_px;
+            return {width, above + below, above};
+        }
+
         std::shared_ptr<const SceneTextRun> shape(std::string_view text, const SceneFont& f) {
             require_owner();
             if (text.size() > constants::max_text_bytes) {
@@ -230,25 +263,7 @@ namespace weft {
                     pen += advance;
                 }
             }
-            // Line box of one line: the primary font's strut, plus the fonts actually used when line-height is
-            // normal (Blink includes fallback font metrics only then).
-            float above{};
-            float below{};
-            for (auto id : used) {
-                if (f.line_height && id != ids.front()) {
-                    continue;
-                }
-                const auto m = faces[id].font->line_metrics(f.size);
-                const float ascent = std::round(m.ascent);
-                const float descent = std::round(m.descent);
-                const float leading = f.line_height ? *f.line_height - (ascent + descent) : std::round(m.line_gap);
-                const auto [top, bottom] = split_leading(leading);
-                above = std::max(above, ascent + top);
-                below = std::max(below, descent + bottom);
-            }
-            // The inline size is a LayoutUnit rounded up from the summed advances.
-            const float width = std::ceil(pen * layout_units_per_px) / layout_units_per_px;
-            run->metrics = {width, above + below, above};
+            run->metrics = line_box(used, ids.front(), f, pen);
             const auto bytes = text.size() + run->glyphs.size() * sizeof(SceneGlyph);
             if (runs.size() >= constants::scene::text_cache_max_entries ||
                 run_bytes + bytes > constants::scene::text_cache_max_bytes) {
@@ -363,6 +378,26 @@ namespace weft {
 
     std::shared_ptr<const SceneTextRun> SceneText::shape(std::string_view text, const SceneFont& font) {
         return impl_->shape(text, font);
+    }
+
+    SceneTextMetrics SceneText::slice(const SceneTextRun& run, const SceneFont& font, std::uint32_t begin,
+                                      std::uint32_t end) {
+        impl_->require_owner();
+        const auto primary = impl_->matched(font).front();
+        std::set<std::uint32_t> used{primary};
+        float pen{};
+        for (const auto& g : run.glyphs) {
+            if (g.utf8_cluster >= begin && g.utf8_cluster < end) {
+                pen += g.advance;
+                used.insert(g.face);
+            }
+        }
+        return impl_->line_box(used, primary, font, pen);
+    }
+
+    SceneStrut SceneText::strut(const SceneFont& font) {
+        impl_->require_owner();
+        return impl_->face_strut(impl_->matched(font).front(), font);
     }
 
     const FontFaceSource& SceneText::face_source(std::uint32_t face) const {

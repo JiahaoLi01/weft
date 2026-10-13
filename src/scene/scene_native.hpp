@@ -162,7 +162,7 @@ namespace weft {
         vector::Rasterizer vector_;
         std::uint64_t next_id_{};
         // Text and layer images by view and node identity.
-        SceneImageCache<std::array<std::uint64_t, 4>, Entry> images_;
+        SceneImageCache<std::array<std::uint64_t, 5>, Entry> images_;
         // Shadow images by value: offset, blur, spread, color, radii, box size and scale.
         SceneImageCache<std::array<float, 15>, std::shared_ptr<const SceneImage>> shadows_;
         // Path coverage images by value: the path, its stroke, the device map and the mask's pixels.

@@ -244,15 +244,8 @@ namespace probes {
             "globalThis.root=document.getElementById('root');root.setAttribute('style','position:relative;overflow:hidden;background:#050403');globalThis.g=document.createElement('div');g.setAttribute('style','position:absolute;left:24.25px;top:17.5px;width:100px;height:90px;overflow:visible;border-radius:13px;border-width:3px;border-color:currentcolor;color:#dd4455;background:rgba(20,60,100,.3);transform-origin:15% 75%;animation:motion 1s linear infinite alternate;transition-property:background-color,color;transition-duration:200ms;transition-timing-function:linear');root.appendChild(g);globalThis.a=document.createElement('div');a.setAttribute('style','position:absolute;left:-11px;top:14px;width:68px;height:42px;background:rgba(255,30,20,.6);z-index:1');globalThis.b=document.createElement('div');b.setAttribute('style','position:absolute;left:25px;top:30px;width:68px;height:45px;background:rgba(20,60,255,.7);z-index:2');g.appendChild(a);g.appendChild(b)");
         const std::string timeline =
             "@keyframes motion{from{transform:translate(0,0) rotate(-25deg) scale(.8,1.1);opacity:.31}to{transform:translate(18%,9px) rotate(33deg) scale(1.1,.85);opacity:.79}}";
-        weft::SceneSolver typed("", timeline, [&](auto text, const auto& style) {
-            return weft::testing::thread_scene_text().measure(text, style);
-        });
-        weft::SceneSolver full(
-            "", timeline,
-            [&](auto text, const auto& style) {
-                return weft::testing::thread_scene_text().measure(text, style);
-            },
-            false);
+        weft::SceneSolver typed("", timeline, weft::testing::thread_scene_text());
+        weft::SceneSolver full("", timeline, weft::testing::thread_scene_text(), false);
         for (unsigned frame = 0; frame < weft::probe_constants::gallery::complex_css_typed_frames; ++frame) {
             if (frame % 13 == 3) {
                 owner.eval("g.style.color='" + std::string(frame % 26 < 13 ? "#224466" : "#ff8844") +

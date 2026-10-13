@@ -123,12 +123,10 @@ namespace {
         }
         const std::string sheet =
             ".on rect{fill:#ff0000}.on line{stroke:#00ff00}.hot{background-color:#336699}div:hover{background-color:#00ff00}.dim{opacity:.5}";
-        const auto measure = [](auto text, const auto& style) {
-            return weft::testing::thread_scene_text().measure(text, style);
-        };
-        weft::SceneSolver retained(sheet, "", measure);
-        weft::SceneSolver owning(sheet, "", measure);
-        weft::SceneSolver reference(sheet, "", measure, false);
+        auto& scene_text = weft::testing::thread_scene_text();
+        weft::SceneSolver retained(sheet, "", scene_text);
+        weft::SceneSolver owning(sheet, "", scene_text);
+        weft::SceneSolver reference(sheet, "", scene_text, false);
         weft::SceneFrame retained_frame;
         std::uint32_t seed = 0x3c1;
         const auto next = [&] {
@@ -198,7 +196,7 @@ namespace {
             require(raster.raster(retained_frame).rgba == raster.raster(expected).rgba,
                     "retained pixels differ from a full solve" + at);
             // A first frame computes every numeric paint value, which == and the CPU raster leave out, from styles.
-            weft::SceneSolver first(sheet, "", measure);
+            weft::SceneSolver first(sheet, "", scene_text);
             require(weft::scene_paint_source_equal(
                         first.frame(dom, width, weft::test_constants::scene::contract_view_size, time).root,
                         retained_frame.root),
@@ -420,9 +418,7 @@ int main() {
         weft::SceneSolver scene(
             ".bg-gold\\/20{background-color:rgba(212,168,67,.2)}.parent{transition-property:color;transition-duration:1s;transition-timing-function:linear}.explicit{color:#ff0000}",
             "@keyframes k{from{transform:translateX(0);opacity:0}to{transform:translateX(20px);opacity:1}}",
-            [&](auto t, const auto& s) {
-                return weft::testing::thread_scene_text().measure(t, s);
-            });
+            weft::testing::thread_scene_text());
         vm.eval(
             "document.getElementById('root').setAttribute('style','background:#000000;position:relative');const p=document.createElement('div');p.setAttribute('class','parent');p.setAttribute('style','color:#000000');const a=document.createElement('span');a.textContent='A';const b=document.createElement('span');b.setAttribute('class','explicit');b.textContent='B';p.appendChild(a);p.appendChild(b);document.getElementById('root').appendChild(p)");
         scene.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::timeline_view_size,
@@ -490,9 +486,7 @@ int main() {
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(
             "const s=document.getElementById('root');s.setAttribute('style','position:relative');const raised=document.createElement('div');raised.setAttribute('style','position:absolute;left:0;top:0;width:20px;height:20px;z-index:1');const flat=document.createElement('div');flat.setAttribute('style','position:absolute;left:0;top:0;width:20px;height:20px;z-index:auto');s.appendChild(raised);s.appendChild(flat)");
-        weft::SceneSolver stacking("", "", [&](auto t, const auto& st) {
-            return weft::testing::thread_scene_text().measure(t, st);
-        });
+        weft::SceneSolver stacking("", "", weft::testing::thread_scene_text());
         const auto stacked =
             stacking.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
                            weft::test_constants::scene::contract_view_size, 0);
@@ -504,9 +498,7 @@ int main() {
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(
             "const c=document.getElementById('root');c.setAttribute('style','position:relative');const disc=document.createElement('div');disc.setAttribute('style','position:absolute;left:0;top:0;width:40px;height:40px;border-radius:20px');const ring=document.createElement('div');ring.setAttribute('style','position:absolute;left:50px;top:0;width:40px;height:40px;border-radius:20px;overflow:hidden');const fill=document.createElement('div');fill.setAttribute('style','width:40px;height:40px');ring.appendChild(fill);c.appendChild(disc);c.appendChild(ring)");
-        weft::SceneSolver rounding("", "", [&](auto t, const auto& st) {
-            return weft::testing::thread_scene_text().measure(t, st);
-        });
+        weft::SceneSolver rounding("", "", weft::testing::thread_scene_text());
         const auto corners =
             rounding.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
                            weft::test_constants::scene::contract_view_size, 0);
@@ -523,9 +515,7 @@ int main() {
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(
             "const o=document.getElementById('root');o.setAttribute('style','position:relative;background-color:#000000');const frame=document.createElement('div');frame.setAttribute('style','position:absolute;left:10px;top:10px;width:60px;height:60px;border:8px solid #ffffff;border-radius:16px;overflow:hidden');const cover=document.createElement('div');cover.setAttribute('style','position:absolute;left:-20px;top:-20px;width:100px;height:100px;background-color:#ff0000');frame.appendChild(cover);o.appendChild(frame)");
-        weft::SceneSolver bordered("", "", [&](auto t, const auto& st) {
-            return weft::testing::thread_scene_text().measure(t, st);
-        });
+        weft::SceneSolver bordered("", "", weft::testing::thread_scene_text());
         const auto padded =
             bordered.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
                            weft::test_constants::scene::contract_view_size, 0);
@@ -553,9 +543,7 @@ int main() {
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(
             "const r=document.getElementById('root');r.style.backgroundColor='#000000';const parent=document.createElement('div');parent.setAttribute('style','width:30px;height:30px;transform:scale(1)');const inner=document.createElement('div');inner.setAttribute('style','position:absolute;inset:0;background-color:#ffffff');parent.appendChild(inner);r.appendChild(parent)");
-        weft::SceneSolver containing("", "", [&](auto t, const auto& st) {
-            return weft::testing::thread_scene_text().measure(t, st);
-        });
+        weft::SceneSolver containing("", "", weft::testing::thread_scene_text());
         auto contained = containing.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
                                           weft::test_constants::scene::contract_view_size, 0);
         require(contained.root.children[0].children[0].box[2] == 30 &&
@@ -588,9 +576,7 @@ int main() {
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(
             "const root=document.getElementById('root');const n=document.createElement('div');n.setAttribute('style','width:20px;height:20px;color:#0000ff;border-width:2px;animation:chase 1s linear infinite');root.appendChild(n)");
-        weft::SceneSolver chase("", "@keyframes chase{75%{border-color:#ff0000}}", [&](auto t, const auto& st) {
-            return weft::testing::thread_scene_text().measure(t, st);
-        });
+        weft::SceneSolver chase("", "@keyframes chase{75%{border-color:#ff0000}}", weft::testing::thread_scene_text());
         chase.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
                     weft::test_constants::scene::contract_view_size, 0);
         auto implicit = chase.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
@@ -600,9 +586,8 @@ int main() {
                     std::abs(border[2] - .5f) < weft::test_constants::scene::paint_sample_tolerance,
                 "implicit border keyframe end did not use underlying currentcolor");
         vm.eval("n.setAttribute('style','width:20px;height:20px;animation:fade 1s linear infinite alternate-reverse')");
-        weft::SceneSolver reverse("", "@keyframes fade{from{opacity:0}to{opacity:1}}", [&](auto t, const auto& st) {
-            return weft::testing::thread_scene_text().measure(t, st);
-        });
+        weft::SceneSolver reverse("", "@keyframes fade{from{opacity:0}to{opacity:1}}",
+                                  weft::testing::thread_scene_text());
         reverse.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
                       weft::test_constants::scene::contract_view_size, 0);
         require(
@@ -624,9 +609,8 @@ int main() {
         // Keyframe declarations name registered properties; anything else is a scene profile diagnostic.
         bool unknown_keyframe{};
         try {
-            weft::SceneSolver bad("", "@keyframes fade{from{shimmer:1}to{opacity:1}}", [&](auto t, const auto& st) {
-                return weft::testing::thread_scene_text().measure(t, st);
-            });
+            weft::SceneSolver bad("", "@keyframes fade{from{shimmer:1}to{opacity:1}}",
+                                  weft::testing::thread_scene_text());
             bad.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
                       weft::test_constants::scene::contract_view_size, 0);
         } catch (const weft::DiagnosticError& error) {
@@ -648,9 +632,7 @@ int main() {
         vm.reset_document();
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         const std::string static_sheet = ".shade{background-color:#d4a843}.other{background-color:#225577}";
-        weft::SceneSolver persisted(static_sheet, "", [&](auto t, const auto& st) {
-            return weft::testing::thread_scene_text().measure(t, st);
-        });
+        weft::SceneSolver persisted(static_sheet, "", weft::testing::thread_scene_text());
         vm.eval(
             "const root=document.getElementById('root');root.setAttribute('style','background-color:#000000;position:relative;overflow:hidden');globalThis.boxes=[];globalThis.parents=[];for(let i=0;i<2;i++){let p=document.createElement('div');p.setAttribute('style','position:absolute;left:'+i*40+'px;top:0px;width:40px;height:80px');root.appendChild(p);parents.push(p)}for(let i=0;i<24;i++){let b=document.createElement('div');b.setAttribute('class','shade');b.setAttribute('style','position:absolute;left:'+i%6*5+'px;top:'+Math.floor(i/6)*15+'px;width:8px;height:8px');parents[i%2].appendChild(b);boxes.push(b)}let seed=0x9e3779b9;globalThis.mutate=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;let b=boxes[seed%24],op=(seed>>>8)%4;if(op===0){b.style.transform='translateX('+((seed>>>16)%8)+'px)'}else if(op===1)b.setAttribute('class',(seed&1)?'shade':'other');else if(op===2){if(b.parentNode)b.parentNode.removeChild(b);else parents[seed%2].appendChild(b)}else parents[seed%2].appendChild(b)}");
         for (unsigned iteration = 0; iteration < weft::test_constants::scene::mutation_iterations; ++iteration) {
@@ -658,12 +640,7 @@ int main() {
             auto snapshot = vm.snapshot_subtree("#root");
             auto actual = persisted.frame(snapshot, weft::test_constants::scene::contract_view_size,
                                           weft::test_constants::scene::contract_view_size, iteration);
-            weft::SceneSolver fresh(
-                static_sheet, "",
-                [&](auto t, const auto& st) {
-                    return weft::testing::thread_scene_text().measure(t, st);
-                },
-                false);
+            weft::SceneSolver fresh(static_sheet, "", weft::testing::thread_scene_text(), false);
             auto expected = fresh.frame(snapshot, weft::test_constants::scene::contract_view_size,
                                         weft::test_constants::scene::contract_view_size, iteration);
             auto a_geometry = geometry.geometry(actual);
@@ -686,15 +663,8 @@ int main() {
             "const root=document.getElementById('root');root.setAttribute('style','position:relative;background-color:#000000');let n=document.createElement('div');n.setAttribute('style','position:relative;width:30px;height:30px;color:#fff;animation:move 1s linear infinite');n.textContent='x';root.appendChild(n)");
         const std::string keyframes =
             "@keyframes move{from{transform:translateX(0);color:#000000}to{transform:translateX(20px);color:#ffffff}}";
-        weft::SceneSolver retained("", keyframes, [&](auto t, const auto& st) {
-            return weft::testing::thread_scene_text().measure(t, st);
-        });
-        weft::SceneSolver full(
-            "", keyframes,
-            [&](auto t, const auto& st) {
-                return weft::testing::thread_scene_text().measure(t, st);
-            },
-            false);
+        weft::SceneSolver retained("", keyframes, weft::testing::thread_scene_text());
+        weft::SceneSolver full("", keyframes, weft::testing::thread_scene_text(), false);
         for (unsigned i = 0; i < 40; ++i) {
             if (i == 10) {
                 vm.eval("n.style.width='40px'");
@@ -731,9 +701,7 @@ int main() {
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(
             "let root=document.getElementById('root');let svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('width','20');svg.setAttribute('height','20');let rect=document.createElementNS(svg.namespaceURI,'rect');rect.setAttribute('width','5');rect.setAttribute('height','10');rect.setAttribute('fill','#ff0000');svg.appendChild(rect);root.appendChild(svg)");
-        weft::SceneSolver keyed("rect[width='10']{fill:#00ff00}", "", [&](auto t, const auto& st) {
-            return weft::testing::thread_scene_text().measure(t, st);
-        });
+        weft::SceneSolver keyed("rect[width='10']{fill:#00ff00}", "", weft::testing::thread_scene_text());
         keyed.frame(vm.snapshot_subtree("#root"), weft::test_constants::scene::contract_view_size,
                     weft::test_constants::scene::contract_view_size, 0);
         vm.eval("rect.setAttribute('x','5')");
@@ -802,18 +770,9 @@ int main() {
             "const root=document.getElementById('root');root.style.backgroundColor='#000000';let parent=document.createElement('div');parent.style.color='#0000ff';let n=document.createElement('div');n.setAttribute('style','width:20px;height:20px;background-color:#445566;border-width:2px;animation:motion 1s linear infinite alternate-reverse, shade 800ms steps(4,end) infinite;animation-delay:100ms,0ms');n.textContent='x';parent.appendChild(n);root.appendChild(parent)");
         const std::string tracks =
             "@keyframes motion{25%{transform:translateX(0)}75%{transform:translateX(20px);border-color:#ff0000}}@keyframes shade{from{opacity:.2}to{opacity:.8}}";
-        weft::SceneSolver planned("", tracks, [&](auto text, const auto& st) {
-            return weft::testing::thread_scene_text().measure(text, st);
-        });
-        weft::SceneSolver unplanned(
-            "", tracks,
-            [&](auto text, const auto& st) {
-                return weft::testing::thread_scene_text().measure(text, st);
-            },
-            false);
-        weft::SceneSolver retained_solver("", tracks, [&](auto text, const auto& st) {
-            return weft::testing::thread_scene_text().measure(text, st);
-        });
+        weft::SceneSolver planned("", tracks, weft::testing::thread_scene_text());
+        weft::SceneSolver unplanned("", tracks, weft::testing::thread_scene_text(), false);
+        weft::SceneSolver retained_solver("", tracks, weft::testing::thread_scene_text());
         weft::SceneFrame retained_frame;
         for (unsigned i = 0; i < 160; ++i) {
             if (i == 12) {
@@ -895,18 +854,9 @@ int main() {
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(
             "const root=document.getElementById('root');root.style.position='relative';root.style.backgroundColor='#000000';let p=document.createElement('div');p.setAttribute('style','width:30px;height:24px;color:#225577;transform:scale(1);transition-property:color;transition-duration:200ms;transition-timing-function:linear');let n=document.createElement('div');n.setAttribute('style','position:absolute;inset:0;background:#884422;border-radius:4px');p.appendChild(n);root.appendChild(p)");
-        weft::SceneSolver layout_retained("", "", [&](auto text, const auto& st) {
-            return weft::testing::thread_scene_text().measure(text, st);
-        });
-        weft::SceneSolver layout_reference(
-            "", "",
-            [&](auto text, const auto& st) {
-                return weft::testing::thread_scene_text().measure(text, st);
-            },
-            false);
-        weft::SceneSolver layout_updated("", "", [&](auto text, const auto& st) {
-            return weft::testing::thread_scene_text().measure(text, st);
-        });
+        weft::SceneSolver layout_retained("", "", weft::testing::thread_scene_text());
+        weft::SceneSolver layout_reference("", "", weft::testing::thread_scene_text(), false);
+        weft::SceneSolver layout_updated("", "", weft::testing::thread_scene_text());
         weft::SceneFrame layout_output;
         std::optional<weft::SceneFrame> independent;
         for (unsigned i = 0; i < 64; ++i) {

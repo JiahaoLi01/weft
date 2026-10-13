@@ -95,9 +95,14 @@ def declarations(body):
     return result
 
 rules=[]; found=set(); animations=[]
+# Base-layer (preflight) rules that the scene's UA sheet does not already give: replaced elements are blocks. The scene
+# UA sheet has preflight's border-box, zero borders and no UA margins or heading sizes; other base rules are unused.
+PREFLIGHT={'img, svg, video, canvas, audio, iframe, embed, object'}
 def walk(text):
     for head,body in blocks(text):
         if head.startswith('@layer'): walk(body)
+        elif head in PREFLIGHT:
+            rules.append(head+' {'+' '.join(k+': '+v+';' for k,v in declarations(body))+'}')
         elif head.startswith('@keyframes'):
             # All original keyframes are generic input, including unused ones.
             animations.append(head+' {'+body+'}')

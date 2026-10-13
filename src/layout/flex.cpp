@@ -935,8 +935,20 @@ namespace weft {
                 }
             }
 
+            // Whether a flex item's basis is auto: no flex-basis or flex-basis: auto, and no flex shorthand other
+            // than none and auto.
+            static bool automatic_basis(const Style& s) {
+                if (const auto* flex = s.find(P::Flex)) {
+                    const auto& v = flex->text();
+                    return v == "none" || v == "auto" || v.ends_with(" auto");
+                }
+                return length(s.find(P::FlexBasis)).automatic;
+            }
+
             // CSS automatic minimum size of a flex item in its parent's main axis: its content size, capped by a
-            // definite specified or maximum size.
+            // definite specified or maximum size. Wrapping text in a column takes its height at its width, definite
+            // from the item or its parent. When layout gives the width, an automatic basis and height make the basis
+            // that same content height, the minimum too: the item does not shrink, without a second layout.
             void automatic_minimum(Node& n) {
                 const auto& s = *n.style;
                 const auto& parent = nodes[n.box->parent];
@@ -963,6 +975,10 @@ namespace weft {
                     } else {
                         const auto parent_width = length(parent.style->find(P::Width));
                         if (parent_width.automatic || parent_width.percent) {
+                            if (automatic_basis(s) && specified_height.automatic) {
+                                YGNodeStyleSetFlexShrink(n.yoga, 0);
+                                return;
+                            }
                             throw std::invalid_argument(
                                 "WEFT_UNSUPPORTED_INTRINSIC: auto min-height needs definite cross constraint in M0");
                         }
@@ -1131,6 +1147,39 @@ namespace weft {
                 }
             }
 
+            // Lays out from the root: at the viewport's size, at a width shrunk to fit, or at the root's own size.
+            void calculate(YGNodeRef root) {
+                if (options.viewport) {
+                    const auto [w, h] = *options.viewport;
+                    YGNodeStyleSetWidth(root, w);
+                    YGNodeStyleSetHeight(root, h);
+                    YGNodeCalculateLayout(root, w, h, YGDirectionLTR);
+                } else if (options.fit_width && css()) {
+                    // The available width is the containing block's: percentages resolve against it. A box of auto
+                    // width shrinks to fit it, less its margins; a replaced box keeps its own size.
+                    const auto& n = nodes[0];
+                    const float available = *options.fit_width;
+                    if (std::isnan(available) || available < 0) {
+                        throw std::invalid_argument("WEFT_LAYOUT_TREE: shrink-to-fit width");
+                    }
+                    if (!n.box->replaced && length(n.style->find(P::Width)).automatic) {
+                        if (!n.unknown_width.empty()) {
+                            throw std::invalid_argument(n.unknown_width);
+                        }
+                        const auto& s = *n.style;
+                        const float margins =
+                            px(s, P::MarginLeft, px(s, P::Margin)) + px(s, P::MarginRight, px(s, P::Margin));
+                        const float width =
+                            std::max(n.min_width, std::min(std::max(0.f, available - margins), n.max_width));
+                        const bool content_box = s.text(P::BoxSizing, "content-box") == "content-box";
+                        YGNodeStyleSetWidth(root, content_box ? width - horizontal(s) : width);
+                    }
+                    YGNodeCalculateLayout(root, available, YGUndefined, YGDirectionLTR);
+                } else {
+                    YGNodeCalculateLayout(root, YGUndefined, YGUndefined, YGDirectionLTR);
+                }
+            }
+
             std::vector<BoxGeometry> run() {
                 link();
                 classify();
@@ -1144,14 +1193,7 @@ namespace weft {
                     }
                 }
                 const auto root = nodes[0].yoga;
-                if (options.viewport) {
-                    const auto [w, h] = *options.viewport;
-                    YGNodeStyleSetWidth(root, w);
-                    YGNodeStyleSetHeight(root, h);
-                    YGNodeCalculateLayout(root, w, h, YGDirectionLTR);
-                } else {
-                    YGNodeCalculateLayout(root, YGUndefined, YGUndefined, YGDirectionLTR);
-                }
+                calculate(root);
                 if (callback_error) {
                     std::rethrow_exception(callback_error);
                 }

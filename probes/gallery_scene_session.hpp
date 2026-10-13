@@ -106,9 +106,7 @@ struct GallerySceneSession {
         : scene{scene_read(std::string(WEFT_SOURCE_DIR) + "/examples/crpg-gallery/" + stylesheet),
                 scene_read(std::string(WEFT_SOURCE_DIR) + "/examples/crpg-gallery/" +
                            (stylesheet == "cluster-utilities.css" ? "cluster-keyframes.css" : "scene-keyframes.css")),
-                [this](auto text, const auto& style) {
-                    return weft::testing::thread_scene_text().measure(text, style);
-                }},
+                weft::testing::thread_scene_text()},
           vm{{std::size_t(group == "CSS_TESTS" || group == "D3_TESTS"
                               ? weft::probe_constants::gallery::vm_stack_bytes
                               : weft::probe_constants::gallery::cluster_vm_stack_bytes),

@@ -74,10 +74,10 @@ namespace weft {
             }
             // An effect that reads the time changes every frame.
             bool local = x.identity != y.identity || x.tag != y.tag || x.space != y.space || x.text != y.text ||
-                         x.attributes != y.attributes || x.style != y.style || x.box != y.box ||
-                         x.children.size() != y.children.size() || bool(x.paint) != bool(y.paint) ||
-                         (x.paint && x.paint->values != y.paint->values) || !scene_effect_equal(x.effect, y.effect) ||
-                         (y.effect && y.effect->program->animated);
+                         x.attributes != y.attributes || x.style != y.style || x.box != y.box || x.lines != y.lines ||
+                         x.fragments != y.fragments || x.children.size() != y.children.size() ||
+                         bool(x.paint) != bool(y.paint) || (x.paint && x.paint->values != y.paint->values) ||
+                         !scene_effect_equal(x.effect, y.effect) || (y.effect && y.effect->program->animated);
             if (!local) {
                 for (std::size_t i = 0; i < x.children.size(); ++i) {
                     if (x.children[i].identity != y.children[i].identity) {

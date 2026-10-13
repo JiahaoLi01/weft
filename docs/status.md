@@ -13,6 +13,18 @@
 
 ## 本次已实现
 
+重构第 11 步之三（b）：scene 内联排版（2026-10-13）。详见 [重构计划](refactoring-plan.md#第-11-步记录2026-10-12)。
+- **结果**：
+  - scene 页面的文字会换行；块里混排的文字、`span`、`<br>`、`inline-block` 与 svg 按浏览器规则排行，行内元素跨行时按片画背景和边框、按片命中，`getClientRects` 返回各片；
+  - 支持空白折叠、`nowrap`、`text-align`（左、右、居中），`text-align`、`white-space` 改为继承，常见块元素有了 UA 的 block 显示。
+- **验证**：
+  - 23 个排版用例与 Chrome 的元素片段和每行文字、位置逐一相同（最大差 0 px）；
+  - 21 个变异全部被发现（首轮 3 个存活，已补用例）；
+  - 新增契约：布局复用与重排、按片命中与 client rects、分片边框、逐行绘制、原生 pass 与参考光栅一致、四种诊断；
+  - 画廊：anime-13 与 Chrome 的差距从 0.56 降到 0.19，其余为亚像素变化。
+- **限制**：其他 `white-space` 值、两端对齐、非 baseline 的 `vertical-align`、行内元素里的块与定位元素都是诊断；没有 float、bidi。
+- **下一步**：11.3c，`position: fixed`、点线与虚线边框、`text-transform`、`font-style`、`tabular-nums`、`vh`、`overflow-x/y`。
+
 重构第 11 步之三（a）：CRPG 烟雾效果（2026-10-13）。详见 [重构计划](refactoring-plan.md#第-11-步记录2026-10-12)。
 - **结果**：CRPG UI 的 `SmokeBg` 写成了 UI 着色器效果 `crpg-smoke`：原版每秒约 15 次在 CPU 上算一张 48×64 的画布，这里由像素着色器每帧直接算出，画布拉伸的双线性也在着色器里做。
 - **验证**：

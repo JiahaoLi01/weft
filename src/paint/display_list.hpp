@@ -94,6 +94,8 @@ namespace weft::paint {
         // A coverage image tinted with tint; otherwise the image's own colors.
         bool mask{};
         Color tint{};
+        // Which of its source node's images this is: a line of its text. Images of one node are cached apart.
+        std::uint32_t part{};
     };
 
     // An outer box-shadow of the item's box [0, width] x [0, height]: the box grown by spread on each side (its radii

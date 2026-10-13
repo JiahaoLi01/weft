@@ -847,7 +847,8 @@ namespace weft {
             if (view(n.style, PropertyId::Display) == "none") {
                 return;
             }
-            const auto m = parent * scene_plane(n);
+            const auto m = parent * (n.fragments.empty() ? scene_plane(n)
+                                                         : affine_plane(SceneAffine::translation(n.box[0], n.box[1])));
             Plane inverse;
             if (!m.inverse(inverse)) {
                 return;
@@ -861,7 +862,16 @@ namespace weft {
                 corners->rounded = *rounded;
             }
             if (n.tag != "#text" && view(n.style, PropertyId::PointerEvents) != "none") {
-                area(n, inverse, {box}, corners ? out.areas.add_clip(inverse, *corners, clip) : clip);
+                if (n.fragments.empty()) {
+                    area(n, inverse, {box}, corners ? out.areas.add_clip(inverse, *corners, clip) : clip);
+                } else {
+                    // An inline element in lines: its fragments.
+                    std::vector<HitShape> fragments;
+                    for (const auto& f : n.fragments) {
+                        fragments.push_back(HitShape::box(f.rect[0], f.rect[1], f.rect[2], f.rect[3]));
+                    }
+                    area(n, inverse, std::move(fragments), clip);
+                }
             }
             const auto overflow = view(n.style, PropertyId::Overflow);
             const bool clipping = overflow == "hidden" || overflow == "auto";
@@ -987,10 +997,29 @@ namespace weft {
             e.identity = n.identity;
             e.rect = {b.left, b.top, b.right - b.left, b.bottom - b.top};
             e.client_rects.assign(1, e.rect);
+            // An inline element in lines: a client rect per fragment, and no client box.
+            if (!n.fragments.empty()) {
+                e.client_rects.clear();
+                for (const auto& f : n.fragments) {
+                    Bounds fragment;
+                    for (auto p : std::array<Point, 4>{{{f.rect[0], f.rect[1]},
+                                                        {f.rect[0] + f.rect[2], f.rect[1]},
+                                                        {f.rect[0] + f.rect[2], f.rect[1] + f.rect[3]},
+                                                        {f.rect[0], f.rect[1] + f.rect[3]}}}) {
+                        auto q = m.point(p[0], p[1]);
+                        fragment.add(q[0], q[1]);
+                    }
+                    e.client_rects.push_back(
+                        {fragment.left, fragment.top, fragment.right - fragment.left, fragment.bottom - fragment.top});
+                }
+            }
             e.client_width = std::max(0.f, n.box[2] - len(view(n.style, PropertyId::BorderLeftWidth, "0")) -
                                                len(view(n.style, PropertyId::BorderRightWidth, "0")));
             e.client_height = std::max(0.f, n.box[3] - len(view(n.style, PropertyId::BorderTopWidth, "0")) -
                                                 len(view(n.style, PropertyId::BorderBottomWidth, "0")));
+            if (!n.fragments.empty()) {
+                e.client_width = e.client_height = 0;
+            }
             e.scroll_width = e.client_width;
             e.scroll_height = e.client_height;
             e.offset = {n.box[0], n.box[1], n.box[2], n.box[3]};
@@ -1014,7 +1043,8 @@ namespace weft {
         };
         auto visit = [&](auto&& self, const SceneNode& n, Plane parent, NodeIdentity offset_parent, double ox,
                          double oy) -> void {
-            const auto m = parent * scene_plane(n);
+            const auto m = parent * (n.fragments.empty() ? scene_plane(n)
+                                                         : affine_plane(SceneAffine::translation(n.box[0], n.box[1])));
             if (n.tag != "#text") {
                 append(n, m, {0, 0, n.box[2], n.box[3]}, offset_parent);
                 out.back().offset[0] += ox;

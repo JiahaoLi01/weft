@@ -195,6 +195,10 @@ if(WIN32)
     weft_add_test(NAME scene_text_metrics
         COMMAND weft_scene_text_tests "${artifacts}/scene-text-$<CONFIG>/native.json"
         FIXTURES_SETUP scene_text_report)
+    # Scene inline formatting contexts (line breaking, inline box fragments, atomic inlines) versus Chrome's geometry.
+    weft_add_executable(weft_scene_inline_tests SOURCES scene_inline_tests.cpp LINK weft::scene weft::platform_win32
+        SOURCE_DIR)
+    weft_add_test(NAME scene_inline_browser_contract COMMAND weft_scene_inline_tests)
     weft_add_executable(weft_scene_native_tests SOURCES scene_native_tests.cpp
         LINK weft::scene_native weft::platform_win32)
     weft_add_test(NAME scene_native_contract COMMAND weft_scene_native_tests)
@@ -207,6 +211,10 @@ if(WIN32)
     if(WEFT_RENDER_VULKAN)
         list(APPEND scene_effect_links weft::scene_vulkan)
     endif()
+    # Scene inline formatting contracts: reuse, fragment hits and rects, sliced boxes, lines, the native pass.
+    weft_add_executable(weft_scene_inline_contract_tests SOURCES scene_inline_contract_tests.cpp
+        LINK weft::scene_d3d11 weft::platform_win32)
+    weft_add_test(NAME scene_inline_contract COMMAND weft_scene_inline_contract_tests TIMEOUT 120)
     weft_add_executable(weft_render_scene_effects_tests SOURCES render_scene_effects_tests.cpp
         LINK ${scene_effect_links})
     if(WEFT_RENDER_VULKAN)

@@ -1,0 +1,828 @@
+#include "scene/scene_inline.hpp"
+
+#include "base/diagnostic.hpp"
+#include "constants/common.hpp"
+#include "constants/scene.hpp"
+#include "constants/text.hpp"
+#include "layout/inline_layout.hpp"
+#include "scene/scene.hpp"
+#include "scene/scene_values.hpp"
+
+#include <algorithm>
+#include <charconv>
+#include <cmath>
+#include <limits>
+#include <optional>
+#include <string_view>
+
+namespace weft {
+    namespace {
+        using constants::text::layout_units_per_px;
+        // LayoutUnits: 1/64 px.
+        using Units = std::int64_t;
+        constexpr std::size_t none = std::numeric_limits<std::size_t>::max();
+        // U+FFFC OBJECT REPLACEMENT CHARACTER stands for an atomic inline in the paragraph text, as in Blink: UAX 14
+        // allows breaks on both sides of it.
+        constexpr std::string_view object_replacement = "\xEF\xBF\xBC";
+
+        [[noreturn]] void fail(const std::string& s) {
+            throw_diagnostic(Diag::SceneProfile, s);
+        }
+
+        // A length to LayoutUnits, truncated as Blink converts a computed length.
+        Units to_units(float px) {
+            return Units(px * layout_units_per_px);
+        }
+
+        // Summed advances to LayoutUnits, rounded up as a shape result's snapped width.
+        Units snapped(float px) {
+            return Units(std::ceil(px * layout_units_per_px));
+        }
+
+        // A laid-out size to LayoutUnits: layout gives LayoutUnit-exact floats.
+        Units exact(float px) {
+            return Units(std::lround(px * layout_units_per_px));
+        }
+
+        float pixels(Units u) {
+            return float(u) / layout_units_per_px;
+        }
+
+        // A length in px that parses back to the same float.
+        std::string px_text(float v) {
+            char buffer[32];
+            const auto written = std::to_chars(buffer, buffer + sizeof(buffer), v);
+            return std::string(buffer, written.ptr) + "px";
+        }
+
+        std::string_view display(const SceneNode& n) {
+            return n.style.text(PropertyId::Display, "inline");
+        }
+
+        bool out_of_flow(const SceneNode& n) {
+            const auto p = n.style.text(PropertyId::Position, "static");
+            return p == "absolute" || p == "fixed";
+        }
+
+        bool inline_level(const SceneNode& n) {
+            if (n.tag == "#text") {
+                return true;
+            }
+            const auto d = display(n);
+            return d == "inline" || d == "inline-block" || d == "inline-flex" || d == "inline-grid";
+        }
+
+        bool collapsible(char c) {
+            return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f';
+        }
+
+        // An edge length of a box: px, em of its font size, or a percentage of the containing block's width.
+        float edge(const SceneStyle& s, PropertyId id, float percent_base) {
+            const auto v = s.text(id, "0");
+            if (v == "auto") {
+                return 0;
+            }
+            const auto size = scene_values::len(s.text(PropertyId::FontSize, constants::default_font_size),
+                                                constants::default_font_size_px);
+            const auto trimmed = css::trim(v);
+            if (trimmed.ends_with('%')) {
+                return scene_values::len(trimmed, percent_base);
+            }
+            return scene_values::len(trimmed, size);
+        }
+
+        // The inline-direction edges and the vertical padding and borders of an inline element.
+        struct Box {
+            const SceneNode* node{};
+            // The inline box around this one; none at the root.
+            std::size_t parent{};
+            std::size_t depth{};
+            SceneStrut strut;
+            float margin_start{};
+            float margin_end{};
+            // Border and padding.
+            float inner_start{};
+            float inner_end{};
+            float top{};
+            float bottom{};
+        };
+
+        struct Item {
+            enum class Kind : std::uint8_t {
+                Text,
+                Open,
+                Close,
+                Atomic,
+                Break,
+            };
+
+            Kind kind{};
+            const SceneNode* node{};
+            // Text: the collapsed text, its font, its shaped run and the advance before each byte.
+            std::string text;
+            SceneFont font;
+            std::shared_ptr<const SceneTextRun> run;
+            std::vector<float> prefix;
+            // The item's first byte in the paragraph text.
+            std::size_t begin{};
+            // Open and Close: the box; text and atomic: the innermost inline box around it, none at the root.
+            std::size_t box{none};
+        };
+
+        // An unbreakable part of the content: a text item's bytes [begin, end), or one other item.
+        struct Chunk {
+            std::size_t item{};
+            std::size_t begin{};
+            std::size_t end{};
+            // A soft or forced wrap opportunity lies before this unit.
+            bool break_before{};
+        };
+    } // namespace
+
+    bool scene_atomic_inline(const SceneNode& n) {
+        if (n.space == constants::svg_namespace_uri) {
+            return true;
+        }
+        const auto d = display(n);
+        return d == "inline-block" || d == "inline-flex" || d == "inline-grid";
+    }
+
+    bool scene_inline_children(const SceneNode& n) {
+        if (n.tag == "#text" || n.space == constants::svg_namespace_uri || !n.text.empty()) {
+            return false;
+        }
+        const auto d = display(n);
+        if (d == "flex" || d == "inline-flex" || d == "grid" || d == "inline-grid" || d == "none") {
+            return false;
+        }
+        bool any{};
+        for (const auto& c : n.children) {
+            if (display(c) == "none" || out_of_flow(c)) {
+                continue;
+            }
+            if (!inline_level(c)) {
+                return false;
+            }
+            any = true;
+        }
+        return any;
+    }
+
+    std::vector<SceneNode> scene_fragment_boxes(const SceneNode& n) {
+        std::vector<SceneNode> out;
+        for (const auto& f : n.fragments) {
+            SceneNode box;
+            box.identity = n.identity;
+            box.tag = n.tag;
+            box.space = n.space;
+            box.attributes = n.attributes;
+            box.style = n.style;
+            box.paint = n.paint;
+            box.box = {n.box[0] + f.rect[0], n.box[1] + f.rect[1], f.rect[2], f.rect[3]};
+            // Transforms do not apply to inline boxes.
+            box.style.erase(PropertyId::Transform);
+            if (!f.first) {
+                box.style[PropertyId::BorderLeftWidth] = "0";
+                box.style[PropertyId::BorderTopLeftRadius] = "0";
+                box.style[PropertyId::BorderBottomLeftRadius] = "0";
+            }
+            if (!f.last) {
+                box.style[PropertyId::BorderRightWidth] = "0";
+                box.style[PropertyId::BorderTopRightRadius] = "0";
+                box.style[PropertyId::BorderBottomRightRadius] = "0";
+            }
+            out.push_back(std::move(box));
+        }
+        return out;
+    }
+
+    SceneNode scene_without_box(const SceneNode& n) {
+        SceneNode out = n;
+        out.fragments.clear();
+        out.effect.reset();
+        out.style.erase(PropertyId::Transform);
+        out.style[PropertyId::BackgroundColor] = "transparent";
+        out.style[PropertyId::BackgroundImage] = "none";
+        out.style[PropertyId::BoxShadow] = "none";
+        for (const auto id : {PropertyId::BorderTopWidth, PropertyId::BorderRightWidth, PropertyId::BorderBottomWidth,
+                              PropertyId::BorderLeftWidth}) {
+            out.style[id] = "0";
+        }
+        if (out.paint) {
+            // Only the typed color and opacity: the others would transform or paint the box again.
+            for (unsigned i = 0; i < unsigned(constants::scene::paint_property_count); ++i) {
+                if (i != unsigned(constants::scene::paint_slot_color) &&
+                    i != unsigned(constants::scene::paint_slot_opacity)) {
+                    out.paint->values[i].reset();
+                }
+            }
+        }
+        return out;
+    }
+
+    SceneNode scene_text_line(const SceneNode& n, std::size_t i) {
+        const auto& line = n.lines.at(i);
+        SceneNode out;
+        out.identity = n.identity;
+        out.tag = "#text";
+        out.space = n.space;
+        out.text = line.text;
+        // The node's box when its only line lies inside it; otherwise the line box grown to whole px of the node's
+        // coordinates. The text sits at its offset inside: glyphs keep the subpixel positions they have in the node,
+        // and the image sits on the node's pixel grid.
+        const auto& r = line.rect;
+        const bool whole =
+            n.lines.size() == 1 && r[0] >= 0 && r[1] >= 0 && r[0] + r[2] <= n.box[2] && r[1] + r[3] <= n.box[3];
+        const float left = whole ? 0 : std::floor(r[0]);
+        const float top = whole ? 0 : std::floor(r[1]);
+        out.box = whole ? std::array<float, 4>{0, 0, n.box[2], n.box[3]}
+                        : std::array<float, 4>{left, top, std::ceil(r[0] + r[2]) - left, std::ceil(r[1] + r[3]) - top};
+        for (const auto id :
+             {PropertyId::Color, PropertyId::FontFamily, PropertyId::FontSize, PropertyId::FontWeight,
+              PropertyId::FontStyle, PropertyId::LetterSpacing, PropertyId::LineHeight, PropertyId::PointerEvents}) {
+            if (const auto* v = n.style.find(id)) {
+                out.style.set(id, *v);
+            }
+        }
+        out.style[PropertyId::Display] = "inline";
+        out.style[PropertyId::PaddingLeft] = px_text(line.rect[0] - left);
+        out.style[PropertyId::PaddingTop] = px_text(line.rect[1] - top);
+        if (n.paint && n.paint->values[constants::scene::paint_slot_color]) {
+            out.paint.emplace();
+            out.paint->values[constants::scene::paint_slot_color] = n.paint->values[constants::scene::paint_slot_color];
+        }
+        return out;
+    }
+
+    struct SceneInlineContent::Impl {
+        SceneText& text;
+        const SceneNode& root;
+        SceneFont root_font;
+        SceneStrut root_strut;
+        std::string paragraph;
+        std::vector<Item> items;
+        std::vector<Box> boxes;
+        std::vector<Chunk> chunks;
+        bool breakable{};
+        // A collapsible space was the last character collected: the next one collapses. True at the start and after
+        // a forced break, where a line drops its leading spaces.
+        bool space_before{true};
+
+        Impl(SceneText& t, const SceneNode& r) : text(t), root(r) {
+            root_font = scene_font(root.style);
+            root_strut = text.strut(root_font);
+            const auto align = root.style.text(PropertyId::TextAlign, "left");
+            if (align != "left" && align != "start" && align != "right" && align != "end" && align != "center") {
+                fail("text-align " + std::string(align) + " outside scene profile");
+            }
+            collect(root, none);
+            if (paragraph.size() > std::size_t(constants::max_text_bytes)) {
+                fail("scene paragraph byte bound");
+            }
+            split();
+        }
+
+        static bool wraps(const SceneStyle& s) {
+            const auto ws = s.text(PropertyId::WhiteSpace, "normal");
+            if (ws != "normal" && ws != "nowrap") {
+                fail("white-space " + std::string(ws) + " outside scene profile");
+            }
+            return ws == "normal";
+        }
+
+        void add_text(const SceneNode& owner, std::size_t box) {
+            Item item;
+            item.kind = Item::Kind::Text;
+            item.node = &owner;
+            item.box = box;
+            wraps(owner.style);
+            for (const char c : owner.text) {
+                if (collapsible(c)) {
+                    if (!space_before) {
+                        item.text += ' ';
+                        space_before = true;
+                    }
+                } else {
+                    item.text += c;
+                    space_before = false;
+                }
+            }
+            if (item.text.empty()) {
+                return;
+            }
+            item.font = scene_font(owner.style);
+            item.run = text.shape(item.text, item.font);
+            std::vector<float> at(item.text.size() + 1);
+            for (const auto& g : item.run->glyphs) {
+                at[std::min<std::size_t>(g.utf8_cluster, item.text.size())] += g.advance;
+            }
+            item.prefix.assign(item.text.size() + 1, 0);
+            for (std::size_t k = 0; k < item.text.size(); ++k) {
+                item.prefix[k + 1] = item.prefix[k] + at[k];
+            }
+            item.begin = paragraph.size();
+            paragraph += item.text;
+            items.push_back(std::move(item));
+        }
+
+        void collect(const SceneNode& n, std::size_t box) {
+            if (!n.text.empty()) {
+                add_text(n, box);
+            }
+            for (const auto& c : n.children) {
+                if (display(c) == "none") {
+                    continue;
+                }
+                if (out_of_flow(c)) {
+                    if (&n != &root) {
+                        fail("positioned element inside an inline box outside scene profile");
+                    }
+                    continue;
+                }
+                if (c.tag == "#text") {
+                    add_text(c, box);
+                    continue;
+                }
+                Item item;
+                item.node = &c;
+                item.box = box;
+                item.begin = paragraph.size();
+                if (const auto align = c.style.text(PropertyId::VerticalAlign, "baseline"); align != "baseline") {
+                    fail("vertical-align " + std::string(align) + " outside scene profile");
+                }
+                if (c.tag == "br") {
+                    item.kind = Item::Kind::Break;
+                    paragraph += '\n';
+                    space_before = true;
+                    items.push_back(std::move(item));
+                } else if (scene_atomic_inline(c)) {
+                    item.kind = Item::Kind::Atomic;
+                    paragraph += object_replacement;
+                    space_before = false;
+                    items.push_back(std::move(item));
+                } else if (display(c) == "inline") {
+                    Box b;
+                    b.node = &c;
+                    b.parent = box;
+                    b.depth = box == none ? 1 : boxes[box].depth + 1;
+                    b.strut = text.strut(scene_font(c.style));
+                    wraps(c.style);
+                    const auto index = boxes.size();
+                    boxes.push_back(b);
+                    item.kind = Item::Kind::Open;
+                    item.box = index;
+                    items.push_back(item);
+                    collect(c, index);
+                    Item close;
+                    close.kind = Item::Kind::Close;
+                    close.node = &c;
+                    close.box = index;
+                    close.begin = paragraph.size();
+                    items.push_back(close);
+                } else {
+                    fail("block-level box inside an inline formatting context outside scene profile");
+                }
+            }
+        }
+
+        // Whether soft wraps are allowed at a boundary inside box b (none: the root): its white-space.
+        bool wrapping(std::size_t b) const {
+            return wraps(b == none ? root.style : boxes[b].node->style);
+        }
+
+        // The nearest box that contains both a and b; none for the root.
+        std::size_t common(std::size_t a, std::size_t b) const {
+            const auto depth = [&](std::size_t x) {
+                return x == none ? std::size_t(0) : boxes[x].depth;
+            };
+            while (depth(a) > depth(b)) {
+                a = boxes[a].parent;
+            }
+            while (depth(b) > depth(a)) {
+                b = boxes[b].parent;
+            }
+            while (a != b) {
+                a = boxes[a].parent;
+                b = boxes[b].parent;
+            }
+            return a;
+        }
+
+        // The chunks and their wrap opportunities: UAX 14 over the whole paragraph, a soft opportunity where the
+        // nearest common ancestor of the characters on either side allows wrapping (CSS Text 3, 5.1), a forced one
+        // after <br>. An opportunity at an inline box's edge
+        // lies after the end edges there and before the start edges.
+        void split() {
+            std::vector<std::size_t> owner(paragraph.size(), none);
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                const auto& item = items[i];
+                const auto size = item.kind == Item::Kind::Text     ? item.text.size()
+                                  : item.kind == Item::Kind::Atomic ? object_replacement.size()
+                                  : item.kind == Item::Kind::Break  ? std::size_t(1)
+                                                                    : std::size_t(0);
+                std::fill(owner.begin() + std::ptrdiff_t(item.begin), owner.begin() + std::ptrdiff_t(item.begin + size),
+                          i);
+            }
+            std::vector<bool> opportunity(paragraph.size() + 1);
+            if (!paragraph.empty()) {
+                for (const auto p : probe_unicode_breaks(paragraph).line) {
+                    if (p == 0 || p >= paragraph.size()) {
+                        continue;
+                    }
+                    const auto& before = items[owner[p - 1]];
+                    const auto& after = items[owner[p]];
+                    opportunity[p] = before.kind == Item::Kind::Break || wrapping(common(before.box, after.box));
+                }
+            }
+            std::size_t placed = std::numeric_limits<std::size_t>::max();
+            const auto add = [&](std::size_t item, std::size_t begin, std::size_t end, std::size_t at, bool closing) {
+                Chunk u{item, begin, end};
+                // The first unit at an opportunity that is not an end edge takes it.
+                if (!closing && at != placed && opportunity[at]) {
+                    u.break_before = true;
+                    placed = at;
+                    breakable |= !chunks.empty() && items[chunks.back().item].kind != Item::Kind::Break;
+                }
+                chunks.push_back(u);
+            };
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                const auto& item = items[i];
+                switch (item.kind) {
+                    case Item::Kind::Text: {
+                        std::size_t start = 0;
+                        for (std::size_t k = 1; k < item.text.size(); ++k) {
+                            if (opportunity[item.begin + k]) {
+                                add(i, start, k, item.begin + start, false);
+                                start = k;
+                            }
+                        }
+                        add(i, start, item.text.size(), item.begin + start, false);
+                        break;
+                    }
+                    case Item::Kind::Close:
+                        add(i, 0, 0, item.begin, true);
+                        break;
+                    default:
+                        add(i, 0, 0, item.begin, false);
+                        break;
+                }
+            }
+        }
+
+        // The box edges at an available width, for percentages.
+        void resolve_edges(float available) {
+            const float base = std::isfinite(available) ? available : 0;
+            for (auto& b : boxes) {
+                const auto& s = b.node->style;
+                // A side whose border style is none or hidden has no border width.
+                const auto border = [&](PropertyId width, PropertyId style) {
+                    const auto v = s.text(style, "solid");
+                    return v == "none" || v == "hidden" ? 0.f : edge(s, width, base);
+                };
+                b.margin_start = edge(s, PropertyId::MarginLeft, base);
+                b.margin_end = edge(s, PropertyId::MarginRight, base);
+                b.inner_start = border(PropertyId::BorderLeftWidth, PropertyId::BorderLeftStyle) +
+                                edge(s, PropertyId::PaddingLeft, base);
+                b.inner_end = border(PropertyId::BorderRightWidth, PropertyId::BorderRightStyle) +
+                              edge(s, PropertyId::PaddingRight, base);
+                b.top = border(PropertyId::BorderTopWidth, PropertyId::BorderTopStyle) +
+                        edge(s, PropertyId::PaddingTop, base);
+                b.bottom = border(PropertyId::BorderBottomWidth, PropertyId::BorderBottomStyle) +
+                           edge(s, PropertyId::PaddingBottom, base);
+            }
+        }
+
+        bool content(const Chunk& u) const {
+            const auto& item = items[u.item];
+            switch (item.kind) {
+                case Item::Kind::Open:
+                    return boxes[item.box].margin_start + boxes[item.box].inner_start != 0;
+                case Item::Kind::Close:
+                    return boxes[item.box].margin_end + boxes[item.box].inner_end != 0;
+                default:
+                    return true;
+            }
+        }
+
+        // The end of a line's text: the last text unit of chunks [first, last) and its end without trailing spaces;
+        // spaces-only chunks before it drop out too. none when the line has no text.
+        struct Trim {
+            std::size_t unit{none};
+            std::size_t end{};
+        };
+
+        Trim trim(std::size_t first, std::size_t last) const {
+            for (auto u = last; u-- > first;) {
+                const auto& unit = chunks[u];
+                const auto& item = items[unit.item];
+                // Spaces before a forced break end the line too.
+                if (item.kind == Item::Kind::Open || item.kind == Item::Kind::Close || item.kind == Item::Kind::Break) {
+                    continue;
+                }
+                if (item.kind != Item::Kind::Text) {
+                    return {};
+                }
+                auto end = unit.end;
+                while (end > unit.begin && item.text[end - 1] == ' ') {
+                    --end;
+                }
+                if (end > unit.begin) {
+                    return {u, end};
+                }
+                // A unit of spaces only: the trimmed end lies before it.
+                return {u, unit.begin};
+            }
+            return {};
+        }
+
+        // The width of chunks [first, last) on one line, without the line's trailing spaces when `hang`.
+        Units width(std::size_t first, std::size_t last, bool hang,
+                    const std::vector<SceneAtomicExtent>& extents) const {
+            const auto end = hang ? trim(first, last) : Trim{};
+            Units total{};
+            float raw{};
+            std::size_t fragment = none;
+            for (auto u = first; u < last; ++u) {
+                const auto& unit = chunks[u];
+                const auto& item = items[unit.item];
+                if (item.kind == Item::Kind::Text) {
+                    if (unit.item != fragment) {
+                        total += snapped(raw);
+                        raw = 0;
+                        fragment = unit.item;
+                    }
+                    const auto stop = u == end.unit ? end.end : unit.end;
+                    if (stop > unit.begin) {
+                        raw += item.prefix[stop] - item.prefix[unit.begin];
+                    }
+                    continue;
+                }
+                total += snapped(raw);
+                raw = 0;
+                fragment = none;
+                if (item.kind == Item::Kind::Open) {
+                    total += to_units(boxes[item.box].margin_start) + to_units(boxes[item.box].inner_start);
+                } else if (item.kind == Item::Kind::Close) {
+                    total += to_units(boxes[item.box].inner_end) + to_units(boxes[item.box].margin_end);
+                } else if (item.kind == Item::Kind::Atomic) {
+                    const auto& e = extents[unit.item];
+                    total += to_units(e.margin[3]) + exact(e.width) + to_units(e.margin[1]);
+                }
+            }
+            return total + snapped(raw);
+        }
+
+        SceneInlineLayout layout(float available, SceneAtomicLayout atomic) {
+            if (std::isnan(available) || available < 0) {
+                fail("inline available width");
+            }
+            resolve_edges(available);
+            std::vector<SceneAtomicExtent> extents(items.size());
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                if (items[i].kind == Item::Kind::Atomic) {
+                    extents[i] = atomic(*items[i].node, available);
+                }
+            }
+            const bool bounded = std::isfinite(available);
+            const Units limit = bounded ? to_units(available) : std::numeric_limits<Units>::max();
+            // Greedy filling: lines as ranges of chunks.
+            std::vector<std::pair<std::size_t, std::size_t>> lines;
+            std::size_t start = 0;
+            bool filled{};
+            for (std::size_t i = 0; i < chunks.size();) {
+                auto j = i + 1;
+                while (j < chunks.size() && !chunks[j].break_before &&
+                       items[chunks[j - 1].item].kind != Item::Kind::Break) {
+                    ++j;
+                }
+                if (filled && width(start, j, true, extents) > limit) {
+                    lines.emplace_back(start, i);
+                    start = i;
+                    filled = false;
+                }
+                for (auto u = i; u < j; ++u) {
+                    filled |= content(chunks[u]);
+                }
+                i = j;
+                if (items[chunks[j - 1].item].kind == Item::Kind::Break) {
+                    lines.emplace_back(start, j);
+                    start = j;
+                    filled = false;
+                }
+            }
+            if (start < chunks.size()) {
+                lines.emplace_back(start, chunks.size());
+            }
+            SceneInlineLayout out;
+            const auto align = root.style.text(PropertyId::TextAlign, "left");
+            // The boxes open at the start of the current line.
+            std::vector<std::size_t> open;
+            float top{};
+            for (const auto& [first, last] : lines) {
+                bool any = std::any_of(chunks.begin() + std::ptrdiff_t(first), chunks.begin() + std::ptrdiff_t(last),
+                                       [&](const Chunk& u) {
+                                           return content(u);
+                                       });
+                if (!any) {
+                    // Only collapsed spaces and empty inline boxes: no line box. Boxes still open and close.
+                    for (auto u = first; u < last; ++u) {
+                        const auto& item = items[chunks[u].item];
+                        if (item.kind == Item::Kind::Open) {
+                            open.push_back(item.box);
+                        } else if (item.kind == Item::Kind::Close && !open.empty()) {
+                            open.pop_back();
+                        }
+                    }
+                    continue;
+                }
+                const auto end = trim(first, last);
+
+                struct Fragment {
+                    std::size_t box{};
+                    Units start{};
+                    Units end{};
+                    bool first{};
+                    bool last{};
+                };
+
+                std::vector<Fragment> fragments;
+                // Fragments of the boxes that continue from the line before start at the line's start.
+                std::vector<std::size_t> stack;
+                for (const auto b : open) {
+                    stack.push_back(fragments.size());
+                    fragments.push_back({b, 0, 0, false, false});
+                }
+
+                // A piece and its extents on the line: above and below the baseline (with margins), and its rect's top
+                // above the baseline and height.
+                struct Placed {
+                    SceneInlinePiece piece;
+                    Units x{};
+                    Units w{};
+                    float above{};
+                    float below{};
+                    float top{};
+                    float height{};
+                };
+
+                std::vector<Placed> placed;
+                Units x{};
+                float above = root_strut.above;
+                float below = root_strut.below;
+                // The text fragment being collected: its item, first byte and raw advances.
+                std::size_t fragment_item = none;
+                std::size_t fragment_begin{};
+                std::size_t fragment_end{};
+                float raw{};
+                Units fragment_x{};
+                const auto flush = [&] {
+                    if (fragment_item == none) {
+                        return;
+                    }
+                    const auto& item = items[fragment_item];
+                    const Units w = snapped(raw);
+                    if (fragment_end > fragment_begin) {
+                        Placed p;
+                        p.piece.kind = SceneInlinePiece::Kind::Text;
+                        p.piece.node = item.node;
+                        p.piece.text = item.text.substr(fragment_begin, fragment_end - fragment_begin);
+                        const auto m = text.slice(*item.run, item.font, std::uint32_t(fragment_begin),
+                                                  std::uint32_t(fragment_end));
+                        p.x = fragment_x;
+                        p.w = w;
+                        p.above = p.top = m.baseline;
+                        p.below = m.height - m.baseline;
+                        p.height = m.height;
+                        above = std::max(above, p.above);
+                        below = std::max(below, p.below);
+                        placed.push_back(std::move(p));
+                    }
+                    x = fragment_x + w;
+                    fragment_item = none;
+                    raw = 0;
+                };
+                // The end of the last content inside each box on this line.
+                const auto reach = [&](Units at) {
+                    for (const auto f : stack) {
+                        fragments[f].end = std::max(fragments[f].end, at);
+                    }
+                };
+                for (auto u = first; u < last; ++u) {
+                    const auto& unit = chunks[u];
+                    const auto& item = items[unit.item];
+                    if (item.kind == Item::Kind::Text) {
+                        const auto stop = u == end.unit                        ? end.end
+                                          : (end.unit != none && u > end.unit) ? unit.begin
+                                                                               : unit.end;
+                        if (unit.item != fragment_item) {
+                            flush();
+                            fragment_item = unit.item;
+                            fragment_begin = unit.begin;
+                            fragment_x = x;
+                        }
+                        fragment_end = std::max(fragment_begin, stop);
+                        if (stop > unit.begin) {
+                            raw += item.prefix[stop] - item.prefix[unit.begin];
+                        }
+                        reach(fragment_x + snapped(raw));
+                        continue;
+                    }
+                    flush();
+                    if (item.kind == Item::Kind::Open) {
+                        const auto& b = boxes[item.box];
+                        x += to_units(b.margin_start);
+                        stack.push_back(fragments.size());
+                        fragments.push_back({item.box, x, x, true, false});
+                        x += to_units(b.inner_start);
+                        reach(x);
+                        open.push_back(item.box);
+                    } else if (item.kind == Item::Kind::Close) {
+                        const auto& b = boxes[item.box];
+                        x += to_units(b.inner_end);
+                        reach(x);
+                        if (!stack.empty()) {
+                            fragments[stack.back()].last = true;
+                            stack.pop_back();
+                        }
+                        if (!open.empty()) {
+                            open.pop_back();
+                        }
+                        x += to_units(b.margin_end);
+                    } else if (item.kind == Item::Kind::Atomic) {
+                        const auto& e = extents[unit.item];
+                        x += to_units(e.margin[3]);
+                        Placed p;
+                        p.piece.kind = SceneInlinePiece::Kind::Atomic;
+                        p.piece.node = item.node;
+                        p.x = x;
+                        p.w = exact(e.width);
+                        p.above = e.margin[0] + e.baseline;
+                        p.below = e.margin[0] + e.height + e.margin[2] - p.above;
+                        p.top = e.baseline;
+                        p.height = e.height;
+                        above = std::max(above, p.above);
+                        below = std::max(below, p.below);
+                        x += p.w;
+                        reach(x);
+                        x += to_units(e.margin[1]);
+                        placed.push_back(std::move(p));
+                    }
+                }
+                flush();
+                // Every inline box on the line adds its strut.
+                for (const auto& f : fragments) {
+                    above = std::max(above, boxes[f.box].strut.above);
+                    below = std::max(below, boxes[f.box].strut.below);
+                }
+                Units offset{};
+                if (bounded && x < limit) {
+                    if (align == "center") {
+                        offset = (limit - x) / 2;
+                    } else if (align == "right" || align == "end") {
+                        offset = limit - x;
+                    }
+                }
+                const float baseline = top + above;
+                for (auto& p : placed) {
+                    p.piece.rect = {pixels(offset + p.x), baseline - p.top, pixels(p.w), p.height};
+                    p.piece.baseline = p.top;
+                    out.pieces.push_back(std::move(p.piece));
+                }
+                for (const auto& f : fragments) {
+                    const auto& b = boxes[f.box];
+                    SceneInlinePiece piece;
+                    piece.kind = SceneInlinePiece::Kind::Box;
+                    piece.node = b.node;
+                    piece.first = f.first;
+                    piece.last = f.last;
+                    piece.rect = {pixels(offset + f.start), baseline - b.strut.ascent - b.top, pixels(f.end - f.start),
+                                  b.strut.ascent + b.strut.descent + b.top + b.bottom};
+                    out.pieces.push_back(std::move(piece));
+                }
+                if (!out.lines) {
+                    out.baseline = baseline;
+                }
+                out.last_baseline = baseline;
+                out.width = std::max(out.width, pixels(x));
+                top += above + below;
+                ++out.lines;
+            }
+            out.height = top;
+            return out;
+        }
+    };
+
+    SceneInlineContent::SceneInlineContent(SceneText& text, const SceneNode& root)
+        : impl_(std::make_unique<Impl>(text, root)) {
+    }
+
+    SceneInlineContent::~SceneInlineContent() = default;
+
+    SceneInlineLayout SceneInlineContent::layout(float available, SceneAtomicLayout atomic) {
+        return impl_->layout(available, atomic);
+    }
+
+    bool SceneInlineContent::breakable() const {
+        return impl_->breakable;
+    }
+} // namespace weft

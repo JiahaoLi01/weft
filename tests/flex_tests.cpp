@@ -76,7 +76,15 @@ int main() {
               {{"text", {{"font-size", "20px"}, {"line-height", "20px"}, {"white-space", "nowrap"}}, "X X", {}}}}}};
         require(box(weft::run_flex(nested, font), "text").text_height == 20,
                 "nowrap auto min-height incorrectly requires declared parent width");
+        // Wrapping text in a column of indefinite width: with an automatic basis and height its automatic minimum
+        // height is its basis, its lines at the laid-out width, so a shorter column does not shrink it below them.
+        // With another basis the minimum would need the width first: a diagnostic.
         nested.children[0].children[0].style["white-space"] = "normal";
+        nested.children[0].children[0].text = "XXXX XXXX XXXX XXXX";
+        const auto wrapped = weft::run_flex(nested, font);
+        require(box(wrapped, "text").text_lines > 1 && box(wrapped, "text").height == box(wrapped, "text").text_height,
+                "wrapping text in an indefinite column lost its automatic minimum height");
+        nested.children[0].children[0].style["flex-basis"] = "10px";
         bad(nested, "WEFT_UNSUPPORTED_INTRINSIC");
         auto root = input(cases, "web-row-default");
         root.style["display"] = "table";

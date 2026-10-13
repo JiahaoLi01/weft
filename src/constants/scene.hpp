@@ -93,6 +93,9 @@ namespace weft::constants::scene {
     inline constexpr int text_max_faces = 64;
     inline constexpr int text_font_max_bytes = 256 * constants::bytes_per_mib;
     inline constexpr int text_cache_max_entries = 256;
+    // Layouts of one inline formatting context kept per frame layout, by available width (the widths Yoga measures it
+    // at, and the final one).
+    inline constexpr int inline_layout_memo_entries = 8;
     // DirectWrite faces the reference raster keeps for drawing SceneText glyph runs.
     inline constexpr int dwrite_face_cache_max_entries = 64;
     inline constexpr int text_cache_max_bytes = 2 * constants::bytes_per_mib;

@@ -708,13 +708,9 @@ int main() {
         // Differential mutation/reordering/detachment with actual shaping/layout.
         s.vm.eval(
             "document.getElementById('root').textContent='';globalThis.nodes=[];for(let i=0;i<24;++i){let n=document.createElement('div');n.style.cssText='position:absolute;left:'+i*10+'px;top:40px;width:12px;height:12px;background:#d4a843';nodes.push(n);document.getElementById('root').appendChild(n)}let seed=123;globalThis.mutate=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;let n=nodes[seed%nodes.length];switch(seed%4){case 0:n.style.transform='translateX('+seed%13+'px)';break;case 1:n.style.backgroundColor=seed%2?'#225577':'#ff7777';break;case 2:if(n.parentNode)n.remove();else document.getElementById('root').appendChild(n);break;case 3:document.getElementById('root').appendChild(n)}}");
-        weft::SceneSolver full(
-            scene_read(WEFT_SOURCE_DIR "/examples/crpg-gallery/cluster-utilities.css"),
-            scene_read(WEFT_SOURCE_DIR "/examples/crpg-gallery/cluster-keyframes.css"),
-            [&](auto text, const auto& style) {
-                return weft::testing::thread_scene_text().measure(text, style);
-            },
-            false);
+        weft::SceneSolver full(scene_read(WEFT_SOURCE_DIR "/examples/crpg-gallery/cluster-utilities.css"),
+                               scene_read(WEFT_SOURCE_DIR "/examples/crpg-gallery/cluster-keyframes.css"),
+                               weft::testing::thread_scene_text(), false);
         weft::SceneRaster oracle{weft::testing::thread_scene_text()};
         for (unsigned i = 0; i < weft::test_constants::scene::cluster_mutation_iterations; ++i) {
             s.vm.eval("mutate()");

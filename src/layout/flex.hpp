@@ -82,6 +82,11 @@ namespace weft {
         std::optional<std::array<float, 2>> viewport;
         // Lay out each text box again at its final content width (BoxGeometry::text).
         bool final_text{};
+        // Without a viewport: the width of the root's containing block, as an atomic inline has one. Percentages
+        // resolve against it, and a root of auto width shrinks to fit it less its margins (its max-content width, but
+        // not narrower than its min-content width); a replaced root keeps its own size. Unset, the root takes its
+        // max-content width.
+        std::optional<float> fit_width;
     };
 
     // One geometry per box, in input order.
