@@ -1,6 +1,7 @@
 #include "scene/scene_display_list.hpp"
 #include "scene/scene_geometry.hpp"
 #include "scene/scene_path.hpp"
+#include "scene/scene_border.hpp"
 #include "scene/scene_inline.hpp"
 #include "scene/scene_text.hpp"
 #include "scene/scene_transform.hpp"
@@ -219,7 +220,8 @@ namespace weft {
         }
     } // namespace
 
-    SceneDisplayList scene_display_list(const SceneFrame& f, const std::vector<NodeIdentity>& layers, SceneText* text) {
+    SceneDisplayList scene_display_list(const SceneFrame& f, const std::vector<NodeIdentity>& layers, SceneText* text,
+                                        float scale) {
         SceneDisplayList out;
         auto& list = out.list;
         // Whether a subtree shows an effect: such a node draws in the pass, never as a cached layer image, so that the
@@ -602,7 +604,7 @@ namespace weft {
                     SceneDisplayList nested;
                     {
                         Nesting guard;
-                        nested = scene_display_list(content, {}, text);
+                        nested = scene_display_list(content, {}, text, scale);
                     }
                     if (!nested.fallback.empty()) {
                         throw std::invalid_argument(nested.fallback);
@@ -672,17 +674,37 @@ namespace weft {
                 box.background =
                     paint_color(constants::scene::paint_slot_background_color, "background-color", "transparent");
                 gradient(box.gradient, item.width, item.height, n.style);
+                // Solid sides are the box's; dotted and dashed ones are Chrome's shapes, drawn apart. A dotted or
+                // dashed side keeps its width in the box, transparent, so the solid sides beside it are mitered at
+                // the corners as Chrome draws them over its dots.
+                std::array<SceneBorderStyle, 4> styles{};
+                std::array<float, 4> dashed_widths{};
+                std::array<std::array<float, 4>, 4> dash_colors{};
+                bool bordered{};
                 k = 0;
                 for (const auto* edge : {"top", "right", "bottom", "left"}) {
                     auto prefix = std::string("border-") + edge;
-                    if (get(n.style, (prefix + "-style").c_str(), "solid") != "solid" &&
-                        len(get(n.style, (prefix + "-width").c_str(), "0")) > 0) {
+                    if (!scene_border_style(get(n.style, (prefix + "-style").c_str(), "solid"), styles[k])) {
                         throw std::invalid_argument("border style");
                     }
-                    box.widths[k] = len(get(n.style, (prefix + "-width").c_str(), "0"));
-                    box.edges[k] = paint_color(constants::scene::paint_slot_border_color + k,
-                                               (prefix + "-color").c_str(), "currentcolor");
+                    const float width = len(get(n.style, (prefix + "-width").c_str(), "0"));
+                    const bool stroked = styles[k] == SceneBorderStyle::Dotted || styles[k] == SceneBorderStyle::Dashed;
+                    box.widths[k] = styles[k] == SceneBorderStyle::None ? 0 : width;
+                    dashed_widths[k] = stroked ? width : 0;
+                    bordered = bordered || (styles[k] == SceneBorderStyle::Solid && width > 0);
+                    const auto edge_color = paint_color(constants::scene::paint_slot_border_color + k,
+                                                        (prefix + "-color").c_str(), "currentcolor");
+                    dash_colors[k] = edge_color;
+                    box.edges[k] = stroked ? std::array<float, 4>{} : edge_color;
                     ++k;
+                }
+                const bool dashed = std::any_of(dashed_widths.begin(), dashed_widths.end(), [](float w) {
+                    return w > 0;
+                });
+                if (dashed && std::any_of(box.radii.begin(), box.radii.end(), [](float r) {
+                        return r > 0;
+                    })) {
+                    throw std::invalid_argument("dotted or dashed border with rounded corners");
                 }
                 float opacity = std::clamp(len(get(n.style, PropertyId::Opacity, "1")), 0.f, 1.f);
                 if (n.paint && n.paint->values[constants::scene::paint_slot_opacity]) {
@@ -705,11 +727,8 @@ namespace weft {
                     list.items.push_back(item);
                     return;
                 }
-                const bool bordered = std::any_of(box.widths.begin(), box.widths.end(), [](float w) {
-                    return w > 0;
-                });
-                const bool painted =
-                    box.background[3] > 0 || box.gradient.kind != paint::GradientKind::None || bordered || n.effect;
+                const bool painted = box.background[3] > 0 || box.gradient.kind != paint::GradientKind::None ||
+                                     bordered || dashed || n.effect;
                 // Shadows of the border box with its corners as specified, as the reference raster draws them.
                 const auto shadows = scene_values::box_shadows(
                     n.style, item.width, item.height, scene_values::specified_radii(n.style, item.width, item.height));
@@ -745,8 +764,47 @@ namespace weft {
                     list.boxes.push_back(value);
                     list.items.push_back(shape);
                 };
-                if (painted && !n.effect) {
+                // Dotted and dashed sides, laid out on the pass's device pixels, before the solid sides as Chrome
+                // paints them.
+                const auto add_dashes = [&] {
+                    const std::array<double, 4> device =
+                        axis_aligned(m) ? std::array<double, 4>{double(m[0]) * scale, double(m[3]) * scale,
+                                                                double(m[4]) * scale, double(m[5]) * scale}
+                                        : std::array<double, 4>{scale, scale, 0, 0};
+                    for (unsigned side = 0; side < 4; ++side) {
+                        for (const auto& dash : scene_dashed_side({item.width, item.height}, side, dashed_widths[side],
+                                                                  styles[side], device)) {
+                            paint::Box value;
+                            value.background = dash_colors[side];
+                            if (dash.round) {
+                                value.radii.fill(dash.rect[2] / 2);
+                            }
+                            auto shape = item;
+                            shape.kind = paint::Item::Kind::Box;
+                            shape.transform = multiply(item.transform, {1, 0, 0, 1, dash.rect[0], dash.rect[1]});
+                            shape.width = dash.rect[2];
+                            shape.height = dash.rect[3];
+                            shape.payload = std::uint32_t(list.boxes.size());
+                            list.boxes.push_back(value);
+                            list.items.push_back(shape);
+                        }
+                    }
+                };
+                if (painted && !n.effect && !dashed) {
                     add_box(box);
+                } else if (painted && !n.effect) {
+                    auto under = box;
+                    under.widths = {};
+                    if (under.background[3] > 0 || under.gradient.kind != paint::GradientKind::None) {
+                        add_box(under);
+                    }
+                    add_dashes();
+                    if (bordered) {
+                        auto over = box;
+                        over.background = {};
+                        over.gradient = {};
+                        add_box(over);
+                    }
                 } else if (n.effect) {
                     // As CSS paints a background image: over the background color and under the borders, inside the
                     // border box's corners. The effect's time is the frame's.
@@ -768,6 +826,7 @@ namespace weft {
                     shape.payload = std::uint32_t(list.effects.size());
                     list.effects.push_back(std::move(effect));
                     list.items.push_back(shape);
+                    add_dashes();
                     if (bordered) {
                         auto over = box;
                         over.background = {};

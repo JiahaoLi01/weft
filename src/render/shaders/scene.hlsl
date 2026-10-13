@@ -172,6 +172,12 @@ float pixelWidth(float v) {
     return abs(ddx_fine(v)) + abs(ddy_fine(v));
 }
 
+// The share of a pixel `footprint` across, centered at position, inside the rectangle from lo to hi.
+float overlap(float2 position, float2 footprint, float2 lo, float2 hi) {
+    float2 share = saturate((min(position + footprint * .5, hi) - max(position - footprint * .5, lo)) / footprint);
+    return share.x * share.y;
+}
+
 float4 over(float4 a, float4 b) {
     return a + b * (1 - a.a);
 }
@@ -380,11 +386,21 @@ float4 ps_main(Vertex v) : SV_Target {
     float sd = distanceRound(position, p.size.xy, p.radii);
     float aa = max(pixelWidth(sd), MinimumAntialiasWidth);
     float outer = saturate(.5 - sd / aa);
+    bool rectangular = all(p.radii == 0) && p.invX.y == 0 && p.invY.x == 0;
+    // A device pixel's extent in the box's px.
+    float2 footprint = max(float2(abs(p.invX.x), abs(p.invY.y)) / scale, MinimumAntialiasWidth);
 #if SPACE_LINEAR
     // A document box without corners or rotation covers the pixels whose centers it contains, as the rasterizer
     // covers a quad, rather than a distance band that leaks past its corners.
-    if (all(p.radii == 0) && p.invX.y == 0 && p.invY.x == 0) {
+    if (rectangular) {
         outer = all(position >= 0) && all(position < p.size.xy) ? 1 : 0;
+    }
+#else
+    // A scene box without corners or rotation covers its share of each pixel, as Chrome's and the reference raster's
+    // rectangles do: a box on whole pixels stays crisp however small (a dot of a dotted border), where the distance
+    // band of a box a pixel wide spreads it over its neighbours.
+    if (rectangular) {
+        outer = overlap(position, footprint, 0, p.size.xy);
     }
 #endif
     float4 result = premult(p.background);
@@ -395,12 +411,20 @@ float4 ps_main(Vertex v) : SV_Target {
     float2 inner[4] = {float2(p.widths.w, p.widths.x), float2(p.size.x - p.widths.y, p.widths.x),
                        float2(p.size.x - p.widths.y, p.size.y - p.widths.z), float2(p.widths.w, p.size.y - p.widths.z)};
     bool equal = all(abs(p.widths - p.widths.x) < EqualBorderWidthEpsilon);
+    // A pixel whose center lies just outside a rectangular box (its antialiased edge) takes the side it is beside.
+    float2 sided = rectangular ? clamp(position, 0, p.size.xy) : position;
     [unroll]
     for (uint i = 0; i < QuadCorners; i++) {
-        if (p.widths[i] > 0 && wedge(position, equal ? p.size.xy * .5 : inner[i], corners[i],
+        if (p.widths[i] > 0 && wedge(sided, equal ? p.size.xy * .5 : inner[i], corners[i],
                                      corners[(i + 1) % QuadCorners],
                                      equal ? p.size.xy * .5 : inner[(i + 1) % QuadCorners])) {
             float coverage = saturate(.5 + (sd + p.widths[i]) / aa);
+#if !SPACE_LINEAR
+            // The share of the box's part of the pixel that lies outside the padding box.
+            if (rectangular) {
+                coverage = 1 - overlap(position, footprint, inner[0], inner[2]) / max(outer, MinimumAntialiasWidth);
+            }
+#endif
             result = over(premult(p.edges[i]) * coverage, result);
             break;
         }

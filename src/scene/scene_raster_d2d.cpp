@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include "scene/scene.hpp"
+#include "scene/scene_border.hpp"
 #include "scene/scene_inline.hpp"
 #include "scene/scene_geometry.hpp"
 #include "scene/scene_text_image.hpp"
@@ -1771,6 +1772,54 @@ namespace weft {
                 target->FillGeometry(shape.Get(), brush.Get());
             }
             gradient(n, shape.Get());
+            // Dotted and dashed sides as Chrome draws them, laid out on the target's pixels, before the solid sides.
+            {
+                const auto placed = matrix();
+                const bool aligned = std::abs(placed._12) < 1e-6f && std::abs(placed._21) < 1e-6f;
+                const std::array<double, 4> device =
+                    aligned ? std::array<double, 4>{placed._11, placed._22, placed._31, placed._32}
+                            : std::array<double, 4>{std::hypot(placed._11, placed._12),
+                                                    std::hypot(placed._21, placed._22), 0, 0};
+                unsigned side{};
+                for (const auto* edge : {"top", "right", "bottom", "left"}) {
+                    const auto key = std::string("border-") + edge;
+                    SceneBorderStyle style{};
+                    if (scene_border_style(get(n.style, key + "-style", "solid"), style) &&
+                        (style == SceneBorderStyle::Dotted || style == SceneBorderStyle::Dashed)) {
+                        const auto dashes = scene_dashed_side({n.box[2], n.box[3]}, side,
+                                                              len(get(n.style, key + "-width", "0")), style, device);
+                        if (!dashes.empty()) {
+                            solid(paint_color(n, constants::scene::paint_slot_border_color + side,
+                                              get(n.style, key + "-color", "currentcolor")));
+                        }
+                        for (const auto& d : dashes) {
+                            if (d.round) {
+                                // Flattened finely, so a small dot covers its whole area as Chrome's does.
+                                ComPtr<ID2D1EllipseGeometry> ellipse;
+                                check(factory->CreateEllipseGeometry(
+                                    D2D1::Ellipse({d.rect[0] + d.rect[2] / 2, d.rect[1] + d.rect[3] / 2}, d.rect[2] / 2,
+                                                  d.rect[3] / 2),
+                                    &ellipse));
+                                ComPtr<ID2D1PathGeometry> flat;
+                                check(factory->CreatePathGeometry(&flat));
+                                ComPtr<ID2D1GeometrySink> sink;
+                                check(flat->Open(&sink));
+                                check(ellipse->Simplify(D2D1_GEOMETRY_SIMPLIFICATION_OPTION_LINES, nullptr,
+                                                        constants::scene::round_dot_flattening_px /
+                                                            float(std::max(std::abs(device[0]), std::abs(device[1]))),
+                                                        sink.Get()));
+                                check(sink->Close());
+                                target->FillGeometry(flat.Get(), brush.Get());
+                            } else {
+                                target->FillRectangle(
+                                    D2D1::RectF(d.rect[0], d.rect[1], d.rect[0] + d.rect[2], d.rect[1] + d.rect[3]),
+                                    brush.Get());
+                            }
+                        }
+                    }
+                    ++side;
+                }
+            }
             bool has_border = commands ? commands->has_border : false;
             if (!commands) {
                 for (const auto* edge : {"top", "right", "bottom", "left"}) {

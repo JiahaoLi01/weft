@@ -57,7 +57,7 @@ namespace weft {
         shadows_.begin_pass();
         paths_.begin_pass();
         effect_textures_.begin_pass();
-        auto compiled = scene_display_list(frame, layers, &text_);
+        auto compiled = scene_display_list(frame, layers, &text_, scale);
         if (!compiled.fallback.empty()) {
             return fallback(compiled.fallback);
         }
@@ -187,7 +187,7 @@ namespace weft {
             if (w > max_image_dimension_ || h > max_image_dimension_ || entry.bytes > limits::image_max_bytes) {
                 throw std::invalid_argument("layer image byte bound");
             }
-            const auto listed = scene_display_list(frame, {}, &text_);
+            const auto listed = scene_display_list(frame, {}, &text_, scale);
             if (!listed.fallback.empty()) {
                 throw std::invalid_argument(listed.fallback);
             }

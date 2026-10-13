@@ -38,6 +38,8 @@ namespace weft {
 
         // Edge and corner longhands in top, right, bottom, left (corners: top-left first, clockwise) order.
         using Edges = std::array<PropertyId, 4>;
+        constexpr Edges border_width_edges{PropertyId::BorderTopWidth, PropertyId::BorderRightWidth,
+                                           PropertyId::BorderBottomWidth, PropertyId::BorderLeftWidth};
         constexpr Edges border_color_edges{PropertyId::BorderTopColor, PropertyId::BorderRightColor,
                                            PropertyId::BorderBottomColor, PropertyId::BorderLeftColor};
         constexpr Edges border_style_edges{PropertyId::BorderTopStyle, PropertyId::BorderRightStyle,
@@ -163,6 +165,13 @@ namespace weft {
                     if (!s.contains(k)) {
                         s[k] = v[0];
                     }
+                }
+            }
+            // A side whose style is none or hidden computes a zero width.
+            for (std::size_t side = 0; side < border_style_edges.size(); ++side) {
+                const auto style = s.text(border_style_edges[side], "solid");
+                if (style == "none" || style == "hidden") {
+                    s[border_width_edges[side]] = "0";
                 }
             }
             return s;
@@ -1298,10 +1307,20 @@ namespace weft {
         }
 
         static void collect_boxes(SceneNode& n, std::size_t parent, LayoutRun& run) {
-            for (const auto k : border_style_edges) {
-                if (n.style.text(k, "solid") != "solid") {
-                    fail("scene border requires solid style");
+            bool dashed{};
+            for (std::size_t side = 0; side < border_style_edges.size(); ++side) {
+                const auto style = n.style.text(border_style_edges[side], "solid");
+                if (style != "solid" && style != "dotted" && style != "dashed" && style != "none" &&
+                    style != "hidden") {
+                    fail("scene border style " + std::string(style) + " outside scene profile");
                 }
+                dashed |=
+                    (style == "dotted" || style == "dashed") && length(n.style.text(border_width_edges[side], "0")) > 0;
+            }
+            if (dashed && std::any_of(radius_corners.begin(), radius_corners.end(), [&](PropertyId k) {
+                    return length(n.style.text(k, "0")) > 0;
+                })) {
+                fail("dotted or dashed border with rounded corners outside scene profile");
             }
             // The scene scrolls only boxes whose content fits (checked after layout).
             const auto overflow = n.style.text(PropertyId::Overflow, "visible");

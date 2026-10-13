@@ -19,7 +19,8 @@ namespace weft {
     };
 
     // The frame's boxes, shadows, text, SVG paths, perspective planes and opacity groups in paint order. layers are the
-    // nodes drawn as cached layer images; text measures SVG text, which needs it to be placed.
+    // nodes drawn as cached layer images; text measures SVG text, which needs it to be placed. scale is the pass's
+    // device pixels per px, on which dotted and dashed borders lay out their dots and dashes.
     SceneDisplayList scene_display_list(const SceneFrame& frame, const std::vector<NodeIdentity>& layers = {},
-                                        SceneText* text = nullptr);
+                                        SceneText* text = nullptr, float scale = 1);
 } // namespace weft

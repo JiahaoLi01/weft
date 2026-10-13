@@ -96,6 +96,9 @@ namespace weft::constants::scene {
     // Layouts of one inline formatting context kept per frame layout, by available width (the widths Yoga measures it
     // at, and the final one).
     inline constexpr int inline_layout_memo_entries = 8;
+    // Device px within which the reference raster flattens the round dots of dotted borders: D2D's own quarter pixel
+    // takes a tenth of a 4 px dot's area.
+    inline constexpr float round_dot_flattening_px = .01f;
     // DirectWrite faces the reference raster keeps for drawing SceneText glyph runs.
     inline constexpr int dwrite_face_cache_max_entries = 64;
     inline constexpr int text_cache_max_bytes = 2 * constants::bytes_per_mib;

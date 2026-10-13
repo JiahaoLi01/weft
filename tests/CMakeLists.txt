@@ -195,6 +195,13 @@ if(WIN32)
     weft_add_test(NAME scene_text_metrics
         COMMAND weft_scene_text_tests "${artifacts}/scene-text-$<CONFIG>/native.json"
         FIXTURES_SETUP scene_text_report)
+    # Dotted and dashed border sides versus Chrome's pixels.
+    weft_add_executable(weft_scene_border_tests SOURCES scene_border_tests.cpp LINK weft::scene)
+    weft_add_test(NAME scene_border_patterns COMMAND weft_scene_border_tests)
+    weft_add_executable(weft_scene_border_browser_tests SOURCES scene_border_browser_tests.cpp
+        LINK weft::scene_d3d11 weft::platform_win32 windowscodecs ole32 SOURCE_DIR)
+    weft_add_test(NAME scene_border_browser_contract
+        COMMAND weft_scene_border_browser_tests "${artifacts}/scene-border-$<CONFIG>" TIMEOUT 120)
     # Scene inline formatting contexts (line breaking, inline box fragments, atomic inlines) versus Chrome's geometry.
     weft_add_executable(weft_scene_inline_tests SOURCES scene_inline_tests.cpp LINK weft::scene weft::platform_win32
         SOURCE_DIR)

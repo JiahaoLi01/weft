@@ -288,6 +288,17 @@ namespace weft {
             return s == "initial" || s == "inherit" || s == "unset";
         }
 
+        // A <line-style> keyword (lowercase).
+        bool border_style_keyword(std::string_view s) {
+            for (const auto* k :
+                 {"none", "hidden", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset"}) {
+                if (s == k) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         struct Declaration {
             std::string key;
             Tokens tokens;
@@ -332,8 +343,10 @@ namespace weft {
                 if (!custom(key)) {
                     key = lower(key);
                 }
+                const bool border_side =
+                    key == "border-top" || key == "border-right" || key == "border-bottom" || key == "border-left";
                 if (!custom(key) && !profile.properties.contains(key) &&
-                    !(profile.scene_syntax && (key == "border" || key == "flex")) &&
+                    !(profile.scene_syntax && (key == "border" || border_side || key == "flex")) &&
                     !(key == "inset" && profile.single_value_inset) &&
                     !(key == "background" && profile.properties.contains("background-color"))) {
                     fail("unsupported property " + key);
@@ -371,15 +384,17 @@ namespace weft {
                 if (tokens.empty() && !custom(key)) {
                     fail("empty declaration " + key);
                 }
-                if (profile.scene_syntax && key == "border") {
+                if (profile.scene_syntax && (key == "border" || border_side)) {
+                    // Width, style and color in any order; what is left out takes its initial value. A style the
+                    // scene does not draw stays a style, so the scene diagnoses it.
                     Tokens width{{Kind::Dimension, "0px", {}}};
-                    Tokens style{{Kind::Ident, "solid", {}}};
+                    Tokens style{{Kind::Ident, "none", {}}};
                     Tokens color{{Kind::Ident, "currentcolor", {}}};
                     for (const auto& token : tokens) {
                         if (token.kind == Kind::Dimension || token.kind == Kind::Number) {
                             width = {token};
-                        } else if (token.kind == Kind::Ident && token.text == "solid") {
-                            style = {token};
+                        } else if (token.kind == Kind::Ident && border_style_keyword(lower(token.text))) {
+                            style = {{Kind::Ident, lower(token.text), {}}};
                         } else if (token.kind == Kind::Hash || token.kind == Kind::Function ||
                                    token.kind == Kind::Ident) {
                             color = {token};
@@ -389,6 +404,9 @@ namespace weft {
                     }
                     for (const auto* side : {"top", "right", "bottom", "left"}) {
                         const auto prefix = std::string("border-") + side;
+                        if (border_side && key != prefix) {
+                            continue;
+                        }
                         result.push_back({prefix + "-width", width, important});
                         result.push_back({prefix + "-style", style, important});
                         result.push_back({prefix + "-color", color, important});
@@ -407,11 +425,14 @@ namespace weft {
                     for (const auto* side : {"left", "top", "right", "bottom"}) {
                         result.push_back({side, tokens, important, true});
                     }
-                } else if (profile.four_value_edges && (key == "padding" || key == "margin" || key == "border-width")) {
+                } else if (profile.four_value_edges &&
+                           (key == "padding" || key == "margin" || key == "border-width" ||
+                            (key == "border-style" && profile.properties.contains("border-top-style")))) {
                     int edge{};
                     for (const auto* side : {"top", "right", "bottom", "left"}) {
-                        const auto name =
-                            key == "border-width" ? std::string("border-") + side + "-width" : key + '-' + side;
+                        const auto name = key.starts_with("border-")
+                                              ? std::string("border-") + side + key.substr(std::string("border").size())
+                                              : key + '-' + side;
                         result.push_back({name, tokens, important, false, edge++});
                     }
                 } else if (profile.flow_shorthands && key == "border-radius") {

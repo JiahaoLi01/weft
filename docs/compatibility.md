@@ -91,6 +91,24 @@ CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后�
 - 列方向 flex 项里会换行的文字，宽度要由布局决定时，只在 flex-basis 与 height 都是 auto 时支持（自动最小高度等于 basis）；其他组合仍报 `WEFT_UNSUPPORTED_INTRINSIC`。
 - 诊断：其他 `white-space` 值、`text-align: justify`、行内级盒子的非 baseline `vertical-align`、行内元素里的块级盒子与定位元素都报 `WEFT_SCENE_PROFILE`；float 与 bidi 不支持。
 
+2026-10-13 重构第 11.3c 步之一：scene 的点线与虚线边框。
+- 画法按 Chrome（`BoxBorderPainter` 与 `StyledStrokeData`）：
+  - 边框盒先对齐整数设备像素，边宽向下取整为设备像素；沿边的中线排列点或段，所以缩放 2 时 1px 点线是 2×2 设备像素的方点，与 Chrome 在设备像素比 2 时相同；
+  - 虚线的段长为边宽的 3 倍（1–2 设备像素宽）或 2 倍（更宽），间隔取让两端都是整段的值；点线 1–3 设备像素宽时为方点，两端按 Blink 的规则补整点，更宽时为圆点；
+  - 先画点线与虚线边，再画实线边；实线边在与它们相交的角上斜接。
+- 写法：
+  - `border` 与 `border-top/right/bottom/left` 简写：宽、样式、颜色顺序任意，缺样式时为 none；
+  - `border-style` 一到四个值（Tailwind 的 `border-dotted`）；`none`、`hidden` 的边宽为 0。
+- 与此前不同：scene 以前不把 `border-style` 展开到各边（被静默忽略），`border` 简写缺样式时当作 solid；现在都按 CSS。
+- 原生 scene pass 中没有圆角、没有旋转的盒子按像素面积算覆盖率（与 Skia、D2D 的矩形一致）：整像素上的盒子再小也是实的，离格盒子每个像素按所占份额混合；这类盒子带边框时，外缘那圈抗锯齿像素此前取背景色，现取边框色。旋转的带边框盒子外缘仍取背景色。
+- 验证：17 个用例（各宽度的点线与虚线、四边、竖边、小数位置、与实线相交、带背景、长圆点线、行内关键词）在缩放 1、2 下与 Chrome 截图逐像素对照：
+  - 方点与虚线在参考光栅与原生 pass 都与 Chrome 完全相同；
+  - 圆点的边缘像素按各自的抗锯齿有差异，墨量差 3% 以内，每个点的质心差不到 0.05 px。
+- 限制与诊断：
+  - 带圆角的点线、虚线边框，`double`、`groove`、`ridge`、`inset`、`outset` 报 `WEFT_SCENE_PROFILE`；
+  - 原生 pass 的圆点外有一圈约 9% 覆盖的淡晕（距离场的抗锯齿）；
+  - 实线边框宽度不按设备像素取整，离格盒子也不像 Chrome 那样对齐像素，所以离格时比 Chrome 虚一些。
+
 | 能力 | P0 探针 | v0.1 目标 | 后续 |
 | --- | --- | --- | --- |
 | 层叠 | UA/author/inline、important、继承与 source order | 同左，配套 CSSOM 更新 | cascade layers、复杂 at-rule |
