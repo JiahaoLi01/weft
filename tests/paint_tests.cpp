@@ -1044,6 +1044,146 @@ void particles() {
     require(weft::render::plan_scene_pass(list, 2, 200, 200).value().batches.empty(), "no particles, no draw");
 }
 
+// Backdrop filters: what the checks refuse, append's renumbering, and the plan of a backdrop: a record of the box's shape
+// with its matrix after the blur and the device px of its region, a Backdrop step with the region, the matrix before the
+// blur, the size it is downsampled to and the blur that remains there, none for a region outside the target.
+void backdrops() {
+    using Step = weft::render::ScenePass::Step;
+    const auto make = [] {
+        paint::DisplayList list;
+        paint::Backdrop b;
+        b.blur = 10;
+        b.radii = {4, 4, 4, 4};
+        b.post[0] = 2;
+        list.backdrops.push_back(b);
+        auto i = item(Kind::Backdrop);
+        i.width = 40;
+        i.height = 30;
+        i.clip = {0, 0, 100, 100};
+        i.transform = {1, 0, 0, 1, 10.5f, 20};
+        list.items.push_back(i);
+        return list;
+    };
+    require(bool(paint::check(make(), 4)), "a well-formed backdrop");
+    const auto refused = [&](auto&& change, const char* reason, const char* what) {
+        auto list = make();
+        change(list);
+        require(rejected(list, 4, reason), what);
+    };
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    refused(
+        [](paint::DisplayList& l) {
+            l.items[0].payload = 1;
+        },
+        "backdrop payload out of range", "a backdrop out of range");
+    refused(
+        [](paint::DisplayList& l) {
+            l.backdrops[0].blur = -1;
+        },
+        "backdrop value", "a negative blur");
+    refused(
+        [](paint::DisplayList& l) {
+            l.backdrops[0].blur = weft::constants::max_backdrop_blur + 1;
+        },
+        "backdrop value", "a blur past the bound");
+    refused(
+        [&](paint::DisplayList& l) {
+            l.backdrops[0].pre[3] = nan;
+        },
+        "backdrop value", "a matrix that is not finite");
+    refused(
+        [](paint::DisplayList& l) {
+            l.backdrops[0].radii[1] = -1;
+        },
+        "backdrop value", "a negative radius");
+    refused(
+        [](paint::DisplayList& l) {
+            l.backdrops[0].under = true;
+        },
+        "backdrop under no group", "beneath no group");
+    {
+        auto grouped = make();
+        grouped.backdrops[0].under = true;
+        grouped.items.insert(grouped.items.begin(), item(Kind::BeginGroup));
+        grouped.items.push_back(item(Kind::EndGroup));
+        require(bool(paint::check(grouped, 4)), "a backdrop beneath its group");
+    }
+    {
+        auto into = make();
+        require(bool(paint::append(into, make())) && into.backdrops.size() == 2 && into.items[1].payload == 1,
+                "appended backdrops renumbered");
+    }
+    // The plan at scale 2: the box covers device px [21, 101) x [40, 100); a blur of 20 device px downsamples it to a fifth,
+    // 16 x 12, where it is four.
+    const auto list = make();
+    const auto pass = weft::render::plan_scene_pass(list, 2, 200, 200).value();
+    require(pass.batches.size() == 1 && pass.batches[0].step == Step::Backdrop && pass.batches[0].source == 0 &&
+                pass.backdrops.size() == 1,
+            "a backdrop's step");
+    const auto& b = pass.backdrops[0];
+    require(b.region == std::array<std::int32_t, 4>{21, 40, 101, 100} && b.size == std::array<unsigned, 2>{16, 12} &&
+                b.sigma == std::array<float, 2>{4, 4} && b.pre == paint::identity_color_matrix && !b.under,
+            "a backdrop's region and blur");
+    const auto& r = pass.records[0];
+    require(r.mode[0] == weft::constants::render::scene::image_mode_backdrop &&
+                r.uv == weft::render::SceneRecord::Vector{21, 40, 80, 60} &&
+                r.radii == weft::render::SceneRecord::Vector{4, 4, 4, 4} &&
+                weft::render::effect_parameter(const_cast<weft::render::SceneRecord&>(r), 0)[0] == 2 &&
+                r.extra[3] == weft::constants::render::scene::flag_enabled,
+            "a backdrop's record");
+    // A blur of exactly four device px blurs without a downsample; a scaled item's blur scales with it.
+    {
+        auto edge = make();
+        edge.backdrops[0].blur = 2;
+        const auto exact = weft::render::plan_scene_pass(edge, 2, 200, 200).value().backdrops.at(0);
+        require(exact.size == std::array<unsigned, 2>{80, 60} && exact.sigma == std::array<float, 2>{4, 4},
+                "a blur of four device px");
+        edge.items[0].transform = {2, 0, 0, 2, 0, 0};
+        const auto scaled = weft::render::plan_scene_pass(edge, 1, 200, 200).value().backdrops.at(0);
+        require(scaled.size == std::array<unsigned, 2>{80, 60} && scaled.sigma == std::array<float, 2>{4, 4},
+                "a blur scales with its item");
+        // A blur so wide the region would scale below a texel keeps one, with the blur that remains there.
+        edge.backdrops[0].blur = 256;
+        const auto widest = weft::render::plan_scene_pass(edge, 1, 200, 200).value().backdrops.at(0);
+        require(widest.size == std::array<unsigned, 2>{1, 1} &&
+                    widest.sigma == std::array<float, 2>{512.f / 80, 512.f / 60},
+                "a blur wider than the region");
+    }
+    // Without a matrix after the blur, the record says so.
+    auto plain = make();
+    plain.backdrops[0].post = paint::identity_color_matrix;
+    require(weft::render::plan_scene_pass(plain, 2, 200, 200).value().records[0].extra[3] !=
+                weft::constants::render::scene::flag_enabled,
+            "no matrix after the blur");
+    // A box on a fraction of a device pixel reads every pixel it touches: its region rounds out.
+    {
+        auto fractional = make();
+        fractional.items[0].transform = {1, 0, 0, 1, 10.25f, 20.25f};
+        const auto out = weft::render::plan_scene_pass(fractional, 2, 200, 200).value().backdrops.at(0);
+        require(out.region == std::array<std::int32_t, 4>{20, 40, 101, 101}, "a backdrop's region rounds out");
+        // Its 81 x 61 px downsample to whole texels, 16 x 12, and the blur there follows from each axis's scale.
+        require(out.size == std::array<unsigned, 2>{16, 12} &&
+                    out.sigma == std::array<float, 2>{20.f * 16 / 81, 20.f * 12 / 61},
+                "a backdrop's downsample to whole texels");
+    }
+    // Outside the target, nothing to read or draw.
+    auto away = make();
+    away.items[0].transform = {1, 0, 0, 1, 500, 500};
+    require(weft::render::plan_scene_pass(away, 2, 200, 200).value().batches.empty(), "a backdrop off the target");
+    // The blur constants: weights over both sides sum to 1, three sigmas of taps.
+    const auto k = weft::render::backdrop_blur_constants(2, true, 10, 20);
+    float sum = k.weights[0][0];
+    for (int i = 1; i <= int(k.extent[0]); ++i) {
+        sum += 2 * k.weights[std::size_t(i) / 4][std::size_t(i) % 4];
+    }
+    require(k.extent[0] == 6 && std::abs(sum - 1) < 1e-5f && k.texel[2] == .1f && k.texel[3] == 0,
+            "a Gaussian pass's constants");
+    // An area downsample's: source texels per target texel, the axis and the source's texels on it.
+    require(weft::render::backdrop_area_constants(81, 16, false).texel ==
+                weft::render::SceneRecord::Vector{81.f / 16, 0, 81, 0},
+            "an area downsample's constants");
+}
+
 int main() {
     try {
         checks();
@@ -1058,9 +1198,10 @@ int main() {
         planes();
         effects();
         particles();
+        backdrops();
         std::cout << "PASS paint contracts: display list payloads, rasters, shadows, group nesting and kinds; scene "
                      "pass plans; quad lists; external textures; appended lists; shadow images; planes; effects; "
-                     "particles\n";
+                     "particles; backdrops\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

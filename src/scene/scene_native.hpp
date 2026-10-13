@@ -47,6 +47,8 @@ namespace weft {
         std::size_t effect_texture_reuses{};
         // Plane contents drawn by nested passes into their images.
         std::size_t plane_passes{};
+        // Backdrops copied from a target and filtered.
+        std::size_t backdrop_passes{};
         // Cached images evicted for the caches' bounds (SceneCacheBounds).
         std::size_t image_evictions{};
         // The most text, shadow and path images one pass sampled, and the most bytes, its planes' and layers' passes

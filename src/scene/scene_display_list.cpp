@@ -2,6 +2,7 @@
 #include "scene/scene_geometry.hpp"
 #include "scene/scene_path.hpp"
 #include "scene/scene_border.hpp"
+#include "scene/scene_filter.hpp"
 #include "scene/scene_inline.hpp"
 #include "scene/scene_text.hpp"
 #include "scene/scene_transform.hpp"
@@ -224,13 +225,24 @@ namespace weft {
                                         float scale) {
         SceneDisplayList out;
         auto& list = out.list;
-        // Whether a subtree shows an effect or particles: such a node draws in the pass, never as a cached layer image,
-        // so that they follow the frame's time and their own values.
-        const auto shows_effect = [](auto&& self, const SceneNode& n) -> bool {
-            return n.effect || !n.particles.empty() ||
+        // Whether a node has a backdrop filter.
+        const auto filters = [](const SceneNode& n) {
+            const auto* v = n.style.find(PropertyId::BackdropFilter);
+            return v && !css::trim(v->text()).empty() && css::trim(v->text()) != "none";
+        };
+        // Whether a subtree shows an effect, particles or a backdrop filter: such a node draws in the pass, never as a
+        // cached layer image, so that they follow the frame's time, their own values and what lies behind them.
+        const auto shows_effect = [&](auto&& self, const SceneNode& n) -> bool {
+            return n.effect || !n.particles.empty() || filters(n) ||
                    std::any_of(n.children.begin(), n.children.end(), [&](const SceneNode& child) {
                        return self(self, child);
                    });
+        };
+        // Whether a descendant of n has a backdrop filter.
+        const auto filtered_below = [&](auto&& self, const SceneNode& n) -> bool {
+            return std::any_of(n.children.begin(), n.children.end(), [&](const SceneNode& child) {
+                return filters(child) || self(self, child);
+            });
         };
         // The index of a program or an asset in the list, added the first time.
         const auto index_of = [](auto& leases, const auto& lease) {
@@ -733,8 +745,32 @@ namespace weft {
                 // Shadows of the border box with its corners as specified, as the reference raster draws them.
                 const auto shadows = scene_values::box_shadows(
                     n.style, item.width, item.height, scene_values::specified_radii(n.style, item.width, item.height));
-                const bool isolated = opacity < 1 && (!n.children.empty() || (!n.text.empty() && painted) ||
-                                                      (!shadows.empty() && (painted || !n.text.empty())));
+                // backdrop-filter: what lies behind the box, filtered, under everything the element paints. An element
+                // whose opacity or a descendant's backdrop needs a group of its own draws it at the group's end, beneath
+                // what the group holds (a descendant's backdrop holds the element's own painting alone).
+                const auto filtered = scene_backdrop_filter(get(n.style, PropertyId::BackdropFilter, "none"));
+                if (!filtered) {
+                    throw std::invalid_argument(filtered.error().message);
+                }
+                const auto& backdrop = *filtered;
+                const bool backdrop_group = backdrop && (opacity < 1 || filtered_below(filtered_below, n));
+                const auto add_backdrop = [&](bool under) {
+                    paint::Backdrop b;
+                    b.blur = backdrop->blur;
+                    b.pre = backdrop->pre;
+                    b.post = backdrop->post;
+                    b.radii = box.radii;
+                    b.under = under;
+                    auto shape = item;
+                    shape.kind = paint::Item::Kind::Backdrop;
+                    shape.opacity = 1;
+                    shape.payload = std::uint32_t(list.backdrops.size());
+                    list.backdrops.push_back(b);
+                    list.items.push_back(shape);
+                };
+                const bool isolated =
+                    backdrop_group || (opacity < 1 && (!n.children.empty() || (!n.text.empty() && painted) ||
+                                                       (!shadows.empty() && (painted || !n.text.empty()))));
                 if (!isolated) {
                     item.opacity = opacity;
                 }
@@ -749,6 +785,9 @@ namespace weft {
                     g.clips_begin = chain.begin;
                     g.clips_count = chain.count;
                     list.items.push_back(g);
+                }
+                if (backdrop && !backdrop_group) {
+                    add_backdrop(false);
                 }
                 // Shadows lie under the box, bottom first.
                 for (const auto& shadow : shadows) {
@@ -978,6 +1017,9 @@ namespace weft {
                 });
                 for (auto i : order) {
                     self(self, n.children[i], item.transform, clip, chain);
+                }
+                if (backdrop_group) {
+                    add_backdrop(true);
                 }
                 if (isolated) {
                     paint::Item g;

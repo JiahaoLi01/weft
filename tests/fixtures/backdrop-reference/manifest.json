@@ -1,0 +1,94 @@
+{
+ "format": "weft-backdrop-reference-v1",
+ "browser": "Chrome/155.0.8059.40",
+ "gpu": {
+  "devices": [
+   {
+    "name": "NVIDIA GeForce RTX 5090",
+    "driver": "32.0.16.1062"
+   },
+   {
+    "name": "AMD Radeon(TM) Graphics",
+    "driver": "32.0.21043.5001"
+   },
+   {
+    "name": "Microsoft Basic Render Driver",
+    "driver": "10.0.26100.9278"
+   }
+  ],
+  "features": {
+   "2d_canvas": "enabled",
+   "direct_rendering_display_compositor": "disabled_off_ok",
+   "gpu_compositing": "enabled",
+   "multiple_raster_threads": "enabled_on",
+   "opengl": "enabled_on",
+   "rasterization": "enabled",
+   "raw_draw": "disabled_off_ok",
+   "skia_graphite": "disabled_off",
+   "trees_in_viz": "disabled_off",
+   "video_decode": "enabled",
+   "video_encode": "enabled",
+   "webgl": "enabled",
+   "webgpu": "enabled",
+   "webnn": "disabled_off"
+  }
+ },
+ "cases_sha256": "1c27d793c920353e0d61880ef104db1779abdab2e3c3d5fe51b752c225fb1cc9",
+ "captures": [
+  {
+   "name": "blur-3",
+   "scale": 1,
+   "sha256": "cc15cab67f2ebb79c3d04d5c92fc932ec6bb58f8033931ffdef4757a24d20d7c"
+  },
+  {
+   "name": "blur-20",
+   "scale": 1,
+   "sha256": "87b9db743f60fc8923da797627bc25d7feeea08f4fd5470424a66889da079756"
+  },
+  {
+   "name": "blur-8-scale-2",
+   "scale": 2,
+   "sha256": "9bb11ca5eca0676ead327c9bc3e9e1d0bf74046364553c159bfc996f1d2c2118"
+  },
+  {
+   "name": "rounded",
+   "scale": 1,
+   "sha256": "b7293403d4d0497823c6ae20c11016177a7eac584499e5da0c2fb02553ee79f7"
+  },
+  {
+   "name": "saturate",
+   "scale": 1,
+   "sha256": "4d2950d5c1d32aa5f528bc6ce1b2a3049d1bb6ae1df6225d30b986709159a690"
+  },
+  {
+   "name": "grayscale-first",
+   "scale": 1,
+   "sha256": "9de7a1f6c9cbe1f6887c235ee012ed3a377c1f90a090b6ccf3fb947d01e85ccf"
+  },
+  {
+   "name": "edge",
+   "scale": 1,
+   "sha256": "5681e6cdc91e73fd767bc24ec62ed4b4029ee3eafd94dc35cdb56a78a57a2002"
+  },
+  {
+   "name": "opacity",
+   "scale": 1,
+   "sha256": "5161cf05d508797eb60873c6759f3cc841e1e1d4890a620c5248f46519b8a407"
+  },
+  {
+   "name": "group",
+   "scale": 1,
+   "sha256": "f109c5b837401e6c623c2f8784ef2bcf95f858f1a87171dea879ac078024028d"
+  },
+  {
+   "name": "nested",
+   "scale": 1,
+   "sha256": "292a9537de009dbfa9a179d45be47377c696c14107b269482c666ba32caade5c"
+  },
+  {
+   "name": "frosted",
+   "scale": 2,
+   "sha256": "f16570cb271356da3bef6c6105eead960b7020ce2dc3b7f0a805aec80e9d1299"
+  }
+ ]
+}

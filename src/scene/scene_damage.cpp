@@ -1,4 +1,5 @@
 #include "scene/scene.hpp"
+#include "base/css_scalar.hpp"
 #include "constants/scene.hpp"
 #include <algorithm>
 #include <cmath>
@@ -107,6 +108,17 @@ namespace weft {
                 }
             }
         };
+        // A backdrop filter shows what lies behind its element, wherever that changes: a frame with one repaints whole
+        // when anything changed.
+        const auto filters = [](auto&& self, const SceneNode& n) -> bool {
+            const auto* v = n.style.find(PropertyId::BackdropFilter);
+            if (v && !css::trim(v->text()).empty() && css::trim(v->text()) != "none") {
+                return true;
+            }
+            return std::any_of(n.children.begin(), n.children.end(), [&](const SceneNode& c) {
+                return self(self, c);
+            });
+        };
         auto visit = [&](auto&& self, const SceneNode& x, const SceneNode& y, bool projected_x,
                          bool projected_y) -> void {
             if (out.full) {
@@ -141,6 +153,10 @@ namespace weft {
         };
         visit(visit, a.root, b.root, false, false);
         if (out.full || !out.changed) {
+            return out;
+        }
+        if (filters(filters, a.root) || filters(filters, b.root)) {
+            full();
             return out;
         }
         // Integer physical pixel boundaries, including AA and flattening guards.

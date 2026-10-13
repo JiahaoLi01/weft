@@ -201,6 +201,25 @@ int main(int argc, char** argv) {
             }
             CHECK(result == WEFT_RENDER_UNSUPPORTED_FEATURE && !refused.renderer_id);
         }
+        // And backdrops.
+        {
+            weft::paint::DisplayList list;
+            list.backdrops.emplace_back();
+            weft::paint::Item item;
+            item.kind = weft::paint::Item::Kind::Backdrop;
+            item.width = 10;
+            item.height = 10;
+            item.clip = {0, 0, 96, 64};
+            list.items.push_back(item);
+            const weft_paint_list backdrop_list{std::make_shared<const weft::paint::DisplayList>(std::move(list))};
+            const weft_render_list_frame input{sizeof(input), WEFT_RENDER_ABI_VERSION, &backdrop_list, 0, 0, nullptr};
+            weft_render_handle refused{};
+            const auto result = weft_renderer_prepare_list(framed.ensure_backend().renderer, &input, &refused);
+            if (refused.renderer_id) {
+                weft_renderer_release_prepared(framed.ensure_backend().renderer, refused);
+            }
+            CHECK(result == WEFT_RENDER_UNSUPPORTED_FEATURE && !refused.renderer_id);
+        }
         framed.check_debug_messages();
 
         // Isolated groups composite once at their opacity: red under blue at half opacity shows half blue where they

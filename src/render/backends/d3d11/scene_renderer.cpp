@@ -62,6 +62,45 @@ namespace weft::render::d3d11 {
                         "native particle vertex shader");
         throw_if_failed(gpu.device->CreatePixelShader(particle_ps, sizeof(particle_ps), nullptr, &particle_ps_),
                         "native particle pixel shader");
+        static constexpr unsigned char backdrop_vs[] = {
+#include "shaders/backdrop_blur.vs.inc"
+        };
+        static constexpr unsigned char area_ps[] = {
+#include "shaders/backdrop_area.ps.inc"
+        };
+        static constexpr unsigned char blur_ps[] = {
+#include "shaders/backdrop_blur.ps.inc"
+        };
+        static constexpr unsigned char matrix_ps[] = {
+#include "shaders/backdrop_matrix.ps.inc"
+        };
+        throw_if_failed(gpu.device->CreateVertexShader(backdrop_vs, sizeof(backdrop_vs), nullptr, &backdrop_vs_),
+                        "native backdrop vertex shader");
+        throw_if_failed(gpu.device->CreatePixelShader(area_ps, sizeof(area_ps), nullptr, &area_ps_),
+                        "native backdrop area shader");
+        throw_if_failed(gpu.device->CreatePixelShader(blur_ps, sizeof(blur_ps), nullptr, &blur_ps_),
+                        "native backdrop blur shader");
+        throw_if_failed(gpu.device->CreatePixelShader(matrix_ps, sizeof(matrix_ps), nullptr, &matrix_ps_),
+                        "native backdrop matrix shader");
+        D3D11_SAMPLER_DESC mirror{};
+        mirror.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+        mirror.AddressU = mirror.AddressV = mirror.AddressW = D3D11_TEXTURE_ADDRESS_MIRROR;
+        mirror.MaxLOD = D3D11_FLOAT32_MAX;
+        throw_if_failed(gpu.device->CreateSamplerState(&mirror, &mirror_), "native backdrop sampler");
+        // Destination over, premultiplied: what the group holds stays over the backdrop.
+        D3D11_BLEND_DESC under{};
+        auto& rt = under.RenderTarget[0];
+        rt.BlendEnable = TRUE;
+        rt.SrcBlend = rt.SrcBlendAlpha = D3D11_BLEND_INV_DEST_ALPHA;
+        rt.DestBlend = rt.DestBlendAlpha = D3D11_BLEND_ONE;
+        rt.BlendOp = rt.BlendOpAlpha = D3D11_BLEND_OP_ADD;
+        rt.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+        throw_if_failed(gpu.device->CreateBlendState(&under, &under_), "native backdrop blend state");
+        D3D11_BUFFER_DESC constants{};
+        constants.ByteWidth = limits::backdrop_constants_bytes;
+        constants.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        throw_if_failed(gpu.device->CreateBuffer(&constants, nullptr, &backdrop_constants_),
+                        "native backdrop constants");
         D3D11_RASTERIZER_DESC raster{};
         raster.FillMode = D3D11_FILL_SOLID;
         raster.CullMode = D3D11_CULL_NONE;
@@ -159,6 +198,84 @@ namespace weft::render::d3d11 {
         pass.target = group_target(gpu_.device.Get(), layer->width, layer->height);
         draw_pass(pass, *layer->content, pass.target.rtv.Get(), scale);
         return textures_.emplace(layer->id, Texture{layer, pass.target.srv}).first->second.view.Get();
+    }
+
+    ID3D11ShaderResourceView* SceneRenderer::backdrop(const ScenePass::Backdrop& b, ID3D11RenderTargetView* from) {
+        auto* ctx = gpu_.immediate.Get();
+        ComPtr<ID3D11Resource> resource;
+        from->GetResource(&resource);
+        ComPtr<ID3D11Texture2D> source;
+        throw_if_failed(resource.As(&source), "native backdrop source texture");
+        D3D11_TEXTURE2D_DESC desc{};
+        source->GetDesc(&desc);
+        // A target of the chain: its place in the chain names it, so a backdrop's targets are distinct.
+        unsigned place{};
+        const auto target = [&](unsigned w, unsigned h, DXGI_FORMAT format) -> Surface& {
+            auto& kept = backdrop_targets_[{unsigned(format), w, h, place++}];
+            kept.used = backdrop_frame_;
+            auto& s = kept.surface;
+            if (!s.texture) {
+                D3D11_TEXTURE2D_DESC d{};
+                d.Width = w;
+                d.Height = h;
+                d.MipLevels = d.ArraySize = 1;
+                d.Format = format;
+                d.SampleDesc.Count = 1;
+                d.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+                throw_if_failed(gpu_.device->CreateTexture2D(&d, nullptr, &s.texture), "native backdrop texture");
+                throw_if_failed(gpu_.device->CreateRenderTargetView(s.texture.Get(), nullptr, &s.rtv),
+                                "native backdrop RTV");
+                throw_if_failed(gpu_.device->CreateShaderResourceView(s.texture.Get(), nullptr, &s.srv),
+                                "native backdrop SRV");
+            }
+            return s;
+        };
+        auto w = unsigned(b.region[2] - b.region[0]);
+        auto h = unsigned(b.region[3] - b.region[1]);
+        auto* current = &target(w, h, desc.Format);
+        const D3D11_BOX box{UINT(b.region[0]), UINT(b.region[1]), 0, UINT(b.region[2]), UINT(b.region[3]), 1};
+        ctx->CopySubresourceRegion(current->texture.Get(), 0, 0, 0, 0, resource.Get(), 0, &box);
+        ctx->ClearState();
+        ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ctx->VSSetShader(backdrop_vs_.Get(), nullptr, 0);
+        auto* sampler = mirror_.Get();
+        ctx->PSSetSamplers(0, 1, &sampler);
+        auto* constants = backdrop_constants_.Get();
+        ctx->PSSetConstantBuffers(0, 1, &constants);
+        // One fullscreen pass from the current image into a w x h target.
+        const auto pass = [&](ID3D11PixelShader* shader, const BackdropConstants& values) {
+            auto& out = target(w, h, DXGI_FORMAT_B8G8R8A8_UNORM);
+            ctx->UpdateSubresource(constants, 0, nullptr, &values, 0, 0);
+            ID3D11ShaderResourceView* none = nullptr;
+            ctx->PSSetShaderResources(0, 1, &none);
+            ctx->OMSetRenderTargets(1, out.rtv.GetAddressOf(), nullptr);
+            const D3D11_VIEWPORT viewport{0, 0, float(w), float(h), 0, 1};
+            ctx->RSSetViewports(1, &viewport);
+            ctx->PSSetShader(shader, nullptr, 0);
+            auto* view = current->srv.Get();
+            ctx->PSSetShaderResources(0, 1, &view);
+            ctx->Draw(3, 0);
+            current = &out;
+        };
+        if (b.pre != paint::identity_color_matrix) {
+            pass(matrix_ps_.Get(), backdrop_matrix_constants(b.pre));
+        }
+        if (b.size[0] < w) {
+            const auto wide = w;
+            w = b.size[0];
+            pass(area_ps_.Get(), backdrop_area_constants(wide, w, true));
+        }
+        if (b.size[1] < h) {
+            const auto tall = h;
+            h = b.size[1];
+            pass(area_ps_.Get(), backdrop_area_constants(tall, h, false));
+        }
+        if (b.sigma[0] > 0) {
+            pass(blur_ps_.Get(), backdrop_blur_constants(b.sigma[0], true, w, h));
+            pass(blur_ps_.Get(), backdrop_blur_constants(b.sigma[1], false, w, h));
+        }
+        ++backdrop_passes;
+        return current->srv.Get();
     }
 
     ID3D11PixelShader* SceneRenderer::effect_shader(const std::shared_ptr<const paint::EffectProgram>& program) {
@@ -283,24 +400,33 @@ namespace weft::render::d3d11 {
         }
         Color view{float(target_width), float(target_height), scale, 0};
         ctx->UpdateSubresource(slot.constants.Get(), 0, nullptr, view.data(), 0, 0);
-        auto* buffer = slot.constants.Get();
-        ctx->VSSetConstantBuffers(0, 1, &buffer);
-        ctx->PSSetConstantBuffers(0, 1, &buffer);
-        auto* values = slot.view.Get();
-        ctx->VSSetShaderResources(0, 1, &values);
-        ctx->PSSetShaderResources(0, 1, &values);
-        ctx->VSSetShader(vs_.Get(), nullptr, 0);
-        ctx->PSSetShader(ps_.Get(), nullptr, 0);
-        ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        ctx->RSSetState(raster_.Get());
-        D3D11_VIEWPORT vp{0, 0, float(target_width), float(target_height), 0, 1};
-        ctx->RSSetViewports(1, &vp);
-        D3D11_RECT clip{0, 0, LONG(target_width), LONG(target_height)};
-        ctx->RSSetScissorRects(1, &clip);
         float blend[4]{};
-        ctx->OMSetBlendState(gpu_.blend.Get(), blend, UINT_MAX);
-        auto* sampler = gpu_.sampler.Get();
-        ctx->PSSetSamplers(0, 1, &sampler);
+        // The pass's state: set once, and again after a backdrop's passes replaced it.
+        const auto bind = [&] {
+            if (!pass.clips.empty()) {
+                auto* clip_values = slot.clip_view.Get();
+                ctx->VSSetShaderResources(2, 1, &clip_values);
+                ctx->PSSetShaderResources(2, 1, &clip_values);
+            }
+            auto* buffer = slot.constants.Get();
+            ctx->VSSetConstantBuffers(0, 1, &buffer);
+            ctx->PSSetConstantBuffers(0, 1, &buffer);
+            auto* values = slot.view.Get();
+            ctx->VSSetShaderResources(0, 1, &values);
+            ctx->PSSetShaderResources(0, 1, &values);
+            ctx->VSSetShader(vs_.Get(), nullptr, 0);
+            ctx->PSSetShader(ps_.Get(), nullptr, 0);
+            ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            ctx->RSSetState(raster_.Get());
+            const D3D11_VIEWPORT vp{0, 0, float(target_width), float(target_height), 0, 1};
+            ctx->RSSetViewports(1, &vp);
+            const D3D11_RECT clip{0, 0, LONG(target_width), LONG(target_height)};
+            ctx->RSSetScissorRects(1, &clip);
+            ctx->OMSetBlendState(gpu_.blend.Get(), blend, UINT_MAX);
+            auto* sampler = gpu_.sampler.Get();
+            ctx->PSSetSamplers(0, 1, &sampler);
+        };
+        bind();
         Color clear{};
         ctx->ClearRenderTargetView(destination, pass.clear.data());
         ctx->OMSetRenderTargets(1, &destination, nullptr);
@@ -313,7 +439,8 @@ namespace weft::render::d3d11 {
         if (offsets) {
             for (const auto& batch : pass.batches) {
                 if (batch.step == Step::Boxes || batch.step == Step::EndGroup || batch.step == Step::Effect ||
-                    batch.step == Step::Particles || (batch.step == Step::Image && views[batch.first])) {
+                    batch.step == Step::Particles || batch.step == Step::Backdrop ||
+                    (batch.step == Step::Image && views[batch.first])) {
                     starts.push_back(batch.first);
                 }
             }
@@ -408,6 +535,23 @@ namespace weft::render::d3d11 {
                     ctx->PSSetShader(ps_.Get(), nullptr, 0);
                     break;
                 }
+                case Step::Backdrop: {
+                    // The backdrop's filtered copy of the target it reads (the current one, or the one enclosing
+                    // the current group), drawn as its record over the current target or beneath its content.
+                    const auto& b = pass.backdrops.at(batch.source);
+                    ensure(!b.under || stack.size() > 1, "a backdrop beneath a group inside one");
+                    auto* filtered = backdrop(b, b.under ? stack[stack.size() - 2] : stack.back());
+                    bind();
+                    target(stack.back());
+                    if (b.under) {
+                        ctx->OMSetBlendState(under_.Get(), blend, UINT_MAX);
+                    }
+                    instances(batch.first, 1, filtered);
+                    if (b.under) {
+                        ctx->OMSetBlendState(gpu_.blend.Get(), blend, UINT_MAX);
+                    }
+                    break;
+                }
                 case Step::Particles: {
                     // The particle pass over the emission's record, its sprite at t3.
                     ctx->VSSetShader(particle_vs_.Get(), nullptr, 0);
@@ -427,9 +571,14 @@ namespace weft::render::d3d11 {
     bool SceneRenderer::paint(Slot& slot, const SceneFrame& frame, ID3D11RenderTargetView* destination, float scale,
                               unsigned target_width, unsigned target_height, std::optional<std::array<float, 4>> crop,
                               unsigned view_index, const std::vector<NodeIdentity>& layers) {
-        // Textures of images and layers that neither the preparer nor a slot holds any more.
+        // Textures of images and layers that neither the preparer nor a slot holds any more, and backdrop targets
+        // neither the last frame nor this one used (D3D11 keeps a released texture until the GPU is done with it).
         std::erase_if(textures_, [](const auto& texture) {
             return texture.second.source.expired();
+        });
+        ++backdrop_frame_;
+        std::erase_if(backdrop_targets_, [&](const auto& target) {
+            return target.second.used + 1 < backdrop_frame_;
         });
         const auto prepared = preparer_.prepare(frame, scale, target_width, target_height, crop, view_index, layers);
         if (!prepared) {

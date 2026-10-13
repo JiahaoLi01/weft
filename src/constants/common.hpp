@@ -60,6 +60,8 @@ namespace weft::constants {
     inline constexpr unsigned particle_index_period = 1u << 24;
     // Below this drag (per second) particles move as without drag: the drag terms' limits.
     inline constexpr float particle_drag_epsilon = 1e-4f;
+    // Largest standard deviation of a backdrop filter's blur (paint::Backdrop), in item px.
+    inline constexpr float max_backdrop_blur = 256;
     // Largest viewport edge accepted by the layout and scene profiles.
     inline constexpr int max_viewport_dimension_px = 4096;
     inline constexpr int rgba8_bytes_per_pixel = 4;

@@ -8,6 +8,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -95,6 +96,26 @@ namespace weft::render::d3d11 {
         // The particle pass: both stages of scene.hlsl's WEFT_PARTICLES variant.
         ComPtr<ID3D11VertexShader> particle_vs_;
         ComPtr<ID3D11PixelShader> particle_ps_;
+        // The backdrop passes (backdrop.hlsl): a fullscreen triangle, the area downsample, the Gaussian pass and the
+        // color matrix; the sampler that mirrors addresses past an image's edge, destination-over blending (a backdrop
+        // beneath its group's content) and the passes' constants.
+        ComPtr<ID3D11VertexShader> backdrop_vs_;
+        ComPtr<ID3D11PixelShader> area_ps_;
+        ComPtr<ID3D11PixelShader> blur_ps_;
+        ComPtr<ID3D11PixelShader> matrix_ps_;
+        ComPtr<ID3D11SamplerState> mirror_;
+        ComPtr<ID3D11BlendState> under_;
+        ComPtr<ID3D11Buffer> backdrop_constants_;
+
+        // The backdrop passes' targets, by format, width, height and place in a backdrop's chain, kept for later
+        // backdrops (the immediate context orders their uses) while a frame or the one before used them.
+        struct BackdropTarget {
+            Surface surface;
+            std::uint64_t used{};
+        };
+
+        std::map<std::array<unsigned, 4>, BackdropTarget> backdrop_targets_;
+        std::uint64_t backdrop_frame_{};
         ComPtr<ID3D11RasterizerState> raster_;
         SceneRaster reference_;
         ScenePreparer preparer_;
@@ -107,6 +128,9 @@ namespace weft::render::d3d11 {
         ID3D11PixelShader* effect_shader(const std::shared_ptr<const paint::EffectProgram>& program);
         // A layer's texture, its content drawn the first time.
         ID3D11ShaderResourceView* texture(const std::shared_ptr<const SceneLayerImage>& layer, float scale);
+        // Copies a backdrop's region of from's texture and filters it as it says; the result's view. The context's
+        // state is the passes' afterwards.
+        ID3D11ShaderResourceView* backdrop(const ScenePass::Backdrop& backdrop, ID3D11RenderTargetView* from);
         // Draws a prepared pass into destination: its planes' contents first, each into the image of its slot.
         void draw_pass(Slot& slot, const ScenePrepared& prepared, ID3D11RenderTargetView* destination, float scale);
         // Scratch bytes a slot and its planes' slots hold.

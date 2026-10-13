@@ -14,6 +14,40 @@
 #include <string>
 
 namespace weft::render {
+    BackdropConstants backdrop_area_constants(unsigned from, unsigned to, bool across) {
+        BackdropConstants c;
+        // Source texels per output texel, the axis and the source's texels on it.
+        c.texel = {float(from) / float(to), across ? 1.f : 0.f, float(from), 0};
+        return c;
+    }
+
+    BackdropConstants backdrop_blur_constants(float sigma, bool across, unsigned w, unsigned h) {
+        BackdropConstants c;
+        c.texel = {1.f / float(w), 1.f / float(h), across ? 1.f / float(w) : 0.f, across ? 0.f : 1.f / float(h)};
+        const auto taps =
+            std::min(int(std::ceil(scene_limits::backdrop_kernel_sigmas * sigma)), scene_limits::max_backdrop_taps);
+        std::array<float, 16> w16{};
+        float sum{};
+        for (int i = 0; i <= taps; ++i) {
+            w16[std::size_t(i)] = std::exp(-float(i * i) / (2 * sigma * sigma));
+            sum += i ? 2 * w16[std::size_t(i)] : w16[std::size_t(i)];
+        }
+        for (int i = 0; i <= taps; ++i) {
+            c.weights[std::size_t(i) / 4][std::size_t(i) % 4] = w16[std::size_t(i)] / sum;
+        }
+        c.extent = {float(taps), 0, 0, 0};
+        return c;
+    }
+
+    BackdropConstants backdrop_matrix_constants(const paint::ColorMatrix& m) {
+        BackdropConstants c;
+        for (unsigned k = 0; k < 4; ++k) {
+            c.rows[k] = {m[k * 5], m[k * 5 + 1], m[k * 5 + 2], m[k * 5 + 3]};
+        }
+        c.offsets = {m[4], m[9], m[14], m[19]};
+        return c;
+    }
+
     std::array<std::uint32_t, 2> plane_pixels(const paint::Plane& plane, float scale) {
         const double margins = scene_limits::image_margins;
         return {std::uint32_t(std::ceil((plane.width + margins) * scale)),
@@ -112,6 +146,29 @@ namespace weft::render {
             return r;
         }
 
+        // The device pixels a backdrop reads: its box's bounds under the item's map at scale, rounded out, within the
+        // target.
+        std::array<std::int32_t, 4> backdrop_region(const paint::Item& item, float scale, unsigned w, unsigned h) {
+            const auto& m = item.transform;
+            double left = scene_limits::record_bounds_sentinel;
+            double top = scene_limits::record_bounds_sentinel;
+            double right = -left;
+            double bottom = -top;
+            for (const auto& [x, y] : std::array<std::array<double, 2>, 4>{
+                     {{0, 0}, {item.width, 0}, {0, item.height}, {item.width, item.height}}}) {
+                const double px = (m[0] * x + m[2] * y + m[4]) * scale;
+                const double py = (m[1] * x + m[3] * y + m[5]) * scale;
+                left = std::min(left, px);
+                top = std::min(top, py);
+                right = std::max(right, px);
+                bottom = std::max(bottom, py);
+            }
+            const auto edge = [](double v, bool up, unsigned limit) {
+                return std::int32_t(std::clamp(up ? std::ceil(v) : std::floor(v), 0.0, double(limit)));
+            };
+            return {edge(left, false, w), edge(top, false, h), edge(right, true, w), edge(bottom, true, h)};
+        }
+
         SceneRecord record(const paint::DisplayList& list, const paint::Item& item, const paint::ClipRect& clip,
                            float scale, unsigned w, unsigned h, Space space, const std::array<std::int32_t, 4>& mask) {
             auto m = item.transform;
@@ -202,6 +259,22 @@ namespace weft::render {
                     particle_field(r, ParticleTarget) = {(*emission.target)[0], (*emission.target)[1],
                                                          scene_limits::flag_enabled, 0};
                 }
+            } else if (item.kind == Kind::Backdrop) {
+                // The box's shape, its color matrix after the blur when it has one, and the device px of its region,
+                // which the blurred copy covers.
+                const auto& b = list.backdrops[item.payload];
+                r.radii = b.radii;
+                r.mode[0] = scene_limits::image_mode_backdrop;
+                if (b.post != paint::identity_color_matrix) {
+                    for (unsigned k = 0; k < 4; ++k) {
+                        effect_parameter(r, k) = {b.post[k * 5], b.post[k * 5 + 1], b.post[k * 5 + 2],
+                                                  b.post[k * 5 + 3]};
+                    }
+                    effect_parameter(r, 4) = {b.post[4], b.post[9], b.post[14], b.post[19]};
+                    r.extra[3] = scene_limits::flag_enabled;
+                }
+                const auto region = backdrop_region(item, scale, w, h);
+                r.uv = {float(region[0]), float(region[1]), float(region[2] - region[0]), float(region[3] - region[1])};
             } else if ((item.kind == Kind::Text || item.kind == Kind::Layer) && list.rasters[item.payload].mask) {
                 r.background = in(space, list.rasters[item.payload].tint);
                 r.extra[3] = scene_limits::flag_enabled;
@@ -368,6 +441,36 @@ namespace weft::render {
                         }
                     }
                     pass.batches.push_back({Step::Effect, first, i - first, list.items[first].payload});
+                    break;
+                }
+                case Kind::Backdrop: {
+                    // A backdrop over no pixel of the target reads and draws nothing.
+                    const auto& item = list.items[i];
+                    const auto& b = list.backdrops[item.payload];
+                    ScenePass::Backdrop step;
+                    step.region = backdrop_region(item, scale, width, height);
+                    step.pre = b.pre;
+                    step.under = b.under;
+                    // The blur in device px, by the item's mean scale. A wider one than the passes blur scales the
+                    // copy down first, to the whole texels that bring it nearest the passes' (at least one), as Skia
+                    // does; the blur at that size follows from the scale on each axis.
+                    const auto& m = item.transform;
+                    const float sigma = b.blur * scale * std::sqrt(std::abs(m[0] * m[3] - m[1] * m[2]));
+                    const auto w = step.region[2] - step.region[0];
+                    const auto h = step.region[3] - step.region[1];
+                    step.size = {unsigned(std::max(w, 0)), unsigned(std::max(h, 0))};
+                    step.sigma = {sigma, sigma};
+                    if (sigma > scene_limits::max_backdrop_sigma && w > 0 && h > 0) {
+                        const float fraction = scene_limits::max_backdrop_sigma / sigma;
+                        step.size = {unsigned(std::max(1.f, std::floor(float(w) * fraction))),
+                                     unsigned(std::max(1.f, std::floor(float(h) * fraction)))};
+                        step.sigma = {sigma * float(step.size[0]) / float(w), sigma * float(step.size[1]) / float(h)};
+                    }
+                    if (w > 0 && h > 0) {
+                        pass.batches.push_back({Step::Backdrop, i, 1, std::uint32_t(pass.backdrops.size())});
+                        pass.backdrops.push_back(step);
+                    }
+                    ++i;
                     break;
                 }
                 case Kind::Particles: {

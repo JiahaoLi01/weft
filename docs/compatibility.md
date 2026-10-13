@@ -16,7 +16,7 @@
 | 检查、trace、兼容诊断、打包与干净构建 | M5 |
 | var、media queries、更宽 CSSOM 与其他未被首批场景依赖的能力 | 可选扩展，不作为 v0.1 退出必需项 |
 | 固定 CRPG gallery 的 72 例中的 70 例，含 Canvas2D、第三方动画与所需 CSS/SVG/交互；两例 Three.js 于 2026-10-12 移出需求，2026-10-13 起画廊窗口以 CRPG UI 的嵌套提示页面（UI 着色器烟雾）取代这两例 | 新增 workload 承诺；逐例执行/像素/交互/性能验收，尚未完整实现 |
-| UI 着色器效果（`-weft-effect()`）、UI 粒子（`-weft-particles`）、背景拷贝与 `backdrop-filter: blur()` | 新增目标（2026-10-12），设计见 [架构](architecture.md)。已实现：效果绘制项，D3D11 与 Vulkan 的显示列表渲染器可以画（11.1）；scene 页面的 `background-image: -weft-effect(name)`（也可写在 `background` 简写里），参数取自元素的自定义属性，效果注册与诊断，用时间的效果让帧持续推进，D3D11 与 Vulkan 的 scene 渲染器可以画（11.2）；粒子绘制项（发射器、流与爆发、飞向目标、柔和圆点与精灵帧），D3D11 与 Vulkan 的 scene 渲染器可以画（11.4a）；scene 页面的粒子挂接：`-weft-particles: name` 与 `--particles-*` 覆盖值、`weft.emitParticles` 与飞向元素、发射记录的生命周期与上限、按粒子可达范围的损伤（11.4b）。尚未实现：文档页面（它们不支持任何背景图片）、D2D 参考光栅、C ABI 的效果与粒子特性位、粒子的效果外观、背景拷贝与 `backdrop-filter` |
+| UI 着色器效果（`-weft-effect()`）、UI 粒子（`-weft-particles`）、背景拷贝与 `backdrop-filter: blur()` | 新增目标（2026-10-12），设计见 [架构](architecture.md)。已实现：效果绘制项，D3D11 与 Vulkan 的显示列表渲染器可以画（11.1）；scene 页面的 `background-image: -weft-effect(name)`（也可写在 `background` 简写里），参数取自元素的自定义属性，效果注册与诊断，用时间的效果让帧持续推进，D3D11 与 Vulkan 的 scene 渲染器可以画（11.2）；粒子绘制项（发射器、流与爆发、飞向目标、柔和圆点与精灵帧），D3D11 与 Vulkan 的 scene 渲染器可以画（11.4a）；scene 页面的粒子挂接：`-weft-particles: name` 与 `--particles-*` 覆盖值、`weft.emitParticles` 与飞向元素、发射记录的生命周期与上限、按粒子可达范围的损伤（11.4b）。scene 页面的背景拷贝与 `backdrop-filter`（11.5a），与 Chrome 截图逐像素对照（11.5b）。尚未实现：文档页面（它们不支持任何背景图片）、D2D 参考光栅、C ABI 的效果、粒子与背景特性位、粒子的效果外观、读背景的效果 |
 | WebGL/WebGL2 | 不在目标内（用户 2026-10-12 决定，见 [决策](decisions.md)）：3D 由宿主引擎渲染、经外部纹理合成；`getContext('webgl')` 与 `getContext('webgl2')` 返回 `null` |
 
 如果固定测试应用需要额外 API，先将它作为明确的新增承诺记录，而不是悄悄扩大 v0.1 范围。完整功能列表必须在实现时标注 planned/implemented/verified 与对应测试。
@@ -131,6 +131,19 @@ CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后�
 - 限制：Final_Sigma 只看同一个文字节点；没有按 `lang` 的大小写规则；`shape_with_fallback` 的文字仍限于拉丁、汉字与通用字符，希腊、西里尔等字母的文字本来就报诊断。
 
 2026-10-13 重构第 11.3d 步之一：JS 的 `Element.closest(selectors)`：元素自身或最近的匹配祖先元素，没有时为 null；与 querySelector/matches 共用选择器文法与诊断。
+
+2026-10-13 重构第 11.5b 步：`backdrop-filter` 与 Chrome 截图逐像素对照。
+- 11 个用例：160×120 的条纹背景上，`blur(3px)`、`blur(20px)`、设备缩放 2 下的 `blur(8px)`、圆角、模糊后的 `saturate()` 与 `brightness()`、模糊前的 `grayscale()`、贴着页面边缘、透明度与内容、透明度组、嵌套、毛玻璃（缩放 2，圆角、半透明边框与底色、`blur(12px) saturate(180%)`）。Chrome 155.0.8059.40 的截图（`tools/browser_backdrop_reference.mjs`）与原生 D3D11 WARP 逐像素比较。
+- 结果：玻璃之外最大差 0 级；玻璃之内平均差 0.03–2.81 级，最大差 1–12 级；毛玻璃圆角边缘的抗锯齿有 0.08% 的像素差 16 级以上（最大 25）。
+- 宽模糊的缩小改为按面积平均，缩到 Skia 选的尺寸：原来逐级双线性 2× 降采样在奇数尺寸上丢失平均亮度，`blur(20px)` 平均差 9.16、最大 17（偏暗），改后 2.81 / 10。
+- 每个用例有平均差、最大差与大差像素比例的上限，超过则失败；截图清单记录 `cases.json` 的 SHA-256，用例改了而没有重新截图时失败。
+
+2026-10-13 重构第 11.5a 步：scene 页面的 `backdrop-filter`。
+- 值：`none`，或依次的滤镜函数：至多一个 `blur(<px>)`（标准差，0 可不带单位，至多 256px），以及 `brightness()`、`contrast()`、`grayscale()`、`invert()`、`opacity()`、`saturate()`、`sepia()`（数或百分比，省略为 1；grayscale、invert、opacity、sepia 封顶为 1）与 `hue-rotate()`（deg、rad、grad、turn）。`blur` 之前的颜色函数在模糊前施加，之后的在模糊后施加，各自合成一个矩阵：颜色在每个矩阵之后钳到 0–1，不是每个函数之后。`drop-shadow()`、`url()`、两个 `blur()`、负值、带 em 的长度给 scene profile 诊断；SVG 内部元素上也是诊断（svg 根可以）。
+- 绘制：读元素背后、元素设备外接矩形内的内容，按 Chrome（Skia）的方式模糊：σ 大于 4 个设备像素时先缩小拷贝（按面积平均，见 11.5b），边缘镜像；按圆角与裁剪画回，在元素的背景、边框与内容之下。元素透明度小于 1 或子孙也有 `backdrop-filter` 时成为隔离组，背景画在组内容之下，子孙的背景只看到组里已画的内容。在透明度组里，背景只包含组里已画的内容。
+- 元素成为固定与绝对定位子孙的包含块；有它的帧任何变化都整幅损伤。
+- D3D11 与 Vulkan 的 scene pass 可以画；Vulkan 的宿主目标没有给出图像（不可读）时，最外层的背景透明并计入原因。线性 pass、C ABI 与 D2D 参考光栅拒绝。
+- 读背景的 UI 着色器效果尚未做。
 
 2026-10-13 重构第 11.4c 步：画廊新增 UI 粒子页面（篝火、宝箱飞金币、符文光环、可调密度的微粒），窗口为 72 例、12 组，原生绘制 68 例。粒子的效果外观推迟（见重构计划 11.4 的取舍）。
 

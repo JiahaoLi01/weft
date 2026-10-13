@@ -200,6 +200,8 @@ namespace weft {
         SceneNode out = n;
         out.fragments.clear();
         out.effect.reset();
+        // The fragments' boxes filter what lies behind them.
+        out.style.erase(PropertyId::BackdropFilter);
         out.style.erase(PropertyId::Transform);
         out.style[PropertyId::BackgroundColor] = "transparent";
         out.style[PropertyId::BackgroundImage] = "none";

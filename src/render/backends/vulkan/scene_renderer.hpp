@@ -35,11 +35,14 @@ namespace weft::render::vulkan {
     public:
         // A host color target: a view of a single-sample B8G8R8A8_UNORM image of width x height device px with one
         // mip level and layer, a color attachment. The pass replaces its contents and leaves it in
-        // VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL.
+        // VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL. image is the view's image when the pass may read it (its usage
+        // includes VK_IMAGE_USAGE_TRANSFER_SRC_BIT): backdrops at the target's level read what the pass drew there;
+        // without it they are transparent, a counted reason (not a fallback).
         struct Target {
             VkImageView view{};
             std::uint32_t width{};
             std::uint32_t height{};
+            VkImage image{};
         };
 
         // What one recorded frame uses: its buffers, scratch images, descriptor pools and target framebuffer, leases
@@ -98,10 +101,11 @@ namespace weft::render::vulkan {
 
         // Draws frame on a transparent width x height device px target with encode() on the renderer's own command
         // buffer, waits, and returns the target's encoded premultiplied BGRA rows; none, with the reason counted, when a
-        // native pass cannot draw the frame.
+        // native pass cannot draw the frame. Unless readable, encode() gets no image of the target (Target::image).
         std::optional<std::vector<std::uint8_t>> draw(const SceneFrame& frame, float scale, unsigned width,
                                                       unsigned height, std::optional<std::array<float, 4>> crop,
-                                                      unsigned view_index, const std::vector<NodeIdentity>& layers);
+                                                      unsigned view_index, const std::vector<NodeIdentity>& layers,
+                                                      bool readable = true);
 
         Device& gpu;
         // Images uploaded, recordings made, and buffers, scratch images and descriptor pools made for slots (which
@@ -141,6 +145,16 @@ namespace weft::render::vulkan {
         VkShaderModule particle_vertex_{};
         VkShaderModule particle_fragment_{};
         VkPipeline particle_pipeline_{};
+        // The backdrop passes (backdrop.hlsl): their stages, set layout, pipeline layout and pipelines, the mirroring
+        // sampler, and the scene pipeline that draws a backdrop beneath its group's content.
+        VkShaderModule backdrop_vertex_{};
+        std::array<VkShaderModule, 3> backdrop_fragments_{};
+        VkDescriptorSetLayout backdrop_set_layout_{};
+        VkPipelineLayout backdrop_layout_{};
+        // The area downsample, the Gaussian pass and the color matrix.
+        std::array<VkPipeline, 3> backdrop_pipelines_{};
+        VkSampler mirror_sampler_{};
+        VkPipeline under_pipeline_{};
         VkDescriptorSetLayout set_layout_{};
         VkPipelineLayout layout_{};
         ScenePasses passes_;
@@ -162,9 +176,9 @@ namespace weft::render::vulkan {
         // Records the uploads of the images that prepared samples and that have no image yet, its layers' contents
         // included when those are drawn here.
         void upload(const ScenePrepared& prepared);
-        // Records prepared's pass into the framebuffer of an image of prepared's size: its planes' and new layers'
-        // contents first, each into an image of its own.
-        void record(const ScenePrepared& prepared, VkFramebuffer framebuffer, float scale);
+        // Records prepared's pass into the framebuffer of an image of prepared's size (image, when the pass may read
+        // it): its planes' and new layers' contents first, each into an image of its own.
+        void record(const ScenePrepared& prepared, VkFramebuffer framebuffer, VkImage image, float scale);
         // The image of a layer, its content recorded the first time.
         VkImageView layer(const std::shared_ptr<const SceneLayerImage>& layer, float scale);
         // The pipeline of an effect program's encoded pass (its spirv_encoded), created on first use.

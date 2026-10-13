@@ -32,9 +32,10 @@ namespace weft::render::vulkan {
     ScenePasses create_scene_passes(const Device& d, VkFormat format, VkPipelineLayout layout, VkShaderModule vertex,
                                     VkShaderModule fragment);
     // The pipeline of a shader pair for the render passes of pass (those of one target format, as create_scene_passes
-    // makes them): the scene shader's records with premultiplied source-over.
+    // makes them): the scene shader's records with premultiplied source-over, or with under beneath what the target
+    // holds (premultiplied destination-over).
     VkPipeline create_scene_pipeline(const Device& d, VkRenderPass pass, VkPipelineLayout layout, VkShaderModule vertex,
-                                     VkShaderModule fragment);
+                                     VkShaderModule fragment, bool under = false);
     void destroy(const Device& d, ScenePasses& passes) noexcept;
 
     // The scene shader's one descriptor set: View (b0), records (t0), image (t1), clips (t2) and the sampler (s0), and
@@ -42,6 +43,11 @@ namespace weft::render::vulkan {
     VkDescriptorSetLayout create_scene_set_layout(const Device& d);
     // Linear filtering, clamped to the edge, or repeating.
     VkSampler create_linear_sampler(const Device& d, bool repeat = false);
+    // Linear filtering with addresses past the edges mirrored back (the backdrop passes').
+    VkSampler create_mirror_sampler(const Device& d);
+    // The backdrop passes' one descriptor set (src/render/shaders/backdrop.hlsl): their constants (b0), the source
+    // image (t0) and the mirroring sampler (s0), at the bindings the register shifts give them.
+    VkDescriptorSetLayout create_backdrop_set_layout(const Device& d);
     // A descriptor pool for capacity sets of the scene set layout.
     VkDescriptorPool create_scene_pool(const Device& d, std::uint32_t capacity);
 } // namespace weft::render::vulkan

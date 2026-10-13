@@ -20,6 +20,19 @@ namespace weft::render::vulkan {
         constexpr unsigned char fragment_spirv[] = {
 #include "shaders/scene_encoded.ps.spv.inc"
         };
+        // Its backdrop passes: the fullscreen triangle, and the area downsample, the Gaussian pass and the color matrix.
+        constexpr unsigned char backdrop_vertex_spirv[] = {
+#include "shaders/backdrop_blur.vs.spv.inc"
+        };
+        constexpr unsigned char area_fragment_spirv[] = {
+#include "shaders/backdrop_area.ps.spv.inc"
+        };
+        constexpr unsigned char blur_fragment_spirv[] = {
+#include "shaders/backdrop_blur.ps.spv.inc"
+        };
+        constexpr unsigned char matrix_fragment_spirv[] = {
+#include "shaders/backdrop_matrix.ps.spv.inc"
+        };
         // Its particle pass.
         constexpr unsigned char particle_vertex_spirv[] = {
 #include "shaders/scene_particles_encoded.vs.spv.inc"
@@ -94,6 +107,26 @@ namespace weft::render::vulkan {
             particle_vertex_ = shader_module(d, particle_vertex_spirv, sizeof(particle_vertex_spirv));
             particle_fragment_ = shader_module(d, particle_fragment_spirv, sizeof(particle_fragment_spirv));
             particle_pipeline_ = create_scene_pipeline(d, passes_.clear, layout_, particle_vertex_, particle_fragment_);
+            under_pipeline_ = create_scene_pipeline(d, passes_.clear, layout_, vertex_, fragment_, true);
+            mirror_sampler_ = create_mirror_sampler(d);
+            backdrop_set_layout_ = create_backdrop_set_layout(d);
+            VkPipelineLayoutCreateInfo backdrop_layout{};
+            backdrop_layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+            backdrop_layout.setLayoutCount = 1;
+            backdrop_layout.pSetLayouts = &backdrop_set_layout_;
+            check(d.vkd.vkCreatePipelineLayout(d.device, &backdrop_layout, nullptr, &backdrop_layout_),
+                  "vkCreatePipelineLayout backdrop");
+            backdrop_vertex_ = shader_module(d, backdrop_vertex_spirv, sizeof(backdrop_vertex_spirv));
+            const std::array<std::pair<const unsigned char*, std::size_t>, 3> fragments{
+                {{area_fragment_spirv, sizeof(area_fragment_spirv)},
+                 {blur_fragment_spirv, sizeof(blur_fragment_spirv)},
+                 {matrix_fragment_spirv, sizeof(matrix_fragment_spirv)}}};
+            for (std::size_t k = 0; k < fragments.size(); ++k) {
+                backdrop_fragments_[k] = shader_module(d, fragments[k].first, fragments[k].second);
+                // Over a cleared target, source-over writes the pass's color.
+                backdrop_pipelines_[k] =
+                    create_scene_pipeline(d, passes_.clear, backdrop_layout_, backdrop_vertex_, backdrop_fragments_[k]);
+            }
             blank_image_ =
                 d.image(VK_FORMAT_R8_UNORM, 1, 1, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
             blank_buffer_ = d.buffer(sizeof(SceneClip), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false);
@@ -137,6 +170,22 @@ namespace weft::render::vulkan {
             d.vkd.vkDestroyShaderModule(d.device, e.fragment, nullptr);
         }
         effect_pipelines_.clear();
+        for (std::size_t k = 0; k < backdrop_pipelines_.size(); ++k) {
+            d.vkd.vkDestroyPipeline(d.device, backdrop_pipelines_[k], nullptr);
+            d.vkd.vkDestroyShaderModule(d.device, backdrop_fragments_[k], nullptr);
+        }
+        backdrop_pipelines_ = {};
+        backdrop_fragments_ = {};
+        d.vkd.vkDestroyShaderModule(d.device, backdrop_vertex_, nullptr);
+        d.vkd.vkDestroyPipelineLayout(d.device, backdrop_layout_, nullptr);
+        d.vkd.vkDestroyDescriptorSetLayout(d.device, backdrop_set_layout_, nullptr);
+        d.vkd.vkDestroySampler(d.device, mirror_sampler_, nullptr);
+        d.vkd.vkDestroyPipeline(d.device, under_pipeline_, nullptr);
+        backdrop_vertex_ = {};
+        backdrop_layout_ = {};
+        backdrop_set_layout_ = {};
+        mirror_sampler_ = {};
+        under_pipeline_ = {};
         d.vkd.vkDestroyPipeline(d.device, particle_pipeline_, nullptr);
         d.vkd.vkDestroyShaderModule(d.device, particle_fragment_, nullptr);
         d.vkd.vkDestroyShaderModule(d.device, particle_vertex_, nullptr);
@@ -191,8 +240,10 @@ namespace weft::render::vulkan {
                 return slot_->images.back();
             }
         }
-        auto image =
-            d.image(target_format, width, height, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+        // A backdrop copies from a pass's targets and into its own.
+        auto image = d.image(target_format, width, height,
+                             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                                 VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
         try {
             image.framebuffer = framebuffer(image.view, width, height);
         } catch (...) {
@@ -421,7 +472,7 @@ namespace weft::render::vulkan {
         auto image = target(layer->width, layer->height, true);
         textures_.emplace(layer->id, Texture{layer, image, slot_->recording});
         slot_->created.push_back(layer->id);
-        record(*layer->content, image.framebuffer, scale);
+        record(*layer->content, image.framebuffer, image.image, scale);
         transition(gpu, command_buffer_, image.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                    VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -429,7 +480,7 @@ namespace weft::render::vulkan {
         return image.view;
     }
 
-    void SceneRenderer::record(const ScenePrepared& prepared, VkFramebuffer out, float scale) {
+    void SceneRenderer::record(const ScenePrepared& prepared, VkFramebuffer out, VkImage image, float scale) {
         const auto& d = gpu;
         const auto& pass = prepared.pass;
         const auto command = command_buffer_;
@@ -438,13 +489,13 @@ namespace weft::render::vulkan {
         std::vector<VkImageView> views(prepared.images.size());
         for (std::size_t i = 0; i < prepared.images.size(); ++i) {
             if (prepared.planes[i]) {
-                const auto image = target(prepared.planes[i]->width, prepared.planes[i]->height);
-                record(*prepared.planes[i], image.framebuffer, scale);
-                transition(d, command, image.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                const auto plane = target(prepared.planes[i]->width, prepared.planes[i]->height);
+                record(*prepared.planes[i], plane.framebuffer, plane.image, scale);
+                transition(d, command, plane.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                            VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
                            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-                views[i] = image.view;
+                views[i] = plane.view;
                 ++plane_passes;
             } else if (prepared.layers[i]) {
                 views[i] = layer(prepared.layers[i], scale);
@@ -474,6 +525,14 @@ namespace weft::render::vulkan {
             groups.push_back(target(prepared.width, prepared.height));
         }
 
+        // Each backdrop's chain of images, in batch order: its copy, then one target per pass, each with the pass's
+        // pipeline and constants; the backdrop draws the last.
+        struct Chain {
+            std::vector<Image> images;
+            std::vector<std::pair<std::size_t, BackdropConstants>> passes;
+        };
+
+        std::vector<Chain> chains;
         // One descriptor set per draw: the image it samples, the group it composites, or none; an effect's textures and,
         // in batch order, its pipeline.
         std::vector<VkImageView> images;
@@ -512,6 +571,38 @@ namespace weft::render::vulkan {
                     images.push_back(blank_image_.view);
                     effect_views.emplace_back(textures);
                     effects.push_back(effect_pipeline(effect.program));
+                    break;
+                }
+                case ScenePass::Step::Backdrop: {
+                    const auto& b = pass.backdrops.at(batch.source);
+                    auto w = std::uint32_t(b.region[2] - b.region[0]);
+                    auto h = std::uint32_t(b.region[3] - b.region[1]);
+                    Chain chain;
+                    chain.images.push_back(target(w, h));
+                    const auto add = [&](std::size_t pipeline, const BackdropConstants& values) {
+                        chain.images.push_back(target(w, h));
+                        chain.passes.emplace_back(pipeline, values);
+                    };
+                    if (b.pre != paint::identity_color_matrix) {
+                        add(2, backdrop_matrix_constants(b.pre));
+                    }
+                    if (b.size[0] < w) {
+                        const auto wide = w;
+                        w = b.size[0];
+                        add(0, backdrop_area_constants(wide, w, true));
+                    }
+                    if (b.size[1] < h) {
+                        const auto tall = h;
+                        h = b.size[1];
+                        add(0, backdrop_area_constants(tall, h, false));
+                    }
+                    if (b.sigma[0] > 0) {
+                        add(1, backdrop_blur_constants(b.sigma[0], true, w, h));
+                        add(1, backdrop_blur_constants(b.sigma[1], false, w, h));
+                    }
+                    images.push_back(chain.images.back().view);
+                    effect_views.emplace_back();
+                    chains.push_back(std::move(chain));
                     break;
                 }
                 case ScenePass::Step::Particles: {
@@ -593,6 +684,52 @@ namespace weft::render::vulkan {
             }
         }
 
+        // The backdrop passes' sets: each pass's constants, the image it reads and the mirroring sampler.
+        std::size_t backdrop_set_count{};
+        for (const auto& chain : chains) {
+            backdrop_set_count += chain.passes.size();
+        }
+        std::vector<VkDescriptorSet> backdrop_sets(backdrop_set_count);
+        if (!backdrop_sets.empty()) {
+            const auto descriptors = pool(std::uint32_t(backdrop_sets.size()));
+            const std::vector<VkDescriptorSetLayout> layouts(backdrop_sets.size(), backdrop_set_layout_);
+            VkDescriptorSetAllocateInfo allocate{};
+            allocate.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            allocate.descriptorPool = descriptors;
+            allocate.descriptorSetCount = std::uint32_t(backdrop_sets.size());
+            allocate.pSetLayouts = layouts.data();
+            check(d.vkd.vkAllocateDescriptorSets(d.device, &allocate, backdrop_sets.data()),
+                  "vkAllocateDescriptorSets backdrop");
+            std::size_t s{};
+            for (const auto& chain : chains) {
+                for (std::size_t k = 0; k < chain.passes.size(); ++k, ++s) {
+                    auto& values = buffer(sizeof(BackdropConstants));
+                    std::memcpy(values.mapped, &chain.passes[k].second, sizeof(BackdropConstants));
+                    const VkDescriptorBufferInfo constants_info{values.buffer, 0, sizeof(BackdropConstants)};
+                    const VkDescriptorImageInfo source_info{VK_NULL_HANDLE, chain.images[k].view,
+                                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+                    const VkDescriptorImageInfo mirror_info{mirror_sampler_, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
+                    VkWriteDescriptorSet writes[3]{};
+                    const std::uint32_t bindings[]{std::uint32_t(limits::binding_view),
+                                                   std::uint32_t(limits::binding_records),
+                                                   std::uint32_t(limits::binding_sampler)};
+                    const VkDescriptorType types[]{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                                                   VK_DESCRIPTOR_TYPE_SAMPLER};
+                    for (unsigned i = 0; i < std::size(writes); ++i) {
+                        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                        writes[i].dstSet = backdrop_sets[s];
+                        writes[i].dstBinding = bindings[i];
+                        writes[i].descriptorCount = 1;
+                        writes[i].descriptorType = types[i];
+                    }
+                    writes[0].pBufferInfo = &constants_info;
+                    writes[1].pImageInfo = &source_info;
+                    writes[2].pImageInfo = &mirror_info;
+                    d.vkd.vkUpdateDescriptorSets(d.device, std::uint32_t(std::size(writes)), writes, 0, nullptr);
+                }
+            }
+        }
+
         // The pass: cleared to its clear color, groups in their images, each composited into the target below.
         const auto begin = [&](VkFramebuffer framebuffer, bool clear, const paint::Color& color) {
             VkClearValue value{};
@@ -623,6 +760,30 @@ namespace weft::render::vulkan {
         begin(out, true, pass.clear);
         std::size_t depth{};
         std::size_t next_effect{};
+        std::size_t next_chain{};
+        std::size_t next_backdrop_set{};
+        // A backdrop pass's render pass over the whole of its target, cleared.
+        const auto begin_over = [&](const Image& over) {
+            VkClearValue value{};
+            VkRenderPassBeginInfo info{};
+            info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            info.renderPass = passes_.clear;
+            info.framebuffer = over.framebuffer;
+            info.renderArea = {{0, 0}, {over.width, over.height}};
+            info.clearValueCount = 1;
+            info.pClearValues = &value;
+            d.vkd.vkCmdBeginRenderPass(command, &info, VK_SUBPASS_CONTENTS_INLINE);
+            const VkViewport viewport{0, 0, float(over.width), float(over.height), 0, 1};
+            d.vkd.vkCmdSetViewport(command, 0, 1, &viewport);
+            const VkRect2D scissor{{0, 0}, {over.width, over.height}};
+            d.vkd.vkCmdSetScissor(command, 0, 1, &scissor);
+        };
+        const auto readable = [&](const Image& done) {
+            transition(d, command, done.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                       VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        };
         for (const auto& batch : pass.batches) {
             switch (batch.step) {
                 case ScenePass::Step::Boxes:
@@ -651,6 +812,69 @@ namespace weft::render::vulkan {
                     instances(batch.first, batch.count);
                     d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, passes_.pipeline);
                     break;
+                case ScenePass::Step::Backdrop: {
+                    // Copy the region of the target the backdrop reads (the current one, or the one enclosing the
+                    // current group), run its passes, and draw it over the current target or beneath its content.
+                    const auto& b = pass.backdrops.at(batch.source);
+                    const auto& chain = chains.at(next_chain++);
+                    d.vkd.vkCmdEndRenderPass(command);
+                    ensure(!b.under || depth > 0, "a backdrop beneath a group inside one");
+                    const VkImage from = b.under ? (depth >= 2 ? groups[depth - 2].image : image)
+                                                 : (depth ? groups[depth - 1].image : image);
+                    if (from) {
+                        const auto& copy = chain.images.front();
+                        transition(d, command, from, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                                   VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                   VK_PIPELINE_STAGE_TRANSFER_BIT);
+                        transition(d, command, copy.image, VK_IMAGE_LAYOUT_UNDEFINED,
+                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, VK_ACCESS_TRANSFER_WRITE_BIT,
+                                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+                        VkImageCopy region{};
+                        region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+                        region.srcOffset = {b.region[0], b.region[1], 0};
+                        region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+                        region.extent = {copy.width, copy.height, 1};
+                        d.vkd.vkCmdCopyImage(command, from, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, copy.image,
+                                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+                        transition(d, command, from, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT,
+                                   VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                                   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+                        transition(d, command, copy.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT,
+                                   VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+                        for (std::size_t k = 0; k < chain.passes.size(); ++k) {
+                            const auto& over = chain.images[k + 1];
+                            begin_over(over);
+                            d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                                    backdrop_pipelines_.at(chain.passes[k].first));
+                            d.vkd.vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, backdrop_layout_, 0,
+                                                          1, &backdrop_sets[next_backdrop_set + k], 0, nullptr);
+                            d.vkd.vkCmdDraw(command, 3, 1, 0, 0);
+                            d.vkd.vkCmdEndRenderPass(command);
+                            readable(over);
+                        }
+                    } else {
+                        // Nothing the pass may read: the backdrop is transparent.
+                        ++reasons["backdrop of an unreadable target"];
+                        begin_over(chain.images.back());
+                        d.vkd.vkCmdEndRenderPass(command);
+                        readable(chain.images.back());
+                    }
+                    next_backdrop_set += chain.passes.size();
+                    begin(depth ? groups[depth - 1].framebuffer : out, false, paint::Color{});
+                    if (b.under) {
+                        d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, under_pipeline_);
+                    }
+                    instances(batch.first, 1);
+                    if (b.under) {
+                        d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, passes_.pipeline);
+                    }
+                    ++backdrop_passes;
+                    break;
+                }
                 case ScenePass::Step::Particles:
                     d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, particle_pipeline_);
                     instances(batch.first, 1, std::uint32_t(limits::quad_vertex_count) * batch.count);
@@ -716,7 +940,7 @@ namespace weft::render::vulkan {
             check_pending(*prepared);
             upload(*prepared);
             slot.framebuffer = framebuffer(target.view, target.width, target.height);
-            record(*prepared, slot.framebuffer, scale);
+            record(*prepared, slot.framebuffer, target.image, scale);
         } catch (...) {
             // The host discards the commands: what they would upload or draw leaves the cache.
             for (const auto id : slot.created) {
@@ -768,11 +992,10 @@ namespace weft::render::vulkan {
         release(slot);
     }
 
-    std::optional<std::vector<std::uint8_t>> SceneRenderer::draw(const SceneFrame& frame, float scale, unsigned width,
-                                                                 unsigned height,
-                                                                 std::optional<std::array<float, 4>> crop,
-                                                                 unsigned view_index,
-                                                                 const std::vector<NodeIdentity>& layers) {
+    std::optional<std::vector<std::uint8_t>>
+    SceneRenderer::draw(const SceneFrame& frame, float scale, unsigned width, unsigned height,
+                        std::optional<std::array<float, 4>> crop, unsigned view_index,
+                        const std::vector<NodeIdentity>& layers, bool readable) {
         const auto& d = gpu;
         ensure(width && height && width <= unsigned(limits::max_surface_dimension) &&
                    height <= unsigned(limits::max_surface_dimension),
@@ -792,7 +1015,8 @@ namespace weft::render::vulkan {
         check(d.vkd.vkBeginCommandBuffer(command_, &begin), "vkBeginCommandBuffer");
         bool drawn{};
         try {
-            drawn = encode(slot, frame, command_, {target_.view, width, height}, scale, crop, view_index, layers);
+            drawn = encode(slot, frame, command_, {target_.view, width, height, readable ? target_.image : VkImage{}},
+                           scale, crop, view_index, layers);
         } catch (...) {
             d.vkd.vkResetCommandBuffer(command_, 0);
             throw;

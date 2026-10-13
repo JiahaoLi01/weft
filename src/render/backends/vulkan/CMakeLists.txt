@@ -22,6 +22,12 @@ weft_add_library(scene_vulkan
     SOURCES scene_renderer.cpp
     PUBLIC weft::render_vulkan weft::scene_native)
 weft_add_spirv(weft_scene_vulkan scene_encoded "${PROJECT_SOURCE_DIR}/src/render/shaders/scene.hlsl")
+# Its backdrop passes: a fullscreen triangle with the area downsample, the Gaussian pass and the color matrix.
+foreach(variant AREA BLUR MATRIX)
+    string(TOLOWER "${variant}" name)
+    weft_add_spirv(weft_scene_vulkan backdrop_${name} "${PROJECT_SOURCE_DIR}/src/render/shaders/backdrop.hlsl"
+        DEFINES BACKDROP_${variant}=1)
+endforeach()
 # Its particle pass: both stages of the same shader's WEFT_PARTICLES variant.
 weft_add_spirv(weft_scene_vulkan scene_particles_encoded "${PROJECT_SOURCE_DIR}/src/render/shaders/scene.hlsl"
     DEFINES WEFT_PARTICLES=1)

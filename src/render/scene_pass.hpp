@@ -79,7 +79,11 @@ namespace weft::render {
             Effect,
             // Record first's count particles in one draw of the particle shaders: 6 x count vertices of one instance,
             // vertex v drawing particle v / 6. source is the emission's DisplayList::particles index.
-            Particles
+            Particles,
+            // Record first's backdrop, ScenePass::backdrops[source]: copy its region of the target it reads, filter
+            // the copy as the backdrop says, and draw record first sampling the result (image_mode_backdrop): over the
+            // current target, or with under beneath what the current group holds (destination over).
+            Backdrop
         };
 
         struct Batch {
@@ -91,6 +95,19 @@ namespace weft::render {
             std::uint32_t source{};
         };
 
+        // What a Backdrop step reads and how it filters it: the device pixels (left, top, right, bottom) of the
+        // target it reads, within the target; the matrix (DisplayList::Backdrop::pre) applied to the copy first; the
+        // size the copy is downsampled to by area (its own when it blurs no more than max_backdrop_sigma), and the
+        // standard deviations of the Gaussian blur across and down at that size (0: none); and whether it reads the
+        // target that encloses the current group and draws beneath the group's content.
+        struct Backdrop {
+            std::array<std::int32_t, 4> region{};
+            paint::ColorMatrix pre = paint::identity_color_matrix;
+            std::array<unsigned, 2> size{};
+            std::array<float, 2> sigma{};
+            bool under{};
+        };
+
         // One record per item, in item order: record i belongs to item i.
         std::vector<SceneRecord> records;
         // Per item, the device pixels (left, top, right, bottom) a path item's coverage mask covers: what the renderer
@@ -98,12 +115,33 @@ namespace weft::render {
         std::vector<std::array<std::int32_t, 4>> masks;
         std::vector<SceneClip> clips;
         std::vector<Batch> batches;
+        std::vector<Backdrop> backdrops;
         // The target's initial color, premultiplied in the pass's space: an opaque first box covering the whole target
         // becomes the clear.
         paint::Color clear{};
         Space space{};
         std::size_t group_depth{};
     };
+
+    // The constant buffer of a backdrop pass (src/render/shaders/backdrop.hlsl, BackdropPass): the source's texel size and the
+    // step between taps in uv, the kernel's weights from its centre out, the taps on each side, and a color matrix.
+    struct BackdropConstants {
+        SceneRecord::Vector texel{};
+        std::array<SceneRecord::Vector, 4> weights{};
+        SceneRecord::Vector extent{};
+        std::array<SceneRecord::Vector, 4> rows{};
+        SceneRecord::Vector offsets{};
+    };
+
+    static_assert(sizeof(BackdropConstants) == scene_limits::backdrop_constants_bytes);
+
+    // The constants of a backdrop's area downsample across (or down) from a source of from texels to to texels on that
+    // axis, each output texel the mean of the source texels its span covers, in part at its ends (BACKDROP_AREA); of a
+    // Gaussian pass of standard deviation sigma (texels, above 0) across a w x h source or down it (BACKDROP_BLUR); and
+    // of a color matrix (BACKDROP_MATRIX).
+    BackdropConstants backdrop_area_constants(unsigned from, unsigned to, bool across);
+    BackdropConstants backdrop_blur_constants(float sigma, bool across, unsigned w, unsigned h);
+    BackdropConstants backdrop_matrix_constants(const paint::ColorMatrix& m);
 
     // The device pixels of a plane's content image: the plane with image_margin transparent px on each side, at scale,
     // rounded up. A renderer draws the content image_margin px in, texel per device pixel, and binds the image to the
@@ -149,6 +187,10 @@ namespace weft::render {
         ParticleSprite = ParticleColor + 4,
         ParticleTarget
     };
+
+    // The fields of a backdrop record that hold its color matrix (DisplayList::Backdrop::post), by effect_parameter's
+    // order: the rows of r, g, b and a, then their offsets.
+    inline constexpr unsigned backdrop_matrix_fields = 5;
 
     inline SceneRecord::Vector& particle_field(SceneRecord& record, ParticleField field) {
         static_assert(ParticleTarget + 1 == constants::max_effect_parameters);

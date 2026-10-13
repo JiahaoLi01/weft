@@ -26,6 +26,10 @@ namespace weft::paint {
     inline constexpr Affine identity{1, 0, 0, 1, 0, 0};
     // Axis-aligned clip in target px: left, top, right, bottom.
     using ClipRect = std::array<float, 4>;
+    // A 4 x 5 color matrix on straight RGBA, as CSS filter functions take colors (Filter Effects 1): row-major rows of r,
+    // g, b and a, each with its offset in the fifth column; results clamp to [0, 1].
+    using ColorMatrix = std::array<float, 20>;
+    inline constexpr ColorMatrix identity_color_matrix{1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0};
 
     // Texel encodings of an asset. The values equal weft_render_encoding.
     enum class Encoding {
@@ -302,6 +306,20 @@ namespace weft::paint {
         friend bool operator==(const ParticleEmission&, const ParticleEmission&) = default;
     };
 
+    // A backdrop filter (CSS backdrop-filter) over the item's box [0, width] x [0, height] with circular corner radii:
+    // what the target holds where the box covers it (its bounds in device px, within the target), through pre, blurred
+    // by a Gaussian of standard deviation blur (item px) whose taps past those bounds mirror back into them, through
+    // post, then drawn in the box's shape times the item's opacity. With under it reads the target that encloses the
+    // item's group and draws beneath what the group holds, before the group composites: an element whose group isolates
+    // its opacity or its descendants' backdrops; otherwise it reads and draws over the target it draws into.
+    struct Backdrop {
+        float blur{};
+        ColorMatrix pre = identity_color_matrix;
+        ColorMatrix post = identity_color_matrix;
+        std::array<float, 4> radii{};
+        bool under{};
+    };
+
     // The particles of one emission, in its item's space: they move with the item and draw in its place in paint order.
     struct Particles {
         ParticleEmitter emitter;
@@ -329,7 +347,9 @@ namespace weft::paint {
             // An Effect, a program's pixel function over the item's box.
             Effect,
             // Particles of one emission, in the item's space.
-            Particles
+            Particles,
+            // A Backdrop, which a renderer draws from a copy of its target.
+            Backdrop
         };
 
         Kind kind{};
@@ -340,7 +360,7 @@ namespace weft::paint {
         float height{};
         float opacity{1};
         // Index in DisplayList::boxes (Box), images (Image), rasters (Text, Layer), shadows (Shadow), paths (Path),
-        // planes (Plane), effects (Effect) or particles (Particles); unused by groups.
+        // planes (Plane), effects (Effect), particles (Particles) or backdrops (Backdrop); unused by groups.
         std::uint32_t payload{};
         // The item's rounded clips, outermost first: DisplayList::clips[clips_begin, clips_begin + clips_count).
         std::uint32_t clips_begin{};
@@ -357,6 +377,7 @@ namespace weft::paint {
         std::vector<Plane> planes;
         std::vector<Effect> effects;
         std::vector<Particles> particles;
+        std::vector<Backdrop> backdrops;
         // Leases of the assets images, effects and particle sprites draw.
         std::vector<std::shared_ptr<const Asset>> assets;
         // Leases of the programs effects run.
@@ -376,7 +397,9 @@ namespace weft::paint {
     // values, ordered ranges, positive lifetimes, non-negative rates, speeds, drag, sizes and colors, a softness up to
     // 1, a sprite of a coverage or sRGB asset of the list in at most constants::max_particle_sprite_frames frames, and
     // an emission of at most constants::max_particles_per_emission particles that stopped no later than its elapsed
-    // time, rounded clip ranges inside the clips, groups balanced and nested at most max_group_depth deep.
+    // time, backdrops with finite matrices and radii that are not negative, a blur from 0 to
+    // constants::max_backdrop_blur, and under only inside a group, rounded clip ranges inside the clips, groups balanced
+    // and nested at most max_group_depth deep.
     // Diag::PaintList otherwise.
     Status check(const DisplayList& list, std::size_t max_group_depth);
 

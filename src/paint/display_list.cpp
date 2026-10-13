@@ -264,6 +264,24 @@ namespace weft::paint {
                         }
                         break;
                     }
+                    case Item::Kind::Backdrop: {
+                        if (item.payload >= list.backdrops.size()) {
+                            return make_diagnostic(Diag::PaintList, "backdrop payload out of range" + at);
+                        }
+                        const auto& b = list.backdrops[item.payload];
+                        if (!(b.blur >= 0) || b.blur > constants::max_backdrop_blur ||
+                            !std::all_of(b.pre.begin(), b.pre.end(), finite_value) ||
+                            !std::all_of(b.post.begin(), b.post.end(), finite_value) ||
+                            !std::all_of(b.radii.begin(), b.radii.end(), [](float r) {
+                                return std::isfinite(r) && r >= 0;
+                            })) {
+                            return make_diagnostic(Diag::PaintList, "backdrop value" + at);
+                        }
+                        if (b.under && depth == 0) {
+                            return make_diagnostic(Diag::PaintList, "backdrop under no group" + at);
+                        }
+                        break;
+                    }
                     case Item::Kind::BeginGroup:
                         if (++depth > max_group_depth) {
                             return make_diagnostic(Diag::PaintList, "group depth bound" + at);
@@ -307,6 +325,7 @@ namespace weft::paint {
         const auto planes = std::uint32_t(into.planes.size());
         const auto effects = std::uint32_t(into.effects.size());
         const auto particles = std::uint32_t(into.particles.size());
+        const auto backdrops = std::uint32_t(into.backdrops.size());
         const auto programs = std::uint32_t(into.programs.size());
         const auto clips = std::uint32_t(into.clips.size());
         into.boxes.insert(into.boxes.end(), from.boxes.begin(), from.boxes.end());
@@ -342,6 +361,7 @@ namespace weft::paint {
             }
             into.particles.push_back(std::move(p));
         }
+        into.backdrops.insert(into.backdrops.end(), from.backdrops.begin(), from.backdrops.end());
         into.assets.insert(into.assets.end(), from.assets.begin(), from.assets.end());
         into.programs.insert(into.programs.end(), from.programs.begin(), from.programs.end());
         into.external_textures += from.external_textures;
@@ -399,6 +419,9 @@ namespace weft::paint {
                     break;
                 case Item::Kind::Particles:
                     item.payload += particles;
+                    break;
+                case Item::Kind::Backdrop:
+                    item.payload += backdrops;
                     break;
                 default:
                     break;

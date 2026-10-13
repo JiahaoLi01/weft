@@ -1720,9 +1720,13 @@ namespace weft {
             if (get(n.style, PropertyId::Display) == "none" || n.box[2] <= 0 || n.box[3] <= 0) {
                 return;
             }
-            // The reference raster draws no UI particles; the native passes do.
+            // The reference raster draws no UI particles and no backdrop filters; the native passes do.
             if (!n.particles.empty()) {
                 fail("particles");
+            }
+            if (const auto filter = get(n.style, PropertyId::BackdropFilter, "none");
+                !css::trim(filter).empty() && css::trim(filter) != "none") {
+                fail("backdrop-filter");
             }
             // An inline element in lines: its box a fragment at a time, then its text and children.
             if (!n.fragments.empty()) {

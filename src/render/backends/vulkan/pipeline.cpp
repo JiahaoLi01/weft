@@ -104,7 +104,7 @@ namespace weft::render::vulkan {
     }
 
     VkPipeline create_scene_pipeline(const Device& d, VkRenderPass pass, VkPipelineLayout layout, VkShaderModule vertex,
-                                     VkShaderModule fragment) {
+                                     VkShaderModule fragment, bool under) {
         const VkPipelineShaderStageCreateInfo stages[]{{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
                                                         VK_SHADER_STAGE_VERTEX_BIT, vertex, "vs_main", nullptr},
                                                        {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
@@ -127,14 +127,14 @@ namespace weft::render::vulkan {
         VkPipelineMultisampleStateCreateInfo multisample{};
         multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
         multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-        // Premultiplied source-over, as the D3D11 renderer blends.
+        // Premultiplied source-over, as the D3D11 renderer blends; or destination-over.
         VkPipelineColorBlendAttachmentState blend{};
         blend.blendEnable = VK_TRUE;
-        blend.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
-        blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blend.srcColorBlendFactor = under ? VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA : VK_BLEND_FACTOR_ONE;
+        blend.dstColorBlendFactor = under ? VK_BLEND_FACTOR_ONE : VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
         blend.colorBlendOp = VK_BLEND_OP_ADD;
-        blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-        blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blend.srcAlphaBlendFactor = blend.srcColorBlendFactor;
+        blend.dstAlphaBlendFactor = blend.dstColorBlendFactor;
         blend.alphaBlendOp = VK_BLEND_OP_ADD;
         blend.colorWriteMask =
             VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
@@ -214,6 +214,36 @@ namespace weft::render::vulkan {
         sampler.maxLod = VK_LOD_CLAMP_NONE;
         VkSampler out{};
         check(d.vkd.vkCreateSampler(d.device, &sampler, nullptr, &out), "vkCreateSampler");
+        return out;
+    }
+
+    VkSampler create_mirror_sampler(const Device& d) {
+        VkSamplerCreateInfo sampler{};
+        sampler.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        sampler.magFilter = VK_FILTER_LINEAR;
+        sampler.minFilter = VK_FILTER_LINEAR;
+        sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        sampler.addressModeU = sampler.addressModeV = sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+        sampler.maxLod = VK_LOD_CLAMP_NONE;
+        VkSampler out{};
+        check(d.vkd.vkCreateSampler(d.device, &sampler, nullptr, &out), "vkCreateSampler");
+        return out;
+    }
+
+    VkDescriptorSetLayout create_backdrop_set_layout(const Device& d) {
+        const VkDescriptorSetLayoutBinding bindings[]{
+            {std::uint32_t(limits::binding_view), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT,
+             nullptr},
+            {std::uint32_t(limits::binding_records), VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_FRAGMENT_BIT,
+             nullptr},
+            {std::uint32_t(limits::binding_sampler), VK_DESCRIPTOR_TYPE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT,
+             nullptr}};
+        VkDescriptorSetLayoutCreateInfo set{};
+        set.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        set.bindingCount = std::uint32_t(std::size(bindings));
+        set.pBindings = bindings;
+        VkDescriptorSetLayout out{};
+        check(d.vkd.vkCreateDescriptorSetLayout(d.device, &set, nullptr, &out), "vkCreateDescriptorSetLayout");
         return out;
     }
 

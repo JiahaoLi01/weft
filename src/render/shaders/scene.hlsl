@@ -28,6 +28,9 @@ static const float EqualBorderWidthEpsilon = .00001;
 static const float ImageModeCoverage = 1;
 static const float ImageModeSignedDistance = 2;
 static const float ImageModeProjective = 3;
+// Paint::mode.x of a backdrop: its blurred copy of the target, bound as image over the device px Paint::uv covers
+// (origin and extent); Paint::extra.w enables its color matrix in Paint::stops[0..4].
+static const float ImageModeBackdrop = 4;
 // FreeType encodes contour zero at byte 128, not normalized 0.5.
 static const float SdfByteMax = 255.0;
 static const float SdfZeroByte = 128.0;
@@ -571,6 +574,24 @@ float4 ps_main(Vertex v) : SV_Target {
     float coverage = clipChain(p, world);
 #endif
     float2 position = float2(dot(p.invX.xyz, float3(world, 1)), dot(p.invY.xyz, float3(world, 1)));
+    if (p.mode.x == ImageModeBackdrop) {
+        // What lay behind the box, blurred, through its color matrix on straight values (rows of r, g, b and a in
+        // stops[0..3], their offsets in stops[4]), clamped, in the box's shape.
+        float4 c = image.SampleLevel(linearClamp, (v.position.xy - p.uv.xy) / p.uv.zw, 0);
+        if (p.extra.w == FlagEnabled) {
+            float4 s = c.a > 0 ? float4(c.rgb / c.a, c.a) : float4(0, 0, 0, 0);
+            s = saturate(float4(dot(p.stops[0], s), dot(p.stops[1], s), dot(p.stops[2], s), dot(p.stops[3], s)) +
+                         p.stops[4]);
+            c = float4(s.rgb * s.a, s.a);
+        }
+        float sd = distanceRound(position, p.size.xy, p.radii);
+        float shape = saturate(.5 - sd / max(pixelWidth(sd), MinimumAntialiasWidth));
+        if (all(p.radii == 0) && p.invX.y == 0 && p.invY.x == 0) {
+            shape = overlap(position, max(float2(abs(p.invX.x), abs(p.invY.y)) / scale, MinimumAntialiasWidth), 0,
+                            p.size.xy);
+        }
+        return c * shape * p.extra.y * coverage;
+    }
     if (p.mode.x == ImageModeProjective) {
         // Nothing behind the viewer.
         float depth = dot(p.outline.xyz, float3(world, 1));

@@ -374,8 +374,9 @@ namespace weft::render::d3d11 {
         for (const auto& item : list->items) {
             ensure(item.kind != paint::Item::Kind::Text && item.kind != paint::Item::Kind::Layer &&
                        item.kind != paint::Item::Kind::Shadow && item.kind != paint::Item::Kind::Path &&
-                       item.kind != paint::Item::Kind::Plane && item.kind != paint::Item::Kind::Particles,
-                   "the display list pass draws no scene rasters, shadows, paths, planes or particles");
+                       item.kind != paint::Item::Kind::Plane && item.kind != paint::Item::Kind::Particles &&
+                       item.kind != paint::Item::Kind::Backdrop,
+                   "the display list pass draws no scene rasters, shadows, paths, planes, particles or backdrops");
             if (item.kind == paint::Item::Kind::Image) {
                 const auto& image = list->images[item.payload];
                 ensure(image.stroke >= 0 && (image.asset >= list->assets.size() ||
@@ -832,7 +833,8 @@ namespace weft::render::d3d11 {
                     break;
                 }
                 case ScenePass::Step::Particles:
-                    // prepare refuses particles: they draw in the scene pass alone.
+                case ScenePass::Step::Backdrop:
+                    // prepare refuses particles and backdrops: they draw in the scene pass alone.
                     break;
             }
         }

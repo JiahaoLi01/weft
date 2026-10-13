@@ -4,6 +4,7 @@
 #include "constants/scene.hpp"
 #include "layout/flex.hpp"
 #include "paint/particles.hpp"
+#include "scene/scene_filter.hpp"
 #include "scene/scene_inline.hpp"
 #include "scene/scene_transform.hpp"
 #include "text/case_mapping.hpp"
@@ -898,6 +899,7 @@ namespace weft {
                               "user-select",
                               "-webkit-user-select",
                               "-weft-particles",
+                              "backdrop-filter",
                               "overflow-x",
                               "overflow-y",
                               "vertical-align",
@@ -1334,6 +1336,16 @@ namespace weft {
             }
             const bool shown = !hidden && get(out.style, PropertyId::Display) != "none";
             emit(out, st, id, c, shown);
+            // backdrop-filter: the functions the scene takes, on an HTML element or an svg root.
+            if (const auto* filter = out.style.find(PropertyId::BackdropFilter)) {
+                const auto parsed = scene_backdrop_filter(filter->text());
+                if (!parsed) {
+                    throw DiagnosticError(parsed.error());
+                }
+                if (*parsed && !out.space.empty() && out.space != constants::xhtml_namespace_uri && out.tag != "svg") {
+                    fail("backdrop-filter on an SVG element inside svg");
+                }
+            }
             work.geometry_changed |= !scene_geometry_own_equal(output, out, reuse_style);
             work.paint_changed |= output.identity != out.identity || output.tag != out.tag ||
                                   output.space != out.space || output.text != out.text ||
@@ -1663,11 +1675,14 @@ namespace weft {
             std::vector<std::pair<std::size_t, std::size_t>> fixed;
         };
 
-        // A box that contains its fixed descendants (and absolute ones): one with a transform, or one about to have
-        // one.
+        // A box that contains its fixed descendants (and absolute ones): one with a transform or a backdrop filter, or
+        // one about to have either.
         static bool contains_fixed(const SceneStyle& s) {
-            return s.text(PropertyId::Transform, "none") != "none" ||
-                   s.text(PropertyId::WillChange, "auto").find("transform") != std::string_view::npos;
+            const auto filter = css::trim(s.text(PropertyId::BackdropFilter, "none"));
+            const auto will = s.text(PropertyId::WillChange, "auto");
+            return s.text(PropertyId::Transform, "none") != "none" || (!filter.empty() && filter != "none") ||
+                   will.find("transform") != std::string_view::npos ||
+                   will.find("backdrop-filter") != std::string_view::npos;
         }
 
         // The anonymous block box that holds an element's inline children.

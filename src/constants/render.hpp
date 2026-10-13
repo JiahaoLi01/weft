@@ -187,6 +187,18 @@ namespace weft::constants::render {
         inline constexpr float image_mode_signed_distance = 2.f;
         // Paint::mode.x of a plane: its content image seen through a homography (ImageModeProjective).
         inline constexpr float image_mode_projective = 3.f;
+        // Paint::mode.x of a backdrop: its blurred copy of the target over the device px Paint::uv covers
+        // (ImageModeBackdrop).
+        inline constexpr float image_mode_backdrop = 4.f;
+        // A backdrop blurs with a standard deviation of at most this many device px: for a larger one the copy is first
+        // downsampled by its area to the size that brings it to this, as Skia's GPU blur scales its source.
+        inline constexpr float max_backdrop_sigma = 4.f;
+        // A backdrop's Gaussian kernel reaches this many standard deviations, at most max_backdrop_taps taps on each
+        // side of its centre (src/render/shaders/backdrop.hlsl).
+        inline constexpr float backdrop_kernel_sigmas = 3.f;
+        inline constexpr int max_backdrop_taps = 12;
+        // Size of the backdrop passes' constant buffer (backdrop.hlsl's BackdropPass: 11 float4).
+        inline constexpr int backdrop_constants_bytes = 176;
         // The sprite mode of a particles record (render::ParticleSprite's w): discs, coverage sprites tinted by the
         // particle's color, or color sprites (linear premultiplied) times it (ParticleSpriteCoverage and
         // ParticleSpriteColor).

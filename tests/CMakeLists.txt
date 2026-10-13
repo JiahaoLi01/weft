@@ -249,6 +249,19 @@ if(WIN32)
     weft_add_executable(weft_scene_particles_tests SOURCES scene_particles_tests.cpp
         LINK weft::scene weft::script weft::platform_win32)
     weft_add_test(NAME scene_particles_contract COMMAND weft_scene_particles_tests)
+    # backdrop-filter as scene elements take it: filter functions, refusals, the display list's backdrops, damage.
+    weft_add_executable(weft_scene_backdrop_tests SOURCES scene_backdrop_tests.cpp
+        LINK weft::scene_d2d weft::platform_win32 d2d1 windowscodecs ole32)
+    weft_add_test(NAME scene_backdrop_contract COMMAND weft_scene_backdrop_tests)
+    # backdrop-filter against Chrome's screenshots of the same cases (tools/browser_backdrop_reference.mjs), whose
+    # manifest must name the cases as they are now.
+    set(backdrop_cases "${fixtures}/backdrop-reference/cases.json")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${backdrop_cases}")
+    file(SHA256 "${backdrop_cases}" backdrop_cases_sha256)
+    weft_add_executable(weft_scene_backdrop_reference_tests SOURCES scene_backdrop_reference_tests.cpp
+        LINK weft::scene_d3d11 weft::platform_win32 windowscodecs ole32 SOURCE_DIR)
+    weft_add_test(NAME scene_backdrop_reference COMMAND weft_scene_backdrop_reference_tests
+        "${artifacts}/backdrop-reference-$<CONFIG>" "${backdrop_cases_sha256}" TIMEOUT 120)
     # UI shader effects in the native scene passes: D3D11 on WARP, and Vulkan on this machine's device when built.
     set(scene_effect_links weft::scene_d3d11 weft::platform_win32 weft_test_effects)
     if(WEFT_RENDER_VULKAN)
@@ -271,6 +284,13 @@ if(WIN32)
         target_compile_definitions(weft_render_scene_particles_tests PRIVATE WEFT_TEST_VULKAN)
     endif()
     weft_add_test(NAME render_scene_particles_contract COMMAND weft_render_scene_particles_tests TIMEOUT 120)
+    # backdrop-filter in the native scene passes against the same algorithm on the CPU, on both passes.
+    weft_add_executable(weft_render_scene_backdrop_tests SOURCES render_scene_backdrop_tests.cpp
+        LINK ${scene_effect_links})
+    if(WEFT_RENDER_VULKAN)
+        target_compile_definitions(weft_render_scene_backdrop_tests PRIVATE WEFT_TEST_VULKAN)
+    endif()
+    weft_add_test(NAME render_scene_backdrop_contract COMMAND weft_render_scene_backdrop_tests TIMEOUT 120)
     # The CRPG UI's smoke as a UI shader effect against the original's tick on the CPU, on both scene passes.
     weft_add_executable(weft_render_crpg_smoke_tests SOURCES render_crpg_smoke_tests.cpp
         LINK ${scene_effect_links} weft_gallery_effects windowscodecs ole32 SOURCE_DIR)

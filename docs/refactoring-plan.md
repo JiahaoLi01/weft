@@ -1476,7 +1476,42 @@ CMake 拆分：
 - 11.4c：粒子的效果外观（效果的像素函数画每个粒子）；画廊里一个粒子演示与 4K 性能。
   - 取舍（2026-10-13，做 11.4c 时）：效果外观推迟，先做演示与性能。它要给每次发射多一条参数记录（发射器已占满效果参数的 16 个字段），并为每个效果离线编译“粒子顶点阶段 + 效果像素函数”的变体（每个后端、每种合成空间），两个后端各加管线；圆点与精灵图集已能画出火焰、烟、金币、火花与光环，没有页面需要它。之后有页面需要时再做。
 
+11.5 的顺序（2026-10-13，11.4 完成后按 scene pass 的结构确定）：
+- 11.5a：背景拷贝与 `backdrop-filter`。
+  - CSS：scene 的 `backdrop-filter: none | <filter-function>+`：`blur(<length>)` 与颜色函数（`saturate()`、`brightness()`、`contrast()`、`grayscale()`、`invert()`、`opacity()`、`sepia()`、`hue-rotate()`）；其余函数与 `url()` 报诊断。
+  - paint IR：`Item::Kind::Backdrop` 与 `DisplayList::backdrops`；`check` 拒绝非有限值、超过上限的模糊与不在组里的 `under`。
+  - 规划器：`Step::Backdrop` 结束当前批次；渲染器把读的目标上元素外接矩形内的像素拷到临时纹理，按 Skia 的做法模糊（σ 大于 4 个设备像素时先缩小拷贝，11.5b 起按面积平均缩到 Skia 选的尺寸；水平、垂直两遍高斯，半径 3σ，边缘镜像），再按元素的圆角形状、裁剪链与透明度画回；颜色矩阵在编码空间、非预乘颜色上。
+  - 语义：组内只拷组已经画的内容；最外层拷 pass 已经画的内容；宿主目标不可读（Vulkan 没有 `TRANSFER_SRC` 的图像）时背景透明并计入原因。
+  - D3D11 与 Vulkan 都实现；D2D 参考光栅与线性 pass 拒绝；带 `backdrop-filter` 的子树不缓存成图层；有它的帧任何变化都整幅损伤。
+  - 验证：两个后端对 CPU 参考（同一算法）的像素；组内与透明度的反例；不可读目标；层与损伤；CSS 值与诊断。
+- 11.5b：与 Chrome 对照：静态用例（模糊半径、边缘、圆角、颜色函数、组内）在 Chrome 截图对照，定下边缘模式与容差。
+- 11.5c：画廊的半透明窗口组（毛玻璃、普通半透明、只模糊背后）：每例若干叠放、可拖动、可增减的窗口，背景每帧在动；窗口自测、4K 性能基准（窗口数与 GPU/CPU 时间）、Chrome 逐帧像素对照。
+
 ## 第 11 步记录（2026-10-12）
+
+**11.5b：`backdrop-filter` 与 Chrome 截图对照**（2026-10-13）：
+- 用例（`tests/fixtures/backdrop-reference/cases.json`，新）：160×120 的条纹背景（五色竖条、深色底与一条白色横条）上的 11 个用例，见兼容性。截图（`tools/browser_backdrop_reference.mjs`，新）：本机 Chrome 155.0.8059.40 headless，经 CDP 逐用例设定设备缩放，两个 rAF 之后截图；页面是 data URL，不联网。`manifest.json` 记录浏览器、GPU（首个为绘制所用：RTX 5090，驱动 32.0.16.1062）与特性状态、`cases.json` 与每张截图的 SHA-256；重新截图逐位相同。
+- 测试（`scene_backdrop_reference`，新）：同样的元素与内联样式经 scene 求解器与原生 D3D11 WARP pass 按用例的缩放画出，与截图逐像素比较。玻璃外（元素盒外扩 2 px）最大差不超过 2 级；玻璃内（内缩 2 px）的平均差、最大差与差 16 级以上的像素比例不超过各用例的上限（约为实测值加 50% 或几级的余量）；没有上限的用例算失败。截图清单的 `cases_sha256` 必须等于 CMake 配置时算出的 `cases.json` 哈希（`cases.json` 列为配置依赖），改了用例而没有重新截图时失败。并排对照图写到 `artifacts/backdrop-reference-<config>/`。
+- 发现与修正：
+  - Chrome 在元素边界镜像（Chrome 129 起的边缘模式），与 11.5a 相同；在视口边界镜像的模型差得多。组与嵌套的语义相同（平均差 0.07、0.04）。
+  - 宽模糊偏暗：逐级双线性 2× 降采样在奇数尺寸上采样位置不对齐，丢失平均亮度，`blur(20px)` 平均差 9.16、最大 17。用 Python 模型对照了几种做法（`blur(20px)` 平均差）：直接 σ20 高斯 2.77；按面积缩到 Skia 的尺寸 2.81；Skia 式多级双线性缩放 6.03；线性光下多级 3.43；2 的幂块对齐 4.88。
+  - 选按面积缩小：与直接高斯一样准，代价约为每个源像素读一次，与缩放比例无关。`ScenePass::Backdrop` 改为缩小后的尺寸与那里每轴的 σ（`size`、`sigma`），尺寸为每轴 `max(1, floor(边长 × 4/σ))`；`backdrop.hlsl` 的 `BACKDROP_AREA` 先横后竖，每个输出像素是它覆盖的源像素按覆盖比例的均值；CPU 参考同步；`blur(20px)` 改后 2.81 / 10。
+- 结果（玻璃内平均 / 最大差，级）：blur-3 0.03 / 1，blur-20 2.81 / 10，blur-8-scale-2 1.57 / 7，rounded 1.50 / 9，saturate 2.33 / 12，grayscale-first 1.43 / 7，edge 1.59 / 5，opacity 0.83 / 4，group 0.07 / 2，nested 0.04 / 1，frosted 0.60 / 25（圆角边框的抗锯齿，0.08% 的像素差 16 级以上）。玻璃外全部为 0。
+- 限制：截图来自一台机器上的一个 Chrome 版本；剩下的差异来自 Skia 的缩放方式与圆角抗锯齿，没有逐位复刻；硬件 GPU 上的原生结果由 `render_scene_backdrop_contract` 对 CPU 参考检查（Vulkan RTX 5090）。
+
+**11.5a：背景拷贝与 `backdrop-filter`**（2026-10-13）：
+- CSS（`src/scene/scene_filter.hpp/.cpp`，新）：`scene_backdrop_filter` 解析滤镜函数，`blur` 之前的颜色函数合成模糊前的矩阵，之后的合成模糊后的矩阵；诊断见兼容性。求解器在构建元素时校验（scene profile 诊断），SVG 内部元素上为诊断。`backdrop-filter` 进 scene profile（不继承）；它使元素成为固定与绝对定位子孙的包含块（`contains_fixed`）。
+- paint IR（`src/paint/display_list.hpp`）：`ColorMatrix`、`Backdrop`（模糊、两个矩阵、圆角、`under`）、`Item::Kind::Backdrop`、`DisplayList::backdrops`；`check` 与 `append`。
+- 显示列表（`scene_display_list.cpp`）：一般元素在阴影、背景之前输出 Backdrop 项；透明度小于 1 或子孙也有 `backdrop-filter` 的元素成为隔离组，Backdrop 项（`under`）放在组尾；行内元素只有各片段的盒子带它。子树带它时不缓存成图层。损伤：帧里有它时任何变化整幅损伤。D2D 参考光栅拒绝（`WEFT_SCENE_RASTER: backdrop-filter`）。
+- 规划器（`scene_pass.hpp/.cpp`）：`Step::Backdrop` 与 `ScenePass::backdrops`（区域、模糊前矩阵、缩小后的尺寸与那里每轴的 σ（11.5b 起；原为 2× 降采样次数与剩下的 σ）、`under`）；记录：盒子的形状、模糊后矩阵（`effect_parameter` 0–4）、区域的设备 px（uv），`image_mode_backdrop`。`backdrop_*_constants` 给出各遍的常量（D3D11 与 Vulkan 共用）。
+- 着色器：`backdrop.hlsl`（新）：全屏三角形，缩小（11.5b 起按面积）、高斯一遍、颜色矩阵三个变体，镜像采样；`scene.hlsl` 的合成模式按设备坐标采样模糊结果，乘圆角形状、裁剪链与透明度，再过矩阵。
+- D3D11：`SceneRenderer::backdrop` 从目标的资源 `CopySubresourceRegion`，各遍画进按格式、尺寸与链中位置复用的临时纹理（两帧不用就释放），之后恢复 pass 的状态；`under` 用 destination-over 混合。线性 pass 与 C ABI 拒绝（`UNSUPPORTED_FEATURE`）。
+- Vulkan：每次背景结束渲染过程，把读的图像转成 `TRANSFER_SRC` 拷出，各遍在自己的渲染过程里画进槽位的临时图像（用法加上拷贝），再以 load 继续；`Target::image`（新）让宿主给出可读的图像，没有时背景透明并计入 `backdrop of an unreadable target`；`draw()` 的 `readable` 参数供测试。新增镜像采样器、背景的描述符布局与三条管线、destination-over 的 scene 管线。
+- 验证：
+  - `render_scene_backdrop_contract`（新）：D3D11 WARP 与 Vulkan（RTX 5090）对 CPU 参考（同一算法，`tests/support/backdrop_reference.hpp`，背景取 pass 自己画的无元素帧）：blur 3px、20px（11.5b 起缩到 18×14）、缩放 2 下 8px、圆角、模糊后 saturate 与 brightness、模糊前 grayscale、目标边缘，相差不超过 2 级；透明度 0.6 带内容的元素（组与 `under`），内容之外为背景按透明度合成，内容处为内容按透明度；透明度组里的背景只读组的内容（组外的条纹不进背景）；Vulkan 不可读目标的背景透明并计入原因；Vulkan 对 D3D11 最大差 2；
+  - `scene_backdrop_contract`（新）：滤镜函数与矩阵、组合顺序、封顶与单位、诊断；显示列表中各情形的位置（普通、透明度组、子孙也过滤）；固定定位子孙的包含块；图层；损伤；D2D 拒绝；求解器的诊断；svg 根与 SVG 内部元素；
+  - `paint_contract`：上述拒绝、`append`、记录、步骤与常量；`render_d3d11`：C ABI 拒绝。
+- 限制：有背景的帧任何变化都整幅损伤；读背景的 UI 着色器效果尚未做。
 
 **11.4c：画廊的粒子页面与 4K 性能**（2026-10-13）：
 - 页面（`examples/crpg-gallery/native/PARTICLE_TESTS.js`、`particle-utilities.css`、`particle-keyframes.css`，新）：手写、不用框架，在 scene 平台上运行。篝火（`-weft-particles` 的火焰、余烬与烟）、宝箱（每 2.5 s 自己打开一次，点击也开：火花，加上飞向顶栏金币计数的 24 枚金币，金币到达后计数增加）、符文（光环，悬停时 `:hover` 把 `--particles-rate` 从 60 提到 240）、全页漂浮的微粒（四层，每层每秒至多 12000 个，按页面设定的密度分配；底部按钮减半或加倍）。`__ceParticlePage` 给探针设定密度、开箱、读点击次数。

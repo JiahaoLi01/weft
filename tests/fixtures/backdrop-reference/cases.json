@@ -1,0 +1,45 @@
+{
+  "format": "weft-backdrop-cases-v1",
+  "width": 160,
+  "height": 120,
+  "root": "position:relative;width:160px;height:120px;overflow:hidden;background-color:#101820",
+  "background": [
+    {"id": "s0", "style": "position:absolute;left:0px;top:0px;width:10px;height:120px;background-color:#e04040"},
+    {"id": "s1", "style": "position:absolute;left:20px;top:0px;width:10px;height:120px;background-color:#40c060"},
+    {"id": "s2", "style": "position:absolute;left:40px;top:0px;width:10px;height:120px;background-color:#4060e0"},
+    {"id": "s3", "style": "position:absolute;left:60px;top:0px;width:10px;height:120px;background-color:#f0c030"},
+    {"id": "s4", "style": "position:absolute;left:80px;top:0px;width:10px;height:120px;background-color:#c040c0"},
+    {"id": "s5", "style": "position:absolute;left:100px;top:0px;width:10px;height:120px;background-color:#e04040"},
+    {"id": "s6", "style": "position:absolute;left:120px;top:0px;width:10px;height:120px;background-color:#40c060"},
+    {"id": "s7", "style": "position:absolute;left:140px;top:0px;width:10px;height:120px;background-color:#4060e0"},
+    {"id": "bar", "style": "position:absolute;left:0px;top:54px;width:160px;height:12px;background-color:#ffffff"}
+  ],
+  "cases": [
+    {"name": "blur-3", "scale": 1, "glass": "glass", "nodes": [
+      {"id": "glass", "style": "position:absolute;left:30px;top:20px;width:90px;height:70px;backdrop-filter:blur(3px)"}]},
+    {"name": "blur-20", "scale": 1, "glass": "glass", "nodes": [
+      {"id": "glass", "style": "position:absolute;left:30px;top:20px;width:90px;height:70px;backdrop-filter:blur(20px)"}]},
+    {"name": "blur-8-scale-2", "scale": 2, "glass": "glass", "nodes": [
+      {"id": "glass", "style": "position:absolute;left:30px;top:20px;width:90px;height:70px;backdrop-filter:blur(8px)"}]},
+    {"name": "rounded", "scale": 1, "glass": "glass", "nodes": [
+      {"id": "glass", "style": "position:absolute;left:30px;top:20px;width:90px;height:70px;border-radius:16px;backdrop-filter:blur(6px)"}]},
+    {"name": "saturate", "scale": 1, "glass": "glass", "nodes": [
+      {"id": "glass", "style": "position:absolute;left:30px;top:20px;width:90px;height:70px;backdrop-filter:blur(5px) saturate(180%) brightness(1.1)"}]},
+    {"name": "grayscale-first", "scale": 1, "glass": "glass", "nodes": [
+      {"id": "glass", "style": "position:absolute;left:30px;top:20px;width:90px;height:70px;backdrop-filter:grayscale(0.8) blur(5px)"}]},
+    {"name": "edge", "scale": 1, "glass": "glass", "nodes": [
+      {"id": "glass", "style": "position:absolute;left:-20px;top:-20px;width:70px;height:60px;backdrop-filter:blur(6px)"}]},
+    {"name": "opacity", "scale": 1, "glass": "glass", "nodes": [
+      {"id": "glass", "style": "position:absolute;left:30px;top:20px;width:90px;height:70px;opacity:0.6;backdrop-filter:blur(6px)"},
+      {"id": "content", "parent": "glass", "style": "position:absolute;left:10px;top:10px;width:20px;height:20px;background-color:#00ffff"}]},
+    {"name": "group", "scale": 1, "glass": "glass", "nodes": [
+      {"id": "group", "style": "position:absolute;left:20px;top:10px;width:120px;height:100px;opacity:0.8"},
+      {"id": "blue", "parent": "group", "style": "position:absolute;left:0px;top:0px;width:60px;height:100px;background-color:#2050ff"},
+      {"id": "glass", "parent": "group", "style": "position:absolute;left:20px;top:20px;width:80px;height:60px;backdrop-filter:blur(5px)"}]},
+    {"name": "nested", "scale": 1, "glass": "outer", "nodes": [
+      {"id": "outer", "style": "position:absolute;left:20px;top:10px;width:120px;height:100px;background-color:rgba(255,255,255,0.15);backdrop-filter:blur(4px)"},
+      {"id": "inner", "parent": "outer", "style": "position:absolute;left:30px;top:25px;width:60px;height:50px;backdrop-filter:blur(8px)"}]},
+    {"name": "frosted", "scale": 2, "glass": "glass", "nodes": [
+      {"id": "glass", "style": "position:absolute;left:24px;top:16px;width:112px;height:88px;border-radius:14px;border:1px solid rgba(255,255,255,0.35);background-color:rgba(255,255,255,0.12);backdrop-filter:blur(12px) saturate(180%)"}]}
+  ]
+}
