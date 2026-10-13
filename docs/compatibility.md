@@ -130,11 +130,13 @@ CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后�
   - 合成倾斜的斜率与 Chrome 截图相差不到 0.02：Chrome −0.266、参考光栅 −0.254、原生 −0.248 px/行。
 - 限制：Final_Sigma 只看同一个文字节点；没有按 `lang` 的大小写规则；`shape_with_fallback` 的文字仍限于拉丁、汉字与通用字符，希腊、西里尔等字母的文字本来就报诊断。
 
+2026-10-13 重构第 11.3d 步之一：JS 的 `Element.closest(selectors)`：元素自身或最近的匹配祖先元素，没有时为 null；与 querySelector/matches 共用选择器文法与诊断。
+
 2026-10-13 重构第 11.3c 步之三：scene 的 `position: fixed`。
 - 包含块：视口（scene 根），或最近的带 `transform`、`will-change: transform` 的祖先。`will-change: transform` 的盒子此后也是绝对定位后代的包含块，与 Chrome 相同。
 - 布局：按绝对定位排进包含块（px 与百分比按包含块，宽高自适应时为收缩适配），再换回父元素的坐标。绘制与命中仍在它在树中的位置；z-index 仍只在兄弟之间排序（门户到 body 的浮层是 body 的子元素，不受影响）。
 - 诊断（`WEFT_SCENE_PROFILE`）：
-  - CSS 中它不受包含块与它之间那些盒子的 `overflow` 裁剪；scene 在树中位置绘制，会受这些裁剪。所以这些裁剪必须完整容纳它及其后代，否则报诊断（裁剪区域按内边距盒，带圆角时再内缩最大半径）；
+  - CSS 中它不受包含块与它之间那些盒子的 `overflow` 裁剪；scene 在树中位置绘制，会受这些裁剪。所以这些裁剪必须容纳包含块显示出的那部分（根上是视口，包含块裁剪时是它的内边距盒），否则报诊断（裁剪区域按内边距盒，带圆角时再内缩最大半径）。拖到视口外一半的窗口在与视口同大的裁剪盒里可以接受；
   - 某一轴两侧 inset 都是 auto（要用静态位置）而父元素不是包含块；
   - 在没有变换祖先的 inline-block 里。
 - 验证：

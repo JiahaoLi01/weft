@@ -1246,6 +1246,7 @@ namespace weft {
             QuerySelector,
             QuerySelectorAll,
             Matches,
+            Closest,
             SetAttribute,
             GetAttribute,
             RemoveAttribute,
@@ -1598,6 +1599,21 @@ namespace weft {
                     }
                     case Matches:
                         return JS_NewBool(c, owner.matches(n, string_value(c, arg(argc, argv, 0))));
+                    case Closest: {
+                        // The element itself or its nearest ancestor element the selector list matches; the list is
+                        // compiled once, so an unsupported selector fails even when nothing would match.
+                        if (n.type != constants::element_node_type) {
+                            throw std::runtime_error("WEFT_DOM_TYPE: closest requires Element");
+                        }
+                        const auto list = owner.selectors(string_value(c, arg(argc, argv, 0)));
+                        for (const Node* e = &n; e && e->type == constants::element_node_type;
+                             e = owner.parent_of(*e)) {
+                            if (owner.tree.matches(*e, list)) {
+                                return JS_DupValue(c, owner.wrapper(*e));
+                            }
+                        }
+                        return JS_NULL;
+                    }
                     case SetAttribute:
                     case GetAttribute:
                     case RemoveAttribute:
@@ -1876,6 +1892,7 @@ namespace weft {
                 method(prototype.value, "querySelectorAll", QuerySelectorAll, 1);
                 method(prototype.value, "getElementById", GetElementById, 1);
                 method(prototype.value, "matches", Matches, 1);
+                method(prototype.value, "closest", Closest, 1);
                 method(prototype.value, "contains", Contains, 1);
                 method(prototype.value, "setAttribute", SetAttribute, 2);
                 method(prototype.value, "getAttribute", GetAttribute, 1);

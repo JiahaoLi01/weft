@@ -180,6 +180,13 @@ int main() {
                 child(t, distant, "div", "position:fixed;left:10px;top:10px;width:20px;height:20px");
             },
             "a fixed box far from its parent in a root whose content must fit");
+        accepted(
+            "",
+            [&](weft::testing::NativeScene& t) {
+                auto& page = child(t, *t.root, "div", "width:200px;height:100px;overflow:hidden");
+                child(t, page, "div", "position:fixed;left:150px;top:60px;width:120px;height:80px");
+            },
+            "a fixed box partly out of the viewport, in a box that clips to the viewport (a dragged window)");
         std::cout << "PASS scene position: fixed against Chrome; hits, native pass, diagnostics\n";
         return 0;
     } catch (const std::exception& e) {

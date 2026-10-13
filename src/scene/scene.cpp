@@ -1553,11 +1553,26 @@ namespace weft {
             }
         }
 
+        // A box's padding box in its own coordinates, less its corners' largest radius: what it shows of its content
+        // when it clips.
+        static std::array<float, 4> clip_rect(const SceneNode& c) {
+            const float base = c.box[2];
+            float radius{};
+            for (const auto k : radius_corners) {
+                radius = std::max(radius, float(length(c.style.text(k, "0"), base)));
+            }
+            return {edge_length(c.style, PropertyId::BorderLeftWidth, base) + radius,
+                    edge_length(c.style, PropertyId::BorderTopWidth, base) + radius,
+                    c.box[2] - edge_length(c.style, PropertyId::BorderRightWidth, base) - radius,
+                    c.box[3] - edge_length(c.style, PropertyId::BorderBottomWidth, base) - radius};
+        }
+
         // A fixed box is painted and hit where it sits in the tree, inside the clips of the boxes between it and its
-        // containing block, which CSS does not apply to it: they must hold all of it, so they change nothing. `at` is
-        // n's origin in its containing block, `clips` the clips there (padding boxes, less their corners' radii).
+        // containing block, which CSS does not apply to it: they must hold what its containing block shows of it
+        // (`bound`: the viewport at the root, a containing block's padding box when it clips), so they change
+        // nothing. `at` is n's origin in its containing block, `clips` the clips there.
         static void check_fixed_clips(const SceneNode& n, std::array<float, 2> at,
-                                      std::vector<std::array<float, 4>>& clips) {
+                                      std::vector<std::array<float, 4>>& clips, const std::array<float, 4>& bound) {
             const auto bounds = [](auto&& self, const SceneNode& c, std::array<float, 2> origin,
                                    std::array<float, 4>& out) -> void {
                 if (c.style.text(PropertyId::Display, "inline") == "none") {
@@ -1577,8 +1592,13 @@ namespace weft {
                 if (c.style.text(PropertyId::Position, "static") == "fixed") {
                     std::array<float, 4> extent{origin[0], origin[1], origin[0], origin[1]};
                     bounds(bounds, c, origin, extent);
+                    extent = {std::max(extent[0], bound[0]), std::max(extent[1], bound[1]),
+                              std::min(extent[2], bound[2]), std::min(extent[3], bound[3])};
                     constexpr float tolerance = constants::scene::overflow_tolerance_px;
                     for (const auto& clip : clips) {
+                        if (extent[2] <= extent[0] || extent[3] <= extent[1]) {
+                            break;
+                        }
                         if (extent[0] < clip[0] - tolerance || extent[1] < clip[1] - tolerance ||
                             extent[2] > clip[2] + tolerance || extent[3] > clip[3] + tolerance) {
                             fail("position: fixed beyond the overflow clip of a box it escapes outside scene profile");
@@ -1587,7 +1607,11 @@ namespace weft {
                 }
                 if (contains_fixed(c.style)) {
                     std::vector<std::array<float, 4>> inner;
-                    check_fixed_clips(c, {0, 0}, inner);
+                    constexpr float unbounded = std::numeric_limits<float>::infinity();
+                    check_fixed_clips(c, {0, 0}, inner,
+                                      c.style.text(PropertyId::Overflow, "visible") != "visible"
+                                          ? clip_rect(c)
+                                          : std::array<float, 4>{-unbounded, -unbounded, unbounded, unbounded});
                     continue;
                 }
                 if (c.space == constants::svg_namespace_uri) {
@@ -1595,18 +1619,10 @@ namespace weft {
                 }
                 const bool clips_overflow = c.style.text(PropertyId::Overflow, "visible") != "visible";
                 if (clips_overflow) {
-                    const float base = c.box[2];
-                    float radius{};
-                    for (const auto k : radius_corners) {
-                        radius = std::max(radius, float(length(c.style.text(k, "0"), base)));
-                    }
-                    clips.push_back(
-                        {origin[0] + edge_length(c.style, PropertyId::BorderLeftWidth, base) + radius,
-                         origin[1] + edge_length(c.style, PropertyId::BorderTopWidth, base) + radius,
-                         origin[0] + c.box[2] - edge_length(c.style, PropertyId::BorderRightWidth, base) - radius,
-                         origin[1] + c.box[3] - edge_length(c.style, PropertyId::BorderBottomWidth, base) - radius});
+                    const auto r = clip_rect(c);
+                    clips.push_back({origin[0] + r[0], origin[1] + r[1], origin[0] + r[2], origin[1] + r[3]});
                 }
-                check_fixed_clips(c, origin, clips);
+                check_fixed_clips(c, origin, clips, bound);
                 if (clips_overflow) {
                     clips.pop_back();
                 }
@@ -1939,7 +1955,7 @@ namespace weft {
             options.viewport = std::array{w, h};
             layout_run(f.root, options, true);
             std::vector<std::array<float, 4>> clips;
-            check_fixed_clips(f.root, {0, 0}, clips);
+            check_fixed_clips(f.root, {0, 0}, clips, {0, 0, w, h});
             atomic_memo.clear();
             f.elements.clear();
             list_elements(f.root, 0, 0, f.elements);

@@ -13,6 +13,12 @@
 
 ## 本次已实现
 
+重构第 11 步之三（d）之一：`Element.closest` 与固定盒子的裁剪检查（2026-10-13）。详见 [重构计划](refactoring-plan.md#第-11-步记录2026-10-12)。
+- **结果**：JS 支持 `Element.closest`；拖到视口外一半的固定窗口不再误报诊断（逃出的裁剪只需容纳视口内的部分）。
+- **验证**：`ctest` Release 131/131、Debug 131/131；Android 零警告；变异 4 个中 3 个被发现，剩下 1 个与原实现等价。
+- **另记**：参照清单锁定的是 CRLF 工作副本的哈希（`probes/gallery_reference_clock.js`），全新检出会使 `scene_fixture_integrity` 失败；已另开任务。
+- **下一步**：11.3d 其余：scene 根改为 body（`#root` 之外的 portal）、页面样式表、模板字符串与数据里的 Tailwind 类名提取。
+
 重构第 11 步之三（c）之三：scene `position: fixed`（2026-10-13）。详见 [重构计划](refactoring-plan.md#第-11-步记录2026-10-12)。
 - **结果**：
   - scene 页面支持 `position: fixed`：相对视口定位，或相对最近的带 `transform`、`will-change: transform` 的祖先，与 Chrome 相同；CRPG 页面的悬停浮层与钉住的窗口由此可放；
