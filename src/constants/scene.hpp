@@ -133,6 +133,9 @@ namespace weft::constants::scene {
     inline constexpr int node_shape_cache_max_bytes = 4 * constants::bytes_per_mib;
     inline constexpr int transform_cache_max_entries = 1024;
     inline constexpr int transform_cache_max_bytes = constants::bytes_per_mib;
+    // SceneDisplayCache: SVG elements' values with the own values they were taken from, their paths included.
+    inline constexpr int svg_values_cache_max_entries = 2 * constants::max_document_nodes;
+    inline constexpr int svg_values_cache_max_bytes = 16 * constants::bytes_per_mib;
     inline constexpr int stroke_cache_max_entries = 128;
     inline constexpr int stroke_cache_max_bytes = 2 * constants::bytes_per_mib;
     inline constexpr int max_stroke_dashes = 64;

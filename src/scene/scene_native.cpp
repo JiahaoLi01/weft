@@ -7,6 +7,8 @@
 #include "scene/scene_text_image.hpp"
 
 #include <algorithm>
+#include <atomic>
+#include <bit>
 #include <climits>
 #include <cmath>
 #include <cstring>
@@ -17,7 +19,141 @@ namespace weft {
     namespace {
         namespace limits = constants::render::scene;
         using Kind = paint::Item::Kind;
+
+        // A node's paint source as bytes, fields length-prefixed, its text first (it tells most sources apart).
+        struct SourceKey {
+            std::string out;
+
+            void bytes(const void* data, std::size_t size) {
+                out.append(static_cast<const char*>(data), size);
+            }
+
+            void count(std::size_t n) {
+                const auto v = std::uint64_t(n);
+                bytes(&v, sizeof v);
+            }
+
+            void text(std::string_view s) {
+                count(s.size());
+                out.append(s);
+            }
+
+            // A spelling of its own, which no other key has: for what equals nothing.
+            void unique() {
+                static std::atomic<std::uint64_t> next{};
+                const std::uint64_t marker[2]{~std::uint64_t{}, next.fetch_add(1, std::memory_order_relaxed)};
+                bytes(marker, sizeof marker);
+            }
+
+            // A number as == compares it: one spelling of zero, and a unique one for NaN.
+            void number(double v) {
+                if (std::isnan(v)) {
+                    unique();
+                    return;
+                }
+                if (v == 0) {
+                    v = 0;
+                }
+                bytes(&v, sizeof v);
+            }
+
+            template <std::size_t N>
+            void numbers(const std::array<float, N>& values) {
+                for (const auto v : values) {
+                    number(v);
+                }
+            }
+
+            void paint(const PaintValue& v) {
+                const auto kind = std::uint8_t(v.kind);
+                bytes(&kind, sizeof kind);
+                number(v.scalar.absolute);
+                number(v.scalar.relative);
+                for (const auto c : v.color) {
+                    number(c);
+                }
+                count(v.operations.size());
+                for (const auto& op : v.operations) {
+                    const auto op_kind = std::uint8_t(op.kind);
+                    bytes(&op_kind, sizeof op_kind);
+                    count(op.count);
+                    for (const auto& arg : op.args) {
+                        number(arg.absolute);
+                        number(arg.relative);
+                    }
+                }
+            }
+
+            void node(const SceneNode& n) {
+                text(n.text);
+                text(n.tag);
+                text(n.space);
+                count(n.style.size());
+                for (const auto& [id, value] : n.style) {
+                    count(std::size_t(id));
+                    text(value.text());
+                }
+                count(n.attributes.size());
+                for (const auto& [name, value] : n.attributes) {
+                    text(name);
+                    text(value);
+                }
+                numbers(n.box);
+                count(n.lines.size());
+                for (const auto& line : n.lines) {
+                    text(line.text);
+                    numbers(line.rect);
+                    number(line.baseline);
+                }
+                count(n.fragments.size());
+                for (const auto& fragment : n.fragments) {
+                    numbers(fragment.rect);
+                    const std::uint8_t ends[2]{fragment.first, fragment.last};
+                    bytes(ends, sizeof ends);
+                }
+                count(n.paint ? 1 : 0);
+                if (n.paint) {
+                    for (const auto& slot : n.paint->values) {
+                        count(slot ? 1 : 0);
+                        if (slot) {
+                            paint(*slot);
+                        }
+                    }
+                }
+                // Effects and particles are not keyed: a node that shows them shares its source with none.
+                if (n.effect || !n.particles.empty()) {
+                    unique();
+                }
+                count(n.children.size());
+                for (const auto& child : n.children) {
+                    node(child);
+                }
+            }
+        };
+
+        // splitmix64's finalizer over the digest so far and the next word.
+        std::uint64_t mix(std::uint64_t h, std::uint64_t word) {
+            std::uint64_t z = h ^ word;
+            z += 0x9e3779b97f4a7c15ull;
+            z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ull;
+            z = (z ^ (z >> 27)) * 0x94d049bb133111ebull;
+            return z ^ (z >> 31);
+        }
+
+        std::uint64_t floats_digest(std::uint64_t h, const float* values, std::size_t n) {
+            h = mix(h, n);
+            for (std::size_t i = 0; i < n; ++i) {
+                h = mix(h, std::bit_cast<std::uint32_t>(values[i]));
+            }
+            return h;
+        }
     } // namespace
+
+    std::string scene_paint_source_key(const SceneNode& node) {
+        SourceKey key;
+        key.node(node);
+        return std::move(key.out);
+    }
 
     std::size_t scene_scratch_bytes(const ScenePrepared& prepared, bool plane) {
         auto bytes = std::size_t(prepared.width) * prepared.height * constants::rgba8_bytes_per_pixel *
@@ -37,7 +173,8 @@ namespace weft {
           max_image_dimension_(max_image_dimension),
           reference_(std::move(reference)),
           geometry_(text),
-          images_(bounds.entries, bounds.bytes),
+          texts_(bounds.entries, bounds.bytes),
+          layers_(bounds.entries, bounds.bytes),
           shadows_(bounds.entries, bounds.bytes),
           paths_(bounds.entries, bounds.bytes),
           effect_textures_(bounds.entries, bounds.bytes) {
@@ -53,11 +190,24 @@ namespace weft {
             return nullptr;
         };
         // What this pass uses stays in the caches until the next pass.
-        images_.begin_pass();
+        svg_.begin_pass(view_index);
+        texts_.begin_pass();
+        layers_.begin_pass();
         shadows_.begin_pass();
         paths_.begin_pass();
         effect_textures_.begin_pass();
-        auto compiled = scene_display_list(frame, layers, &text_, scale);
+        // The digests of paths that are gone, once there are as many again as after the last sweep.
+        if (digests_.size() > 2 * digests_swept_ + std::size_t(limits::image_cache_max_entries)) {
+            std::erase_if(digests_, [](const auto& entry) {
+                return entry.second.path.expired();
+            });
+            digests_swept_ = digests_.size();
+        }
+        const auto svg_builds = svg_.builds();
+        const auto svg_reuses = svg_.reuses();
+        auto compiled = scene_display_list(frame, layers, &text_, scale, &svg_);
+        work_.svg_value_builds += svg_.builds() - svg_builds;
+        work_.svg_value_reuses += svg_.reuses() - svg_reuses;
         if (!compiled.fallback.empty()) {
             return fallback(compiled.fallback);
         }
@@ -106,16 +256,25 @@ namespace weft {
     ScenePreparer::Built ScenePreparer::image(const paint::Item& item, const paint::Raster& raster, float scale,
                                               unsigned view_index) {
         const auto& n = *raster.source;
+        const float margin = limits::image_margin + raster.overhang;
+        // A layer by its node; text by its source alone, so that the same text of another node shares the image.
         std::array<std::uint64_t, 5> id{view_index, n.identity.view_epoch, n.identity.slot, n.identity.generation,
                                         raster.part};
-        if (const auto* cached = images_.find(id);
-            cached && scene_paint_source_equal(cached->key, n) && cached->scale == scale) {
-            if (item.kind == Kind::Layer) {
+        std::string source;
+        if (item.kind == Kind::Layer) {
+            if (const auto* cached = layers_.find(id);
+                cached && scene_paint_source_equal(cached->key, n) && cached->scale == scale) {
                 ++work_.layer_reuses;
-            } else {
-                ++work_.text_reuses;
+                return {nullptr, cached->image};
             }
-            return {cached->text, cached->layer};
+        } else {
+            source = scene_paint_source_key(n);
+            source.append(reinterpret_cast<const char*>(&scale), sizeof scale);
+            source.append(reinterpret_cast<const char*>(&margin), sizeof margin);
+            if (const auto* cached = texts_.find(source)) {
+                ++work_.text_reuses;
+                return {*cached, nullptr};
+            }
         }
         if (item.kind == Kind::Layer) {
             bool supported = true;
@@ -165,7 +324,6 @@ namespace weft {
         // The node image_margin px in from the edges of a transparent frame of its size and margins: an explicit
         // layer's content, which a backend draws into the layer's image, and what the reference raster draws of text
         // whose color glyphs are images. Other text is a portable image.
-        const float margin = limits::image_margin + raster.overhang;
         const auto framed = [&] {
             SceneFrame frame;
             frame.root.tag = "div";
@@ -177,18 +335,18 @@ namespace weft {
             frame.root.children.push_back(std::move(child));
             return frame;
         };
-        Entry entry;
-        entry.key = n;
-        entry.scale = scale;
         if (item.kind == Kind::Layer) {
+            Layer entry;
+            entry.key = n;
+            entry.scale = scale;
             const auto frame = framed();
             const auto w = unsigned(std::ceil(frame.root.box[2] * scale));
             const auto h = unsigned(std::ceil(frame.root.box[3] * scale));
-            entry.bytes = std::size_t(w) * h * constants::rgba8_bytes_per_pixel;
-            if (w > max_image_dimension_ || h > max_image_dimension_ || entry.bytes > limits::image_max_bytes) {
+            const auto bytes = std::size_t(w) * h * constants::rgba8_bytes_per_pixel;
+            if (w > max_image_dimension_ || h > max_image_dimension_ || bytes > limits::image_max_bytes) {
                 throw std::invalid_argument("layer image byte bound");
             }
-            const auto listed = scene_display_list(frame, {}, &text_, scale);
+            const auto listed = scene_display_list(frame, {}, &text_, scale, &svg_);
             if (!listed.fallback.empty()) {
                 throw std::invalid_argument(listed.fallback);
             }
@@ -200,9 +358,14 @@ namespace weft {
             layer->width = w;
             layer->height = h;
             layer->content = prepare(listed.list, scale, w, h, std::nullopt, view_index);
-            entry.layer = std::move(layer);
+            entry.image = layer;
             ++work_.layer_builds;
-        } else {
+            const auto evictions = layers_.evictions();
+            layers_.put(id, std::move(entry), bytes);
+            work_.image_evictions += layers_.evictions() - evictions;
+            return {nullptr, std::move(layer)};
+        }
+        {
             SceneBitmap bitmap;
             auto text = scene_text_image(text_, n, scale, margin);
             if (!text.color_glyphs) {
@@ -214,8 +377,8 @@ namespace weft {
             } else {
                 throw std::invalid_argument("color glyph image reference");
             }
-            entry.bytes = bitmap.rgba.size();
-            if (entry.bytes > limits::image_max_bytes) {
+            const auto bytes = bitmap.rgba.size();
+            if (bytes > limits::image_max_bytes) {
                 throw std::invalid_argument("text source byte bound");
             }
             // Straight RGBA to premultiplied BGRA.
@@ -232,15 +395,29 @@ namespace weft {
             image->width = bitmap.width;
             image->height = bitmap.height;
             image->pixels = std::move(bitmap.rgba);
-            entry.text = std::move(image);
             ++work_.text_builds;
+            const auto evictions = texts_.evictions();
+            texts_.put(source, image, bytes);
+            work_.image_evictions += texts_.evictions() - evictions;
+            return {std::move(image), nullptr};
         }
-        const auto bytes = entry.bytes;
-        Built built{entry.text, entry.layer};
-        const auto evictions = images_.evictions();
-        images_.put(id, std::move(entry), bytes);
-        work_.image_evictions += images_.evictions() - evictions;
-        return built;
+    }
+
+    std::uint64_t ScenePreparer::digest(const std::shared_ptr<const paint::Path>& path) {
+        // A live object at the same address is this one.
+        auto& known = digests_[path.get()];
+        if (!known.path.expired()) {
+            return known.value;
+        }
+        const auto& p = *path;
+        std::uint64_t h = mix(0, p.verbs.size());
+        for (const auto verb : p.verbs) {
+            h = mix(h, std::uint64_t(verb));
+        }
+        h = floats_digest(h, p.points.empty() ? nullptr : p.points.front().data(), p.points.size() * 2);
+        known.path = path;
+        known.value = mix(h, p.evenodd);
+        return known.value;
     }
 
     std::shared_ptr<const SceneImage> ScenePreparer::shadow(const paint::Item& item, const paint::Shadow& s,
@@ -283,33 +460,48 @@ namespace weft {
         for (auto& v : device) {
             v *= scale;
         }
-        // The key: every value the coverage depends on, as bytes.
-        std::string key;
-        const auto add = [&](const void* data, std::size_t size) {
-            key.append(static_cast<const char*>(data), size);
-        };
+        // The key: every value the coverage depends on, the path by its digest.
         const auto& path = *p.path;
-        const auto verbs = path.verbs.size();
-        add(&verbs, sizeof verbs);
-        add(path.verbs.data(), path.verbs.size() * sizeof(path.verbs[0]));
-        add(path.points.data(), path.points.size() * sizeof(path.points[0]));
-        add(&path.evenodd, sizeof path.evenodd);
-        add(device.data(), sizeof device);
-        add(mask.data(), sizeof mask);
+        const auto bits = [](float v) {
+            return std::bit_cast<std::uint32_t>(v);
+        };
+        const auto d = digest(p.path);
+        std::array<std::uint32_t, 21> key{};
+        key[0] = std::uint32_t(d);
+        key[1] = std::uint32_t(d >> 32);
+        key[2] = std::uint32_t(path.verbs.size());
+        key[3] = std::uint32_t(path.points.size());
         const bool stroked = p.stroke.has_value();
-        add(&stroked, sizeof stroked);
+        key[4] = std::uint32_t(path.evenodd) | std::uint32_t(stroked) << 1;
+        for (unsigned i = 0; i < device.size(); ++i) {
+            key[5 + i] = bits(device[i]);
+        }
+        for (unsigned i = 0; i < mask.size(); ++i) {
+            key[11 + i] = std::uint32_t(mask[i]);
+        }
         if (stroked) {
             const auto& s = *p.stroke;
-            add(&s.width, sizeof s.width);
-            add(&s.cap, sizeof s.cap);
-            add(&s.join, sizeof s.join);
-            add(&s.miter_limit, sizeof s.miter_limit);
-            add(&s.dash_offset, sizeof s.dash_offset);
-            add(s.dashes.data(), s.dashes.size() * sizeof(s.dashes[0]));
+            key[4] |= std::uint32_t(s.cap) << 2 | std::uint32_t(s.join) << 4;
+            key[15] = bits(s.width);
+            key[16] = bits(s.miter_limit);
+            key[17] = bits(s.dash_offset);
+            const auto dashes = floats_digest(0, s.dashes.data(), s.dashes.size());
+            key[18] = std::uint32_t(dashes);
+            key[19] = std::uint32_t(dashes >> 32);
+            key[20] = std::uint32_t(s.dashes.size());
         }
-        if (const auto* cached = paths_.find(key)) {
-            ++work_.path_reuses;
-            return *cached;
+        static const std::vector<float> solid;
+        const auto& dashes = stroked ? p.stroke->dashes : solid;
+        if (auto* cached = paths_.find(key)) {
+            // The same path object, or one of the same verbs and points (a digest may collide).
+            if (cached->path != p.path && cached->path->verbs == path.verbs && cached->path->points == path.points &&
+                cached->path->evenodd == path.evenodd) {
+                cached->path = p.path;
+            }
+            if (cached->path == p.path && cached->dashes == dashes) {
+                ++work_.path_reuses;
+                return cached->image;
+            }
         }
         auto coverage = vector_.rasterize(p, device, mask);
         if (!coverage) {
@@ -331,7 +523,7 @@ namespace weft {
         result->pixels = std::move(pixels);
         ++work_.path_builds;
         const auto evictions = paths_.evictions();
-        paths_.put(key, result, bytes);
+        paths_.put(key, {p.path, dashes, result}, bytes);
         work_.image_evictions += paths_.evictions() - evictions;
         return result;
     }

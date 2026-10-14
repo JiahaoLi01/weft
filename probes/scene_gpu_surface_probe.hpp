@@ -1,6 +1,7 @@
 #pragma once
 
 #include "probe_common.hpp"
+#include "frame_reclaimer.hpp"
 #include "render/backends/d3d11/scene_renderer.hpp"
 #include "gallery_scene_manifest.hpp"
 #include "gallery_constants.hpp"
@@ -57,6 +58,8 @@ namespace probes {
         std::uint64_t version_{};
         bool producer_pending{};
         std::vector<std::pair<unsigned, Slot*>> pending_;
+        // Frames the slots no longer retain, destroyed off this thread.
+        FrameReclaimer reclaimer_;
 
         static void add_work(weft::SceneRaster::Work& total, const weft::SceneRaster::Work& value) {
             total.gpu_projective_draws += value.gpu_projective_draws;
@@ -318,11 +321,17 @@ namespace probes {
                     double(damage.rect[2] - damage.rect[0]) * (damage.rect[3] - damage.rect[1]) * scale * scale;
             }
             s.clip = clip;
-            s.retained_frame = retain_paint ? std::move(value) : nullptr;
+            reclaimer_.drop(std::exchange(s.retained_frame, retain_paint ? std::move(value) : nullptr));
+            reclaimer_.drop(std::move(value));
             ++paints;
             pending_.emplace_back(index, selected);
             current_[index] = selected;
             return s;
+        }
+
+        // Drops a frame (or a publication of frames) the caller is done with, off this thread.
+        void release(std::shared_ptr<const void> value) {
+            reclaimer_.drop(std::move(value));
         }
 
         void publish() {

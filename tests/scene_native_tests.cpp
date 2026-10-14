@@ -162,26 +162,47 @@ int main() {
                         effect_work.effect_texture_builds == 3 && effect_work.effect_texture_reuses == 3,
                     "effect textures built once");
         }
-        // A pass with more images than a cache's entry bound keeps them all for the next pass, which reuses every
-        // one; a pass of other images then evicts the earlier pass's, oldest first, down to the bound.
-        weft::SceneNativeWork bounded_work;
-        weft::ScenePreparer bounded(text, bounded_work, 4096, {}, weft::SceneCacheBounds{4, std::size_t(1) << 30});
-        const auto labels = [&](std::uint32_t first) {
+        const auto labels = [&](std::uint32_t first, const std::string& word) {
             weft::SceneFrame f;
             f.root = node(first, {0, 0, 200, 200}, {{"background-color", "#ffffff"}});
             for (std::uint32_t i = 1; i <= 6; ++i) {
                 f.root.children.push_back(node(first + i, {4, float(i) * 24, 80, 20},
                                                {{"font-size", "12px"}, {"color", "#202020"}},
-                                               "Label " + std::to_string(i)));
+                                               word + " " + std::to_string(i)));
             }
             return f;
         };
-        const auto many = labels(200);
+        // Text images go by their source, not their node: other nodes with the same text reuse them, and a node whose
+        // text changes gets another.
+        {
+            weft::SceneNativeWork keyed_work;
+            weft::ScenePreparer keyed(text, keyed_work, 4096);
+            const auto first_pass = keyed.prepare(labels(200, "Label"), 1, 200, 200, std::nullopt, 0, {});
+            const auto renamed = keyed.prepare(labels(300, "Label"), 1, 200, 200, std::nullopt, 0, {});
+            require(first_pass && renamed && keyed_work.text_builds == 6 && keyed_work.text_reuses == 6 &&
+                        renamed->images == first_pass->images,
+                    "other nodes with the same text reuse the images");
+            auto changed = labels(200, "Label");
+            changed.root.children[2].text = "Label 30";
+            const auto relabelled = keyed.prepare(changed, 1, 200, 200, std::nullopt, 0, {});
+            require(relabelled && keyed_work.text_builds == 7 && keyed_work.text_reuses == 11 &&
+                        relabelled->images[3] != first_pass->images[3],
+                    "a node's changed text is another image");
+            // The same text at another scale is another image.
+            const auto doubled = keyed.prepare(labels(200, "Label"), 2, 400, 400, std::nullopt, 0, {});
+            require(doubled && keyed_work.text_builds == 13 && doubled->images[1] != first_pass->images[1],
+                    "the same text at another scale is another image");
+        }
+        // A pass with more images than a cache's entry bound keeps them all for the next pass, which reuses every
+        // one; a pass of other images then evicts the earlier pass's, oldest first, down to the bound.
+        weft::SceneNativeWork bounded_work;
+        weft::ScenePreparer bounded(text, bounded_work, 4096, {}, weft::SceneCacheBounds{4, std::size_t(1) << 30});
+        const auto many = labels(200, "Label");
         require(bool(bounded.prepare(many, 1, 200, 200, std::nullopt, 0, {})) &&
                     bool(bounded.prepare(many, 1, 200, 200, std::nullopt, 0, {})) && bounded_work.text_builds == 6 &&
                     bounded_work.text_reuses == 6 && !bounded_work.image_evictions,
                 "a pass over the entry bound keeps its images");
-        require(bool(bounded.prepare(labels(300), 1, 200, 200, std::nullopt, 0, {})) &&
+        require(bool(bounded.prepare(labels(300, "Name"), 1, 200, 200, std::nullopt, 0, {})) &&
                     bounded_work.text_builds == 12 && bounded_work.image_evictions == 6,
                 "a later pass evicts the earlier pass's images");
         std::cout << "PASS scene native preparation: images, planes, layers, scratch, caches, cache bounds, ids, "

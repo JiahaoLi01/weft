@@ -175,6 +175,8 @@ M0 flow 可见窗口现实际验证逻辑 640×420 → 3840×2160 raster → cli
 
 静态 View 在无内容、样式、资源、输入状态或动画变化时，style solve、layout 与 paint-list rebuild 次数为零。GPU 仍可以执行已缓存绘制包，不能声称零绘制。
 
+渲染侧按内容复用（12.1）：SVG 元素的派生值按视图与元素身份保存，元素自己的标签、属性、样式与文字逐项相同才复用；文字图像按绘制来源（不含身份）、缩放与边距建键，换了节点的同样文字也复用；路径覆盖率按路径内容摘要、描边、设备映射与遮罩建键，命中时再核对路径。三者都要求带缓存与不带缓存的结果逐字节相同，由随机编辑差分验证。
+
 普通绘制命令重用不等于保存渲染纹理。直接绘制时宿主每帧重画 UI；首版离屏目标整体重画，后续脏区域缓存必须额外考虑移动前后的 bounds、阴影、裁剪和背景恢复。
 
 ## FramePacket 与 GPU 生命周期
@@ -196,6 +198,8 @@ CPU 资产 lease、PreparedFrame 的缓存引用、录制期 UseToken pin、已�
 Encode 在录制之前预留提交追踪容量，合法的 NotifySubmitted 在实际 submit 之后不得再因容量、shutdown drain 或资源失败而拒绝，也不得分配内存。错误通知保留所有 pin，宿主纠正后重试；实际已提交的命令不能走 DiscardEncoded。队列 serial 由宿主产生，0 保留为未提交；同一次实际提交可以对应多个 token。完成值必须来自真实 GPU timeline，可超过最后一次包含 UI 的提交，因为同一队列也包含游戏工作。完成值只允许单调推进；宿主先确认 submit，再通知 completion。
 
 Glyph atlas slot/page/version 在相关 PreparedFrame、UseToken 和 GPU 使用期间固定。不得用 LRU 覆盖仍在绘制的区域；首版页面 append-only，无在线搬移。图像替换、staging 和引擎纹理遵循相同规则。每个 worker 的 FreeType face 独立或在明确 owner 上串行使用，不能把可变 face 无锁共享。
+
+场景帧作为不可变值跨线程，释放最后一个引用会逐节点析构整棵树。宿主应在渲染线程之外释放用完的帧：画廊窗口交给一个回收线程，K 线每次重绘因此少约 0.4 ms。
 
 资源完成通过独立存活控制块的 CompletionTicket 入队，ticket 不直接保留可失效的 Runtime 指针。shutdown 先停止 producer、撤销/排空 tickets，再丢弃未录制包与取消未提交 token，等待或退休 GPU 使用。DestroyRuntime 对未清理 lease 返回 busy，不能销毁控制块后依靠 epoch 防止访问已释放内存。
 

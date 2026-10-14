@@ -16,6 +16,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // The backend-neutral half of a native scene pass: a frame's display list (scene_display_list), its plan
@@ -45,6 +46,9 @@ namespace weft {
         std::size_t path_reuses{};
         std::size_t effect_texture_builds{};
         std::size_t effect_texture_reuses{};
+        // SVG elements listed from their kept values (SceneDisplayCache), and values taken anew.
+        std::size_t svg_value_builds{};
+        std::size_t svg_value_reuses{};
         // Plane contents drawn by nested passes into their images.
         std::size_t plane_passes{};
         // Backdrops copied from a target and filtered.
@@ -122,7 +126,12 @@ namespace weft {
     // its image too.
     std::size_t scene_scratch_bytes(const ScenePrepared& prepared, bool plane = false);
 
-    // Bounds of each of a preparer's image caches (text and layers, shadows, paths). Past them the least recently used
+    // The paint source of a node as bytes: two nodes have the same key exactly when scene_paint_source_equal finds them
+    // equal but for their identities (a node with an effect or particles, or with a number that is not a number,
+    // has a key of its own).
+    std::string scene_paint_source_key(const SceneNode& node);
+
+    // Bounds of each of a preparer's image caches (text, layers, shadows, paths). Past them the least recently used
     // images of earlier passes go; what the current pass uses stays (scene_image_cache.hpp).
     struct SceneCacheBounds {
         std::size_t entries = std::size_t(constants::render::scene::image_cache_max_entries);
@@ -149,13 +158,25 @@ namespace weft {
                                                const std::vector<NodeIdentity>& layers);
 
     private:
-        // A text or layer image by view and node identity, while its paint source and scale stay the same.
-        struct Entry {
+        // A layer image by view and node identity, while its paint source and scale stay the same.
+        struct Layer {
             SceneNode key;
             float scale{};
-            std::size_t bytes{};
-            std::shared_ptr<const SceneImage> text;
-            std::shared_ptr<const SceneLayerImage> layer;
+            std::shared_ptr<const SceneLayerImage> image;
+        };
+
+        // A path coverage image, with the path and dashes it was drawn from: a key of the same digest is the same
+        // coverage when they are equal.
+        struct PathImage {
+            std::shared_ptr<const paint::Path> path;
+            std::vector<float> dashes;
+            std::shared_ptr<const SceneImage> image;
+        };
+
+        // The content digest of a path object, while it lives.
+        struct Digest {
+            std::weak_ptr<const paint::Path> path;
+            std::uint64_t value{};
         };
 
         SceneText& text_;
@@ -165,12 +186,20 @@ namespace weft {
         SceneGeometry geometry_;
         vector::Rasterizer vector_;
         std::uint64_t next_id_{};
-        // Text and layer images by view and node identity.
-        SceneImageCache<std::array<std::uint64_t, 5>, Entry> images_;
+        // SVG elements' values between passes.
+        SceneDisplayCache svg_;
+        // Text images by paint source (scene_paint_source_key), scale and margin, whatever node they come from.
+        SceneImageCache<std::string, std::shared_ptr<const SceneImage>> texts_;
+        // Layer images by view and node identity.
+        SceneImageCache<std::array<std::uint64_t, 5>, Layer> layers_;
         // Shadow images by value: offset, blur, spread, color, radii, box size and scale.
         SceneImageCache<std::array<float, 15>, std::shared_ptr<const SceneImage>> shadows_;
-        // Path coverage images by value: the path, its stroke, the device map and the mask's pixels.
-        SceneImageCache<std::string, std::shared_ptr<const SceneImage>> paths_;
+        // Path coverage images by value: the path's digest and sizes, its fill rule and stroke (the dashes by digest),
+        // the device map and the mask's pixels, each number by its bits.
+        SceneImageCache<std::array<std::uint32_t, 21>, PathImage> paths_;
+        // Path objects' digests, so that a path drawn again is keyed without reading its points.
+        std::unordered_map<const paint::Path*, Digest> digests_;
+        std::size_t digests_swept_{};
         // The images of effects' textures by asset; the cache holds the asset while it keeps its image.
         SceneImageCache<std::shared_ptr<const paint::Asset>, std::shared_ptr<const SceneImage>> effect_textures_;
 
@@ -187,6 +216,8 @@ namespace weft {
 
         // A text or layer item's image, from the cache while its source and scale stay the same.
         Built image(const paint::Item& item, const paint::Raster& raster, float scale, unsigned view_index);
+        // The content digest of a path: its verbs, points and fill rule.
+        std::uint64_t digest(const std::shared_ptr<const paint::Path>& path);
         // A shadow item's image; throws std::invalid_argument past the shadow bitmap bound.
         std::shared_ptr<const SceneImage> shadow(const paint::Item& item, const paint::Shadow& shadow, float scale);
         // A path item's coverage over mask (device pixels); throws std::invalid_argument past the mask bounds.

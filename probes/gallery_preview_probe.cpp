@@ -879,7 +879,7 @@ namespace probes {
                     if (live && live_window.measuring(seconds())) {
                         live_window.publication(seconds(), *publication);
                     }
-                    owner_frame = publication->value;
+                    scene_gpu.release(std::exchange(owner_frame, publication->value));
                     // Owner timing and rate describe complete ticks; an early input frame is a partial tick.
                     if (publication->early) {
                         ++early_owner_updates;
@@ -1963,7 +1963,8 @@ namespace probes {
                 std::to_string(native.text_portable_builds) + ",\"text_reuses\":" + std::to_string(native.text_reuses) +
                 ",\"reference_builds\":" + std::to_string(native.reference_builds) + ",\"path_builds\":" +
                 std::to_string(native.path_builds) + ",\"path_reuses\":" + std::to_string(native.path_reuses) +
-                ",\"shadow_builds\":" + std::to_string(native.shadow_builds) +
+                ",\"svg_value_builds\":" + std::to_string(native.svg_value_builds) + ",\"svg_value_reuses\":" +
+                std::to_string(native.svg_value_reuses) + ",\"shadow_builds\":" + std::to_string(native.shadow_builds) +
                 ",\"image_evictions\":" + std::to_string(native.image_evictions) +
                 ",\"peak_pass_images\":" + std::to_string(native.peak_pass_images) +
                 ",\"peak_pass_image_bytes\":" + std::to_string(native.peak_pass_image_bytes) +
@@ -2107,9 +2108,10 @@ namespace probes {
                 ",\"scene_raster\":\"native D3D11 shapes/cached sources + D2D GPU fallback / linear RGBA16F external leases\",\"canvas_raster\":\"Direct2D SOFTWARE WIC\",\"ultralight_comparable\":false,\"mobile_verified\":false,\"debug_warning_error_count\":" +
                 (gpu.debug_layer ? "0" : "null") + "}");
         std::cout
-            << "PASS gallery preview: 72 window cards, 64 original scene cases + 2 original Canvas + the nested tooltip "
-               "page (hover, smoke) + the UI particle page (click, flight, fire), 4K, exact host clock, bounded "
-               "two-frame completion\n";
+            << "PASS gallery preview: " << weft::probe_constants::gallery::window_case_count
+            << " window cards, 64 original scene cases + 2 original Canvas + the nested tooltip page (hover, smoke) + "
+               "the UI particle page (click, flight, fire) + the translucent window page (drag, +), 4K, exact host "
+               "clock, bounded two-frame completion\n";
         return 0;
     }
 } // namespace probes

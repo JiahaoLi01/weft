@@ -221,8 +221,43 @@ namespace weft {
         }
     } // namespace
 
+    SceneDisplayCache::SceneDisplayCache(std::size_t max_entries, std::size_t max_bytes)
+        : entries_(max_entries, max_bytes) {
+    }
+
+    const SceneSvgValues* SceneDisplayCache::find(const SceneNode& e) {
+        const auto* entry = entries_.find({view_, e.identity.view_epoch, e.identity.slot, e.identity.generation});
+        if (!entry || entry->tag != e.tag || entry->space != e.space || entry->text != e.text ||
+            entry->attributes != e.attributes || !(entry->style == e.style)) {
+            return nullptr;
+        }
+        ++reuses_;
+        return &entry->values;
+    }
+
+    const SceneSvgValues& SceneDisplayCache::put(const SceneNode& e, SceneSvgValues values) {
+        ++builds_;
+        // What the entry holds: its own values' text and the paths.
+        std::size_t bytes = sizeof(Entry) + e.tag.size() + e.space.size() + e.text.size();
+        for (const auto& [name, value] : e.attributes) {
+            bytes += name.size() + value.size();
+        }
+        for (const auto& [id, value] : e.style) {
+            bytes += value.text().size();
+        }
+        for (const auto* path : {values.path.get(), values.outline.get()}) {
+            if (path) {
+                bytes += path->verbs.size() * sizeof(path->verbs[0]) + path->points.size() * sizeof(path->points[0]);
+            }
+        }
+        return entries_
+            .put({view_, e.identity.view_epoch, e.identity.slot, e.identity.generation},
+                 Entry{e.tag, e.space, e.text, e.attributes, e.style, std::move(values)}, bytes)
+            .values;
+    }
+
     SceneDisplayList scene_display_list(const SceneFrame& f, const std::vector<NodeIdentity>& layers, SceneText* text,
-                                        float scale) {
+                                        float scale, SceneDisplayCache* cache) {
         SceneDisplayList out;
         auto& list = out.list;
         // Whether a node has a backdrop filter.
@@ -368,15 +403,25 @@ namespace weft {
                 if (std::find(drawn.begin(), drawn.end(), c.tag) == drawn.end()) {
                     throw std::invalid_argument("SVG element " + c.tag);
                 }
-                const auto t = c.attributes.contains("transform") ? c.attributes.at("transform")
-                                                                  : get(c.style, PropertyId::Transform);
-                const auto local = scene_affine(parse_scene_transform(t, true).value(), 0, 0);
-                const auto m = multiply(parent, {float(local.m11), float(local.m12), float(local.m21), float(local.m22),
-                                                 float(local.dx), float(local.dy)});
+                // The element's own values: kept ones while they are the same, else taken here in the order the
+                // reference raster takes them (a singular element is skipped before its opacity, text and path).
+                const SceneSvgValues* kept = cache ? cache->find(c) : nullptr;
+                SceneSvgValues taken;
+                if (!kept) {
+                    const auto t = c.attributes.contains("transform") ? c.attributes.at("transform")
+                                                                      : get(c.style, PropertyId::Transform);
+                    const auto local = scene_affine(parse_scene_transform(t, true).value(), 0, 0);
+                    taken.local = {float(local.m11), float(local.m12), float(local.m21),
+                                   float(local.m22), float(local.dx),  float(local.dy)};
+                }
+                const auto m = multiply(parent, kept ? kept->local : taken.local);
                 if (std::abs(m[0] * m[3] - m[1] * m[2]) < constants::scene::singular_determinant_epsilon) {
                     return;
                 }
-                const float opacity = std::clamp(len(get(c.style, PropertyId::Opacity, "1")), 0.f, 1.f);
+                if (!kept) {
+                    taken.opacity = std::clamp(len(get(c.style, PropertyId::Opacity, "1")), 0.f, 1.f);
+                }
+                const float opacity = kept ? kept->opacity : taken.opacity;
                 // clip-path="url(#id)" of one user-space rectangle, as in the reference raster.
                 auto inner_clip = clip;
                 auto inner_chain = chain;
@@ -433,6 +478,55 @@ namespace weft {
                                                 rx > 0 && ry > 0 ? radius_y : std::array<float, 4>{});
                     }
                 }
+                const bool has_text = c.tag == "text" && !c.text.empty();
+                if (has_text && !text) {
+                    throw std::invalid_argument("SVG text reference");
+                }
+                if (!kept) {
+                    if (has_text) {
+                        // Placed as the reference raster places it: x and y with dy, text-anchor, and the baseline
+                        // (or the middle, for a central dominant-baseline) on y.
+                        const auto metrics = text->measure(c.text, c.style);
+                        const float size = len(get(c.style, PropertyId::FontSize, constants::default_font_size));
+                        float x = c.attributes.contains("x") ? len(c.attributes.at("x")) : 0;
+                        float y = c.attributes.contains("y") ? len(c.attributes.at("y")) : 0;
+                        if (c.attributes.contains("dy")) {
+                            y += len(c.attributes.at("dy"), size);
+                        }
+                        const auto anchor = get(c.style, PropertyId::TextAnchor, "start");
+                        if (anchor == "middle") {
+                            x -= metrics.width / 2;
+                        } else if (anchor == "end") {
+                            x -= metrics.width;
+                        }
+                        y -= get(c.style, PropertyId::DominantBaseline) == "central" ? metrics.height / 2
+                                                                                     : metrics.baseline;
+                        taken.text_at = {x, y};
+                        taken.text_metrics = metrics;
+                        taken.text_fill = color(get(c.style, PropertyId::Fill, "#000000"), c.style);
+                        // Glyph outlines as a path, drawn under the whole transform like any SVG shape; text with
+                        // color glyphs stays an image.
+                        if (taken.text_fill[3] > 0) {
+                            taken.outline = text->outline(c.text, c.style);
+                        }
+                    }
+                    if (auto path = scene_svg_path(c)) {
+                        const auto fill = get(c.style, PropertyId::Fill, constants::default_color);
+                        if (fill != "none" && c.tag != "line") {
+                            taken.fill = color(fill, c.style);
+                            taken.fill[3] *= std::clamp(len(get(c.style, PropertyId::FillOpacity, "1")), 0.f, 1.f);
+                        }
+                        const auto stroke = get(c.style, PropertyId::Stroke, "none");
+                        if (stroke != "none") {
+                            taken.stroke = color(stroke, c.style);
+                            taken.stroke[3] *= std::clamp(len(get(c.style, PropertyId::StrokeOpacity, "1")), 0.f, 1.f);
+                            taken.stroke_style = scene_svg_stroke(c.style);
+                        }
+                        taken.path = std::move(path);
+                    }
+                    kept = cache ? &cache->put(c, std::move(taken)) : &taken;
+                }
+                const auto& v = *kept;
                 std::vector<paint::Item> own;
                 const auto base = [&] {
                     paint::Item i;
@@ -442,37 +536,17 @@ namespace weft {
                     i.clips_count = inner_chain.count;
                     return i;
                 };
-                if (c.tag == "text" && !c.text.empty()) {
-                    if (!text) {
-                        throw std::invalid_argument("SVG text reference");
-                    }
-                    // Placed as the reference raster places it: x and y with dy, text-anchor, and the baseline
-                    // (or the middle, for a central dominant-baseline) on y.
-                    const auto metrics = text->measure(c.text, c.style);
-                    const float size = len(get(c.style, PropertyId::FontSize, constants::default_font_size));
-                    float x = c.attributes.contains("x") ? len(c.attributes.at("x")) : 0;
-                    float y = c.attributes.contains("y") ? len(c.attributes.at("y")) : 0;
-                    if (c.attributes.contains("dy")) {
-                        y += len(c.attributes.at("dy"), size);
-                    }
-                    const auto anchor = get(c.style, PropertyId::TextAnchor, "start");
-                    if (anchor == "middle") {
-                        x -= metrics.width / 2;
-                    } else if (anchor == "end") {
-                        x -= metrics.width;
-                    }
-                    y -=
-                        get(c.style, PropertyId::DominantBaseline) == "central" ? metrics.height / 2 : metrics.baseline;
-                    const auto fill = color(get(c.style, PropertyId::Fill, "#000000"), c.style);
-                    // Glyph outlines as a path, drawn under the whole transform like any SVG shape; text with color
-                    // glyphs stays an image.
-                    const auto outline = fill[3] > 0 ? text->outline(c.text, c.style) : nullptr;
-                    if (outline) {
+                if (has_text) {
+                    const auto& metrics = v.text_metrics;
+                    const auto& fill = v.text_fill;
+                    const float x = v.text_at[0];
+                    const float y = v.text_at[1];
+                    if (v.outline) {
                         auto item = base();
                         item.kind = paint::Item::Kind::Path;
                         item.transform = multiply(m, {1, 0, 0, 1, x, y});
                         item.payload = std::uint32_t(list.paths.size());
-                        list.paths.push_back({outline, fill, std::nullopt});
+                        list.paths.push_back({v.outline, fill, std::nullopt});
                         own.push_back(item);
                     } else if (fill[3] > 0 && metrics.width > 0 && metrics.height > 0) {
                         auto source = std::make_shared<SceneNode>();
@@ -510,31 +584,20 @@ namespace weft {
                         own.push_back(item);
                     }
                 }
-                if (const auto path = scene_svg_path(c)) {
-                    const auto fill = get(c.style, PropertyId::Fill, constants::default_color);
-                    if (fill != "none" && c.tag != "line") {
-                        auto value = color(fill, c.style);
-                        value[3] *= std::clamp(len(get(c.style, PropertyId::FillOpacity, "1")), 0.f, 1.f);
-                        if (value[3] > 0) {
-                            auto item = base();
-                            item.kind = paint::Item::Kind::Path;
-                            item.payload = std::uint32_t(list.paths.size());
-                            list.paths.push_back({path, value, std::nullopt});
-                            own.push_back(item);
-                        }
+                if (v.path) {
+                    if (v.fill[3] > 0) {
+                        auto item = base();
+                        item.kind = paint::Item::Kind::Path;
+                        item.payload = std::uint32_t(list.paths.size());
+                        list.paths.push_back({v.path, v.fill, std::nullopt});
+                        own.push_back(item);
                     }
-                    const auto stroke = get(c.style, PropertyId::Stroke, "none");
-                    if (stroke != "none") {
-                        auto value = color(stroke, c.style);
-                        value[3] *= std::clamp(len(get(c.style, PropertyId::StrokeOpacity, "1")), 0.f, 1.f);
-                        auto style = scene_svg_stroke(c.style);
-                        if (value[3] > 0 && style.width > 0) {
-                            auto item = base();
-                            item.kind = paint::Item::Kind::Path;
-                            item.payload = std::uint32_t(list.paths.size());
-                            list.paths.push_back({path, value, std::move(style)});
-                            own.push_back(item);
-                        }
+                    if (v.stroke[3] > 0 && v.stroke_style.width > 0) {
+                        auto item = base();
+                        item.kind = paint::Item::Kind::Path;
+                        item.payload = std::uint32_t(list.paths.size());
+                        list.paths.push_back({v.path, v.stroke, v.stroke_style});
+                        own.push_back(item);
                     }
                 }
                 // An opacity group, unless one item stands alone and takes the opacity itself. The group's composite
@@ -617,7 +680,7 @@ namespace weft {
                     SceneDisplayList nested;
                     {
                         Nesting guard;
-                        nested = scene_display_list(content, {}, text, scale);
+                        nested = scene_display_list(content, {}, text, scale, cache);
                     }
                     if (!nested.fallback.empty()) {
                         throw std::invalid_argument(nested.fallback);

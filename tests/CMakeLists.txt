@@ -251,6 +251,11 @@ if(WIN32)
     weft_add_executable(weft_scene_native_tests SOURCES scene_native_tests.cpp
         LINK weft::scene_native weft::platform_win32)
     weft_add_test(NAME scene_native_contract COMMAND weft_scene_native_tests)
+    # What native scene passes keep between frames by content: SVG elements' values (alike with and without the cache
+    # under random edits), text images by source, path coverage by digest.
+    weft_add_executable(weft_scene_display_cache_tests SOURCES scene_display_cache_tests.cpp
+        LINK weft::scene_native weft::platform_win32)
+    weft_add_test(NAME scene_display_cache_contract COMMAND weft_scene_display_cache_tests)
     # UI shader effects that CSS attaches in scenes: registration, custom properties and display lists.
     weft_add_executable(weft_scene_effect_tests SOURCES scene_effect_tests.cpp
         LINK weft::scene weft::platform_win32 weft_test_effects)
