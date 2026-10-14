@@ -2,6 +2,7 @@
 #include "base/generational_slots.hpp"
 #include "base/owner_thread.hpp"
 #include "constants/render.hpp"
+#include "constants/scene.hpp"
 #include "render/paint_list.hpp"
 #include "render/rounded_clip.hpp"
 #include <algorithm>
@@ -57,6 +58,17 @@ namespace {
 
     // A backend table that ends before prepare_list has none.
     constexpr std::size_t backend_without_lists = offsetof(weft_render_backend, prepare_list);
+    // A View frame description that ends before textures binds none (its first version).
+    constexpr std::size_t scene_frame_without_textures = offsetof(weft_render_scene_frame, textures);
+
+    // A texture name of a View's page: letters, digits, '-' and '_', at most max_texture_name_bytes.
+    bool texture_name(const char* name, uint32_t size) {
+        return name && size && size <= uint32_t(weft::constants::scene::max_texture_name_bytes) &&
+               std::all_of(name, name + size, [](char ch) {
+                   return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') ||
+                          ch == '-' || ch == '_';
+               });
+    }
 } // namespace
 
 struct weft_renderer {
@@ -348,6 +360,10 @@ namespace {
             list.external_textures != external_count) {
             return WEFT_RENDER_INVALID_ARGUMENT;
         }
+        // Named host textures are a View's (weft_renderer_prepare_scene).
+        if (!list.textures.empty()) {
+            return WEFT_RENDER_UNSUPPORTED_FEATURE;
+        }
         if (list.items.size() > r.limits.max_draws || list.assets.size() > r.limits.max_assets ||
             external_count > r.limits.max_assets - list.assets.size()) {
             return WEFT_RENDER_BUSY;
@@ -421,17 +437,18 @@ namespace {
         return WEFT_RENDER_OK;
     }
 
-    // Pins the caller leases of a frame's external textures for prepared slot index and lists their metadata in
-    // r.external_scratch, whose capacity covers every frame that passed validation. Fails without pins.
-    weft_render_result pin_external(weft_renderer& r, std::size_t index, uint32_t count,
-                                    const weft_render_handle* handles) {
+    // Pins the caller leases of a frame's external textures (handle(i), i < count) for prepared slot index and lists
+    // their metadata in r.external_scratch, whose capacity covers every frame that passed validation. Fails without
+    // pins.
+    template <class Handle>
+    weft_render_result pin_external(weft_renderer& r, std::size_t index, uint32_t count, Handle handle) {
         auto& deps = r.prepared[index].textures;
         auto& scratch = r.external_scratch;
         deps.clear();
         scratch.clear();
         for (uint32_t i = 0; i < count; ++i) {
             TextureSlot* t{};
-            if (const auto v = texture_handle(r, handles[i], t); v != WEFT_RENDER_OK) {
+            if (const auto v = texture_handle(r, handle(i), t); v != WEFT_RENDER_OK) {
                 deps.clear();
                 return v;
             }
@@ -439,7 +456,7 @@ namespace {
             description.retired = nullptr;
             description.retirement_user_data = nullptr;
             scratch.push_back({description, t->native});
-            const auto slot = handles[i].slot;
+            const auto slot = handle(i).slot;
             if (std::find(deps.begin(), deps.end(), slot) == deps.end()) {
                 deps.push_back(slot);
             }
@@ -665,7 +682,11 @@ weft_render_result weft_renderer_prepare_list(weft_renderer* r, const weft_rende
     if (index == r->prepared.size()) {
         return WEFT_RENDER_BUSY;
     }
-    if (const auto v = pin_external(*r, index, f->external_count, f->external_textures); v != WEFT_RENDER_OK) {
+    if (const auto v = pin_external(*r, index, f->external_count,
+                                    [&](uint32_t i) {
+                                        return f->external_textures[i];
+                                    });
+        v != WEFT_RENDER_OK) {
         return v;
     }
     uint64_t native{};
@@ -693,30 +714,55 @@ weft_render_result weft_renderer_prepare_scene(weft_renderer* r, const weft_rend
     if (const auto v = owner(r, true); v != WEFT_RENDER_OK) {
         return v;
     }
-    if (!f || f->struct_size < sizeof(*f) || !f->frame || f->reserved || !std::isfinite(f->scale) || f->scale < 0) {
+    if (!f || f->struct_size < scene_frame_without_textures || !f->frame || !std::isfinite(f->scale) || f->scale < 0) {
         return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    const uint32_t count = f->texture_count;
+    if (count && (f->struct_size < sizeof(*f) || !f->textures)) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    // Each name once, of the names a page can give.
+    for (uint32_t k = 0; k < count; ++k) {
+        const auto& t = f->textures[k];
+        if (t.reserved || !texture_name(t.name, t.name_size)) {
+            return WEFT_RENDER_INVALID_ARGUMENT;
+        }
+        for (uint32_t j = 0; j < k; ++j) {
+            if (f->textures[j].name_size == t.name_size &&
+                std::equal(t.name, t.name + t.name_size, f->textures[j].name)) {
+                return WEFT_RENDER_INVALID_ARGUMENT;
+            }
+        }
     }
     if (f->abi_version != WEFT_RENDER_ABI_VERSION) {
         return WEFT_RENDER_UNSUPPORTED_ABI;
     }
-    if (!r->backend.prepare_scene) {
+    if (!r->backend.prepare_scene || (count && !r->external.struct_size)) {
         return WEFT_RENDER_UNSUPPORTED_FEATURE;
+    }
+    if (count > r->external_scratch.capacity()) {
+        return WEFT_RENDER_BUSY;
     }
     const auto i = r->prepared.first_free();
     if (i == r->prepared.size()) {
         return WEFT_RENDER_BUSY;
     }
+    if (const auto v = pin_external(*r, i, count,
+                                    [&](uint32_t k) {
+                                        return f->textures[k].texture;
+                                    });
+        v != WEFT_RENDER_OK) {
+        return v;
+    }
     uint64_t native{};
     weft_render_result v;
     {
         Callback guard(*r);
-        v = r->backend.prepare_scene(r->backend.user_data, f, &native);
+        v = r->backend.prepare_scene(r->backend.user_data, f, r->external_scratch.data(), count, &native);
     }
-    if (v != WEFT_RENDER_OK) {
-        return v;
-    }
-    if (!native) {
-        return WEFT_RENDER_BACKEND_ERROR;
+    if (v != WEFT_RENDER_OK || !native) {
+        release_textures(*r, r->prepared[i]);
+        return v == WEFT_RENDER_OK ? WEFT_RENDER_BACKEND_ERROR : v;
     }
     *out = publish(*r, r->prepared, i, native, prepared_kind);
     ++r->prepared_count;
@@ -975,8 +1021,8 @@ weft_render_result weft_renderer_import_texture(weft_renderer* r, const weft_ren
     }
     if (d->width > r->backend.capabilities.max_texture_size || d->height > r->backend.capabilities.max_texture_size ||
         d->encoding != WEFT_RENDER_EXTERNAL_LINEAR_PREMULTIPLIED || d->origin > WEFT_RENDER_EXTERNAL_BOTTOM_LEFT ||
-        d->synchronization != WEFT_RENDER_EXTERNAL_SAME_QUEUE_ORDERED ||
-        d->format > WEFT_RENDER_TARGET_LINEAR_RGBA16F || !(r->external.formats & (1u << d->format))) {
+        d->synchronization > WEFT_RENDER_EXTERNAL_SAME_QUEUE_LIVE || d->format > WEFT_RENDER_TARGET_LINEAR_RGBA16F ||
+        !(r->external.formats & (1u << d->format))) {
         return WEFT_RENDER_UNSUPPORTED_FEATURE;
     }
     const uint64_t pixels = uint64_t(d->width) * d->height;
@@ -1074,7 +1120,11 @@ weft_render_result weft_renderer_prepare_external(weft_renderer* r, const weft_r
     if (index == r->prepared.size()) {
         return WEFT_RENDER_BUSY;
     }
-    if (const auto v = pin_external(*r, index, f->external_count, f->external_textures); v != WEFT_RENDER_OK) {
+    if (const auto v = pin_external(*r, index, f->external_count,
+                                    [&](uint32_t i) {
+                                        return f->external_textures[i];
+                                    });
+        v != WEFT_RENDER_OK) {
         return v;
     }
     uint64_t native{};

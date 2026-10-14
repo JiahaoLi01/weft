@@ -159,6 +159,13 @@ namespace weft::paint {
                             return make_diagnostic(Diag::PaintList, "image payload or asset out of range" + at);
                         }
                         const auto& image = list.images[item.payload];
+                        if (image.texture) {
+                            if (image.texture > list.textures.size() || image.asset || image.stroke != 0) {
+                                return make_diagnostic(Diag::PaintList,
+                                                       "named texture out of range, with an asset or a stroke" + at);
+                            }
+                            break;
+                        }
                         if (image.asset < list.assets.size()
                                 ? !list.assets[image.asset]
                                 : image.asset - list.assets.size() >= list.external_textures) {
@@ -313,7 +320,7 @@ namespace weft::paint {
         const auto added = std::uint32_t(from.assets.size());
         // into's external textures move past from's assets.
         for (auto& image : into.images) {
-            if (image.asset >= assets) {
+            if (!image.texture && image.asset >= assets) {
                 image.asset += added;
             }
         }
@@ -329,9 +336,14 @@ namespace weft::paint {
         const auto programs = std::uint32_t(into.programs.size());
         const auto clips = std::uint32_t(into.clips.size());
         into.boxes.insert(into.boxes.end(), from.boxes.begin(), from.boxes.end());
+        const auto textures = std::uint32_t(into.textures.size());
         for (auto image : from.images) {
-            image.asset = image.asset < added ? assets + image.asset
-                                              : assets + added + into.external_textures + (image.asset - added);
+            if (image.texture) {
+                image.texture += textures;
+            } else {
+                image.asset = image.asset < added ? assets + image.asset
+                                                  : assets + added + into.external_textures + (image.asset - added);
+            }
             into.images.push_back(image);
         }
         into.rasters.insert(into.rasters.end(), from.rasters.begin(), from.rasters.end());
@@ -365,6 +377,7 @@ namespace weft::paint {
         into.assets.insert(into.assets.end(), from.assets.begin(), from.assets.end());
         into.programs.insert(into.programs.end(), from.programs.begin(), from.programs.end());
         into.external_textures += from.external_textures;
+        into.textures.insert(into.textures.end(), from.textures.begin(), from.textures.end());
         for (auto clip : from.clips) {
             if (clip.to_local != identity_clip_map) {
                 // A clip in its own space keeps its rectangle; its map takes into's target px back through the

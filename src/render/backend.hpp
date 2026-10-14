@@ -75,14 +75,16 @@ namespace weft::render {
             } -> std::same_as<weft_render_result>;
         };
 
-    // Optional View frames (weft_renderer_prepare_scene).
+    // Optional View frames (weft_renderer_prepare_scene), with the host textures the frame binds (its textures in
+    // order).
     template <class B>
-    concept SceneFrameBackend =
-        RenderBackend<B> && requires(B& backend, const weft_render_scene_frame& frame, std::uint64_t& out) {
-            {
-                backend.prepare_scene(frame, out)
-            } -> std::same_as<weft_render_result>;
-        };
+    concept SceneFrameBackend = RenderBackend<B> && requires(B& backend, const weft_render_scene_frame& frame,
+                                                             const weft_render_external_asset* textures,
+                                                             std::uint32_t count, std::uint64_t& out) {
+        {
+            backend.prepare_scene(frame, textures, count, out)
+        } -> std::same_as<weft_render_result>;
+    };
 
     // What a backend reports about its device: weft_render_backend's api, device_epoch, queue and capabilities.
     struct BackendDescription {
@@ -175,10 +177,11 @@ namespace weft::render {
         template <SceneFrameBackend B>
         struct SceneThunks {
             static weft_render_result prepare_scene(void* user_data, const weft_render_scene_frame* frame,
+                                                    const weft_render_external_asset* textures, std::uint32_t count,
                                                     std::uint64_t* native_frame) noexcept {
                 *native_frame = 0;
                 try {
-                    return BackendThunks<B>::self(user_data).prepare_scene(*frame, *native_frame);
+                    return BackendThunks<B>::self(user_data).prepare_scene(*frame, textures, count, *native_frame);
                 } catch (...) {
                     *native_frame = 0;
                     return WEFT_RENDER_BACKEND_ERROR;

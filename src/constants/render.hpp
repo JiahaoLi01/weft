@@ -21,6 +21,11 @@ namespace weft::constants::render {
     inline constexpr int default_max_assets = 512;
     inline constexpr unsigned default_max_frame_asset_bytes = 16u * constants::bytes_per_mib;
 
+    // The host textures a built-in backend of View frames (weft_render_d3d11_create, weft_render_vulkan_create)
+    // imports at once, and their logical bytes.
+    inline constexpr int view_external_textures = 32;
+    inline constexpr std::uint64_t view_external_texture_bytes = 256ull * constants::bytes_per_mib;
+
     // Upper bounds a host may request; they cap the slot tables allocated up front.
     inline constexpr int max_prepared_frames_limit = 1024;
     inline constexpr int max_in_flight_uses_limit = 4096;
@@ -195,6 +200,9 @@ namespace weft::constants::render {
         // Paint::mode.x of a backdrop: its blurred copy of the target over the device px Paint::uv covers
         // (ImageModeBackdrop).
         inline constexpr float image_mode_backdrop = 4.f;
+        // Paint::mode.x of a host texture (a named texture of a scene pass): linear premultiplied colors, drawn in the
+        // pass's encoding (ImageModeTexture).
+        inline constexpr float image_mode_texture = 5.f;
         // A backdrop blurs with a standard deviation of at most this many device px: for a larger one the copy is first
         // downsampled by its area to the size that brings it to this, as Skia's GPU blur scales its source.
         inline constexpr float max_backdrop_sigma = 4.f;

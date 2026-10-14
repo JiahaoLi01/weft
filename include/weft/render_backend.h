@@ -146,16 +146,31 @@ typedef struct weft_render_list_frame {
     const weft_render_handle* external_textures; /* call-scoped caller leases */
 } weft_render_list_frame;
 
+/* A name of a View's page bound to a host texture for one frame: an element whose background-image is
+ * -weft-texture(name) shows the texture stretched over its border box, inside its rounded corners and under its
+ * borders. The texture is an import of the external texture extension (render_external_texture.h); its linear
+ * premultiplied colors are composited as the page's own. */
+typedef struct weft_render_scene_texture {
+    const char* name; /* name_size bytes of letters, digits, '-' and '_', at most 64; not terminated */
+    uint32_t name_size;
+    uint32_t reserved;
+    weft_render_handle texture; /* a caller lease of the renderer's (weft_renderer_import_texture) */
+} weft_render_scene_texture;
+
 /* A View's frame to draw: the View's page at scale device px per CSS px (0: the View's device scale) from the
  * target's top-left, its anchored elements where the View's anchors are when the frame is encoded. A pass of it draws
  * over what the target holds (clearing it first only when the pass asks), sRGB-encoded and premultiplied, composited in
- * that encoding as a browser composites a page: the target is a UNORM (not sRGB) view. */
+ * that encoding as a browser composites a page: the target is a UNORM (not sRGB) view. textures bind the names of the
+ * page's -weft-texture(name) backgrounds, each name once (a name left unbound draws nothing); the prepared frame pins
+ * their leases until its uses complete, as an external frame does. A struct_size that ends before textures is the
+ * first version: no textures. */
 typedef struct weft_render_scene_frame {
     uint32_t struct_size;
     uint32_t abi_version;
     const struct weft_view_frame* frame; /* call-scoped; a successful prepare keeps its own reference */
     float scale;
-    uint32_t reserved;
+    uint32_t texture_count;
+    const weft_render_scene_texture* textures; /* call-scoped */
 } weft_render_scene_frame;
 
 typedef struct weft_render_pass {
@@ -203,9 +218,10 @@ typedef struct weft_render_backend {
     weft_render_result (*prepare_list)(void*, const weft_paint_list*, const struct weft_render_external_asset*,
                                        uint32_t, uint64_t* native_frame) WEFT_RENDER_NOEXCEPT;
     /* Required with WEFT_RENDER_FEATURE_SCENE, null otherwise; a struct_size that ends before it means null. Prepares a
-     * View's frame as prepare does: the frame is call-scoped, success keeps its own reference to it. */
-    weft_render_result (*prepare_scene)(void*, const weft_render_scene_frame*,
-                                        uint64_t* native_frame) WEFT_RENDER_NOEXCEPT;
+     * View's frame as prepare does: the frame and its textures' metadata (the frame's textures in order) are
+     * call-scoped, success keeps its own reference to the frame and the metadata it needs. */
+    weft_render_result (*prepare_scene)(void*, const weft_render_scene_frame*, const struct weft_render_external_asset*,
+                                        uint32_t, uint64_t* native_frame) WEFT_RENDER_NOEXCEPT;
 } weft_render_backend;
 
 typedef struct weft_renderer_desc {
@@ -244,8 +260,8 @@ weft_render_result weft_renderer_prepare(weft_renderer*, const weft_render_frame
  * list draws external textures. */
 weft_render_result weft_renderer_prepare_list(weft_renderer*, const weft_render_list_frame*,
                                               weft_render_handle*) WEFT_RENDER_NOEXCEPT;
-/* A View's frame; requires WEFT_RENDER_FEATURE_SCENE. One renderer draws a View's frames: as it encodes one it takes
- * the latest of the View's anchors. */
+/* A View's frame; requires WEFT_RENDER_FEATURE_SCENE, and the external texture extension for textures. One renderer
+ * draws a View's frames: as it encodes one it takes the latest of the View's anchors. */
 weft_render_result weft_renderer_prepare_scene(weft_renderer*, const weft_render_scene_frame*,
                                                weft_render_handle*) WEFT_RENDER_NOEXCEPT;
 weft_render_result weft_renderer_release_prepared(weft_renderer*, weft_render_handle) WEFT_RENDER_NOEXCEPT;

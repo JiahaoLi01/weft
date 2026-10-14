@@ -19,6 +19,12 @@ namespace weft::render::d3d11 {
     // Throws std::runtime_error("<operation> result=<n>") unless result is WEFT_RENDER_OK.
     void render_result(weft_render_result result, const char* operation);
 
+    // A host texture of the external texture extension on device, checked as its D3D11 schema says
+    // (weft_render_d3d11_texture: a view of the one mip of a single-sample Texture2D of the description's size and
+    // linear format, default or immutable usage, no CPU access and no misc flags): its view and the resource it views.
+    weft_render_result check_external_texture(const weft_render_external_texture& description, ID3D11Device* device,
+                                              ComPtr<ID3D11ShaderResourceView>& view, ComPtr<ID3D11Resource>& resource);
+
     class Backend {
     public:
         Renderer& gpu;

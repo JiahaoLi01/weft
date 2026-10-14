@@ -81,13 +81,16 @@ namespace weft::paint {
 
     // An asset drawn over the item, sampled over uv (normalized origin and extent): an image keeps its own colors, a
     // coverage mask paints color where it covers, and signed distances paint color inside the contour and outline up
-    // to stroke source texels outside it. An asset index past DisplayList::assets names an external texture.
+    // to stroke source texels outside it. An asset index past DisplayList::assets names an external texture. A
+    // texture (one past an index of DisplayList::textures) names a host texture instead, which a scene pass binds by
+    // name for each frame and draws with its own colors; its asset is then 0.
     struct Image {
         std::uint32_t asset{};
         std::array<float, 4> uv{0, 0, 1, 1};
         Color color{1, 1, 1, 1};
         float stroke{};
         Color outline{};
+        std::uint32_t texture{};
     };
 
     // Content the renderer rasterizes at device scale and draws as an image over the item. Transitional: scene text
@@ -390,10 +393,13 @@ namespace weft::paint {
         // premultiplied and drawn with its own colors. The list only counts them; a renderer binds them per frame.
         std::uint32_t external_textures{};
         std::vector<RoundedClip> clips;
+        // The names of the host textures images name (Image::texture): a scene page's -weft-texture(name)
+        // backgrounds, which its host binds to textures for each frame.
+        std::vector<std::string> textures;
     };
 
-    // Whether a list is well formed: payloads in range and of the item's kind, images of a leased asset or an external
-    // texture without a stroke, rasters with a source, shadows with finite values and no negative blur, paths with a
+    // Whether a list is well formed: payloads in range and of the item's kind, images of a leased asset, an external
+    // texture without a stroke or a named texture without an asset or a stroke, rasters with a source, shadows with finite values and no negative blur, paths with a
     // path of whole verbs and finite points and a stroke of finite, non-negative lengths, planes of a well-formed
     // content list (nested at most constants::max_plane_depth deep), a positive size and a finite, invertible
     // homography in front of the viewer, effects of a leased program with at most its parameters and exactly its
@@ -412,7 +418,8 @@ namespace weft::paint {
 
     // Appends from's items after into's under transform, which maps from's target px into into's and must scale by
     // positive factors and translate (Diag::PaintList otherwise). Item transforms compose with it, clip rects and
-    // rounded clips map through it, and payloads, assets, programs, rounded clips and external textures are
-    // renumbered: from's assets follow into's, and every external texture follows every asset.
+    // rounded clips map through it, and payloads, assets, programs, rounded clips, external and named textures are
+    // renumbered: from's assets follow into's, every external texture follows every asset, and from's texture names
+    // follow into's.
     Status append(DisplayList& into, const DisplayList& from, const Affine& transform = identity);
 } // namespace weft::paint

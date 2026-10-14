@@ -1,4 +1,5 @@
 #include "scene/scene.hpp"
+#include "scene/scene_values.hpp"
 #include "base/css_scalar.hpp"
 #include "base/owner_thread.hpp"
 #include "constants/scene.hpp"
@@ -232,8 +233,10 @@ namespace weft {
             }
             if (s.contains(PropertyId::Background)) {
                 const auto v = s.at(PropertyId::Background);
-                s[PropertyId::BackgroundImage] =
-                    v.find("gradient(") != v.npos || v.find("-weft-effect(") != v.npos ? v : "none";
+                s[PropertyId::BackgroundImage] = v.find("gradient(") != v.npos || v.find("-weft-effect(") != v.npos ||
+                                                         v.find("-weft-texture(") != v.npos
+                                                     ? v
+                                                     : "none";
                 s[PropertyId::BackgroundColor] = s[PropertyId::BackgroundImage] == "none" ? v : "transparent";
                 s.erase(PropertyId::Background);
             }
@@ -1350,6 +1353,12 @@ namespace weft {
                     animated = true;
                     work.paint_changed = true;
                 }
+            }
+            // A -weft-texture(name) background: a texture the host binds to the name for each frame.
+            if (const auto texture = scene_values::texture_name(get(out.style, PropertyId::BackgroundImage, "none"));
+                texture && texture->empty()) {
+                fail("-weft-texture() takes one texture name of letters, digits, '-' and '_', at most " +
+                     std::to_string(constants::scene::max_texture_name_bytes) + " bytes");
             }
             const bool shown = !hidden && get(out.style, PropertyId::Display) != "none";
             emit(out, st, id, c, shown);

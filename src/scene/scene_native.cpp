@@ -184,7 +184,8 @@ namespace weft {
                 page.reset();
             };
             for (const auto& batch : pass.batches) {
-                const bool image = batch.step == Step::Image && !p.planes[batch.first] && !p.layers[batch.first];
+                const bool image = batch.step == Step::Image && !p.planes[batch.first] && !p.layers[batch.first] &&
+                                   !p.textures[batch.first];
                 const auto* drawn = image ? p.images[batch.first].get() : nullptr;
                 if (!(batch.step == Step::Boxes || (image && (!drawn || drawn->atlas)))) {
                     close();
@@ -214,6 +215,37 @@ namespace weft {
             pass.batches = std::move(merged);
         }
     } // namespace
+
+    std::vector<const SceneTexture*> scene_texture_bindings(const ScenePrepared& prepared,
+                                                            std::span<const SceneTexture> textures) {
+        std::vector<const SceneTexture*> out(prepared.texture_names.size());
+        for (std::size_t i = 0; i < out.size(); ++i) {
+            const auto found = std::find_if(textures.begin(), textures.end(), [&](const SceneTexture& t) {
+                return t.name == prepared.texture_names[i];
+            });
+            out[i] = found == textures.end() ? nullptr : &*found;
+        }
+        return out;
+    }
+
+    std::vector<bool> scene_texture_flips(const ScenePrepared& prepared, std::span<const SceneTexture> textures) {
+        const auto bound = scene_texture_bindings(prepared, textures);
+        std::vector<bool> out(bound.size());
+        for (std::size_t i = 0; i < bound.size(); ++i) {
+            out[i] = bound[i] && bound[i]->bottom_left;
+        }
+        return out;
+    }
+
+    bool scene_planes_draw_textures(const ScenePrepared& prepared) {
+        return std::any_of(prepared.planes.begin(), prepared.planes.end(), [](const auto& plane) {
+            return plane && (std::any_of(plane->textures.begin(), plane->textures.end(),
+                                         [](std::uint32_t t) {
+                                             return t != 0;
+                                         }) ||
+                             scene_planes_draw_textures(*plane));
+        });
+    }
 
     std::uint32_t scene_atlas_page_size(SceneImage::Format format) {
         return std::uint32_t(format == SceneImage::Format::Data ? limits::atlas_page_size
@@ -351,7 +383,7 @@ namespace weft {
                 prepared->anchors = std::move(compiled.anchors);
                 prepared->runs = std::move(compiled.runs);
                 prepared->view = {frame.root.box[2], frame.root.box[3]};
-                prepared->keepable = true;
+                prepared->keepable = !scene_planes_draw_textures(*prepared);
                 // A run reorders inside one batch that draws its records in any order: boxes, or boxes and images on
                 // one atlas page.
                 for (auto& run : prepared->runs) {
@@ -814,11 +846,11 @@ namespace weft {
     std::unique_ptr<ScenePrepared> ScenePreparer::prepare(const paint::DisplayList& list, float scale, unsigned width,
                                                           unsigned height, std::optional<std::array<float, 4>> crop,
                                                           unsigned view_index, std::uint32_t anchors, bool over) {
-        // Scene passes sample no asset images.
-        if (std::any_of(list.items.begin(), list.items.end(), [](const paint::Item& item) {
-                return item.kind == Kind::Image;
+        // Scene passes sample no asset images, only host textures by name.
+        if (std::any_of(list.items.begin(), list.items.end(), [&](const paint::Item& item) {
+                return item.kind == Kind::Image && !list.images[item.payload].texture;
             })) {
-            throw std::invalid_argument("scene renderer draws no image items");
+            throw std::invalid_argument("scene renderer draws no asset images");
         }
         auto planned =
             render::plan_scene_pass(list, scale, width, height, crop, render::Space::Encoded, nullptr, anchors, !over);
@@ -833,6 +865,8 @@ namespace weft {
         out->images.resize(list.items.size());
         out->planes.resize(list.items.size());
         out->layers.resize(list.items.size());
+        out->textures.resize(list.items.size());
+        out->texture_names = list.textures;
         for (const auto& effect : list.effects) {
             auto& prepared = out->effects.emplace_back();
             prepared.program = list.programs.at(effect.program);
@@ -850,6 +884,8 @@ namespace weft {
                 auto built = image(item, list.rasters[item.payload], scale, view_index);
                 out->images[i] = std::move(built.text);
                 out->layers[i] = std::move(built.layer);
+            } else if (item.kind == Kind::Image) {
+                out->textures[i] = list.images[item.payload].texture;
             } else if (item.kind == Kind::Shadow) {
                 out->images[i] = shadow(item, list.shadows[item.payload], scale);
             } else if (item.kind == Kind::Path) {

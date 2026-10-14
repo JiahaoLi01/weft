@@ -115,8 +115,8 @@ namespace weft::render::vulkan {
         render_result(weft_renderer_install_external_backend(renderer, &table), "install external texture extension");
     }
 
-    weft_render_result Backend::import_texture(const weft_render_external_texture& description, std::uint64_t& out) {
-        out = 0;
+    weft_render_result check_external_texture(const weft_render_external_texture& description, VkDevice device,
+                                              VkImageView& view) {
         if (description.native_texture_size < sizeof(weft_render_vulkan_texture)) {
             return WEFT_RENDER_INVALID_ARGUMENT;
         }
@@ -125,10 +125,19 @@ namespace weft::render::vulkan {
             !p.image_view) {
             return WEFT_RENDER_INVALID_ARGUMENT;
         }
-        if (native_handle<VkDevice>(p.device) != gpu.gpu.device) {
+        if (native_handle<VkDevice>(p.device) != device) {
             return WEFT_RENDER_WRONG_BACKEND;
         }
-        const auto view = native_handle<VkImageView>(p.image_view);
+        view = native_handle<VkImageView>(p.image_view);
+        return WEFT_RENDER_OK;
+    }
+
+    weft_render_result Backend::import_texture(const weft_render_external_texture& description, std::uint64_t& out) {
+        out = 0;
+        VkImageView view{};
+        if (const auto v = check_external_texture(description, gpu.gpu.device, view); v != WEFT_RENDER_OK) {
+            return v;
+        }
         if (std::find(imports_.begin(), imports_.end(), view) != imports_.end()) {
             return WEFT_RENDER_INVALID_STATE;
         }

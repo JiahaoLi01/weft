@@ -279,6 +279,10 @@ if(WIN32)
     weft_add_executable(weft_scene_effect_tests SOURCES scene_effect_tests.cpp
         LINK weft::scene weft::platform_win32 weft_test_effects)
     weft_add_test(NAME scene_effect_contract COMMAND weft_scene_effect_tests)
+    # Host textures that CSS names in scenes (-weft-texture(name)): names, diagnostics and display lists.
+    weft_add_executable(weft_scene_texture_tests SOURCES scene_texture_tests.cpp
+        LINK weft::scene weft::platform_win32)
+    weft_add_test(NAME scene_texture_contract COMMAND weft_scene_texture_tests)
     # UI particles as scene elements show them: registration, overrides, streams, bursts, flights, bounds, damage,
     # and weft.emitParticles.
     weft_add_executable(weft_scene_particles_tests SOURCES scene_particles_tests.cpp

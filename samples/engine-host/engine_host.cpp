@@ -2,9 +2,10 @@
 // HUD page of examples/engine-host; the engine's units move every frame and the engine writes their screen positions
 // as anchors; their health goes to the view model "health", damage to hud.damage events; the engine checks what is
 // under the pointer (a page element with a pointer cursor takes the click, anything else would go to the game) and
-// clicks the end-turn button, then answers the page's call; and the View's frames are drawn over the game's picture,
-// on D3D11 (the device's immediate context) or Vulkan (the engine's command buffer), submitted and completed by the
-// engine. The last frame is written as a BMP.
+// clicks the end-turn button, then answers the page's call; it draws a minimap texture every frame, which the page shows
+// by name (-weft-texture(minimap)), imported once as a live texture; and the View's frames are drawn over the game's
+// picture, on D3D11 (the device's immediate context) or Vulkan (the engine's command buffer), submitted and completed by
+// the engine. The last frame is written as a BMP.
 //
 //   weft_engine_host [--d3d11 | --vulkan] [--warp] [--frames N] [--page <dir>] [--out <file.bmp>]
 //
@@ -20,6 +21,7 @@
 #include <weft/render_backend.h>
 #include <weft/render_backend_d3d11.h>
 #include <weft/render_backend_vulkan.h>
+#include <weft/render_external_texture.h>
 #include <weft/weft.h>
 
 #include <algorithm>
@@ -41,6 +43,9 @@ namespace {
     constexpr unsigned width = 1280;
     constexpr unsigned height = 720;
     constexpr unsigned units = 12;
+    // The minimap texture's texels: the world (the View's px) a tenth as wide.
+    constexpr unsigned map_width = width / 10;
+    constexpr unsigned map_height = height / 10;
     constexpr int skipped = 77;
 
     struct Failure : std::runtime_error {
@@ -181,6 +186,38 @@ namespace {
                   "diagnostics");
         }
 
+        // The minimap at frame n, linear premultiplied RGBA8 rows top down: a dark sea, each unit a dot from green to
+        // red as it loses health.
+        std::vector<std::uint8_t> minimap(unsigned n) const {
+            std::vector<std::uint8_t> texels(std::size_t(map_width) * map_height * 4);
+            for (std::size_t i = 0; i < texels.size(); i += 4) {
+                texels[i] = 2;
+                texels[i + 1] = 6;
+                texels[i + 2] = 14;
+                texels[i + 3] = 255;
+            }
+            for (unsigned i = 0; i < units; ++i) {
+                const auto [x, y] = place(i, n);
+                const int cx = int(x / 10);
+                const int cy = int(y / 10);
+                for (int dy = -1; dy <= 1; ++dy) {
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        const int px = cx + dx;
+                        const int py = cy + dy;
+                        if (px < 0 || py < 0 || px >= int(map_width) || py >= int(map_height)) {
+                            continue;
+                        }
+                        auto* t = &texels[(std::size_t(py) * map_width + std::size_t(px)) * 4];
+                        t[0] = std::uint8_t(255 * (1 - health[i]));
+                        t[1] = std::uint8_t(255 * health[i]);
+                        t[2] = 0;
+                        t[3] = 255;
+                    }
+                }
+            }
+            return texels;
+        }
+
         // The pointer goes to the page only over something on it that shows a pointer cursor.
         void click(float x, float y) {
             weft_hit hit{};
@@ -215,11 +252,41 @@ namespace {
         }
     };
 
-    weft_render_handle prepare(weft_renderer* renderer, const weft_view_frame* frame) {
-        const weft_render_scene_frame f{sizeof(f), WEFT_RENDER_ABI_VERSION, frame, 0, 0};
+    // The View's frame, the minimap texture bound to its name.
+    weft_render_handle prepare(weft_renderer* renderer, const weft_view_frame* frame, weft_render_handle minimap) {
+        const weft_render_scene_texture texture{"minimap", 7, 0, minimap};
+        const weft_render_scene_frame f{sizeof(f), WEFT_RENDER_ABI_VERSION, frame, 0, 1, &texture};
         weft_render_handle prepared{};
         check(weft_renderer_prepare_scene(renderer, &f, &prepared), "prepare the View's frame");
         return prepared;
+    }
+
+    // Imports the engine's minimap texture into renderer once, live: the engine draws it again every frame, on the
+    // queue that draws the UI, before the UI.
+    weft_render_handle import_minimap(weft_renderer* renderer, const void* native, std::size_t native_size) {
+        weft_render_info info{};
+        info.struct_size = sizeof(info);
+        check(weft_renderer_get_info(renderer, &info), "renderer info");
+        const weft_render_external_texture texture{sizeof(texture),
+                                                   WEFT_RENDER_EXTERNAL_ABI_VERSION,
+                                                   info.identity,
+                                                   1,
+                                                   1,
+                                                   map_width,
+                                                   map_height,
+                                                   WEFT_RENDER_TARGET_LINEAR_RGBA8,
+                                                   WEFT_RENDER_EXTERNAL_LINEAR_PREMULTIPLIED,
+                                                   WEFT_RENDER_EXTERNAL_TOP_LEFT,
+                                                   WEFT_RENDER_EXTERNAL_SAME_QUEUE_LIVE,
+                                                   0,
+                                                   0,
+                                                   native,
+                                                   native_size,
+                                                   nullptr,
+                                                   nullptr};
+        weft_render_handle lease{};
+        check(weft_renderer_import_texture(renderer, &texture, &lease), "import the minimap");
+        return lease;
     }
 
     // A 32-bit BMP of BGRA rows, top down.
@@ -278,6 +345,24 @@ namespace {
         weft_render_info info{};
         info.struct_size = sizeof(info);
         check(weft_renderer_get_info(renderer, &info), "renderer info");
+        // The minimap texture, which the engine writes every frame on the immediate context.
+        weft_render_external_backend external{};
+        check(weft_render_d3d11_external(backend, &external), "the external texture extension");
+        check(weft_renderer_install_external_backend(renderer, &external), "install the extension");
+        D3D11_TEXTURE2D_DESC map_desc{};
+        map_desc.Width = map_width;
+        map_desc.Height = map_height;
+        map_desc.MipLevels = map_desc.ArraySize = 1;
+        map_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        map_desc.SampleDesc.Count = 1;
+        map_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        ID3D11Texture2D* map{};
+        ID3D11ShaderResourceView* map_view{};
+        check(SUCCEEDED(device->CreateTexture2D(&map_desc, nullptr, &map)) &&
+                  SUCCEEDED(device->CreateShaderResourceView(map, nullptr, &map_view)),
+              "minimap texture");
+        const weft_render_d3d11_texture map_native{sizeof(map_native), WEFT_RENDER_EXTERNAL_ABI_VERSION, map_view, 0};
+        const auto minimap = import_minimap(renderer, &map_native, sizeof(map_native));
         // The engine's completion marker after each frame's work.
         D3D11_QUERY_DESC query_desc{D3D11_QUERY_EVENT, 0};
         ID3D11Query* done{};
@@ -287,9 +372,11 @@ namespace {
             engine.frame(n);
             const auto game = picture(n);
             context->ClearRenderTargetView(rtv, game.data());
+            const auto texels = engine.minimap(n);
+            context->UpdateSubresource(map, 0, nullptr, texels.data(), map_width * 4, 0);
             weft_view_frame* frame{};
             check(weft_view_acquire_frame(engine.runtime, engine.view, &frame), "acquire the View's frame");
-            const auto prepared = prepare(renderer, frame);
+            const auto prepared = prepare(renderer, frame, minimap);
             weft_view_frame_release(frame);
             weft_render_d3d11_pass payload{sizeof(payload), WEFT_RENDER_ABI_VERSION, nullptr, rtv, nullptr, 0, 0, {}};
             const weft_render_pass pass{
@@ -327,8 +414,11 @@ namespace {
         if (!out.empty()) {
             write_bmp(out, pixels);
         }
+        check(weft_renderer_release_texture(renderer, minimap), "release the minimap");
         check(weft_renderer_destroy(renderer), "destroy the renderer");
         weft_render_d3d11_destroy(backend);
+        map_view->Release();
+        map->Release();
         staging->Release();
         done->Release();
         rtv->Release();
@@ -352,19 +442,20 @@ namespace {
     F(vkDestroyInstance)                                                                                               \
     F(vkEnumeratePhysicalDevices)                                                                                      \
     F(vkGetPhysicalDeviceProperties)                                                                                   \
-    F(vkGetPhysicalDeviceQueueFamilyProperties) F(vkGetPhysicalDeviceMemoryProperties) F(vkCreateDevice)               \
-        F(vkGetDeviceProcAddr)
+    F(vkGetPhysicalDeviceQueueFamilyProperties)                                                                        \
+    F(vkGetPhysicalDeviceMemoryProperties) F(vkCreateDevice) F(vkGetDeviceProcAddr)
 #define WEFT_SAMPLE_DEVICE_FUNCTIONS(F)                                                                                \
     F(vkDestroyDevice)                                                                                                 \
     F(vkGetDeviceQueue)                                                                                                \
     F(vkCreateImage)                                                                                                   \
-    F(vkDestroyImage) F(vkGetImageMemoryRequirements) F(vkAllocateMemory) F(vkFreeMemory) F(vkBindImageMemory)         \
-        F(vkCreateImageView) F(vkDestroyImageView) F(vkCreateBuffer) F(vkDestroyBuffer)                                \
-            F(vkGetBufferMemoryRequirements) F(vkBindBufferMemory) F(vkMapMemory) F(vkCreateCommandPool)               \
-                F(vkDestroyCommandPool) F(vkAllocateCommandBuffers) F(vkBeginCommandBuffer) F(vkEndCommandBuffer)      \
-                    F(vkResetCommandBuffer) F(vkCmdPipelineBarrier) F(vkCmdClearColorImage) F(vkCmdCopyImageToBuffer)  \
-                        F(vkQueueSubmit) F(vkCreateFence) F(vkDestroyFence) F(vkWaitForFences) F(vkResetFences)        \
-                            F(vkDeviceWaitIdle)
+    F(vkDestroyImage)                                                                                                  \
+    F(vkGetImageMemoryRequirements)                                                                                    \
+    F(vkAllocateMemory) F(vkFreeMemory) F(vkBindImageMemory) F(vkCreateImageView) F(vkDestroyImageView)                \
+        F(vkCreateBuffer) F(vkDestroyBuffer) F(vkGetBufferMemoryRequirements) F(vkBindBufferMemory) F(vkMapMemory)     \
+            F(vkCreateCommandPool) F(vkDestroyCommandPool) F(vkAllocateCommandBuffers) F(vkBeginCommandBuffer)         \
+                F(vkEndCommandBuffer) F(vkResetCommandBuffer) F(vkCmdPipelineBarrier) F(vkCmdClearColorImage)          \
+                    F(vkCmdCopyImageToBuffer) F(vkCmdCopyBufferToImage) F(vkQueueSubmit) F(vkCreateFence)              \
+                        F(vkDestroyFence) F(vkWaitForFences) F(vkResetFences) F(vkDeviceWaitIdle)
 #define WEFT_SAMPLE_DECLARE(name) PFN_##name name{};
         WEFT_SAMPLE_FUNCTIONS(WEFT_SAMPLE_DECLARE)
         WEFT_SAMPLE_DEVICE_FUNCTIONS(WEFT_SAMPLE_DECLARE)
@@ -570,9 +661,49 @@ namespace {
         weft_render_info info{};
         info.struct_size = sizeof(info);
         check(weft_renderer_get_info(renderer, &info), "renderer info");
+        // The minimap texture (sampled, written by copies from a host-visible buffer every frame).
+        weft_render_external_backend external{};
+        check(weft_render_vulkan_external(backend, &external), "the external texture extension");
+        check(weft_renderer_install_external_backend(renderer, &external), "install the extension");
+        image_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+        image_info.extent = {map_width, map_height, 1};
+        image_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        VkImage map{};
+        check(vk.vkCreateImage(vk.device, &image_info, nullptr, &map) == VK_SUCCESS, "minimap");
+        vk.vkGetImageMemoryRequirements(vk.device, map, &needs);
+        allocate.allocationSize = needs.size;
+        allocate.memoryTypeIndex = vk.memory_type(needs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        VkDeviceMemory map_memory{};
+        check(vk.vkAllocateMemory(vk.device, &allocate, nullptr, &map_memory) == VK_SUCCESS &&
+                  vk.vkBindImageMemory(vk.device, map, map_memory, 0) == VK_SUCCESS,
+              "minimap memory");
+        view_info.image = map;
+        view_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+        VkImageView map_view{};
+        check(vk.vkCreateImageView(vk.device, &view_info, nullptr, &map_view) == VK_SUCCESS, "minimap view");
+        buffer_info.size = VkDeviceSize(map_width) * map_height * 4;
+        buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        VkBuffer map_texels{};
+        check(vk.vkCreateBuffer(vk.device, &buffer_info, nullptr, &map_texels) == VK_SUCCESS, "minimap texels");
+        vk.vkGetBufferMemoryRequirements(vk.device, map_texels, &needs);
+        allocate.allocationSize = needs.size;
+        allocate.memoryTypeIndex = vk.memory_type(needs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                                            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        VkDeviceMemory map_texel_memory{};
+        void* map_mapped{};
+        check(vk.vkAllocateMemory(vk.device, &allocate, nullptr, &map_texel_memory) == VK_SUCCESS &&
+                  vk.vkBindBufferMemory(vk.device, map_texels, map_texel_memory, 0) == VK_SUCCESS &&
+                  vk.vkMapMemory(vk.device, map_texel_memory, 0, VK_WHOLE_SIZE, 0, &map_mapped) == VK_SUCCESS,
+              "minimap texel memory");
+        const weft_render_vulkan_texture map_native{sizeof(map_native), WEFT_RENDER_EXTERNAL_ABI_VERSION,
+                                                    u64(vk.device), u64(map_view)};
+        const auto minimap = import_minimap(renderer, &map_native, sizeof(map_native));
         std::vector<double> encode_ms;
         for (unsigned n = 0; n < frames; ++n) {
             engine.frame(n);
+            // The last frame completed: the engine writes the minimap's texels for this one.
+            const auto texels = engine.minimap(n);
+            std::memcpy(map_mapped, texels.data(), texels.size());
             VkCommandBufferBeginInfo begin{};
             begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
             begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -588,9 +719,20 @@ namespace {
                        VK_ACCESS_TRANSFER_WRITE_BIT,
                        VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+            // The minimap's new texels, after the last frame's UI read it and before this frame's reads it.
+            vk.barrier(command, map, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                       VK_PIPELINE_STAGE_TRANSFER_BIT);
+            VkBufferImageCopy upload{};
+            upload.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            upload.imageExtent = {map_width, map_height, 1};
+            vk.vkCmdCopyBufferToImage(command, map_texels, map, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &upload);
+            vk.barrier(command, map, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
             weft_view_frame* frame{};
             check(weft_view_acquire_frame(engine.runtime, engine.view, &frame), "acquire the View's frame");
-            const auto prepared = prepare(renderer, frame);
+            const auto prepared = prepare(renderer, frame, minimap);
             weft_view_frame_release(frame);
             weft_render_vulkan_pass payload{
                 sizeof(payload), WEFT_RENDER_ABI_VERSION, u64(vk.device), u64(command), u64(back_view), 0, 0, {},
@@ -627,9 +769,15 @@ namespace {
             const auto* bytes = static_cast<const std::uint8_t*>(mapped);
             write_bmp(out, std::vector<std::uint8_t>(bytes, bytes + std::size_t(width) * height * 4));
         }
+        check(weft_renderer_release_texture(renderer, minimap), "release the minimap");
         check(weft_renderer_destroy(renderer), "destroy the renderer");
         weft_render_vulkan_destroy(backend);
         vk.vkDeviceWaitIdle(vk.device);
+        vk.vkDestroyBuffer(vk.device, map_texels, nullptr);
+        vk.vkFreeMemory(vk.device, map_texel_memory, nullptr);
+        vk.vkDestroyImageView(vk.device, map_view, nullptr);
+        vk.vkDestroyImage(vk.device, map, nullptr);
+        vk.vkFreeMemory(vk.device, map_memory, nullptr);
         vk.vkDestroyFence(vk.device, fence, nullptr);
         vk.vkDestroyCommandPool(vk.device, pool, nullptr);
         vk.vkDestroyBuffer(vk.device, readback, nullptr);

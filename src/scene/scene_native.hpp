@@ -18,6 +18,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <span>
 #include <vector>
 
 // The backend-neutral half of a native scene pass: a frame's display list (scene_display_list), its plan
@@ -70,6 +71,9 @@ namespace weft {
         // passes prepared again because the anchors reordered records a batch could not take in another order.
         std::size_t kept_passes{};
         std::size_t kept_rebuilds{};
+        // Host texture items drawn, and those whose name the frame bound to no texture (they draw nothing).
+        std::size_t texture_draws{};
+        std::size_t unbound_textures{};
         // Fallback counts by reason.
         std::map<std::string, std::size_t> reasons;
     };
@@ -146,7 +150,8 @@ namespace weft {
 
     // A display list's pass ready to draw on a width x height device px target: its plan, and per item the image a
     // text, shadow or path item samples (null for a path with nothing in its clip), the pass of a plane's content
-    // (drawn into an image of plane_pixels), or a layer's image; per effect of the list (DisplayList::effects, as
+    // (drawn into an image of plane_pixels), a layer's image, or the host texture an image item names (one past an index
+    // of texture_names, the list's DisplayList::textures; 0 for other items); per effect of the list (DisplayList::effects, as
     // Effect batches name them) its program and textures; and per emission (DisplayList::particles, as Particles
     // batches name them) its sprite's image, as an effect's texture, or null for discs; and the atlas pages its Atlas
     // steps draw from (ScenePass::Batch::source). The record of an image on a page samples the page.
@@ -157,6 +162,8 @@ namespace weft {
         std::vector<std::shared_ptr<const SceneImage>> images;
         std::vector<std::unique_ptr<ScenePrepared>> planes;
         std::vector<std::shared_ptr<const SceneLayerImage>> layers;
+        std::vector<std::uint32_t> textures;
+        std::vector<std::string> texture_names;
         std::vector<ScenePreparedEffect> effects;
         std::vector<std::shared_ptr<const SceneImage>> sprites;
         std::vector<SceneAtlasPage> pages;
@@ -172,6 +179,27 @@ namespace weft {
         // pass's clear.
         bool over{};
     };
+
+    // A host texture a pass draws for a -weft-texture(name) background of its page: the backend's view of it (an
+    // ID3D11ShaderResourceView, a VkImageView) and whether its rows start at the bottom.
+    struct SceneTexture {
+        std::string name;
+        std::uint64_t view{};
+        bool bottom_left{};
+    };
+
+    // The texture textures binds to each name of a prepared pass (ScenePrepared::texture_names; the first of a name
+    // when it appears twice), null for a name they leave unbound.
+    std::vector<const SceneTexture*> scene_texture_bindings(const ScenePrepared& prepared,
+                                                            std::span<const SceneTexture> textures);
+
+    // Whether the texture bound to each name of a prepared pass has rows that start at the bottom (false when unbound):
+    // its records sample them flipped, so a kept pass draws again only for the same.
+    std::vector<bool> scene_texture_flips(const ScenePrepared& prepared, std::span<const SceneTexture> textures);
+
+    // Whether a pass draws a host texture inside one of its planes, at any depth: a kept pass draws its planes' content
+    // once, which would keep a texture's content of that frame.
+    bool scene_planes_draw_textures(const ScenePrepared& prepared);
 
     // How a pass starts on its target: it replaces what the target holds (the probes' targets: the page's root
     // background folded into the clear), or it draws over it, as a host's frame (a game's) is drawn over, first

@@ -206,8 +206,13 @@ namespace weft::render {
                 r.uv = source.uv;
                 r.background = in(space, source.color);
                 r.outline = in(space, source.outline);
-                // External textures are images with their own colors.
-                const auto* asset = source.asset < list.assets.size() ? list.assets[source.asset].get() : nullptr;
+                // A host texture's linear colors, in the pass's encoding; external textures are images with their own
+                // colors.
+                if (source.texture) {
+                    r.mode[0] = scene_limits::image_mode_texture;
+                }
+                const auto* asset =
+                    !source.texture && source.asset < list.assets.size() ? list.assets[source.asset].get() : nullptr;
                 if (asset && asset->encoding == paint::Encoding::Coverage) {
                     r.mode[0] = scene_limits::image_mode_coverage;
                 } else if (asset && asset->encoding == paint::Encoding::SignedDistance) {
@@ -373,6 +378,10 @@ namespace weft::render {
     Result<ScenePass> plan_scene_pass(const paint::DisplayList& list, float scale, unsigned width, unsigned height,
                                       std::optional<paint::ClipRect> crop, Space space,
                                       const std::vector<std::uint64_t>* textures, std::uint32_t anchors, bool fold) {
+        // A linear pass (a display list's) binds no textures by name.
+        if (space == Space::Linear && !list.textures.empty()) {
+            return make_diagnostic(Diag::PaintList, "named textures in a linear pass");
+        }
         ScenePass pass;
         pass.space = space;
         pass.clips.reserve(list.clips.size());

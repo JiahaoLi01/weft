@@ -1261,11 +1261,11 @@ namespace weft {
                             }
                         }
                         if (tokens && d.background_layer >= 0 && !wide(keyword(*tokens))) {
-                            // A gradient or an effect is the image; anything else the color.
+                            // A gradient, an effect or a host texture is the image; anything else the color.
                             const bool image = std::any_of(tokens->begin(), tokens->end(), [](const Token& t) {
                                 const auto name = lower(t.text);
-                                return t.kind == Kind::Function &&
-                                       (name.ends_with("gradient") || name == "-weft-effect");
+                                return t.kind == Kind::Function && (name.ends_with("gradient") ||
+                                                                    name == "-weft-effect" || name == "-weft-texture");
                             });
                             const bool none = keyword(*tokens) == "none";
                             if (d.background_layer == 0 && (image || none)) {

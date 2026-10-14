@@ -5,12 +5,14 @@
 #include "render/srgb.hpp"
 #include "view/view_abi.hpp"
 
+#include <algorithm>
+#include <exception>
+#include <string>
 #include <cmath>
 #include <cstddef>
 #include <new>
 #include <optional>
 #include <stdexcept>
-#include <type_traits>
 
 namespace weft::render::vulkan {
     namespace {
@@ -24,17 +26,10 @@ namespace weft::render::vulkan {
                     linear_to_srgb(linear[2] / a) * a, a};
         }
 
-        template <class T>
-        T handle(std::uint64_t value) {
-            if constexpr (std::is_pointer_v<T>) {
-                return reinterpret_cast<T>(static_cast<std::uintptr_t>(value));
-            } else {
-                return T(value);
-            }
-        }
     } // namespace
 
-    ViewBackend::ViewBackend(const HostDevice& host, std::uint64_t queue) : device_(Device::adopt(host)) {
+    ViewBackend::ViewBackend(const HostDevice& host, std::uint64_t queue)
+        : device_(Device::adopt(host)), imports_(std::size_t(constants::render::view_external_textures)) {
         BackendDescription description;
         description.api = WEFT_RENDER_API_VULKAN;
         description.device_epoch = 1;
@@ -52,12 +47,56 @@ namespace weft::render::vulkan {
         shutdown();
     }
 
+    weft_render_external_backend ViewBackend::external() {
+        std::uint32_t formats = (1u << WEFT_RENDER_TARGET_LINEAR_RGBA8) | (1u << WEFT_RENDER_TARGET_LINEAR_RGBA16F);
+        if (device_->filters(VK_FORMAT_R32G32B32A32_SFLOAT)) {
+            formats |= 1u << WEFT_RENDER_TARGET_LINEAR_RGBA32F;
+        }
+        return make_c_external_backend(
+            *this, {formats, std::uint32_t(imports_.size()), constants::render::view_external_texture_bytes});
+    }
+
+    weft_render_result ViewBackend::import_texture(const weft_render_external_texture& description,
+                                                   std::uint64_t& out) {
+        out = 0;
+        VkImageView view{};
+        if (const auto v = check_external_texture(description, device_->device, view); v != WEFT_RENDER_OK) {
+            return v;
+        }
+        // One import of a view at a time, live or frozen.
+        if (std::find(imports_.begin(), imports_.end(), view) != imports_.end()) {
+            return WEFT_RENDER_INVALID_STATE;
+        }
+        const auto free = std::find(imports_.begin(), imports_.end(), VkImageView{});
+        if (free == imports_.end()) {
+            return WEFT_RENDER_BUSY;
+        }
+        *free = view;
+        out = std::uint64_t(free - imports_.begin()) + 1;
+        return WEFT_RENDER_OK;
+    }
+
+    void ViewBackend::release_texture(std::uint64_t native) {
+        if (!native || native > imports_.size() || !imports_[native - 1]) {
+            std::terminate();
+        }
+        imports_[native - 1] = VkImageView{};
+    }
+
+    weft_render_result ViewBackend::prepare_external(const weft_render_frame&, const weft_render_external_asset*,
+                                                     std::uint32_t, std::uint64_t& out) {
+        out = 0;
+        return WEFT_RENDER_UNSUPPORTED_FEATURE;
+    }
+
     weft_render_result ViewBackend::prepare(const weft_render_frame&, std::uint64_t& out) {
         out = 0;
         return WEFT_RENDER_UNSUPPORTED_FEATURE;
     }
 
-    weft_render_result ViewBackend::prepare_scene(const weft_render_scene_frame& frame, std::uint64_t& out) {
+    weft_render_result ViewBackend::prepare_scene(const weft_render_scene_frame& frame,
+                                                  const weft_render_external_asset* textures, std::uint32_t count,
+                                                  std::uint64_t& out) {
         out = 0;
         const auto& held = frame.frame->frame;
         if (!held || !held->scene || !held->fonts || !held->anchors) {
@@ -79,8 +118,18 @@ namespace weft::render::vulkan {
                 ++it;
             }
         }
+        Prepared prepared{held, frame.scale ? frame.scale : held->scale, {}};
+        for (std::uint32_t i = 0; i < count; ++i) {
+            const auto token = textures[i].native_texture;
+            if (!token || token > imports_.size() || !imports_[token - 1]) {
+                return WEFT_RENDER_STALE_HANDLE;
+            }
+            const auto& bound = frame.textures[i];
+            prepared.textures.push_back({std::string(bound.name, bound.name_size), abi_handle(imports_[token - 1]),
+                                         textures[i].description.origin == WEFT_RENDER_EXTERNAL_BOTTOM_LEFT});
+        }
         out = next_++;
-        prepared_.emplace(out, Prepared{held, frame.scale ? frame.scale : held->scale});
+        prepared_.emplace(out, std::move(prepared));
         return WEFT_RENDER_OK;
     }
 
@@ -108,7 +157,7 @@ namespace weft::render::vulkan {
                 }
             }
         }
-        if (handle<VkDevice>(p.device) != device_->device) {
+        if (native_handle<VkDevice>(p.device) != device_->device) {
             return WEFT_RENDER_WRONG_BACKEND;
         }
         if (pass.target_format != WEFT_RENDER_TARGET_LINEAR_BGRA8) {
@@ -129,8 +178,8 @@ namespace weft::render::vulkan {
             start.clear = encoded(p.clear_linear_premultiplied);
         }
         const SceneRenderer::Target target{
-            handle<VkImageView>(p.target_view), pass.width, pass.height,
-            p.struct_size >= sizeof(p) && p.target_image ? handle<VkImage>(p.target_image) : VkImage{}};
+            native_handle<VkImageView>(p.target_view), pass.width, pass.height,
+            p.struct_size >= sizeof(p) && p.target_image ? native_handle<VkImage>(p.target_image) : VkImage{}};
         std::unique_ptr<SceneRenderer::Slot> slot;
         if (!idle_.empty()) {
             slot = std::move(idle_.back());
@@ -140,8 +189,8 @@ namespace weft::render::vulkan {
         }
         bool drawn{};
         try {
-            drawn = renderer_->encode(*slot, *frame.scene, handle<VkCommandBuffer>(p.command_buffer), target,
-                                      prepared.scale, std::nullopt, index, {}, anchors, start);
+            drawn = renderer_->encode(*slot, *frame.scene, native_handle<VkCommandBuffer>(p.command_buffer), target,
+                                      prepared.scale, std::nullopt, index, {}, anchors, start, prepared.textures);
         } catch (const Busy&) {
             idle_.push_back(std::move(slot));
             return WEFT_RENDER_BUSY;
@@ -256,6 +305,19 @@ extern "C" weft_render_result weft_render_vulkan_create(const weft_render_vulkan
     } catch (...) {
         return WEFT_RENDER_DEVICE_UNAVAILABLE;
     }
+}
+
+extern "C" weft_render_result weft_render_vulkan_external(weft_render_vulkan* backend,
+                                                          weft_render_external_backend* out) noexcept {
+    if (!out) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    *out = {};
+    if (!backend) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    *out = backend->backend.external();
+    return WEFT_RENDER_OK;
 }
 
 extern "C" void weft_render_vulkan_destroy(weft_render_vulkan* backend) noexcept {

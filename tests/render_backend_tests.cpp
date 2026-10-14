@@ -348,6 +348,12 @@ namespace {
                 l.items[0].opacity = 2;
             },
             WEFT_RENDER_INVALID_ARGUMENT));
+        // Textures by name are a View frame's (weft_renderer_prepare_scene).
+        CHECK(refused(
+            [](paint::DisplayList& l) {
+                l.textures = {"minimap"};
+            },
+            WEFT_RENDER_UNSUPPORTED_FEATURE));
         CHECK(refused(
             [](paint::DisplayList& l) {
                 l.items[1].transform = {0, 0, 0, 0, 0, 0};
@@ -753,7 +759,7 @@ namespace {
         ++invalid.identity.queue;
         EXPECT(weft_renderer_import_texture(r, &invalid, &failed), INVALID_ARGUMENT);
         invalid = d;
-        invalid.synchronization = 1;
+        invalid.synchronization = WEFT_RENDER_EXTERNAL_SAME_QUEUE_LIVE + 1;
         EXPECT(weft_renderer_import_texture(r, &invalid, &failed), UNSUPPORTED_FEATURE);
         invalid = d;
         invalid.encoding = 1;
@@ -770,8 +776,11 @@ namespace {
         CHECK(!retired.calls && !external_info(r).live_textures);
         EXPECT(weft_renderer_import_texture(r, &d, &texture), OK);
         EXPECT(weft_renderer_import_texture(r, &d, &failed), INVALID_STATE);
+        // A live texture: its producer writes it again between the frames that sample it.
         d.content_version = 2;
+        d.synchronization = WEFT_RENDER_EXTERNAL_SAME_QUEUE_LIVE;
         EXPECT(weft_renderer_import_texture(r, &d, &second), OK);
+        d.synchronization = WEFT_RENDER_EXTERNAL_SAME_QUEUE_ORDERED;
         d.content_version = 3;
         EXPECT(weft_renderer_import_texture(r, &d, &failed), BUSY);
         CHECK(external_info(r).texture_bytes == 128);

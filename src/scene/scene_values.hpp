@@ -41,6 +41,24 @@ namespace weft::scene_values {
         return s.text(k, fallback);
     }
 
+    // A background-image of -weft-texture(name) (Weft extension, a host texture): its name, or an empty one when the
+    // parentheses hold anything but one name of letters, digits, '-' and '_' of at most max_texture_name_bytes;
+    // nothing for any other value.
+    inline std::optional<std::string> texture_name(std::string_view image) {
+        constexpr std::string_view open = "-weft-texture(";
+        if (!image.starts_with(open)) {
+            return std::nullopt;
+        }
+        auto name =
+            image.ends_with(')') ? css::trim(image.substr(open.size(), image.size() - open.size() - 1)) : std::string{};
+        const bool valid = !name.empty() && name.size() <= std::size_t(constants::scene::max_texture_name_bytes) &&
+                           std::all_of(name.begin(), name.end(), [](char ch) {
+                               return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+                                      (ch >= '0' && ch <= '9') || ch == '-' || ch == '_';
+                           });
+        return valid ? std::move(name) : std::string{};
+    }
+
     // Element attributes stay a string map.
     inline std::string get(const AttributeMap& s, const std::string& k, const char* fallback = "") {
         return css::style_value(s, k, fallback);

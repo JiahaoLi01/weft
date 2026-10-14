@@ -4,6 +4,9 @@
 #include "render/srgb.hpp"
 #include "view/view_abi.hpp"
 
+#include <algorithm>
+#include <exception>
+#include <string>
 #include <cmath>
 #include <new>
 #include <optional>
@@ -22,7 +25,8 @@ namespace weft::render::d3d11 {
         }
     } // namespace
 
-    ViewBackend::ViewBackend(ID3D11Device* device, std::uint64_t queue) : device_(device) {
+    ViewBackend::ViewBackend(ID3D11Device* device, std::uint64_t queue)
+        : device_(device), imports_(std::size_t(constants::render::view_external_textures)) {
         ensure(device_ != nullptr, "a D3D11 device");
         BackendDescription description;
         description.api = WEFT_RENDER_API_D3D11;
@@ -39,12 +43,62 @@ namespace weft::render::d3d11 {
 
     ViewBackend::~ViewBackend() = default;
 
+    weft_render_external_backend ViewBackend::external() {
+        std::uint32_t formats = (1u << WEFT_RENDER_TARGET_LINEAR_RGBA8) | (1u << WEFT_RENDER_TARGET_LINEAR_RGBA16F);
+        UINT support{};
+        if (SUCCEEDED(device_->CheckFormatSupport(DXGI_FORMAT_R32G32B32A32_FLOAT, &support)) &&
+            (support & D3D11_FORMAT_SUPPORT_SHADER_SAMPLE)) {
+            formats |= 1u << WEFT_RENDER_TARGET_LINEAR_RGBA32F;
+        }
+        return make_c_external_backend(
+            *this, {formats, std::uint32_t(imports_.size()), constants::render::view_external_texture_bytes});
+    }
+
+    weft_render_result ViewBackend::import_texture(const weft_render_external_texture& description,
+                                                   std::uint64_t& out) {
+        out = 0;
+        ComPtr<ID3D11ShaderResourceView> view;
+        ComPtr<ID3D11Resource> resource;
+        if (const auto v = check_external_texture(description, device_.Get(), view, resource); v != WEFT_RENDER_OK) {
+            return v;
+        }
+        // One import of a resource at a time, live or frozen.
+        for (const auto& i : imports_) {
+            if (i.resource.Get() == resource.Get()) {
+                return WEFT_RENDER_INVALID_STATE;
+            }
+        }
+        for (std::size_t i = 0; i < imports_.size(); ++i) {
+            if (!imports_[i].view) {
+                imports_[i] = {std::move(view), std::move(resource)};
+                out = i + 1;
+                return WEFT_RENDER_OK;
+            }
+        }
+        return WEFT_RENDER_BUSY;
+    }
+
+    void ViewBackend::release_texture(std::uint64_t native) {
+        if (!native || native > imports_.size() || !imports_[native - 1].view) {
+            std::terminate();
+        }
+        imports_[native - 1] = {};
+    }
+
+    weft_render_result ViewBackend::prepare_external(const weft_render_frame&, const weft_render_external_asset*,
+                                                     std::uint32_t, std::uint64_t& out) {
+        out = 0;
+        return WEFT_RENDER_UNSUPPORTED_FEATURE;
+    }
+
     weft_render_result ViewBackend::prepare(const weft_render_frame&, std::uint64_t& out) {
         out = 0;
         return WEFT_RENDER_UNSUPPORTED_FEATURE;
     }
 
-    weft_render_result ViewBackend::prepare_scene(const weft_render_scene_frame& frame, std::uint64_t& out) {
+    weft_render_result ViewBackend::prepare_scene(const weft_render_scene_frame& frame,
+                                                  const weft_render_external_asset* textures, std::uint32_t count,
+                                                  std::uint64_t& out) {
         out = 0;
         const auto& held = frame.frame->frame;
         if (!held || !held->scene || !held->fonts || !held->anchors) {
@@ -68,8 +122,21 @@ namespace weft::render::d3d11 {
                 ++it;
             }
         }
+        Prepared prepared{held, frame.scale ? frame.scale : held->scale, {}, {}};
+        for (std::uint32_t i = 0; i < count; ++i) {
+            const auto token = textures[i].native_texture;
+            if (!token || token > imports_.size() || !imports_[token - 1].view) {
+                return WEFT_RENDER_STALE_HANDLE;
+            }
+            const auto& bound = frame.textures[i];
+            const auto& import = imports_[token - 1];
+            prepared.textures.push_back({std::string(bound.name, bound.name_size),
+                                         std::uint64_t(reinterpret_cast<std::uintptr_t>(import.view.Get())),
+                                         textures[i].description.origin == WEFT_RENDER_EXTERNAL_BOTTOM_LEFT});
+            prepared.resources.push_back(import.resource.Get());
+        }
         out = next_++;
-        prepared_.emplace(out, Prepared{held, frame.scale ? frame.scale : held->scale});
+        prepared_.emplace(out, std::move(prepared));
         return WEFT_RENDER_OK;
     }
 
@@ -131,6 +198,11 @@ namespace weft::render::d3d11 {
             return WEFT_RENDER_INVALID_ARGUMENT;
         }
         const auto& prepared = found->second;
+        // D3D11 reads no resource of a pass that draws into it.
+        if (std::find(prepared.resources.begin(), prepared.resources.end(), resource.Get()) !=
+            prepared.resources.end()) {
+            return WEFT_RENDER_INVALID_STATE;
+        }
         const auto& frame = *prepared.frame;
         auto& state = views_[std::weak_ptr<SceneAnchorChannel>(frame.anchors)];
         if (!state.index) {
@@ -142,7 +214,7 @@ namespace weft::render::d3d11 {
             start.clear = encoded(p.clear_linear_premultiplied);
         }
         if (!renderer_->paint(state.slot, *frame.scene, target, prepared.scale, pass.width, pass.height, std::nullopt,
-                              state.index, {}, anchors, start)) {
+                              state.index, {}, anchors, start, prepared.textures)) {
             return WEFT_RENDER_UNSUPPORTED_FEATURE;
         }
         out = next_++;
@@ -218,6 +290,19 @@ extern "C" weft_render_result weft_render_d3d11_create(const weft_render_d3d11_d
         }
         return WEFT_RENDER_BACKEND_ERROR;
     }
+}
+
+extern "C" weft_render_result weft_render_d3d11_external(weft_render_d3d11* backend,
+                                                         weft_render_external_backend* out) noexcept {
+    if (!out) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    *out = {};
+    if (!backend) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    *out = backend->backend.external();
+    return WEFT_RENDER_OK;
 }
 
 extern "C" void weft_render_d3d11_destroy(weft_render_d3d11* backend) noexcept {

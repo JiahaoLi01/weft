@@ -12,7 +12,11 @@
 
 `weft_renderer_release_texture` 立即使调用方句柄失效，已有 prepared/encoded/submitted pin 继续有效。所有 pin 和调用方 lease 都消失后，先调用 adapter release，再在 owner 调用退休 callback，恰好一次。已提交使用只能等宿主真实 completion serial；等待固定帧数、录制结束或释放 prepared 都不能提前退休。callback 不得分配、抛出异常或重入 renderer。合法 submitted/completed 的容量已在安装/encode 前预留，不再分配。
 
-当前同步模式仅 `SAME_QUEUE_ORDERED`：生产者写入必须在每个 UI 消费提交之前进入同 device、同宿主队列。import 到退休期间内容冻结，不能原地刷新仍在途的纹理。动态生产者轮换两张或更多纹理，每次发布新的版本，回调后才允许复用；只 release 调用方句柄还不够。adapter 拒绝同一 native resource 在旧 import 存活时伪装成新版本重新导入。跨 device、keyed mutex、共享资源和异步多队列没有自动 wait/signal 路径。
+同步模式有两种，生产者写入都必须在每个 UI 消费提交之前进入同 device、同宿主队列：
+- `SAME_QUEUE_ORDERED`（冻结）：import 到退休期间内容冻结，不能原地刷新仍在途的纹理。动态生产者轮换两张或更多纹理，每次发布新的版本，回调后才允许复用；只 release 调用方句柄还不够。adapter 拒绝同一 native resource 在旧 import 存活时伪装成新版本重新导入。
+- `SAME_QUEUE_LIVE`（2026-10-15，13.3c）：生产者在采样它的帧之间重写同一张纹理（引擎每帧重画的 render target），导入一次、一直绑定；每次写入排在之前采样它的帧的提交之后（Vulkan 上自己加从片元着色器读出发的屏障）、之后的帧之前。content id/version 只命名纹理，不代表内容；Weft 不按它缓存内容，每次按帧采样。
+
+跨 device、keyed mutex、共享资源和异步多队列没有自动 wait/signal 路径。
 
 这个 UI 回调只证明 UI 使用结束。没有 UI 提交的 producer-only GPU 工作仍由宿主自己保护和确认完成。取消已录制命令必须先销毁全部 native commands，再 discard use。设备 abandon 必须有宿主“旧设备永不再访问”保证，未提交命令先取消；prepared 和调用方 lease 仍正常 release，退休原因变为 `ABANDONED`。真实 driver device-removal 仍未验收。
 

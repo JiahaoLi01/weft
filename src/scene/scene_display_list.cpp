@@ -105,8 +105,8 @@ namespace weft {
 
         void gradient(paint::Gradient& g, float width, float height, const Style& s) {
             auto image = get(s, PropertyId::BackgroundImage, "none");
-            // An effect is the node's SceneEffect, not a gradient.
-            if (image == "none" || image.starts_with("-weft-effect(")) {
+            // An effect is the node's SceneEffect and a host texture an image, not gradients.
+            if (image == "none" || image.starts_with("-weft-effect(") || image.starts_with("-weft-texture(")) {
                 return;
             }
             auto b = image.find('(');
@@ -278,10 +278,16 @@ namespace weft {
             const auto* v = n.style.find(PropertyId::BackdropFilter);
             return v && !css::trim(v->text()).empty() && css::trim(v->text()) != "none";
         };
-        // Whether a subtree shows an effect, particles or a backdrop filter: such a node draws in the pass, never as a
-        // cached layer image, so that they follow the frame's time, their own values and what lies behind them.
+        // The host texture a node's background shows (-weft-texture(name)): its name, or none.
+        const auto texture_of = [](const SceneNode& n) {
+            auto name = scene_values::texture_name(scene_values::view(n.style, PropertyId::BackgroundImage, "none"));
+            return name ? std::move(*name) : std::string{};
+        };
+        // Whether a subtree shows an effect, particles, a backdrop filter or a host texture: such a node draws in the
+        // pass, never as a cached layer image, so that they follow the frame's time, their own values, what lies
+        // behind them and what the host's texture holds at the frame.
         const auto shows_effect = [&](auto&& self, const SceneNode& n) -> bool {
-            return n.effect || !n.particles.empty() || filters(n) ||
+            return n.effect || !n.particles.empty() || filters(n) || !texture_of(n).empty() ||
                    std::any_of(n.children.begin(), n.children.end(), [&](const SceneNode& child) {
                        return self(self, child);
                    });
@@ -960,8 +966,9 @@ namespace weft {
                     list.items.push_back(item);
                     return;
                 }
+                const auto host_texture = texture_of(n);
                 const bool painted = box.background[3] > 0 || box.gradient.kind != paint::GradientKind::None ||
-                                     bordered || dashed || n.effect;
+                                     bordered || dashed || n.effect || !host_texture.empty();
                 // Shadows of the border box with its corners as specified, as the reference raster draws them.
                 const auto shadows = scene_values::box_shadows(
                     n.style, item.width, item.height, scene_values::specified_radii(n.style, item.width, item.height));
@@ -1055,9 +1062,9 @@ namespace weft {
                         }
                     }
                 };
-                if (painted && !n.effect && !dashed) {
+                if (painted && !n.effect && host_texture.empty() && !dashed) {
                     add_box(box);
-                } else if (painted && !n.effect) {
+                } else if (painted && !n.effect && host_texture.empty()) {
                     auto under = box;
                     under.widths = {};
                     if (under.background[3] > 0 || under.gradient.kind != paint::GradientKind::None) {
@@ -1107,6 +1114,50 @@ namespace weft {
                     if (bordered) {
                         auto over = box;
                         over.background = {};
+                        add_box(over);
+                    }
+                } else if (!host_texture.empty()) {
+                    // A host texture, as CSS paints a background image: over the background color and under the
+                    // borders, stretched over the border box inside its corners (a rounded clip), into the rect
+                    // snapped to device pixels as Chrome draws an image, unless the box rotates, skews or mirrors.
+                    if (box.background[3] > 0) {
+                        auto under = box;
+                        under.widths = {};
+                        add_box(under);
+                    }
+                    paint::Image image;
+                    image.texture = index_of(list.textures, host_texture) + 1;
+                    auto shape = item;
+                    shape.kind = paint::Item::Kind::Image;
+                    if (std::any_of(box.radii.begin(), box.radii.end(), [](float r) {
+                            return r > 0;
+                        })) {
+                        const auto corners =
+                            axis_aligned(m)
+                                ? add_rounded(chain, m, point(m, 0, 0), point(m, item.width, item.height), box.radii,
+                                              box.radii)
+                                : add_local(chain, m, {0, 0, item.width, item.height}, box.radii, box.radii);
+                        shape.clips_begin = corners.begin;
+                        shape.clips_count = corners.count;
+                    }
+                    if (axis_aligned(m) && m[0] > 0 && m[3] > 0) {
+                        const auto snap = [&](float px) {
+                            return std::round(px * scale) / scale;
+                        };
+                        const float left = snap(m[4]);
+                        const float top = snap(m[5]);
+                        shape.transform = {m[0], 0, 0, m[3], left, top};
+                        shape.width = (snap(m[4] + m[0] * item.width) - left) / m[0];
+                        shape.height = (snap(m[5] + m[3] * item.height) - top) / m[3];
+                    }
+                    shape.payload = std::uint32_t(list.images.size());
+                    list.images.push_back(image);
+                    list.items.push_back(shape);
+                    add_dashes();
+                    if (bordered) {
+                        auto over = box;
+                        over.background = {};
+                        over.gradient = {};
                         add_box(over);
                     }
                 }

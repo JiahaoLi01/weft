@@ -707,6 +707,51 @@ namespace {
         require(planned->records[1].uv == std::array<float, 4>{0, .75f, 1, -.5f}, "bottom-up rows flip the uv");
     }
 
+    // A named texture (a scene page's host texture) is one of the list's names, with no asset and no stroke.
+    void named_textures() {
+        paint::DisplayList list;
+        list.assets.push_back(std::make_shared<const paint::Asset>(paint::Asset{1, 1, paint::Encoding::Coverage, {9}}));
+        list.images.resize(2);
+        list.images[1].texture = 1;
+        list.items = {item(Kind::Image, 0), item(Kind::Image, 1)};
+        require(rejected(list, 1, "named texture out of range, with an asset or a stroke"), "a name beyond the list's");
+        list.textures = {"minimap"};
+        require(bool(paint::check(list, 1)), "a name of the list");
+        list.images[1].asset = 1;
+        require(rejected(list, 1, "named texture out of range, with an asset or a stroke"), "a named texture's asset");
+        list.images[1].asset = 0;
+        list.images[1].stroke = 1;
+        require(rejected(list, 1, "named texture out of range, with an asset or a stroke"), "a named texture's stroke");
+        list.images[1].stroke = 0;
+        // Appended: names follow the destination's, assets and external textures renumber around them.
+        paint::DisplayList into;
+        into.textures = {"portrait"};
+        into.external_textures = 1;
+        into.images.resize(2);
+        into.images[0].texture = 1;
+        into.images[1].asset = 0;
+        into.items = {item(Kind::Image, 0), item(Kind::Image, 1)};
+        require(bool(paint::check(into, 1)), "a list of a named and an external texture");
+        require(bool(paint::append(into, list)), "append");
+        require(bool(paint::check(into, 1)) && into.textures == std::vector<std::string>{"portrait", "minimap"},
+                "the names, the destination's first");
+        require(into.images[0].texture == 1 && !into.images[0].asset && into.images[1].asset == 1 &&
+                    !into.images[1].texture && into.images[2].asset == 0 && !into.images[2].texture &&
+                    into.images[3].texture == 2 && !into.images[3].asset,
+                "named textures renumber by name, the others by asset");
+        // A scene pass draws them; a linear pass (a display list frame's) binds no names.
+        for (auto& i : list.items) {
+            i.width = i.height = 10;
+            i.clip = {0, 0, 10, 10};
+        }
+        const auto encoded = weft::render::plan_scene_pass(list, 1, 10, 10, std::nullopt, weft::render::Space::Encoded);
+        require(encoded && encoded->records[1].mode[0] == weft::render::scene_limits::image_mode_texture &&
+                    encoded->records[0].mode[0] == weft::render::scene_limits::image_mode_coverage,
+                "a named texture in a scene pass");
+        require(!weft::render::plan_scene_pass(list, 1, 10, 10, std::nullopt, weft::render::Space::Linear),
+                "named textures in a linear pass");
+    }
+
     // An appended list follows under its transform: payloads, assets, rounded clips and external textures renumber,
     // and the destination's external textures move past the new assets.
     void append() {
@@ -1312,15 +1357,17 @@ int main() {
         batching();
         quads();
         external_textures();
+        named_textures();
         append();
         shadows();
         planes();
         effects();
         particles();
         backdrops();
-        std::cout << "PASS paint contracts: display list payloads, rasters, shadows, group nesting and kinds; scene "
-                     "pass plans; quad lists; external textures; appended lists; shadow images; planes; effects; "
-                     "particles; backdrops\n";
+        std::cout
+            << "PASS paint contracts: display list payloads, rasters, shadows, group nesting and kinds; scene "
+               "pass plans; quad lists; external and named textures; appended lists; shadow images; planes; effects; "
+               "particles; backdrops\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

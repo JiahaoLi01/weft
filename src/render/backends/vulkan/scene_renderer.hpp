@@ -13,6 +13,7 @@
 #include <memory>
 #include <optional>
 #include <unordered_map>
+#include <span>
 #include <vector>
 
 // Native Vulkan pass of a scene: the passes a ScenePreparer prepares (scene/scene_native.hpp), drawn by the shared
@@ -100,11 +101,13 @@ namespace weft::render::vulkan {
         // nothing, while the frame samples what another recording uploads or draws and that is not submitted yet.
         // start: whether the pass replaces what the target holds or draws over it (SceneTargetStart); over it, the
         // target is in VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL when the commands execute, the host's writes made
-        // available to color attachment access.
+        // available to color attachment access. textures: the host textures of the page's -weft-texture(name)
+        // backgrounds, their views VkImageView handles in VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL when the commands
+        // execute, the host's writes made visible to fragment shader reads; an unbound name draws nothing.
         bool encode(Slot& slot, const SceneFrame& frame, VkCommandBuffer command, const Target& target, float scale,
                     std::optional<std::array<float, 4>> crop, unsigned view_index,
                     const std::vector<NodeIdentity>& layers, const SceneAnchorTable* anchors = nullptr,
-                    const SceneTargetStart& start = {});
+                    const SceneTargetStart& start = {}, std::span<const SceneTexture> textures = {});
         // The slot's recorded commands were submitted: what they upload or draw is no longer pending.
         void submitted(Slot& slot);
         // The slot's recorded commands will never be submitted: what they would upload or draw leaves the cache, and the
@@ -217,6 +220,8 @@ namespace weft::render::vulkan {
             std::shared_ptr<const ScenePrepared> prepared;
             std::uint64_t serial{};
             SceneAnchorFrame frame;
+            // Which of its host textures had rows from the bottom: its records sample those flipped.
+            std::vector<bool> flips;
         };
 
         std::unordered_map<unsigned, Kept> kept_;
@@ -233,9 +238,10 @@ namespace weft::render::vulkan {
         // it): its planes' and new layers' contents first, each into an image of its own. anchors are the frame's
         // (none for a pass whose anchors are not deferred); serial names a kept pass, whose records the slot keeps.
         // clear, for a pass drawn over its target: the color the target is cleared to first (none: kept).
+        // host_textures: the host textures bound to the names of the pass and its planes.
         void record(const ScenePrepared& prepared, VkFramebuffer framebuffer, VkImage image, float scale,
                     const SceneAnchorFrame* anchors = nullptr, std::uint64_t serial = 0,
-                    const paint::Color* clear = nullptr);
+                    const paint::Color* clear = nullptr, std::span<const SceneTexture> host_textures = {});
         // An atlas page's image, created empty and shader-readable the first time.
         const Image& page(const SceneAtlasPage& page);
         // The image of a layer, its content recorded the first time.

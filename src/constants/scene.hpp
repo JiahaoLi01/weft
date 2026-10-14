@@ -11,6 +11,8 @@ namespace weft::constants::scene {
     // Parsing and profile bounds.
     // Largest magnitude accepted for any parsed scene number.
     inline constexpr double max_numeric_magnitude = 1e7;
+    // The longest name of a host texture (background-image: -weft-texture(name)), in bytes.
+    inline constexpr int max_texture_name_bytes = 64;
     // Most functions in one typed transform list.
     inline constexpr int max_paint_transform_operations = 32;
     // Significant digits when sampled animation values are printed back into style strings.

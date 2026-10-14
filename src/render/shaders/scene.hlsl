@@ -31,6 +31,9 @@ static const float ImageModeProjective = 3;
 // Paint::mode.x of a backdrop: its blurred copy of the target, bound as image over the device px Paint::uv covers
 // (origin and extent); Paint::extra.w enables its color matrix in Paint::stops[0..4].
 static const float ImageModeBackdrop = 4;
+// Paint::mode.x of a host texture (a scene page's -weft-texture(name)): linear premultiplied colors, which a scene pass
+// draws in its encoding.
+static const float ImageModeTexture = 5;
 // FreeType encodes contour zero at byte 128, not normalized 0.5.
 static const float SdfByteMax = 255.0;
 static const float SdfZeroByte = 128.0;
@@ -263,8 +266,9 @@ bool wedge(float2 position, float2 a, float2 b, float2 c, float2 d) {
     return all(q >= -WedgeEdgeEpsilon) || all(q <= WedgeEdgeEpsilon);
 }
 
-#if WEFT_EFFECT || WEFT_PARTICLES
-// The sRGB transfer, for effects that work with CSS colors: an encoded channel to linear light, and back. Scalar
+#if WEFT_EFFECT || WEFT_PARTICLES || !SPACE_LINEAR
+// The sRGB transfer, for effects that work with CSS colors and a scene pass's host textures: an encoded channel to
+// linear light, and back. Scalar
 // conditions: HLSL 2021 (DXC) takes no vector condition in ?:, and FXC has no select().
 float effectLinear(float c) {
     return c <= .04045 ? c / 12.92 : pow((c + .055) / 1.055, 2.4);
@@ -665,6 +669,15 @@ float4 ps_main(Vertex v) : SV_Target {
         if (p.mode.x == ImageModeCoverage) {
             return premult(p.background) * sample.r * p.extra.y * coverage;
         }
+#if !SPACE_LINEAR
+        if (p.mode.x == ImageModeTexture) {
+            // The filtered texel's straight linear color, encoded and premultiplied again: a host texture composites
+            // as an image of the page does.
+            float a = saturate(sample.a);
+            float4 c = a > 0 ? float4(effectEncoded(saturate(sample.rgb / sample.a)) * a, a) : float4(0, 0, 0, 0);
+            return c * p.extra.y * coverage;
+        }
+#endif
         // A tinted mask (scene text, paths) premultiplies its color as a box does: quantized, as the reference
         // producer's brush. Its coverage is in r: an image of a byte per texel, or white content, whose premultiplied
         // channels all equal its alpha.

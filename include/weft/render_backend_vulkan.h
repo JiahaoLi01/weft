@@ -93,6 +93,13 @@ typedef struct weft_render_vulkan_desc {
 /* The backend and its table for weft_renderer_create; the table borrows the backend. */
 weft_render_result weft_render_vulkan_create(const weft_render_vulkan_desc* desc, weft_render_vulkan** out_backend,
                                              weft_render_backend* out_table) WEFT_RENDER_VULKAN_NOEXCEPT;
+/* The backend's external texture extension (render_external_texture.h) for weft_renderer_install_external_backend,
+ * before the renderer's first frame: host textures a View's page shows by name (weft_render_scene_frame::textures),
+ * each a weft_render_vulkan_texture of the backend's device (32 at once, 256 MiB), one import per view at a time, frozen
+ * or live; linear RGBA8 and RGBA16F, and RGBA32F where the device filters it linearly. The table borrows the backend; its
+ * external quad frames are WEFT_RENDER_UNSUPPORTED_FEATURE. */
+weft_render_result weft_render_vulkan_external(weft_render_vulkan* backend,
+                                               weft_render_external_backend* out_table) WEFT_RENDER_VULKAN_NOEXCEPT;
 /* After weft_renderer_destroy succeeded. */
 void weft_render_vulkan_destroy(weft_render_vulkan* backend) WEFT_RENDER_VULKAN_NOEXCEPT;
 

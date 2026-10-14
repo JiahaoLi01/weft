@@ -1,6 +1,7 @@
 // A game HUD an engine drives through weft.engine (docs/engine-communication.md): nameplates that follow the anchors
 // the engine writes (data-anchor), their health from the view model "health" (unit id to a fraction), damage numbers
-// from hud.damage events, and an end-turn button that calls the engine. Written without a framework, as plain DOM.
+// from hud.damage events, a minimap the engine draws every frame (a texture it binds to the name minimap), and an
+// end-turn button that calls the engine. Written without a framework, as plain DOM.
 // The engine host sample and the View tests run it.
 (() => {
   const engine = weft.engine;
@@ -54,6 +55,7 @@
       if (u) show(u, hp);
     }
   });
+  add(root, 'div', 'hud-minimap');
   const panel = add(root, 'div', 'hud-panel');
   let title = 'HUD';
   try { title = engine.invoke('loc.get', {key: 'hud.title'}); } catch (_) {}

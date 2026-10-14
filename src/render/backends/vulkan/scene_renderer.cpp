@@ -575,7 +575,8 @@ namespace weft::render::vulkan {
     }
 
     void SceneRenderer::record(const ScenePrepared& prepared, VkFramebuffer out, VkImage image, float scale,
-                               const SceneAnchorFrame* anchors, std::uint64_t serial, const paint::Color* clear) {
+                               const SceneAnchorFrame* anchors, std::uint64_t serial, const paint::Color* clear,
+                               std::span<const SceneTexture> host_textures) {
         const auto& d = gpu;
         const auto& pass = prepared.pass;
         const auto command = command_buffer_;
@@ -585,7 +586,7 @@ namespace weft::render::vulkan {
         for (std::size_t i = 0; i < prepared.images.size(); ++i) {
             if (prepared.planes[i]) {
                 const auto plane = target(prepared.planes[i]->width, prepared.planes[i]->height);
-                record(*prepared.planes[i], plane.framebuffer, plane.image, scale);
+                record(*prepared.planes[i], plane.framebuffer, plane.image, scale, nullptr, 0, nullptr, host_textures);
                 transition(d, command, plane.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                            VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -600,6 +601,31 @@ namespace weft::render::vulkan {
                     drawn->atlas ? page({drawn->format, drawn->atlas->page}).view : textures_.at(drawn->id).image.view;
                 slot_->leases.push_back(drawn);
             }
+        }
+        // The host texture bound to each texture item's name; none, and nothing drawn, for an unbound one.
+        const auto host = scene_texture_bindings(prepared, host_textures);
+        for (std::size_t i = 0; i < prepared.textures.size(); ++i) {
+            if (const auto t = prepared.textures[i]) {
+                if (const auto* texture = host[t - 1]) {
+                    views[i] = native_handle<VkImageView>(texture->view);
+                    ++texture_draws;
+                } else {
+                    ++unbound_textures;
+                }
+            }
+        }
+        // The records of host textures whose rows start at the bottom sample them flipped.
+        const SceneRecord* record_data = pass.records.data();
+        std::vector<SceneRecord> flipped;
+        if (const auto flips = scene_texture_flips(prepared, host_textures);
+            std::find(flips.begin(), flips.end(), true) != flips.end()) {
+            flipped = pass.records;
+            for (std::size_t i = 0; i < flipped.size(); ++i) {
+                if (prepared.textures[i] && flips[prepared.textures[i] - 1]) {
+                    flip_rows(flipped[i]);
+                }
+            }
+            record_data = flipped.data();
         }
         // The pass's records, clips and View constants, and a group image of its size for each depth. A kept pass's
         // records and clips stay in the slot's own buffers while the slot draws that pass.
@@ -619,7 +645,7 @@ namespace weft::render::vulkan {
                 std::memcpy(kept.mapped, data, bytes);
             };
             if (slot_->kept != serial) {
-                put(slot_->kept_records, pass.records.data(), pass.records.size() * sizeof(SceneRecord));
+                put(slot_->kept_records, record_data, pass.records.size() * sizeof(SceneRecord));
                 put(slot_->kept_clips, pass.clips.data(), pass.clips.size() * sizeof(SceneClip));
                 slot_->kept = serial;
             }
@@ -630,7 +656,7 @@ namespace weft::render::vulkan {
         } else {
             auto& record_buffer = buffer(std::max<std::size_t>(pass.records.size(), 1) * sizeof(SceneRecord));
             records = record_buffer.buffer;
-            std::memcpy(record_buffer.mapped, pass.records.data(), pass.records.size() * sizeof(SceneRecord));
+            std::memcpy(record_buffer.mapped, record_data, pass.records.size() * sizeof(SceneRecord));
             if (!pass.clips.empty()) {
                 auto& clip_buffer = buffer(pass.clips.size() * sizeof(SceneClip));
                 clips = clip_buffer.buffer;
@@ -1066,7 +1092,7 @@ namespace weft::render::vulkan {
     bool SceneRenderer::encode(Slot& slot, const SceneFrame& frame, VkCommandBuffer command, const Target& target,
                                float scale, std::optional<std::array<float, 4>> crop, unsigned view_index,
                                const std::vector<NodeIdentity>& layers, const SceneAnchorTable* anchors,
-                               const SceneTargetStart& start) {
+                               const SceneTargetStart& start, std::span<const SceneTexture> textures) {
         const auto& d = gpu;
         if (slot.state == Slot::State::Submitted) {
             retire(slot);
@@ -1092,7 +1118,7 @@ namespace weft::render::vulkan {
         std::shared_ptr<const ScenePrepared> prepared;
         if (keep && kept.prepared && kept.revision == frame.revision && kept.scale == scale &&
             kept.width == target.width && kept.height == target.height && kept.layers == layers &&
-            kept.prepared->over == start.over) {
+            kept.prepared->over == start.over && scene_texture_flips(*kept.prepared, textures) == kept.flips) {
             if (preparer_.place(*kept.prepared, view_index, anchors, kept.frame)) {
                 prepared = kept.prepared;
                 ++kept_passes;
@@ -1108,7 +1134,9 @@ namespace weft::render::vulkan {
                 return false;
             }
             if (prepared->keepable) {
-                kept = {frame.revision, scale, target.width, target.height, layers, prepared, ++serial_, {}};
+                kept = {frame.revision, scale,  target.width,
+                        target.height,  layers, prepared,
+                        ++serial_,      {},     scene_texture_flips(*prepared, textures)};
                 ensure(preparer_.place(*prepared, view_index, anchors, kept.frame), "a pass placed as it was planned");
             }
         }
@@ -1144,7 +1172,7 @@ namespace weft::render::vulkan {
             upload(*prepared);
             slot.framebuffer = framebuffer(target.view, target.width, target.height);
             record(*prepared, slot.framebuffer, target.image, scale, placed, serial,
-                   start.clear ? &*start.clear : nullptr);
+                   start.clear ? &*start.clear : nullptr, textures);
         } catch (...) {
             // The host discards the commands: what they would upload or draw leaves the cache.
             for (const auto id : slot.created) {

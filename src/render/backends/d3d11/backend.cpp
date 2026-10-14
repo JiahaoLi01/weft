@@ -56,9 +56,10 @@ namespace weft::render::d3d11 {
         render_result(weft_renderer_install_external_backend(renderer, &table), "install external texture extension");
     }
 
-    weft_render_result Backend::import_texture(const weft_render_external_texture& description, std::uint64_t& out) {
+    weft_render_result check_external_texture(const weft_render_external_texture& description, ID3D11Device* device,
+                                              ComPtr<ID3D11ShaderResourceView>& view,
+                                              ComPtr<ID3D11Resource>& resource) {
         const auto* d = &description;
-        out = 0;
         if (d->native_texture_size < sizeof(weft_render_d3d11_texture)) {
             return WEFT_RENDER_INVALID_ARGUMENT;
         }
@@ -68,21 +69,20 @@ namespace weft::render::d3d11 {
             return WEFT_RENDER_INVALID_ARGUMENT;
         }
         auto* srv = static_cast<ID3D11ShaderResourceView*>(p.shader_resource_view);
-        ComPtr<ID3D11Device> device;
-        srv->GetDevice(&device);
-        if (device.Get() != gpu.device.Get()) {
+        ComPtr<ID3D11Device> owner;
+        srv->GetDevice(&owner);
+        if (owner.Get() != device) {
             return WEFT_RENDER_WRONG_BACKEND;
         }
-        D3D11_SHADER_RESOURCE_VIEW_DESC view{};
-        srv->GetDesc(&view);
+        D3D11_SHADER_RESOURCE_VIEW_DESC desc{};
+        srv->GetDesc(&desc);
         const auto format = d->format == WEFT_RENDER_TARGET_LINEAR_RGBA8     ? DXGI_FORMAT_R8G8B8A8_UNORM
                             : d->format == WEFT_RENDER_TARGET_LINEAR_RGBA16F ? DXGI_FORMAT_R16G16B16A16_FLOAT
                                                                              : DXGI_FORMAT_R32G32B32A32_FLOAT;
-        if (view.ViewDimension != D3D11_SRV_DIMENSION_TEXTURE2D || view.Format != format ||
-            view.Texture2D.MostDetailedMip || view.Texture2D.MipLevels != 1) {
+        if (desc.ViewDimension != D3D11_SRV_DIMENSION_TEXTURE2D || desc.Format != format ||
+            desc.Texture2D.MostDetailedMip || desc.Texture2D.MipLevels != 1) {
             return WEFT_RENDER_UNSUPPORTED_FEATURE;
         }
-        ComPtr<ID3D11Resource> resource;
         srv->GetResource(&resource);
         ComPtr<ID3D11Texture2D> texture;
         if (FAILED(resource.As(&texture))) {
@@ -96,6 +96,17 @@ namespace weft::render::d3d11 {
         if (actual.ArraySize != 1 || actual.MipLevels != 1 || actual.SampleDesc.Count != 1 || actual.MiscFlags ||
             actual.CPUAccessFlags || (actual.Usage != D3D11_USAGE_DEFAULT && actual.Usage != D3D11_USAGE_IMMUTABLE)) {
             return WEFT_RENDER_UNSUPPORTED_FEATURE;
+        }
+        view = srv;
+        return WEFT_RENDER_OK;
+    }
+
+    weft_render_result Backend::import_texture(const weft_render_external_texture& description, std::uint64_t& out) {
+        out = 0;
+        ComPtr<ID3D11ShaderResourceView> srv;
+        ComPtr<ID3D11Resource> resource;
+        if (const auto v = check_external_texture(description, gpu.device.Get(), srv, resource); v != WEFT_RENDER_OK) {
+            return v;
         }
         for (const auto& t : imports) {
             if (t.resource.Get() == resource.Get()) {

@@ -2199,6 +2199,16 @@ CMake 拆分：
 - 模拟引擎的宿主样例（`samples/engine-host`，`WEFT_BUILD_SAMPLES`，Windows）：只用公开头文件。1280 × 720，12 个单位绕圈移动、每帧写锚点；血量走视图模型，伤害走事件；同步函数 `loc.get`；第 30 帧做命中查询并点击“结束回合”，回答页面的调用；View 的帧画在每帧变色的游戏画面之上，D3D11（WARP 或硬件，立即上下文，event query 等完成）或 Vulkan（自己的实例与设备，命令缓冲与 fence）；最后一帧写成 BMP。
 - 与计划不同：D3D11 不录进宿主的延迟上下文，而是在 encode 时画在设备的立即上下文上。scene 渲染器的 pass 一边画一边上传图像（`UpdateSubresource`）、先画平面与图层的内容、拷贝目标做背景模糊，这些都依赖立即上下文的执行顺序，改成延迟上下文要重写它的资源管理；延迟上下文在多数驱动上是模拟的，引擎的 D3D11 后端（如 UE 的 D3D11 RHI）也在立即上下文上画。宿主在它的帧里该画 UI 的位置调用 encode，效果与在那里执行一份命令列表相同。立即上下文按序执行、资源由 COM 引用保活，所以后端不按完成序号钉住任何东西，宿主仍照协议报告提交与完成。D3D11 的显示列表后端仍录进宿主的延迟上下文。
 
+**13.3c：页面显示引擎的纹理**（2026-10-15）：
+- CSS：`background-image: -weft-texture(name)`（也可写在 `background` 简写里），名字是字母、数字、`-` 与 `_`，至多 64 字节，别的写法是 scene 的诊断。纹理像 CSS 画背景图那样画：在背景色之上、边框之下，拉伸铺满边框盒，圆角里（显示列表的圆角裁剪），像 Chrome 画图像那样对齐到设备像素（旋转、斜切或镜像的盒子不对齐）。显示纹理的元素不进缓存的图层图像（宿主的纹理变了，页面不变）。
+- 显示列表：图片条目的 `Image::texture` 指向列表的 `DisplayList::textures`（名字），与资产、外部纹理的编号分开；`paint::check` 与 `append` 照此校验与重新编号。显示列表帧（`weft_renderer_prepare_list`）不接受带名字的列表，线性 pass 也不画。
+- scene pass：带名字的图片条目是 `ImageModeTexture`：着色器采样后把线性预乘的颜色转成编码值（与效果的 sRGB 转换同一个函数），再按页面的方式合成。`ScenePrepared::textures`、`texture_names` 记下每个条目的名字；名字在画的时候才对上宿主的纹理（`SceneTexture`），没绑定的名字什么也不画。行从底部开始的纹理在上传记录时翻转 uv，保留的 pass 只给同样翻转方式的帧复用；平面里画纹理的 pass 不保留（平面的内容图像只画一次）。
+- 渲染器 C ABI：`weft_render_scene_frame` 的 `reserved` 改为 `texture_count`，末尾加 `textures`（`weft_render_scene_texture`：名字与外部纹理的调用方租约）；第一版结构（在 `textures` 之前结束）仍被接受。核心校验名字（同上，每个名字一次），钉住租约直到帧的使用完成，后端表的 `prepare_scene` 回调多了解析好的纹理（与 `prepare_list` 相同）。
+- 外部纹理扩展加一种同步方式 `WEFT_RENDER_EXTERNAL_SAME_QUEUE_LIVE`：引擎每帧在同一队列上重写同一张纹理（UE 的 render target），在采样它的帧的 UI 之前写、之后的帧之前排在这些帧的读之后；原来的冻结方式要求轮换多张纹理、每次新版本。
+- 内置 View 后端实现扩展（`weft_render_d3d11_external`、`weft_render_vulkan_external`）：导入校验与参考适配器共用（`check_external_texture`），一份资源（视图）同时只导入一次；32 张、256 MiB；线性 RGBA8、RGBA16F，设备能过滤时 RGBA32F。D3D11 拒绝画进帧绑定的纹理（`INVALID_STATE`）。
+- 样例：引擎每帧在 GPU 上更新一张小地图纹理（单位的点随血量变色），作为 live 纹理导入一次，HUD 用 `-weft-texture(minimap)` 显示。
+- 与计划不同：计划只说“交给租约”。引擎的 render target 通常是同一张每帧重画，冻结租约要求它轮换多张，所以加了 live 方式；名字放进显示列表而不是渲染线程另记一张表，平面里的列表也能带名字。
+
 ## 顺序调整（2026-10-10）
 
 用户决定先完成第 7–9 步，第 10 步（第二个图形后端与移动平台）暂缓。跨平台仍是硬性需求：

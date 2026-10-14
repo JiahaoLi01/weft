@@ -409,6 +409,12 @@ const player = weft.engine.model('player');      // {value, subscribe}
 - 每个 View 一个保留的 pass：内容不变、只动锚点的帧只重新摆放锚定的元素（13.1b 的 GPU 路径）；View 销毁后，下一次准备时丢弃它的 pass。
 - 样例 `samples/engine-host`：只用公开头文件的模拟引擎，HUD 页面、锚点、视图模型、事件、命中与点击、调用与同步函数，在 D3D11 与 Vulkan 上画在游戏画面之上。
 
+引擎的纹理（13.3c）：页面写 `background-image: -weft-texture(name)`，宿主每帧在 `weft_render_scene_frame::textures` 里把名字绑到它导入的纹理（外部纹理扩展的租约），不经 CPU。
+- 宿主先用后端的扩展（`weft_render_d3d11_external`、`weft_render_vulkan_external`）装到渲染器上，再导入纹理：D3D11 的着色器资源视图、Vulkan 的图像视图，线性预乘的 RGBA8、RGBA16F 或 RGBA32F；页面按浏览器合成图片的方式画它（转成 sRGB 编码值）。
+- 每帧重画的 render target 以 `WEFT_RENDER_EXTERNAL_SAME_QUEUE_LIVE` 导入一次：引擎在同一队列上、UI 之前写它，Vulkan 上自己加屏障，之后每帧都绑同一个租约；冻结方式（默认）的纹理在退休前不能改。
+- 纹理拉伸铺满元素的边框盒，在背景色之上、边框之下，圆角裁剪；没绑定的名字什么也不画。
+- UE 插件（M5）里，UE 的 render target 就是同一设备上的 RHI 纹理，由 RHI 后端直接绑定，同样零拷贝。
+
 ## 9. JS API 草案
 
 ```ts

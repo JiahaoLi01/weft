@@ -14,7 +14,12 @@ extern "C" {
 #define WEFT_RENDER_EXTERNAL_LINEAR_PREMULTIPLIED 0u
 #define WEFT_RENDER_EXTERNAL_TOP_LEFT 0u
 #define WEFT_RENDER_EXTERNAL_BOTTOM_LEFT 1u
+/* Frozen from import until retirement: a dynamic producer rotates textures, a new version for each. */
 #define WEFT_RENDER_EXTERNAL_SAME_QUEUE_ORDERED 0u
+/* Live: the producer writes the texture again between the frames that sample it (a render target the engine draws
+ * every frame), on the same device and queue, each write queued after the submissions of the frames before it that
+ * sample it (a barrier from their fragment shader reads on Vulkan) and before those of the frames after it. */
+#define WEFT_RENDER_EXTERNAL_SAME_QUEUE_LIVE 1u
 #define WEFT_RENDER_EXTERNAL_RETIRED 0u
 #define WEFT_RENDER_EXTERNAL_ABANDONED 1u
 typedef void (*weft_render_texture_retired)(void* user_data, uint32_t reason) WEFT_EXTERNAL_NOEXCEPT;

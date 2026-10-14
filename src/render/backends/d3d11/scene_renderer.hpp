@@ -12,6 +12,7 @@
 #include <memory>
 #include <optional>
 #include <unordered_map>
+#include <span>
 #include <vector>
 
 // Native D3D11 pass of a scene: the passes a ScenePreparer prepares (scene/scene_native.hpp), drawn by scene.hlsl as
@@ -89,11 +90,14 @@ namespace weft::render::d3d11 {
         // Draws frame into destination (target_width x target_height device pixels, scale per CSS px) on the
         // immediate context, clipped to crop when given. layers are the nodes drawn as cached layer images; anchors
         // place the anchored elements (ScenePreparer::prepare), deferred to the pass when the frame has a revision.
-        // start: whether the pass replaces what destination holds or draws over it (SceneTargetStart).
+        // start: whether the pass replaces what destination holds or draws over it (SceneTargetStart). textures: the
+        // host textures of the page's -weft-texture(name) backgrounds, their views ID3D11ShaderResourceView pointers;
+        // an unbound name draws nothing.
         bool paint(Slot& slot, const SceneFrame& frame, ID3D11RenderTargetView* destination, float scale,
                    unsigned target_width, unsigned target_height, std::optional<std::array<float, 4>> crop,
                    unsigned view_index, const std::vector<NodeIdentity>& layers,
-                   const SceneAnchorTable* anchors = nullptr, const SceneTargetStart& start = {});
+                   const SceneAnchorTable* anchors = nullptr, const SceneTargetStart& start = {},
+                   std::span<const SceneTexture> textures = {});
 
         // Drops what the renderer and its preparer keep for a view: its kept pass and its anchored elements' last
         // anchors. The view's slots are the caller's to retire.
@@ -177,6 +181,8 @@ namespace weft::render::d3d11 {
             std::shared_ptr<const ScenePrepared> prepared;
             std::uint64_t serial{};
             SceneAnchorFrame frame;
+            // Which of its host textures had rows from the bottom: its records sample those flipped.
+            std::vector<bool> flips;
         };
 
         std::unordered_map<unsigned, Kept> kept_;
@@ -202,9 +208,10 @@ namespace weft::render::d3d11 {
         // are the frame's (none for a pass whose anchors are not deferred); serial names a kept pass, whose records the
         // slot may hold already (0 for one drawn once).
         // clear, for a pass drawn over its target: the color the target is cleared to first (none: kept).
+        // host_textures: the host textures bound to the names of the pass and its planes.
         void draw_pass(Slot& slot, const ScenePrepared& prepared, ID3D11RenderTargetView* destination, float scale,
                        const SceneAnchorFrame* anchors = nullptr, std::uint64_t serial = 0,
-                       const paint::Color* clear = nullptr);
+                       const paint::Color* clear = nullptr, std::span<const SceneTexture> host_textures = {});
         // A structured buffer of count elements of stride bytes and its view, grown to at least count (by doubling).
         void structured(ComPtr<ID3D11Buffer>& buffer, ComPtr<ID3D11ShaderResourceView>& view, unsigned& capacity,
                         std::size_t count, unsigned stride, const char* what);

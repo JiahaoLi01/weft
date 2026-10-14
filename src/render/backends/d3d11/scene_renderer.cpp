@@ -369,7 +369,7 @@ namespace weft::render::d3d11 {
 
     void SceneRenderer::draw_pass(Slot& slot, const ScenePrepared& prepared, ID3D11RenderTargetView* destination,
                                   float scale, const SceneAnchorFrame* anchors, std::uint64_t serial,
-                                  const paint::Color* clear) {
+                                  const paint::Color* clear, std::span<const SceneTexture> host_textures) {
         // A kept pass the slot drew before: its records, rounded clips, plane contents and leases are the slot's.
         const bool again = serial && slot.kept == serial;
         // Plane contents first, each into its slot's image; then layers not drawn before, and the textures of the
@@ -386,7 +386,8 @@ namespace weft::render::d3d11 {
                     nested.target = group_target(device_.Get(), nested.width, nested.height);
                 }
                 if (!again) {
-                    draw_pass(nested, *prepared.planes[i], nested.target.rtv.Get(), scale);
+                    draw_pass(nested, *prepared.planes[i], nested.target.rtv.Get(), scale, nullptr, 0, nullptr,
+                              host_textures);
                     ++plane_passes;
                 }
                 views[i] = nested.target.srv.Get();
@@ -402,6 +403,18 @@ namespace weft::render::d3d11 {
             } else if (prepared.images[i]) {
                 views[i] = texture(prepared.images[i]);
                 slot.leases.push_back(prepared.images[i]);
+            }
+        }
+        // The host texture bound to each texture item's name; none, and nothing drawn, for an unbound one.
+        const auto host = scene_texture_bindings(prepared, host_textures);
+        for (std::size_t i = 0; i < prepared.textures.size(); ++i) {
+            if (const auto t = prepared.textures[i]) {
+                if (const auto* texture = host[t - 1]) {
+                    views[i] = reinterpret_cast<ID3D11ShaderResourceView*>(static_cast<std::uintptr_t>(texture->view));
+                    ++texture_draws;
+                } else {
+                    ++unbound_textures;
+                }
             }
         }
         // Each effect's textures, at t3 on.
@@ -481,8 +494,21 @@ namespace weft::render::d3d11 {
         auto* ctx = immediate_.Get();
         ctx->ClearState();
         if (!records.empty() && !again) {
+            // The records of host textures whose rows start at the bottom sample them flipped.
+            const auto* data = records.data();
+            std::vector<Record> flipped;
+            if (const auto flips = scene_texture_flips(prepared, host_textures);
+                std::find(flips.begin(), flips.end(), true) != flips.end()) {
+                flipped = records;
+                for (std::size_t i = 0; i < flipped.size(); ++i) {
+                    if (prepared.textures[i] && flips[prepared.textures[i] - 1]) {
+                        flip_rows(flipped[i]);
+                    }
+                }
+                data = flipped.data();
+            }
             D3D11_BOX box{0, 0, 0, UINT(records.size() * sizeof(Record)), 1, 1};
-            ctx->UpdateSubresource(slot.records.Get(), 0, &box, records.data(), 0, 0);
+            ctx->UpdateSubresource(slot.records.Get(), 0, &box, data, 0, 0);
         }
         if (!pass.clips.empty() && !again) {
             D3D11_BOX box{0, 0, 0, UINT(pass.clips.size() * sizeof(SceneClip)), 1, 1};
@@ -710,7 +736,8 @@ namespace weft::render::d3d11 {
     bool SceneRenderer::paint(Slot& slot, const SceneFrame& frame, ID3D11RenderTargetView* destination, float scale,
                               unsigned target_width, unsigned target_height, std::optional<std::array<float, 4>> crop,
                               unsigned view_index, const std::vector<NodeIdentity>& layers,
-                              const SceneAnchorTable* anchors, const SceneTargetStart& start) {
+                              const SceneAnchorTable* anchors, const SceneTargetStart& start,
+                              std::span<const SceneTexture> textures) {
         // Textures of images and layers that neither the preparer nor a slot holds any more, and backdrop targets
         // neither the last frame nor this one used (D3D11 keeps a released texture until the GPU is done with it).
         std::erase_if(textures_, [](const auto& texture) {
@@ -739,12 +766,12 @@ namespace weft::render::d3d11 {
         const auto* clear = start.clear ? &*start.clear : nullptr;
         if (keep && kept.prepared && kept.revision == frame.revision && kept.scale == scale &&
             kept.width == target_width && kept.height == target_height && kept.layers == layers &&
-            kept.prepared->over == start.over) {
+            kept.prepared->over == start.over && scene_texture_flips(*kept.prepared, textures) == kept.flips) {
             if (preparer_.place(*kept.prepared, view_index, anchors, kept.frame)) {
                 if (!fits(*kept.prepared)) {
                     return false;
                 }
-                draw_pass(slot, *kept.prepared, destination, scale, &kept.frame, kept.serial, clear);
+                draw_pass(slot, *kept.prepared, destination, scale, &kept.frame, kept.serial, clear, textures);
                 ++passes;
                 ++kept_passes;
                 return true;
@@ -758,13 +785,15 @@ namespace weft::render::d3d11 {
             return false;
         }
         if (!prepared->keepable) {
-            draw_pass(slot, *prepared, destination, scale, nullptr, 0, clear);
+            draw_pass(slot, *prepared, destination, scale, nullptr, 0, clear, textures);
             ++passes;
             return true;
         }
-        kept = {frame.revision, scale, target_width, target_height, layers, prepared, ++serial_, {}};
+        kept = {frame.revision, scale,  target_width,
+                target_height,  layers, prepared,
+                ++serial_,      {},     scene_texture_flips(*prepared, textures)};
         ensure(preparer_.place(*prepared, view_index, anchors, kept.frame), "a pass placed as it was planned");
-        draw_pass(slot, *prepared, destination, scale, &kept.frame, kept.serial, clear);
+        draw_pass(slot, *prepared, destination, scale, &kept.frame, kept.serial, clear, textures);
         ++passes;
         return true;
     }

@@ -73,7 +73,7 @@ flowchart LR
 | DestroyView | owner 停止脚本并取消请求；已提交 GPU 资源继续由 Runtime 退休管理 |
 | DestroyRuntime | 停止 producer 后清理；存在异步 lease、录制包、GPU 使用或外部纹理 lease 时返回 busy |
 
-与引擎的数据与调用（每帧位置用的锚点、带类型的事件与调用、视图模型）的设计见 [与引擎通信](engine-communication.md)（第 13 步）。已实现锚点（下文“锚点”）、桥接（下文“引擎桥接”）与对外 View（下文“对外 View”）及其 C 接口，包括渲染 View 的帧（13.3b）。
+与引擎的数据与调用（每帧位置用的锚点、带类型的事件与调用、视图模型）的设计见 [与引擎通信](engine-communication.md)（第 13 步）。已实现锚点（下文“锚点”）、桥接（下文“引擎桥接”）与对外 View（下文“对外 View”）及其 C 接口，包括渲染 View 的帧（13.3b）与页面显示引擎的纹理（13.3c）。
 
 字符串输入只在调用期间借用，异步使用必须复制。返回缓冲区通过本库的释放接口或约定 allocator 释放，避免跨 CRT 释放。宿主回调不能抛异常或同步重入 View；要执行 DOM 操作时排入下一安全点。
 
@@ -329,13 +329,14 @@ CSS 与普通 PNG 输入按 sRGB 来源解释，先 transfer decode 到线性，
 
 ## 对外 View
 
-2026-10-14 第 13.3a、13.3b 步。设计与接口见 [与引擎通信](engine-communication.md#8-对外-view133)。
+2026-10-14 第 13.3a、13.3b 步，2026-10-15 第 13.3c 步。设计与接口见 [与引擎通信](engine-communication.md#8-对外-view133)。
 - 组成：`weft::View`（`src/view`）在 owner 线程持有一个页面的 VM（ScriptDom）、场景求解器与几何；`ViewShared` 是其他线程能碰到的部分：锚点通道、引擎通道与最近发布的帧，都是线程安全的值与队列，View 销毁后由持有者继续持有。C ABI（`src/core/runtime.cpp`）的 Runtime 用代际槽位存 View，任意线程的入口经一个加锁的表按槽位与代际找到 `ViewShared`。
 - 帧：只在场景内容的版本号、View 的大小或缩放变了时复制一份场景树发布（`std::shared_ptr<const ViewFrame>`），之后不再改；渲染线程按帧里的字体目录建自己的 SceneText 重新排版文字，帧里只有值（文字、样式、盒子），没有 Node、JSValue 或 owner 的缓存。
 - 一致性：渲染与命中各自取最新的锚点表（13.1）；JS 读几何用推进开始时 owner 取到的表，命中与指针输入时再取一次。
 - 错误：页面的异常是诊断，不是 C 接口的错误；VM 资源耗尽使 View 进入 Faulted，直到重新加载；宿主回调里的重入返回 `WEFT_BUSY`。
 - 不变量：加载总是从新的文档开始（`reset_document`），关闭上一页面的调用、丢弃等待的输入与消息；引擎通道与同步函数属于 View，跨加载保留。
 - 渲染（13.3b）：渲染器的 owner 线程经 `weft_renderer_prepare_scene` 准备 View 的帧，内置的 D3D11、Vulkan 后端用宿主的设备把它画在宿主目标的内容之上（D3D11 在 encode 时画在立即上下文上，Vulkan 录进宿主的命令缓冲），锚点在录制时取最新值。后端按 View 的锚点通道保留每个 View 的 pass：通道只有 View 与它的帧持有，View 销毁、帧都释放后通道过期，下一次准备时丢弃那个 pass，不会把一个 View 的 pass 给另一个。见 [渲染后端 API](render-backend-api.md#view-帧2026-10-14)。
+- 引擎的纹理（13.3c）：页面只记名字（`-weft-texture(name)`，显示列表的 `DisplayList::textures`），帧也只带名字；宿主在渲染线程上为每次准备把名字绑到它导入的纹理（外部纹理扩展的租约），渲染器在画的时候才按名字取视图，所以 owner 与帧里没有任何 GPU 对象，宿主每帧可以换纹理或重写同一张（live）。租约由准备好的帧与它的使用钉住，按宿主报告的完成退休。
 
 ## 文本和字体
 
