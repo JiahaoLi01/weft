@@ -15,9 +15,11 @@
 // 13): N units, each a name over a health bar (examples/crpg-gallery/native/HUD_TESTS.js), follow points the host moves
 // every frame, and about one in twenty loses health each frame. Each frame the host writes every unit's position and
 // health as JSON and evaluates a script call with it; the page parses it and writes each nameplate's transform and
-// changed bar widths; the owner then takes the DOM's changes into the scene. The page is 1920 x 1080 CSS px drawn at
-// scale 2 into 3840 x 2160 with the particle benchmarks' loops (particle_benchmark.hpp). Timed per frame: the host's
-// JSON, the script call, the owner's update (styles, layout and the scene), and the pass (CPU, GPU).
+// changed bar widths; the owner then takes the DOM's changes into the scene. A second run hands the page no data at
+// all: it computes the same values itself, the floor of any way to hand JS the data (shared memory included). The page
+// is 1920 x 1080 CSS px drawn at scale 2 into 3840 x 2160 with the particle benchmarks' loops (particle_benchmark.hpp).
+// Timed per frame: the host's JSON, the script call, the owner's update (styles, layout and the scene), and the pass
+// (CPU, GPU).
 namespace probes {
     namespace {
         using namespace particle_benchmark;
@@ -45,12 +47,19 @@ namespace probes {
             return {cx + r * std::cos(a), cy + r * std::sin(a)};
         }
 
+        // How the page gets each frame's values: pushed as JSON, or computed by the page.
+        enum class Push {
+            Json,
+            Page
+        };
+
         Source source(GallerySceneSession& s, const std::vector<unsigned>& counts, std::vector<Owner>& owner,
-                      unsigned warmup) {
+                      unsigned warmup, Push push) {
             owner.assign(counts.size(), {});
             // Each unit's health, from 0 to 1.
             auto health = std::make_shared<std::vector<double>>();
-            return [&s, counts, &owner, warmup, health](std::size_t level, unsigned index) -> const weft::SceneFrame& {
+            return [&s, counts, &owner, warmup, health, push](std::size_t level,
+                                                              unsigned index) -> const weft::SceneFrame& {
                 const auto n = counts[level];
                 auto& hp = *health;
                 if (index == 0) {
@@ -60,6 +69,24 @@ namespace probes {
                 const double t = s.time / 1000;
                 std::string json;
                 const auto began = std::chrono::steady_clock::now();
+                if (push == Push::Page) {
+                    const auto call =
+                        "__ceHud.simulate(" + weft::testing::format_host_time(t) + "," + std::to_string(index) + ")";
+                    const auto written = std::chrono::steady_clock::now();
+                    s.vm.eval(call);
+                    const auto applied = std::chrono::steady_clock::now();
+                    s.step(s.time + frame_ms);
+                    const auto updated = std::chrono::steady_clock::now();
+                    require(s.vm.eval("__ceGallery.state().errors.length") == "0", "HUD page errors");
+                    if (index >= warmup) {
+                        auto& o = owner[level];
+                        using ms = std::chrono::duration<double, std::milli>;
+                        o.json.push_back(ms(written - began).count());
+                        o.script.push_back(ms(applied - written).count());
+                        o.update.push_back(ms(updated - applied).count());
+                    }
+                    return s.current;
+                }
                 json.reserve(std::size_t(n) * 24 + 2);
                 json += '[';
                 char entry[64];
@@ -91,11 +118,12 @@ namespace probes {
             };
         }
 
-        std::string report(const char* backend, const std::string& adapter, const std::vector<unsigned>& counts,
-                           const std::vector<Owner>& owner, const std::vector<Timings>& timings) {
+        std::string report(const char* backend, const char* push, const std::string& adapter,
+                           const std::vector<unsigned>& counts, const std::vector<Owner>& owner,
+                           const std::vector<Timings>& timings) {
             std::ostringstream out;
-            out << "{\"backend\":" << json_string(backend) << ",\"adapter\":" << json_string(adapter)
-                << ",\"counts\":[";
+            out << "{\"backend\":" << json_string(backend) << ",\"push\":" << json_string(push)
+                << ",\"adapter\":" << json_string(adapter) << ",\"counts\":[";
             for (std::size_t i = 0; i < counts.size(); ++i) {
                 const auto& o = owner[i];
                 const auto& t = timings[i];
@@ -104,8 +132,8 @@ namespace probes {
                     << ",\"owner_update_ms\":" << stats(o.update) << ",\"render_cpu_ms\":" << stats(t.cpu)
                     << ",\"gpu_ms\":" << stats(t.gpu) << ",\"per_frame\":{\"draws\":" << std::fixed
                     << std::setprecision(1) << t.draws << ",\"text_builds\":" << t.text_builds << "}}";
-                std::cout << backend << ' ' << std::setw(5) << counts[i] << " units: host JSON p50 " << std::fixed
-                          << std::setprecision(3) << percentile(o.json, .5) << " ms (" << o.json_bytes
+                std::cout << backend << ' ' << push << ' ' << std::setw(5) << counts[i] << " units: host JSON p50 "
+                          << std::fixed << std::setprecision(3) << percentile(o.json, .5) << " ms (" << o.json_bytes
                           << " bytes); script p50 " << percentile(o.script, .5) << " p99 " << percentile(o.script, .99)
                           << " ms; owner update p50 " << percentile(o.update, .5) << " p99 "
                           << percentile(o.update, .99) << " ms; render CPU p50 " << percentile(t.cpu, .5) << " p99 "
@@ -129,20 +157,25 @@ namespace probes {
         const std::vector<unsigned> counts = warp ? std::vector<unsigned>{100} : std::vector<unsigned>{100, 200, 400};
         const unsigned warmup = warp ? warp_warmup_frames : warmup_frames;
         const unsigned samples = warp ? warp_sample_frames : sample_frames;
-        auto direct_page = session();
-        std::vector<Owner> direct_owner;
+        auto json_page = session();
+        std::vector<Owner> json_owner;
         std::string adapter;
-        const auto direct = particle_benchmark::d3d11(warp, counts.size(), warmup, samples,
-                                                      source(*direct_page, counts, direct_owner, warmup), adapter);
+        const auto json = particle_benchmark::d3d11(
+            warp, counts.size(), warmup, samples, source(*json_page, counts, json_owner, warmup, Push::Json), adapter);
+        auto own_page = session();
+        std::vector<Owner> own_owner;
+        const auto own = particle_benchmark::d3d11(warp, counts.size(), warmup, samples,
+                                                   source(*own_page, counts, own_owner, warmup, Push::Page), adapter);
         std::string out = "{\"format\":\"weft-hud-benchmark-v1\",\"page\":[1920,1080],\"target\":[3840,2160],"
-                          "\"scale\":2,\"push\":\"json\",\"warmup_frames\":" +
+                          "\"scale\":2,\"warmup_frames\":" +
                           std::to_string(warmup) + ",\"sample_frames\":" + std::to_string(samples) +
 #ifdef NDEBUG
                           ",\"build\":\"Release\"" +
 #else
                           ",\"build\":\"Debug\"" +
 #endif
-                          ",\"passes\":[" + report("D3D11", adapter, counts, direct_owner, direct);
+                          ",\"passes\":[" + report("D3D11", "json", adapter, counts, json_owner, json) + "," +
+                          report("D3D11", "page", adapter, counts, own_owner, own);
         PROCESS_MEMORY_COUNTERS_EX memory{};
         require(GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&memory),
                                      sizeof(memory)),
