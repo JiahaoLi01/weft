@@ -103,6 +103,10 @@ struct GallerySceneSession {
     double time{};
     bool dirty = true;
     bool svg_geometry{};
+    // The host's anchors (data-anchor, scene/scene_anchor.hpp), when it writes any: the owner takes the latest table at
+    // each step and input, hits with it, and measures with it when JS reads layout.
+    weft::SceneAnchorChannel* anchors{};
+    const weft::SceneAnchorTable* anchor_table{};
     // weft.emitParticles asked for a burst, which the next scene update starts.
     bool particles_pending{};
     std::optional<weft::DomSnapshot> last_dom;
@@ -228,6 +232,9 @@ struct GallerySceneSession {
             ProfileScope timer(profile.layout_reads, profile.layout_ms, profiling);
             sync_read(*root(document));
             ensure_geometry();
+            if (anchor_table && anchor_table->serial()) {
+                return scene_geometry.geometry(current, svg_geometry, anchor_table);
+            }
             return current.elements;
         });
         vm.install_computed_style_host([this, root](const auto& document, auto identity) {
@@ -293,7 +300,14 @@ struct GallerySceneSession {
         throw std::runtime_error("WEFT_SCENE_TASK_LIMIT");
     }
 
+    void take_anchors() {
+        if (anchors) {
+            anchor_table = &anchors->take(weft::SceneAnchorChannel::Reader::Owner);
+        }
+    }
+
     void step(double stamp, bool drawable = true) {
+        take_anchors();
         auto start = clock();
         auto elapsed = [&] {
             return std::chrono::duration<double, std::milli>(clock() - start).count();
@@ -424,7 +438,8 @@ struct GallerySceneSession {
             input_value(type, x, y);
             return;
         }
-        auto target = scene_geometry.hit_test(current, x, y);
+        take_anchors();
+        auto target = scene_geometry.hit_test(current, x, y, anchor_table);
         weft::MouseEvent e;
         e.type = type;
         e.client_x = x;
@@ -454,7 +469,8 @@ struct GallerySceneSession {
         weft::NodeIdentity target;
         {
             ProfileScope timer(profile.hits, profile.hit_ms, profiling);
-            target = scene_geometry.hit_test(current, x, y);
+            take_anchors();
+            target = scene_geometry.hit_test(current, x, y, anchor_table);
         }
         const auto destination = target.generation ? target : root_id;
         ProfileScope timer(profile.dispatches, profile.dispatch_ms, profiling);

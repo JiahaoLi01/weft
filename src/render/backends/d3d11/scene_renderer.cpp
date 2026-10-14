@@ -601,7 +601,8 @@ namespace weft::render::d3d11 {
 
     bool SceneRenderer::paint(Slot& slot, const SceneFrame& frame, ID3D11RenderTargetView* destination, float scale,
                               unsigned target_width, unsigned target_height, std::optional<std::array<float, 4>> crop,
-                              unsigned view_index, const std::vector<NodeIdentity>& layers) {
+                              unsigned view_index, const std::vector<NodeIdentity>& layers,
+                              const SceneAnchorTable* anchors) {
         // Textures of images and layers that neither the preparer nor a slot holds any more, and backdrop targets
         // neither the last frame nor this one used (D3D11 keeps a released texture until the GPU is done with it).
         std::erase_if(textures_, [](const auto& texture) {
@@ -611,7 +612,8 @@ namespace weft::render::d3d11 {
         std::erase_if(backdrop_targets_, [&](const auto& target) {
             return target.second.used + 1 < backdrop_frame_;
         });
-        const auto prepared = preparer_.prepare(frame, scale, target_width, target_height, crop, view_index, layers);
+        const auto prepared =
+            preparer_.prepare(frame, scale, target_width, target_height, crop, view_index, layers, anchors);
         if (!prepared) {
             return false;
         }

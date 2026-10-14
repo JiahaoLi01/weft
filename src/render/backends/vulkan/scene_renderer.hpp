@@ -86,13 +86,13 @@ namespace weft::render::vulkan {
         SceneRenderer& operator=(const SceneRenderer&) = delete;
 
         // Records frame's pass over target (scale device px per CSS px, clipped to crop when given, layers drawn as
-        // cached layer images) into command, a primary command buffer recording outside a render pass, with what it
+        // cached layer images, anchors placing the anchored elements as ScenePreparer::prepare says) into command, a primary command buffer recording outside a render pass, with what it
         // uses in slot: an idle slot, or one whose submitted commands completed (it retires first). False, with the
         // reason counted and nothing recorded, when a native pass cannot draw the frame. Throws Busy, recording
         // nothing, while the frame samples what another recording uploads or draws and that is not submitted yet.
         bool encode(Slot& slot, const SceneFrame& frame, VkCommandBuffer command, const Target& target, float scale,
                     std::optional<std::array<float, 4>> crop, unsigned view_index,
-                    const std::vector<NodeIdentity>& layers);
+                    const std::vector<NodeIdentity>& layers, const SceneAnchorTable* anchors = nullptr);
         // The slot's recorded commands were submitted: what they upload or draw is no longer pending.
         void submitted(Slot& slot);
         // The slot's recorded commands will never be submitted: what they would upload or draw leaves the cache, and the
@@ -107,7 +107,7 @@ namespace weft::render::vulkan {
         std::optional<std::vector<std::uint8_t>> draw(const SceneFrame& frame, float scale, unsigned width,
                                                       unsigned height, std::optional<std::array<float, 4>> crop,
                                                       unsigned view_index, const std::vector<NodeIdentity>& layers,
-                                                      bool readable = true);
+                                                      bool readable = true, const SceneAnchorTable* anchors = nullptr);
 
         Device& gpu;
         // Images uploaded, recordings made, and buffers, scratch images and descriptor pools made for slots (which

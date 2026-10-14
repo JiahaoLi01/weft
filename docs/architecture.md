@@ -73,7 +73,7 @@ flowchart LR
 | DestroyView | owner 停止脚本并取消请求；已提交 GPU 资源继续由 Runtime 退休管理 |
 | DestroyRuntime | 停止 producer 后清理；存在异步 lease、录制包、GPU 使用或外部纹理 lease 时返回 busy |
 
-与引擎的数据与调用（每帧位置用的锚点、带类型的事件与调用、视图模型）的设计见 [与引擎通信](engine-communication.md)（第 13 步，设计中，尚未实现）。
+与引擎的数据与调用（每帧位置用的锚点、带类型的事件与调用、视图模型）的设计见 [与引擎通信](engine-communication.md)（第 13 步）。已实现锚点的 CPU 参考路径（下文“锚点”），桥接与 C 接口尚未实现。
 
 字符串输入只在调用期间借用，异步使用必须复制。返回缓冲区通过本库的释放接口或约定 allocator 释放，避免跨 CRT 释放。宿主回调不能抛异常或同步重入 View；要执行 DOM 操作时排入下一安全点。
 
@@ -306,6 +306,16 @@ CSS 与普通 PNG 输入按 sRGB 来源解释，先 transfer decode 到线性，
   - 可读性：D3D11 从目标的资源拷贝；Vulkan 需要宿主在 `Target::image` 给出带 `TRANSFER_SRC` 的图像，没有时最外层的背景是透明的，计入原因（不回退）。scene pass 每帧清空自己的目标，所以“最外层”是这个 pass 已画的内容，宿主的游戏画面不在其中；
   - 元素因此成为固定定位与绝对定位子孙的包含块；带 `backdrop-filter` 的子树不缓存成图层；有它的帧，任何变化都整幅损伤；
   - 线性显示列表 pass、C ABI 与 D2D 参考光栅拒绝（诊断）。
+
+## 锚点
+
+2026-10-14 第 13.1 步（CPU 参考路径）。设计与取舍见 [与引擎通信](engine-communication.md#5-锚点)。
+- 数据：引擎每帧整份写一张锚点表（`SceneAnchor`：key、View 逻辑 px 的位置、缩放、深度、标志，32 字节），任意线程；`SceneAnchorChannel` 给渲染线程与 owner 各一个三缓冲，写者不等读者，读者只交换索引，读到的总是某一次写的整张表。跨线程只有这些值，渲染线程不碰 Node 与 JSValue。
+- 声明：页面写 `data-anchor*` 属性；求解器在 owner 上解析成 `SceneNode::anchoring`，渲染线程只读解析好的值。
+- 应用：显示列表与 `SceneGeometry` 共用一个定位函数（`scene_anchor_map`）与一个顺序函数（`scene_anchor_order`）。锚点元素在根盒（View）里定位，祖先的变换与溢出裁剪对它不作用（如 `position: fixed`），子孙随它；祖先的透明度照常（含它的组按根盒合成）。同一父元素、同一 z-index 的锚点元素按深度由远到近。
+- 一致性：渲染与命中各自取最新的表，可能相差一帧的移动；`missing: stay` 的记忆按使用方保存（预处理器按 view，`SceneGeometry` 按实例），不跨线程共享。
+- 不变量：没有锚点表等于空表（锚点元素隐藏）；参考光栅不画锚点元素；含锚点子孙的子树不缓存成图层。
+- 计划（13.1 GPU 路径）：页面没变时显示列表与绘制记录留在显存，每帧只上传锚点元素的变换与顺序缓冲，着色器应用变换；与 CPU 参考路径逐像素对照。
 
 ## 文本和字体
 

@@ -1,6 +1,7 @@
 #pragma once
 #include "style/style.hpp"
 #include "dom/geometry.hpp"
+#include "scene/scene_anchor.hpp"
 #include "scene/scene_effects.hpp"
 #include "scene/scene_paint.hpp"
 #include "scene/scene_particles.hpp"
@@ -54,13 +55,16 @@ namespace weft {
         // The particle emissions the element shows at the frame, drawn after its background and borders, before its
         // content.
         std::vector<SceneEmission> particles;
+        // What its data-anchor attributes declare: the element follows an anchor (scene_anchor.hpp) instead of the place
+        // layout gives it.
+        std::optional<SceneAnchoring> anchoring;
 
         friend bool operator==(const SceneNode& a, const SceneNode& b) {
             return a.identity == b.identity && a.tag == b.tag && a.space == b.space && a.text == b.text &&
                    a.attributes == b.attributes && a.style == b.style && a.box == b.box && a.lines == b.lines &&
                    a.fragments == b.fragments &&
                    (a.effect == b.effect || (a.effect && b.effect && *a.effect == *b.effect)) &&
-                   a.particles == b.particles && a.children == b.children;
+                   a.particles == b.particles && a.anchoring == b.anchoring && a.children == b.children;
         }
     };
 
@@ -81,7 +85,7 @@ namespace weft {
     // opacity and pseudo state do not change geometry; transforms still do.
     inline bool scene_geometry_own_equal(const SceneNode& a, const SceneNode& b, bool identical_style = false) {
         if (a.identity != b.identity || a.tag != b.tag || a.space != b.space || a.text != b.text || a.box != b.box ||
-            a.fragments != b.fragments) {
+            a.fragments != b.fragments || a.anchoring != b.anchoring) {
             return false;
         }
         auto equal_keys = [](const auto& x, const auto& y, const auto& keys) {

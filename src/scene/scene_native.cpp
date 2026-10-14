@@ -293,8 +293,8 @@ namespace weft {
 
     std::unique_ptr<ScenePrepared> ScenePreparer::prepare(const SceneFrame& frame, float scale, unsigned width,
                                                           unsigned height, std::optional<std::array<float, 4>> crop,
-                                                          unsigned view_index,
-                                                          const std::vector<NodeIdentity>& layers) {
+                                                          unsigned view_index, const std::vector<NodeIdentity>& layers,
+                                                          const SceneAnchorTable* anchors) {
         const auto fallback = [&](const std::string& reason) {
             ++work_.fallbacks;
             ++work_.reasons[reason];
@@ -324,12 +324,14 @@ namespace weft {
         }
         const auto svg_builds = svg_.builds();
         const auto svg_reuses = svg_.reuses();
-        auto compiled = scene_display_list(frame, layers, &text_, scale, &svg_);
+        auto& anchored = anchored_[view_index];
+        auto compiled = scene_display_list(frame, layers, &text_, scale, &svg_, {anchors, &anchored});
         work_.svg_value_builds += svg_.builds() - svg_builds;
         work_.svg_value_reuses += svg_.reuses() - svg_reuses;
         if (!compiled.fallback.empty()) {
             return fallback(compiled.fallback);
         }
+        anchored = std::move(compiled.placed);
         if (const auto valid = paint::check(compiled.list, limits::max_group_depth); !valid) {
             return fallback(valid.error().message);
         }

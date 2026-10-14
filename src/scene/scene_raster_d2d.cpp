@@ -1717,7 +1717,8 @@ namespace weft {
         }
 
         void paint(const SceneNode& n) {
-            if (get(n.style, PropertyId::Display) == "none" || n.box[2] <= 0 || n.box[3] <= 0) {
+            // The reference raster has no anchors: an anchored element draws nothing, as without a table.
+            if (get(n.style, PropertyId::Display) == "none" || n.box[2] <= 0 || n.box[3] <= 0 || n.anchoring) {
                 return;
             }
             // The reference raster draws no UI particles and no backdrop filters; the native passes do.
@@ -2220,7 +2221,8 @@ namespace weft {
             }
         };
         auto visit = [&](auto&& self, const SceneNode& n, Plane parent) -> void {
-            if (get(n.style, PropertyId::Display) == "none") {
+            // No anchors: an anchored element takes no hits, as it draws nothing.
+            if (get(n.style, PropertyId::Display) == "none" || n.anchoring) {
                 return;
             }
             auto m = parent * plane(n);

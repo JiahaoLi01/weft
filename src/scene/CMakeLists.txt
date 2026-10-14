@@ -1,6 +1,6 @@
 # Scene tree, paint, damage and native geometry.
 weft_add_library(scene
-    SOURCES scene.cpp scene_inline.cpp scene_border.cpp scene_paint.cpp scene_transform.cpp scene_damage.cpp scene_display_list.cpp scene_text.cpp scene_text_image.cpp scene_geometry.cpp scene_path.cpp scene_effects.cpp scene_particles.cpp scene_filter.cpp
+    SOURCES scene.cpp scene_inline.cpp scene_border.cpp scene_paint.cpp scene_transform.cpp scene_damage.cpp scene_display_list.cpp scene_text.cpp scene_text_image.cpp scene_geometry.cpp scene_path.cpp scene_effects.cpp scene_particles.cpp scene_filter.cpp scene_anchor.cpp
     PUBLIC weft::style weft::text weft::paint
     PRIVATE weft::layout)
 

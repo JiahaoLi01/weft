@@ -48,6 +48,11 @@ namespace weft {
 
     // Element boxes (getBoundingClientRect-style geometry) and hit testing of a laid-out scene, without any
     // platform graphics API. Owner thread only; text boxes come from SceneText.
+    //
+    // anchors place anchored elements (data-anchor) as scene_display_list draws them: hidden ones take no hits and
+    // measure as empty boxes at the origin, as display: none does; an anchored element has no offset parent and its
+    // offset is where its anchor puts its box. For data-anchor-missing: stay each call remembers what the anchored
+    // elements took, for the next.
     class SceneGeometry {
     public:
         explicit SceneGeometry(SceneText& text);
@@ -64,10 +69,11 @@ namespace weft {
             NodeIdentity hit(float x, float y) const;
         };
 
-        std::vector<ElementGeometry> geometry(const SceneFrame& frame, bool svg_descendants = false);
+        std::vector<ElementGeometry> geometry(const SceneFrame& frame, bool svg_descendants = false,
+                                              const SceneAnchorTable* anchors = nullptr);
         // For many points of one frame, build its hit map once.
-        HitMap hit_map(const SceneFrame& frame);
-        NodeIdentity hit_test(const SceneFrame& frame, float x, float y);
+        HitMap hit_map(const SceneFrame& frame, const SceneAnchorTable* anchors = nullptr);
+        NodeIdentity hit_test(const SceneFrame& frame, float x, float y, const SceneAnchorTable* anchors = nullptr);
         // The node's CSS transform as {m11, m12, m21, m22, dx, dy}, without transform-origin.
         std::array<double, 6> transform_matrix(const SceneNode& node) const;
 

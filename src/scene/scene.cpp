@@ -1136,6 +1136,14 @@ namespace weft {
             out.tag = d.local_name;
             out.space = d.namespace_uri;
             out.attributes = d.attributes;
+            if (auto anchoring = scene_anchoring(out.attributes); !anchoring) {
+                throw DiagnosticError(anchoring.error());
+            } else if (*anchoring && !out.space.empty() && out.space != constants::xhtml_namespace_uri &&
+                       out.tag != "svg") {
+                fail("data-anchor on an SVG element inside svg");
+            } else {
+                out.anchoring = *anchoring;
+            }
             if (reuse_style) {
                 out.style = std::move(output.style);
             } else {

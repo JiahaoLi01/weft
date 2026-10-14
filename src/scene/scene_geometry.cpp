@@ -548,8 +548,42 @@ namespace weft {
         std::shared_ptr<const Shape> unkept;
         std::map<std::string, SceneAffine, std::less<>> transforms;
         std::size_t transform_bytes{};
+        // What the anchored elements took at the last call (scene_anchor_resolve).
+        std::vector<ScenePlacedAnchor> placed;
 
         explicit Impl(SceneText& t) : text(t) {
+        }
+
+        // Where an anchored element lies: the map of its border box into the View, its own transform included, and
+        // where its anchor puts the box before that transform.
+        struct Anchored {
+            ScenePlane map;
+            std::array<double, 2> origin{};
+        };
+
+        // nullopt when the element is hidden. Records what it took in next.
+        std::optional<Anchored> anchored(const SceneNode& n, const SceneAnchorTable* anchors,
+                                         std::vector<ScenePlacedAnchor>& next, const SceneFrame& f) {
+            const auto* anchor = scene_anchor_resolve({anchors, &placed}, n.identity, *n.anchoring, &next);
+            if (!n.fragments.empty()) {
+                return std::nullopt;
+            }
+            const auto own = ScenePlane::translation(-n.box[0], -n.box[1]) * scene_plane(n);
+            const auto map =
+                scene_anchor_map(*n.anchoring, anchor, {n.box[2], n.box[3]}, {f.root.box[2], f.root.box[3]},
+                                 {own.m[0], own.m[3], own.m[1], own.m[4], own.m[2], own.m[5]});
+            if (!map) {
+                return std::nullopt;
+            }
+            const auto& a = *map;
+            return Anchored{affine_plane({a[0], a[1], a[2], a[3], a[4], a[5]}) * own, {a[4], a[5]}};
+        }
+
+        // The depth of child i's anchor, or nullopt when it is not anchored or has none.
+        std::optional<float> depth(const SceneNode& child, const SceneAnchorTable* anchors) const {
+            const auto* a =
+                child.anchoring ? scene_anchor_resolve({anchors, &placed}, child.identity, *child.anchoring) : nullptr;
+            return a ? std::optional<float>(a->depth) : std::nullopt;
         }
 
         void require_owner() const {
@@ -773,9 +807,10 @@ namespace weft {
 
     // Areas in the order the scene paints: children by z-index, SVG content after its svg box. A box clips its
     // descendants when its overflow is hidden or auto, as an svg element does; a clip-path clips its element too.
-    SceneGeometry::HitMap SceneGeometry::hit_map(const SceneFrame& f) {
+    SceneGeometry::HitMap SceneGeometry::hit_map(const SceneFrame& f, const SceneAnchorTable* anchors) {
         impl_->require_owner();
         HitMap out;
+        std::vector<ScenePlacedAnchor> placed;
         const auto area = [&](const SceneNode& n, const Plane& inverse, std::vector<HitShape> shapes,
                               std::size_t clip) {
             out.targets.push_back(n.identity);
@@ -847,7 +882,19 @@ namespace weft {
             if (view(n.style, PropertyId::Display) == "none") {
                 return;
             }
-            const auto m = parent * (n.fragments.empty() ? scene_plane(n)
+            std::optional<Plane> anchored;
+            if (n.anchoring) {
+                // Beyond its ancestors' transforms and clips, as painted.
+                const auto placement = impl_->anchored(n, anchors, placed, f);
+                if (!placement) {
+                    return;
+                }
+                anchored = placement->map;
+                clip = HitAreas::none;
+            }
+            const auto m =
+                anchored ? *anchored
+                         : parent * (n.fragments.empty() ? scene_plane(n)
                                                          : affine_plane(SceneAffine::translation(n.box[0], n.box[1])));
             Plane inverse;
             if (!m.inverse(inverse)) {
@@ -867,8 +914,9 @@ namespace weft {
                 } else {
                     // An inline element in lines: its fragments.
                     std::vector<HitShape> fragments;
-                    for (const auto& f : n.fragments) {
-                        fragments.push_back(HitShape::box(f.rect[0], f.rect[1], f.rect[2], f.rect[3]));
+                    for (const auto& fragment : n.fragments) {
+                        fragments.push_back(
+                            HitShape::box(fragment.rect[0], fragment.rect[1], fragment.rect[2], fragment.rect[3]));
                     }
                     area(n, inverse, std::move(fragments), clip);
                 }
@@ -900,36 +948,52 @@ namespace weft {
                 }
                 return;
             }
-            // Stacking order among siblings, as painted; auto stacks at 0. A single child is not ordered, so its
-            // z-index is not read.
-            std::vector<std::pair<float, const SceneNode*>> order;
-            order.reserve(n.children.size());
-            for (const auto& c : n.children) {
-                float z{};
+            // Stacking order among siblings, as painted; auto stacks at 0, anchored siblings of equal z-index far to
+            // near. A single child is not ordered, so its z-index is not read.
+            std::vector<float> z(n.children.size());
+            std::vector<std::size_t> order(n.children.size());
+            bool anchored_children{};
+            for (std::size_t i = 0; i < n.children.size(); ++i) {
+                const auto& c = n.children[i];
                 if (n.children.size() > 1) {
                     const auto v = view(c.style, PropertyId::ZIndex, "0");
-                    z = v == "auto" ? 0.f : len(v);
+                    z[i] = v == "auto" ? 0.f : len(v);
                 }
-                order.emplace_back(z, &c);
+                order[i] = i;
+                anchored_children = anchored_children || c.anchoring;
             }
-            std::stable_sort(order.begin(), order.end(), [](const auto& a, const auto& b) {
-                return a.first < b.first;
+            std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+                return z[a] < z[b];
             });
-            for (const auto& entry : order) {
-                self(self, *entry.second, m, clip);
+            if (anchored_children) {
+                scene_anchor_order(
+                    order,
+                    [&](std::size_t i) {
+                        return z[i];
+                    },
+                    [&](std::size_t i) {
+                        return impl_->depth(n.children[i], anchors);
+                    });
+            }
+            for (const auto i : order) {
+                self(self, n.children[i], m, clip);
             }
         };
         visit(visit, f.root, Plane{}, HitAreas::none);
+        scene_anchor_sort(placed);
+        impl_->placed = std::move(placed);
         return out;
     }
 
-    NodeIdentity SceneGeometry::hit_test(const SceneFrame& f, float x, float y) {
-        return hit_map(f).hit(x, y);
+    NodeIdentity SceneGeometry::hit_test(const SceneFrame& f, float x, float y, const SceneAnchorTable* anchors) {
+        return hit_map(f, anchors).hit(x, y);
     }
 
-    std::vector<ElementGeometry> SceneGeometry::geometry(const SceneFrame& f, bool svg_descendants) {
+    std::vector<ElementGeometry> SceneGeometry::geometry(const SceneFrame& f, bool svg_descendants,
+                                                         const SceneAnchorTable* anchors) {
         impl_->require_owner();
         std::vector<ElementGeometry> out;
+        std::vector<ScenePlacedAnchor> placed;
 
         // The local bounds and transform of each element below one child of an svg element, in tree order. A group's
         // bounds take its children's, so a subtree is measured before it is listed.
@@ -1043,8 +1107,17 @@ namespace weft {
         };
         auto visit = [&](auto&& self, const SceneNode& n, Plane parent, NodeIdentity offset_parent, double ox,
                          double oy) -> void {
-            const auto m = parent * (n.fragments.empty() ? scene_plane(n)
-                                                         : affine_plane(SceneAffine::translation(n.box[0], n.box[1])));
+            auto m = parent * (n.fragments.empty() ? scene_plane(n)
+                                                   : affine_plane(SceneAffine::translation(n.box[0], n.box[1])));
+            if (n.anchoring) {
+                // Placed by its anchor, without an offset parent; a hidden one and its subtree measure as empty boxes
+                // at the origin.
+                const auto placement = impl_->anchored(n, anchors, placed, f);
+                m = placement ? placement->map : Plane{{0, 0, 0, 0, 0, 0, 0, 0, 1}};
+                offset_parent = {};
+                ox = (placement ? placement->origin[0] : 0) - n.box[0];
+                oy = (placement ? placement->origin[1] : 0) - n.box[1];
+            }
             if (n.tag != "#text") {
                 append(n, m, {0, 0, n.box[2], n.box[3]}, offset_parent);
                 out.back().offset[0] += ox;
@@ -1072,13 +1145,15 @@ namespace weft {
             }
             const bool positioned = view(n.style, PropertyId::Position, "static") != "static" ||
                                     view(n.style, PropertyId::Transform, "none") != "none" ||
-                                    n.identity == f.root.identity;
+                                    n.identity == f.root.identity || n.anchoring;
             for (const auto& c : n.children) {
                 self(self, c, m, positioned ? n.identity : offset_parent, positioned ? 0 : ox + n.box[0],
                      positioned ? 0 : oy + n.box[1]);
             }
         };
         visit(visit, f.root, Plane{}, {}, 0, 0);
+        scene_anchor_sort(placed);
+        impl_->placed = std::move(placed);
         return out;
     }
 } // namespace weft

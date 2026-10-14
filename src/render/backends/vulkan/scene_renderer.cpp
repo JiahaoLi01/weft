@@ -1001,7 +1001,7 @@ namespace weft::render::vulkan {
 
     bool SceneRenderer::encode(Slot& slot, const SceneFrame& frame, VkCommandBuffer command, const Target& target,
                                float scale, std::optional<std::array<float, 4>> crop, unsigned view_index,
-                               const std::vector<NodeIdentity>& layers) {
+                               const std::vector<NodeIdentity>& layers, const SceneAnchorTable* anchors) {
         const auto& d = gpu;
         if (slot.state == Slot::State::Submitted) {
             retire(slot);
@@ -1021,7 +1021,8 @@ namespace weft::render::vulkan {
                 ++it;
             }
         }
-        const auto prepared = preparer_.prepare(frame, scale, target.width, target.height, crop, view_index, layers);
+        const auto prepared =
+            preparer_.prepare(frame, scale, target.width, target.height, crop, view_index, layers, anchors);
         if (!prepared) {
             return false;
         }
@@ -1109,7 +1110,7 @@ namespace weft::render::vulkan {
     std::optional<std::vector<std::uint8_t>>
     SceneRenderer::draw(const SceneFrame& frame, float scale, unsigned width, unsigned height,
                         std::optional<std::array<float, 4>> crop, unsigned view_index,
-                        const std::vector<NodeIdentity>& layers, bool readable) {
+                        const std::vector<NodeIdentity>& layers, bool readable, const SceneAnchorTable* anchors) {
         const auto& d = gpu;
         ensure(width && height && width <= unsigned(limits::max_surface_dimension) &&
                    height <= unsigned(limits::max_surface_dimension),
@@ -1130,7 +1131,7 @@ namespace weft::render::vulkan {
         bool drawn{};
         try {
             drawn = encode(slot, frame, command_, {target_.view, width, height, readable ? target_.image : VkImage{}},
-                           scale, crop, view_index, layers);
+                           scale, crop, view_index, layers, anchors);
         } catch (...) {
             d.vkd.vkResetCommandBuffer(command_, 0);
             throw;

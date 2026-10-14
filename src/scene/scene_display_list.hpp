@@ -22,6 +22,9 @@ namespace weft {
         // behind the viewer or nested too deep, unsupported values): the list is then empty, and the whole frame is
         // drawn another way, so no partly accepted list changes stacking.
         std::string fallback;
+        // The anchors its anchored elements took, by element (scene_anchor_resolve): the next list's
+        // SceneAnchorInput::last.
+        std::vector<ScenePlacedAnchor> placed;
     };
 
     // What a display list takes from an SVG element's own values: its transform in its parent's user units and its
@@ -93,7 +96,11 @@ namespace weft {
     // The frame's boxes, shadows, text, SVG paths, perspective planes and opacity groups in paint order. layers are the
     // nodes drawn as cached layer images; text measures SVG text, which needs it to be placed. scale is the pass's
     // device pixels per px, on which dotted and dashed borders lay out their dots and dashes. cache, when given, keeps
-    // SVG elements' values between lists built with the same text.
+    // SVG elements' values between lists built with the same text. anchors place the anchored elements (data-anchor):
+    // each where its anchor puts it in the frame's root box, beyond its ancestors' transforms and overflow clips (as
+    // position: fixed is), its subtree with it; anchored siblings of equal z-index draw far to near
+    // (scene_anchor_order). An anchored element without an anchor, or hidden by its anchor, draws nothing.
     SceneDisplayList scene_display_list(const SceneFrame& frame, const std::vector<NodeIdentity>& layers = {},
-                                        SceneText* text = nullptr, float scale = 1, SceneDisplayCache* cache = nullptr);
+                                        SceneText* text = nullptr, float scale = 1, SceneDisplayCache* cache = nullptr,
+                                        const SceneAnchorInput& anchors = {});
 } // namespace weft

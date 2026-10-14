@@ -69,10 +69,12 @@ namespace weft::render::d3d11 {
         void retire(Slot& slot);
 
         // Draws frame into destination (target_width x target_height device pixels, scale per CSS px) on the
-        // immediate context, clipped to crop when given. layers are the nodes drawn as cached layer images.
+        // immediate context, clipped to crop when given. layers are the nodes drawn as cached layer images; anchors
+        // place the anchored elements (ScenePreparer::prepare).
         bool paint(Slot& slot, const SceneFrame& frame, ID3D11RenderTargetView* destination, float scale,
                    unsigned target_width, unsigned target_height, std::optional<std::array<float, 4>> crop,
-                   unsigned view_index, const std::vector<NodeIdentity>& layers);
+                   unsigned view_index, const std::vector<NodeIdentity>& layers,
+                   const SceneAnchorTable* anchors = nullptr);
 
     private:
         // The texture of a preparer's image or layer, kept while that lives.

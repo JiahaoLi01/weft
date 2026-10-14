@@ -1,6 +1,7 @@
 #pragma once
 
 #include "scene/scene.hpp"
+#include "scene/scene_anchor.hpp"
 
 #include <array>
 #include <filesystem>
@@ -31,6 +32,9 @@ namespace probes::particle_benchmark {
 
     // The frame to draw at frame index of level (0, 1, ...); a frame lives until the next call.
     using Source = std::function<const weft::SceneFrame&(std::size_t level, unsigned index)>;
+    // The anchors a pass places anchored elements with, taken as the pass begins (timed with it), as a render thread
+    // takes the latest table of a View's anchors; none when empty.
+    using Anchors = std::function<const weft::SceneAnchorTable*()>;
 
     double percentile(std::vector<double> v, double p);
     // {"p50", "p95", "p99", "max"} of v, in ms.
@@ -38,10 +42,10 @@ namespace probes::particle_benchmark {
 
     // Each level's warmup frames, then its sampled frames, timed.
     std::vector<Timings> d3d11(bool warp, std::size_t levels, unsigned warmup, unsigned samples, const Source& source,
-                               std::string& adapter);
+                               std::string& adapter, const Anchors& anchors = {});
 #ifdef WEFT_PROBE_VULKAN
     // Empty without a Vulkan device.
     std::vector<Timings> vulkan(std::size_t levels, unsigned warmup, unsigned samples, const Source& source,
-                                std::string& adapter);
+                                std::string& adapter, const Anchors& anchors = {});
 #endif
 } // namespace probes::particle_benchmark

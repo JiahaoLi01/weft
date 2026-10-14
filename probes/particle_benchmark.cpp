@@ -33,7 +33,7 @@ namespace probes {
         }
 
         std::vector<Timings> d3d11(bool warp, std::size_t levels, unsigned warmup, unsigned samples,
-                                   const Source& source, std::string& adapter) {
+                                   const Source& source, std::string& adapter, const Anchors& anchors) {
             using Microsoft::WRL::ComPtr;
             weft::render::d3d11::Renderer gpu(warp, target_width, target_height, false);
             adapter = gpu.adapter;
@@ -72,7 +72,8 @@ namespace probes {
                     const auto began = std::chrono::steady_clock::now();
                     gpu.immediate->Begin(disjoint.Get());
                     gpu.immediate->End(start.Get());
-                    if (!scene.paint(slot, f, rtv.Get(), scale, target_width, target_height, std::nullopt, 0, {})) {
+                    if (!scene.paint(slot, f, rtv.Get(), scale, target_width, target_height, std::nullopt, 0, {},
+                                     anchors ? anchors() : nullptr)) {
                         std::string why;
                         for (const auto& [reason, count] : scene.reasons) {
                             why += " " + reason;
@@ -112,7 +113,7 @@ namespace probes {
 
 #ifdef WEFT_PROBE_VULKAN
         std::vector<Timings> vulkan(std::size_t levels, unsigned warmup, unsigned samples, const Source& source,
-                                    std::string& adapter) {
+                                    std::string& adapter, const Anchors& anchors) {
             namespace vk = weft::render::vulkan;
             std::string unavailable;
             // Without the validation layer, whose state tracking (synchronization validation above all) would be
@@ -173,7 +174,7 @@ namespace probes {
                     d.vkd.vkCmdResetQueryPool(command, timestamps, 0, 2);
                     d.vkd.vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestamps, 0);
                     require(scene.encode(slot, f, command, {image.view, target_width, target_height, image.image},
-                                         scale, std::nullopt, 0, {}),
+                                         scale, std::nullopt, 0, {}, anchors ? anchors() : nullptr),
                             "native Vulkan particle pass");
                     d.vkd.vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamps, 1);
                     vk::check(d.vkd.vkEndCommandBuffer(command), "benchmark end");

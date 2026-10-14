@@ -189,11 +189,14 @@ namespace weft {
         ScenePreparer& operator=(const ScenePreparer&) = delete;
 
         // The frame's pass on a width x height device px target at scale device px per CSS px, clipped to crop when
-        // given; layers are the nodes drawn as cached layer images, view_index tells views apart in the caches. Null,
-        // with a fallback and its reason counted in work, when a native pass cannot draw the frame.
+        // given; layers are the nodes drawn as cached layer images, view_index tells views apart in the caches. anchors
+        // place the anchored elements (scene_display_list); for data-anchor-missing: stay the preparer remembers per
+        // view what they took in its last pass. Null, with a fallback and its reason counted in work, when a native
+        // pass cannot draw the frame.
         std::unique_ptr<ScenePrepared> prepare(const SceneFrame& frame, float scale, unsigned width, unsigned height,
                                                std::optional<std::array<float, 4>> crop, unsigned view_index,
-                                               const std::vector<NodeIdentity>& layers);
+                                               const std::vector<NodeIdentity>& layers,
+                                               const SceneAnchorTable* anchors = nullptr);
 
     private:
         // A layer image by view and node identity, while its paint source and scale stay the same.
@@ -254,6 +257,8 @@ namespace weft {
         render::AtlasPacker color_atlas_;
         bool atlas_{};
         std::vector<Placed> placed_;
+        // What each view's anchored elements took in its last pass.
+        std::unordered_map<unsigned, std::vector<ScenePlacedAnchor>> anchored_;
 
         // Places a new text, shadow or path image on its format's atlas when it is small enough and a page has room.
         void place(const std::shared_ptr<SceneImage>& image);

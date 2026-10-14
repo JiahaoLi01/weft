@@ -66,6 +66,12 @@ namespace weft::constants::scene {
     // Damage covering more than this fraction of the surface repaints all of it.
     inline constexpr float damage_full_repaint_ratio = .65f;
 
+    // Anchors (scene_anchor.hpp).
+    // Most anchors one write may hold.
+    inline constexpr unsigned max_anchors = 65536;
+    // Most decimal digits of a data-anchor key (2^64 - 1 has 20).
+    inline constexpr unsigned max_anchor_key_digits = 20;
+
     // Scene display lists (scene_display_list.hpp).
     // Mirrors MaxGradientStops in src/render/shaders/scene.hlsl.
     inline constexpr int max_gradient_stops = 8;

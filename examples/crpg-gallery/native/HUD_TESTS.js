@@ -2,7 +2,8 @@
 // without a framework. Each unit is a nameplate, its name over a health bar, that follows a point the host moves every
 // frame. __ceHud lets the host set how many there are and push their positions and health as JSON through script
 // evaluation, as an engine's browser bridge does (a script call with a JSON argument), or have the page compute the
-// same values itself, which hands it the data at no cost at all.
+// same values itself, which hands it the data at no cost at all. Anchored, each nameplate follows the anchor the host
+// writes for it (data-anchor, docs/engine-communication.md) and the host pushes only the health that changed.
 (() => {
   const groups = {HUD_TESTS: [{label: 'HUD: nameplates pushed as JSON'}]};
   const names = ['Goblin', 'Orc', 'Wolf', 'Bandit', 'Skeleton', 'Spider', 'Wraith', 'Troll'];
@@ -28,11 +29,46 @@
       add(unit, 'div', 'hud-name', names[i % names.length] + ' ' + (i + 1));
       const bar = add(unit, 'div', 'hud-bar');
       nodes.units.push({unit, fill: add(bar, 'div', 'hud-fill'), hp: -1});
+      mark(nodes.units[i], i);
     }
     while (nodes.units.length > n) {
       const u = nodes.units.pop();
       u.unit.parentNode.removeChild(u.unit);
     }
+  }
+  // Unit i follows anchor i + 1, its top-left on the anchor, while the page is anchored.
+  function mark(u, i) {
+    if (nodes.anchored) {
+      u.unit.setAttribute('data-anchor', String(i + 1));
+      u.unit.setAttribute('data-anchor-pivot', '0 0');
+      u.unit.style.transform = 'none';
+    } else {
+      u.unit.removeAttribute('data-anchor');
+      u.unit.removeAttribute('data-anchor-pivot');
+    }
+  }
+  function anchor(on) {
+    if (!nodes) throw new Error('CE_HUD: not mounted');
+    nodes.anchored = !!on;
+    nodes.units.forEach(mark);
+  }
+  // The health that changed: [[i, hp], ...], as the fill's width, or scaled (a transform, which needs no layout).
+  function health(json, scaled = false) {
+    if (!nodes) throw new Error('CE_HUD: not mounted');
+    for (const [i, hp] of JSON.parse(json)) {
+      const u = nodes.units[i];
+      if (!u) throw new Error('CE_HUD: no unit ' + i);
+      if (hp !== u.hp) {
+        u.hp = hp;
+        if (scaled) {
+          u.fill.style.transformOrigin = '0 50%';
+          u.fill.style.transform = 'scaleX(' + hp + ')';
+        } else {
+          u.fill.style.width = hp * 100 + '%';
+        }
+      }
+    }
+    ++applied;
   }
   // The host's frame: [[x, y, hp], ...] for the units in order: where each nameplate's top-left goes in page px, and its
   // health from 0 to 1.
@@ -76,7 +112,7 @@
     active = {group, index, label: groups[group][index].label};
     const root = document.getElementById('root');
     const page = add(root, 'div', 'hud-page');
-    nodes = {page, layer: add(page, 'div', 'hud-layer'), units: []};
+    nodes = {page, layer: add(page, 'div', 'hud-layer'), units: [], anchored: false};
   }
   function unmount() {
     const root = document.getElementById('root');
@@ -85,8 +121,8 @@
     active = null;
   }
   globalThis.__ceHud = Object.freeze({
-    setCount: guard(setCount), apply: guard(apply), simulate: guard(simulate), count: () => nodes ? nodes.units.length : 0,
-    applied: () => applied
+    setCount: guard(setCount), apply: guard(apply), simulate: guard(simulate), anchor: guard(anchor),
+    health: guard(health), count: () => nodes ? nodes.units.length : 0, applied: () => applied
   });
   globalThis.__ceGallery = Object.freeze({
     groups: () => Object.fromEntries(Object.entries(groups).map(([name, cases]) => [name, cases.map(c => c.label)])),

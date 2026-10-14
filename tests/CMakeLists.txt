@@ -251,6 +251,11 @@ if(WIN32)
     weft_add_executable(weft_scene_native_tests SOURCES scene_native_tests.cpp
         LINK weft::scene_native weft::platform_win32)
     weft_add_test(NAME scene_native_contract COMMAND weft_scene_native_tests)
+    # Anchors on the CPU reference path: the data-anchor grammar, the tables a writer thread hands both readers, where
+    # anchors put elements, and the display list, hits and geometry of anchored elements.
+    weft_add_executable(weft_scene_anchor_tests SOURCES scene_anchor_tests.cpp
+        LINK weft::scene_d2d weft::platform_win32 d2d1 windowscodecs ole32)
+    weft_add_test(NAME scene_anchor_contract COMMAND weft_scene_anchor_tests)
     # What native scene passes keep between frames by content: SVG elements' values (alike with and without the cache
     # under random edits), text images by source, path coverage by digest.
     weft_add_executable(weft_scene_display_cache_tests SOURCES scene_display_cache_tests.cpp
@@ -323,6 +328,14 @@ if(WIN32)
     endif()
     weft_add_test(NAME render_scene_atlas_contract COMMAND weft_render_scene_atlas_tests
         "${artifacts}/scene-atlas-$<CONFIG>" TIMEOUT 120)
+    # Anchored nameplates against the same plates placed by CSS, on D3D11 WARP and Vulkan.
+    weft_add_executable(weft_render_scene_anchor_tests SOURCES render_scene_anchor_tests.cpp
+        LINK ${scene_effect_links})
+    if(WEFT_RENDER_VULKAN)
+        target_compile_definitions(weft_render_scene_anchor_tests PRIVATE WEFT_TEST_VULKAN)
+    endif()
+    weft_add_test(NAME render_scene_anchor_contract COMMAND weft_render_scene_anchor_tests
+        "${artifacts}/scene-anchor-$<CONFIG>" TIMEOUT 120)
     # The CRPG UI's smoke as a UI shader effect against the original's tick on the CPU, on both scene passes.
     weft_add_executable(weft_render_crpg_smoke_tests SOURCES render_crpg_smoke_tests.cpp
         LINK ${scene_effect_links} weft_gallery_effects windowscodecs ole32 SOURCE_DIR)

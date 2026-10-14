@@ -1,6 +1,6 @@
 # 与引擎通信：技术路线（第 13 步）
 
-2026-10-14 起草，设计尚未实现。本文是第 13 步的设计合同与路线；实现状态以 [status](status.md) 与 [重构计划](refactoring-plan.md#第-13-步计划2026-10-14与引擎通信) 的记录为准。
+2026-10-14 起草。本文是第 13 步的设计合同与路线；实现状态以 [status](status.md) 与 [重构计划](refactoring-plan.md#第-13-步记录2026-10-14) 的记录为准。已实现：13.1 的 CPU 参考路径（2026-10-14，内部 C++ 接口）。
 
 ## 摘要
 
@@ -59,6 +59,18 @@ CRPG 工程（UE，Ultralight 1.4，模块 CRPGUltralight）的 UI 是 React 19 
 | 200 | 零传输 | 0 | 2.2 ms | 9.0 ms | 1.9 ms | 13.0 ms |
 | 400 | 推 JSON | 0.17 ms | 3.6 ms | 20.6 ms | 4.0 ms | 28.3 ms |
 | 400 | 零传输 | 0 | 4.4 ms | 20.0 ms | 3.8 ms | 28.2 ms |
+
+锚点模式（13.1a，CPU 参考路径；宿主每帧写全部锚点，掉血时按 JSON 推送变化的血条）：
+
+| 400 个名牌，每帧 | 引擎写锚点与 JSON | 脚本 | UI 线程 p50 / p99 | 渲染 CPU p50 |
+| --- | --- | --- | --- | --- |
+| 只移动（锚点） | 0.012 ms | 0 | 0.025 / 0.034 ms | 4.2 ms |
+| 移动（锚点）+ 20 个血条改宽度 | 0.017 ms | 0.16 ms | 10.7 / 13.2 ms | 4.0 ms |
+| 移动（锚点）+ 20 个血条改 `scaleX` | 0.018 ms | 0.33 ms | 7.1 / 10.1 ms | 4.1 ms |
+| 对照：推 JSON，每帧改 400 个 transform 与 20 个宽度 | 0.17 ms | 3.9 ms | 23.3 / 32.1 ms | 4.2 ms |
+
+- 只移动时 UI 线程每帧从 23 ms 降到 0.03 ms；渲染 CPU 没变，因为 CPU 参考路径每帧重建显示列表（GPU 路径解决）。
+- 掉血时的开销来自整页：一处宽度变化就重新布局整页，只改 transform 也要重新求样式与场景（13.5 解决）。改 `scaleX` 省去布局。
 
 同一页 400 个单位、页面自算，每帧只改其中一部分：
 
@@ -139,8 +151,8 @@ typedef struct weft_anchor {
     float x, y;        /* 锚点在 View 里的位置，逻辑 px（与 CSS 布局同单位） */
     float scale;       /* 1 为原大 */
     float depth;       /* 越大越远；同一容器里的锚点元素由远到近画 */
-    uint32_t flags;    /* WEFT_ANCHOR_VISIBLE | WEFT_ANCHOR_OFFSCREEN | WEFT_ANCHOR_BEHIND */
-    uint32_t reserved;
+    uint32_t flags;    /* WEFT_ANCHOR_HIDDEN | WEFT_ANCHOR_BEHIND | WEFT_ANCHOR_OFFSCREEN；0 为可见 */
+    uint32_t reserved; /* 0 */
 } weft_anchor;         /* 32 字节 */
 
 /* 用这一组替换 View 的全部锚点（复制）。读者看到的总是整组新值或整组旧值，不会混合。
@@ -150,6 +162,7 @@ weft_result weft_view_write_anchors(weft_runtime* runtime, weft_view_handle view
 ```
 
 - 三缓冲：写者写空闲槽，原子地发布；渲染线程与 owner 各自取最新发布的槽。400 个锚点每帧复制约 13 KB，开销可忽略。
+- 实现（13.1a，`src/scene/scene_anchor.hpp`）：两个读者各一个三缓冲，写者按 key 排序（同一 key 取最后一条）后写入两份；非法值（不是有限数、负的缩放、未知标志、保留位非零）或超过 65,536 个时什么也不发布。标志为 0 时可见（草案原为“可见”位，改成“隐藏”位，零初始化的记录可见）。HUD 基准里宿主算出 400 个位置并写入，每帧约 0.012 ms。
 - 位置由引擎投影（CRPG 现在就是），换算到 View 的逻辑 px：屏幕像素除以 View 的设备缩放。Weft 不需要知道相机与世界坐标。
 - 引擎可以在游戏线程投影后写，也可以在渲染线程用这一帧真正的相机投影后写，后者与 3D 画面完全同步。
 
@@ -167,20 +180,21 @@ weft_result weft_view_write_anchors(weft_runtime* runtime, weft_view_handle view
 | `data-anchor` | 无 | 锚点 key（十进制）。元素由锚点定位：布局仍决定它的大小，但不决定它的位置 |
 | `data-anchor-pivot` | `50% 50%` | 元素边框盒上对准锚点的点，百分比或 px |
 | `data-anchor-scale` | `on` | 是否乘锚点的缩放（绕 pivot） |
-| `data-anchor-offscreen` | `hide` | 锚点在屏幕外或相机后时：`hide` 隐藏，`show` 照画，`clamp` 贴着 View 边缘画（`data-anchor-margin` 留边） |
-| `data-anchor-missing` | `hide` | 锚点表里没有这个 key 时：`hide` 或 `stay`（停在上次的位置） |
+| `data-anchor-offscreen` | `hide` | 锚点在 View 外（边界算在里面）、相机后或标记屏幕外时：`hide` 隐藏，`show` 照画；`clamp` 总是把元素（自身变换后的外接矩形）留在 View 内（`data-anchor-margin` 留边，px），放不下的轴居中 |
+| `data-anchor-missing` | `hide` | 锚点表里没有这个 key 时：`hide` 或 `stay`（停在这个元素上次拿到的、同一 key 的锚点；从未拿到过时隐藏） |
 
 - 元素最终的变换 = 锚点平移（与缩放）× 元素自己的 CSS transform（绕它的 transform-origin），所以 CSS 动画（如出现时的缩放）照常有效。
 - 锚点元素建立层叠上下文；同一父元素下的锚点元素按 depth 由远到近画，depth 相同按 DOM 顺序。
 - 裁剪与 `position: fixed` 相同：锚点元素以 View 为准定位，不受祖先 `overflow` 的裁剪；它自己和它的子孙建立的裁剪随它移动。这样整个锚点子树在同一个坐标系里，GPU 可以只用一个变换移动它。
 - React 里直接写：`<div data-anchor={unit.id}>`。实例出现、消失时 React 才渲染；每帧的移动与 React 无关。
-- 不合法的 key 是场景诊断，元素隐藏。
+- 不合法的属性值是场景诊断，与其他语法错误一样整帧拒绝（草案原写“元素隐藏”）；只看 `data-anchor-` 开头的属性，未知的选项也是诊断。svg 内部的元素不能写锚点（svg 根可以）；锚点元素不能是行内盒、不能在透视平面里（整帧回退，计入原因）。
+- 没有锚点表时（例如 D2D 参考光栅），锚点元素一律隐藏。
 
 ### 5.3 渲染线程：取值与应用
 
 两条路径，先做第一条作为正确性参考，再做第二条：
 
-1. CPU 参考路径：每次准备开始时取一次最新的锚点槽；显示列表遇到 `data-anchor` 的元素时，用锚点算出它的变换，替代布局给的位置；按 offscreen、missing 的规则决定画不画；同一容器里的锚点元素按 depth 排序。每帧全量重建，简单，用来对照。
+1. CPU 参考路径（13.1a 已实现）：每次准备开始时取一次最新的锚点槽；显示列表遇到 `data-anchor` 的元素时，用锚点算出它的变换，替代布局给的位置；按 offscreen、missing 的规则决定画不画；同一容器里的锚点元素按 depth 排序。每帧全量重建，简单，用来对照。有锚点子孙的节点不做成图层，有锚点子孙的透明度组按根盒合成。
 2. GPU 路径：
    - owner 没有发布新场景帧时，上一帧的显示列表与绘制记录原样留在显存里；
    - 每帧只在 CPU 上把引擎的锚点解析成每个锚点元素的变换（平移、缩放、显隐，贴边在这里算），一个元素 16 字节，400 个约 6 KB，上传一次；
@@ -194,7 +208,8 @@ weft_result weft_view_write_anchors(weft_runtime* runtime, weft_view_handle view
 ### 5.4 命中与几何读取
 
 - owner 在每次推进与处理输入前取一次最新锚点；命中测试对锚点元素用同一套变换与隐藏规则。被隐藏的锚点元素不命中。
-- `getBoundingClientRect` 等几何读取也用 owner 这一份锚点。
+- `getBoundingClientRect` 等几何读取也用 owner 这一份锚点。隐藏的锚点元素是原点处的空盒（如 `display: none`）；锚点元素没有 offsetParent，偏移是锚点给的位置，它是子孙的 offsetParent。
+- 13.1a：`SceneGeometry` 的命中与几何已按此实现；画廊会话只在 JS 读几何时按锚点重算，13.3 的 View 再按锚点表的序号缓存。
 - owner 与渲染线程可能拿到相隔一帧的两份锚点：点击位置与画面至多差一帧的移动，记入 trace，不另行补偿。
 
 ### 5.5 生命周期

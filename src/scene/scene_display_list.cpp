@@ -78,8 +78,8 @@ namespace weft {
         }
 
         // The node's compiled transform (an animation sample keeps full precision there), else its property, about
-        // its transform-origin and placed at its box.
-        Matrix matrix(const SceneNode& n) {
+        // its transform-origin and placed at its box (at the origin for an anchored element, which its anchor places).
+        Matrix matrix(const SceneNode& n, bool at_origin = false) {
             const std::optional<PaintValue>* compiled =
                 n.paint ? &n.paint->values[constants::scene::paint_slot_transform] : nullptr;
             std::optional<PaintValue> parsed;
@@ -97,8 +97,9 @@ namespace weft {
                 throw std::invalid_argument("projective transform");
             }
             const auto o = scene_transform_origin(n.style, n.box[2], n.box[3]);
-            const auto m = SceneAffine::translation(-o[0], -o[1]) * scene_affine(t->operations, n.box[2], n.box[3]) *
-                           SceneAffine::translation(o[0] + n.box[0], o[1] + n.box[1]);
+            const auto m =
+                SceneAffine::translation(-o[0], -o[1]) * scene_affine(t->operations, n.box[2], n.box[3]) *
+                SceneAffine::translation(o[0] + (at_origin ? 0 : n.box[0]), o[1] + (at_origin ? 0 : n.box[1]));
             return {float(m.m11), float(m.m12), float(m.m21), float(m.m22), float(m.dx), float(m.dy)};
         }
 
@@ -257,9 +258,18 @@ namespace weft {
     }
 
     SceneDisplayList scene_display_list(const SceneFrame& f, const std::vector<NodeIdentity>& layers, SceneText* text,
-                                        float scale, SceneDisplayCache* cache) {
+                                        float scale, SceneDisplayCache* cache, const SceneAnchorInput& anchors) {
         SceneDisplayList out;
         auto& list = out.list;
+        // Anchored elements lie in the root's box, clipped to it alone.
+        const std::array<double, 2> view{f.root.box[2], f.root.box[3]};
+        const std::array<float, 4> view_clip{0, 0, f.root.box[2], f.root.box[3]};
+        // Whether a descendant of n is anchored.
+        const auto anchored_below = [](auto&& self, const SceneNode& n) -> bool {
+            return std::any_of(n.children.begin(), n.children.end(), [&](const SceneNode& child) {
+                return child.anchoring || self(self, child);
+            });
+        };
         // Whether a node has a backdrop filter.
         const auto filters = [](const SceneNode& n) {
             const auto* v = n.style.find(PropertyId::BackdropFilter);
@@ -738,6 +748,28 @@ namespace weft {
                 if (list.items.size() > constants::scene::max_display_list_items) {
                     throw std::invalid_argument("native command bound");
                 }
+                // An anchored element: its anchor places it in the root's box, beyond its ancestors' transforms and
+                // clips; hidden without one.
+                if (n.anchoring) {
+                    if (!n.fragments.empty()) {
+                        throw std::invalid_argument("anchored inline box");
+                    }
+                    if (plane_nesting ||
+                        get(n.style, PropertyId::Transform, "none").find("perspective(") != std::string::npos) {
+                        throw std::invalid_argument("anchored element in a perspective plane");
+                    }
+                    const auto* anchor = scene_anchor_resolve(anchors, n.identity, *n.anchoring, &out.placed);
+                    const auto local = matrix(n, true);
+                    const auto map = scene_anchor_map(*n.anchoring, anchor, {n.box[2], n.box[3]}, view,
+                                                      {local[0], local[1], local[2], local[3], local[4], local[5]});
+                    if (!map) {
+                        return;
+                    }
+                    parent = {float((*map)[0]), float((*map)[1]), float((*map)[2]),
+                              float((*map)[3]), float((*map)[4]), float((*map)[5])};
+                    clip = view_clip;
+                    chain = {};
+                }
                 // An inline element in lines: its box a fragment at a time, then its text and children.
                 if (!n.fragments.empty()) {
                     for (const auto& box : scene_fragment_boxes(n)) {
@@ -818,7 +850,7 @@ namespace weft {
                     throw std::invalid_argument("SVG reference");
                 }
                 paint::Item item;
-                item.transform = multiply(parent, matrix(n));
+                item.transform = multiply(parent, matrix(n, bool(n.anchoring)));
                 item.clip = clip;
                 item.clips_begin = chain.begin;
                 item.clips_count = chain.count;
@@ -886,10 +918,13 @@ namespace weft {
                                                n.paint->values[constants::scene::paint_slot_opacity]->scalar.relative),
                                          0.f, 1.f);
                 }
+                // A layer image holds its subtree in place: an anchored descendant moves on its own, so such a node
+                // draws in the pass.
                 if (std::find(layers.begin(), layers.end(), n.identity) != layers.end() &&
-                    !shows_effect(shows_effect, n)) {
+                    !shows_effect(shows_effect, n) && !anchored_below(anchored_below, n)) {
                     auto source = std::make_shared<SceneNode>(n);
                     source->box[0] = source->box[1] = 0;
+                    source->anchoring.reset();
                     source->style.erase(PropertyId::Transform);
                     source->style.erase(PropertyId::Opacity);
                     source->attributes.erase("style");
@@ -935,6 +970,11 @@ namespace weft {
                 if (!isolated) {
                     item.opacity = opacity;
                 }
+                // A group's composite takes the element's clips, which its items take anyway; anchored descendants
+                // lie beyond them, so a group holding one composites over the root's box.
+                const bool group_anchored = isolated && anchored_below(anchored_below, n);
+                const auto group_clip = group_anchored ? view_clip : clip;
+                const auto group_chain = group_anchored ? Chain{} : chain;
                 if (isolated) {
                     if (++groups > constants::scene::max_opacity_group_depth) {
                         throw std::invalid_argument("opacity depth bound");
@@ -942,9 +982,9 @@ namespace weft {
                     paint::Item g;
                     g.kind = paint::Item::Kind::BeginGroup;
                     g.opacity = opacity;
-                    g.clip = clip;
-                    g.clips_begin = chain.begin;
-                    g.clips_count = chain.count;
+                    g.clip = group_clip;
+                    g.clips_begin = group_chain.begin;
+                    g.clips_count = group_chain.count;
                     list.items.push_back(g);
                 }
                 if (backdrop && !backdrop_group) {
@@ -1169,13 +1209,22 @@ namespace weft {
                 for (std::size_t i = 0; !svg_root && i < n.children.size(); ++i) {
                     order.push_back(i);
                 }
+                const auto z = [&](std::size_t i) {
+                    auto v = get(n.children[i].style, PropertyId::ZIndex, "0");
+                    return v == "auto" ? 0 : number(v);
+                };
                 std::stable_sort(order.begin(), order.end(), [&](auto a, auto b) {
-                    auto z = [&](auto i) {
-                        auto v = get(n.children[i].style, PropertyId::ZIndex, "0");
-                        return v == "auto" ? 0 : number(v);
-                    };
                     return z(a) < z(b);
                 });
+                if (std::any_of(n.children.begin(), n.children.end(), [](const SceneNode& c) {
+                        return bool(c.anchoring);
+                    })) {
+                    scene_anchor_order(order, z, [&](std::size_t i) -> std::optional<float> {
+                        const auto& c = n.children[i];
+                        const auto* a = c.anchoring ? scene_anchor_resolve(anchors, c.identity, *c.anchoring) : nullptr;
+                        return a ? std::optional<float>(a->depth) : std::nullopt;
+                    });
+                }
                 for (auto i : order) {
                     self(self, n.children[i], item.transform, clip, chain);
                 }
@@ -1186,9 +1235,9 @@ namespace weft {
                     paint::Item g;
                     g.kind = paint::Item::Kind::EndGroup;
                     g.opacity = opacity;
-                    g.clip = item.clip;
-                    g.clips_begin = item.clips_begin;
-                    g.clips_count = item.clips_count;
+                    g.clip = group_clip;
+                    g.clips_begin = group_chain.begin;
+                    g.clips_count = group_chain.count;
                     list.items.push_back(g);
                     --groups;
                 }
@@ -1197,11 +1246,14 @@ namespace weft {
             if (list.items.size() > constants::scene::max_display_list_items) {
                 throw std::invalid_argument("native command bound");
             }
+            scene_anchor_sort(out.placed);
         } catch (const std::invalid_argument& e) {
             list = {};
+            out.placed.clear();
             out.fallback = e.what();
         } catch (const std::out_of_range& e) {
             list = {};
+            out.placed.clear();
             out.fallback = e.what();
         }
         return out;
