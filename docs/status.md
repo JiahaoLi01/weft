@@ -10,10 +10,74 @@
   - 剩下的（两个场景分开采样）：K 线主要是虚线十字线每帧重新光栅化（约 32%）与它们的大纹理（约 10%），画成一串盒子估计省约 40%；散点图是刻度文字的字形轮廓随平移重画（约 41%）与属性变了的元素重新解析（显示列表约 50%），路径按形状与亚像素位置缓存估计省约 35%，只重新解析变了的属性约 15%；SVG 值缓存的逐项校验只占 2–7%；
   - 半透明窗口（11.5c，4K）：32 个窗口时 owner 约 2 ms、渲染 CPU 2.3–2.9 ms，随窗口里的元素数增长，三种窗口相近；背景拷贝本身 GPU 约 0.5–0.8 ms；
   - 低优先级，暂不做。
-- **与引擎通信**（2026-10-14 起，第 13 步，[计划](refactoring-plan.md#第-13-步计划2026-10-14与引擎通信)，[技术路线](engine-communication.md)）：血条这类每帧变位置的元素不靠每帧推 JSON（锚点在渲染线程取最新值），双向事件、带 Promise 的引擎调用与视图模型，C ABI 与 CRPG UI 的兼容层。基线：200 个血条每帧约 13 ms，页面自己算出同样的值（零传输）也一样慢，瓶颈在逐个改 DOM 之后的样式、布局与场景更新。13.1 已完成（2026-10-14）：400 个名牌只移动时 UI 线程每帧约 0.005 ms、渲染 CPU 约 0.02–0.04 ms（推 JSON 时分别约 23 ms 与 4 ms）。13.2 已完成（2026-10-14）：带类型的值、双向事件、调用与 Promise、同步函数、视图模型与 CRPG 兼容层；每秒约 1,000 个 10 KB 的事件时 UI 线程每帧 0.79 ms（CRPG 的拼脚本求值约 4.5 ms）。13.3 已完成（[计划](refactoring-plan.md#第-13-步记录2026-10-14)）：13.3a 对外 View 与它的 C ABI、13.3b 渲染 C ABI 接 View 的帧与模拟引擎的宿主样例（2026-10-14），13.3c 页面显示引擎的纹理（2026-10-15，用户提出，如 UE 的 render target）。接下来 13.4 CRPG 浮动 UI，13.5 增量管线。
+- **与引擎通信**（2026-10-14 起，第 13 步，[计划](refactoring-plan.md#第-13-步计划2026-10-14与引擎通信)，[技术路线](engine-communication.md)）：血条这类每帧变位置的元素不靠每帧推 JSON（锚点在渲染线程取最新值），双向事件、带 Promise 的引擎调用与视图模型，C ABI 与 CRPG UI 的兼容层。基线：200 个血条每帧约 13 ms，页面自己算出同样的值（零传输）也一样慢，瓶颈在逐个改 DOM 之后的样式、布局与场景更新。13.1 已完成（2026-10-14）：400 个名牌只移动时 UI 线程每帧约 0.005 ms、渲染 CPU 约 0.02–0.04 ms（推 JSON 时分别约 23 ms 与 4 ms）。13.2 已完成（2026-10-14）：带类型的值、双向事件、调用与 Promise、同步函数、视图模型与 CRPG 兼容层；每秒约 1,000 个 10 KB 的事件时 UI 线程每帧 0.79 ms（CRPG 的拼脚本求值约 4.5 ms）。13.3 已完成（[计划](refactoring-plan.md#第-13-步记录2026-10-14)）：13.3a 对外 View 与它的 C ABI、13.3b 渲染 C ABI 接 View 的帧与模拟引擎的宿主样例（2026-10-14），13.3c 页面显示引擎的纹理（2026-10-15，用户提出，如 UE 的 render target）。13.4 已完成（2026-10-15）：CRPG 原样的浮动 UI 跑在 scene 上，200 个单位时锚点方式的 UI 线程每帧 p50 29 ms、推 JSON 191 ms（剩下的是动画每帧改 DOM 后按整个文档的计算，13.5）。接下来是引擎纹理的五项限制（下一条），然后 13.5 增量管线。
+- **引擎纹理的限制**（13.3c 之后，用户 2026-10-15 定为中优先级）：
+  - 纹理总是拉伸铺满元素的边框盒：`background-size`、`background-position`、`background-repeat` 不支持；
+  - 只接受线性预乘的 UNORM 或浮点视图：sRGB 视图与 mipmap 不支持；
+  - 文档页面不支持 `-weft-texture()`，D2D 参考光栅不画（报错）；
+  - Vulkan 后端无法检查绑定的纹理是否就是目标本身（D3D11 会拒绝），由宿主保证；
+  - 同设备、同队列：跨设备、跨图形 API 的共享没有实现；UE 默认的 D3D12 要等 M5 的 RHI 后端。
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
+
+重构第 13 步之四：CRPG 浮动 UI（2026-10-15），13.4 完成。详见 [重构计划](refactoring-plan.md#第-13-步记录2026-10-14)、[与引擎通信](engine-communication.md#13-性能目标与测量方法) 与 [兼容表](compatibility.md)。
+- **13.4a：原样组件所需的 CSS**：CRPG 的 `FloatingUIOverlay`、`HealthBar`、`DamageNumber`、`AbnormalFlagFloating` 不改一行跑在 scene 上，补齐它们用到而 scene 不支持的：
+  - `text-overflow: ellipsis`（按 Blink 截断行，省略号用块的字体与颜色，几何不变；flex 容器直接包含的文字不截断，同 Chrome）；
+  - `text-shadow`（多层，σ = 模糊半径的一半，每行文字的覆盖率模糊后着色，按内容缓存）；
+  - svg 根上的 `filter: drop-shadow()`（svg 的路径与形状合成一张覆盖率，偏移、模糊、着色，画在下面；锚点元素只准备一次）；
+  - `box-shadow` 的 `inset`（背景之上、边框之下）；
+  - `radial-gradient()` 的形状、尺寸与位置（默认形状由圆改为标准的椭圆），`repeating-linear-gradient()` 与 `repeating-radial-gradient()`，`to <边>`；原生 pass 与 D2D 参考共用一份解析；
+  - em 与 rem（计算值阶段换成 px）、`inset` 一到四个值、绝对定位盒子的 `calc(百分比 ± 长度)` inset、`transform-origin` 的关键字、零深度的 `translate3d()` 与 `translateZ()`；
+  - 范围外的写法（HTML 元素的 `filter`、其他滤镜函数、椭圆内圆角里的内阴影、非绝对定位的 calc inset 等）给诊断或整帧回退，见兼容表。
+- **13.4b：锚点对比推 JSON**：新基准 `weft_floating_benchmark`。同一场模拟战斗（单位移动、离开屏幕或可见范围；每 12 帧两个伤害数字，每 45 帧一个状态标记；减血、躺下与复活，危急时脉动），两种方式驱动原样的组件：
+  - 推 JSON：原样的 `FloatingUIOverlay`，引擎每帧经 CRPG 兼容层推整批实例；
+  - 锚点：同样的实例组件与外层包装（`examples/crpg-gallery/src/floating/AnchoredFloatingUIOverlay.tsx`），跟随引擎每帧写的锚点，实例的出现、消失走事件，字段走视图模型；
+  - 结果（RTX 5090 + 9950X3D，固定 CCD0，Release，2560 × 1440 的游戏上缩放 2 的 UI，每档 600 帧，三次运行的中位数）：
+
+    | 单位 | View 推进 p50 / p99（推 JSON → 锚点） | 引擎的工作 p50 | 渲染 CPU p50 | VM 峰值 |
+    | --- | --- | --- | --- | --- |
+    | 12 | 23.8 / 41.0 → 4.75 / 13.6 ms | 0.091 → 0.004 ms | 2.25 → 1.64 ms | 17.5 → 15.2 MiB |
+    | 50 | 55.8 / 103 → 8.53 / 23.5 ms | 0.175 → 0.008 ms | 4.98 → 3.98 ms | 30.6 → 28.0 MiB |
+    | 200 | 191 / 336 → 29.3 / 63.4 ms | 0.479 → 0.021 ms | 14.4 → 14.6 ms | 79.1 → 64.1 MiB |
+
+  - 锚点方式剩下的开销：伤害数字、状态标记与危急血条的 framer-motion 动画每帧改 DOM，样式、布局与场景按整个文档重算，渲染线程每帧重新准备整个 pass。这是 13.5 增量管线的事。GPU 两种方式相同（200 个单位 p50 约 1.6 ms）；
+  - 测出来、已处理的问题：
+    - framer-motion 12.38 的 AnimatePresence 要等全部退场结束才一起移除离开的实例。每 0.1 s 一次命中时退场一直重叠，伤害数字一个也离不开文档，节点与内存随战斗增长。这是库的规则，与运行时无关，浏览器里一样；基准改为成批命中。CRPG 页面在密集战斗里会这样，需要时让实例各自退场；
+    - 200 个单位超出 VM 的 64 MiB 与文档的 2,048 个节点：上限改为 256 MiB 与 16,384 个。View 的故障消息原来只说 `interrupted`，现在写明是 VM 内存上限还是执行预算；
+    - 交付引擎的输入时页面的时钟还停在上一帧，处理函数里开始的动画比任务、rAF 里开始的早一帧。`View::advance` 现在先把时钟推到这一帧（`ScriptDom::advance_clock`）；
+    - 锚点页面的写法：一次交付的事件合成一次发布（`setTimeout(0)`），实例用 `memo`，AnimatePresence 关掉 `presenceAffectsLayout`。不这样做时，200 个单位有事件的帧约 600 ms，p99 约 190 ms。
+- **验证**：
+  - 新测试 `scene_paint_reference`：Chrome 155 截图对照 11 个用例（省略号的几种排版、文字阴影、名牌、发光、四种 svg 图标与形状的投影、血条与危急框的内阴影、几种内阴影、各种径向渐变、重复渐变、calc 与 transform-origin），原生 D3D11 WARP 与 D2D 参考光栅各自比较：
+    - 形状、阴影、渐变与布局 5 × 5 平均后最大差 0–12 级；
+    - 文字的截断位置、省略号颜色与阴影层序与 Chrome 相同，平均差不超过 2.3 级（差异来自字形光栅）；
+    - Vulkan（本机设备）与 D3D11 WARP 至多差 2 级；
+  - 新测试 `scene_floating_css_contract`：渐变、阴影、滤镜的解析与诊断，内阴影的像素，变换，em、rem 与 calc 的布局，省略号的行，路径阴影与文字阴影的条目，列表校验；
+  - 新测试 `floating_benchmark_quick`（WARP，12 个单位，150 帧战斗加 240 帧安静期）：
+    - 两种方式画面一致，差异只在锚点方式由 GPU 重采样的 svg 图标上（图标大小的区域，墨迹质心偏移不超过半个像素，各通道墨量差不超过覆盖率的 10%）；
+    - 锚点方式在安静期不发布帧；
+    - 离开的实例在战斗中至多 5 个，安静期后为零；
+    - 没有页面诊断；
+  - `view_contract`：交付时的时钟；`script_dom_lifecycle`：故障消息里的上限（捕获后继续运行、超过上限的重新分配、重置后不带旧原因）；
+  - 变异：13.4a 的 40 个与 13.4b 的 7 个全部被发现。第一轮存活 3 个：
+    - 内阴影洞的圆角没有缩小：补了契约反例与 Chrome 用例；
+    - 内阴影画在边框之上：这个变异写错了，改正后被发现；
+    - 超过上限的重新分配：测试的缓冲在 QuickJS 的 arena 里，增长不走重新分配，改为从 1 MiB 起增长；
+  - `ctest`：Release 163/163，Debug 163/163（新增 3 个）；产物与 12.3 基线相比：已知按时序变化的套件、13.1b 的图层复用数与 13.2 的 VM 峰值之外，径向渐变换了着色器算法，glass-page 的 9 张与 css-03 的 3 张图各有 2–7 个像素差 1 级，其他画面不变；Android 零警告。
+  - 命令与产物：
+    - 测试：`ctest --preset windows-release --parallel 6 --output-on-failure`（与 `windows-debug`）；
+    - 产物对比：`python -I tools/compare_artifacts.py build/step12-3-baseline build/windows-msvc/artifacts`；
+    - 基准：`build/windows-msvc/bin/Release/weft_floating_benchmark.exe --full <dir>`，结果在 `<dir>/floating.json` 与两种方式的截图；
+    - 页面：`node tools/build_floating_page.mjs` 与 `python -I tools/compile_gallery_cluster_styles.py`；
+    - Chrome 截图：`node tools/browser_scene_paint_reference.mjs`。
+- **限制**：
+  - 200 个单位时锚点方式的 View 推进 p50 仍约 29 ms，超过 60 Hz 的预算：动画每帧改 DOM 后按整个文档计算（13.5）；
+  - 锚点方式的 p99 有 QuickJS 的循环回收（约 60 MiB 的堆，一次约 100 ms）；
+  - 锚点元素里的 svg 图标由 GPU 重采样，与就地栅格化相比边缘差几级；
+  - 伤害数字没有用元素池（实例组件原样）；
+  - 文字阴影只做 CPU 模糊；HTML 元素的 `filter` 不支持；
+  - 只在本机 RTX 5090 上测过，没有 Android 真机数据。
+- **下一步**：13.3c 的五项纹理限制（用户 2026-10-15 定为中优先级，接在 13.4 之后），再做 13.5 增量管线。
 
 重构第 13 步之三（c）：页面显示引擎的纹理（2026-10-15），13.3 完成。详见 [重构计划](refactoring-plan.md#第-13-步记录2026-10-14) 与 [与引擎通信](engine-communication.md#8-对外-view133)。
 - **结果**：

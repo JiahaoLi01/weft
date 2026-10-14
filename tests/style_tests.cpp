@@ -370,24 +370,26 @@ namespace {
         }
         {
             Page p;
-            // html, body, a container and 2000 items: 2003 of 2048 nodes.
+            // html, body, a container and its items: 45 nodes under the bound.
+            const int items = constants::max_document_nodes - 48;
             auto& container = p.element("div");
             p.tree.insert(*p.body, container, nullptr);
-            for (int i = 0; i < 2000; ++i) {
+            for (int i = 0; i < items; ++i) {
                 p.tree.insert(container, p.element("i"), nullptr);
             }
             StyleInput input;
             styles.refresh_input(p.tree.snapshot(*p.html), input);
-            require(input.root()->nodes == 2003, "subtree node count");
+            require(input.root()->nodes == std::uint32_t(items + 3), "subtree node count");
             const auto valid = *input.root();
-            // 46 more nodes outside the container, whose 2001 the input skips.
+            // 46 more nodes outside the container (whose nodes the input skips): one over the bound.
             for (int i = 0; i < 46; ++i) {
                 p.tree.insert(*p.body, p.element("b"), nullptr);
             }
             require(rejected_bounds(styles, p.tree.snapshot(*p.html), input) && *input.root() == valid,
                     "skipped subtree node count");
             p.tree.detach(p.tree.at(p.body->children.back()));
-            require(styles.refresh_input(p.tree.snapshot(*p.html), input) && input.root()->nodes == 2048,
+            require(styles.refresh_input(p.tree.snapshot(*p.html), input) &&
+                        input.root()->nodes == std::uint32_t(constants::max_document_nodes),
                     "a document at the node bound");
         }
     }
@@ -452,13 +454,30 @@ int main(int argc, char** argv) {
         root.children[0].attributes["style"] = "--n:16px;display:var(--n);height:24px";
         require(compute_style(root, "", profile).children[0].values.at("display") == "inline",
                 "keyword type invalid at computed time");
-        for (const auto* declaration : {"--x:1em;width:var(--x)", "--x:blue;color:var(--x)", "--x:revert",
-                                        "--x:var(--missing,revert-layer)", "--x:10px 20px;inset:var(--x)"}) {
+        for (const auto* declaration :
+             {"--x:1em;width:var(--x)", "--x:blue;color:var(--x)", "--x:revert", "--x:var(--missing,revert-layer)"}) {
             root.children[0].attributes["style"] = declaration;
             rejects([&] {
                 compute_style(root, "", profile);
             });
         }
+        // inset is a box shorthand: one to four lengths, top, right, bottom, left, through var() too.
+        for (const auto& [declaration, sides] : std::vector<std::pair<std::string, std::array<std::string, 4>>>{
+                 {"position:absolute;inset:-2px -22px", {"-2px", "-22px", "-2px", "-22px"}},
+                 {"position:absolute;inset:1px 2px 3px", {"1px", "2px", "3px", "2px"}},
+                 {"position:absolute;inset:1px 2px 3px 4px", {"1px", "2px", "3px", "4px"}},
+                 {"position:absolute;--x:10px 20px;inset:var(--x)", {"10px", "20px", "10px", "20px"}}}) {
+            root.children[0].attributes["style"] = declaration;
+            const auto computed = compute_style(root, "", profile);
+            const auto& values = computed.children[0].values;
+            require(values.at("top") == sides[0] && values.at("right") == sides[1] && values.at("bottom") == sides[2] &&
+                        values.at("left") == sides[3],
+                    "inset of " + declaration);
+        }
+        root.children[0].attributes["style"] = "position:absolute;inset:1px 2px 3px 4px 5px";
+        rejects([&] {
+            compute_style(root, "", profile);
+        });
         root.children[0].attributes["style"] = "--text:'!important; a,b';height:24px";
         require(compute_style(root, "", profile).children[0].custom_properties.at("--text") == "'!important; a,b'",
                 "quoted importance and separators remain tokens");

@@ -132,6 +132,26 @@ namespace {
         require(json(f.view.take_messages().at(0).value) == R"({"title":"Battle"})", "a function after a load");
     }
 
+    // A frame's engine input sees the frame's time, as its tasks and animation callbacks do (an animation a handler
+    // starts begins at the frame, not at the one before).
+    void frame_time() {
+        Fixture f;
+        f.view.load(inline_page(R"JS(
+            globalThis.seen = [];
+            weft.engine.model('m').subscribe(() => { seen.push('model ' + performance.now()); });
+            weft.engine.on('tick', () => {
+              seen.push('event ' + performance.now());
+              requestAnimationFrame(time => { seen.push('frame ' + time); });
+            });
+          )JS"));
+        f.view.advance(10);
+        f.engine().set_model_json("m", R"({"a":1})");
+        f.engine().emit_json("tick", "{}");
+        f.view.advance(26.5);
+        const auto seen = f.view.script().eval("seen.join(', ')");
+        require(seen == "model 26.5, event 26.5, frame 26.5", "the engine's input of a frame reads its time: " + seen);
+    }
+
     void events_and_models() {
         Fixture f;
         f.view.load(hud_page());
@@ -421,6 +441,7 @@ int main() {
             throw std::runtime_error("COM");
         }
         loads();
+        frame_time();
         events_and_models();
         hits_and_pointer();
         diagnostics();

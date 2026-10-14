@@ -89,6 +89,43 @@ namespace weft::render {
             return vector::mask_bounds(list.paths[item.payload], device, bounds);
         }
 
+        // The device pixels a path shadow's coverage covers: its box under the item's map at scale, rounded out, within
+        // its clip (and the target, unless an anchor moves it).
+        std::array<std::int32_t, 4> shadow_mask(const paint::Item& item, const paint::ClipRect& clip, float scale,
+                                                unsigned w, unsigned h) {
+            const auto& m = item.transform;
+            double left = scene_limits::record_bounds_sentinel;
+            double top = scene_limits::record_bounds_sentinel;
+            double right = -left;
+            double bottom = -top;
+            for (const auto& [x, y] : std::array<std::array<double, 2>, 4>{
+                     {{0, 0}, {item.width, 0}, {0, item.height}, {item.width, item.height}}}) {
+                const double px = (m[0] * x + m[2] * y + m[4]) * scale;
+                const double py = (m[1] * x + m[3] * y + m[5]) * scale;
+                left = std::min(left, px);
+                top = std::min(top, py);
+                right = std::max(right, px);
+                bottom = std::max(bottom, py);
+            }
+            const auto edge = [](double v, bool up) {
+                const double d = up ? std::ceil(v) : std::floor(v);
+                return std::int32_t(std::clamp(d, -double(1 << 24), double(1 << 24)));
+            };
+            const bool target = !item.anchor;
+            std::array<std::int32_t, 4> out{std::max(edge(left, false), edge(clip[0] * scale, false)),
+                                            std::max(edge(top, false), edge(clip[1] * scale, false)),
+                                            std::min(edge(right, true), edge(clip[2] * scale, true)),
+                                            std::min(edge(bottom, true), edge(clip[3] * scale, true))};
+            if (target) {
+                out = {std::max(0, out[0]), std::max(0, out[1]), std::min(std::int32_t(w), out[2]),
+                       std::min(std::int32_t(h), out[3])};
+            }
+            if (out[2] <= out[0] || out[3] <= out[1]) {
+                return {};
+            }
+            return out;
+        }
+
         // The map from a plane's content image (in CSS px, the content image_margin px in) to target px: the plane's
         // homography after the shift by the margin.
         geometry::Plane plane_map(const paint::Plane& plane) {
@@ -175,7 +212,8 @@ namespace weft::render {
                            float scale, unsigned w, unsigned h, Space space, const std::array<std::int32_t, 4>& mask) {
             auto m = item.transform;
             const bool image = item.kind == Kind::Text || item.kind == Kind::Layer || item.kind == Kind::Image ||
-                               item.kind == Kind::Shadow || item.kind == Kind::Path || item.kind == Kind::Effect;
+                               item.kind == Kind::Shadow || item.kind == Kind::Path || item.kind == Kind::Effect ||
+                               item.kind == Kind::PathShadow;
             SceneRecord r{};
             r.uv = {0, 0, 1, 1};
             r.clips = {float(item.clips_begin), float(item.clips_count), float(item.anchor), 0};
@@ -196,6 +234,11 @@ namespace weft::render {
                 }
                 r.tile = g.tile;
                 r.extra[0] = g.angle;
+                // A radial gradient's ending shape takes the image's fields, which a box does not sample.
+                if (g.kind == paint::GradientKind::Radial) {
+                    r.uv = g.shape;
+                }
+                r.mode[1] = g.repeating ? scene_limits::flag_enabled : scene_limits::flag_disabled;
                 for (unsigned i = 0; i < g.stops.size(); ++i) {
                     r.stops[i] = in(space, g.stops[i].color);
                     r.offsets[i / scene_limits::stops_per_offset_vector][i % scene_limits::stops_per_offset_vector] =
@@ -221,6 +264,10 @@ namespace weft::render {
             } else if (item.kind == Kind::Path) {
                 // Coverage, a byte per texel, tinted with the path's color.
                 r.background = in(space, list.paths[item.payload].color);
+                r.extra[3] = scene_limits::flag_enabled;
+            } else if (item.kind == Kind::PathShadow) {
+                // Coverage, a byte per texel, tinted with the shadow's color.
+                r.background = in(space, list.path_shadows[item.payload].color);
                 r.extra[3] = scene_limits::flag_enabled;
             } else if (item.kind == Kind::Effect) {
                 // The time and the parameters as the program's function reads them, unconverted; the corners shape the
@@ -298,7 +345,7 @@ namespace weft::render {
                 m[5] -= margin * (m[1] + m[3]);
                 r.size[0] += 2 * margin;
                 r.size[1] += 2 * margin;
-            } else if (item.kind == Kind::Path) {
+            } else if (item.kind == Kind::Path || item.kind == Kind::PathShadow) {
                 // The mask lies in device pixels, texel for pixel.
                 m = {1, 0, 0, 1, mask[0] / scale, mask[1] / scale};
                 r.size[0] = float(mask[2] - mask[0]) / scale;
@@ -410,8 +457,9 @@ namespace weft::render {
                 clip = {std::max(clip[0], (*crop)[0]), std::max(clip[1], (*crop)[1]), std::min(clip[2], (*crop)[2]),
                         std::min(clip[3], (*crop)[3])};
             }
-            pass.masks.push_back(item.kind == Kind::Path ? path_mask(list, item, clip, scale, width, height)
-                                                         : std::array<std::int32_t, 4>{});
+            pass.masks.push_back(item.kind == Kind::Path         ? path_mask(list, item, clip, scale, width, height)
+                                 : item.kind == Kind::PathShadow ? shadow_mask(item, clip, scale, width, height)
+                                                                 : std::array<std::int32_t, 4>{});
             if (item.kind == Kind::Plane) {
                 auto r = plane_record(list.planes[item.payload], item, clip, scale);
                 if (!r) {
@@ -442,6 +490,7 @@ namespace weft::render {
                 case Kind::Layer:
                 case Kind::Shadow:
                 case Kind::Path:
+                case Kind::PathShadow:
                 case Kind::Plane:
                     pass.batches.push_back({Step::Image, i++, 1});
                     break;

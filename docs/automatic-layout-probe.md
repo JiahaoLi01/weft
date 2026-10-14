@@ -16,7 +16,7 @@ margin/padding/border-width 的 1–4 值 shorthand 在公共 cascade 中展开�
 
 absolute 支持 auto content sizing、px/% 和 `calc(percent +/- px)`。calc 在 containing-block 祖先依赖上全量重算，最多 16 轮/16,384 node-pass；超限诊断。矩形 overflow:hidden、NineSlice 图片 crop UV 和直接 isolated parent 下的有界 z-index沿用 paint 合同。没有通用 hit-test、滚动、圆角、transform、opacity group 或 HTML parser。
 
-树最多 2,048 节点、深度 64，单叶文字 64 KiB、合计 1 MiB；每次行测量输入累计最多 1 MiB，viewport 1–4,096，坐标/尺寸另有有限值界限。没有缓存/增量/生产 atlas 或布局性能声明。规范基线为 [Flex automatic minimum size](https://www.w3.org/TR/css-flexbox-1/#min-size-auto) 和 [CSS2 absolute sizing](https://www.w3.org/TR/CSS2/visudet.html#abs-non-replaced-width)，具体证据仅覆盖下列 fixture。
+树最多 2,048 节点（13.4 起 16,384）、深度 64，单叶文字 64 KiB、合计 1 MiB；每次行测量输入累计最多 1 MiB，viewport 1–4,096，坐标/尺寸另有有限值界限。没有缓存/增量/生产 atlas 或布局性能声明。规范基线为 [Flex automatic minimum size](https://www.w3.org/TR/css-flexbox-1/#min-size-auto) 和 [CSS2 absolute sizing](https://www.w3.org/TR/CSS2/visudet.html#abs-non-replaced-width)，具体证据仅覆盖下列 fixture。
 
 ## Workload 与证据
 

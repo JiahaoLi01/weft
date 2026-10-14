@@ -77,7 +77,9 @@ namespace weft::constants::scene {
     // Scene display lists (scene_display_list.hpp).
     // Mirrors MaxGradientStops in src/render/shaders/scene.hlsl.
     inline constexpr int max_gradient_stops = 8;
-    inline constexpr int max_display_list_items = 2048;
+    // Items of one list: two per node of the largest document holds the CRPG floating UI of 400 units (its boxes,
+    // shadows, lines of text and their shadows).
+    inline constexpr int max_display_list_items = 2 * constants::max_document_nodes;
     // Deepest nesting of isolated opacity groups.
     inline constexpr int max_opacity_group_depth = 4;
     // UI particles a scene frame may draw at once, across its emissions (each at most

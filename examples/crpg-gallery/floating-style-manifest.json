@@ -1,0 +1,72 @@
+{
+  "format": "gallery-scene-styles-v1",
+  "compiler": "tools/compile_gallery_cluster_styles.py",
+  "root_font_px": 16,
+  "input_sha256": {
+    "examples/crpg-gallery/native/gallery.css": "f42c7851baffa4ad7d6c779fe1403cf46dd434cee7a1e7535b83da44f05364d9",
+    "tests/fixtures/crpg-gallery/UI/src/components/FloatingUIOverlay.tsx": "21c5c1832b7294b1db872601fdf19cc3466b6e2261fb63814289f9daa963d605",
+    "tests/fixtures/crpg-gallery/UI/src/components/floating-ui/AbnormalFlagFloating.tsx": "7d78c7555ad19feb09969f0a721195fce36dc5b182f191aef750590ff87bdf38",
+    "tests/fixtures/crpg-gallery/UI/src/components/floating-ui/DamageNumber.tsx": "37e36683363770c4519d7958f54e79e180ae6dbb7634eaddab1bc266ab9af1e9",
+    "tests/fixtures/crpg-gallery/UI/src/components/floating-ui/HealthBar.tsx": "b0e724b25e2d665aab89e990973ac494052e4de7ad0c3061a558d31cd3329777",
+    "tests/fixtures/crpg-gallery/UI/src/components/floating-ui/QuestMarker.tsx": "57dc6b07cfe541fae04e8b6eba327385d73719b320bc1e7ced89822f7f815678",
+    "examples/crpg-gallery/src/floating/AnchoredFloatingUIOverlay.tsx": "fbae4ba03ae4b42c16e28ddf8688274358221414408445c18952af11d89f1480",
+    "tools/compile_gallery_cluster_styles.py": "7c6112ab3c42be12de2d29093cf0b0809bc2b26d25a4ac2009bacce5ab07220e"
+  },
+  "output_sha256": {
+    "examples/crpg-gallery/floating-utilities.css": "e08c4a1dfe8c9b3726219f7b9bba521583e4956a317c3f67e227fc71f40b74fd",
+    "examples/crpg-gallery/floating-keyframes.css": "df9e90954e562d1220014351310a642d7da84e02b8bc305758b6428438c09762"
+  },
+  "utility_count": 32,
+  "utilities": [
+    "absolute",
+    "bottom-0",
+    "flex",
+    "flex-col",
+    "gap-1",
+    "gap-1.5",
+    "inset-0",
+    "inset-x-0",
+    "items-center",
+    "justify-center",
+    "leading-none",
+    "left-0",
+    "mb-1",
+    "overflow-hidden",
+    "pointer-events-none",
+    "px-1",
+    "px-2",
+    "py-0.5",
+    "relative",
+    "right-0",
+    "rounded",
+    "rounded-full",
+    "select-none",
+    "shrink-0",
+    "size-4",
+    "size-5",
+    "size-7",
+    "text-gold-light",
+    "text-parchment",
+    "text-xs",
+    "top-0",
+    "truncate"
+  ],
+  "base_rules": [
+    "html, body, #root"
+  ],
+  "theme_fonts": {
+    "--font-default": "\"Cinzel Decorative\", \"EB Garamond\", \"Shippori Mincho\", \"LXGW NeoZhiSong Plus\", \"Noto Serif SC\", \"Times New Roman\", serif",
+    "--font-subtitle": "\"Cinzel Decorative\", \"EB Garamond\", \"Shippori Mincho\", \"LXGW NeoZhiSong Plus\", \"Noto Serif SC\", \"Times New Roman\", serif"
+  },
+  "renamed_base_rules": {
+    "html, :host": "html"
+  },
+  "inert_declarations": [
+    "html { -webkit-text-size-adjust: 100% }",
+    "html { tab-size: 4 }",
+    "html { font-feature-settings: normal }",
+    "html { font-variation-settings: normal }",
+    "html { -webkit-tap-highlight-color: transparent }"
+  ],
+  "adapter": "tokens of the page sources as Tailwind candidates; fixed theme/arithmetic/logical edges; fixed OKLCH quantized to sRGB, hover/active mouse conditions"
+}

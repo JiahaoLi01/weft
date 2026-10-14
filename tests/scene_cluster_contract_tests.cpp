@@ -94,9 +94,30 @@ int main() {
             require(top.x == 1 && top.y == 2 && top.blur == 3 && top.spread == 4 &&
                         top.color == weft::paint::Color{1, 0, 0, 1} && top.radii == std::array<float, 4>{8, 0, 0, 0},
                     "the first listed shadow is painted last");
-            n.style["box-shadow"] = "inset 0 0 4px #000000";
-            require(weft::scene_display_list(frame).fallback.find("outer shadow") != std::string::npos,
-                    "inset shadow must stay a visible fallback");
+            // An inset shadow lies over the background and under the border, of the padding box with its inner radii;
+            // the color may come first. Inside elliptical inner corners it stays a visible fallback.
+            n.style.erase("opacity");
+            n.style["box-shadow"] = "#000000 1px 2px 4px 3px inset";
+            for (const auto* side : {"top", "right", "bottom", "left"}) {
+                n.style[std::string("border-") + side + "-width"] = "2px";
+                n.style[std::string("border-") + side + "-color"] = "#00ff00";
+            }
+            const auto inset = weft::scene_display_list(frame);
+            const auto& listed = inset.list.items;
+            require(inset.fallback.empty() && listed.size() == 3 && listed[0].kind == Kind::Box &&
+                        listed[1].kind == Kind::Shadow && listed[2].kind == Kind::Box &&
+                        inset.list.boxes[listed[0].payload].widths == std::array<float, 4>{} &&
+                        inset.list.boxes[listed[2].payload].background[3] == 0,
+                    "an inset shadow over the background, under the border");
+            const auto& hollow = inset.list.shadows[listed[1].payload];
+            require(hollow.inset && hollow.x == 1 && hollow.y == 2 && hollow.blur == 4 && hollow.spread == 3 &&
+                        hollow.color == weft::paint::Color{0, 0, 0, 1} &&
+                        hollow.radii == std::array<float, 4>{6, 0, 0, 0} && listed[1].width == 56 &&
+                        listed[1].height == 36 && listed[1].transform[4] == 2 && listed[1].transform[5] == 2,
+                    "an inset shadow of the padding box and its inner radii");
+            n.style["border-left-width"] = "4px";
+            require(weft::scene_display_list(frame).fallback.find("elliptical") != std::string::npos,
+                    "an inset shadow inside elliptical corners must stay a visible fallback");
         }
         {
             // SVG content draws natively: the svg element's viewport maps user units into its box and clips to its

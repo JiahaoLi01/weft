@@ -72,15 +72,20 @@ namespace weft::scene_values {
         return *n;
     }
 
-    // Unitless numbers are accepted as px; em resolves against reference; calc() takes a + b.
+    // Unitless numbers are accepted as px; em resolves against reference; calc() takes a + b and a - b.
     inline float len(std::string_view input, float reference = 1) {
         const auto s = css::trim(input);
         if (s.starts_with("calc(")) {
-            const auto plus = s.find(" + ");
-            if (plus == s.npos) {
+            auto at = s.find(" + ");
+            float sign = 1;
+            if (at == s.npos) {
+                at = s.find(" - ");
+                sign = -1;
+            }
+            if (at == s.npos) {
                 fail("mixed length calc");
             }
-            return len(s.substr(5, plus - 5), reference) + len(s.substr(plus + 3, s.size() - plus - 4), reference);
+            return len(s.substr(5, at - 5), reference) + sign * len(s.substr(at + 3, s.size() - at - 4), reference);
         }
         const auto [digits, unit] = css::split_unit(s, {.px = true, .percent = true, .em = true});
         const float n = num(std::string(digits));
@@ -183,12 +188,21 @@ namespace weft::scene_values {
         return parse_css_color(css::expand_color_shorthand(text));
     }
 
-    // A w x h box's visible outer shadows in paint order, bottom first (CSS lists the topmost first), each with the
-    // box's specified radii. A layer is "x y [blur [spread]] color"; an inset layer, a missing length or color, more
-    // than max_box_shadow_layers layers, or a blur or spread past max_box_shadow_extent_px fails. Transparent shadows
-    // and shadows whose spread empties the box are left out.
-    inline std::vector<paint::Shadow> box_shadows(const Style& s, float w, float h, const std::array<float, 4>& radii) {
-        std::vector<paint::Shadow> out;
+    // A box-shadow layer and the box it shadows in the element's coordinates: an outer shadow's border box, an inset
+    // shadow's padding box.
+    struct BoxShadow {
+        paint::Shadow shadow;
+        std::array<float, 4> rect{};
+    };
+
+    // A w x h box's visible shadows in paint order, bottom first (CSS lists the topmost first): outer shadows of its
+    // border box with radii, inset ones of its padding box with its inner radii. A layer is "x y [blur [spread]]" with
+    // a color before or after the lengths (currentcolor without one) and inset first or last; fewer than two lengths
+    // or more than four, more than max_box_shadow_layers layers, a blur or spread past max_box_shadow_extent_px, or an
+    // inset shadow inside elliptical inner corners fails. Transparent shadows, outer shadows whose spread empties the
+    // box and inset shadows of an empty padding box are left out.
+    inline std::vector<BoxShadow> box_shadows(const Style& s, float w, float h, const std::array<float, 4>& radii) {
+        std::vector<BoxShadow> out;
         const auto value = get(s, PropertyId::BoxShadow, "none");
         if (value.empty() || value == "none") {
             return out;
@@ -197,31 +211,173 @@ namespace weft::scene_values {
         if (layers.size() > constants::scene::max_box_shadow_layers) {
             fail("shadow layer bound");
         }
+        const auto length = [](const std::string& t) {
+            return !t.empty() &&
+                   (std::isdigit(static_cast<unsigned char>(t[0])) || t[0] == '.' || t[0] == '-' || t[0] == '+');
+        };
         for (auto it = layers.rbegin(); it != layers.rend(); ++it) {
-            const auto parts = css::split(*it, ' ', {.quotes = false}).parts;
-            if (parts.size() < 3 || parts.size() > 5 || parts[0] == "inset") {
-                fail("outer shadow lengths and color required");
-            }
+            auto parts = css::split(*it, ' ', {.quotes = false}).parts;
             paint::Shadow shadow;
-            shadow.color = shadow_color(parts.back(), s);
+            if (!parts.empty() && (parts.front() == "inset" || parts.back() == "inset")) {
+                shadow.inset = true;
+                parts.erase(parts.front() == "inset" ? parts.begin() : parts.end() - 1);
+            }
+            std::string color = "currentcolor";
+            if (!parts.empty() && !length(parts.front())) {
+                color = parts.front();
+                parts.erase(parts.begin());
+            } else if (!parts.empty() && !length(parts.back())) {
+                color = parts.back();
+                parts.pop_back();
+            }
+            if (parts.size() < 2 || parts.size() > 4 || !std::all_of(parts.begin(), parts.end(), length)) {
+                fail("shadow lengths and color required");
+            }
+            shadow.color = shadow_color(color, s);
             if (shadow.color[3] == 0) {
                 continue;
             }
             shadow.x = len(parts[0]);
             shadow.y = len(parts[1]);
-            shadow.blur = parts.size() > 3 ? len(parts[2]) : 0;
-            shadow.spread = parts.size() > 4 ? len(parts[3]) : 0;
+            shadow.blur = parts.size() > 2 ? len(parts[2]) : 0;
+            shadow.spread = parts.size() > 3 ? len(parts[3]) : 0;
             if (shadow.blur < 0 || shadow.blur > constants::scene::max_box_shadow_extent_px ||
                 std::abs(shadow.spread) > constants::scene::max_box_shadow_extent_px) {
                 fail("shadow blur/spread bound");
+            }
+            if (shadow.inset) {
+                const auto padding = padding_box(s, w, h);
+                if (padding.rect[2] <= 0 || padding.rect[3] <= 0) {
+                    continue;
+                }
+                for (unsigned i = 0; i < 4; ++i) {
+                    if (padding.radius_x[i] != padding.radius_y[i]) {
+                        fail("inset shadow inside elliptical corners outside scene profile");
+                    }
+                }
+                shadow.radii = padding.radius_x;
+                out.push_back({shadow, padding.rect});
+                continue;
             }
             if (w + 2 * shadow.spread <= 0 || h + 2 * shadow.spread <= 0) {
                 continue;
             }
             shadow.radii = radii;
-            out.push_back(shadow);
+            out.push_back({shadow, {0, 0, w, h}});
         }
         return out;
+    }
+
+    // A text-shadow layer (CSS Text Decoration 3): its color, offset and blur radius, in px.
+    struct TextShadow {
+        paint::Color color{};
+        float x{};
+        float y{};
+        float blur{};
+    };
+
+    // An element's visible text shadows in paint order, bottom first (CSS lists the topmost first). A layer is "x y
+    // [blur]" with a color before or after the lengths (currentcolor without one); fewer than two lengths or more than
+    // three, more than max_box_shadow_layers layers, or a negative blur or one past max_box_shadow_extent_px fails.
+    // Transparent shadows are left out.
+    inline std::vector<TextShadow> text_shadows(const Style& s) {
+        std::vector<TextShadow> out;
+        const auto value = get(s, PropertyId::TextShadow, "none");
+        if (value.empty() || value == "none") {
+            return out;
+        }
+        const auto layers = css::split(value, ',', {.quotes = false}).parts;
+        if (layers.size() > constants::scene::max_box_shadow_layers) {
+            fail("text shadow layer bound");
+        }
+        const auto length = [](const std::string& t) {
+            return !t.empty() &&
+                   (std::isdigit(static_cast<unsigned char>(t[0])) || t[0] == '.' || t[0] == '-' || t[0] == '+');
+        };
+        for (auto it = layers.rbegin(); it != layers.rend(); ++it) {
+            auto parts = css::split(*it, ' ', {.quotes = false}).parts;
+            std::string color = "currentcolor";
+            if (!parts.empty() && !length(parts.front())) {
+                color = parts.front();
+                parts.erase(parts.begin());
+            } else if (!parts.empty() && !length(parts.back())) {
+                color = parts.back();
+                parts.pop_back();
+            }
+            if (parts.size() < 2 || parts.size() > 3 || !std::all_of(parts.begin(), parts.end(), length)) {
+                fail("text shadow lengths and color required");
+            }
+            TextShadow shadow;
+            shadow.color = shadow_color(color, s);
+            shadow.x = len(parts[0]);
+            shadow.y = len(parts[1]);
+            shadow.blur = parts.size() > 2 ? len(parts[2]) : 0;
+            if (!(shadow.blur >= 0) || shadow.blur > constants::scene::max_box_shadow_extent_px) {
+                fail("text shadow blur bound");
+            }
+            if (shadow.color[3] > 0) {
+                out.push_back(shadow);
+            }
+        }
+        return out;
+    }
+
+    // A drop shadow (Filter Effects 1, drop-shadow()): its color, offset and the standard deviation of its blur, in px.
+    struct DropShadow {
+        paint::Color color{};
+        float x{};
+        float y{};
+        float sigma{};
+    };
+
+    // The drop shadow an element's filter applies: none for none, or one drop-shadow() of "x y [deviation]" with a
+    // color before or after the lengths (currentcolor without one). Another filter function, more than one, fewer than
+    // two lengths or more than three, or a negative deviation or one past max_box_shadow_extent_px fails; a transparent
+    // shadow is none.
+    inline std::optional<DropShadow> drop_shadow(const Style& s) {
+        const auto value = css::trim(get(s, PropertyId::Filter, "none"));
+        if (value.empty() || value == "none") {
+            return std::nullopt;
+        }
+        const auto functions = css::split(value, ' ', {.quotes = false}).parts;
+        if (functions.size() != 1 || !functions[0].starts_with("drop-shadow(") || !functions[0].ends_with(')')) {
+            fail("filter " + value + " outside scene profile");
+        }
+        const auto& f = functions[0];
+        auto parts = css::split(std::string_view(f).substr(12, f.size() - 13), ' ', {.quotes = false}).parts;
+        const auto length = [](const std::string& t) {
+            return !t.empty() &&
+                   (std::isdigit(static_cast<unsigned char>(t[0])) || t[0] == '.' || t[0] == '-' || t[0] == '+');
+        };
+        std::string color = "currentcolor";
+        if (!parts.empty() && !length(parts.front())) {
+            color = parts.front();
+            parts.erase(parts.begin());
+        } else if (!parts.empty() && !length(parts.back())) {
+            color = parts.back();
+            parts.pop_back();
+        }
+        if (parts.size() < 2 || parts.size() > 3 || !std::all_of(parts.begin(), parts.end(), length)) {
+            fail("drop-shadow lengths and color required");
+        }
+        DropShadow out;
+        out.color = shadow_color(color, s);
+        out.x = len(parts[0]);
+        out.y = len(parts[1]);
+        out.sigma = parts.size() > 2 ? len(parts[2]) : 0;
+        if (!(out.sigma >= 0) || out.sigma > constants::scene::max_box_shadow_extent_px) {
+            fail("drop-shadow deviation bound");
+        }
+        if (out.color[3] <= 0) {
+            return std::nullopt;
+        }
+        return out;
+    }
+
+    // The standard deviation of a shadow's Gaussian for its blur radius, as CSS defines it for box-shadow and
+    // text-shadow: half the radius.
+    inline float shadow_sigma(float blur) {
+        return blur / 2;
     }
 
     // The rounded border box of a w x h box in its own coordinates, when a corner is rounded.

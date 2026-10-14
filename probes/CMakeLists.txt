@@ -190,6 +190,17 @@ if(WEFT_BUILD_TESTS)
     weft_add_test(NAME view_benchmark_quick
         COMMAND weft_view_benchmark --quick "${artifacts}/view-benchmark-$<CONFIG>" TIMEOUT 120)
 endif()
+# The CRPG floating UI driven by JSON batches and by anchors and events (docs/engine-communication.md, 13.4): the quick
+# run (WARP) checks that both draw alike, that the anchored page publishes no frames while only anchors move and that
+# instances that went leave the document; --full measures on this machine's GPU, by hand.
+if(WIN32)
+    weft_add_executable(weft_floating_benchmark SOURCES floating_benchmark.cpp
+        LINK weft::view weft::scene_d3d11 weft::platform_win32 d3d11 windowscodecs ole32 SOURCE_DIR LARGE_STACK)
+    if(WEFT_BUILD_TESTS)
+        weft_add_test(NAME floating_benchmark_quick
+            COMMAND weft_floating_benchmark --quick "${artifacts}/floating-benchmark-$<CONFIG>" TIMEOUT 600)
+    endif()
+endif()
 weft_add_executable(weft_bridge_benchmark SOURCES bridge_benchmark.cpp LINK weft::script)
 if(WEFT_BUILD_TESTS)
     weft_add_test(NAME bridge_benchmark_quick

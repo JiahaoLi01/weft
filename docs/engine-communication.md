@@ -234,7 +234,7 @@ weft_result weft_view_write_anchors(weft_runtime* runtime, weft_view_handle view
 
 ### 5.6 限制
 
-- M0 文档至多 2,048 个节点，每个名牌 4 个节点时至多约 500 个。超过需要先放宽文档上限（单独测量后再定）。
+- 文档至多 16,384 个节点（13.4 由 2,048 放宽）：每个名牌 4 个节点时约 4,000 个；CRPG 的浮动 UI 每个单位约 15 个节点（伤害数字与状态标记另算），200 个单位约 3,100 个。VM 的内存上限同时放宽到 256 MiB：200 个单位的浮动 UI 在 VM 里峰值约 64 MiB（锚点）到 79 MiB（推 JSON），几乎都是 React 与 framer-motion 的对象。
 - `clamp` 只贴边，不画指向锚点的箭头；箭头角度之后再加（第 14 节）。
 
 ## 6. 桥接
@@ -274,6 +274,8 @@ weft.engine.onAny((name, value) => { /* 路由层、兼容层用 */ });
 ```
 
 - 交付在推进开始的任务阶段，每个事件之后做一次微任务检查点；处理函数抛出的异常记诊断，不影响其他处理函数。
+- 交付之前页面的时钟（`performance.now()`）先推到这一帧的时间（13.4），处理函数、这一帧的任务与 rAF 读同一个时间：处理函数里开始的动画从这一帧算起。
+- React 页面：每个事件之后的检查点会让 `useSyncExternalStore` 的 store 每发布一次就渲染一次。一次交付有多个事件（或视图模型的批次）时，处理函数只改数据，用 `setTimeout(0)` 合并成一次发布：View 的帧先交付、再跑任务、再跑 rAF，所以一帧只渲染一次，而且在 framer-motion 等动画库的 rAF 之前。13.4 的锚点页面（`examples/crpg-gallery/src/floating/AnchoredFloatingUIOverlay.tsx`）这样做，每个实例再用 `memo`，只有新来的、字段变了的实例重新渲染；它的 AnimatePresence 关掉 `presenceAffectsLayout`（默认每次渲染给每个子元素新的 presence context，所有实例里的 framer-motion 组件都跟着重新渲染，`memo` 挡不住；200 个单位时有事件的帧因此约慢 3 倍）。
 - 队列有上限；满时 `weft_view_emit` 返回 `WEFT_CAPACITY_EXCEEDED`，不静默丢弃。
 - 实现（13.2）：`bridge::EngineChannel::emit`、`emit_json`（`latest` 替换同名的最后一个未交付事件的值，留在它原来的位置）；`ScriptDom::deliver_engine` 一次交付全部等待的内容：先是视图模型的批次，再按投递顺序交事件与调用的完成，每项之后一次微任务检查点，共用一个执行预算；返回交付的个数与处理函数的异常（每次至多 64 条，每条至多 512 个字符）。名字的处理函数先于 `onAny`；交付中途取消的处理函数不再被调用，新增的从下一个事件起生效。
 
@@ -394,7 +396,7 @@ const player = weft.engine.model('player');      // {value, subscribe}
 
 实现（13.3a，`src/view` 与 `include/weft/weft.h`）：
 - `weft::View` 把画廊会话收拢成通用的部件。加载（`weft_view_load`）换一个新的文档与 VM 状态，装平台模块 WebHost、AnimationFrame、ScenePlatform、Engine（`WEFT_PAGE_CRPG_BRIDGE` 时再装 CrpgBridge），设好 `innerWidth`、`innerHeight`、`devicePixelRatio`，再按序求值页面的脚本；页面的样式表、关键帧与场景根的选择器（缺省 `#root`）随页面给出。资源（图片、字体以外的文件）不经宿主回调：页面的脚本与样式由宿主读好交进来。
-- 推进（`weft_view_advance`）：取 owner 的锚点表，交付引擎的输入，跑任务、rAF、任务，把 DOM 的变化同步进场景，交付 ResizeObserver，再同步一次；场景内容变了（版本号变了）或 View 的大小、缩放变了才发布新的帧。页面抛出的异常、处理函数与 rAF 回调的异常、样式做不出场景都记成诊断（`weft_view_drain_diagnostics`），推进照常返回；做不出场景时保留上一帧。VM 资源耗尽使 View 进入 Faulted（`WEFT_FAULTED`），直到重新加载。
+- 推进（`weft_view_advance`）：取 owner 的锚点表，把页面的时钟推到这一帧的时间（13.4），交付引擎的输入，跑任务、rAF、任务，把 DOM 的变化同步进场景，交付 ResizeObserver，再同步一次；场景内容变了（版本号变了）或 View 的大小、缩放变了才发布新的帧。页面抛出的异常、处理函数与 rAF 回调的异常、样式做不出场景都记成诊断（`weft_view_drain_diagnostics`），推进照常返回；做不出场景时保留上一帧。VM 资源耗尽使 View 进入 Faulted（`WEFT_FAULTED`），直到重新加载。
 - 输入（`weft_view_pointer`）：移动、按下、抬起、滚轮、离开，按画廊的顺序合成 pointer 与 mouse 事件、over/out、enter/leave（随悬停元素变化）与 click（在按下的同一元素上抬起）；返回主事件的默认动作是否被阻止。键盘、IME 与手柄不在 13.3（手柄照 CRPG 的 `uiInput` 走桥的事件）。
 - 命中（`weft_view_hit_test`，取代草案的 `weft_view_hit_interactive`）：某点下最上层接收指针事件的元素是否是场景根以外的元素，以及它的 `cursor`（它或最近一个声明了 `cursor` 的祖先的值，没有时是 auto）。CRPG 现在按光标是否在可交互元素上把点击交给 UI，否则交给游戏的射线检测（`UUltralightWidget::NativeOnMouseButtonDown`），宿主可以照做。
 - 帧（`weft_view_acquire_frame`，任意线程）：引用计数的不可变帧，内容是场景树（不含元素几何）、View 的大小与缩放、布局用的字体目录与 View 的锚点通道；View 销毁后仍可用。渲染器经 `weft_renderer_prepare_scene` 画它（13.3b，见下文）。
@@ -468,7 +470,7 @@ void FWeftRenderer::Render(void* commands, void* target) {
 ## 11. 从 CRPG 的 Ultralight 桥迁移
 
 1. 引擎侧换后端：`CallUI` → `weft_view_emit`；`OnEvent` → 取消息；页面加载、推进、输入接到 View。页面代码经兼容层不改。
-2. 浮动 UI 改用锚点：`UWebUIFloatingManager` 在投影后写锚点数组，不再每 16 ms 推整份 JSON；视图模型字段（血量、名字、状态）变化时才发事件。`FloatingUIOverlay` 只在实例出现、消失时渲染，元素上写 `data-anchor={id}`；贴边策略用 `data-anchor-offscreen="clamp"`。
+2. 浮动 UI 改用锚点：`UWebUIFloatingManager` 在投影后写锚点数组，不再每 16 ms 推整份 JSON；视图模型字段（血量、名字、状态）变化时才发事件。`FloatingUIOverlay` 只在实例出现、消失时渲染，元素上写 `data-anchor={id}`；贴边策略用 `data-anchor-offscreen="clamp"`。13.4 的 `AnchoredFloatingUIOverlay`（`examples/crpg-gallery/src/floating`）是这样改写的样例：原样的实例组件与外层包装，实例的出现、消失走事件（`floating.spawn`、`floating.despawn`），字段走视图模型 `floating`。
 3. 请求-应答改用 `weft.engine.call`，成对的事件可以逐步替换。
 4. 缩放：CRPG 用 `<html>` 的 CSS `zoom`；Weft 目前不支持 `zoom`，改用 View 的逻辑尺寸与设备缩放（或之后实现 `zoom`，见第 14 节）。
 
@@ -499,16 +501,32 @@ void FWeftRenderer::Render(void* commands, void* target) {
 | 17 个事件 | 市场 10 KB | 4.49 / 4.82 / 6.07 ms | 0.79 / 0.90 / 1.12 ms | 0.78 / 0.88 / 1.07 ms |
 
   - 每秒约 1,000 个 10 KB 事件时 UI 线程约 5.7 倍快；10 KB 的 JSON 转 MessagePack 约 18 µs（在给出的线程上）；调用往返 1 帧。
+- 13.4 的测量（`weft_floating_benchmark --full`，同上的机器与固定方式，Release，系统字体，2560 × 1440 的游戏上缩放 2 的 UI，原生 D3D11 scene pass 画在 RTX 5090 上；每档 660 帧，去掉前 60 帧，三次运行的中位数）：CRPG 原样的浮动 UI（血条、伤害数字、状态标记）在同一场战斗里由两种方式驱动（见 12 节与 [重构计划](refactoring-plan.md#第-13-步记录2026-10-14)）。引擎的工作、View 的推进（UI 线程）、渲染的 CPU 与 GPU，毫秒：
+
+| 单位（节点） | 方式 | 引擎 p50 | 推进 p50 / p95 / p99 / 最慢 | 渲染 CPU p50 / p99 | GPU p50 / p99 | 首帧 | VM 峰值 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 12（385） | 推 JSON | 0.091 | 23.8 / 36.4 / 41.0 / 46.8 | 2.25 / 7.77 | 0.55 / 0.90 | 41 | 17.5 MiB |
+| 12 | 锚点 | 0.004 | 4.75 / 11.4 / 13.6 / 18.8 | 1.64 / 7.34 | 0.45 / 0.78 | 20 | 15.2 MiB |
+| 50（978） | 推 JSON | 0.175 | 55.8 / 87.7 / 103 / 128 | 4.98 / 10.6 | 0.79 / 1.16 | 84 | 30.6 MiB |
+| 50 | 锚点 | 0.008 | 8.53 / 17.3 / 23.5 / 36.5 | 3.98 / 9.72 | 0.64 / 0.97 | 85 | 28.0 MiB |
+| 200（3,130） | 推 JSON | 0.479 | 191 / 286 / 336 / 364 | 14.4 / 20.9 | 1.57 / 2.09 | 374 | 79.1 MiB |
+| 200 | 锚点 | 0.021 | 29.3 / 49.5 / 63.4 / 96.3 | 14.6 / 21.1 | 1.58 / 2.02 | 336 | 64.1 MiB |
+
+  - 推进 p50 快 5–6.5 倍，p99 快 3–5.3 倍；引擎一侧（拼 JSON 对写锚点、发事件）快 20 倍以上。加载页面约 30 ms。
+  - 锚点方式仍有一笔每帧的开销：伤害数字、状态标记与危急血条的 framer-motion 动画每帧改 DOM，样式、布局与场景按整个文档重算（200 个单位约 29 ms），渲染线程每帧重新准备整个 pass（约 14.5 ms，两种方式相同）。这是 13.5 的增量管线要解决的；只有锚点在动、没有动画时（安静期）锚点方式不发布新帧。
+  - 锚点方式的 p95、p99 是有事件的帧（新来的实例渲染、挂载）与 QuickJS 的循环回收（约 60 MiB 的堆，一次约 100 ms 以上）。
+  - 两种方式的画面在第 120、450 帧相同，差异只在锚点方式由 GPU 重采样的 svg 图标上（区域不超过 29 px，墨迹质心偏移不超过 0.28 px，各通道墨量差不超过覆盖率的 7.4%）。
 - 移动端：Android 真机尚未运行（[待办](status.md)），目标先按桌面定，真机数据出来后修订。
 
 ## 14. 风险与未决问题
 
 | 问题 | 处理 |
 | --- | --- |
-| 文档节点上限 2,048 | HUD 规模受限；单独测量后放宽 |
-| 锚点元素里的 SVG 路径随小数像素位移重画 | 优先用盒子与文字；或锚点平移对齐设备像素（可选属性） |
+| 文档节点上限 | 13.4 由 2,048 放宽到 16,384，VM 内存上限由 64 MiB 放宽到 256 MiB（200 个单位的浮动 UI 约 3,100 个节点、VM 峰值约 79 MiB） |
+| 锚点元素里的 SVG 路径 | 覆盖率按元素自身的缩放在原点画一次，GPU 按锚点的位置与缩放重采样，不随移动重画；与就地栅格化相比边缘差几级（13.4：差异区域不超过图标大小，墨迹质心偏移不超过 0.3 px）。要逐像素一致时优先用盒子与文字 |
 | CSS `zoom` 未实现 | 迁移期用 View 缩放；之后评估实现 `zoom` |
-| 伤害数字频繁生成与退场 | owner 上建、删元素仍有成本；13.4 测量，建议页面复用元素池；生成与退场的开销随 13.5 变成与改动相称 |
+| 伤害数字频繁生成与退场 | owner 上建、删元素仍有成本；生成与退场的开销随 13.5 变成与改动相称 |
+| 页面的退场动画（framer-motion 的 AnimatePresence） | 13.4：全部退场结束后才一起移除离开的实例。退场一直有重叠时（每 0.1 s 一个伤害数字，退场 0.15 s），离开的实例都留在文档里，React 每次都渲染它们，节点与内存随战斗增长；危急血条的脉动（无限重复）在退场时也无限重复，永不离开。这是库的规则，在浏览器里一样。页面应让实例各自退场（例如每个实例一个 AnimatePresence，退场结束后再从列表删去）；13.4 的基准把命中改成成批 |
 | 锚点元素不受祖先 overflow 裁剪 | 与 `position: fixed` 一致；需要被裁剪的跟随元素放进一个本身是锚点的容器里 |
 | 贴边时指向锚点的箭头 | 之后给子元素加 `data-anchor-arrow`，渲染线程按方向旋转 |
 | 点击穿透到游戏 | 13.3 的命中查询接口 |

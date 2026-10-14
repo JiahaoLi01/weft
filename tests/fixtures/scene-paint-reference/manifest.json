@@ -1,0 +1,94 @@
+{
+ "format": "weft-scene-paint-reference-v1",
+ "browser": "Chrome/155.0.8059.40",
+ "gpu": {
+  "devices": [
+   {
+    "name": "NVIDIA GeForce RTX 5090",
+    "driver": "32.0.16.1062"
+   },
+   {
+    "name": "AMD Radeon(TM) Graphics",
+    "driver": "32.0.21043.5001"
+   },
+   {
+    "name": "Microsoft Basic Render Driver",
+    "driver": "10.0.26100.9278"
+   }
+  ],
+  "features": {
+   "2d_canvas": "enabled",
+   "direct_rendering_display_compositor": "disabled_off_ok",
+   "gpu_compositing": "enabled",
+   "multiple_raster_threads": "enabled_on",
+   "opengl": "enabled_on",
+   "rasterization": "enabled",
+   "raw_draw": "disabled_off_ok",
+   "skia_graphite": "disabled_off",
+   "trees_in_viz": "disabled_off",
+   "video_decode": "enabled",
+   "video_encode": "enabled",
+   "webgl": "enabled",
+   "webgpu": "enabled",
+   "webnn": "disabled_off"
+  }
+ },
+ "cases_sha256": "52aefb3a4dbe650389a410c4d6b8d1fb27db3a4905e5f3663cb0c33fa7d66dd8",
+ "captures": [
+  {
+   "name": "ellipsis",
+   "scale": 2,
+   "sha256": "f4ad7d4e7521953513c4ee23acf21096224b45f266f918d9aa65b19d5fb4a5e1"
+  },
+  {
+   "name": "ellipsis-plate",
+   "scale": 2,
+   "sha256": "540e0bcbb88c50f23dc1552bc95d809357a7ccee2845083f7c53f448d5106c30"
+  },
+  {
+   "name": "text-shadow",
+   "scale": 2,
+   "sha256": "a63f8d1480715cf5cd2b9897f5f1593a96c69a0750b6d701692d9351176c1e47"
+  },
+  {
+   "name": "text-shadow-plate",
+   "scale": 2,
+   "sha256": "49756007c7e081a328fb4867830a994f9fc7e0350b441309597f701bedb1041b"
+  },
+  {
+   "name": "text-shadow-glow",
+   "scale": 1,
+   "sha256": "5deb5dfb740d4b3469e631498ae5508892a4ae5ba58a96724a158f38d6bfa613"
+  },
+  {
+   "name": "drop-shadow",
+   "scale": 2,
+   "sha256": "28ce8508a1c50abc3218b867e0ec3f33b6f11fbb7a62c0bc1fff2c3654ee5f8c"
+  },
+  {
+   "name": "inset-bar",
+   "scale": 2,
+   "sha256": "fd9fa4b71715b65cea2b6279567bf7de454993a083db62bd2303949526e8dff2"
+  },
+  {
+   "name": "inset-shapes",
+   "scale": 1,
+   "sha256": "825fa36d0539d728457b98f2ee00c00c10f6f5e96b1134ea307650e77fb1bf6c"
+  },
+  {
+   "name": "radial",
+   "scale": 1,
+   "sha256": "de15b62478c63fb998706fe175d3b77c4c0d01fbadebd2d9b457ada528201a78"
+  },
+  {
+   "name": "repeating",
+   "scale": 2,
+   "sha256": "61e57efa4bd299935538178de9e795590e1d239766bf621fbf1cca6a211aacde"
+  },
+  {
+   "name": "layout",
+   "scale": 1,
+   "sha256": "411c8563729b1603dab32cd48ef2071a6a59525ef9778318e2efea53e547ccfd"
+  }
+ ]
+}

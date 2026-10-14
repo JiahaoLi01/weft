@@ -1941,7 +1941,7 @@ CMake 拆分：
   - 所以数据要交给原生侧直接用（锚点由渲染线程读），而不是交给 JS 再写 DOM；共享内存只在 JS 不必逐项改 DOM 时才有用（如画布小地图、图表的大批数值）。
   - 每帧还有一笔按整个文档算的固定开销：400 个单位（约 1,600 个节点）只改 1 个时，样式、布局与场景约 5 ms，渲染约 4 ms；之后每改一个单位再加约 45 µs。这对所有页面都是问题（13.5 增量管线）。
   - 完整的技术路线、接口草案与验收见 [与引擎通信](engine-communication.md)。
-  - M0 文档至多 2,048 个节点（`max_document_nodes`），每个血条 4 个节点时至多约 500 个。
+  - M0 文档至多 2,048 个节点（`max_document_nodes`），每个血条 4 个节点时至多约 500 个（13.4 放宽到 16,384）。
 
 设计：
 1. 锚点（每帧变位置的元素）：
@@ -2208,6 +2208,44 @@ CMake 拆分：
 - 内置 View 后端实现扩展（`weft_render_d3d11_external`、`weft_render_vulkan_external`）：导入校验与参考适配器共用（`check_external_texture`），一份资源（视图）同时只导入一次；32 张、256 MiB；线性 RGBA8、RGBA16F，设备能过滤时 RGBA32F。D3D11 拒绝画进帧绑定的纹理（`INVALID_STATE`）。
 - 样例：引擎每帧在 GPU 上更新一张小地图纹理（单位的点随血量变色），作为 live 纹理导入一次，HUD 用 `-weft-texture(minimap)` 显示。
 - 与计划不同：计划只说“交给租约”。引擎的 render target 通常是同一张每帧重画，冻结租约要求它轮换多张，所以加了 live 方式；名字放进显示列表而不是渲染线程另记一张表，平面里的列表也能带名字。
+
+**13.4a：CRPG 浮动 UI 原样组件所需的 CSS**（2026-10-15）：
+- 原因：13.4 用 CRPG 原样的浮动组件（`FloatingUIOverlay`、`HealthBar`、`DamageNumber`、`AbnormalFlagFloating`，只读的固定副本）搭页面时，scene 整页诊断。先临时让样式模块把不支持的属性记下来而不是失败（未提交），一次列出全部：`text-overflow`（Tailwind 的 `truncate`）、`text-shadow`、svg 图标上的 `filter: drop-shadow()`；之后逐个出现的值：em 与 rem、`inset` 的多个值、`calc(100% + 0.1em)`（伤害数字旁的原值徽标）、`translate3d()`（JSON 版每个实例的定位）、`transform-origin` 的关键字（`center bottom`、`left center`）、`radial-gradient(ellipse at center, …)`（名字下的暗色晕）、内阴影（血条的刻槽与危急时的红框）、`repeating-linear-gradient()`（死亡时的斜纹）。组件不改，逐个按标准语义实现，范围与诊断记在 [兼容表](compatibility.md)。
+- em 与 rem：求解器在计算值阶段换成 px（继承与关键字段都在之后），不再交给各个使用方各自解释；`font-size` 的 em 与百分比相对父元素的字号。
+- `text-overflow`：在行内排版里按 Blink 的 LineTruncator 截断（`SceneInlineContent` 的 `truncate`）。省略号是块容器的一行文字（`SceneLine`），用块的样式单独塑形与绘制；被隐藏的文字保留它的行（文字为空），几何与命中不变；flex、grid 容器直接包含的文字不截断。测量（最小、最大内容）不受影响：截断只改画什么，不改行宽。
+- `text-shadow`：`paint::Raster` 新增 `blur`（标准差）。显示列表在每行文字之前列出它的阴影：同一份白色文字源（遮罩），着色、偏移，留出模糊的边距；准备器把覆盖率在 CPU 上模糊（与外阴影共用 `render::gaussian_blur`），按内容、缩放、边距与模糊缓存，进图集。D2D 参考光栅画同一份可移植图像。
+- `filter: drop-shadow()`：新的条目类型 `PathShadow`，列在 svg 的内容之前，指向其后的路径与形状条目；准备器按阴影的设备偏移把这些路径（形状盒子先转成圆角矩形或环的路径）重新栅格化、合在一张覆盖率里，按视口裁剪、模糊，按各路径的摘要、映射、描边与遮罩缓存（命中时核对路径）。只在 svg 根上：HTML 元素的 filter 要先把元素画进离屏图层再取透明度，留到需要时再做（诊断）。D2D 参考光栅单独画出 svg 再取透明度。
+- 内阴影：`paint::Shadow` 新增 `inset`；阴影图像在内边距盒上算（洞的掩码放在多出一个核半径的网格上模糊，所以边缘处也完整）；显示列表把盒子拆成背景、内阴影、边框三段（虚线边框、效果与宿主纹理的路径同样插在中间）；外阴影与内阴影共用缓存。
+- 渐变：新的 `scene_gradient`（解析与取色）由原生 pass 与 D2D 参考光栅共用，替代两边各自的解析。`paint::Gradient` 新增 `shape`（径向的中心与两个半径，CPU 上按形状、尺寸与位置算好）与 `repeating`；着色器按椭圆取径向位置，重复时把位置折回色标的跨度（记录的 `uv` 与 `mode.y`，盒子本来不用它们）。默认形状由圆改为椭圆；现有画廊的径向渐变都写了 `circle`，画面只有个别像素 1 级的舍入差（着色器换了算法）。
+- `calc()` 的 inset：Yoga 只有长度或百分比。绝对定位盒子的 `calc(P% ± L)` 拆开，百分比给 inset，长度加到同侧 margin 上（边框盒的位置相同）；非绝对定位时改变 margin 会移动其他盒子，所以诊断。
+- `transform-origin` 的关键字与 `translate3d()`、`translateZ()`（只接受零深度）。
+- 验证：
+  - 新的 Chrome 截图对照 `scene_paint_reference`（11 个用例，`tools/browser_scene_paint_reference.mjs`）：原生 D3D11 WARP 与 D2D 参考光栅各自与 Chrome 比较平均差、大差像素比例与 5 × 5 平均后的最大差（文字的抗锯齿在平均后大多抵消，截断多一个字符、阴影的偏移与模糊错了仍远超上限）；
+  - 新的契约测试 `scene_floating_css_contract`：渐变的形状、尺寸、位置、长度色标与重复，阴影与滤镜的解析与诊断，内阴影的像素，`transform-origin` 与 `translate3d`，em、rem 与 calc 的布局，省略号的行，路径阴影与文字阴影的条目与列表校验；
+  - `scene_cluster_contract` 改为检查内阴影的条目（原来断言它是回退）。
+- 与计划不同：计划的 13.4 只是“用 CRPG 的浮动 UI 验证”，原样组件需要的 CSS 先作为 13.4a 补齐，对比耗时与画面是 13.4b。
+
+**13.4b：锚点对比推 JSON**（2026-10-15）：
+- 基准 `weft_floating_benchmark --quick|--full <dir>`（`probes/floating_benchmark.cpp`）：CRPG 原样的浮动 UI 在同一场模拟战斗里由两种方式驱动。
+  - JSON：原样的 `FloatingUIOverlay` 与它的 store，引擎每帧经 CRPG 兼容层推整批实例（`__floating_ui_batch`，同 `UWebUIFloatingManager` 每 16 ms 一次），React 每帧渲染全部实例；
+  - 锚点：同样的实例组件与外层包装（`examples/crpg-gallery/src/floating/AnchoredFloatingUIOverlay.tsx`），外层跟随引擎每帧写的锚点；实例的出现、消失是事件（`floating.spawn`、`floating.despawn`），字段走视图模型 `floating`。
+  - 页面由 `tools/build_floating_page.mjs` 打包成 `examples/crpg-gallery/native/FLOATING_TESTS.js`（只读捕获的原样组件、类型表、调色、图标与文字），样式由 `tools/compile_gallery_cluster_styles.py` 编译。
+  - 战斗：单位按各自的距离移动（距离决定缩放，有的走出屏幕或可见范围），每 12 帧两个伤害数字（两个单位，有时是治疗、暴击、穿透或修正值），每 45 帧一个状态标记；伤害减血，血量为零的单位躺下，下一次命中时复活；血量低于 30% 时血条脉动。之后是安静期：不再命中，全部回满，脉动过的单位换一个新血条。
+  - 页面是 2560 × 1440 游戏上缩放 2 的 UI（View 1280 × 720 CSS px），由原生 D3D11 scene pass 画；每帧计时：引擎的工作（拼 JSON，或写锚点、发事件）、View 的推进、pass 的 CPU 与 GPU。
+  - 在设定的帧上两种方式各画一次并比较：除锚点方式由 GPU 移动的 svg 图标外应相同。
+  - `floating_benchmark_quick`（WARP，12 个单位，150 帧战斗加 240 帧安静期）检查：画面一致，锚点方式在安静期后半不发布帧（JSON 方式每帧都发布），离开的实例离开文档，没有页面诊断。
+- 发现与处理：
+  - **退场把实例留在文档里**：framer-motion 12.38 的 AnimatePresence 等全部退场结束后才一起移除离开的实例。最初每 6 帧一次命中（退场 0.15 s，9 帧），退场一直重叠，伤害数字一个也离不开文档：12 个单位 150 帧后文档多了约 230 个元素、VM 多约 9 MiB，React 每帧还要渲染它们；安静期退场都结束后才回到起点。这是库的规则，与运行时无关。基准的命中改为成批（每 12 帧两个），一批的退场在下一批之前结束；快速测试检查战斗中留在文档里的已离开实例不超过 5 个（一批、一个状态标记与下一批），安静期后为零。
+  - **VM 内存**：200 个单位时页面静止约 37 MiB（每个单位约 160 KiB，几乎都是 React 与 framer-motion 的对象），战斗中约 70–75 MiB，QuickJS 两次循环回收之间峰值约 81 MiB，超过 64 MiB 的上限，View 故障，消息只说 `InternalError: interrupted`（React 捕获了内存不足，之后中断）。上限改为 256 MiB；View 的故障消息写明是哪个上限（VM 内存或执行预算）。
+  - **节点**：200 个单位约 3,100 个节点，超过 2,048 的文档上限；上限改为 16,384，显示列表的条目上限为它的两倍。
+  - **锚点页面一个事件渲染一次**：引擎交付在每个事件、每个视图模型批次之后做微任务检查点（同浏览器在任务之间），页面每次发布 React 都渲染整个浮层：200 个单位时有事件的帧约 600 ms。改为一帧合并成一次发布（`setTimeout(0)`：View 的帧先交付、再跑任务、再跑 rAF），每个实例用 `memo`。之后有事件的帧仍约 190 ms：AnimatePresence 默认（`presenceAffectsLayout`）每次渲染给每个子元素新的 presence context，所有实例里的 framer-motion 组件都跟着渲染；实例都在锚点上、没有布局动画，关掉它之后约 60 ms（未固定 CPU、带逐帧记录的诊断运行；固定后见下表的 p95）。
+  - **交付时的时钟**：View 交付引擎的输入时页面的时钟还停在上一帧，处理函数里开始的动画比任务、rAF 里开始的早一帧（两种方式的伤害数字因此差一帧）。`View::advance` 现在先把页面时钟推到这一帧（新的 `ScriptDom::advance_clock`），再交付。
+- 测量（[技术路线 13 节](engine-communication.md#13-性能目标与测量方法)，三次运行的中位数）：View 推进 p50 推 JSON 对锚点 23.8 对 4.75 ms（12 个单位）、55.8 对 8.53 ms（50 个）、191 对 29.3 ms（200 个）；p99 41.0 对 13.6、103 对 23.5、336 对 63.4 ms；引擎的工作 0.48 对 0.021 ms（200 个）；渲染 CPU 与 GPU 两种方式相同（200 个时约 14.5 ms 与 1.6 ms）；VM 峰值 79.1 对 64.1 MiB。锚点方式剩下的是动画每帧改 DOM 之后按整个文档的样式、布局与场景，以及每帧重新准备整个 pass，留给 13.5。
+- 验证：
+  - `floating_benchmark_quick`：画面一致（第 40、96、145、389 帧），锚点方式安静期后半不发布帧，离开的实例战斗中至多 5 个、安静期后为零，没有诊断；
+  - `view_contract` 新增：交付的视图模型、事件与之后的 rAF 读这一帧的时间；`script_dom_lifecycle`：执行预算与 VM 内存上限的故障消息写明上限（页面捕获了内存不足又继续运行时、一次扩大到超过上限的重新分配时也是），重置后的故障不带之前的原因；`style_contract` 的节点上限用例按常量；
+  - 7 个变异全部被发现（两处内存上限、执行预算、第一次的原因被覆盖、重置不清原因、交付时的时钟、命中 6 帧一次）。第一轮存活 1 个：重新分配的上限（QuickJS-ng 0.17 的 arena 把小块的增长改成新分配，测试的 16 字节缓冲没有走到重新分配），改为从 1 MiB 起增长后被发现。
+- 与计划不同：计划要“与推 JSON 的同一页面对比”。锚点页面不是原样的 `FloatingUIOverlay`，而是同样的实例组件与外层包装加上事件与视图模型（原样的那个依赖每帧的整批数据）；伤害数字的元素池没有做（实例组件原样，生成与退场的开销留给 13.5）。
 
 ## 顺序调整（2026-10-10）
 

@@ -466,6 +466,11 @@ namespace weft {
         return impl_->line_box(used, primary, font, pen);
     }
 
+    bool SceneText::primary_covers(const SceneFont& font, char32_t character) {
+        impl_->require_owner();
+        return face(impl_->matched(font).ids.front()).glyph_index(character) != 0;
+    }
+
     SceneStrut SceneText::strut(const SceneFont& font) {
         impl_->require_owner();
         return impl_->face_strut(impl_->matched(font).ids.front(), font);

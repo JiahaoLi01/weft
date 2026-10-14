@@ -70,8 +70,9 @@ namespace weft::constants {
     inline constexpr const char* xhtml_namespace_uri = "http://www.w3.org/1999/xhtml";
     inline constexpr const char* svg_namespace_uri = "http://www.w3.org/2000/svg";
 
-    // M0 document profile bounds shared by style, layout and the page builders.
-    inline constexpr int max_document_nodes = 2048;
+    // Document bounds shared by style, layout and the page builders: 16,384 nodes holds the CRPG floating UI of 400
+    // units (about 33 nodes each with their damage numbers; 2,048 until 13.4 held about 60).
+    inline constexpr int max_document_nodes = 16384;
     inline constexpr int max_document_depth = 64;
     // Largest UTF-8 text payload accepted by text, style and layout inputs.
     inline constexpr int max_text_bytes = 65536;

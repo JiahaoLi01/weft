@@ -34,7 +34,7 @@
 
 属性元数据规定初始值、继承、支持类型。font-family/list-style/flex 等仍把 token 值交给格式化 profile 验证；不是完整属性 grammar registry。支持范围外的单位、颜色形式、多值 shorthand 或格式化行为有显式诊断，不把有效但未支持的值偷偷降为零。stylesheet 中未知属性即使规则不匹配也会诊断。语法错误采用严格 probe diagnostic，不是浏览器完整的错误恢复。
 
-上限：stylesheet 64 KiB/256 selector rules，单声明块 8 KiB，单值 4,096 tokens/8 KiB，函数深度 32，样式树 2,048 元素/64 层，每元素 128 个继承后的 custom properties，全树 1,000,000 个 token 工作单位和 16 MiB 输出字符串。继承复制和展开也计入工作预算；超限直接诊断。预算是探针保护，不是性能验收数据。
+上限：stylesheet 64 KiB/256 selector rules，单声明块 8 KiB，单值 4,096 tokens/8 KiB，函数深度 32，样式树 2,048 元素（13.4 起 16,384）/64 层，每元素 128 个继承后的 custom properties，全树 1,000,000 个 token 工作单位和 16 MiB 输出字符串。继承复制和展开也计入工作预算；超限直接诊断。预算是探针保护，不是性能验收数据。
 
 两种 formatting context 仍独立，没有 Flex/block/inline dispatcher。省略属性沿用已有探针默认值；显式 CSS-wide 初始值如果需要尚未支持的格式化行为，会诊断。Bootstrap 的 CSSOM `setProperty(...,'important')` 尚未支持，不能从 attribute 中的 important 求值推断该 JS API 已实现。
 

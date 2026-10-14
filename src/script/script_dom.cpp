@@ -208,6 +208,7 @@ namespace weft {
 
         enum HostMethod {
             Pump,
+            Clock,
             Begin,
             Next,
             Pending,
@@ -220,14 +221,14 @@ namespace weft {
             EngineErrors
         };
 
-        std::array<HostBinding, 10> host_bindings;
+        std::array<HostBinding, 11> host_bindings;
 
         JSValue call_host(HostMethod method, int argc = 0, JSValueConst* args = nullptr) {
             auto& binding = host_bindings[method];
             if (JS_IsUndefined(binding.function)) {
                 Value global(context, JS_GetGlobalObject(context));
                 Value object(context, JS_GetPropertyStr(context, global.value,
-                                                        method == Pump          ? "__ceHost"
+                                                        method <= Clock         ? "__ceHost"
                                                         : method >= EngineEvent ? "__ceEngineHost"
                                                                                 : "__ceAnimationHost"));
                 if (JS_IsException(object.value)) {
@@ -236,8 +237,8 @@ namespace weft {
                 if (JS_IsUndefined(object.value)) {
                     throw std::runtime_error("WEFT_HOST_BINDING: optional platform module missing");
                 }
-                const char* names[]{"pumpNative", "begin", "next",   "pending", "errorCount",
-                                    "errors",     "event", "settle", "model",   "errors"};
+                const char* names[]{"pumpNative", "advanceClock", "begin",  "next",  "pending", "errorCount",
+                                    "errors",     "event",        "settle", "model", "errors"};
                 Value function(context, JS_GetPropertyStr(context, object.value, names[method]));
                 if (JS_IsException(function.value)) {
                     throw PendingJsException{};
@@ -265,7 +266,39 @@ namespace weft {
         }
 
         bool faulted{};
+        // The limit that faulted the View first, named in its fault messages.
+        enum class Limit : std::uint8_t {
+            None,
+            VmMemory,
+            ExecutionBudget
+        };
+        Limit fault_limit{Limit::None};
         bool execution_active{};
+
+        void fault_at(Limit limit) noexcept {
+            if (!faulted) {
+                fault_limit = limit;
+            }
+            faulted = true;
+        }
+
+        // "WEFT_VIEW_FAULTED: " and the limit that faulted the View, if one did.
+        std::string fault_prefix() const {
+            const std::string prefix = "WEFT_VIEW_FAULTED: ";
+            switch (fault_limit) {
+                case Limit::VmMemory:
+                    return prefix + "VM memory limit of " +
+                           std::to_string(constants::script::vm_memory_limit / constants::bytes_per_mib) +
+                           " MiB reached; ";
+                case Limit::ExecutionBudget:
+                    return prefix + "execution budget of " + std::to_string(config.execution_budget_ms) +
+                           " ms exceeded; ";
+                case Limit::None:
+                    break;
+            }
+            return prefix;
+        }
+
         std::chrono::steady_clock::time_point deadline;
 
         struct alignas(std::max_align_t) AllocationHeader {
@@ -648,7 +681,7 @@ namespace weft {
         void require_runtime() const {
             check_owner();
             if (faulted || !context) {
-                throw std::runtime_error("WEFT_VIEW_FAULTED: reset_document required after resource limit");
+                throw std::runtime_error(fault_prefix() + "reset_document required after resource limit");
             }
         }
 
@@ -661,7 +694,7 @@ namespace weft {
             }
             if (size > constants::script::vm_memory_limit - sizeof(AllocationHeader) ||
                 owner.vm_bytes > constants::script::vm_memory_limit - sizeof(AllocationHeader) - size) {
-                owner.faulted = true;
+                owner.fault_at(Limit::VmMemory);
                 return nullptr;
             }
             auto* block = static_cast<AllocationHeader*>(std::malloc(sizeof(AllocationHeader) + size));
@@ -711,7 +744,7 @@ namespace weft {
             const auto previous = old->size;
             if (size > constants::script::vm_memory_limit - sizeof(AllocationHeader) ||
                 owner.vm_bytes - previous > constants::script::vm_memory_limit - size) {
-                owner.faulted = true;
+                owner.fault_at(Limit::VmMemory);
                 return nullptr;
             }
             auto* block = static_cast<AllocationHeader*>(std::realloc(old, sizeof(AllocationHeader) + size));
@@ -736,7 +769,7 @@ namespace weft {
         static int interrupt(JSRuntime*, void* opaque) {
             auto& owner = *static_cast<Impl*>(opaque);
             if (owner.execution_active && (owner.faulted || std::chrono::steady_clock::now() >= owner.deadline)) {
-                owner.faulted = true;
+                owner.fault_at(Limit::ExecutionBudget);
                 return 1;
             }
             return 0;
@@ -2520,14 +2553,14 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
 
         void checkpoint(std::size_t& jobs) {
             if (faulted) {
-                throw std::runtime_error("WEFT_VIEW_FAULTED: script caught resource failure; reset_document required");
+                throw std::runtime_error(fault_prefix() + "script caught resource failure; reset_document required");
             }
             JSContext* job_context{};
             int job_result{};
             while ((job_result = JS_ExecutePendingJob(runtime, &job_context)) > 0) {
                 if (faulted) {
-                    throw std::runtime_error(
-                        "WEFT_VIEW_FAULTED: microtask caught resource failure; reset_document required");
+                    throw std::runtime_error(fault_prefix() +
+                                             "microtask caught resource failure; reset_document required");
                 }
                 if (++jobs > constants::script::max_microtask_jobs) {
                     faulted = true;
@@ -2536,7 +2569,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             }
             if (job_result < 0) {
                 const auto error = exception_message();
-                throw std::runtime_error((faulted ? "WEFT_VIEW_FAULTED: " : "") + error);
+                throw std::runtime_error((faulted ? fault_prefix() : std::string()) + error);
             }
         }
 
@@ -2559,18 +2592,17 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
                 std::size_t jobs{};
                 checkpoint(jobs);
                 if (faulted) {
-                    throw std::runtime_error(
-                        "WEFT_VIEW_FAULTED: caught VM allocation failure; reset_document required");
+                    throw std::runtime_error(fault_prefix() + "caught VM allocation failure; reset_document required");
                 }
                 auto converted = convert(result.value);
                 if (faulted) {
-                    throw std::runtime_error(
-                        "WEFT_VIEW_FAULTED: result conversion exceeded resource limit; reset_document required");
+                    throw std::runtime_error(fault_prefix() +
+                                             "result conversion exceeded resource limit; reset_document required");
                 }
                 return converted;
             } catch (const PendingJsException&) {
                 const auto error = exception_message();
-                throw std::runtime_error((faulted ? "WEFT_VIEW_FAULTED: " : "") + error);
+                throw std::runtime_error((faulted ? fault_prefix() : std::string()) + error);
             } catch (const std::bad_alloc&) {
                 faulted = true;
                 throw std::runtime_error("WEFT_VIEW_FAULTED: native allocation failed during script evaluation");
@@ -2648,6 +2680,21 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
                 return JS_UNDEFINED;
             });
             return report;
+        }
+
+        void advance_clock(double time) {
+            require_runtime();
+            if (!std::isfinite(time) || time < 0) {
+                throw std::invalid_argument("WEFT_HOST_TIME: finite nonnegative timestamp required");
+            }
+            execute_result(
+                [&] {
+                    JSValue argument = JS_NewFloat64(context, time);
+                    return call_host(Clock, 1, &argument);
+                },
+                [](JSValueConst) {
+                    return 0;
+                });
         }
 
         TaskResult pump_tasks(double time) {
@@ -3262,6 +3309,10 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         return impl_->animation_frame(time_ms, drawable);
     }
 
+    void ScriptDom::advance_clock(double time_ms) {
+        impl_->advance_clock(time_ms);
+    }
+
     TaskResult ScriptDom::pump_tasks(double time_ms) {
         return impl_->pump_tasks(time_ms);
     }
@@ -3320,6 +3371,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         impl_->shutdown();
         ++impl_->view_epoch;
         impl_->faulted = false;
+        impl_->fault_limit = Impl::Limit::None;
         // The page's calls are gone with it, and what waited for it.
         if (impl_->engine) {
             impl_->engine->reset();

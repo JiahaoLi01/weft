@@ -1,0 +1,277 @@
+#include "constants/common.hpp"
+#include "scene/scene.hpp"
+#include "support/check.hpp"
+#include "support/d3d11_scene.hpp"
+#include "support/files.hpp"
+#include "support/json_value.hpp"
+#include "support/native_scene.hpp"
+#include "support/png.hpp"
+#include "support/scene_fonts.hpp"
+#ifdef WEFT_TEST_VULKAN
+#include "render/backends/vulkan/scene_renderer.hpp"
+#endif
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdio>
+#include <filesystem>
+#include <iostream>
+#include <map>
+#include <set>
+#include <string>
+#include <vector>
+
+// The CSS the CRPG floating UI needs of scene pages (13.4a) against Chrome: each case of
+// tests/fixtures/scene-paint-reference/cases.json (text-overflow: ellipsis, text-shadow, filter: drop-shadow() on svg
+// icons, inset box-shadow, radial gradients of every shape, size and position, repeating gradients, calc() insets,
+// transform-origin keywords, translate3d() and em lengths) built as the same nodes, laid out by the scene solver and
+// drawn by the native D3D11 pass and by the Direct2D reference raster at the case's device scale, against Chrome's
+// screenshot of it (tools/browser_scene_paint_reference.mjs), whose manifest must name the cases as they are. Each
+// drawing stays within its case's limits of Chrome's: the mean RGB difference, the share of pixels more than 32 levels
+// apart (glyph edges: FreeType's grayscale coverage against Chrome's subpixel text), and the largest difference once
+// both are averaged over 5 x 5 pixels, where antialiasing evens out and only what is drawn where remains (a character
+// more or less before an ellipsis, a shadow's offset or blur, a gradient's shape). Where Vulkan is built, the native
+// Vulkan pass on this machine's device draws each case within 2 levels of the D3D11 one (skipped without a device).
+namespace {
+    using weft::testing::JsonValue;
+    using weft::testing::require;
+
+    struct Stats {
+        double mean{};
+        double far_share{};
+        int smooth{};
+    };
+
+    struct Limits {
+        double mean{};
+        double far_share{};
+        int smooth{};
+    };
+
+    // The native pass's limits and the reference raster's, by case.
+    const std::map<std::string, std::array<Limits, 2>>& limits() {
+        static const std::map<std::string, std::array<Limits, 2>> cases{
+            // Text: glyph edges as FreeType and Chrome draw them apart.
+            {"ellipsis", {{{3, .06, 56}, {3, .06, 56}}}},
+            {"ellipsis-plate", {{{3, .06, 56}, {3, .06, 56}}}},
+            {"text-shadow", {{{3, .06, 56}, {3, .06, 56}}}},
+            {"text-shadow-plate", {{{3, .06, 56}, {3, .06, 56}}}},
+            {"text-shadow-glow", {{{3, .06, 56}, {3, .06, 56}}}},
+            // Shapes, shadows and gradients: antialiased edges and rounding.
+            {"drop-shadow", {{{.5, .005, 12}, {.5, .005, 12}}}},
+            {"inset-bar", {{{.5, .005, 16}, {.5, .005, 16}}}},
+            {"inset-shapes", {{{.5, .005, 12}, {.5, .005, 12}}}},
+            {"radial", {{{.5, .005, 6}, {.5, .005, 6}}}},
+            {"repeating", {{{.5, .005, 6}, {.5, .005, 6}}}},
+            {"layout", {{{.5, .005, 8}, {.5, .005, 8}}}},
+        };
+        return cases;
+    }
+
+    const std::set<std::string>& svg_tags() {
+        static const std::set<std::string> tags{"svg",  "path",     "circle",  "ellipse", "line",
+                                                "rect", "polyline", "polygon", "g",       "text"};
+        return tags;
+    }
+
+    void build(weft::testing::NativeScene& s, weft::dom::Node& parent, const JsonValue& node) {
+        if (node.kind == JsonValue::Kind::String) {
+            auto& t = s.tree.create(weft::constants::text_node_type, "#text", "", s.document->identity);
+            t.data = node.string;
+            s.tree.insert(parent, t, nullptr);
+            return;
+        }
+        const auto& tag = node["tag"].string;
+        auto& e = svg_tags().contains(tag) ? s.svg(tag) : s.html(tag);
+        if (const auto* style = node.find("style")) {
+            s.set(e, "style", style->string);
+        }
+        if (const auto* attributes = node.find("attributes")) {
+            for (const auto& [name, value] : attributes->object) {
+                s.set(e, name, value.string);
+            }
+        }
+        s.tree.insert(parent, e, nullptr);
+        if (const auto* children = node.find("children")) {
+            for (const auto& c : children->array) {
+                build(s, e, c);
+            }
+        }
+    }
+
+    // RGB of a drawing at (x, y): the native pass's encoded premultiplied BGRA, the raster's and Chrome's RGBA, all over
+    // an opaque root.
+    struct View {
+        const std::vector<std::uint8_t>& pixels;
+        bool bgra{};
+
+        int at(unsigned w, unsigned x, unsigned y, unsigned c) const {
+            const auto* p = pixels.data() + (std::size_t(y) * w + x) * 4;
+            return p[bgra ? 2 - c : c];
+        }
+    };
+
+    Stats compare(const View& drawn, const View& chrome, unsigned w, unsigned h) {
+        Stats s;
+        double sum{};
+        std::size_t apart{};
+        for (unsigned y = 0; y < h; ++y) {
+            for (unsigned x = 0; x < w; ++x) {
+                int worst{};
+                for (unsigned c = 0; c < 3; ++c) {
+                    const int d = std::abs(drawn.at(w, x, y, c) - chrome.at(w, x, y, c));
+                    sum += d;
+                    worst = std::max(worst, d);
+                }
+                apart += worst > 32;
+            }
+        }
+        s.mean = sum / (3.0 * w * h);
+        s.far_share = double(apart) / (double(w) * h);
+        // Each channel averaged over 5 x 5 pixels (clamped at the edges): summed area tables.
+        for (unsigned c = 0; c < 3; ++c) {
+            std::vector<long long> a((w + 1) * std::size_t(h + 1));
+            std::vector<long long> b(a.size());
+            for (unsigned y = 0; y < h; ++y) {
+                for (unsigned x = 0; x < w; ++x) {
+                    const auto i = (std::size_t(y) + 1) * (w + 1) + x + 1;
+                    a[i] = drawn.at(w, x, y, c) + a[i - 1] + a[i - (w + 1)] - a[i - (w + 1) - 1];
+                    b[i] = chrome.at(w, x, y, c) + b[i - 1] + b[i - (w + 1)] - b[i - (w + 1) - 1];
+                }
+            }
+            const auto box = [&](const std::vector<long long>& t, int x0, int y0, int x1, int y1) {
+                return t[std::size_t(y1) * (w + 1) + x1] - t[std::size_t(y0) * (w + 1) + x1] -
+                       t[std::size_t(y1) * (w + 1) + x0] + t[std::size_t(y0) * (w + 1) + x0];
+            };
+            for (int y = 0; y < int(h); ++y) {
+                for (int x = 0; x < int(w); ++x) {
+                    const int x0 = std::max(0, x - 2);
+                    const int y0 = std::max(0, y - 2);
+                    const int x1 = std::min(int(w), x + 3);
+                    const int y1 = std::min(int(h), y + 3);
+                    const auto n = double((x1 - x0) * (y1 - y0));
+                    const auto d = std::abs(double(box(a, x0, y0, x1, y1) - box(b, x0, y0, x1, y1))) / n;
+                    s.smooth = std::max(s.smooth, int(std::lround(d)));
+                }
+            }
+        }
+        return s;
+    }
+} // namespace
+
+int main(int argc, char** argv) {
+    try {
+        require(argc == 3, "usage: weft_scene_paint_reference_tests <artifact folder> <cases.json sha256>");
+        const std::filesystem::path folder = argv[1];
+        std::filesystem::create_directories(folder);
+        require(SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED)), "COM init");
+        const std::filesystem::path fixtures =
+            std::filesystem::path(WEFT_SOURCE_DIR) / "tests/fixtures/scene-paint-reference";
+        const auto spec = weft::testing::parse_json(weft::testing::read_file((fixtures / "cases.json").string()));
+        // Chrome's captures are of these cases: the manifest records the hash of the cases they were taken from, and
+        // one capture for each case, at its scale.
+        const auto manifest =
+            weft::testing::parse_json(weft::testing::read_file((fixtures / "manifest.json").string()));
+        require(manifest["cases_sha256"].string == argv[2],
+                "Chrome's captures are of other cases: record them again with tools/browser_scene_paint_reference.mjs");
+        require(manifest["captures"].size() == spec["cases"].size(), "a capture for each case");
+        const auto width = unsigned(spec["width"].number);
+        const auto height = unsigned(spec["height"].number);
+        auto& text = weft::testing::thread_scene_text();
+#ifdef WEFT_TEST_VULKAN
+        namespace vk = weft::render::vulkan;
+        std::string unavailable;
+        const auto device = vk::Device::open({}, unavailable);
+        std::optional<vk::SceneRenderer> vulkan;
+        if (device) {
+            vulkan.emplace(*device, text);
+        } else {
+            std::cout << "Vulkan skipped: " << unavailable << '\n';
+        }
+#endif
+        bool failed{};
+        std::cout << "case                native: mean >32 share 5x5 | raster: mean >32 share 5x5 (limits)\n";
+        for (std::size_t i = 0; i < spec["cases"].size(); ++i) {
+            const auto& c = spec["cases"][i];
+            const auto name = c["name"].string;
+            const auto scale = float(c["scale"].number);
+            require(manifest["captures"][i]["name"].string == name && manifest["captures"][i]["scale"].number == scale,
+                    name + ": Chrome's capture of the case");
+            const auto limit = limits().find(name);
+            require(limit != limits().end(), name + ": the case's limits");
+            weft::testing::NativeScene s;
+            const auto* root = c.find("root");
+            s.set(*s.root, "style", spec["root"].string + ";" + (root ? root->string : std::string()));
+            for (const auto& n : c["nodes"].array) {
+                build(s, *s.root, n);
+            }
+            weft::SceneSolver solver("", "", text);
+            const auto frame = solver.frame(s.tree.snapshot(*s.root), float(width), float(height), 0);
+            const auto w = unsigned(width * scale);
+            const auto h = unsigned(height * scale);
+            weft::testing::D3D11Scene d3d11{w, h};
+            const auto native = d3d11.draw(frame, scale);
+            d3d11.gpu.check_debug_messages();
+            require(d3d11.scene.fallbacks == 0, name + ": the native pass drew the case");
+#ifdef WEFT_TEST_VULKAN
+            if (vulkan) {
+                const auto drawn = vulkan->draw(frame, scale, w, h, std::nullopt, 0, {});
+                require(drawn.has_value() && drawn->size() == native.size(), name + ": the native Vulkan pass");
+                int worst{};
+                for (std::size_t k = 0; k < native.size(); ++k) {
+                    worst = std::max(worst, std::abs(int((*drawn)[k]) - int(native[k])));
+                }
+                std::printf("%-18s Vulkan against D3D11 WARP: worst %d\n", name.c_str(), worst);
+                require(worst <= 2, name + ": Vulkan within 2 levels of D3D11 WARP");
+            }
+#endif
+            weft::SceneRaster reference(text);
+            const auto raster = reference.raster(frame, scale);
+            require(raster.width == w && raster.height == h, name + ": the reference raster's size");
+            const auto chrome = weft::testing::read_png(fixtures / (name + ".png"));
+            require(chrome.width == w && chrome.height == h, name + ": Chrome's capture at the case's scale");
+            const auto a = compare({native, true}, {chrome.rgba}, w, h);
+            const auto b = compare({raster.rgba}, {chrome.rgba}, w, h);
+            const auto& [ln, lr] = limit->second;
+            std::printf("%-18s %6.2f %.4f %4d | %6.2f %.4f %4d (%.2f %.3f %d | %.2f %.3f %d)\n", name.c_str(), a.mean,
+                        a.far_share, a.smooth, b.mean, b.far_share, b.smooth, ln.mean, ln.far_share, ln.smooth, lr.mean,
+                        lr.far_share, lr.smooth);
+            // Evidence: the native pass, Chrome and the reference raster side by side.
+            std::vector<std::uint8_t> trio(std::size_t(w) * 3 * h * 4);
+            for (unsigned y = 0; y < h; ++y) {
+                for (unsigned x = 0; x < w; ++x) {
+                    const auto* n = native.data() + (std::size_t(y) * w + x) * 4;
+                    auto* left = trio.data() + (std::size_t(y) * w * 3 + x) * 4;
+                    left[0] = n[2];
+                    left[1] = n[1];
+                    left[2] = n[0];
+                    left[3] = 255;
+                    const auto* cr = chrome.rgba.data() + (std::size_t(y) * w + x) * 4;
+                    std::copy(cr, cr + 4, trio.data() + (std::size_t(y) * w * 3 + w + x) * 4);
+                    const auto* r = raster.rgba.data() + (std::size_t(y) * w + x) * 4;
+                    auto* right = trio.data() + (std::size_t(y) * w * 3 + 2 * w + x) * 4;
+                    std::copy(r, r + 3, right);
+                    right[3] = 255;
+                }
+            }
+            weft::testing::write_png(folder / (name + ".png"), w * 3, h, trio);
+            const auto within = [](const Stats& s, const Limits& l) {
+                return s.mean <= l.mean && s.far_share <= l.far_share && s.smooth <= l.smooth;
+            };
+            if (!within(a, ln) || !within(b, lr)) {
+                std::cout << "  " << name << ": outside its limits of Chrome's\n";
+                failed = true;
+            }
+        }
+        require(!failed, "the scene paint cases within their limits of Chrome's");
+#ifdef WEFT_TEST_VULKAN
+        require(!device || device->validation_messages == 0, "Vulkan validation");
+#endif
+        std::cout << "PASS scene paint cases against Chrome\n";
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "FAIL: " << e.what() << '\n';
+        return 1;
+    }
+}

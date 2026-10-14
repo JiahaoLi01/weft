@@ -7,7 +7,9 @@ The lock's SHA-512 integrity was verified before extraction; archive SHA-256 and
 all 52 extracted file hashes are recorded in `third_party/manifest.json`.
 
 MIT license is preserved at `source/LICENSE`. The AlertBar fixture bundles its
-original ESM index/react/vanilla modules and actual captured UI store. The local
-host captures bridge data and never executes a real Unreal/game action.
+original ESM index/react/vanilla modules and actual captured UI store. The CRPG
+floating UI page (13.4, `tools/build_floating_page.mjs`) bundles the same modules
+for its captured floating-ui store. The local host captures bridge data and
+never executes a real Unreal/game action.
 Peer React is the existing CaseElephant 19.3.0 runtime, separately from the
 captured game's React 19.2.8. No middleware beyond the exercised store is claimed.

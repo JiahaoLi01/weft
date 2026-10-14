@@ -182,6 +182,11 @@ namespace weft::paint {
                             return make_diagnostic(Diag::PaintList,
                                                    "raster payload out of range or without source" + at);
                         }
+                        if (const auto& r = list.rasters[item.payload]; !std::isfinite(r.blur) || r.blur < 0 ||
+                                                                        (r.blur > 0 && !r.mask) ||
+                                                                        !std::isfinite(r.overhang) || r.overhang < 0) {
+                            return make_diagnostic(Diag::PaintList, "raster blur or overhang" + at);
+                        }
                         break;
                     case Item::Kind::Shadow: {
                         if (item.payload >= list.shadows.size()) {
@@ -204,6 +209,41 @@ namespace weft::paint {
                             !std::all_of(p.color.begin(), p.color.end(), finite_value) ||
                             (p.stroke && !well_formed(*p.stroke))) {
                             return make_diagnostic(Diag::PaintList, "path value" + at);
+                        }
+                        break;
+                    }
+                    case Item::Kind::PathShadow: {
+                        if (item.payload >= list.path_shadows.size()) {
+                            return make_diagnostic(Diag::PaintList, "path shadow payload out of range" + at);
+                        }
+                        const auto& s = list.path_shadows[item.payload];
+                        if (s.first != i + 1 || s.count > list.items.size() - s.first ||
+                            !std::all_of(list.items.begin() + s.first, list.items.begin() + s.first + s.count,
+                                         [&](const Item& shape) {
+                                             if (shape.kind == Item::Kind::Path) {
+                                                 return true;
+                                             }
+                                             if (shape.kind != Item::Kind::Box || shape.payload >= list.boxes.size()) {
+                                                 return false;
+                                             }
+                                             const auto& b = list.boxes[shape.payload];
+                                             return b.gradient.kind == GradientKind::None &&
+                                                    std::all_of(b.widths.begin(), b.widths.end(),
+                                                                [&](float w) {
+                                                                    return w == b.widths[0];
+                                                                }) &&
+                                                    std::all_of(b.edges.begin(), b.edges.end(), [&](const Color& c) {
+                                                        return c == b.edges[0];
+                                                    });
+                                         })) {
+                            return make_diagnostic(Diag::PaintList,
+                                                   "path shadow over other than the svg shapes after it" + at);
+                        }
+                        if (!std::all_of(s.color.begin(), s.color.end(), finite_value) || !std::isfinite(s.x) ||
+                            !std::isfinite(s.y) || !std::isfinite(s.blur) || s.blur < 0 ||
+                            !std::all_of(s.content.begin(), s.content.end(), finite_value) || s.content[2] < 0 ||
+                            s.content[3] < 0) {
+                            return make_diagnostic(Diag::PaintList, "path shadow value" + at);
                         }
                         break;
                     }
@@ -313,6 +353,8 @@ namespace weft::paint {
 
     Status append(DisplayList& into, const DisplayList& from, const Affine& transform) {
         const auto& t = transform;
+        const auto items = std::uint32_t(into.items.size());
+        const auto path_shadows = std::uint32_t(into.path_shadows.size());
         if (t[1] != 0 || t[2] != 0 || !(t[0] > 0) || !(t[3] > 0)) {
             return make_diagnostic(Diag::PaintList, "appended lists scale by positive factors and translate");
         }
@@ -374,6 +416,10 @@ namespace weft::paint {
             into.particles.push_back(std::move(p));
         }
         into.backdrops.insert(into.backdrops.end(), from.backdrops.begin(), from.backdrops.end());
+        for (auto s : from.path_shadows) {
+            s.first += items;
+            into.path_shadows.push_back(s);
+        }
         into.assets.insert(into.assets.end(), from.assets.begin(), from.assets.end());
         into.programs.insert(into.programs.end(), from.programs.begin(), from.programs.end());
         into.external_textures += from.external_textures;
@@ -435,6 +481,9 @@ namespace weft::paint {
                     break;
                 case Item::Kind::Backdrop:
                     item.payload += backdrops;
+                    break;
+                case Item::Kind::PathShadow:
+                    item.payload += path_shadows;
                     break;
                 default:
                     break;

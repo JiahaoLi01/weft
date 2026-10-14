@@ -32,9 +32,12 @@ namespace weft {
         if (s.empty() || s == "none") {
             return out;
         }
+        // translate3d() and translateZ() without depth are translations of the plane (what framer-motion and pages
+        // write to promote a layer): any depth is a 3D transform, outside the profile.
         static const std::map<std::string, PaintOp, std::less<>> kinds{
             {"translate", PaintOp::Translate},     {"translateX", PaintOp::TranslateX},
-            {"translateY", PaintOp::TranslateY},   {"scale", PaintOp::Scale},
+            {"translateY", PaintOp::TranslateY},   {"translate3d", PaintOp::Translate},
+            {"translateZ", PaintOp::Translate},    {"scale", PaintOp::Scale},
             {"scaleX", PaintOp::ScaleX},           {"scaleY", PaintOp::ScaleY},
             {"rotate", PaintOp::Rotate},           {"matrix", PaintOp::Matrix},
             {"perspective", PaintOp::Perspective}, {"rotateY", PaintOp::RotateY}};
@@ -87,6 +90,20 @@ namespace weft {
                     op.args[op.count++] = *value;
                 } else {
                     return make_diagnostic(Diag::SceneRaster, "transform number " + arg);
+                }
+            }
+            if (name == "translate3d" || name == "translateZ") {
+                const auto depth = name == "translateZ" ? 0u : 2u;
+                if (op.count != depth + 1) {
+                    return make_diagnostic(Diag::SceneRaster, "transform arguments of " + name);
+                }
+                if (op.args[depth].absolute != 0 || op.args[depth].relative != 0) {
+                    return make_diagnostic(Diag::SceneRaster, "3D transform " + name + " with a depth");
+                }
+                if (name == "translateZ") {
+                    op.args[0] = {};
+                } else {
+                    op.count = 2;
                 }
             }
             bool arity{};

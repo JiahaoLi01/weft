@@ -36,6 +36,11 @@ namespace weft::constants::text {
     inline constexpr char32_t emoji_variation_selector = 0xfe0f;
     inline constexpr char32_t text_variation_selector = 0xfe0e;
     inline constexpr int sdf_num_grays = 255;
+    // text-overflow: ellipsis draws U+2026 HORIZONTAL ELLIPSIS, or three full stops when the primary font has no glyph
+    // for it (as Blink chooses).
+    inline constexpr char32_t horizontal_ellipsis = 0x2026;
+    inline constexpr const char* horizontal_ellipsis_utf8 = "\xE2\x80\xA6";
+    inline constexpr const char* ellipsis_fallback = "...";
 
     // Explicit bidi formatting characters, rejected until paragraph bidi exists:
     // LRE..RLO embeddings/overrides, LRI..PDI isolates, LRM, RLM and ALM.

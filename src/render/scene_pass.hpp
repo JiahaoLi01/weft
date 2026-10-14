@@ -31,10 +31,10 @@ namespace weft::render {
         Vector extra;
         std::array<Vector, scene_limits::max_gradient_stops> stops;
         std::array<Vector, scene_limits::gradient_offset_vectors> offsets;
-        // Image origin and extent in its asset.
+        // Image origin and extent in its asset; a box's radial gradient's ending shape (paint::Gradient::shape).
         Vector uv{0, 0, 1, 1};
         // Image mode, then distance spread and stroke in source texels, and the texels one device pixel spans for the
-        // antialiasing of a linear pass's distance edges.
+        // antialiasing of a linear pass's distance edges. A box: whether its gradient repeats, in y.
         Vector mode;
         Vector outline;
         // First rounded clip and count in ScenePass::clips, then the item's anchor (paint::Item::anchor): 0, or 1 + the
@@ -115,8 +115,8 @@ namespace weft::render {
 
         // One record per item, in item order: record i belongs to item i.
         std::vector<SceneRecord> records;
-        // Per item, the device pixels (left, top, right, bottom) a path item's coverage mask covers: what the renderer
-        // rasterizes and record i draws. Empty for other items and for paths with nothing in their clip.
+        // Per item, the device pixels (left, top, right, bottom) a path or path shadow item's coverage mask covers: what
+        // the renderer rasterizes and record i draws. Empty for other items and for those with nothing in their clip.
         std::vector<std::array<std::int32_t, 4>> masks;
         std::vector<SceneClip> clips;
         std::vector<Batch> batches;

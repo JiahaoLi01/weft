@@ -430,6 +430,12 @@ namespace weft {
                 } else if (key == "background" && !profile.scene_syntax) {
                     result.push_back({"background-color", std::move(tokens), important});
                     result.back().solid_background = true;
+                } else if (key == "inset" && profile.four_value_edges) {
+                    // A box shorthand: one to four lengths, top, right, bottom, left.
+                    int edge{};
+                    for (const auto* side : {"top", "right", "bottom", "left"}) {
+                        result.push_back({side, tokens, important, true, edge++});
+                    }
                 } else if (key == "inset") {
                     for (const auto* side : {"left", "top", "right", "bottom"}) {
                         result.push_back({side, tokens, important, true});
@@ -1672,7 +1678,7 @@ namespace weft {
         }
         const bool alpha = s.starts_with("rgba(");
         if ((!alpha && !s.starts_with("rgb(")) || !s.ends_with(')')) {
-            fail("color outside #rrggbb/transparent/rgb/rgba profile");
+            fail("color outside #rrggbb/transparent/rgb/rgba profile: " + s);
         }
         const auto values = split(s.substr(alpha ? 5 : 4, s.size() - (alpha ? 6 : 5)), ',');
         if (values.size() != (alpha ? 4 : 3)) {

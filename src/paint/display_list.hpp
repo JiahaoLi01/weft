@@ -67,6 +67,12 @@ namespace weft::paint {
         // The repeated tile in box space: width, height, then the offset of its origin.
         std::array<float, 4> tile{};
         std::vector<GradientStop> stops;
+        // A radial gradient's ending shape in its tile: its center, then its horizontal and vertical radii (equal for a
+        // circle), both above zero. Its gradient line runs from the center (0) to the shape (1).
+        std::array<float, 4> shape{};
+        // The stops repeat along the gradient line, every span from the first stop's offset to the last's (above
+        // zero): repeating-linear-gradient() and repeating-radial-gradient().
+        bool repeating{};
     };
 
     // A CSS box in its item space [0, width] x [0, height]: background, gradient and a solid border with circular
@@ -104,22 +110,27 @@ namespace weft::paint {
         // Which of its source node's images this is: a line of its text. Images of one node are cached apart.
         std::uint32_t part{};
         // Room the image keeps beyond its usual transparent margin, px on each side, for ink that leaves the box:
-        // the glyphs of slanted text lean out of it.
+        // the glyphs of slanted text lean out of it, and a blur spreads it.
         float overhang{};
+        // A text shadow (text-shadow): the mask is the text's coverage (color glyphs' too) blurred by a Gaussian of
+        // this standard deviation, in item px; 0 for none.
+        float blur{};
     };
 
-    // An outer box-shadow of the item's box [0, width] x [0, height]: the box grown by spread on each side (its radii
-    // too), offset by (x, y), blurred by a Gaussian of standard deviation blur / 2, and shown only outside the box.
-    // Lengths in item px.
+    // A box-shadow of the item's box [0, width] x [0, height]. An outer one: the box grown by spread on each side (its
+    // radii too), offset by (x, y), blurred by a Gaussian of standard deviation blur / 2, and shown only outside the
+    // box. An inset one, of an element's padding box: all that lies outside the box shrunk by spread on each side (its
+    // radii too, not below zero), offset by (x, y), blurred alike, and shown only inside the box. Lengths in item px.
     struct Shadow {
         Color color{};
         float x{};
         float y{};
         float blur{};
         float spread{};
-        // The box's corner radii as specified, top-left first and clockwise; each corner stays within half the shorter
-        // side.
+        // The box's corner radii, top-left first and clockwise: an outer shadow's as specified, an inset shadow's the
+        // padding box's inner radii; each corner stays within half the shorter side.
         std::array<float, 4> radii{};
+        bool inset{};
     };
 
     // A path in item px: subpaths of lines and cubic Bezier curves. Each verb takes its points from points in order:
@@ -167,6 +178,22 @@ namespace weft::paint {
         std::shared_ptr<const Path> path;
         Color color{};
         std::optional<Stroke> stroke;
+    };
+
+    // A drop shadow (filter: drop-shadow()) of the shapes an svg element paints: the coverage of the list's items
+    // [first, first + count) (Path items, and Box items of one background and one border color and width without a
+    // gradient: the svg shapes the box shader draws; each at its colors' alpha and its item's opacity, each over the
+    // ones before), inside content (the element's viewport, in item px, which clips them), offset by (x, y), blurred by
+    // a Gaussian of standard deviation blur and tinted with color. Its item lies before those paths, in the element's
+    // space shifted so that its box [0, width] x [0, height] holds the whole shadow; x, y and blur are in item px.
+    struct PathShadow {
+        std::uint32_t first{};
+        std::uint32_t count{};
+        Color color{};
+        float x{};
+        float y{};
+        float blur{};
+        std::array<float, 4> content{};
     };
 
     struct DisplayList;
@@ -352,7 +379,9 @@ namespace weft::paint {
             // Particles of one emission, in the item's space.
             Particles,
             // A Backdrop, which a renderer draws from a copy of its target.
-            Backdrop
+            Backdrop,
+            // A PathShadow, which a renderer prepares as coverage at device scale.
+            PathShadow
         };
 
         Kind kind{};
@@ -363,7 +392,8 @@ namespace weft::paint {
         float height{};
         float opacity{1};
         // Index in DisplayList::boxes (Box), images (Image), rasters (Text, Layer), shadows (Shadow), paths (Path),
-        // planes (Plane), effects (Effect), particles (Particles) or backdrops (Backdrop); unused by groups.
+        // planes (Plane), effects (Effect), particles (Particles), backdrops (Backdrop) or path_shadows (PathShadow);
+        // unused by groups.
         std::uint32_t payload{};
         // The item's rounded clips, outermost first: DisplayList::clips[clips_begin, clips_begin + clips_count).
         std::uint32_t clips_begin{};
@@ -385,6 +415,7 @@ namespace weft::paint {
         std::vector<Effect> effects;
         std::vector<Particles> particles;
         std::vector<Backdrop> backdrops;
+        std::vector<PathShadow> path_shadows;
         // Leases of the assets images, effects and particle sprites draw.
         std::vector<std::shared_ptr<const Asset>> assets;
         // Leases of the programs effects run.
@@ -408,7 +439,8 @@ namespace weft::paint {
     // 1, a sprite of a coverage or sRGB asset of the list in at most constants::max_particle_sprite_frames frames, and
     // an emission of at most constants::max_particles_per_emission particles that stopped no later than its elapsed
     // time, backdrops with finite matrices and radii that are not negative, a blur from 0 to
-    // constants::max_backdrop_blur, and under only inside a group, rounded clip ranges inside the clips, groups balanced
+    // constants::max_backdrop_blur, and under only inside a group, path shadows over the Path items that follow them
+    // with finite values and no negative blur or content size, rounded clip ranges inside the clips, groups balanced
     // and nested at most max_group_depth deep.
     // Diag::PaintList otherwise.
     Status check(const DisplayList& list, std::size_t max_group_depth);
@@ -418,8 +450,8 @@ namespace weft::paint {
 
     // Appends from's items after into's under transform, which maps from's target px into into's and must scale by
     // positive factors and translate (Diag::PaintList otherwise). Item transforms compose with it, clip rects and
-    // rounded clips map through it, and payloads, assets, programs, rounded clips, external and named textures are
-    // renumbered: from's assets follow into's, every external texture follows every asset, and from's texture names
-    // follow into's.
+    // rounded clips map through it, and payloads, assets, programs, rounded clips, external and named textures and the
+    // items path shadows name are renumbered: from's assets follow into's, every external texture follows every asset,
+    // and from's texture names follow into's.
     Status append(DisplayList& into, const DisplayList& from, const Affine& transform = identity);
 } // namespace weft::paint

@@ -314,11 +314,20 @@ namespace weft {
         SceneImageCache<std::string, std::shared_ptr<const SceneImage>> texts_;
         // Layer images by view and node identity.
         SceneImageCache<std::array<std::uint64_t, 5>, Layer> layers_;
-        // Shadow images by value: offset, blur, spread, color, radii, box size and scale.
-        SceneImageCache<std::array<float, 15>, std::shared_ptr<const SceneImage>> shadows_;
+        // Shadow images by value: offset, blur, spread, color, radii, box size, scale and whether they are inset.
+        SceneImageCache<std::array<float, 16>, std::shared_ptr<const SceneImage>> shadows_;
         // Path coverage images by value: the path's digest and sizes, its fill rule and stroke (the dashes by digest),
         // the device map and the mask's pixels, each number by its bits.
         SceneImageCache<std::array<std::uint32_t, 21>, PathImage> paths_;
+
+        // Path shadow images by the values they depend on (the paths by their digests), with the paths, which a key of the
+        // same digests must equal.
+        struct PathShadowImage {
+            std::vector<std::shared_ptr<const paint::Path>> paths;
+            std::shared_ptr<const SceneImage> image;
+        };
+
+        SceneImageCache<std::string, PathShadowImage> path_shadows_;
         // Path objects' digests, so that a path drawn again is keyed without reading its points.
         std::unordered_map<const paint::Path*, Digest> digests_;
         std::size_t digests_swept_{};
@@ -355,6 +364,10 @@ namespace weft {
         // A path item's coverage over mask (device pixels); throws std::invalid_argument past the mask bounds.
         std::shared_ptr<const SceneImage> path(const paint::Item& item, const paint::PathPaint& paint, float scale,
                                                const std::array<std::int32_t, 4>& mask);
+        // A path shadow item's coverage over mask (device pixels): its paths rasterized again where the shadow puts
+        // them, together, inside the content they were clipped to, blurred.
+        std::shared_ptr<const SceneImage> path_shadow(const paint::DisplayList& list, const paint::Item& item,
+                                                      float scale, const std::array<std::int32_t, 4>& mask);
         // The image of an effect's texture: coverage as data, an opaque sRGB image as sRGB, a translucent one as
         // linear premultiplied floats.
         std::shared_ptr<const SceneImage> effect_texture(const std::shared_ptr<const paint::Asset>& asset);

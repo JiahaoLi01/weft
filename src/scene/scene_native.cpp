@@ -299,6 +299,7 @@ namespace weft {
           layers_(bounds.entries, bounds.bytes),
           shadows_(bounds.entries, bounds.bytes),
           paths_(bounds.entries, bounds.bytes),
+          path_shadows_(bounds.entries, bounds.bytes),
           effect_textures_(bounds.entries, bounds.bytes),
           coverage_atlas_(std::uint32_t(limits::atlas_page_size), bounds.atlas_pages),
           color_atlas_(std::uint32_t(limits::atlas_color_page_size), bounds.atlas_pages),
@@ -347,6 +348,7 @@ namespace weft {
         layers_.begin_pass();
         shadows_.begin_pass();
         paths_.begin_pass();
+        path_shadows_.begin_pass();
         effect_textures_.begin_pass();
         // The digests of paths that are gone, once there are as many again as after the last sweep.
         if (digests_.size() > 2 * digests_swept_ + std::size_t(limits::image_cache_max_entries)) {
@@ -526,6 +528,7 @@ namespace weft {
             source = scene_paint_source_key(n);
             source.append(reinterpret_cast<const char*>(&scale), sizeof scale);
             source.append(reinterpret_cast<const char*>(&margin), sizeof margin);
+            source.append(reinterpret_cast<const char*>(&raster.blur), sizeof raster.blur);
             if (const auto* cached = texts_.find(source)) {
                 ++work_.text_reuses;
                 return {*cached, nullptr};
@@ -647,6 +650,18 @@ namespace weft {
                 for (std::size_t i = 0; i < image->pixels.size(); ++i) {
                     image->pixels[i] = bitmap.rgba[i * constants::rgba8_bytes_per_pixel + 3];
                 }
+                // A text shadow: the coverage blurred, in device px.
+                if (raster.blur > 0) {
+                    std::vector<float> coverage(image->pixels.size());
+                    for (std::size_t i = 0; i < coverage.size(); ++i) {
+                        coverage[i] = image->pixels[i] / float(constants::color_channel_max);
+                    }
+                    coverage = render::gaussian_blur(coverage, image->width, image->height, raster.blur * scale);
+                    for (std::size_t i = 0; i < coverage.size(); ++i) {
+                        image->pixels[i] = std::uint8_t(
+                            std::lround(std::clamp(coverage[i], 0.f, 1.f) * float(constants::color_channel_max)));
+                    }
+                }
             } else {
                 // Straight RGBA to premultiplied BGRA.
                 for (std::size_t i = 0; i < bitmap.rgba.size(); i += 4) {
@@ -688,9 +703,9 @@ namespace weft {
 
     std::shared_ptr<const SceneImage> ScenePreparer::shadow(const paint::Item& item, const paint::Shadow& s,
                                                             float scale) {
-        const std::array<float, 15> key{s.x,        s.y,        s.blur,     s.spread,    s.color[0],
-                                        s.color[1], s.color[2], s.color[3], s.radii[0],  s.radii[1],
-                                        s.radii[2], s.radii[3], item.width, item.height, scale};
+        const std::array<float, 16> key{s.x,        s.y,         s.blur,     s.spread,      s.color[0], s.color[1],
+                                        s.color[2], s.color[3],  s.radii[0], s.radii[1],    s.radii[2], s.radii[3],
+                                        item.width, item.height, scale,      float(s.inset)};
         if (const auto* cached = shadows_.find(key)) {
             ++work_.shadow_reuses;
             return *cached;
@@ -793,6 +808,193 @@ namespace weft {
         return result;
     }
 
+    namespace {
+        // A w x h rectangle at (x, y) with circular corners (top-left first, clockwise, each at most half the shorter
+        // side) as a closed subpath of p.
+        void rounded_rect(paint::Path& p, float x, float y, float w, float h, std::array<float, 4> r) {
+            using Verb = paint::Path::Verb;
+            // A quarter circle's cubic control distance, as a fraction of the radius.
+            constexpr float k = 0.5522847498f;
+            for (auto& v : r) {
+                v = std::clamp(v, 0.f, std::min(w, h) / 2);
+            }
+            const auto to = [&](Verb verb, std::initializer_list<std::array<float, 2>> points) {
+                p.verbs.push_back(verb);
+                p.points.insert(p.points.end(), points);
+            };
+            to(Verb::Move, {{x + r[0], y}});
+            to(Verb::Line, {{x + w - r[1], y}});
+            to(Verb::Cubic, {{x + w - r[1] + k * r[1], y}, {x + w, y + r[1] - k * r[1]}, {x + w, y + r[1]}});
+            to(Verb::Line, {{x + w, y + h - r[2]}});
+            to(Verb::Cubic,
+               {{x + w, y + h - r[2] + k * r[2]}, {x + w - r[2] + k * r[2], y + h}, {x + w - r[2], y + h}});
+            to(Verb::Line, {{x + r[3], y + h}});
+            to(Verb::Cubic, {{x + r[3] - k * r[3], y + h}, {x, y + h - r[3] + k * r[3]}, {x, y + h - r[3]}});
+            to(Verb::Line, {{x, y + r[0]}});
+            to(Verb::Cubic, {{x, y + r[0] - k * r[0]}, {x + r[0] - k * r[0], y}, {x + r[0], y}});
+            to(Verb::Close, {});
+        }
+
+        // What a box the box shader draws for an svg shape covers, as paths at their alpha: its background, filled in
+        // its corners, and its border, the ring inside them.
+        std::vector<std::pair<paint::PathPaint, float>> box_shapes(const paint::Box& b, float w, float h) {
+            std::vector<std::pair<paint::PathPaint, float>> out;
+            if (b.background[3] > 0) {
+                auto fill = std::make_shared<paint::Path>();
+                rounded_rect(*fill, 0, 0, w, h, b.radii);
+                out.push_back({{std::move(fill), b.background, std::nullopt}, b.background[3]});
+            }
+            const float width = b.widths[0];
+            if (width > 0 && b.edges[0][3] > 0) {
+                auto ring = std::make_shared<paint::Path>();
+                ring->evenodd = true;
+                rounded_rect(*ring, 0, 0, w, h, b.radii);
+                if (w > 2 * width && h > 2 * width) {
+                    std::array<float, 4> inner{};
+                    for (unsigned c = 0; c < 4; ++c) {
+                        inner[c] = std::max(0.f, b.radii[c] - width);
+                    }
+                    rounded_rect(*ring, width, width, w - 2 * width, h - 2 * width, inner);
+                }
+                out.push_back({{std::move(ring), b.edges[0], std::nullopt}, b.edges[0][3]});
+            }
+            return out;
+        }
+    } // namespace
+
+    std::shared_ptr<const SceneImage> ScenePreparer::path_shadow(const paint::DisplayList& list,
+                                                                 const paint::Item& item, float scale,
+                                                                 const std::array<std::int32_t, 4>& mask) {
+        const auto& s = list.path_shadows[item.payload];
+        const auto& m = item.transform;
+        // The offset in device px: the element's linear map of it.
+        const float dx = (m[0] * s.x + m[2] * s.y) * scale;
+        const float dy = (m[1] * s.x + m[3] * s.y) * scale;
+        // A blur in item px spreads by the map's mean scale.
+        const float sigma = s.blur * scale * std::sqrt(std::abs(m[0] * m[3] - m[1] * m[2]));
+        std::string key;
+        const auto add = [&](const auto& v) {
+            key.append(reinterpret_cast<const char*>(&v), sizeof v);
+        };
+        add(mask);
+        add(m);
+        add(scale);
+        add(s.x);
+        add(s.y);
+        add(s.blur);
+        add(s.content);
+        std::vector<std::shared_ptr<const paint::Path>> paths;
+        for (auto k = s.first; k < s.first + s.count; ++k) {
+            const auto& path_item = list.items[k];
+            if (path_item.kind == Kind::Box) {
+                const auto& b = list.boxes[path_item.payload];
+                add(path_item.transform);
+                add(path_item.width);
+                add(path_item.height);
+                add(path_item.opacity);
+                add(b.background[3]);
+                add(b.radii);
+                add(b.widths[0]);
+                add(b.edges[0][3]);
+                continue;
+            }
+            const auto& p = list.paths[path_item.payload];
+            add(digest(p.path));
+            add(p.path->verbs.size());
+            add(p.path->points.size());
+            add(p.path->evenodd);
+            add(path_item.transform);
+            add(path_item.opacity);
+            add(p.color[3]);
+            add(p.stroke.has_value());
+            if (p.stroke) {
+                add(p.stroke->width);
+                add(p.stroke->cap);
+                add(p.stroke->join);
+                add(p.stroke->miter_limit);
+                add(p.stroke->dash_offset);
+                add(floats_digest(0, p.stroke->dashes.data(), p.stroke->dashes.size()));
+                add(p.stroke->dashes.size());
+            }
+            paths.push_back(p.path);
+        }
+        if (auto* cached = path_shadows_.find(key)) {
+            bool same = cached->paths.size() == paths.size();
+            for (std::size_t k = 0; same && k < paths.size(); ++k) {
+                same = cached->paths[k] == paths[k] ||
+                       (cached->paths[k]->verbs == paths[k]->verbs && cached->paths[k]->points == paths[k]->points);
+            }
+            if (same) {
+                ++work_.shadow_reuses;
+                return cached->image;
+            }
+        }
+        const auto w = unsigned(mask[2] - mask[0]);
+        const auto h = unsigned(mask[3] - mask[1]);
+        std::vector<float> alpha(std::size_t(w) * h);
+        for (auto k = s.first; k < s.first + s.count; ++k) {
+            const auto& path_item = list.items[k];
+            paint::Affine device = path_item.transform;
+            for (auto& v : device) {
+                v *= scale;
+            }
+            device[4] += dx;
+            device[5] += dy;
+            const auto shapes = path_item.kind == Kind::Box
+                                    ? box_shapes(list.boxes[path_item.payload], path_item.width, path_item.height)
+                                    : std::vector<std::pair<paint::PathPaint, float>>{
+                                          {list.paths[path_item.payload], list.paths[path_item.payload].color[3]}};
+            for (const auto& [shape, shape_alpha] : shapes) {
+                auto coverage = vector_.rasterize(shape, device, mask);
+                if (!coverage) {
+                    throw std::invalid_argument(coverage.error().message);
+                }
+                const float a = std::clamp(shape_alpha * path_item.opacity, 0.f, 1.f);
+                for (std::size_t i = 0; i < alpha.size() && i < coverage->coverage.size(); ++i) {
+                    const float c = coverage->coverage[i] / float(constants::color_channel_max) * a;
+                    alpha[i] += c * (1 - alpha[i]);
+                }
+            }
+        }
+        // Nothing lies outside the content the paths were clipped to, where the shadow puts it.
+        const double det = double(m[0]) * m[3] - double(m[1]) * m[2];
+        if (std::abs(det) > 0) {
+            for (unsigned row = 0; row < h; ++row) {
+                for (unsigned col = 0; col < w; ++col) {
+                    const double tx = (mask[0] + col + .5) / scale - m[4];
+                    const double ty = (mask[1] + row + .5) / scale - m[5];
+                    const double ix = (m[3] * tx - m[2] * ty) / det;
+                    const double iy = (m[0] * ty - m[1] * tx) / det;
+                    if (ix < s.content[0] || iy < s.content[1] || ix > s.content[0] + s.content[2] ||
+                        iy > s.content[1] + s.content[3]) {
+                        alpha[std::size_t(row) * w + col] = 0;
+                    }
+                }
+            }
+        }
+        alpha = render::gaussian_blur(alpha, w, h, sigma);
+        auto result = std::make_shared<SceneImage>();
+        result->id = ++next_id_;
+        result->width = w;
+        result->height = h;
+        result->format = SceneImage::Format::Data;
+        result->pixels.resize(alpha.size());
+        for (std::size_t i = 0; i < alpha.size(); ++i) {
+            result->pixels[i] =
+                std::uint8_t(std::lround(std::clamp(alpha[i], 0.f, 1.f) * float(constants::color_channel_max)));
+        }
+        if (result->pixels.size() > limits::image_max_bytes) {
+            throw std::invalid_argument("path shadow image byte bound");
+        }
+        const auto bytes = result->pixels.size();
+        ++work_.shadow_builds;
+        place(result);
+        const auto evictions = path_shadows_.evictions();
+        path_shadows_.put(key, {std::move(paths), result}, bytes);
+        work_.image_evictions += path_shadows_.evictions() - evictions;
+        return result;
+    }
+
     std::shared_ptr<const SceneImage> ScenePreparer::effect_texture(const std::shared_ptr<const paint::Asset>& asset) {
         if (const auto* cached = effect_textures_.find(asset)) {
             ++work_.effect_texture_reuses;
@@ -892,6 +1094,11 @@ namespace weft {
                 const auto& mask = out->pass.masks[i];
                 if (mask[2] > mask[0] && mask[3] > mask[1]) {
                     out->images[i] = path(item, list.paths[item.payload], scale, mask);
+                }
+            } else if (item.kind == Kind::PathShadow) {
+                const auto& mask = out->pass.masks[i];
+                if (mask[2] > mask[0] && mask[3] > mask[1]) {
+                    out->images[i] = path_shadow(list, item, scale, mask);
                 }
             } else if (item.kind == Kind::Plane) {
                 // The content flat in its own image, image_margin px in, texel per device pixel.

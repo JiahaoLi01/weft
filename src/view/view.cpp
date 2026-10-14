@@ -446,6 +446,9 @@ namespace weft {
         }
         i.take_anchors();
         try {
+            // The engine's input belongs to this frame: its handlers read the frame's time, as its tasks and animation
+            // callbacks do.
+            i.vm.advance_clock(i.time);
             const auto delivery = i.vm.deliver_engine();
             for (const auto& error : delivery.errors) {
                 i.diagnose(ViewDiagnostic::Kind::Handler, error);

@@ -1,3 +1,4 @@
+#include "constants/script.hpp"
 #include "script/script_dom.hpp"
 #include "script/script_platform.hpp"
 #include "../support/check.hpp"
@@ -404,9 +405,10 @@ globalThis.mutate = () => {
         try {
             (void)probe.eval("while (true) {}", "infinite-loop-fixture.js");
         } catch (const std::runtime_error& e) {
-            interrupted = std::string(e.what()).find("WEFT_VIEW_FAULTED") != std::string::npos;
+            const std::string message(e.what());
+            interrupted = message.find("WEFT_VIEW_FAULTED: execution budget of") != std::string::npos;
         }
-        require(interrupted, "infinite loop was not interrupted and faulted");
+        require(interrupted, "infinite loop was not interrupted and faulted for the execution budget");
         try {
             (void)probe.eval("1 + 1");
         } catch (const std::runtime_error& e) {
@@ -428,20 +430,44 @@ globalThis.mutate = () => {
         try {
             (void)probe.eval("1 + 1");
         } catch (const std::runtime_error& e) {
-            microtask_sticky_fault = std::string(e.what()).find("WEFT_VIEW_FAULTED") != std::string::npos;
+            // The reset forgot the budget that faulted the View before.
+            const std::string message(e.what());
+            microtask_sticky_fault = message.find("WEFT_VIEW_FAULTED") != std::string::npos &&
+                                     message.find("execution budget") == std::string::npos;
         }
-        require(microtask_sticky_fault, "microtask View resumed without reset");
+        require(microtask_sticky_fault, "microtask View resumed without reset, or named an earlier fault");
         probe.reset_document();
         require(probe.eval("document.body.childNodes.length") == "0", "microtasks survived VM reset");
         bool caught_oom_faulted{};
+        const auto limit_mib =
+            std::to_string(weft::constants::script::vm_memory_limit / weft::constants::bytes_per_mib);
         try {
-            (void)probe.eval("try { new ArrayBuffer(80 * 1024 * 1024); } catch (_) {}", "caught-oom-fixture.js");
+            // A page that catches the failure and goes on is interrupted; the limit is still the cause.
+            (void)probe.eval("try { new ArrayBuffer((" + limit_mib + " + 16) * 1024 * 1024); } catch (_) {}" +
+                                 " for (let i = 0; i < 1e8; ++i) {}",
+                             "caught-oom-fixture.js");
         } catch (const std::runtime_error& e) {
-            caught_oom_faulted = std::string(e.what()).find("WEFT_VIEW_FAULTED") != std::string::npos;
+            caught_oom_faulted = std::string(e.what()).find("WEFT_VIEW_FAULTED: VM memory limit of " + limit_mib +
+                                                            " MiB reached") != std::string::npos;
         }
-        require(caught_oom_faulted, "caught VM OOM did not fault View");
+        require(caught_oom_faulted, "caught VM OOM did not fault View for the VM memory limit");
         probe.reset_document();
         require(probe.eval("1") == "1", "caught-OOM reset did not recover");
+        // Growing an allocation past the limit: a resizable ArrayBuffer of a MiB lies outside QuickJS's arena, so the
+        // VM's realloc grows it.
+        bool grown_oom_faulted{};
+        try {
+            (void)probe.eval(
+                "const big = (" + limit_mib + " + 16) * 1024 * 1024;" +
+                    " try { new ArrayBuffer(1024 * 1024, {maxByteLength: big}).resize(big); } catch (_) {}",
+                "grown-oom-fixture.js");
+        } catch (const std::runtime_error& e) {
+            grown_oom_faulted = std::string(e.what()).find("WEFT_VIEW_FAULTED: VM memory limit of " + limit_mib +
+                                                           " MiB reached") != std::string::npos;
+        }
+        require(grown_oom_faulted, "a reallocation past the VM memory limit did not fault View for it");
+        probe.reset_document();
+        require(probe.eval("1") == "1", "grown-OOM reset did not recover");
     }
 } // namespace
 

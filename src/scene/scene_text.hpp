@@ -102,6 +102,8 @@ namespace weft {
         // run's words break there: the advances of the glyphs whose cluster lies in the range, and the faces they use.
         SceneTextMetrics slice(const SceneTextRun& run, const SceneFont& font, std::uint32_t begin, std::uint32_t end);
         SceneStrut strut(const SceneFont& font);
+        // Whether the font's primary face (the first that its families match) has a glyph for a character.
+        bool primary_covers(const SceneFont& font, char32_t character);
 
         // The run's glyph outlines as one path, its origin the top left of the line box (the baseline at
         // metrics.baseline); null when a glyph comes from a color face. Kept while the cache holds it.

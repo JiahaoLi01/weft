@@ -233,12 +233,19 @@ float4 gradient(Paint p, float2 position) {
     if (p.size.z == GradientLinear) {
         t = dot(q - p.tile.xy * .5, d) / extent + .5;
     } else if (p.size.z == GradientRadial) {
-        t = length(q - p.tile.xy * .5) / length(p.tile.xy * .5);
+        // The ending shape: its center in uv.xy, its radii in uv.zw.
+        t = length((q - p.uv.xy) / p.uv.zw);
     } else {
         t = (atan2(q.x - p.tile.x * .5, -(q.y - p.tile.y * .5)) - angle) / TwoPi;
         t = frac(t + 2);
     }
     uint count = (uint)p.size.w;
+    if (p.mode.y == FlagEnabled) {
+        // A repeating gradient: the stops again every span from the first's offset to the last's.
+        float first = offset(p, 0);
+        float span = offset(p, count - 1) - first;
+        t = first + (t - first) - floor((t - first) / span) * span;
+    }
     uint i = 1;
     if (t <= offset(p, 0)) {
         return premult(p.stops[0]);

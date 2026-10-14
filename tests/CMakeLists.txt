@@ -301,6 +301,28 @@ if(WIN32)
         LINK weft::scene_d3d11 weft::platform_win32 windowscodecs ole32 SOURCE_DIR)
     weft_add_test(NAME scene_backdrop_reference COMMAND weft_scene_backdrop_reference_tests
         "${artifacts}/backdrop-reference-$<CONFIG>" "${backdrop_cases_sha256}" TIMEOUT 120)
+    # The CSS the CRPG floating UI needs of scene pages (text-overflow, text-shadow, drop-shadow, inset shadows, radial
+    # and repeating gradients, calc() insets, transform-origin keywords) value by value: parses, lists, layouts and
+    # what stays outside the profile.
+    weft_add_executable(weft_scene_floating_css_tests SOURCES scene_floating_css_tests.cpp
+        LINK weft::scene weft::render weft::platform_win32)
+    weft_add_test(NAME scene_floating_css_contract COMMAND weft_scene_floating_css_tests)
+    # The same CSS against Chrome's screenshots of the same cases (tools/browser_scene_paint_reference.mjs), whose
+    # manifest must name the cases as they are now.
+    set(scene_paint_cases "${fixtures}/scene-paint-reference/cases.json")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${scene_paint_cases}")
+    file(SHA256 "${scene_paint_cases}" scene_paint_cases_sha256)
+    set(scene_paint_links weft::scene_d3d11 weft::scene_d2d weft::platform_win32 windowscodecs ole32)
+    if(WEFT_RENDER_VULKAN)
+        list(APPEND scene_paint_links weft::scene_vulkan)
+    endif()
+    weft_add_executable(weft_scene_paint_reference_tests SOURCES scene_paint_reference_tests.cpp
+        LINK ${scene_paint_links} SOURCE_DIR)
+    if(WEFT_RENDER_VULKAN)
+        target_compile_definitions(weft_scene_paint_reference_tests PRIVATE WEFT_TEST_VULKAN)
+    endif()
+    weft_add_test(NAME scene_paint_reference COMMAND weft_scene_paint_reference_tests
+        "${artifacts}/scene-paint-reference-$<CONFIG>" "${scene_paint_cases_sha256}" TIMEOUT 180)
     # UI shader effects in the native scene passes: D3D11 on WARP, and Vulkan on this machine's device when built.
     set(scene_effect_links weft::scene_d3d11 weft::platform_win32 weft_test_effects)
     if(WEFT_RENDER_VULKAN)

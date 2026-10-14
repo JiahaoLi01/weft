@@ -1,0 +1,114 @@
+{
+  "format": "weft-scene-paint-cases-v1",
+  "width": 240,
+  "height": 100,
+  "root": "position:relative;width:240px;height:100px;overflow:hidden;font-family:Arial;background-color:#d8d0c0",
+  "cases": [
+    {"name": "ellipsis", "scale": 2, "nodes": [
+      {"tag": "div", "style": "position:absolute;left:10px;top:8px;width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:16px;color:#1a1410", "children": ["Nameplate of a long name"]},
+      {"tag": "div", "style": "position:absolute;left:10px;top:36px;width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:16px;color:#1a1410", "children": ["Short name"]},
+      {"tag": "div", "style": "position:absolute;left:10px;top:64px;width:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:16px;color:#1a1410", "children": ["Wide"]},
+      {"tag": "div", "style": "position:absolute;left:140px;top:8px;width:92px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px;color:#204080", "children": ["Mixed ", {"tag": "span", "style": "color:#a02020", "children": ["colored spans"]}, " end"]},
+      {"tag": "div", "style": "position:absolute;left:140px;top:36px;width:92px;overflow:hidden;text-overflow:ellipsis;font-size:14px;color:#204080", "children": ["Wraps, then Supercalifragilistic"]},
+      {"tag": "div", "style": "position:absolute;left:140px;top:74px;width:92px;display:flex;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;color:#206040", "children": ["Flex text is not cut"]}
+    ]},
+    {"name": "ellipsis-plate", "scale": 2, "root": "background-color:#4a5866", "nodes": [
+      {"tag": "div", "style": "position:absolute;left:20px;top:20px;width:200px;display:flex;align-items:center;justify-content:center;line-height:1", "children": [
+        {"tag": "span", "style": "max-width:112px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e9ddc1;font-size:11px;font-weight:600;letter-spacing:0.4px", "children": ["Commander Aldric the Unyielding"]}
+      ]},
+      {"tag": "div", "style": "position:absolute;left:20px;top:56px;width:200px;display:flex;align-items:center;justify-content:center;line-height:1", "children": [
+        {"tag": "span", "style": "max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#ecd9a6;font-size:13px;font-weight:600;letter-spacing:0.4px", "children": ["Unmovable"]}
+      ]}
+    ]},
+    {"name": "text-shadow", "scale": 2, "nodes": [
+      {"tag": "div", "style": "position:absolute;left:10px;top:6px;font-size:28px;font-weight:700;color:transparent;text-shadow:0 2px 4px rgba(0,0,0,0.9)", "children": ["Shadow"]},
+      {"tag": "div", "style": "position:absolute;left:130px;top:6px;font-size:28px;font-weight:700;color:#f4ecd8;text-shadow:#c02010 2px 2px, 4px 4px 0 #1030c0", "children": ["Hard"]},
+      {"tag": "div", "style": "position:absolute;left:10px;top:56px;font-size:24px;color:#f4ecd8;text-shadow:0 1px 2px rgba(0,0,0,0.85), 0 0 4px rgba(0,0,0,0.65)", "children": ["Layered"]},
+      {"tag": "div", "style": "position:absolute;left:130px;top:56px;width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:20px;color:#f4ecd8;text-shadow:0 2px 3px rgba(0,0,0,0.8)", "children": ["Ellipsized shadow"]}
+    ]},
+    {"name": "text-shadow-plate", "scale": 2, "root": "background-color:#6a7a8a", "nodes": [
+      {"tag": "div", "style": "position:absolute;left:20px;top:16px;color:#e9ddc1;font-size:11px;font-weight:600;letter-spacing:0.4px;text-shadow:0 1px 2px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.7)", "children": ["Unit 12"]},
+      {"tag": "div", "style": "position:absolute;left:120px;top:16px;color:#ecd9a6;font-size:13px;font-weight:600;letter-spacing:0.4px;text-shadow:0 1px 2px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.7)", "children": ["Reveal"]},
+      {"tag": "div", "style": "position:absolute;left:20px;top:52px;color:#a8ff60;font-size:12px;font-weight:500;letter-spacing:0.22em;text-transform:uppercase;text-shadow:0 1px 2px rgba(0,0,0,0.85), 0 0 4px rgba(0,0,0,0.65)", "children": ["pierce"]}
+    ]},
+    {"name": "text-shadow-glow", "scale": 1, "root": "background-color:#20242c", "nodes": [
+      {"tag": "div", "style": "position:absolute;left:20px;top:20px;font-size:48px;font-weight:700;line-height:1;color:#7ec8ff;text-shadow:0 0 6px #7ec8ff, 0 0 12px #7ec8ff", "children": ["173"]},
+      {"tag": "div", "style": "position:absolute;left:140px;top:20px;font-size:48px;font-weight:700;line-height:1;color:#a8ff60;text-shadow:0 0 6px #a8ff60, 0 0 12px #a8ff60", "children": ["42"]}
+    ]},
+    {"name": "drop-shadow", "scale": 2, "root": "background-color:#8a96a2", "nodes": [
+      {"tag": "svg", "attributes": {"width": "14", "height": "14", "viewBox": "0 0 24 24", "fill": "none", "stroke": "#e9ddc1", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round"}, "style": "position:absolute;left:16px;top:16px;filter:drop-shadow(0 1px 0.5px rgba(0,0,0,0.95))", "children": [
+        {"tag": "path", "attributes": {"d": "M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"}},
+        {"tag": "circle", "attributes": {"cx": "12", "cy": "12", "r": "3"}}
+      ]},
+      {"tag": "svg", "attributes": {"width": "14", "height": "14", "viewBox": "0 0 24 24", "fill": "none", "stroke": "#ecd9a6", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round"}, "style": "position:absolute;left:48px;top:16px;filter:drop-shadow(0 1px 0.5px rgba(0,0,0,0.95))", "children": [
+        {"tag": "path", "attributes": {"d": "M12 6v16"}},
+        {"tag": "path", "attributes": {"d": "m19 13 2-1a9 9 0 0 1-18 0l2 1"}},
+        {"tag": "path", "attributes": {"d": "M9 11h6"}},
+        {"tag": "circle", "attributes": {"cx": "12", "cy": "4", "r": "2"}}
+      ]},
+      {"tag": "svg", "attributes": {"width": "14", "height": "14", "viewBox": "0 0 24 24", "fill": "none", "stroke": "#b9b2a4", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round"}, "style": "position:absolute;left:80px;top:16px;filter:drop-shadow(0 1px 0.5px rgba(0,0,0,0.95))", "children": [
+        {"tag": "path", "attributes": {"d": "M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"}},
+        {"tag": "path", "attributes": {"d": "M14.084 14.158a3 3 0 0 1-4.242-4.242"}},
+        {"tag": "path", "attributes": {"d": "M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"}},
+        {"tag": "path", "attributes": {"d": "m2 2 20 20"}}
+      ]},
+      {"tag": "svg", "attributes": {"viewBox": "0 0 10 10"}, "style": "position:absolute;left:112px;top:14px;width:18px;height:18px;filter:drop-shadow(0 1px 1px rgba(0,0,0,0.9))", "children": [
+        {"tag": "path", "attributes": {"d": "M5 1.5 L9 8.5 L1 8.5 Z", "fill": "#e6b85c"}}
+      ]},
+      {"tag": "svg", "attributes": {"width": "40", "height": "40", "viewBox": "0 0 24 24", "fill": "none", "stroke": "#f4ecd8", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round"}, "style": "position:absolute;left:150px;top:10px;filter:drop-shadow(3px 4px 3px rgba(150,0,0,0.85))", "children": [
+        {"tag": "path", "attributes": {"d": "M12 6v16"}},
+        {"tag": "path", "attributes": {"d": "m19 13 2-1a9 9 0 0 1-18 0l2 1"}},
+        {"tag": "circle", "attributes": {"cx": "12", "cy": "4", "r": "2"}}
+      ]},
+      {"tag": "svg", "attributes": {"width": "30", "height": "30", "viewBox": "0 0 30 30"}, "style": "position:absolute;left:20px;top:56px;filter:drop-shadow(#102040 -2px 3px)", "children": [
+        {"tag": "rect", "attributes": {"x": "3", "y": "3", "width": "24", "height": "14", "rx": "4", "fill": "#e0c070"}},
+        {"tag": "circle", "attributes": {"cx": "15", "cy": "22", "r": "5", "fill": "none", "stroke": "#f4ecd8", "stroke-width": "2"}},
+        {"tag": "line", "attributes": {"x1": "2", "y1": "28", "x2": "28", "y2": "28", "stroke": "#f4ecd8", "stroke-width": "2"}}
+      ]}
+    ]},
+    {"name": "inset-bar", "scale": 2, "root": "background-color:#506070", "nodes": [
+      {"tag": "div", "style": "position:absolute;left:16px;top:16px;width:108px;height:10px;background:#15100a;border:1px solid #c7a667;border-radius:2px;box-shadow:0 0 0 1px rgba(8,6,3,0.85), 0 1px 2px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(8,6,3,0.6);overflow:hidden", "children": [
+        {"tag": "div", "style": "position:absolute;left:1px;top:1px;bottom:1px;width:60px;background:linear-gradient(180deg, #8bb392 0%, #5e8f6a 46%, #3f6b50 100%)"}
+      ]},
+      {"tag": "div", "style": "position:absolute;left:16px;top:48px;width:108px;height:10px;background:#15100a;border:1px solid #c7a667;border-radius:2px;box-shadow:0 0 0 1px rgba(8,6,3,0.85), 0 1px 2px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(8,6,3,0.6);overflow:hidden", "children": [
+        {"tag": "div", "style": "position:absolute;left:1px;top:1px;bottom:1px;width:20px;background:linear-gradient(180deg, #c0726a 0%, #9e3f37 46%, #6a241f 100%)"},
+        {"tag": "div", "style": "position:absolute;inset:0;border-radius:2px;box-shadow:inset 0 0 0 1px rgba(158,59,52,0.95), inset 0 0 5px rgba(158,59,52,0.45)"}
+      ]},
+      {"tag": "div", "style": "position:absolute;left:140px;top:16px;width:80px;height:60px;background-color:#f0e0c0;border:2px solid #303030;border-radius:8px;box-shadow:inset 6px 8px 10px 2px rgba(0,0,0,0.6)"}
+    ]},
+    {"name": "inset-shapes", "scale": 1, "nodes": [
+      {"tag": "div", "style": "position:absolute;left:6px;top:10px;width:72px;height:80px;background-color:#ffffff;border-radius:12px;box-shadow:inset 0 0 12px 4px rgba(20,60,160,0.8)"},
+      {"tag": "div", "style": "position:absolute;left:84px;top:10px;width:72px;height:80px;background-color:#ffffff;box-shadow:rgba(0,0,0,0.7) -8px -6px 0 0 inset, inset 4px 4px 2px -2px #c02020"},
+      {"tag": "div", "style": "position:absolute;left:162px;top:10px;width:72px;height:80px;background-color:#ffffff;border-radius:24px;box-shadow:inset 0 0 0 14px rgba(160,40,40,0.9)"}
+    ]},
+    {"name": "radial", "scale": 1, "nodes": [
+      {"tag": "div", "style": "position:absolute;left:10px;top:6px;width:220px;height:40px;background:radial-gradient(ellipse at center, rgba(0,0,0,0.64) 0%, rgba(0,0,0,0.48) 34%, rgba(0,0,0,0.2) 56%, rgba(0,0,0,0) 72%)"},
+      {"tag": "div", "style": "position:absolute;left:10px;top:52px;width:52px;height:42px;background:radial-gradient(circle closest-side at 30% 40%, #f02020, #2020f0)"},
+      {"tag": "div", "style": "position:absolute;left:68px;top:52px;width:52px;height:42px;background:radial-gradient(ellipse farthest-side at left top, #f0e020 20%, #108010)"},
+      {"tag": "div", "style": "position:absolute;left:126px;top:52px;width:52px;height:42px;background:radial-gradient(30px 15px, #ffffff, #000000)"},
+      {"tag": "div", "style": "position:absolute;left:184px;top:52px;width:52px;height:42px;background:radial-gradient(circle 16px at right, #20c0c0 50%, #602060 51%)"}
+    ]},
+    {"name": "repeating", "scale": 2, "nodes": [
+      {"tag": "div", "style": "position:absolute;left:10px;top:8px;width:108px;height:10px;background-color:#506050", "children": [
+        {"tag": "div", "style": "position:absolute;inset:0;background:repeating-linear-gradient(45deg, rgba(12,9,5,0.62) 0 3px, rgba(40,34,25,0.55) 3px 6px)"}
+      ]},
+      {"tag": "div", "style": "position:absolute;left:10px;top:30px;width:100px;height:30px;background:repeating-linear-gradient(90deg, #e02020 0 5px, #2020e0 5px 10px)"},
+      {"tag": "div", "style": "position:absolute;left:10px;top:66px;width:100px;height:28px;background:repeating-linear-gradient(to bottom, #20a020, #f0f0f0 7px)"},
+      {"tag": "div", "style": "position:absolute;left:130px;top:8px;width:84px;height:84px;background:repeating-radial-gradient(circle, #e02020 0 5px, #f0f0f0 5px 10px)"}
+    ]},
+    {"name": "layout", "scale": 1, "nodes": [
+      {"tag": "div", "style": "position:absolute;left:10px;top:10px;width:80px;height:40px;background-color:#c0b090", "children": [
+        {"tag": "div", "style": "position:absolute;left:calc(100% + 4px);top:calc(50% - 10px);width:20px;height:20px;background-color:#2060c0"},
+        {"tag": "div", "style": "position:absolute;right:calc(25% + 2px);bottom:calc(0% - 8px);margin-right:3px;width:12px;height:12px;background-color:#c02060"}
+      ]},
+      {"tag": "div", "style": "position:absolute;left:130px;top:20px;width:40px;height:16px;background-color:#2060c0;transform:rotate(30deg);transform-origin:left top"},
+      {"tag": "div", "style": "position:absolute;left:180px;top:20px;width:40px;height:16px;background-color:#20a060;transform:rotate(-25deg);transform-origin:bottom"},
+      {"tag": "div", "style": "position:absolute;left:130px;top:64px;width:40px;height:16px;background-color:#c08020;transform:rotate(20deg);transform-origin:right center"},
+      {"tag": "div", "style": "position:absolute;left:180px;top:64px;width:40px;height:16px;background-color:#8020c0;transform:translate3d(6px, -4px, 0) rotate(15deg);transform-origin:10px bottom"},
+      {"tag": "div", "style": "position:absolute;left:10px;top:70px;width:80px;height:20px;font-size:10px;background-color:#e0d0b0", "children": [
+        {"tag": "div", "style": "position:absolute;left:1em;top:0.5em;width:2em;height:1em;background-color:#404040"},
+        {"tag": "div", "style": "position:absolute;left:4em;top:0.5em;width:3rem;height:0.5rem;background-color:#a04040"}
+      ]}
+    ]}
+  ]
+}

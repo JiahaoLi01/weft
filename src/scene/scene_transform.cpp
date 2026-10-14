@@ -86,11 +86,54 @@ namespace weft {
 
     std::array<float, 2> scene_transform_origin(const SceneStyle& style, float w, float h) {
         const auto v = get(style, PropertyId::TransformOrigin, "50% 50%");
-        if (v == "top") {
-            return {w / 2, 0};
+        auto a = css::split(v, ' ', {.quotes = false}).parts;
+        // A third value is the depth: none but zero for a plane.
+        if (a.size() == 3) {
+            if (len(a[2]) != 0) {
+                fail("transform-origin with a depth");
+            }
+            a.pop_back();
         }
-        const auto a = css::split(v, ' ', {.quotes = false}).parts;
-        return {a.empty() ? w / 2 : len(a[0], w), a.size() < 2 ? h / 2 : len(a[1], h)};
+        if (a.empty() || a.size() > 2) {
+            fail("transform-origin " + v);
+        }
+        const auto vertical = [](const std::string& k) {
+            return k == "top" || k == "bottom";
+        };
+        const auto horizontal = [](const std::string& k) {
+            return k == "left" || k == "right";
+        };
+        // One value: top or bottom is the vertical one, the other at its center. Two keywords come in either order.
+        if (a.size() == 1) {
+            a.push_back("center");
+            if (vertical(a[0])) {
+                std::swap(a[0], a[1]);
+            }
+        } else if (vertical(a[0]) || horizontal(a[1])) {
+            const auto keyword = [&](const std::string& k) {
+                return vertical(k) || horizontal(k) || k == "center";
+            };
+            if (!keyword(a[0]) || !keyword(a[1]) || vertical(a[1]) || horizontal(a[0])) {
+                fail("transform-origin " + v);
+            }
+            std::swap(a[0], a[1]);
+        }
+        const auto offset = [](const std::string& k, float size, const char* start, const char* end) {
+            if (k == "center") {
+                return size / 2;
+            }
+            if (k == start) {
+                return 0.f;
+            }
+            if (k == end) {
+                return size;
+            }
+            if (k == "top" || k == "bottom" || k == "left" || k == "right") {
+                fail("transform-origin " + k);
+            }
+            return len(k, size);
+        };
+        return {offset(a[0], w, "left", "right"), offset(a[1], h, "top", "bottom")};
     }
 
     ScenePlane scene_plane(const SceneNode& n) {

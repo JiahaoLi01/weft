@@ -3,11 +3,13 @@
 #include "scene/scene_border.hpp"
 #include "scene/scene_inline.hpp"
 #include "scene/scene_geometry.hpp"
+#include "scene/scene_gradient.hpp"
 #include "scene/scene_text_image.hpp"
 #include "scene/scene_values.hpp"
 #include "base/css_scalar.hpp"
 #include "render/shadow_image.hpp"
 #include "base/owner_thread.hpp"
+#include "constants/render.hpp"
 #include "constants/scene.hpp"
 #include "constants/text.hpp"
 #include <d2d1_1.h>
@@ -168,7 +170,8 @@ namespace weft {
         std::size_t shape_clock{};
         std::map<std::string, ComPtr<ID2D1StrokeStyle>> strokes;
         std::size_t stroke_bytes{};
-        std::map<std::tuple<std::string, std::string, std::string, float, float, float>, ComPtr<ID2D1Bitmap>>
+        std::map<std::tuple<std::string, std::string, std::string, std::string, float, float, float>,
+                 ComPtr<ID2D1Bitmap>>
             gradient_cache;
         std::size_t gradient_cache_bytes{};
 
@@ -823,6 +826,9 @@ namespace weft {
             if (get(n.style, PropertyId::Display) == "none" || n.tag == "defs" || n.tag == "clipPath") {
                 return;
             }
+            if (scene_values::drop_shadow(n.style)) {
+                fail("filter on svg content outside scene profile");
+            }
             const auto old = matrix();
             const auto t =
                 n.attributes.contains("transform") ? n.attributes.at("transform") : get(n.style, PropertyId::Transform);
@@ -956,10 +962,119 @@ namespace weft {
             return true;
         }
 
-        // HTML text a line at a time, each a single-line text node over its line box; text without lines (a frame
-        // that no solver laid out) is one line in the node's box.
+        // An svg element's drop shadow, as the native passes draw it: the element drawn alone (without its filter,
+        // opacity and transform) at the raster's scale, its alpha offset, blurred and tinted, in its own px.
+        void drop_shadow(const SceneNode& n) {
+            const auto dropped = scene_values::drop_shadow(n.style);
+            SceneFrame alone;
+            alone.root = n;
+            alone.root.box[0] = alone.root.box[1] = 0;
+            for (const auto id : {PropertyId::Filter, PropertyId::Opacity, PropertyId::Transform}) {
+                alone.root.style.erase(id);
+            }
+            if (alone.root.paint) {
+                alone.root.paint->values[constants::scene::paint_slot_opacity].reset();
+                alone.root.paint->values[constants::scene::paint_slot_transform].reset();
+            }
+            SceneRaster nested(text);
+            const auto content = nested.raster(alone, scale);
+            const auto pad =
+                unsigned(std::ceil(std::ceil(constants::scene::shadow_kernel_sigmas * dropped->sigma) * scale));
+            const unsigned w = content.width + 2 * pad;
+            const unsigned h = content.height + 2 * pad;
+            std::vector<float> alpha(std::size_t(w) * h);
+            for (unsigned row = 0; row < content.height; ++row) {
+                for (unsigned col = 0; col < content.width; ++col) {
+                    alpha[std::size_t(row + pad) * w + col + pad] =
+                        content.rgba[(std::size_t(row) * content.width + col) * 4 + 3] /
+                        float(constants::color_channel_max);
+                }
+            }
+            alpha = render::gaussian_blur(alpha, w, h, dropped->sigma * scale);
+            const auto channel = [](float v) {
+                return std::uint8_t(std::clamp(v * constants::color_channel_max + .5f, 0.f,
+                                               static_cast<float>(constants::color_channel_max)));
+            };
+            std::vector<std::uint8_t> pixels(alpha.size() * 4);
+            const auto& c = dropped->color;
+            for (std::size_t i = 0; i < alpha.size(); ++i) {
+                const float a = std::clamp(alpha[i], 0.f, 1.f) * c[3];
+                pixels[i * 4] = channel(c[2] * a);
+                pixels[i * 4 + 1] = channel(c[1] * a);
+                pixels[i * 4 + 2] = channel(c[0] * a);
+                pixels[i * 4 + 3] = channel(a);
+            }
+            ComPtr<ID2D1Bitmap> bitmap;
+            check(target->CreateBitmap(
+                {w, h}, pixels.data(), w * 4,
+                D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)),
+                &bitmap));
+            const float left = dropped->x - pad / scale;
+            const float top = dropped->y - pad / scale;
+            target->DrawBitmap(bitmap.Get(), {left, top, left + w / scale, top + h / scale}, 1,
+                               D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        }
+
+        // A line's text shadows under it, bottom first, as the native passes draw them: the portable image of its
+        // coverage (white text) with room for the blur, blurred, tinted and offset.
+        void draw_text_shadows(const SceneNode& line, const std::vector<scene_values::TextShadow>& listed) {
+            if (listed.empty() || line.text.empty()) {
+                return;
+            }
+            auto white = line;
+            white.style[PropertyId::Color] = "#ffffff";
+            white.paint.reset();
+            float overhang{};
+            const auto style = white.style.text(PropertyId::FontStyle, "normal");
+            if (style == "italic" || style.starts_with("oblique")) {
+                overhang = std::ceil(len(get(white.style, PropertyId::FontSize, constants::default_font_size)) *
+                                     constants::scene::italic_overhang_em);
+            }
+            for (const auto& layer : listed) {
+                const float sigma = scene_values::shadow_sigma(layer.blur);
+                const float margin = constants::render::scene::image_margin + overhang +
+                                     std::ceil(constants::scene::shadow_kernel_sigmas * sigma);
+                const auto image = scene_text_image(text, white, scale, margin);
+                const auto w = image.bitmap.width;
+                const auto h = image.bitmap.height;
+                std::vector<float> coverage(std::size_t(w) * h);
+                for (std::size_t i = 0; i < coverage.size(); ++i) {
+                    coverage[i] = image.bitmap.rgba[i * 4 + 3] / float(constants::color_channel_max);
+                }
+                coverage = render::gaussian_blur(coverage, w, h, sigma * scale);
+                std::vector<std::uint8_t> pixels(coverage.size() * 4);
+                const auto channel = [](float v) {
+                    return std::uint8_t(std::clamp(v * constants::color_channel_max + .5f, 0.f,
+                                                   static_cast<float>(constants::color_channel_max)));
+                };
+                for (std::size_t i = 0; i < coverage.size(); ++i) {
+                    const float a = std::clamp(coverage[i], 0.f, 1.f) * layer.color[3];
+                    pixels[i * 4] = channel(layer.color[2] * a);
+                    pixels[i * 4 + 1] = channel(layer.color[1] * a);
+                    pixels[i * 4 + 2] = channel(layer.color[0] * a);
+                    pixels[i * 4 + 3] = channel(a);
+                }
+                ComPtr<ID2D1Bitmap> bitmap;
+                check(target->CreateBitmap({w, h}, pixels.data(), w * 4,
+                                           D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,
+                                                                                    D2D1_ALPHA_MODE_PREMULTIPLIED)),
+                                           &bitmap));
+                target->DrawBitmap(bitmap.Get(),
+                                   {layer.x - margin, layer.y - margin, layer.x + line.box[2] + margin,
+                                    layer.y + line.box[3] + margin},
+                                   1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+            }
+        }
+
+        // HTML text a line at a time, each a single-line text node over its line box, over its text shadows; text
+        // without lines (a frame that no solver laid out) is one line in the node's box.
         void draw_text(const SceneNode& n, bool svg_text = false) {
+            const auto text_shadows = scene_values::text_shadows(n.style);
+            if (svg_text && !text_shadows.empty()) {
+                fail("text-shadow on svg text outside scene profile");
+            }
             if (svg_text || n.lines.empty()) {
+                draw_text_shadows(n, text_shadows);
                 draw_line(n, svg_text, 0);
                 return;
             }
@@ -968,6 +1083,7 @@ namespace weft {
                 auto line = scene_text_line(n, i);
                 target->SetTransform(D2D1::Matrix3x2F::Translation(line.box[0], line.box[1]) * current);
                 line.box[0] = line.box[1] = 0;
+                draw_text_shadows(line, text_shadows);
                 draw_line(line, false, std::uint32_t(i));
             }
             target->SetTransform(current);
@@ -1010,101 +1126,26 @@ namespace weft {
             draw_run(*run, n.text, x, y + m.baseline);
         }
 
-        struct Stop {
-            float offset{};
-            D2D1_COLOR_F color{};
-            bool explicit_offset{};
-        };
-
-        std::vector<Stop> stops(std::vector<std::string> values, float reference = 1) {
-            std::vector<Stop> out;
-            for (auto s : values) {
-                auto a = split(s);
-                if (a.empty()) {
-                    fail("gradient stop");
-                }
-                auto c = color(a[0]);
-                if (a.size() == 1) {
-                    out.push_back({0, c, false});
-                } else {
-                    for (std::size_t i = 1; i < a.size(); ++i) {
-                        out.push_back({a[i].ends_with('%') ? len(a[i]) : len(a[i]) / reference, c, true});
-                    }
-                }
-            }
-            if (out.size() < 2) {
-                fail("gradient stop count");
-            }
-            if (!out.front().explicit_offset) {
-                out.front().offset = 0;
-            }
-            if (!out.back().explicit_offset) {
-                out.back().offset = 1;
-            }
-            out.front().explicit_offset = out.back().explicit_offset = true;
-            float previous = out.front().offset;
-            for (auto& s : out) {
-                if (s.explicit_offset) {
-                    s.offset = std::max(s.offset, previous);
-                    previous = s.offset;
-                }
-            }
-            for (std::size_t i = 1; i < out.size() - 1;) {
-                if (out[i].explicit_offset) {
-                    ++i;
-                    continue;
-                }
-                auto j = i;
-                while (j < out.size() && !out[j].explicit_offset) {
-                    ++j;
-                }
-                for (auto k = i; k < j; ++k) {
-                    out[k].offset =
-                        out[i - 1].offset + (out[j].offset - out[i - 1].offset) * float(k - i + 1) / float(j - i + 1);
-                }
-                i = j;
-            }
-            return out;
-        }
-
-        static D2D1_COLOR_F sampled(const std::vector<Stop>& s, float t) {
-            if (t <= s.front().offset) {
-                return s.front().color;
-            }
-            if (t >= s.back().offset) {
-                return s.back().color;
-            }
-            std::size_t i = 1;
-            while (i < s.size() && s[i].offset <= t) {
-                ++i;
-            }
-            const auto a = s[i - 1];
-            const auto b = s[i];
-            float f = (t - a.offset) / (b.offset - a.offset);
-            float alpha = a.color.a + (b.color.a - a.color.a) * f;
-            auto component = [&](float x, float y) {
-                return alpha ? ((1 - f) * x * a.color.a + f * y * b.color.a) / alpha : 0;
-            };
-            return {component(a.color.r, b.color.r), component(a.color.g, b.color.g), component(a.color.b, b.color.b),
-                    alpha};
-        }
-
-        void shadow(const SceneNode& n, const std::array<float, 4>& corners) {
+        // The element's outer shadows (under its background) or its inset ones (over it, under its border).
+        void shadow(const SceneNode& n, const std::array<float, 4>& corners, bool inset) {
             const auto w = n.box[2];
             const auto h = n.box[3];
-            for (const auto& layer : scene_values::box_shadows(n.style, w, h, corners)) {
+            for (const auto& [layer, rect] : scene_values::box_shadows(n.style, w, h, corners)) {
+                if (layer.inset != inset) {
+                    continue;
+                }
                 std::ostringstream key;
-                key << layer.x << '|' << layer.y << '|' << layer.blur << '|' << layer.spread << '|' << w << '|' << h
-                    << '|' << scale;
+                key << layer.inset << '|' << layer.x << '|' << layer.y << '|' << layer.blur << '|' << layer.spread
+                    << '|' << rect[2] << '|' << rect[3] << '|' << scale;
                 for (auto v : layer.color) {
                     key << '|' << v;
                 }
-                for (auto r : corners) {
+                for (auto r : layer.radii) {
                     key << '|' << r;
                 }
                 auto cached = shadows.find(key.str());
                 if (cached == shadows.end()) {
-                    auto image = render::shadow_image(layer, w, h, scale);
+                    auto image = render::shadow_image(layer, rect[2], rect[3], scale);
                     if (!image) {
                         fail(image.error().message);
                     }
@@ -1129,91 +1170,47 @@ namespace weft {
                     shadow_bytes += entry.bytes;
                     cached = shadows.emplace(key.str(), std::move(entry)).first;
                 }
-                target->DrawBitmap(cached->second.bitmap.Get(), cached->second.rect, 1,
+                const auto& at = cached->second.rect;
+                target->DrawBitmap(cached->second.bitmap.Get(),
+                                   {at.left + rect[0], at.top + rect[1], at.right + rect[0], at.bottom + rect[1]}, 1,
                                    D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
             }
         }
 
         void gradient(const SceneNode& n, ID2D1Geometry* shape) {
-            auto image = get(n.style, PropertyId::BackgroundImage, "none");
-            if (image == "none") {
+            const float w = n.box[2];
+            const float h = n.box[3];
+            std::optional<paint::Gradient> parsed;
+            try {
+                parsed = scene_gradient(n.style, w, h);
+            } catch (const std::invalid_argument& e) {
+                fail(e.what());
+            }
+            if (!parsed) {
                 return;
             }
-            auto b = image.find('(');
-            auto e = image.rfind(')');
-            if (b == image.npos || e == image.npos) {
-                fail("gradient syntax");
-            }
-            auto kind = image.substr(0, b);
-            auto args = split(image.substr(b + 1, e - b - 1), ',');
-            float angle = constants::scene::default_linear_gradient_angle;
-            bool linear = kind == "linear-gradient";
-            bool radial = kind == "radial-gradient";
-            bool conic = kind == "conic-gradient";
-            if (!linear && !radial && !conic) {
-                fail("background image " + kind);
-            }
-            if (linear && args.front().ends_with("deg")) {
-                angle = num(args.front().substr(0, args.front().size() - 3));
-                args.erase(args.begin());
-            }
-            if (radial && args.front() == "circle") {
-                args.erase(args.begin());
-            }
-            if (conic && args.front().starts_with("from ")) {
-                auto a = args.front().substr(5);
-                angle = num(a.substr(0, a.size() - 3));
-                args.erase(args.begin());
-            } else if (conic) {
-                angle = 0;
-            }
-            float w = n.box[2];
-            float h = n.box[3];
-            float bw = w;
-            float bh = h;
-            auto size = split(get(n.style, PropertyId::BackgroundSize, "100% 100%"));
-            if (size.size() == 2) {
-                bw = len(size[0], w);
-                bh = len(size[1], h);
-            }
-            if (bw <= 0 || bh <= 0) {
-                fail("positive background tile required");
-            }
-            const auto stop_reference = radial ? std::hypot(bw / 2, bh / 2)
-                                        : linear
-                                            ? std::abs(bw * std::sin(angle * pi / constants::degrees_per_half_turn)) +
-                                                  std::abs(bh * std::cos(angle * pi / constants::degrees_per_half_turn))
-                                            : 1.f;
-            auto s = stops(args, stop_reference);
-            auto position = split(get(n.style, PropertyId::BackgroundPosition, "0% 0%"));
-            float ox = 0;
-            float oy = 0;
-            if (!position.empty()) {
-                ox = position[0].ends_with('%') ? len(position[0], w - bw) : len(position[0]);
-            }
-            if (position.size() > 1) {
-                oy = position[1].ends_with('%') ? len(position[1], h - bh) : len(position[1]);
-            }
+            const auto& g = *parsed;
+            const auto& tile = g.tile;
             // The ordinary linear gradient fits inside one background tile.
             // Native brushes avoid regenerating a per-pixel CPU bitmap as its
-            // position/colors animate. Tiled/conic/radial cases keep the reference.
-            if (linear && bw > 0 && bh > 0 && ox <= 0 && oy <= 0 &&
-                w - ox <= bw + constants::scene::gradient_tile_epsilon &&
-                h - oy <= bh + constants::scene::gradient_tile_epsilon) {
+            // position/colors animate. Tiled, conic, radial and repeating cases keep the reference.
+            if (g.kind == paint::GradientKind::Linear && !g.repeating && tile[2] <= 0 && tile[3] <= 0 &&
+                w - tile[2] <= tile[0] + constants::scene::gradient_tile_epsilon &&
+                h - tile[3] <= tile[1] + constants::scene::gradient_tile_epsilon) {
                 std::vector<D2D1_GRADIENT_STOP> stops;
                 bool supported = true;
-                for (const auto& stop : s) {
-                    supported = supported && stop.offset >= 0 && stop.offset <= 1 && stop.color.a == 1;
-                    stops.push_back({stop.offset, stop.color});
+                for (const auto& stop : g.stops) {
+                    supported = supported && stop.offset >= 0 && stop.offset <= 1 && stop.color[3] == 1;
+                    stops.push_back({stop.offset, {stop.color[0], stop.color[1], stop.color[2], stop.color[3]}});
                 }
                 if (supported) {
-                    float dx = std::sin(angle * pi / constants::degrees_per_half_turn);
-                    float dy = -std::cos(angle * pi / constants::degrees_per_half_turn);
-                    float extent = std::abs(bw * dx) + std::abs(bh * dy);
+                    float dx = std::sin(g.angle * pi / constants::degrees_per_half_turn);
+                    float dy = -std::cos(g.angle * pi / constants::degrees_per_half_turn);
+                    float extent = std::abs(tile[0] * dx) + std::abs(tile[1] * dy);
                     ComPtr<ID2D1GradientStopCollection> collection;
                     check(target->CreateGradientStopCollection(stops.data(), UINT(stops.size()), D2D1_GAMMA_2_2,
                                                                D2D1_EXTEND_MODE_CLAMP, &collection));
-                    auto center = D2D1::Point2F(ox + bw / 2, oy + bh / 2);
+                    auto center = D2D1::Point2F(tile[2] + tile[0] / 2, tile[3] + tile[1] / 2);
                     ComPtr<ID2D1LinearGradientBrush> gradient_brush;
                     check(target->CreateLinearGradientBrush(
                         D2D1::LinearGradientBrushProperties({center.x - dx * extent / 2, center.y - dy * extent / 2},
@@ -1223,9 +1220,10 @@ namespace weft {
                     return;
                 }
             }
-            auto cache_key = std::tuple{image,
+            auto cache_key = std::tuple{get(n.style, PropertyId::BackgroundImage, "none"),
                                         get(n.style, PropertyId::BackgroundSize, "100% 100%"),
                                         get(n.style, PropertyId::BackgroundPosition, "0% 0%"),
+                                        get(n.style, PropertyId::Color, constants::default_color),
                                         w,
                                         h,
                                         scale};
@@ -1248,34 +1246,18 @@ namespace weft {
                 fail("gradient bitmap bound");
             }
             std::vector<std::uint8_t> pixels(std::size_t(iw) * ih * 4);
-            float dx = std::sin(angle * pi / constants::degrees_per_half_turn);
-            float dy = -std::cos(angle * pi / constants::degrees_per_half_turn);
-            float extent = std::abs(bw * dx) + std::abs(bh * dy);
+            const auto channel = [](float v) {
+                return std::uint8_t(std::clamp(v * constants::color_channel_max + .5f, 0.f,
+                                               static_cast<float>(constants::color_channel_max)));
+            };
             for (unsigned y = 0; y < ih; ++y) {
                 for (unsigned x = 0; x < iw; ++x) {
-                    float px = (x + .5f) / scale - ox;
-                    float py = (y + .5f) / scale - oy;
-                    px = std::fmod(std::fmod(px, bw) + bw, bw);
-                    py = std::fmod(std::fmod(py, bh) + bh, bh);
-                    float t = linear ? ((px - bw / 2) * dx + (py - bh / 2) * dy) / extent + .5f
-                              : radial
-                                  ? std::hypot(px - bw / 2, py - bh / 2) / std::hypot(bw / 2, bh / 2)
-                                  : (std::atan2(px - bw / 2, -(py - bh / 2)) * constants::degrees_per_half_turn / pi -
-                                     angle) /
-                                        constants::degrees_per_turn;
-                    if (conic) {
-                        t = std::fmod(t + 2, 1.f);
-                    }
-                    auto c = sampled(s, t);
+                    const auto c = scene_gradient_color(g, (x + .5f) / scale, (y + .5f) / scale);
                     auto p = pixels.data() + (std::size_t(y) * iw + x) * 4;
-                    p[0] = std::uint8_t(std::clamp(c.b * c.a * constants::color_channel_max + .5f, 0.f,
-                                                   static_cast<float>(constants::color_channel_max)));
-                    p[1] = std::uint8_t(std::clamp(c.g * c.a * constants::color_channel_max + .5f, 0.f,
-                                                   static_cast<float>(constants::color_channel_max)));
-                    p[2] = std::uint8_t(std::clamp(c.r * c.a * constants::color_channel_max + .5f, 0.f,
-                                                   static_cast<float>(constants::color_channel_max)));
-                    p[3] = std::uint8_t(std::clamp(c.a * constants::color_channel_max + .5f, 0.f,
-                                                   static_cast<float>(constants::color_channel_max)));
+                    p[0] = channel(c[2] * c[3]);
+                    p[1] = channel(c[1] * c[3]);
+                    p[2] = channel(c[0] * c[3]);
+                    p[3] = channel(c[3]);
                 }
             }
             ComPtr<ID2D1Bitmap> bitmap;
@@ -1782,7 +1764,7 @@ namespace weft {
                 }
             }
             auto shape = commands ? commands->shape : round_box(n.box[2], n.box[3], radii);
-            shadow(n, radii);
+            shadow(n, radii, false);
             auto background = paint_color(n, constants::scene::paint_slot_background_color,
                                           get(n.style, PropertyId::BackgroundColor, "transparent"));
             if (!gpu_target || background.a > 0) {
@@ -1790,6 +1772,7 @@ namespace weft {
                 target->FillGeometry(shape.Get(), brush.Get());
             }
             gradient(n, shape.Get());
+            shadow(n, radii, true);
             // Dotted and dashed sides as Chrome draws them, laid out on the target's pixels, before the solid sides.
             {
                 const auto placed = matrix();
@@ -1906,6 +1889,12 @@ namespace weft {
                 if (border_clip) {
                     target->PopLayer();
                 }
+            }
+            if (scene_values::drop_shadow(n.style)) {
+                if (n.space != constants::svg_namespace_uri || n.tag != "svg") {
+                    fail("filter outside svg elements outside scene profile");
+                }
+                drop_shadow(n);
             }
             bool clipped = commands ? commands->clipped
                                     : (get(n.style, PropertyId::Overflow) == "hidden" ||

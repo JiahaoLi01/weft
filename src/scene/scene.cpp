@@ -117,6 +117,98 @@ namespace weft {
             return {buffer, end};
         }
 
+        // A value with its em lengths as px of em_px, and its rem lengths as px of the default font size: a number
+        // that starts no word (not a digit of a hex color or of a name) and ends in em or rem. Every other part stays.
+        std::string resolve_ems(std::string_view v, double em_px) {
+            const auto digit = [&](std::size_t k) {
+                return k < v.size() && v[k] >= '0' && v[k] <= '9';
+            };
+            const auto word = [&](std::size_t k) {
+                const char ch = v[k];
+                return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' ||
+                       ch == '_' || ch == '#' || ch == '.';
+            };
+            std::string out;
+            std::size_t done{};
+            for (std::size_t i = 0; i < v.size(); ++i) {
+                if (i && word(i - 1)) {
+                    continue;
+                }
+                std::size_t k = i;
+                if (v[k] == '-' || v[k] == '+') {
+                    ++k;
+                }
+                const std::size_t digits = k;
+                while (digit(k)) {
+                    ++k;
+                }
+                if (k < v.size() && v[k] == '.' && digit(k + 1)) {
+                    ++k;
+                    while (digit(k)) {
+                        ++k;
+                    }
+                }
+                if (k == digits || (k == digits + 1 && v[digits] == '.')) {
+                    continue;
+                }
+                const bool rem = v.substr(k, 3) == "rem";
+                const auto unit = rem ? 3 : v.substr(k, 2) == "em" ? 2 : 0;
+                if (!unit || (k + unit < v.size() && word(k + unit) && v[k + unit] != '.')) {
+                    i = k - 1;
+                    continue;
+                }
+                const double n = number(v.substr(i, k - i));
+                out.append(v.substr(done, i - done));
+                out += numeric(n * (rem ? constants::default_font_size_px : em_px)) + "px";
+                done = k + unit;
+                i = done - 1;
+            }
+            if (!done) {
+                return std::string(v);
+            }
+            out.append(v.substr(done));
+            return out;
+        }
+
+        // The font size of a resolved style in px: the default without one.
+        double font_px(const Style* style) {
+            if (!style) {
+                return constants::default_font_size_px;
+            }
+            return length(style->text(PropertyId::FontSize, constants::default_font_size));
+        }
+
+        // A style's em and rem lengths as px, as CSS computes them: its font size's of the parent's font size (a
+        // percentage too), every other length's of its own; rem lengths of the default font size. Custom properties
+        // and font families stay as they are.
+        void resolve_font_relative(Style& style, const Style* parent) {
+            if (const auto* size = style.find(PropertyId::FontSize)) {
+                const auto text = trim(size->text());
+                if (text.ends_with('%')) {
+                    style.set(PropertyId::FontSize, numeric(number(text.substr(0, text.size() - 1)) /
+                                                            constants::percent_scale * font_px(parent)) +
+                                                        "px");
+                } else if (text.find("em") != text.npos) {
+                    style.set(PropertyId::FontSize, resolve_ems(text, font_px(parent)));
+                }
+            }
+            const double own = font_px(&style);
+            std::vector<std::pair<PropertyId, std::string>> resolved;
+            for (const auto& [property, value] : style) {
+                if (property == PropertyId::FontSize || property == PropertyId::FontFamily ||
+                    value.text().find("em") == std::string_view::npos) {
+                    continue;
+                }
+                auto text = resolve_ems(value.text(), own);
+                if (text != value.text()) {
+                    resolved.emplace_back(property, std::move(text));
+                }
+            }
+            for (auto& [property, text] : resolved) {
+                style.set(property, std::move(text));
+            }
+        }
+
         std::vector<std::string> split(std::string_view s, char delimiter = ' ') {
             return css::split(s, delimiter).parts;
         }
@@ -906,6 +998,8 @@ namespace weft {
                               "backdrop-filter",
                               "overflow-x",
                               "overflow-y",
+                              "text-overflow",
+                              "filter",
                               "vertical-align",
                               "will-change"}) {
             p.properties[k] = {"", false, CssGrammar::Tokens, {}};
@@ -932,7 +1026,8 @@ namespace weft {
                               "white-space",
                               "font-style",
                               "font-variant-numeric",
-                              "text-transform"}) {
+                              "text-transform",
+                              "text-shadow"}) {
             p.properties[k] = {"", true, CssGrammar::Tokens, {}};
         }
         p.properties["pointer-events"] = {"auto", true, CssGrammar::Tokens, {}};
@@ -1194,6 +1289,7 @@ namespace weft {
                     }
                 }
             }
+            resolve_font_relative(out.style, parent);
             out.text = transformed(std::move(out.text), out.style);
             if ((out.tag == "b" || out.tag == "strong") &&
                 std::find(c.specified_properties.begin(), c.specified_properties.end(), "font-weight") ==
@@ -1321,6 +1417,10 @@ namespace weft {
                         lerp_value(lo->second, hi->second, eased, incremental ? &interpolation : nullptr);
                     typed(track.property, lo->second, hi->second, eased);
                 }
+            }
+            // A keyframe's em lengths, as the element's own.
+            if (!st.plans.empty()) {
+                resolve_font_relative(out.style, parent);
             }
             if (out.paint) {
                 for (unsigned i = constants::scene::paint_slot_border_color; i < constants::scene::paint_property_count;
@@ -1760,6 +1860,10 @@ namespace weft {
             if (overflow != "visible" && overflow != "hidden" && overflow != "auto") {
                 fail("unsupported scene value overflow:" + std::string(overflow));
             }
+            if (const auto truncation = n.style.text(PropertyId::TextOverflow, "clip");
+                truncation != "clip" && truncation != "ellipsis") {
+                fail("unsupported scene value text-overflow:" + std::string(truncation));
+            }
             n.lines.clear();
             n.fragments.clear();
             const auto index = run.boxes.size();
@@ -2017,6 +2121,7 @@ namespace weft {
                 const std::array<float, 4> r{origin[0] + p.rect[0], origin[1] + p.rect[1], p.rect[2], p.rect[3]};
                 switch (p.kind) {
                     case SceneInlinePiece::Kind::Text:
+                        // Text that text-overflow hides is a line without text: it draws nothing but keeps its place.
                         if (p.node == &root) {
                             root.lines.push_back({p.text, r, p.baseline});
                         } else {

@@ -123,6 +123,8 @@ namespace weft {
             SceneFont font;
             std::shared_ptr<const SceneTextRun> run;
             std::vector<float> prefix;
+            // Text: the bytes a glyph cluster starts at, and its end: where text-overflow may cut it.
+            std::vector<bool> starts;
             // The item's first byte in the paragraph text.
             std::size_t begin{};
             // Open and Close: the box; text and atomic: the innermost inline box around it, none at the root.
@@ -269,6 +271,10 @@ namespace weft {
         // A collapsible space was the last character collected: the next one collapses. True at the start and after
         // a forced break, where a line drops its leading spaces.
         bool space_before{true};
+        // text-overflow: ellipsis on a root that clips: what an overflowing line ends with, U+2026 or three full stops
+        // when its primary font has no glyph for it (as Blink chooses), shaped in the root's font; empty otherwise.
+        std::string ellipsis;
+        std::shared_ptr<const SceneTextRun> ellipsis_run;
 
         Impl(SceneText& t, const SceneNode& r) : text(t), root(r) {
             root_font = scene_font(root.style);
@@ -276,6 +282,15 @@ namespace weft {
             const auto align = root.style.text(PropertyId::TextAlign, "left");
             if (align != "left" && align != "start" && align != "right" && align != "end" && align != "center") {
                 fail("text-align " + std::string(align) + " outside scene profile");
+            }
+            const auto d = display(root);
+            if (root.style.text(PropertyId::TextOverflow, "clip") == "ellipsis" &&
+                root.style.text(PropertyId::Overflow, "visible") != "visible" &&
+                (root.text.empty() || (d != "flex" && d != "inline-flex" && d != "grid" && d != "inline-grid"))) {
+                ellipsis = text.primary_covers(root_font, constants::text::horizontal_ellipsis)
+                               ? std::string(constants::text::horizontal_ellipsis_utf8)
+                               : std::string(constants::text::ellipsis_fallback);
+                ellipsis_run = text.shape(ellipsis, root_font);
             }
             collect(root, none);
             if (paragraph.size() > std::size_t(constants::max_text_bytes)) {
@@ -322,6 +337,11 @@ namespace weft {
             for (std::size_t k = 0; k < item.text.size(); ++k) {
                 item.prefix[k + 1] = item.prefix[k] + at[k];
             }
+            item.starts.assign(item.text.size() + 1, false);
+            for (const auto& g : item.run->glyphs) {
+                item.starts[std::min<std::size_t>(g.utf8_cluster, item.text.size())] = true;
+            }
+            item.starts.back() = true;
             item.begin = paragraph.size();
             paragraph += item.text;
             items.push_back(std::move(item));
@@ -574,6 +594,96 @@ namespace weft {
             return total + snapped(raw);
         }
 
+        // A piece and its extents on a line: above and below the baseline (with margins), and its rect's top above the
+        // baseline and height; a text piece's item and bytes [begin, end) of its text.
+        struct Placed {
+            SceneInlinePiece piece;
+            Units x{};
+            Units w{};
+            float above{};
+            float below{};
+            float top{};
+            float height{};
+            std::size_t item{none};
+            std::size_t begin{};
+            std::size_t end{};
+        };
+
+        // text-overflow: ellipsis on a line of pieces wider than limit, as Blink's LineTruncator truncates it (CSS
+        // Overflow 3, "text-overflow"): from the line's end, each piece that starts past the content box is hidden; the
+        // last one that reaches into it keeps the characters that fit before the ellipsis, or all of it when it fits,
+        // and the ellipsis follows. The first piece is never hidden: when not even its first character fits, it keeps
+        // that character and is clipped. Hidden text draws nothing but keeps its rect, so geometry stays as laid out.
+        // The ellipsis piece, or nothing when no piece can take it.
+        std::optional<Placed> truncate(std::vector<Placed>& placed, Units limit) const {
+            float advance{};
+            for (const auto& g : ellipsis_run->glyphs) {
+                advance += g.advance;
+            }
+            const Units width = snapped(advance);
+            const auto hide = [&](Placed& p) {
+                if (p.piece.kind != SceneInlinePiece::Kind::Text) {
+                    fail("text-overflow: ellipsis hiding an atomic inline outside scene profile");
+                }
+                p.piece.text.clear();
+            };
+            for (auto k = placed.size(); k-- > 0;) {
+                auto& p = placed[k];
+                const bool first = k == 0;
+                Units space = limit - p.x;
+                if (space <= 0) {
+                    if (!first) {
+                        hide(p);
+                    }
+                    continue;
+                }
+                space -= width;
+                Units end = p.x + p.w;
+                if (space < p.w) {
+                    if ((space <= 0 && !first) || (p.piece.kind != SceneInlinePiece::Kind::Text && !first)) {
+                        hide(p);
+                        continue;
+                    }
+                    if (p.piece.kind == SceneInlinePiece::Kind::Text) {
+                        // The most characters whose advances fit, at a cluster boundary.
+                        const auto& item = items[p.item];
+                        const float room = pixels(space);
+                        auto fit = p.begin;
+                        for (auto b = p.begin + 1; b <= p.end; ++b) {
+                            if (item.starts[b] && item.prefix[b] - item.prefix[p.begin] <= room) {
+                                fit = b;
+                            }
+                        }
+                        if (fit == p.begin || fit == p.end) {
+                            if (!first) {
+                                hide(p);
+                                continue;
+                            }
+                            // The first character is clipped rather than ellipsed; a piece that fits by its advances
+                            // but not by its snapped width loses its last.
+                            auto cut = fit == p.begin ? p.begin + 1 : p.end - 1;
+                            while (cut > p.begin + 1 && cut < p.end && !item.starts[cut]) {
+                                fit == p.begin ? ++cut : --cut;
+                            }
+                            fit = std::clamp(cut, p.begin + 1, p.end);
+                        }
+                        p.piece.text = item.text.substr(p.begin, fit - p.begin);
+                        end = p.x + snapped(item.prefix[fit] - item.prefix[p.begin]);
+                    }
+                }
+                Placed e;
+                e.piece.kind = SceneInlinePiece::Kind::Text;
+                e.piece.node = &root;
+                e.piece.text = ellipsis;
+                e.x = end;
+                e.w = width;
+                e.top = ellipsis_run->metrics.baseline;
+                e.height = ellipsis_run->metrics.height;
+                return e;
+            }
+            return std::nullopt;
+        }
+
         SceneInlineLayout layout(float available, SceneAtomicLayout atomic) {
             if (std::isnan(available) || available < 0) {
                 fail("inline available width");
@@ -655,18 +765,6 @@ namespace weft {
                     fragments.push_back({b, 0, 0, false, false});
                 }
 
-                // A piece and its extents on the line: above and below the baseline (with margins), and its rect's top
-                // above the baseline and height.
-                struct Placed {
-                    SceneInlinePiece piece;
-                    Units x{};
-                    Units w{};
-                    float above{};
-                    float below{};
-                    float top{};
-                    float height{};
-                };
-
                 std::vector<Placed> placed;
                 Units x{};
                 float above = root_strut.above;
@@ -692,6 +790,9 @@ namespace weft {
                                                   std::uint32_t(fragment_end));
                         p.x = fragment_x;
                         p.w = w;
+                        p.item = fragment_item;
+                        p.begin = fragment_begin;
+                        p.end = fragment_end;
                         p.above = p.top = m.baseline;
                         p.below = m.height - m.baseline;
                         p.height = m.height;
@@ -775,6 +876,12 @@ namespace weft {
                 for (const auto& f : fragments) {
                     above = std::max(above, boxes[f.box].strut.above);
                     below = std::max(below, boxes[f.box].strut.below);
+                }
+                // The ellipsis sits on the line's baseline without changing its height, and the line keeps its width.
+                if (!ellipsis.empty() && bounded && x > limit) {
+                    if (auto e = truncate(placed, limit)) {
+                        placed.push_back(std::move(*e));
+                    }
                 }
                 Units offset{};
                 if (bounded && x < limit) {

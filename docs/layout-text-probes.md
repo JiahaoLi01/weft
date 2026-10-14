@@ -44,7 +44,7 @@ Ahem 不是产品字体，也不覆盖中文。HarfBuzz 的 UTF-8 cluster 不是
 
 输入是显式 flex/inline-flex 容器及独立文本/空叶节点，样式表是已选择值的 map。它没有 HTML parser、cascade、computed style、正常 block/inline 调度、viewport 或 DOM geometry API。shorthand 与对应 longhand 同时出现会诊断，声明顺序须由未来 CSS 层解决。
 
-每次完全重建 Yoga 树，限 2,048 节点、64 层和每节点 64 KiB 文本。未知属性、未支持单位、非法值、重复 ID 和混合 text/flex children 被拒绝。需要 intrinsic 计算的百分比 edges/gap，或无法确定纵向文本 auto-min 所需横向约束时，也显式拒绝。回调异常在 C 边界内部捕获，求解返回后重新抛出，不回调 JS。
+每次完全重建 Yoga 树，限 2,048 节点（13.4 起 16,384）、64 层和每节点 64 KiB 文本。未知属性、未支持单位、非法值、重复 ID 和混合 text/flex children 被拒绝。需要 intrinsic 计算的百分比 edges/gap，或无法确定纵向文本 auto-min 所需横向约束时，也显式拒绝。回调异常在 C 边界内部捕获，求解返回后重新抛出，不回调 JS。
 
 Intrinsic prepass 是针对这些反例的受限实现；复杂嵌套、边距、跨轴 min/max、aspect-ratio、replaced element、auto width 容器与更多百分比组合仍需独立反例。已接受的属性名不等于该属性所有组合已验证。探针结果不进入完整兼容承诺；需要大规模猜测或第二份盒几何时仍按 [决策](decisions.md) 淘汰 Yoga。
 

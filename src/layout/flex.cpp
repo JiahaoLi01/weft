@@ -68,6 +68,34 @@ namespace weft {
             throw std::invalid_argument("WEFT_UNSUPPORTED_UNIT: " + std::string(input));
         }
 
+        // calc() of a percentage and a px length, either first, added or subtracted ("calc(100% + 1.6px)"): the
+        // percentage and the length, signed. WEFT_UNSUPPORTED_UNIT for any other calc().
+        std::array<float, 2> percent_and_length(std::string_view input) {
+            const auto unsupported = [&] {
+                return std::invalid_argument("WEFT_UNSUPPORTED_UNIT: " + std::string(input));
+            };
+            if (!input.starts_with("calc(") || !input.ends_with(')')) {
+                throw unsupported();
+            }
+            const auto body = css::trim(input.substr(5, input.size() - 6));
+            // CSS requires whitespace around the operator.
+            auto at = body.find(" + ");
+            float sign = 1;
+            if (at == body.npos) {
+                at = body.find(" - ");
+                sign = -1;
+            }
+            if (at == body.npos) {
+                throw unsupported();
+            }
+            const auto a = length(css::trim(body.substr(0, at)));
+            const auto b = length(css::trim(body.substr(at + 3)));
+            if (a.automatic || b.automatic || a.percent == b.percent) {
+                throw unsupported();
+            }
+            return a.percent ? std::array{a.value, sign * b.value} : std::array{sign * b.value, a.value};
+        }
+
         // An absent value is auto. px and % dimensions are read from the parsed value; any other text takes the
         // text path above, which accepts or reports it.
         Length length(const CssValue* v) {
@@ -494,6 +522,8 @@ namespace weft {
                     YGNodeStyleSetPositionType(y, YGPositionTypeStatic);
                     YGNodeStyleSetBoxSizing(y, YGBoxSizingContentBox);
                 }
+                // The lengths of calc() insets, added to the margins on their sides once the margins are read.
+                std::vector<std::pair<YGEdge, float>> shifts;
                 for (const auto& [id, value] : s) {
                     if (roles[std::size_t(id)] != Role::Box) {
                         continue;
@@ -688,6 +718,15 @@ namespace weft {
                         } else if (key.find("bottom") != key.npos) {
                             edge = YGEdgeBottom;
                         }
+                        if (!key.starts_with("margin") && !key.starts_with("padding") && !key.starts_with("border") &&
+                            v.starts_with("calc(")) {
+                            // An inset of a percentage and a length: the percentage as the inset, the length on the
+                            // margin of its side, which moves an absolute box's border box as the length would.
+                            const auto [percent, px] = percent_and_length(v);
+                            YGNodeStyleSetPositionPercent(y, edge, percent);
+                            shifts.emplace_back(edge, px);
+                            continue;
+                        }
                         auto l = length(&value);
                         if (key.starts_with("margin")) {
                             if (l.automatic) {
@@ -718,6 +757,34 @@ namespace weft {
                         } else {
                             YGNodeStyleSetPosition(y, edge, l.value);
                         }
+                    }
+                }
+                if (!shifts.empty()) {
+                    // Elsewhere a margin would move other boxes too.
+                    const auto position = s.text(P::Position, "static");
+                    if (position != "absolute" && position != "fixed") {
+                        throw std::invalid_argument("WEFT_UNSUPPORTED_UNIT: calc() inset of a box not absolutely "
+                                                    "positioned");
+                    }
+                    for (const auto& [edge, shift] : shifts) {
+                        const auto side = edge == YGEdgeLeft    ? P::MarginLeft
+                                          : edge == YGEdgeRight ? P::MarginRight
+                                          : edge == YGEdgeTop   ? P::MarginTop
+                                                                : P::MarginBottom;
+                        const auto* margin = s.find(side);
+                        if (!margin) {
+                            margin = s.find(P::Margin);
+                        }
+                        float base{};
+                        if (margin) {
+                            const auto m = length(margin);
+                            if (m.automatic || m.percent) {
+                                throw std::invalid_argument(
+                                    "WEFT_UNSUPPORTED_UNIT: calc() inset beside an auto or percentage margin");
+                            }
+                            base = m.value;
+                        }
+                        YGNodeStyleSetMargin(y, edge, base + shift);
                     }
                 }
                 if (!css()) {

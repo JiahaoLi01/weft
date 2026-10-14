@@ -1,4 +1,5 @@
 #include "scene/scene_display_list.hpp"
+#include "scene/scene_gradient.hpp"
 #include "scene/scene_geometry.hpp"
 #include "scene/scene_path.hpp"
 #include "scene/scene_border.hpp"
@@ -54,10 +55,6 @@ namespace weft {
             return unit == css::Unit::Em ? n * ref : n;
         }
 
-        std::vector<std::string> split(std::string_view s, char c = ' ') {
-            return css::split(s, c, {.quotes = false}).parts;
-        }
-
         std::array<float, 4> color(std::string s, const Style& style) {
             if (s == "currentcolor" || s == "currentColor") {
                 s = get(style, PropertyId::Color, constants::default_color);
@@ -103,123 +100,6 @@ namespace weft {
             return {float(m.m11), float(m.m12), float(m.m21), float(m.m22), float(m.dx), float(m.dy)};
         }
 
-        void gradient(paint::Gradient& g, float width, float height, const Style& s) {
-            auto image = get(s, PropertyId::BackgroundImage, "none");
-            // An effect is the node's SceneEffect and a host texture an image, not gradients.
-            if (image == "none" || image.starts_with("-weft-effect(") || image.starts_with("-weft-texture(")) {
-                return;
-            }
-            auto b = image.find('(');
-            auto e = image.rfind(')');
-            if (b == image.npos || e == image.npos) {
-                throw std::invalid_argument("gradient grammar");
-            }
-            auto kind = image.substr(0, b);
-            g.kind = kind == "linear-gradient"   ? paint::GradientKind::Linear
-                     : kind == "radial-gradient" ? paint::GradientKind::Radial
-                     : kind == "conic-gradient"  ? paint::GradientKind::Conic
-                                                 : paint::GradientKind::None;
-            if (g.kind == paint::GradientKind::None) {
-                throw std::invalid_argument("background image");
-            }
-            auto a = split(image.substr(b + 1, e - b - 1), ',');
-            if (a.empty()) {
-                throw std::invalid_argument("gradient args");
-            }
-            g.angle = g.kind == paint::GradientKind::Linear
-                          ? static_cast<float>(constants::scene::default_linear_gradient_angle)
-                          : 0.f;
-            if (g.kind == paint::GradientKind::Linear && a[0].ends_with("deg")) {
-                g.angle = number(a[0].substr(0, a[0].size() - 3));
-                a.erase(a.begin());
-            }
-            if (g.kind == paint::GradientKind::Radial && a[0] == "circle") {
-                a.erase(a.begin());
-            }
-            if (g.kind == paint::GradientKind::Conic && a[0].starts_with("from ")) {
-                g.angle = number(a[0].substr(5, a[0].size() - 8));
-                a.erase(a.begin());
-            }
-            auto& tile = g.tile;
-            tile[0] = width;
-            tile[1] = height;
-            auto size = split(get(s, PropertyId::BackgroundSize, "100% 100%"));
-            if (size.size() == 2) {
-                tile[0] = len(size[0], width);
-                tile[1] = len(size[1], height);
-            }
-            if (tile[0] <= 0 || tile[1] <= 0) {
-                throw std::invalid_argument("gradient tile");
-            }
-            // A length stop is a fraction of the gradient line in the tile, as the shader measures it: a linear
-            // gradient's extent along its angle, a radial gradient's half diagonal. A conic gradient takes no
-            // lengths.
-            const float radians = g.angle * std::numbers::pi_v<float> / constants::degrees_per_half_turn;
-            const float line = g.kind == paint::GradientKind::Radial ? std::hypot(tile[0] / 2, tile[1] / 2)
-                               : g.kind == paint::GradientKind::Linear
-                                   ? std::abs(tile[0] * std::sin(radians)) + std::abs(tile[1] * std::cos(radians))
-                                   : 0.f;
-            std::vector<bool> specified;
-            for (auto text : a) {
-                auto v = split(text);
-                auto c = color(v.at(0), s);
-                if (v.size() == 1) {
-                    g.stops.push_back({0, c});
-                    specified.push_back(false);
-                } else {
-                    for (std::size_t i = 1; i < v.size(); ++i) {
-                        float offset = len(v[i]);
-                        if (!v[i].ends_with('%')) {
-                            if (line <= 0) {
-                                throw std::invalid_argument("conic gradient length stop");
-                            }
-                            offset /= line;
-                        }
-                        g.stops.push_back({offset, c});
-                        specified.push_back(true);
-                    }
-                }
-            }
-            if (g.stops.size() < 2 || g.stops.size() > constants::scene::max_gradient_stops) {
-                throw std::invalid_argument("gradient stop bound");
-            }
-            if (!specified[0]) {
-                g.stops[0].offset = 0;
-            }
-            if (!specified.back()) {
-                g.stops.back().offset = 1;
-            }
-            specified[0] = specified.back() = true;
-            float last = g.stops[0].offset;
-            for (std::size_t i = 0; i < g.stops.size(); ++i) {
-                if (specified[i]) {
-                    g.stops[i].offset = std::max(last, g.stops[i].offset);
-                    last = g.stops[i].offset;
-                }
-            }
-            for (std::size_t i = 1; i < g.stops.size() - 1;) {
-                if (specified[i]) {
-                    ++i;
-                    continue;
-                }
-                auto j = i;
-                while (!specified[j]) {
-                    ++j;
-                }
-                for (auto k = i; k < j; ++k) {
-                    g.stops[k].offset = g.stops[i - 1].offset + (g.stops[j].offset - g.stops[i - 1].offset) *
-                                                                    float(k - i + 1) / float(j - i + 1);
-                }
-                i = j;
-            }
-            auto pos = split(get(s, PropertyId::BackgroundPosition, "0% 0%"));
-            if (!pos.empty()) {
-                tile[2] = len(pos[0], width - tile[0]);
-            }
-            if (pos.size() > 1) {
-                tile[3] = len(pos[1], height - tile[1]);
-            }
-        }
     } // namespace
 
     SceneDisplayCache::SceneDisplayCache(std::size_t max_entries, std::size_t max_bytes)
@@ -417,6 +297,9 @@ namespace weft {
                 if (list.items.size() > constants::scene::max_display_list_items) {
                     throw std::invalid_argument("native command bound");
                 }
+                if (scene_values::drop_shadow(c.style)) {
+                    throw std::invalid_argument("filter on svg content");
+                }
                 static constexpr std::array<std::string_view, 11> drawn{
                     "circle", "ellipse", "g", "line", "path", "polygon", "polyline", "rect", "svg", "text", "#text"};
                 if (std::find(drawn.begin(), drawn.end(), c.tag) == drawn.end()) {
@@ -500,6 +383,9 @@ namespace weft {
                 const bool has_text = c.tag == "text" && !c.text.empty();
                 if (has_text && !text) {
                     throw std::invalid_argument("SVG text reference");
+                }
+                if (has_text && !scene_values::text_shadows(c.style).empty()) {
+                    throw std::invalid_argument("text-shadow on svg text");
                 }
                 if (!kept) {
                     if (has_text) {
@@ -879,6 +765,11 @@ namespace weft {
                 if (!n.space.empty() && n.space != constants::xhtml_namespace_uri && !svg_root) {
                     throw std::invalid_argument("SVG reference");
                 }
+                // filter: drop-shadow() of the paths an svg element paints.
+                const auto dropped = scene_values::drop_shadow(n.style);
+                if (dropped && !svg_root) {
+                    throw std::invalid_argument("filter outside svg elements");
+                }
                 paint::Item item;
                 item.transform = multiply(parent, matrix(n, bool(n.anchoring)));
                 item.clip = clip;
@@ -909,7 +800,9 @@ namespace weft {
                 };
                 box.background =
                     paint_color(constants::scene::paint_slot_background_color, "background-color", "transparent");
-                gradient(box.gradient, item.width, item.height, n.style);
+                if (auto g = scene_gradient(n.style, item.width, item.height)) {
+                    box.gradient = std::move(*g);
+                }
                 // Solid sides are the box's; dotted and dashed ones are Chrome's shapes, drawn apart. A dotted or
                 // dashed side keeps its width in the box, transparent, so the solid sides beside it are mitered at
                 // the corners as Chrome draws them over its dots.
@@ -1021,14 +914,26 @@ namespace weft {
                 if (backdrop && !backdrop_group) {
                     add_backdrop(false);
                 }
-                // Shadows lie under the box, bottom first.
-                for (const auto& shadow : shadows) {
-                    auto s = item;
-                    s.kind = paint::Item::Kind::Shadow;
-                    s.payload = std::uint32_t(list.shadows.size());
-                    list.shadows.push_back(shadow);
-                    list.items.push_back(s);
-                }
+                // Outer shadows lie under the box, bottom first; inset ones over its background and under its border.
+                const auto add_shadows = [&](bool inset) {
+                    for (const auto& [shadow, rect] : shadows) {
+                        if (shadow.inset != inset) {
+                            continue;
+                        }
+                        auto s = item;
+                        s.kind = paint::Item::Kind::Shadow;
+                        s.transform = multiply(item.transform, {1, 0, 0, 1, rect[0], rect[1]});
+                        s.width = rect[2];
+                        s.height = rect[3];
+                        s.payload = std::uint32_t(list.shadows.size());
+                        list.shadows.push_back(shadow);
+                        list.items.push_back(s);
+                    }
+                };
+                const bool inset = std::any_of(shadows.begin(), shadows.end(), [](const auto& s) {
+                    return s.shadow.inset;
+                });
+                add_shadows(false);
                 const auto add_box = [&](const paint::Box& value) {
                     auto shape = item;
                     shape.kind = paint::Item::Kind::Box;
@@ -1062,7 +967,7 @@ namespace weft {
                         }
                     }
                 };
-                if (painted && !n.effect && host_texture.empty() && !dashed) {
+                if (painted && !n.effect && host_texture.empty() && !dashed && !inset) {
                     add_box(box);
                 } else if (painted && !n.effect && host_texture.empty()) {
                     auto under = box;
@@ -1070,6 +975,7 @@ namespace weft {
                     if (under.background[3] > 0 || under.gradient.kind != paint::GradientKind::None) {
                         add_box(under);
                     }
+                    add_shadows(true);
                     add_dashes();
                     if (bordered) {
                         auto over = box;
@@ -1077,6 +983,9 @@ namespace weft {
                         over.gradient = {};
                         add_box(over);
                     }
+                } else if (inset && !n.effect && host_texture.empty()) {
+                    // Nothing else painted: the inset shadows alone.
+                    add_shadows(true);
                 } else if (n.effect) {
                     // As CSS paints a background image: over the background color and under the borders, inside the
                     // border box's corners. The effect's time is the frame's.
@@ -1110,6 +1019,7 @@ namespace weft {
                     shape.payload = std::uint32_t(list.effects.size());
                     list.effects.push_back(std::move(effect));
                     list.items.push_back(shape);
+                    add_shadows(true);
                     add_dashes();
                     if (bordered) {
                         auto over = box;
@@ -1153,6 +1063,7 @@ namespace weft {
                     shape.payload = std::uint32_t(list.images.size());
                     list.images.push_back(image);
                     list.items.push_back(shape);
+                    add_shadows(true);
                     add_dashes();
                     if (bordered) {
                         auto over = box;
@@ -1212,6 +1123,8 @@ namespace weft {
                 }
                 // Text a line at a time, each a single-line text node over its line box. Text without lines (a frame
                 // that no solver laid out) is one line in the node's box.
+                // Its text shadows, bottom first, under each line of its text.
+                const auto text_shadows = scene_values::text_shadows(n.style);
                 const auto add_text = [&](std::shared_ptr<SceneNode> source, const Matrix& at, float width,
                                           float height, std::uint32_t part) {
                     auto t = item;
@@ -1242,11 +1155,39 @@ namespace weft {
                         source->paint.reset();
                     }
                     raster.source = std::move(source);
+                    // Each shadow: the line's coverage (white text: color glyphs keep only their alpha) offset,
+                    // blurred and tinted, with room around it for the blur.
+                    std::shared_ptr<const SceneNode> white = raster.mask ? raster.source : nullptr;
+                    for (const auto& layer : text_shadows) {
+                        if (!white) {
+                            auto copy = std::make_shared<SceneNode>(*raster.source);
+                            copy->style[PropertyId::Color] = "#ffffff";
+                            copy->paint.reset();
+                            white = std::move(copy);
+                        }
+                        paint::Raster shadow;
+                        shadow.source = white;
+                        shadow.mask = true;
+                        shadow.tint = layer.color;
+                        shadow.part = part;
+                        shadow.blur = scene_values::shadow_sigma(layer.blur);
+                        shadow.overhang =
+                            raster.overhang + std::ceil(constants::scene::shadow_kernel_sigmas * shadow.blur);
+                        auto s = t;
+                        s.transform = multiply(at, {1, 0, 0, 1, layer.x, layer.y});
+                        s.payload = std::uint32_t(list.rasters.size());
+                        list.rasters.push_back(std::move(shadow));
+                        list.items.push_back(s);
+                    }
                     t.payload = std::uint32_t(list.rasters.size());
                     list.rasters.push_back(std::move(raster));
                     list.items.push_back(t);
                 };
                 for (std::size_t line = 0; line < n.lines.size(); ++line) {
+                    // A line that text-overflow hides draws nothing.
+                    if (n.lines[line].text.empty()) {
+                        continue;
+                    }
                     auto source = std::make_shared<SceneNode>(scene_text_line(n, line));
                     const auto at = source->box;
                     add_text(std::move(source), multiply(item.transform, {1, 0, 0, 1, at[0], at[1]}), at[2], at[3],
@@ -1276,8 +1217,57 @@ namespace weft {
                 if (svg_root) {
                     const auto v = scene_svg_viewport(n);
                     const auto user = multiply(item.transform, {v.sx, 0, 0, v.sy, v.tx, v.ty});
+                    // Its drop shadow under the paths it paints, its box room for the offset and the blur; what it
+                    // shadows lies in its viewport, offset.
+                    const auto shadowed = list.items.size();
+                    if (dropped) {
+                        if (painted || !shadows.empty()) {
+                            throw std::invalid_argument("drop-shadow of an svg element with a box");
+                        }
+                        const float e = std::ceil(constants::scene::shadow_kernel_sigmas * dropped->sigma);
+                        auto s = item;
+                        s.kind = paint::Item::Kind::PathShadow;
+                        s.transform = multiply(item.transform, {1, 0, 0, 1, dropped->x - e, dropped->y - e});
+                        s.width = item.width + 2 * e;
+                        s.height = item.height + 2 * e;
+                        s.payload = std::uint32_t(list.path_shadows.size());
+                        paint::PathShadow value;
+                        value.color = dropped->color;
+                        value.x = dropped->x;
+                        value.y = dropped->y;
+                        value.blur = dropped->sigma;
+                        value.content = {e, e, item.width, item.height};
+                        list.path_shadows.push_back(value);
+                        list.items.push_back(s);
+                    }
                     for (const auto& c : n.children) {
                         svg(svg, c, user, clip, chain, n);
+                    }
+                    if (dropped) {
+                        auto& value = list.path_shadows[list.items[shadowed].payload];
+                        value.first = std::uint32_t(shadowed + 1);
+                        value.count = std::uint32_t(list.items.size() - shadowed - 1);
+                        if (!std::all_of(list.items.begin() + std::ptrdiff_t(value.first), list.items.end(),
+                                         [&](const paint::Item& p) {
+                                             if (p.kind == paint::Item::Kind::Path) {
+                                                 return true;
+                                             }
+                                             if (p.kind != paint::Item::Kind::Box) {
+                                                 return false;
+                                             }
+                                             const auto& b = list.boxes[p.payload];
+                                             return b.gradient.kind == paint::GradientKind::None &&
+                                                    std::all_of(b.widths.begin(), b.widths.end(),
+                                                                [&](float w) {
+                                                                    return w == b.widths[0];
+                                                                }) &&
+                                                    std::all_of(b.edges.begin(), b.edges.end(),
+                                                                [&](const paint::Color& c) {
+                                                                    return c == b.edges[0];
+                                                                });
+                                         })) {
+                            throw std::invalid_argument("drop-shadow of svg content other than shapes");
+                        }
                     }
                 }
                 std::vector<std::size_t> order;

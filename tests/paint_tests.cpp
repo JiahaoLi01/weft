@@ -425,6 +425,7 @@ namespace {
         shape.gradient.kind = paint::GradientKind::Radial;
         shape.gradient.angle = 30;
         shape.gradient.tile = {10, 20, 1, 2};
+        shape.gradient.shape = {5, 10, 7, 14};
         shape.gradient.stops = {{0, {1, 0, 0, 1}}, {.5f, {0, 1, 0, 1}}, {1, {0, 0, 1, 1}}};
         list.boxes.push_back(shape);
         list.rasters.push_back({std::make_shared<weft::SceneNode>(), true, {1, 1, 0, 1}});

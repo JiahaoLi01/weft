@@ -7,8 +7,10 @@
 // Budgets, limits and Web constants of the QuickJS VM, the native DOM and the owner executor.
 // Each constant has the type of the literal it replaced (see docs/coding-style.md).
 namespace weft::constants::script {
-    // QuickJS VM. The host must reserve native stack headroom above the VM stack limit.
-    inline constexpr std::size_t vm_memory_limit = 64 * constants::bytes_per_mib;
+    // QuickJS VM. The host must reserve native stack headroom above the VM stack limit. The memory limit bounds a
+    // runaway page: the CRPG floating UI of 200 units (React and framer-motion) peaks near 79 MiB between QuickJS's
+    // cycle collections (64 MiB until 13.4).
+    inline constexpr std::size_t vm_memory_limit = 256 * constants::bytes_per_mib;
     inline constexpr int default_vm_stack_bytes = 512 * constants::bytes_per_kib;
     inline constexpr int min_vm_stack_bytes = 128 * constants::bytes_per_kib;
     inline constexpr int max_vm_stack_bytes = 2 * constants::bytes_per_mib;

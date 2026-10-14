@@ -21,7 +21,11 @@
 //   line's trailing spaces do not count;
 // - line boxes from the root's strut, the strut of each inline box on the line, each text's line box and each atomic
 //   inline's margin box, all on one baseline (vertical-align: baseline);
-// - text-align left, right and center (and start, end), start-aligned when a line overflows.
+// - text-align left, right and center (and start, end), start-aligned when a line overflows;
+// - text-overflow: ellipsis on a block container that clips (not on the text of a flex or grid container, an anonymous
+//   item as wide as its text, which never overflows it), as Blink's LineTruncator truncates a line wider than the content
+//   box: the ellipsis in the container's font follows the content that fits before it, and what lies past it draws
+//   nothing; geometry stays as laid out.
 // Floats, bidi, justification and the other white-space values are diagnostics.
 namespace weft {
     struct SceneNode;
@@ -55,6 +59,8 @@ namespace weft {
         std::array<float, 4> rect{};
         // Text: the baseline below the rect's top. Atomic: the baseline below the border box's top.
         float baseline{};
+        // Text: the start of the text on a line that text-overflow truncates, or nothing when it hides all of it; the
+        // rect stays the one it was laid out in. The ellipsis is a text piece of the root after the content it follows.
         bool first{};
         bool last{};
     };

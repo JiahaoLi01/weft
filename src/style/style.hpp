@@ -27,6 +27,8 @@ namespace weft {
     struct StyleProfile {
         std::map<std::string, CssProperty> properties;
         std::string ua_stylesheet;
+        // Takes the inset shorthand: one value for every side, or one to four (top, right, bottom, left) with
+        // four_value_edges.
         bool single_value_inset{};
         bool four_value_edges{}; // Expand margin/padding/border-width before cascade.
         bool flow_shorthands{};  // Corner radii and overflow axes, before cascade.

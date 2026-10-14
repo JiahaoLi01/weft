@@ -186,6 +186,8 @@ namespace weft {
         AnimationFrameResult animation_frame(double time_ms, bool drawable = true);
         // Optional platform module, direct calls with the same budget/checkpoints.
         TaskResult pump_tasks(double time_ms);
+        // The same module's clock (performance.now()) reads time_ms from now on (monotonic); no task runs.
+        void advance_clock(double time_ms);
         // Optional owner raster adapter, installed before creating canvas nodes.
         void install_canvas_host(CanvasFactory);
         CanvasSnapshot canvas_snapshot(NodeIdentity);

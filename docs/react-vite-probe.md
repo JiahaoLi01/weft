@@ -41,7 +41,7 @@ Vite 是构建工具。native 没有 ESM loader、dev client、HMR 或开发服�
 
 `document.activeElement` 在这个无焦点 profile 返回 body；它不能证明焦点引擎实现。bootstrap 只供实验宿主，不代表完整 Web 平台。独立 Flex probe 原来的 33 场景继续通过；这次补充 nowrap column 文本在自动 cross width 下的 intrinsic height，换行文本仍需确定的 cross constraint，反例保留在测试中。
 
-默认 VM 保留 64 MiB、2 秒/次执行、512 KiB 栈限制。React 探针使用 1 MiB VM 栈，Windows page/input/GPU 三个实验 exe 显式保留 8 MiB 宿主线程栈，给 Debug/native bridge 留余量。仅 QuickJS 强制 GC 构建的 React workload 使用 30 秒执行预算和 180 秒测试超时；其他故障测试仍保留 2 秒。最初强制 GC 触发了 2 秒 deadline，故障日志也保留，放宽仅用于每次分配前完整回收的 instrumentation。此预算不是产品帧率或性能验收。
+默认 VM 保留 64 MiB（13.4 起上限 256 MiB）、2 秒/次执行、512 KiB 栈限制。React 探针使用 1 MiB VM 栈，Windows page/input/GPU 三个实验 exe 显式保留 8 MiB 宿主线程栈，给 Debug/native bridge 留余量。仅 QuickJS 强制 GC 构建的 React workload 使用 30 秒执行预算和 180 秒测试超时；其他故障测试仍保留 2 秒。最初强制 GC 触发了 2 秒 deadline，故障日志也保留，放宽仅用于每次分配前完整回收的 instrumentation。此预算不是产品帧率或性能验收。
 
 ## 已有独立预期与结果
 

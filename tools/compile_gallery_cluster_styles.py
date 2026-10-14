@@ -218,3 +218,33 @@ page_css = '/* Compiled from pinned Tailwind for the nested tooltip page; explic
     'utility_count':len(page_found),'utilities':sorted(page_found),'built_class_replacements':PAGE_REPLACEMENTS,'base_rules':sorted(PAGE_BASE),'omitted_base_rules':OMITTED,'renamed_base_rules':PAGE_RENAME,'inert_declarations':page_dropped,
     'adapter':'tokens of the page sources as Tailwind candidates; fixed theme/arithmetic/logical edges; fixed OKLCH quantized to sRGB, hover/active mouse conditions'},indent=2)+'\n',encoding='utf-8')
 print(f'Compiled {len(page_found)} utilities and {len(PAGE_BASE)} base rules for the nested tooltip page')
+
+# The floating UI page (tools/build_floating_page.mjs): the classes its sources name (each className is a literal
+# there), with the page's base rules (html, body and #root) and the theme's two font stacks its components name inline
+# (var(--font-default), var(--font-subtitle)), which its html rule gives every element. Words of its comments are no
+# classes of it: Tailwind's scan would style them too (visible, hidden, transform, filter), with properties outside the
+# scene profile.
+fixture = ROOT/'tests/fixtures/crpg-gallery/UI/src'
+floating_sources = [fixture/'components/FloatingUIOverlay.tsx',
+                    *sorted((fixture/'components/floating-ui').glob('*.tsx')),
+                    ROOT/'examples/crpg-gallery/src/floating/AnchoredFloatingUIOverlay.tsx']
+floating_text = ''.join(f.read_text(encoding='utf-8') for f in floating_sources)
+floating_literals = re.findall(r'className="([^"]*)"', floating_text)
+if len(floating_literals) != floating_text.count('className='): raise ValueError('a floating className that is no literal')
+floating_tokens = set(c for x in floating_literals for c in x.split())
+FLOATING_BASE = {'html, body, #root'}
+floating_dropped = []
+floating_rules, floating_found, floating_animations = select(floating_tokens, FLOATING_BASE, PAGE_RENAME, PAGE_INERT, floating_dropped)
+if not any(r.startswith('html {') for r in floating_rules) or len(floating_dropped) != len(PAGE_INERT):
+    raise ValueError('preflight html rule')
+FLOATING_FONTS = {k: variables[k] for k in ('--font-default', '--font-subtitle')}
+floating_rules.append('html {' + ' '.join(k + ': ' + v + ';' for k, v in FLOATING_FONTS.items()) + '}')
+floating_css = '/* Compiled from pinned Tailwind for the floating UI page; explicit utility adapter, 16px root. */\n' + '\n'.join(floating_rules) + '\n'
+(out/'floating-utilities.css').write_text(floating_css, encoding='utf-8')
+(out/'floating-keyframes.css').write_text('\n'.join(floating_animations)+'\n', encoding='utf-8')
+(out/'floating-style-manifest.json').write_text(json.dumps({'format':'gallery-scene-styles-v1','compiler':'tools/compile_gallery_cluster_styles.py',
+    'root_font_px':16,'input_sha256':{str(p.relative_to(ROOT)).replace('\\','/'):sha(p) for p in (sheet_path,*floating_sources,Path(__file__))},
+    'output_sha256':{str(p.relative_to(ROOT)).replace('\\','/'):sha(p) for p in (out/'floating-utilities.css',out/'floating-keyframes.css')},
+    'utility_count':len(floating_found),'utilities':sorted(floating_found),'base_rules':sorted(FLOATING_BASE),'theme_fonts':FLOATING_FONTS,'renamed_base_rules':PAGE_RENAME,'inert_declarations':floating_dropped,
+    'adapter':'tokens of the page sources as Tailwind candidates; fixed theme/arithmetic/logical edges; fixed OKLCH quantized to sRGB, hover/active mouse conditions'},indent=2)+'\n',encoding='utf-8')
+print(f'Compiled {len(floating_found)} utilities and {len(FLOATING_BASE)} base rules for the floating UI page')

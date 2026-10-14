@@ -338,8 +338,14 @@ namespace {
         for (unsigned i = 0; valid && i < b.radii.size(); ++i) {
             valid = b.radii[i] >= 0 && b.widths[i] >= 0 && color(b.edges[i].data());
         }
+        // A radial gradient's ending shape has radii; a repeating gradient's stops span a distance and may lie outside
+        // [0, 1].
+        valid = valid && finite(g.shape.data(), g.shape.size()) &&
+                (g.kind != GradientKind::Radial || (g.shape[2] > 0 && g.shape[3] > 0)) &&
+                (!g.repeating || (g.kind != GradientKind::None && g.kind != GradientKind::Conic && g.stops.size() > 1 &&
+                                  g.stops.back().offset > g.stops.front().offset));
         for (const auto& stop : g.stops) {
-            valid = valid && unit(stop.offset) && color(stop.color.data());
+            valid = valid && (g.repeating ? std::isfinite(stop.offset) : unit(stop.offset)) && color(stop.color.data());
         }
         return valid;
     }

@@ -131,7 +131,7 @@ cmake --build build/windows-gc-stress --config Debug --parallel 4
 ctest --test-dir build/windows-gc-stress -C Debug --output-on-failure
 ```
 
-脚本探针设有 2 秒执行 deadline、10,000 个 microtask、32,768 个原生节点、256 层树深度和 64 MiB VM 分配上限。VM 分配上限统计请求大小与自有 header，不是进程 RSS，也不包含全部原生 DOM 内存。OOM、超时和节点超限需要 reset VM；这些是 M0 故障验证参数，不是产品性能预算。
+脚本探针设有 2 秒执行 deadline、10,000 个 microtask、32,768 个原生节点、256 层树深度和 256 MiB VM 分配上限（13.4 由 64 MiB 放宽：CRPG 的浮动 UI 有 200 个单位时 VM 峰值约 79 MiB）。VM 分配上限统计请求大小与自有 header，不是进程 RSS，也不包含全部原生 DOM 内存。OOM、超时和节点超限需要 reset VM；这些是 M0 故障验证参数，不是产品性能预算。
 
 默认 VM 栈上限为 512 KiB，本机默认 1 MiB 宿主线程栈通过 D3 和深递归恢复。React 使用 1 MiB VM 上限，page/input/GPU 三个实验 exe 通过 /STACK 保留 8 MiB 宿主线程栈。接入宿主时必须为 native bridge 留余量；尚未提供可移植的线程栈容量检测。
 
