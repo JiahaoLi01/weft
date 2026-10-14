@@ -37,7 +37,8 @@ namespace weft::render {
         // antialiasing of a linear pass's distance edges.
         Vector mode;
         Vector outline;
-        // First rounded clip and count in ScenePass::clips.
+        // First rounded clip and count in ScenePass::clips, then the item's anchor (paint::Item::anchor): 0, or 1 + the
+        // index of the anchor among those the pass draws with, which moves the record from its element's space.
         Vector clips;
     };
 
@@ -218,8 +219,10 @@ namespace weft::render {
     // here; rounded clips are normalized. A clip outside the rounded clip bounds, or a chain longer than
     // max_rounded_clips, is Diag::PaintList. textures, when given, names the texture of each image source (equal names
     // for one texture, such as an atlas page); then a run of consecutive boxes and images that sample one texture is
-    // one draw.
+    // one draw. anchors is how many anchors the pass draws with: an item's anchor past them is Diag::PaintList. The
+    // records of items an anchor moves keep their element's space, crop and target aside (a path's mask covers its
+    // whole path there).
     Result<ScenePass> plan_scene_pass(const paint::DisplayList& list, float scale, unsigned width, unsigned height,
                                       std::optional<paint::ClipRect> crop = std::nullopt, Space space = Space::Encoded,
-                                      const std::vector<std::uint64_t>* textures = nullptr);
+                                      const std::vector<std::uint64_t>* textures = nullptr, std::uint32_t anchors = 0);
 } // namespace weft::render

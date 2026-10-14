@@ -257,6 +257,25 @@ namespace probes {
                           ",\"passes\":[" + report("D3D11", "json", adapter, counts, json_owner, json) + "," +
                           report("D3D11", "page", adapter, partial, own_owner, own) + "," +
                           report("D3D11", "anchor", adapter, anchored, anchor_owner, anchor);
+#ifdef WEFT_PROBE_VULKAN
+        // The anchored levels on Vulkan too.
+        if (!warp) {
+            auto vulkan_page = session();
+            std::vector<Owner> vulkan_owner;
+            weft::SceneAnchorChannel vulkan_channel;
+            vulkan_page->anchors = &vulkan_channel;
+            std::string vulkan_adapter;
+            const auto timings = particle_benchmark::vulkan(
+                anchored.size(), warmup, samples,
+                source(*vulkan_page, anchored, vulkan_owner, warmup, Push::Anchor, &vulkan_channel), vulkan_adapter,
+                [&vulkan_channel] {
+                    return &vulkan_channel.take(weft::SceneAnchorChannel::Reader::Render);
+                });
+            if (!timings.empty()) {
+                out += "," + report("Vulkan", "anchor", vulkan_adapter, anchored, vulkan_owner, timings);
+            }
+        }
+#endif
         PROCESS_MEMORY_COUNTERS_EX memory{};
         require(GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&memory),
                                      sizeof(memory)),

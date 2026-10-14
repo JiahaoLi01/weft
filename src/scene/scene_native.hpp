@@ -66,6 +66,10 @@ namespace weft {
         // included: the working set the caches' bounds must hold.
         std::size_t peak_pass_images{};
         std::size_t peak_pass_image_bytes{};
+        // Passes drawn again from a pass kept for a frame of the same revision, with the frame's anchors; and kept
+        // passes prepared again because the anchors reordered records a batch could not take in another order.
+        std::size_t kept_passes{};
+        std::size_t kept_rebuilds{};
         // Fallback counts by reason.
         std::map<std::string, std::size_t> reasons;
     };
@@ -156,6 +160,22 @@ namespace weft {
         std::vector<ScenePreparedEffect> effects;
         std::vector<std::shared_ptr<const SceneImage>> sprites;
         std::vector<SceneAtlasPage> pages;
+        // Prepared with deferred anchors (ScenePreparer::prepare): the anchored elements the pass moves as it draws
+        // (records name them, render::SceneRecord::clips), the runs of anchored siblings it orders by depth, and the
+        // size of the frame's root box the anchors place them in. keepable: the pass draws any frame of its revision
+        // when given the frame's anchors (ScenePreparer::place); otherwise anchors are part of it.
+        std::vector<SceneListAnchor> anchors;
+        std::vector<SceneListRun> runs;
+        std::array<float, 2> view{};
+        bool keepable{};
+    };
+
+    // What a pass with deferred anchors draws with at one frame: per anchored element its anchor's map to target px,
+    // {scale, x, y, shown} (shown 0 when hidden), and the record each draw position takes (render::ScenePass::batches
+    // count positions); empty for the order the pass was planned in.
+    struct SceneAnchorFrame {
+        std::vector<std::array<float, 4>> anchors;
+        std::vector<std::uint32_t> order;
     };
 
     // Scratch bytes the targets of a prepared pass and of its planes' passes take: their groups, and a plane's pass
@@ -191,12 +211,17 @@ namespace weft {
         // The frame's pass on a width x height device px target at scale device px per CSS px, clipped to crop when
         // given; layers are the nodes drawn as cached layer images, view_index tells views apart in the caches. anchors
         // place the anchored elements (scene_display_list); for data-anchor-missing: stay the preparer remembers per
-        // view what they took in its last pass. Null, with a fallback and its reason counted in work, when a native
-        // pass cannot draw the frame.
+        // view what they took in its last pass or placing. With defer, and without crop, anchors are deferred where the
+        // list can defer them: the pass is keepable, and place gives each frame's anchors. Null, with a fallback and
+        // its reason counted in work, when a native pass cannot draw the frame.
         std::unique_ptr<ScenePrepared> prepare(const SceneFrame& frame, float scale, unsigned width, unsigned height,
                                                std::optional<std::array<float, 4>> crop, unsigned view_index,
                                                const std::vector<NodeIdentity>& layers,
-                                               const SceneAnchorTable* anchors = nullptr);
+                                               const SceneAnchorTable* anchors = nullptr, bool defer = false);
+        // Places a keepable pass's anchored elements by anchors, as the list would place them, into frame; false when
+        // they are to be ordered otherwise than a batch of the pass can draw (prepare the frame again).
+        bool place(const ScenePrepared& prepared, unsigned view_index, const SceneAnchorTable* anchors,
+                   SceneAnchorFrame& frame);
 
     private:
         // A layer image by view and node identity, while its paint source and scale stay the same.
@@ -263,11 +288,11 @@ namespace weft {
         // Places a new text, shadow or path image on its format's atlas when it is small enough and a page has room.
         void place(const std::shared_ptr<SceneImage>& image);
 
-        // Plans list and builds the images it samples, its planes' and layers' contents included; throws
-        // std::invalid_argument with the reason for a list a native pass cannot draw.
+        // Plans list and builds the images it samples, its planes' and layers' contents included; anchors is how many
+        // anchors move its items. Throws std::invalid_argument with the reason for a list a native pass cannot draw.
         std::unique_ptr<ScenePrepared> prepare(const paint::DisplayList& list, float scale, unsigned width,
                                                unsigned height, std::optional<std::array<float, 4>> crop,
-                                               unsigned view_index);
+                                               unsigned view_index, std::uint32_t anchors = 0);
 
         struct Built {
             std::shared_ptr<const SceneImage> text;

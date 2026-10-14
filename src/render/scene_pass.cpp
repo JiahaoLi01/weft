@@ -69,7 +69,7 @@ namespace weft::render {
         }
 
         // The device pixels a path item's mask covers: the path under the item's transform at scale, within its clip
-        // and the target.
+        // and the target (in its element's space, an item an anchor moves has no target).
         std::array<std::int32_t, 4> path_mask(const paint::DisplayList& list, const paint::Item& item,
                                               const paint::ClipRect& clip, float scale, unsigned w, unsigned h) {
             paint::Affine device = item.transform;
@@ -80,10 +80,12 @@ namespace weft::render {
                 const double d = up ? std::ceil(double(v)) : std::floor(double(v));
                 return std::int32_t(std::clamp(d, -double(1 << 24), double(1 << 24)));
             };
-            const std::array<std::int32_t, 4> bounds{std::max(0, edge(clip[0] * scale, false)),
-                                                     std::max(0, edge(clip[1] * scale, false)),
-                                                     std::min(std::int32_t(w), edge(clip[2] * scale, true)),
-                                                     std::min(std::int32_t(h), edge(clip[3] * scale, true))};
+            const bool target = !item.anchor;
+            const std::array<std::int32_t, 4> bounds{
+                target ? std::max(0, edge(clip[0] * scale, false)) : edge(clip[0] * scale, false),
+                target ? std::max(0, edge(clip[1] * scale, false)) : edge(clip[1] * scale, false),
+                target ? std::min(std::int32_t(w), edge(clip[2] * scale, true)) : edge(clip[2] * scale, true),
+                target ? std::min(std::int32_t(h), edge(clip[3] * scale, true)) : edge(clip[3] * scale, true)};
             return vector::mask_bounds(list.paths[item.payload], device, bounds);
         }
 
@@ -176,7 +178,7 @@ namespace weft::render {
                                item.kind == Kind::Shadow || item.kind == Kind::Path || item.kind == Kind::Effect;
             SceneRecord r{};
             r.uv = {0, 0, 1, 1};
-            r.clips = {float(item.clips_begin), float(item.clips_count), 0, 0};
+            r.clips = {float(item.clips_begin), float(item.clips_count), float(item.anchor), 0};
             r.size = {item.width, item.height, 0, 0};
             r.clip = clip;
             r.extra = {0, item.opacity, image ? scene_limits::flag_enabled : scene_limits::flag_disabled,
@@ -370,7 +372,7 @@ namespace weft::render {
 
     Result<ScenePass> plan_scene_pass(const paint::DisplayList& list, float scale, unsigned width, unsigned height,
                                       std::optional<paint::ClipRect> crop, Space space,
-                                      const std::vector<std::uint64_t>* textures) {
+                                      const std::vector<std::uint64_t>* textures, std::uint32_t anchors) {
         ScenePass pass;
         pass.space = space;
         pass.clips.reserve(list.clips.size());
@@ -391,8 +393,11 @@ namespace weft::render {
             if (item.clips_count > std::uint32_t(scene_limits::max_rounded_clips)) {
                 return make_diagnostic(Diag::PaintList, "rounded clip chain bound");
             }
+            if (item.anchor > anchors) {
+                return make_diagnostic(Diag::PaintList, "item anchor out of range");
+            }
             auto clip = item.clip;
-            if (crop) {
+            if (crop && !item.anchor) {
                 clip = {std::max(clip[0], (*crop)[0]), std::max(clip[1], (*crop)[1]), std::min(clip[2], (*crop)[2]),
                         std::min(clip[3], (*crop)[3])};
             }

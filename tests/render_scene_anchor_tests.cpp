@@ -22,6 +22,13 @@
 // exactly as the same plates placed there by CSS in the root, far to near. The same renderer then draws a table that
 // moved them, and one that lacks a key a plate keeps for data-anchor-missing: stay. Vulkan, under validation, draws
 // both frames alike, and the anchored one as D3D11 does.
+//
+// The GPU path (13.1b): the same frames with a revision keep their pass, which the frame's anchors move as the shader
+// draws it, as the CPU path draws them but for the rounding of where pixels sample: its first frame, and a kept pass
+// moved and reordered, a stay, a translucent plate (a group, which a new order prepares again), and a plate with a
+// backdrop filter, which the GPU cannot move (placed every frame, as the CPU path does). A kept pass draws only the
+// scale and layers it was prepared for. A path reaching left of its anchored element's origin keeps its whole mask
+// (anchored records have no target to cut it), at whole device pixels, where moving a mask equals drawing it there.
 namespace {
     using weft::SceneAnchor;
     using weft::SceneAnchoring;
@@ -38,6 +45,22 @@ namespace {
     constexpr float margin = 4;
     // Vulkan and D3D11 WARP filter alike within the gallery's near level (vulkan_scene_near_level).
     constexpr int max_vulkan_difference = 2;
+    // The GPU path maps pixels back through its anchors in the shader, where the CPU path's records hold the anchors'
+    // maps: coordinates round otherwise in their last bits, which moves filtering weights at edges by a quantization
+    // step.
+    constexpr int max_gpu_difference = 2;
+    // Revisions of the frames the GPU path keeps passes for.
+    constexpr std::uint64_t revisions = std::uint64_t(1) << 40;
+
+    weft::SceneFrame revised(weft::SceneFrame f, std::uint64_t revision) {
+        f.revision = revision;
+        return f;
+    }
+
+    // An anchored tag (its top-left on the anchor) whose triangle icon lies left of its origin.
+    weft::SceneFrame tagged();
+    // An anchored box with a border and a rounded child, to draw far smaller than its size.
+    weft::SceneFrame speck();
 
     struct Plate {
         std::uint64_t key{};
@@ -234,6 +257,52 @@ namespace {
             require(false, what + ": anchored plates unlike the same plates placed there");
         }
     }
+
+    weft::SceneFrame speck() {
+        weft::SceneFrame f;
+        f.root = node(1, {0, 0, view_width, view_height}, {{"background-color", "#1c2430"}});
+        auto box = node(2, {20, 20, 160, 90},
+                        {{"background-color", "#d8e0ea"},
+                         {"border-top-width", "6px"},
+                         {"border-right-width", "6px"},
+                         {"border-bottom-width", "6px"},
+                         {"border-left-width", "6px"},
+                         {"border-top-color", "#c0392b"},
+                         {"border-right-color", "#c0392b"},
+                         {"border-bottom-color", "#c0392b"},
+                         {"border-left-color", "#c0392b"}});
+        box.anchoring.emplace();
+        box.anchoring->key = 1;
+        box.children.push_back(node(3, {30, 20, 100, 50},
+                                    {{"background-color", "#16a085"},
+                                     {"border-top-left-radius", "20px"},
+                                     {"border-top-right-radius", "20px"},
+                                     {"border-bottom-right-radius", "20px"},
+                                     {"border-bottom-left-radius", "20px"}}));
+        f.root.children = {box};
+        return f;
+    }
+
+    weft::SceneFrame tagged() {
+        weft::SceneFrame f;
+        f.root = node(1, {0, 0, view_width, view_height}, {{"background-color", "#1c2430"}});
+        auto tag = node(2, {20, 20, 40, 20}, {{"background-color", "#3a6ea5"}});
+        tag.anchoring.emplace();
+        tag.anchoring->key = 1;
+        tag.anchoring->pivot_fraction = {0, 0};
+        auto svg = node(3, {-14, 4, 12, 12}, {});
+        svg.tag = "svg";
+        svg.space = weft::constants::svg_namespace_uri;
+        svg.attributes = {{"width", "12"}, {"height", "12"}};
+        auto triangle = node(4, {0, 0, 12, 12}, {{"fill", "#e8c060"}});
+        triangle.tag = "path";
+        triangle.space = weft::constants::svg_namespace_uri;
+        triangle.attributes = {{"d", "M6 0 L12 12 L0 12 Z"}};
+        svg.children = {triangle};
+        tag.children = {svg};
+        f.root.children = {tag};
+        return f;
+    }
 } // namespace
 
 int main(int argc, char** argv) {
@@ -290,6 +359,70 @@ int main(int argc, char** argv) {
         same("D3D11 missing: stay", stay_pixels, d3d11.draw(stay_frame, scale), folder);
         d3d11.gpu.check_debug_messages();
 
+        // The GPU path on a renderer of its own: its first frame prepares the pass, later ones of the revision draw it.
+        weft::testing::D3D11Scene gpu{width, height};
+        const auto kept = revised(anchored(), revisions);
+        const auto gpu_first = gpu.draw(kept, scale, &first_table);
+        save(folder / "gpu-anchored.png", gpu_first);
+        same("D3D11 GPU path", gpu_first, drawn, folder, max_gpu_difference);
+        same("D3D11 GPU path, moved and reordered", gpu.draw(kept, scale, &moved_table), moved_pixels, folder,
+             max_gpu_difference);
+        require(gpu.scene.passes == 2 && gpu.scene.kept_passes == 1 && !gpu.scene.kept_rebuilds,
+                "the moved anchors drew the kept pass");
+        const auto kept_stay = revised(stay, revisions + 1);
+        (void)gpu.draw(kept_stay, scale, &moved_table);
+        same("D3D11 GPU path, missing: stay", gpu.draw(kept_stay, scale, &missing_table), stay_pixels, folder,
+             max_gpu_difference);
+        require(gpu.scene.kept_passes == 2, "stay drew the kept pass");
+        // A translucent plate is a group, whose items no batch reorders: a new order prepares the pass again.
+        auto translucent = anchored();
+        translucent.root.children[0].children[1 + 3].style["opacity"] = "0.8";
+        const auto kept_group = revised(translucent, revisions + 2);
+        const auto group_first = d3d11.draw(translucent, scale, &first_table);
+        same("D3D11 GPU path, translucent plate", gpu.draw(kept_group, scale, &first_table), group_first, folder,
+             max_gpu_difference);
+        const auto group_moved = d3d11.draw(translucent, scale, &moved_table);
+        same("D3D11 GPU path, translucent plate reordered", gpu.draw(kept_group, scale, &moved_table), group_moved,
+             folder, max_gpu_difference);
+        require(gpu.scene.kept_rebuilds == 1 && gpu.scene.kept_passes == 2, "a group reordered on a kept pass");
+        // A backdrop filter reads its region of the target: the frame is placed each time, as on the CPU path.
+        auto filtered = anchored();
+        filtered.root.children[0].children[1].style["backdrop-filter"] = "blur(2px)";
+        const auto kept_filtered = revised(filtered, revisions + 3);
+        for (const auto* t : {&first_table, &moved_table}) {
+            const auto expected = d3d11.draw(filtered, scale, t);
+            same("D3D11 GPU path, backdrop filter", gpu.draw(kept_filtered, scale, t), expected, folder);
+        }
+        require(gpu.scene.kept_passes == 2, "a backdrop filter moved on the GPU");
+        // Another scale or other layers: the frame is prepared again, then kept for them.
+        const auto passes = gpu.scene.passes;
+        const auto layer = std::vector<weft::NodeIdentity>{kept.root.children[0].children[1].identity};
+        (void)gpu.draw(kept, scale, &first_table);
+        (void)gpu.draw(kept, scale, &first_table);
+        (void)gpu.draw(kept, 1, &first_table);
+        (void)gpu.draw(kept, 1, &first_table, layer);
+        (void)gpu.draw(kept, 1, &first_table, layer);
+        require(gpu.scene.passes == passes + 5 && gpu.scene.kept_passes == 4,
+                "a pass kept for another scale or layers");
+        // A path left of its element's origin, its anchor on whole device pixels.
+        const auto tags = table(channel, {{1, 100, 60}});
+        const auto moved_tags = table(channel, {{1, 140.5f, 90}});
+        weft::testing::D3D11Scene reference{width, height};
+        for (const auto* t : {&tags, &moved_tags}) {
+            const auto expected = reference.draw(tagged(), scale, t);
+            same("D3D11 GPU path, a path left of the origin", gpu.draw(revised(tagged(), revisions + 4), scale, t),
+                 expected, folder, max_gpu_difference);
+        }
+        // Drawn at a tenth of its size, an element keeps its edges' antialiasing past its bounds.
+        const auto tenth = table(channel, {{1, 100.3f, 60.7f, .1f}});
+        const auto tenth_moved = table(channel, {{1, 140.55f, 90.15f, .15f}});
+        for (const auto* t : {&tenth, &tenth_moved}) {
+            const auto expected = reference.draw(speck(), scale, t);
+            same("D3D11 GPU path, a tenth of the size", gpu.draw(revised(speck(), revisions + 5), scale, t), expected,
+                 folder, max_gpu_difference);
+        }
+        gpu.gpu.check_debug_messages();
+
         std::string vulkan = "skipped";
 #ifdef WEFT_TEST_VULKAN
         {
@@ -303,6 +436,25 @@ int main(int argc, char** argv) {
                 require(anchored_pixels && placed_pixels, "native Vulkan pass");
                 same("Vulkan anchored plates", *anchored_pixels, *placed_pixels, folder);
                 same("Vulkan anchored plates against D3D11", *anchored_pixels, drawn, folder, max_vulkan_difference);
+                // The GPU path, kept and moved, against the CPU path on Vulkan.
+                const auto moved_cpu =
+                    scene.draw(anchored(), scale, width, height, std::nullopt, 0, {}, true, &moved_table);
+                vk::SceneRenderer kept_scene(*device, text);
+                const auto kept_first =
+                    kept_scene.draw(kept, scale, width, height, std::nullopt, 0, {}, true, &first_table);
+                const auto kept_moved =
+                    kept_scene.draw(kept, scale, width, height, std::nullopt, 0, {}, true, &moved_table);
+                require(moved_cpu && kept_first && kept_moved && kept_scene.kept_passes == 1,
+                        "the Vulkan GPU path drew the kept pass");
+                same("Vulkan GPU path", *kept_first, *anchored_pixels, folder, max_gpu_difference);
+                same("Vulkan GPU path, moved and reordered", *kept_moved, *moved_cpu, folder, max_gpu_difference);
+                // A frame of another revision prepares its own pass.
+                const auto group_cpu =
+                    scene.draw(translucent, scale, width, height, std::nullopt, 0, {}, true, &first_table);
+                const auto group_kept =
+                    kept_scene.draw(kept_group, scale, width, height, std::nullopt, 0, {}, true, &first_table);
+                require(group_cpu && group_kept, "native Vulkan pass");
+                same("Vulkan GPU path, another revision", *group_kept, *group_cpu, folder, max_gpu_difference);
                 vulkan = device->name;
             } else {
                 vulkan = "skipped: " + unavailable;

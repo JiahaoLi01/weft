@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstring>
 #include <stdexcept>
+#include <tuple>
 #include <utility>
 
 namespace weft {
@@ -294,7 +295,7 @@ namespace weft {
     std::unique_ptr<ScenePrepared> ScenePreparer::prepare(const SceneFrame& frame, float scale, unsigned width,
                                                           unsigned height, std::optional<std::array<float, 4>> crop,
                                                           unsigned view_index, const std::vector<NodeIdentity>& layers,
-                                                          const SceneAnchorTable* anchors) {
+                                                          const SceneAnchorTable* anchors, bool defer) {
         const auto fallback = [&](const std::string& reason) {
             ++work_.fallbacks;
             ++work_.reasons[reason];
@@ -325,18 +326,46 @@ namespace weft {
         const auto svg_builds = svg_.builds();
         const auto svg_reuses = svg_.reuses();
         auto& anchored = anchored_[view_index];
-        auto compiled = scene_display_list(frame, layers, &text_, scale, &svg_, {anchors, &anchored});
+        defer = defer && !crop;
+        auto compiled = scene_display_list(frame, layers, &text_, scale, &svg_, {anchors, &anchored, defer});
+        if (defer && compiled.fallback.empty() && !compiled.deferred) {
+            // Anchored subtrees the pass cannot move: placed now, every frame.
+            compiled = scene_display_list(frame, layers, &text_, scale, &svg_, {anchors, &anchored});
+            defer = false;
+        }
         work_.svg_value_builds += svg_.builds() - svg_builds;
         work_.svg_value_reuses += svg_.reuses() - svg_reuses;
         if (!compiled.fallback.empty()) {
             return fallback(compiled.fallback);
         }
-        anchored = std::move(compiled.placed);
+        if (!defer) {
+            anchored = std::move(compiled.placed);
+        }
         if (const auto valid = paint::check(compiled.list, limits::max_group_depth); !valid) {
             return fallback(valid.error().message);
         }
         try {
-            auto prepared = prepare(compiled.list, scale, width, height, crop, view_index);
+            auto prepared =
+                prepare(compiled.list, scale, width, height, crop, view_index, std::uint32_t(compiled.anchors.size()));
+            if (defer) {
+                prepared->anchors = std::move(compiled.anchors);
+                prepared->runs = std::move(compiled.runs);
+                prepared->view = {frame.root.box[2], frame.root.box[3]};
+                prepared->keepable = true;
+                // A run reorders inside one batch that draws its records in any order: boxes, or boxes and images on
+                // one atlas page.
+                for (auto& run : prepared->runs) {
+                    const auto first = run.members.front().first;
+                    const auto end = run.members.back().end;
+                    run.reorderable =
+                        first == end ||
+                        std::any_of(prepared->pass.batches.begin(), prepared->pass.batches.end(), [&](const auto& b) {
+                            return (b.step == render::ScenePass::Step::Boxes ||
+                                    b.step == render::ScenePass::Step::Atlas) &&
+                                   b.first <= first && end <= b.first + b.count;
+                        });
+                }
+            }
             // The pass's working set: each image once.
             std::map<std::uint64_t, std::size_t> images;
             const auto count = [&](auto&& self, const ScenePrepared& p) -> void {
@@ -372,6 +401,79 @@ namespace weft {
         } catch (const std::invalid_argument& e) {
             return fallback(e.what());
         }
+    }
+
+    bool ScenePreparer::place(const ScenePrepared& prepared, unsigned view_index, const SceneAnchorTable* anchors,
+                              SceneAnchorFrame& frame) {
+        // Each element's anchor, as the list resolves it, and its map; what they took, for missing: stay (kept once
+        // the order is known: an anchor taken from what the last frame placed lives in that).
+        auto& last = anchored_[view_index];
+        std::vector<ScenePlacedAnchor> placed;
+        placed.reserve(prepared.anchors.size());
+        std::vector<const SceneAnchor*> taken(prepared.anchors.size());
+        frame.anchors.resize(prepared.anchors.size());
+        for (std::size_t k = 0; k < prepared.anchors.size(); ++k) {
+            const auto& a = prepared.anchors[k];
+            taken[k] = scene_anchor_resolve({anchors, &last}, a.element, a.anchoring, &placed);
+            const auto& o = a.own;
+            const auto map =
+                scene_anchor_map(a.anchoring, taken[k], {a.box[0], a.box[1]}, {prepared.view[0], prepared.view[1]},
+                                 {o[0], o[1], o[2], o[3], o[4], o[5]});
+            // An element its anchor shrinks to nothing paints nothing, as a singular transform does in the list.
+            const double determinant = map ? (*map)[0] * (*map)[0] * double(o[0] * o[3] - o[1] * o[2]) : 0;
+            frame.anchors[k] = std::abs(determinant) < constants::scene::singular_determinant_epsilon
+                                   ? std::array<float, 4>{1, 0, 0, 0}
+                                   : std::array<float, 4>{float((*map)[0]), float((*map)[4]), float((*map)[5]), 1};
+        }
+        // Each run's anchored members by depth, far to near, in their places (scene_anchor_order); inner runs first, so
+        // that an outer one moves its members' records in their new order.
+        frame.order.clear();
+        std::vector<std::size_t> places;
+        std::vector<std::tuple<float, std::uint32_t, std::size_t>> sorted;
+        std::vector<std::uint32_t> moved;
+        for (const auto& run : prepared.runs) {
+            places.clear();
+            sorted.clear();
+            for (std::size_t m = 0; m < run.members.size(); ++m) {
+                const auto& member = run.members[m];
+                if (member.anchor && taken[member.anchor - 1]) {
+                    places.push_back(m);
+                    sorted.emplace_back(taken[member.anchor - 1]->depth, member.child, m);
+                }
+            }
+            std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) {
+                return std::get<0>(a) != std::get<0>(b) ? std::get<0>(a) > std::get<0>(b)
+                                                        : std::get<1>(a) < std::get<1>(b);
+            });
+            bool same = true;
+            for (std::size_t k = 0; k < places.size(); ++k) {
+                same = same && std::get<2>(sorted[k]) == places[k];
+            }
+            if (same) {
+                continue;
+            }
+            if (!run.reorderable) {
+                return false;
+            }
+            if (frame.order.empty()) {
+                frame.order.resize(prepared.pass.records.size());
+                for (std::size_t i = 0; i < frame.order.size(); ++i) {
+                    frame.order[i] = std::uint32_t(i);
+                }
+            }
+            moved.clear();
+            std::size_t next{};
+            for (std::size_t m = 0; m < run.members.size(); ++m) {
+                const auto& member = next < places.size() && places[next] == m
+                                         ? run.members[std::get<2>(sorted[next++])]
+                                         : run.members[m];
+                moved.insert(moved.end(), frame.order.begin() + member.first, frame.order.begin() + member.end);
+            }
+            std::copy(moved.begin(), moved.end(), frame.order.begin() + run.members.front().first);
+        }
+        scene_anchor_sort(placed);
+        last = std::move(placed);
+        return true;
     }
 
     ScenePreparer::Built ScenePreparer::image(const paint::Item& item, const paint::Raster& raster, float scale,
@@ -711,14 +813,15 @@ namespace weft {
 
     std::unique_ptr<ScenePrepared> ScenePreparer::prepare(const paint::DisplayList& list, float scale, unsigned width,
                                                           unsigned height, std::optional<std::array<float, 4>> crop,
-                                                          unsigned view_index) {
+                                                          unsigned view_index, std::uint32_t anchors) {
         // Scene passes sample no asset images.
         if (std::any_of(list.items.begin(), list.items.end(), [](const paint::Item& item) {
                 return item.kind == Kind::Image;
             })) {
             throw std::invalid_argument("scene renderer draws no image items");
         }
-        auto planned = render::plan_scene_pass(list, scale, width, height, crop);
+        auto planned =
+            render::plan_scene_pass(list, scale, width, height, crop, render::Space::Encoded, nullptr, anchors);
         if (!planned) {
             throw std::invalid_argument(planned.error().message);
         }

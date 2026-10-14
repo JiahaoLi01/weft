@@ -30,6 +30,10 @@
 // recording that samples it throws Busy. Recordings are submitted in the order they were recorded. draw() is that
 // sequence on the renderer's own command buffer, waiting for the frame and reading its target back.
 //
+// A view's pass is kept while its frames keep their revision (SceneFrame::revision): such a frame records the kept pass
+// again with the frame's anchors (ScenePreparer::place) and their record order, its records in the slot's own buffers
+// since the slot first drew that pass.
+//
 // Owner thread of the SceneText and of the device's queue.
 namespace weft::render::vulkan {
     class SceneRenderer : public SceneNativeWork {
@@ -77,6 +81,10 @@ namespace weft::render::vulkan {
             std::vector<std::pair<VkDescriptorPool, std::uint32_t>> spare_pools;
             // The device of the slot's objects, once it recorded.
             const Device* device{};
+            // The serial of the kept pass whose records and rounded clips kept_records and kept_clips hold (0: none).
+            std::uint64_t kept{};
+            Buffer kept_records;
+            Buffer kept_clips;
         };
 
         // bounds are the preparer's image caches' and atlases' (SceneCacheBounds).
@@ -182,14 +190,34 @@ namespace weft::render::vulkan {
         VkCommandBuffer command_buffer_{};
         Slot* slot_{};
 
+        // The pass kept for a view: what its frames' revision and the pass's target were, the pass, its serial, and the
+        // anchors of the frame recorded last.
+        struct Kept {
+            std::uint64_t revision{};
+            float scale{};
+            std::uint32_t width{};
+            std::uint32_t height{};
+            std::vector<NodeIdentity> layers;
+            std::shared_ptr<const ScenePrepared> prepared;
+            std::uint64_t serial{};
+            SceneAnchorFrame frame;
+        };
+
+        std::unordered_map<unsigned, Kept> kept_;
+        std::uint64_t serial_{};
+        // Every record in its own place, for passes recorded in planned order (grown to the largest pass).
+        std::vector<std::uint32_t> in_order_;
+
         // Throws Busy when prepared samples, from the cache, what another unsubmitted recording uploads or draws.
         void check_pending(const ScenePrepared& prepared) const;
         // Records the uploads of the images that prepared samples and that have no image yet, its layers' contents
         // included when those are drawn here.
         void upload(const ScenePrepared& prepared);
         // Records prepared's pass into the framebuffer of an image of prepared's size (image, when the pass may read
-        // it): its planes' and new layers' contents first, each into an image of its own.
-        void record(const ScenePrepared& prepared, VkFramebuffer framebuffer, VkImage image, float scale);
+        // it): its planes' and new layers' contents first, each into an image of its own. anchors are the frame's
+        // (none for a pass whose anchors are not deferred); serial names a kept pass, whose records the slot keeps.
+        void record(const ScenePrepared& prepared, VkFramebuffer framebuffer, VkImage image, float scale,
+                    const SceneAnchorFrame* anchors = nullptr, std::uint64_t serial = 0);
         // An atlas page's image, created empty and shader-readable the first time.
         const Image& page(const SceneAtlasPage& page);
         // The image of a layer, its content recorded the first time.

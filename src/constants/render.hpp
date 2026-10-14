@@ -128,6 +128,9 @@ namespace weft::constants::render {
         // that repeats them (effectRepeat, s1).
         inline constexpr int binding_effect_textures = 13;
         inline constexpr int binding_effect_sampler = 21;
+        // A scene pass's record order (t7) and anchors (t8).
+        inline constexpr int binding_order = 17;
+        inline constexpr int binding_anchors = 18;
         // Each instance draws two triangles.
         inline constexpr int quad_vertex_count = 6;
         // Descriptor sets one pass may allocate: one per batch.

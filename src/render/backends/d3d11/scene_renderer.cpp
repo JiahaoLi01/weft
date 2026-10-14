@@ -13,8 +13,11 @@ namespace weft::render::d3d11 {
     namespace {
         namespace limits = constants::render::scene;
         using Color = std::array<float, 4>;
-        // The register of an effect's first texture (scene.hlsl, effectTexture0); its others follow.
+        // The register of an effect's first texture (scene.hlsl, effectTexture0); its others follow. Then the record
+        // order and the anchors (order, anchors).
         constexpr UINT effect_texture_slot = 3;
+        constexpr UINT order_slot = 7;
+        constexpr UINT anchor_slot = 8;
         using Record = SceneRecord;
         using Step = ScenePass::Step;
 
@@ -318,12 +321,41 @@ namespace weft::render::d3d11 {
         return effect_shaders_.emplace(program.get(), std::move(made)).first->second.shader.Get();
     }
 
+    void SceneRenderer::structured(ComPtr<ID3D11Buffer>& buffer, ComPtr<ID3D11ShaderResourceView>& view,
+                                   unsigned& capacity, std::size_t count, unsigned stride, const char* what) {
+        if (buffer && capacity >= count) {
+            return;
+        }
+        unsigned grown = limits::record_initial_capacity;
+        while (grown < count) {
+            grown *= 2;
+        }
+        buffer.Reset();
+        view.Reset();
+        D3D11_BUFFER_DESC d{};
+        d.ByteWidth = grown * stride;
+        d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        d.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+        d.StructureByteStride = stride;
+        throw_if_failed(gpu_.device->CreateBuffer(&d, nullptr, &buffer), what);
+        D3D11_SHADER_RESOURCE_VIEW_DESC v{};
+        v.Format = DXGI_FORMAT_UNKNOWN;
+        v.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+        v.Buffer.NumElements = grown;
+        throw_if_failed(gpu_.device->CreateShaderResourceView(buffer.Get(), &v, &view), what);
+        capacity = grown;
+    }
+
     void SceneRenderer::draw_pass(Slot& slot, const ScenePrepared& prepared, ID3D11RenderTargetView* destination,
-                                  float scale) {
+                                  float scale, const SceneAnchorFrame* anchors, std::uint64_t serial) {
+        // A kept pass the slot drew before: its records, rounded clips, plane contents and leases are the slot's.
+        const bool again = serial && slot.kept == serial;
         // Plane contents first, each into its slot's image; then layers not drawn before, and the textures of the
         // images this pass samples.
         std::vector<ID3D11ShaderResourceView*> views(prepared.planes.size());
-        slot.leases.clear();
+        if (!again) {
+            slot.leases.clear();
+        }
         std::size_t next{};
         for (std::size_t i = 0; i < prepared.planes.size(); ++i) {
             if (prepared.planes[i]) {
@@ -331,9 +363,17 @@ namespace weft::render::d3d11 {
                 if (!nested.target.texture) {
                     nested.target = group_target(gpu_.device.Get(), nested.width, nested.height);
                 }
-                draw_pass(nested, *prepared.planes[i], nested.target.rtv.Get(), scale);
+                if (!again) {
+                    draw_pass(nested, *prepared.planes[i], nested.target.rtv.Get(), scale);
+                    ++plane_passes;
+                }
                 views[i] = nested.target.srv.Get();
-                ++plane_passes;
+            } else if (again) {
+                if (prepared.layers[i]) {
+                    views[i] = texture(prepared.layers[i], scale);
+                } else if (prepared.images[i] && !prepared.images[i]->atlas) {
+                    views[i] = texture(prepared.images[i]);
+                }
             } else if (prepared.layers[i]) {
                 views[i] = texture(prepared.layers[i], scale);
                 slot.leases.push_back(prepared.layers[i]);
@@ -350,7 +390,9 @@ namespace weft::render::d3d11 {
             ensure(textures.size() <= constants::max_effect_textures, "effect textures");
             for (std::size_t t = 0; t < textures.size(); ++t) {
                 effect_views[e][t] = texture(textures[t]);
-                slot.leases.push_back(textures[t]);
+                if (!again) {
+                    slot.leases.push_back(textures[t]);
+                }
             }
         }
         // Each emission's sprite, at t3.
@@ -358,7 +400,9 @@ namespace weft::render::d3d11 {
         for (std::size_t s = 0; s < prepared.sprites.size(); ++s) {
             if (prepared.sprites[s]) {
                 sprite_views[s] = texture(prepared.sprites[s]);
-                slot.leases.push_back(prepared.sprites[s]);
+                if (!again) {
+                    slot.leases.push_back(prepared.sprites[s]);
+                }
             }
         }
         const auto& pass = prepared.pass;
@@ -415,16 +459,51 @@ namespace weft::render::d3d11 {
         }
         auto* ctx = gpu_.immediate.Get();
         ctx->ClearState();
-        if (!records.empty()) {
+        if (!records.empty() && !again) {
             D3D11_BOX box{0, 0, 0, UINT(records.size() * sizeof(Record)), 1, 1};
             ctx->UpdateSubresource(slot.records.Get(), 0, &box, records.data(), 0, 0);
         }
-        if (!pass.clips.empty()) {
+        if (!pass.clips.empty() && !again) {
             D3D11_BOX box{0, 0, 0, UINT(pass.clips.size() * sizeof(SceneClip)), 1, 1};
             ctx->UpdateSubresource(slot.clips.Get(), 0, &box, pass.clips.data(), 0, 0);
-            auto* clip_values = slot.clip_view.Get();
-            ctx->VSSetShaderResources(2, 1, &clip_values);
-            ctx->PSSetShaderResources(2, 1, &clip_values);
+        }
+        // The record each draw position takes (t7), and the frame's anchors (t8).
+        ID3D11ShaderResourceView* order_values{};
+        if (anchors && !anchors->order.empty()) {
+            ensure(anchors->order.size() == records.size(), "a record order of the pass's records");
+            structured(slot.order, slot.order_view, slot.order_capacity, records.size(), sizeof(std::uint32_t),
+                       "native record order");
+            D3D11_BOX box{0, 0, 0, UINT(records.size() * sizeof(std::uint32_t)), 1, 1};
+            ctx->UpdateSubresource(slot.order.Get(), 0, &box, anchors->order.data(), 0, 0);
+            order_values = slot.order_view.Get();
+        } else {
+            if (in_order_capacity_ < records.size()) {
+                in_order_.Reset();
+                structured(in_order_, in_order_view_, in_order_capacity_, records.size(), sizeof(std::uint32_t),
+                           "native record order");
+                std::vector<std::uint32_t> places(in_order_capacity_);
+                for (std::size_t i = 0; i < places.size(); ++i) {
+                    places[i] = std::uint32_t(i);
+                }
+                ctx->UpdateSubresource(in_order_.Get(), 0, nullptr, places.data(), 0, 0);
+            }
+            order_values = in_order_view_.Get();
+        }
+        ID3D11ShaderResourceView* anchor_values{};
+        if (anchors && !anchors->anchors.empty()) {
+            ensure(anchors->anchors.size() == prepared.anchors.size(), "the anchors of the pass's anchored elements");
+            structured(slot.anchors, slot.anchor_view, slot.anchor_capacity, anchors->anchors.size(),
+                       sizeof(anchors->anchors[0]), "native anchors");
+            D3D11_BOX box{0, 0, 0, UINT(anchors->anchors.size() * sizeof(anchors->anchors[0])), 1, 1};
+            ctx->UpdateSubresource(slot.anchors.Get(), 0, &box, anchors->anchors.data(), 0, 0);
+            anchor_values = slot.anchor_view.Get();
+        } else {
+            ensure(prepared.anchors.empty(), "the anchors of the pass's anchored elements");
+            if (!no_anchors_) {
+                unsigned capacity{};
+                structured(no_anchors_, no_anchors_view_, capacity, 1, sizeof(std::array<float, 4>), "native anchors");
+            }
+            anchor_values = no_anchors_view_.Get();
         }
         Color view{float(target_width), float(target_height), scale, 0};
         ctx->UpdateSubresource(slot.constants.Get(), 0, nullptr, view.data(), 0, 0);
@@ -436,6 +515,9 @@ namespace weft::render::d3d11 {
                 ctx->VSSetShaderResources(2, 1, &clip_values);
                 ctx->PSSetShaderResources(2, 1, &clip_values);
             }
+            ctx->VSSetShaderResources(order_slot, 1, &order_values);
+            ctx->VSSetShaderResources(anchor_slot, 1, &anchor_values);
+            ctx->PSSetShaderResources(anchor_slot, 1, &anchor_values);
             auto* buffer = slot.constants.Get();
             ctx->VSSetConstantBuffers(0, 1, &buffer);
             ctx->PSSetConstantBuffers(0, 1, &buffer);
@@ -597,6 +679,7 @@ namespace weft::render::d3d11 {
             }
         }
         ctx->ClearState();
+        slot.kept = serial;
     }
 
     bool SceneRenderer::paint(Slot& slot, const SceneFrame& frame, ID3D11RenderTargetView* destination, float scale,
@@ -612,22 +695,49 @@ namespace weft::render::d3d11 {
         std::erase_if(backdrop_targets_, [&](const auto& target) {
             return target.second.used + 1 < backdrop_frame_;
         });
-        const auto prepared =
-            preparer_.prepare(frame, scale, target_width, target_height, crop, view_index, layers, anchors);
-        if (!prepared) {
-            return false;
-        }
         // The caller has confirmed this slot's prior real submission complete. Immutable image leases survive cache
         // eviction and the entire next submission; buffers and targets are never rewritten in flight.
-        const auto held = held_bytes(slot);
-        if (scratch_bytes_ - held + scene_scratch_bytes(*prepared) > limits::scratch_budget_bytes) {
-            ++fallbacks;
-            ++reasons["native scratch budget reference"];
+        const auto fits = [&](const ScenePrepared& prepared) {
+            const auto held = held_bytes(slot);
+            if (scratch_bytes_ - held + scene_scratch_bytes(prepared) > limits::scratch_budget_bytes) {
+                ++fallbacks;
+                ++reasons["native scratch budget reference"];
+                return false;
+            }
+            shape(slot, prepared, false);
+            scratch_bytes_ = scratch_bytes_ - held + held_bytes(slot);
+            return true;
+        };
+        // A frame of the revision the view's kept pass was prepared for draws it again with the frame's anchors.
+        const bool keep = frame.revision && !crop;
+        auto& kept = kept_[view_index];
+        if (keep && kept.prepared && kept.revision == frame.revision && kept.scale == scale &&
+            kept.width == target_width && kept.height == target_height && kept.layers == layers) {
+            if (preparer_.place(*kept.prepared, view_index, anchors, kept.frame)) {
+                if (!fits(*kept.prepared)) {
+                    return false;
+                }
+                draw_pass(slot, *kept.prepared, destination, scale, &kept.frame, kept.serial);
+                ++passes;
+                ++kept_passes;
+                return true;
+            }
+            ++kept_rebuilds;
+        }
+        kept = {};
+        std::shared_ptr<const ScenePrepared> prepared =
+            preparer_.prepare(frame, scale, target_width, target_height, crop, view_index, layers, anchors, keep);
+        if (!prepared || !fits(*prepared)) {
             return false;
         }
-        shape(slot, *prepared, false);
-        scratch_bytes_ = scratch_bytes_ - held + held_bytes(slot);
-        draw_pass(slot, *prepared, destination, scale);
+        if (!prepared->keepable) {
+            draw_pass(slot, *prepared, destination, scale);
+            ++passes;
+            return true;
+        }
+        kept = {frame.revision, scale, target_width, target_height, layers, prepared, ++serial_, {}};
+        ensure(preparer_.place(*prepared, view_index, anchors, kept.frame), "a pass placed as it was planned");
+        draw_pass(slot, *prepared, destination, scale, &kept.frame, kept.serial);
         ++passes;
         return true;
     }

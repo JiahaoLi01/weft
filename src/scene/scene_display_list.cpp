@@ -261,9 +261,12 @@ namespace weft {
                                         float scale, SceneDisplayCache* cache, const SceneAnchorInput& anchors) {
         SceneDisplayList out;
         auto& list = out.list;
-        // Anchored elements lie in the root's box, clipped to it alone.
+        // Anchored elements lie in the root's box, clipped to it alone; deferred, at their origins, unclipped but by
+        // their own clips.
         const std::array<double, 2> view{f.root.box[2], f.root.box[3]};
         const std::array<float, 4> view_clip{0, 0, f.root.box[2], f.root.box[3]};
+        constexpr auto far_away = float(constants::scene::max_numeric_magnitude);
+        const std::array<float, 4> unclipped{-far_away, -far_away, far_away, far_away};
         // Whether a descendant of n is anchored.
         const auto anchored_below = [](auto&& self, const SceneNode& n) -> bool {
             return std::any_of(n.children.begin(), n.children.end(), [&](const SceneNode& child) {
@@ -740,6 +743,15 @@ namespace weft {
                     --groups;
                 }
             };
+            // Deferred: the anchored element child's visit added at index before (1 + it), and the end of its items;
+            // 0 when it added none.
+            const auto anchor_of = [&](std::size_t before, const SceneNode& child) -> std::uint32_t {
+                if (out.anchors.size() <= before || out.anchors[before].element != child.identity) {
+                    return 0;
+                }
+                out.anchors[before].end = std::uint32_t(list.items.size());
+                return std::uint32_t(before + 1);
+            };
             auto visit = [&](auto&& self, const SceneNode& n, Matrix parent, std::array<float, 4> clip,
                              Chain chain) -> void {
                 if (get(n.style, PropertyId::Display) == "none" || n.box[2] <= 0 || n.box[3] <= 0) {
@@ -758,16 +770,28 @@ namespace weft {
                         get(n.style, PropertyId::Transform, "none").find("perspective(") != std::string::npos) {
                         throw std::invalid_argument("anchored element in a perspective plane");
                     }
-                    const auto* anchor = scene_anchor_resolve(anchors, n.identity, *n.anchoring, &out.placed);
                     const auto local = matrix(n, true);
-                    const auto map = scene_anchor_map(*n.anchoring, anchor, {n.box[2], n.box[3]}, view,
-                                                      {local[0], local[1], local[2], local[3], local[4], local[5]});
-                    if (!map) {
-                        return;
+                    if (anchors.deferred) {
+                        // At its origin, for the pass to move; its items' range ends where its caller finds it.
+                        out.anchors.push_back({n.identity,
+                                               *n.anchoring,
+                                               {n.box[2], n.box[3]},
+                                               local,
+                                               std::uint32_t(list.items.size()),
+                                               std::uint32_t(list.items.size())});
+                        parent = {1, 0, 0, 1, 0, 0};
+                        clip = unclipped;
+                    } else {
+                        const auto* anchor = scene_anchor_resolve(anchors, n.identity, *n.anchoring, &out.placed);
+                        const auto map = scene_anchor_map(*n.anchoring, anchor, {n.box[2], n.box[3]}, view,
+                                                          {local[0], local[1], local[2], local[3], local[4], local[5]});
+                        if (!map) {
+                            return;
+                        }
+                        parent = {float((*map)[0]), float((*map)[1]), float((*map)[2]),
+                                  float((*map)[3]), float((*map)[4]), float((*map)[5])};
+                        clip = view_clip;
                     }
-                    parent = {float((*map)[0]), float((*map)[1]), float((*map)[2]),
-                              float((*map)[3]), float((*map)[4]), float((*map)[5])};
-                    clip = view_clip;
                     chain = {};
                 }
                 // An inline element in lines: its box a fragment at a time, then its text and children.
@@ -1225,8 +1249,32 @@ namespace weft {
                         return a ? std::optional<float>(a->depth) : std::nullopt;
                     });
                 }
+                // Deferred: each child's items and its anchored element (anchor_of), in drawing order.
+                std::vector<SceneListRun::Member> members;
                 for (auto i : order) {
+                    const auto first = std::uint32_t(list.items.size());
+                    const auto before = out.anchors.size();
                     self(self, n.children[i], item.transform, clip, chain);
+                    if (anchors.deferred) {
+                        members.push_back({first, std::uint32_t(list.items.size()), anchor_of(before, n.children[i]),
+                                           std::uint32_t(i)});
+                    }
+                }
+                // Runs of one z-index with two anchored members or more, which the pass orders each frame.
+                for (std::size_t begin = 0; begin < members.size();) {
+                    auto end = begin + 1;
+                    while (end < members.size() && z(order[end]) == z(order[begin])) {
+                        ++end;
+                    }
+                    if (std::count_if(members.begin() + std::ptrdiff_t(begin), members.begin() + std::ptrdiff_t(end),
+                                      [](const SceneListRun::Member& m) {
+                                          return m.anchor != 0;
+                                      }) > 1) {
+                        auto& run = out.runs.emplace_back();
+                        run.members.assign(members.begin() + std::ptrdiff_t(begin),
+                                           members.begin() + std::ptrdiff_t(end));
+                    }
+                    begin = end;
                 }
                 if (backdrop_group) {
                     add_backdrop(true);
@@ -1247,6 +1295,34 @@ namespace weft {
                 throw std::invalid_argument("native command bound");
             }
             scene_anchor_sort(out.placed);
+            if (anchors.deferred) {
+                (void)anchor_of(0, f.root);
+                // Items take the anchor of the innermost anchored element around them (outer ones come first). A
+                // group composites over the root's box, unmoved: its items hold the clips. Backdrops, particles,
+                // planes and effects place themselves on the target, so their anchors cannot wait.
+                out.deferred = true;
+                for (std::size_t k = 0; k < out.anchors.size(); ++k) {
+                    for (auto i = out.anchors[k].first; i < out.anchors[k].end; ++i) {
+                        auto& item = list.items[i];
+                        using Kind = paint::Item::Kind;
+                        if (item.kind == Kind::BeginGroup || item.kind == Kind::EndGroup) {
+                            item.clip = view_clip;
+                            item.clips_begin = item.clips_count = 0;
+                            continue;
+                        }
+                        if (item.kind == Kind::Backdrop || item.kind == Kind::Particles || item.kind == Kind::Plane ||
+                            item.kind == Kind::Effect) {
+                            out.deferred = false;
+                        }
+                        item.anchor = std::uint32_t(k + 1);
+                    }
+                }
+                if (!out.deferred) {
+                    list = {};
+                    out.anchors.clear();
+                    out.runs.clear();
+                }
+            }
         } catch (const std::invalid_argument& e) {
             list = {};
             out.placed.clear();

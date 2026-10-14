@@ -75,6 +75,8 @@ namespace weft::render::vulkan {
         if (framebuffer) {
             device->vkd.vkDestroyFramebuffer(device->device, framebuffer, nullptr);
         }
+        device->destroy(kept_records);
+        device->destroy(kept_clips);
     }
 
     SceneRenderer::SceneRenderer(Device& device, SceneText& text, SceneCacheBounds bounds)
@@ -572,7 +574,8 @@ namespace weft::render::vulkan {
         return image.view;
     }
 
-    void SceneRenderer::record(const ScenePrepared& prepared, VkFramebuffer out, VkImage image, float scale) {
+    void SceneRenderer::record(const ScenePrepared& prepared, VkFramebuffer out, VkImage image, float scale,
+                               const SceneAnchorFrame* anchors, std::uint64_t serial) {
         const auto& d = gpu;
         const auto& pass = prepared.pass;
         const auto command = command_buffer_;
@@ -598,15 +601,65 @@ namespace weft::render::vulkan {
                 slot_->leases.push_back(drawn);
             }
         }
-        // The pass's records, clips and View constants, and a group image of its size for each depth.
-        auto& record_buffer = buffer(std::max<std::size_t>(pass.records.size(), 1) * sizeof(SceneRecord));
-        const auto records = record_buffer.buffer;
-        std::memcpy(record_buffer.mapped, pass.records.data(), pass.records.size() * sizeof(SceneRecord));
+        // The pass's records, clips and View constants, and a group image of its size for each depth. A kept pass's
+        // records and clips stay in the slot's own buffers while the slot draws that pass.
+        VkBuffer records{};
         VkBuffer clips = blank_buffer_.buffer;
-        if (!pass.clips.empty()) {
-            auto& clip_buffer = buffer(pass.clips.size() * sizeof(SceneClip));
-            clips = clip_buffer.buffer;
-            std::memcpy(clip_buffer.mapped, pass.clips.data(), pass.clips.size() * sizeof(SceneClip));
+        if (serial) {
+            const auto put = [&](Buffer& kept, const void* data, std::size_t bytes) {
+                if (kept.size < std::max<std::size_t>(bytes, 1)) {
+                    d.destroy(kept);
+                    VkDeviceSize capacity = limits::spare_buffer_min_bytes;
+                    while (capacity < bytes) {
+                        capacity *= 2;
+                    }
+                    kept = gpu.buffer(capacity, slot_buffer_usage, true);
+                    ++slot_objects;
+                }
+                std::memcpy(kept.mapped, data, bytes);
+            };
+            if (slot_->kept != serial) {
+                put(slot_->kept_records, pass.records.data(), pass.records.size() * sizeof(SceneRecord));
+                put(slot_->kept_clips, pass.clips.data(), pass.clips.size() * sizeof(SceneClip));
+                slot_->kept = serial;
+            }
+            records = slot_->kept_records.buffer;
+            if (!pass.clips.empty()) {
+                clips = slot_->kept_clips.buffer;
+            }
+        } else {
+            auto& record_buffer = buffer(std::max<std::size_t>(pass.records.size(), 1) * sizeof(SceneRecord));
+            records = record_buffer.buffer;
+            std::memcpy(record_buffer.mapped, pass.records.data(), pass.records.size() * sizeof(SceneRecord));
+            if (!pass.clips.empty()) {
+                auto& clip_buffer = buffer(pass.clips.size() * sizeof(SceneClip));
+                clips = clip_buffer.buffer;
+                std::memcpy(clip_buffer.mapped, pass.clips.data(), pass.clips.size() * sizeof(SceneClip));
+            }
+        }
+        // The record each draw position takes, and the frame's anchors.
+        const auto* order_values = &in_order_;
+        if (anchors && !anchors->order.empty()) {
+            ensure(anchors->order.size() == pass.records.size(), "a record order of the pass's records");
+            order_values = &anchors->order;
+        } else if (in_order_.size() < pass.records.size()) {
+            in_order_.resize(pass.records.size());
+            for (std::size_t i = 0; i < in_order_.size(); ++i) {
+                in_order_[i] = std::uint32_t(i);
+            }
+        }
+        auto& order_buffer = buffer(std::max<std::size_t>(pass.records.size(), 1) * sizeof(std::uint32_t));
+        const auto order = order_buffer.buffer;
+        std::memcpy(order_buffer.mapped, order_values->data(), pass.records.size() * sizeof(std::uint32_t));
+        VkBuffer anchor_values = blank_buffer_.buffer;
+        if (anchors && !anchors->anchors.empty()) {
+            ensure(anchors->anchors.size() == prepared.anchors.size(), "the anchors of the pass's anchored elements");
+            auto& anchor_buffer = buffer(anchors->anchors.size() * sizeof(anchors->anchors[0]));
+            anchor_values = anchor_buffer.buffer;
+            std::memcpy(anchor_buffer.mapped, anchors->anchors.data(),
+                        anchors->anchors.size() * sizeof(anchors->anchors[0]));
+        } else {
+            ensure(prepared.anchors.empty(), "the anchors of the pass's anchored elements");
         }
         // The vertex stage adds no base instance: Vulkan's instance index already counts the draw's first instance.
         const std::array<float, 4> constants{float(prepared.width), float(prepared.height), scale, 0};
@@ -738,16 +791,21 @@ namespace weft::render::vulkan {
             const VkDescriptorBufferInfo record_info{records, 0, VK_WHOLE_SIZE};
             const VkDescriptorBufferInfo clip_info{clips, 0, VK_WHOLE_SIZE};
             const VkDescriptorImageInfo sampler_info{sampler_, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
-            const std::uint32_t bindings[]{std::uint32_t(limits::binding_view), std::uint32_t(limits::binding_records),
-                                           std::uint32_t(limits::binding_image), std::uint32_t(limits::binding_clips),
-                                           std::uint32_t(limits::binding_sampler)};
+            const VkDescriptorBufferInfo order_info{order, 0, VK_WHOLE_SIZE};
+            const VkDescriptorBufferInfo anchor_info{anchor_values, 0, VK_WHOLE_SIZE};
+            const std::uint32_t bindings[]{
+                std::uint32_t(limits::binding_view),    std::uint32_t(limits::binding_records),
+                std::uint32_t(limits::binding_image),   std::uint32_t(limits::binding_clips),
+                std::uint32_t(limits::binding_sampler), std::uint32_t(limits::binding_order),
+                std::uint32_t(limits::binding_anchors)};
             const VkDescriptorType types[]{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                           VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                           VK_DESCRIPTOR_TYPE_SAMPLER};
+                                           VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,  VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                           VK_DESCRIPTOR_TYPE_SAMPLER,        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                           VK_DESCRIPTOR_TYPE_STORAGE_BUFFER};
             for (std::size_t s = 0; s < sets.size(); ++s) {
                 const VkDescriptorImageInfo image_info{VK_NULL_HANDLE, images[s],
                                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-                VkWriteDescriptorSet writes[5]{};
+                VkWriteDescriptorSet writes[7]{};
                 for (unsigned i = 0; i < std::size(writes); ++i) {
                     writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
                     writes[i].dstSet = sets[s];
@@ -760,6 +818,8 @@ namespace weft::render::vulkan {
                 writes[2].pImageInfo = &image_info;
                 writes[3].pBufferInfo = &clip_info;
                 writes[4].pImageInfo = &sampler_info;
+                writes[5].pBufferInfo = &order_info;
+                writes[6].pBufferInfo = &anchor_info;
                 d.vkd.vkUpdateDescriptorSets(d.device, std::uint32_t(std::size(writes)), writes, 0, nullptr);
                 if (!effect_views[s]) {
                     continue;
@@ -1021,11 +1081,33 @@ namespace weft::render::vulkan {
                 ++it;
             }
         }
-        const auto prepared =
-            preparer_.prepare(frame, scale, target.width, target.height, crop, view_index, layers, anchors);
-        if (!prepared) {
-            return false;
+        // A frame of the revision the view's kept pass was prepared for records it again with the frame's anchors.
+        const bool keep = frame.revision && !crop;
+        auto& kept = kept_[view_index];
+        std::shared_ptr<const ScenePrepared> prepared;
+        if (keep && kept.prepared && kept.revision == frame.revision && kept.scale == scale &&
+            kept.width == target.width && kept.height == target.height && kept.layers == layers) {
+            if (preparer_.place(*kept.prepared, view_index, anchors, kept.frame)) {
+                prepared = kept.prepared;
+                ++kept_passes;
+            } else {
+                ++kept_rebuilds;
+            }
         }
+        if (!prepared) {
+            kept = {};
+            prepared =
+                preparer_.prepare(frame, scale, target.width, target.height, crop, view_index, layers, anchors, keep);
+            if (!prepared) {
+                return false;
+            }
+            if (prepared->keepable) {
+                kept = {frame.revision, scale, target.width, target.height, layers, prepared, ++serial_, {}};
+                ensure(preparer_.place(*prepared, view_index, anchors, kept.frame), "a pass placed as it was planned");
+            }
+        }
+        const auto* placed = kept.prepared == prepared ? &kept.frame : nullptr;
+        const auto serial = kept.prepared == prepared ? kept.serial : 0;
         // An effect's translucent color texture is linear floats, which not every device filters.
         const auto linear = [](auto&& self, const ScenePrepared& p) -> bool {
             for (const auto& effect : p.effects) {
@@ -1055,7 +1137,7 @@ namespace weft::render::vulkan {
             check_pending(*prepared);
             upload(*prepared);
             slot.framebuffer = framebuffer(target.view, target.width, target.height);
-            record(*prepared, slot.framebuffer, target.image, scale);
+            record(*prepared, slot.framebuffer, target.image, scale, placed, serial);
         } catch (...) {
             // The host discards the commands: what they would upload or draw leaves the cache.
             for (const auto id : slot.created) {

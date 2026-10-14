@@ -10,6 +10,7 @@
 #include "text/case_mapping.hpp"
 #include <chrono>
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cctype>
 #include <functional>
@@ -953,6 +954,11 @@ namespace weft {
         return p;
     }
 
+    namespace {
+        // The next SceneFrame::revision of any solver.
+        std::atomic<std::uint64_t> next_revision{1};
+    } // namespace
+
     struct SceneSolver::Impl {
         const OwnerThread owner;
         std::string sheet;
@@ -973,6 +979,9 @@ namespace weft {
         Reused<ComputedStyle> reused_styles;
         float previous_width{};
         float previous_height{};
+        // The revision of the content the last update gave (0 before the first; after a reset the next update lays
+        // the frame out anew, a new revision).
+        std::uint64_t revision{};
         // The frame's viewport, which viewport lengths resolve against, and the one the computed styles last used.
         std::array<float, 2> viewport{};
         std::array<float, 2> expanded_viewport{};
@@ -2672,6 +2681,11 @@ namespace weft {
         }
         i.previous_width = w;
         i.previous_height = h;
+        // Content that did not change keeps its revision.
+        if (!i.revision || i.work.paint_changed || i.work.geometry_changed || f.animated) {
+            i.revision = next_revision.fetch_add(1, std::memory_order_relaxed);
+        }
+        f.revision = i.revision;
         i.work.layout_ms += ms(layout_start, clock());
     }
 } // namespace weft

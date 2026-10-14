@@ -19,7 +19,9 @@
 // nested pass draws into an image of its own, the text, shadow and path images the preparer builds, uploaded once
 // each (small ones into the region the preparer gives them on an atlas page), and UI shader effects in their encoded
 // pass with their textures. Only text whose color glyphs are images (PNG or SVG) comes from the D2D reference raster. The destination
-// holds encoded premultiplied BGRA, like the D2D scene targets.
+// holds encoded premultiplied BGRA, like the D2D scene targets. A view's pass is kept while its frames keep their
+// revision (SceneFrame::revision): such a frame draws the kept pass again, its records already on the GPU, with only
+// the frame's anchors (ScenePreparer::place) and their record order uploaded.
 //
 // Owner thread of the SceneText. A frame the pass cannot draw returns false with a counted reason, and the caller
 // draws the frame another way.
@@ -49,6 +51,15 @@ namespace weft::render::d3d11 {
             Surface target;
             // The slots of the plane contents the last pass drew, in item order.
             std::vector<std::unique_ptr<Slot>> planes;
+            // The serial of the kept pass whose records, rounded clips and plane contents the slot holds (0: none), and
+            // the buffers of a frame's anchors and record order (t8 and t7), grown to the largest frame.
+            std::uint64_t kept{};
+            ComPtr<ID3D11Buffer> anchors;
+            ComPtr<ID3D11ShaderResourceView> anchor_view;
+            unsigned anchor_capacity{};
+            ComPtr<ID3D11Buffer> order;
+            ComPtr<ID3D11ShaderResourceView> order_view;
+            unsigned order_capacity{};
         };
 
         // bounds are the preparer's image caches' (SceneCacheBounds).
@@ -70,7 +81,7 @@ namespace weft::render::d3d11 {
 
         // Draws frame into destination (target_width x target_height device pixels, scale per CSS px) on the
         // immediate context, clipped to crop when given. layers are the nodes drawn as cached layer images; anchors
-        // place the anchored elements (ScenePreparer::prepare).
+        // place the anchored elements (ScenePreparer::prepare), deferred to the pass when the frame has a revision.
         bool paint(Slot& slot, const SceneFrame& frame, ID3D11RenderTargetView* destination, float scale,
                    unsigned target_width, unsigned target_height, std::optional<std::array<float, 4>> crop,
                    unsigned view_index, const std::vector<NodeIdentity>& layers,
@@ -134,6 +145,28 @@ namespace weft::render::d3d11 {
         std::unordered_map<const paint::EffectProgram*, EffectShader> effect_shaders_;
         std::size_t scratch_bytes_{};
 
+        // The pass kept for a view: what its frames' revision and the pass's target were, the pass, its serial, and the
+        // anchors of the frame drawn last.
+        struct Kept {
+            std::uint64_t revision{};
+            float scale{};
+            unsigned width{};
+            unsigned height{};
+            std::vector<NodeIdentity> layers;
+            std::shared_ptr<const ScenePrepared> prepared;
+            std::uint64_t serial{};
+            SceneAnchorFrame frame;
+        };
+
+        std::unordered_map<unsigned, Kept> kept_;
+        std::uint64_t serial_{};
+        // Every record in its own place, for passes drawn in planned order (grown to the largest pass), and no anchors.
+        ComPtr<ID3D11Buffer> in_order_;
+        ComPtr<ID3D11ShaderResourceView> in_order_view_;
+        unsigned in_order_capacity_{};
+        ComPtr<ID3D11Buffer> no_anchors_;
+        ComPtr<ID3D11ShaderResourceView> no_anchors_view_;
+
         // An image's texture in the image's format, uploaded the first time: its atlas page, or one of its own.
         ID3D11ShaderResourceView* texture(const std::shared_ptr<const SceneImage>& image);
         // An atlas page's texture, created empty the first time.
@@ -144,8 +177,14 @@ namespace weft::render::d3d11 {
         // Copies a backdrop's region of from's texture and filters it as it says; the result's view. The context's
         // state is the passes' afterwards.
         ID3D11ShaderResourceView* backdrop(const ScenePass::Backdrop& backdrop, ID3D11RenderTargetView* from);
-        // Draws a prepared pass into destination: its planes' contents first, each into the image of its slot.
-        void draw_pass(Slot& slot, const ScenePrepared& prepared, ID3D11RenderTargetView* destination, float scale);
+        // Draws a prepared pass into destination: its planes' contents first, each into the image of its slot. anchors
+        // are the frame's (none for a pass whose anchors are not deferred); serial names a kept pass, whose records the
+        // slot may hold already (0 for one drawn once).
+        void draw_pass(Slot& slot, const ScenePrepared& prepared, ID3D11RenderTargetView* destination, float scale,
+                       const SceneAnchorFrame* anchors = nullptr, std::uint64_t serial = 0);
+        // A structured buffer of count elements of stride bytes and its view, grown to at least count (by doubling).
+        void structured(ComPtr<ID3D11Buffer>& buffer, ComPtr<ID3D11ShaderResourceView>& view, unsigned& capacity,
+                        std::size_t count, unsigned stride, const char* what);
         // Scratch bytes a slot and its planes' slots hold.
         static std::size_t held_bytes(const Slot& slot);
         // Fits slot and its planes' slots to prepared, releasing targets of another size.

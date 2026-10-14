@@ -190,7 +190,10 @@ namespace weft::render::vulkan {
             {std::uint32_t(limits::binding_effect_textures) + 3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
              VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
             {std::uint32_t(limits::binding_effect_sampler), VK_DESCRIPTOR_TYPE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT,
-             nullptr}};
+             nullptr},
+            {std::uint32_t(limits::binding_order), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT,
+             nullptr},
+            {std::uint32_t(limits::binding_anchors), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, stages, nullptr}};
         static_assert(weft::constants::max_effect_textures == 4);
         VkDescriptorSetLayoutCreateInfo set{};
         set.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -248,10 +251,10 @@ namespace weft::render::vulkan {
     }
 
     VkDescriptorPool create_scene_pool(const Device& d, std::uint32_t capacity) {
-        // Every set holds every binding of the layout, the effect's included.
+        // Every set holds every binding of the layout, the effect's included: records, clips, order and anchors.
         const auto images = 1 + std::uint32_t(weft::constants::max_effect_textures);
         const VkDescriptorPoolSize sizes[]{{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, capacity},
-                                           {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2 * capacity},
+                                           {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4 * capacity},
                                            {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, images * capacity},
                                            {VK_DESCRIPTOR_TYPE_SAMPLER, 2 * capacity}};
         VkDescriptorPoolCreateInfo info{};

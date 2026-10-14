@@ -15,6 +15,36 @@
 namespace weft {
     class SceneText;
 
+    // An anchored element of a list with deferred anchors: its anchoring, the size of its border box and its own
+    // transform about its origin ({m11, m12, m21, m22, dx, dy}, which data-anchor-offscreen: clamp bounds), and the
+    // items [first, end) of its subtree, which its anchor moves (paint::Item::anchor).
+    struct SceneListAnchor {
+        NodeIdentity element;
+        SceneAnchoring anchoring;
+        std::array<float, 2> box{};
+        std::array<float, 6> own{};
+        std::uint32_t first{};
+        std::uint32_t end{};
+    };
+
+    // Siblings of one z-index, at least two of them anchored, in the order a list with deferred anchors holds them:
+    // each sibling's items [first, end), its anchored element (1 + its index in the list's anchors; 0 for a sibling
+    // that keeps its place) and its place among its parent's children. A pass orders the anchored ones by depth each
+    // frame, as scene_anchor_order does.
+    struct SceneListRun {
+        struct Member {
+            std::uint32_t first{};
+            std::uint32_t end{};
+            std::uint32_t anchor{};
+            std::uint32_t child{};
+        };
+
+        std::vector<Member> members;
+        // Whether a pass may draw the run's items in another order without planning it again: they lie in one batch
+        // that draws its records in any order (set by the preparer).
+        bool reorderable{};
+    };
+
     // A scene frame as a display list, or why it has none.
     struct SceneDisplayList {
         paint::DisplayList list;
@@ -23,8 +53,14 @@ namespace weft {
         // drawn another way, so no partly accepted list changes stacking.
         std::string fallback;
         // The anchors its anchored elements took, by element (scene_anchor_resolve): the next list's
-        // SceneAnchorInput::last.
+        // SceneAnchorInput::last. Empty with deferred anchors.
         std::vector<ScenePlacedAnchor> placed;
+        // With deferred anchors: whether the list could defer them (anchored subtrees hold no backdrop, particles,
+        // plane or effect, which a pass cannot move; the list is otherwise empty, to be built placed), its anchored
+        // elements in visiting order, outer ones first, and its runs of anchored siblings, inner ones first.
+        bool deferred{};
+        std::vector<SceneListAnchor> anchors;
+        std::vector<SceneListRun> runs;
     };
 
     // What a display list takes from an SVG element's own values: its transform in its parent's user units and its
@@ -99,7 +135,10 @@ namespace weft {
     // SVG elements' values between lists built with the same text. anchors place the anchored elements (data-anchor):
     // each where its anchor puts it in the frame's root box, beyond its ancestors' transforms and overflow clips (as
     // position: fixed is), its subtree with it; anchored siblings of equal z-index draw far to near
-    // (scene_anchor_order). An anchored element without an anchor, or hidden by its anchor, draws nothing.
+    // (scene_anchor_order). An anchored element without an anchor, or hidden by its anchor, draws nothing. Deferred,
+    // every anchored subtree lies at its element's origin, unclipped but by its own clips, with its items' anchor set,
+    // for the pass to move by the anchor of each frame; its groups composite over the root's box; siblings are ordered
+    // by the anchors given.
     SceneDisplayList scene_display_list(const SceneFrame& frame, const std::vector<NodeIdentity>& layers = {},
                                         SceneText* text = nullptr, float scale = 1, SceneDisplayCache* cache = nullptr,
                                         const SceneAnchorInput& anchors = {});

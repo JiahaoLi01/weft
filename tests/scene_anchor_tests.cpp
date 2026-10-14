@@ -4,6 +4,7 @@
 #include "scene/scene_anchor.hpp"
 #include "scene/scene_display_list.hpp"
 #include "scene/scene_geometry.hpp"
+#include "scene/scene_native.hpp"
 #include "support/check.hpp"
 #include "support/native_scene.hpp"
 #include "support/scene_fonts.hpp"
@@ -31,7 +32,9 @@
 // siblings; and the display list, hits and geometry of anchored elements: placed beyond their ancestors' transforms and
 // clips as the same boxes at those places draw, hidden without an anchor, kept in place while their key is missing
 // for data-anchor-missing: stay, never baked into a layer image or cut by a group's composite; and the D2D reference
-// raster, which has no anchors, neither drawing nor hitting them.
+// raster, which has no anchors, neither drawing nor hitting them. Deferred (13.1b): lists that leave anchored subtrees
+// at their origins for the pass to move, what a preparer places them with each frame (maps, hiding, stay, the record
+// order of reordered runs, and when a batch cannot take a new order), and the revisions solvers give frames.
 namespace {
     using weft::SceneAnchor;
     using weft::SceneAnchoring;
@@ -597,6 +600,170 @@ namespace {
     }
 
     // The D2D reference raster has no anchors: anchored elements neither draw nor take hits there.
+    void deferred() {
+        const auto table = plate_anchors();
+        const auto listed = weft::scene_display_list(plates(), {}, nullptr, 1, nullptr, {&table, nullptr, true});
+        require(listed.fallback.empty() && listed.deferred && listed.placed.empty(), "a deferred list");
+        // Visited as drawn: C (farther), B (no anchor, in its place), A.
+        const auto& a = listed.anchors;
+        require(a.size() == 3 && a[0].element.slot == 6 && a[1].element.slot == 5 && a[2].element.slot == 3 &&
+                    a[2].box == std::array<float, 2>{40, 20} && a[2].own == std::array<float, 6>{1, 0, 0, 1, 0, 0},
+                "the anchored elements of a deferred list");
+        const auto& items = listed.list.items;
+        require(items.size() == 6 && a[0].first == 2 && a[0].end == 3 && a[1].first == 3 && a[1].end == 4 &&
+                    a[2].first == 4 && a[2].end == 6,
+                "the items of each anchored element");
+        constexpr auto far_away = float(weft::constants::scene::max_numeric_magnitude);
+        for (std::uint32_t k = 0; k < 3; ++k) {
+            for (auto i = a[k].first; i < a[k].end; ++i) {
+                require(items[i].anchor == k + 1 && items[i].clips_count == 0 &&
+                            items[i].clip == std::array<float, 4>{-far_away, -far_away, far_away, far_away},
+                        "an anchored item outside its element's space");
+            }
+        }
+        require(items[1].anchor == 0 && items[2].transform == weft::paint::Affine{1, 0, 0, 1, 0, 0} &&
+                    items[5].transform == weft::paint::Affine{1, 0, 0, 1, 2, 2},
+                "anchored items at their element's origin");
+        // Runs keep to one z-index: A raised alone leaves C and B in a run of their own.
+        auto raised = plates();
+        raised.root.children[0].children[0].style["z-index"] = "1";
+        const auto apart = weft::scene_display_list(raised, {}, nullptr, 1, nullptr, {&table, nullptr, true});
+        require(apart.runs.size() == 1 && apart.runs[0].members.size() == 2 && apart.runs[0].members[0].anchor == 1 &&
+                    apart.runs[0].members[1].anchor == 2,
+                "a run across z-indices");
+        require(listed.runs.size() == 1 && listed.runs[0].members.size() == 3 &&
+                    listed.runs[0].members[0].anchor == 1 && listed.runs[0].members[0].child == 2 &&
+                    listed.runs[0].members[2].anchor == 3 && listed.runs[0].members[2].child == 0,
+                "the run of the anchored siblings");
+        // A group inside an anchored subtree composites unmoved, over the root's box.
+        auto grouped = plates();
+        grouped.root.children[0].children[0].style["opacity"] = "0.5";
+        const auto group = weft::scene_display_list(grouped, {}, nullptr, 1, nullptr, {&table, nullptr, true});
+        const auto begin = std::find_if(group.list.items.begin(), group.list.items.end(), [](const auto& item) {
+            return item.kind == weft::paint::Item::Kind::EndGroup;
+        });
+        require(group.deferred && begin != group.list.items.end() && begin->anchor == 0 && begin->clip == view_clip,
+                "a group inside an anchored subtree");
+        // What the pass cannot move: the list is to be built placed.
+        auto filtered = plates();
+        filtered.root.children[0].children[0].style["backdrop-filter"] = "blur(2px)";
+        const auto refused = weft::scene_display_list(filtered, {}, nullptr, 1, nullptr, {&table, nullptr, true});
+        require(refused.fallback.empty() && !refused.deferred && refused.list.items.empty() && refused.anchors.empty(),
+                "a backdrop deferred");
+    }
+
+    void placing() {
+        auto& text = weft::testing::thread_scene_text();
+        weft::SceneNativeWork work;
+        weft::ScenePreparer preparer(text, work, 4096);
+        auto f = plates();
+        f.revision = 7;
+        const auto table = plate_anchors();
+        const auto prepared = preparer.prepare(f, 1, 400, 300, std::nullopt, 0, {}, &table, true);
+        require(prepared && prepared->keepable && prepared->anchors.size() == 3 && prepared->runs.size() == 1 &&
+                    prepared->runs[0].reorderable && prepared->view == std::array<float, 2>{400, 300},
+                "a keepable pass");
+        weft::SceneAnchorFrame frame;
+        require(preparer.place(*prepared, 0, &table, frame) && frame.order.empty(), "placed as planned");
+        // C (key 3, twice as large), B (missing: hidden), A.
+        require(frame.anchors == std::vector<std::array<float, 4>>{{2, 280, 195, 1}, {1, 0, 0, 0}, {1, 280, 190, 1}},
+                "the anchors' maps");
+        // Swapped depths: A and C trade places, their records with them.
+        const auto swapped = plate_anchors(9, 1);
+        require(preparer.place(*prepared, 0, &swapped, frame), "a reorder in one batch");
+        const auto c = prepared->anchors[0];
+        const auto a = prepared->anchors[2];
+        std::vector<std::uint32_t> expected;
+        for (std::uint32_t i = 0; i < prepared->pass.records.size(); ++i) {
+            expected.push_back(i);
+        }
+        // Positions [c.first, a.end): A's records, then B's, then C's.
+        std::vector<std::uint32_t> run;
+        for (auto i = a.first; i < a.end; ++i) {
+            run.push_back(i);
+        }
+        for (auto i = prepared->anchors[1].first; i < prepared->anchors[1].end; ++i) {
+            run.push_back(i);
+        }
+        for (auto i = c.first; i < c.end; ++i) {
+            run.push_back(i);
+        }
+        std::copy(run.begin(), run.end(), expected.begin() + c.first);
+        require(frame.order == expected, "the record order of a reordered run");
+        // Stay keeps the last anchor while the key is missing; the order follows the kept depths.
+        auto staying = plates(3, SceneAnchoring::Missing::Stay);
+        staying.revision = 8;
+        const auto stays = preparer.prepare(staying, 1, 400, 300, std::nullopt, 1, {}, &table, true);
+        const auto later = written({{3, 320, 215, 2, 9}});
+        require(stays && preparer.place(*stays, 1, &table, frame) && preparer.place(*stays, 1, &later, frame) &&
+                    frame.anchors[2] == std::array<float, 4>{1, 280, 190, 1},
+                "stay on a kept pass");
+        // A kept anchor's depth orders too: C now nearer than A's remembered depth puts A's records first.
+        const auto nearer = written({{3, 320, 215, 2, 0}});
+        require(preparer.place(*stays, 1, &nearer, frame) && !frame.order.empty() &&
+                    frame.order[stays->anchors[0].first] == stays->anchors[2].first,
+                "an order by a kept anchor's depth");
+        // Hidden, and shrunk to nothing; off the View.
+        const auto hidden = written({{1, 300, 200, 1, 1, weft::scene_anchor_flags::hidden}, {3, 100, 100, 0, 9}});
+        require(preparer.place(*prepared, 0, &hidden, frame) && frame.anchors[0][3] == 0 && frame.anchors[2][3] == 0,
+                "hidden on a kept pass");
+        const auto away = written({{1, 300, 200, 1, 1}, {3, -10, 215, 1, 9}});
+        require(preparer.place(*prepared, 0, &away, frame) && frame.anchors[0][3] == 0 && frame.anchors[2][3] == 1,
+                "off the View on a kept pass");
+        // Equal depths keep the order of their elements.
+        const auto level = plate_anchors(5, 5);
+        require(preparer.place(*prepared, 0, &level, frame) && frame.order.size() == prepared->pass.records.size(),
+                "equal depths in the planned order");
+        const auto even = preparer.prepare(f, 1, 400, 300, std::nullopt, 4, {}, &level, true);
+        require(even && preparer.place(*even, 4, &level, frame) && frame.order.empty(),
+                "equal depths in the order of their elements");
+        // A group among the run: a new order needs the pass prepared again.
+        auto grouped = plates();
+        grouped.root.children[0].children[0].style["opacity"] = "0.5";
+        grouped.revision = 9;
+        const auto group = preparer.prepare(grouped, 1, 400, 300, std::nullopt, 2, {}, &table, true);
+        require(group && group->keepable && !group->runs[0].reorderable && preparer.place(*group, 2, &table, frame) &&
+                    !preparer.place(*group, 2, &swapped, frame),
+                "a reorder across batches");
+        // A record's anchor past the anchors a pass draws with is refused.
+        auto stray = weft::scene_display_list(plates(), {}, nullptr, 1, nullptr, {&table, nullptr, true}).list;
+        require(!weft::render::plan_scene_pass(stray, 1, 400, 300) &&
+                    weft::render::plan_scene_pass(stray, 1, 400, 300, std::nullopt, weft::render::Space::Encoded,
+                                                  nullptr, 3),
+                "anchors out of range");
+        // Without defer, or with a crop, anchors are placed in the list.
+        const auto placed = preparer.prepare(f, 1, 400, 300, std::array<float, 4>{0, 0, 400, 300}, 3, {}, &table, true);
+        require(placed && !placed->keepable && placed->anchors.empty(), "a cropped pass deferred");
+    }
+
+    void revisions() {
+        weft::testing::NativeScene s;
+        s.set(*s.root, "style", "position:relative;width:100px;height:100px");
+        auto& box = s.html("div");
+        s.set(box, "style", "position:absolute;left:10px;top:10px;width:40px;height:20px;background-color:#ff0000");
+        s.tree.insert(*s.root, box, nullptr);
+        weft::SceneSolver scene("", "", weft::testing::thread_scene_text());
+        weft::SceneFrame f;
+        scene.update(s.tree.snapshot(*s.root), f, 100, 100, 0);
+        const auto first = f.revision;
+        scene.update(s.tree.snapshot(*s.root), f, 100, 100, 10);
+        require(first && f.revision == first, "an unchanged frame changed its revision");
+        weft::SceneFrame copy;
+        scene.update(s.tree.snapshot(*s.root), copy, 100, 100, 20);
+        require(copy.revision != first, "a frame built whole kept a revision");
+        s.set(box, "style", "position:absolute;left:10px;top:10px;width:40px;height:20px;background-color:#00ff00");
+        scene.update(s.tree.snapshot(*s.root), f, 100, 100, 30);
+        require(f.revision != first && f.revision != copy.revision, "a repainted frame kept its revision");
+        const auto repainted = f.revision;
+        s.set(box, "style", "position:absolute;left:12px;top:10px;width:40px;height:20px;background-color:#00ff00");
+        scene.update(s.tree.snapshot(*s.root), f, 100, 100, 40);
+        require(f.revision != repainted, "a moved frame kept its revision");
+        scene.reset();
+        const auto moved = f.revision;
+        scene.update(s.tree.snapshot(*s.root), f, 100, 100, 50);
+        require(f.revision != moved, "a reset kept the revision");
+    }
+
     void reference() {
         weft::SceneRaster raster(weft::testing::thread_scene_text());
         const auto f = plates();
@@ -693,6 +860,9 @@ int main() {
         lists();
         hits();
         reference();
+        deferred();
+        placing();
+        revisions();
         equality();
         solver();
         std::cout << "PASS scene anchors\n";

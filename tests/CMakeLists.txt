@@ -254,7 +254,7 @@ if(WIN32)
     # Anchors on the CPU reference path: the data-anchor grammar, the tables a writer thread hands both readers, where
     # anchors put elements, and the display list, hits and geometry of anchored elements.
     weft_add_executable(weft_scene_anchor_tests SOURCES scene_anchor_tests.cpp
-        LINK weft::scene_d2d weft::platform_win32 d2d1 windowscodecs ole32)
+        LINK weft::scene_native weft::scene_d2d weft::platform_win32 d2d1 windowscodecs ole32)
     weft_add_test(NAME scene_anchor_contract COMMAND weft_scene_anchor_tests)
     # What native scene passes keep between frames by content: SVG elements' values (alike with and without the cache
     # under random edits), text images by source, path coverage by digest.

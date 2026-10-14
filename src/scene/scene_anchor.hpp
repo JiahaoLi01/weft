@@ -156,10 +156,12 @@ namespace weft {
     };
 
     // The anchors one consumer places a frame's anchored elements with: the table it took (none counts as empty) and
-    // what its previous frame placed (scene_anchor_resolve), for data-anchor-missing: stay.
+    // what its previous frame placed (scene_anchor_resolve), for data-anchor-missing: stay. Deferred, a display list
+    // leaves anchored subtrees at their elements' origins for the pass to move as it draws (scene_display_list.hpp).
     struct SceneAnchorInput {
         const SceneAnchorTable* table{};
         const std::vector<ScenePlacedAnchor>* last{};
+        bool deferred{};
     };
 
     // The anchor an anchored element takes: its key's in the table, else for missing: stay the one it last took under

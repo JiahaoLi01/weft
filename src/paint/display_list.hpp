@@ -365,6 +365,10 @@ namespace weft::paint {
         // The item's rounded clips, outermost first: DisplayList::clips[clips_begin, clips_begin + clips_count).
         std::uint32_t clips_begin{};
         std::uint32_t clips_count{};
+        // 0, or 1 + the index of the anchored element whose anchor moves the item as a scene pass draws it (a scene
+        // display list with deferred anchors): the item's transform, clip and rounded clips are then in the element's
+        // own space, at its origin.
+        std::uint32_t anchor{};
     };
 
     struct DisplayList {

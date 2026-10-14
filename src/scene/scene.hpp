@@ -79,6 +79,11 @@ namespace weft {
         std::vector<ElementGeometry> elements;
         bool animated{};
         double time_ms{};
+        // Which content the frame holds: frames of one revision draw alike, so a pass may keep what it prepared for
+        // one. A solver gives a new revision whenever what it lays out or paints changes, and to every animated frame;
+        // revisions are unique in the process. 0 for content nobody vouches for: code that changes a frame's content
+        // outside a solver sets it to 0.
+        std::uint64_t revision{};
     };
 
     // Exact dependency projection for the current geometry adapter. Paint color,

@@ -191,6 +191,8 @@ int main(int argc, char** argv) {
         save(folder / "loot.png", drawn);
         auto bare = s->current;
         strip(bare.root);
+        // Content the solver did not give: a revision of its own.
+        bare.revision = 0;
         const auto without = d3d11.draw(bare);
         d3d11.gpu.check_debug_messages();
         std::size_t shown{};

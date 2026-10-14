@@ -35,6 +35,11 @@ static const float ImageModeBackdrop = 4;
 static const float SdfByteMax = 255.0;
 static const float SdfZeroByte = 128.0;
 static const float MinimumRadius = 1e-6;
+// Instance bounds reach this many device px past an item for its antialiasing (record_bounds_outset).
+static const float RecordBoundsOutset = 2;
+// The smallest anchor scale whose outset the bounds make up for; a hidden element's corners lie here.
+static const float MinimumAnchorScale = .0001;
+static const float2 Nowhere = float2(-1e6, -1e6);
 
 struct Paint {
     float4 bounds;
@@ -55,7 +60,8 @@ struct Paint {
     // x: image mode, y: distance spread and z: stroke, in source texels; w: source texels per device pixel.
     float4 mode;
     float4 outline;
-    // x: first rounded clip, y: rounded clip count.
+    // x: first rounded clip, y: rounded clip count, z: 0, or 1 + the anchor that moves the record from its element's
+    // space.
     float4 clips;
 };
 
@@ -73,6 +79,13 @@ StructuredBuffer<Paint> paints : register(t0);
 Texture2D image : register(t1);
 StructuredBuffer<Clip> clips : register(t2);
 SamplerState linearClamp : register(s0);
+#if !SPACE_LINEAR
+// A scene pass's record for each instance of a draw (at instance + baseInstance), and its anchors
+// (docs/engine-communication.md, 5.3): each the map of an anchored element's space to target px, its scale in x and
+// offset in y and z (CSS px), w 0 when the element is hidden. A linear pass takes its records in order and moves none.
+StructuredBuffer<uint> order : register(t7);
+StructuredBuffer<float4> anchors : register(t8);
+#endif
 
 cbuffer View : register(b0) {
     float2 target;
@@ -86,11 +99,26 @@ struct Vertex {
 };
 
 #if !WEFT_PARTICLES
-Vertex vs_main(uint vertex : SV_VertexID, uint index : SV_InstanceID) {
+Vertex vs_main(uint vertex : SV_VertexID, uint instance : SV_InstanceID) {
     const float2 corners[6] = {float2(0, 0), float2(1, 0), float2(0, 1), float2(0, 1), float2(1, 0), float2(1, 1)};
-    index += (uint)baseInstance;
+#if SPACE_LINEAR
+    uint index = instance + (uint)baseInstance;
+#else
+    uint index = order[instance + (uint)baseInstance];
+#endif
     Paint p = paints[index];
-    float2 position = (p.bounds.xy + corners[vertex] * p.bounds.zw) * scale;
+    float2 corner = corners[vertex];
+    float2 local = p.bounds.xy + corner * p.bounds.zw;
+#if !SPACE_LINEAR
+    if (p.clips.z > 0) {
+        // Moved by its anchor; drawn smaller, its bounds keep the outset in device px. A hidden element's quad is a
+        // point outside the target.
+        float4 a = anchors[(uint)p.clips.z - 1];
+        local += (corner * 2 - 1) * max(1 / max(a.x, MinimumAnchorScale) - 1, 0) * RecordBoundsOutset / scale;
+        local = a.w > 0 ? local * a.x + a.yz : Nowhere;
+    }
+#endif
+    float2 position = local * scale;
     Vertex v;
     v.position = float4(position / target * float2(2, -2) + float2(-1, 1), 0, 1);
     v.index = index;
@@ -131,9 +159,9 @@ float4 premult(float4 c) {
 #endif
 }
 
-// Coverage of target (CSS px) by one rounded clip, antialiased across a device pixel: in the clip's own space, the
-// distance to the rectangle, or inside a corner's box the first-order distance to its ellipse.
-float clipCoverage(Clip c, float2 target) {
+// Coverage of target (CSS px) by one rounded clip, antialiased across a device pixel (pixels device px per CSS px): in
+// the clip's own space, the distance to the rectangle, or inside a corner's box the first-order distance to its ellipse.
+float clipCoverage(Clip c, float2 target, float pixels) {
     float2 world = float2(dot(c.invX.xyz, float3(target, 1)), dot(c.invY.xyz, float3(target, 1)));
     float2 lo = c.rect.xy;
     float2 hi = c.rect.xy + c.rect.zw;
@@ -160,13 +188,13 @@ float clipCoverage(Clip c, float2 target) {
         float gradient = length((world - center) / (radius * radius)) / max(k, MinimumRadius);
         d = max(d, (k - 1) / max(gradient, MinimumRadius));
     }
-    return saturate(.5 - d * c.invX.w * scale);
+    return saturate(.5 - d * c.invX.w * pixels);
 }
 
-float clipChain(Paint p, float2 world) {
+float clipChain(Paint p, float2 world, float pixels) {
     float coverage = 1;
     for (uint i = 0; i < (uint)p.clips.y; i++) {
-        coverage *= clipCoverage(clips[(uint)p.clips.x + i], world);
+        coverage *= clipCoverage(clips[(uint)p.clips.x + i], world, pixels);
     }
     return coverage;
 }
@@ -447,12 +475,12 @@ float4 ps_main(ParticleVertex v) : SV_Target {
 #if SPACE_LINEAR
     float coverage = world.x < p.clip.x || world.y < p.clip.y || world.x >= p.clip.z || world.y >= p.clip.w
                          ? 0
-                         : clipChain(p, world);
+                         : clipChain(p, world, scale);
 #else
     if (world.x < p.clip.x || world.y < p.clip.y || world.x >= p.clip.z || world.y >= p.clip.w) {
         discard;
     }
-    float coverage = clipChain(p, world);
+    float coverage = clipChain(p, world, scale);
 #endif
     float4 color = float4(v.color.rgb * v.color.a, v.color.a);
     if (p.tile.w == SpriteNone) {
@@ -514,12 +542,12 @@ float4 ps_main(Vertex v) : SV_Target {
 #if SPACE_LINEAR
     float coverage = world.x < p.clip.x || world.y < p.clip.y || world.x >= p.clip.z || world.y >= p.clip.w
                          ? 0
-                         : clipChain(p, world);
+                         : clipChain(p, world, scale);
 #else
     if (world.x < p.clip.x || world.y < p.clip.y || world.x >= p.clip.z || world.y >= p.clip.w) {
         discard;
     }
-    float coverage = clipChain(p, world);
+    float coverage = clipChain(p, world, scale);
 #endif
     float2 position = float2(dot(p.invX.xyz, float3(world, 1)), dot(p.invY.xyz, float3(world, 1)));
     EffectInput input;
@@ -560,18 +588,28 @@ float4 ps_main(Vertex v) : SV_Target {
 float4 ps_main(Vertex v) : SV_Target {
     Paint p = paints[v.index];
     float2 world = v.position.xy / scale;
+    // Device px per CSS px of the record's space: a record an anchor moves lies in its element's space, at the anchor's
+    // scale.
+    float pixels = scale;
+#if !SPACE_LINEAR
+    if (p.clips.z > 0) {
+        float4 a = anchors[(uint)p.clips.z - 1];
+        world = (world - a.yz) / a.x;
+        pixels = scale * a.x;
+    }
+#endif
 #if SPACE_LINEAR
     // A linear pass draws transparent black outside its clip and its image instead of discarding: premultiplied
     // source-over leaves the target unchanged, and neighbouring pixels keep defined derivatives for their
     // antialiasing.
     float coverage = world.x < p.clip.x || world.y < p.clip.y || world.x >= p.clip.z || world.y >= p.clip.w
                          ? 0
-                         : clipChain(p, world);
+                         : clipChain(p, world, pixels);
 #else
     if (world.x < p.clip.x || world.y < p.clip.y || world.x >= p.clip.z || world.y >= p.clip.w) {
         discard;
     }
-    float coverage = clipChain(p, world);
+    float coverage = clipChain(p, world, pixels);
 #endif
     float2 position = float2(dot(p.invX.xyz, float3(world, 1)), dot(p.invY.xyz, float3(world, 1)));
     if (p.mode.x == ImageModeBackdrop) {
@@ -587,7 +625,7 @@ float4 ps_main(Vertex v) : SV_Target {
         float sd = distanceRound(position, p.size.xy, p.radii);
         float shape = saturate(.5 - sd / max(pixelWidth(sd), MinimumAntialiasWidth));
         if (all(p.radii == 0) && p.invX.y == 0 && p.invY.x == 0) {
-            shape = overlap(position, max(float2(abs(p.invX.x), abs(p.invY.y)) / scale, MinimumAntialiasWidth), 0,
+            shape = overlap(position, max(float2(abs(p.invX.x), abs(p.invY.y)) / pixels, MinimumAntialiasWidth), 0,
                             p.size.xy);
         }
         return c * shape * p.extra.y * coverage;
@@ -637,7 +675,7 @@ float4 ps_main(Vertex v) : SV_Target {
     float outer = saturate(.5 - sd / aa);
     bool rectangular = all(p.radii == 0) && p.invX.y == 0 && p.invY.x == 0;
     // A device pixel's extent in the box's px.
-    float2 footprint = max(float2(abs(p.invX.x), abs(p.invY.y)) / scale, MinimumAntialiasWidth);
+    float2 footprint = max(float2(abs(p.invX.x), abs(p.invY.y)) / pixels, MinimumAntialiasWidth);
 #if SPACE_LINEAR
     // A document box without corners or rotation covers the pixels whose centers it contains, as the rasterizer
     // covers a quad, rather than a distance band that leaks past its corners.

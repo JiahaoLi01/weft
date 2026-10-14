@@ -25,7 +25,8 @@ namespace weft::testing {
         }
 
         std::vector<std::uint8_t> draw(const SceneFrame& frame, float scale = 1,
-                                       const SceneAnchorTable* anchors = nullptr) {
+                                       const SceneAnchorTable* anchors = nullptr,
+                                       const std::vector<NodeIdentity>& layers = {}) {
             using Microsoft::WRL::ComPtr;
             D3D11_TEXTURE2D_DESC desc{};
             desc.Width = width;
@@ -39,7 +40,7 @@ namespace weft::testing {
             require(SUCCEEDED(gpu.device->CreateTexture2D(&desc, nullptr, &target)) &&
                         SUCCEEDED(gpu.device->CreateRenderTargetView(target.Get(), nullptr, &rtv)),
                     "D3D11 scene target");
-            if (!scene.paint(slot, frame, rtv.Get(), scale, width, height, std::nullopt, 0, {}, anchors)) {
+            if (!scene.paint(slot, frame, rtv.Get(), scale, width, height, std::nullopt, 0, layers, anchors)) {
                 std::string why;
                 for (const auto& [reason, count] : scene.reasons) {
                     why += " " + reason;
