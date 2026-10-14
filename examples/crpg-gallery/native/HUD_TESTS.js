@@ -50,10 +50,11 @@
     }
     ++applied;
   }
-  // The values the host would push at t seconds of frame `frame`, computed here (probes/hud_benchmark.cpp, place).
-  function simulate(t, frame) {
+  // The values the host would push at t seconds of frame `frame`, computed here (probes/hud_benchmark.cpp, place), for
+  // every `every`-th unit; the others stay where they are.
+  function simulate(t, frame, every = 1) {
     if (!nodes) throw new Error('CE_HUD: not mounted');
-    for (let i = 0; i < nodes.units.length; ++i) {
+    for (let i = 0; i < nodes.units.length; i += every) {
       const u = nodes.units[i];
       const cx = 80 + (i * 197) % 1660, cy = 60 + (i * 113) % 920, r = 20 + (i % 7) * 9;
       const a = t * (0.6 + (i % 5) * 0.25) + i * 0.7;

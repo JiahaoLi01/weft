@@ -16,7 +16,8 @@
 // every frame, and about one in twenty loses health each frame. Each frame the host writes every unit's position and
 // health as JSON and evaluates a script call with it; the page parses it and writes each nameplate's transform and
 // changed bar widths; the owner then takes the DOM's changes into the scene. A second run hands the page no data at
-// all: it computes the same values itself, the floor of any way to hand JS the data (shared memory included). The page
+// all: it computes the same values itself, the floor of any way to hand JS the data (shared memory included); with 400
+// units it also changes only every 10th, 100th or 400th, which shows what a frame costs when little changes. The page
 // is 1920 x 1080 CSS px drawn at scale 2 into 3840 x 2160 with the particle benchmarks' loops (particle_benchmark.hpp).
 // Timed per frame: the host's JSON, the script call, the owner's update (styles, layout and the scene), and the pass
 // (CPU, GPU).
@@ -53,14 +54,20 @@ namespace probes {
             Page
         };
 
-        Source source(GallerySceneSession& s, const std::vector<unsigned>& counts, std::vector<Owner>& owner,
+        // How many units there are, and which change each frame: every `every`-th (the page computes only those).
+        struct Level {
+            unsigned units{};
+            unsigned every = 1;
+        };
+
+        Source source(GallerySceneSession& s, const std::vector<Level>& levels, std::vector<Owner>& owner,
                       unsigned warmup, Push push) {
-            owner.assign(counts.size(), {});
+            owner.assign(levels.size(), {});
             // Each unit's health, from 0 to 1.
             auto health = std::make_shared<std::vector<double>>();
-            return [&s, counts, &owner, warmup, health, push](std::size_t level,
+            return [&s, levels, &owner, warmup, health, push](std::size_t level,
                                                               unsigned index) -> const weft::SceneFrame& {
-                const auto n = counts[level];
+                const auto n = levels[level].units;
                 auto& hp = *health;
                 if (index == 0) {
                     s.vm.eval("__ceHud.setCount(" + std::to_string(n) + ")");
@@ -70,8 +77,8 @@ namespace probes {
                 std::string json;
                 const auto began = std::chrono::steady_clock::now();
                 if (push == Push::Page) {
-                    const auto call =
-                        "__ceHud.simulate(" + weft::testing::format_host_time(t) + "," + std::to_string(index) + ")";
+                    const auto call = "__ceHud.simulate(" + weft::testing::format_host_time(t) + "," +
+                                      std::to_string(index) + "," + std::to_string(levels[level].every) + ")";
                     const auto written = std::chrono::steady_clock::now();
                     s.vm.eval(call);
                     const auto applied = std::chrono::steady_clock::now();
@@ -119,21 +126,24 @@ namespace probes {
         }
 
         std::string report(const char* backend, const char* push, const std::string& adapter,
-                           const std::vector<unsigned>& counts, const std::vector<Owner>& owner,
+                           const std::vector<Level>& levels, const std::vector<Owner>& owner,
                            const std::vector<Timings>& timings) {
             std::ostringstream out;
             out << "{\"backend\":" << json_string(backend) << ",\"push\":" << json_string(push)
                 << ",\"adapter\":" << json_string(adapter) << ",\"counts\":[";
-            for (std::size_t i = 0; i < counts.size(); ++i) {
+            for (std::size_t i = 0; i < levels.size(); ++i) {
                 const auto& o = owner[i];
                 const auto& t = timings[i];
-                out << (i ? "," : "") << "{\"units\":" << counts[i] << ",\"json_bytes\":" << o.json_bytes
-                    << ",\"host_json_ms\":" << stats(o.json) << ",\"script_ms\":" << stats(o.script)
-                    << ",\"owner_update_ms\":" << stats(o.update) << ",\"render_cpu_ms\":" << stats(t.cpu)
-                    << ",\"gpu_ms\":" << stats(t.gpu) << ",\"per_frame\":{\"draws\":" << std::fixed
-                    << std::setprecision(1) << t.draws << ",\"text_builds\":" << t.text_builds << "}}";
-                std::cout << backend << ' ' << push << ' ' << std::setw(5) << counts[i] << " units: host JSON p50 "
-                          << std::fixed << std::setprecision(3) << percentile(o.json, .5) << " ms (" << o.json_bytes
+                const auto changed = (levels[i].units + levels[i].every - 1) / levels[i].every;
+                out << (i ? "," : "") << "{\"units\":" << levels[i].units << ",\"changed\":" << changed
+                    << ",\"json_bytes\":" << o.json_bytes << ",\"host_json_ms\":" << stats(o.json)
+                    << ",\"script_ms\":" << stats(o.script) << ",\"owner_update_ms\":" << stats(o.update)
+                    << ",\"render_cpu_ms\":" << stats(t.cpu) << ",\"gpu_ms\":" << stats(t.gpu)
+                    << ",\"per_frame\":{\"draws\":" << std::fixed << std::setprecision(1) << t.draws
+                    << ",\"text_builds\":" << t.text_builds << "}}";
+                std::cout << backend << ' ' << push << ' ' << std::setw(5) << levels[i].units << " units, "
+                          << std::setw(3) << changed << " changing: host JSON p50 " << std::fixed
+                          << std::setprecision(3) << percentile(o.json, .5) << " ms (" << o.json_bytes
                           << " bytes); script p50 " << percentile(o.script, .5) << " p99 " << percentile(o.script, .99)
                           << " ms; owner update p50 " << percentile(o.update, .5) << " p99 "
                           << percentile(o.update, .99) << " ms; render CPU p50 " << percentile(t.cpu, .5) << " p99 "
@@ -154,7 +164,10 @@ namespace probes {
     int run_hud_benchmark(bool warp, const std::filesystem::path& folder) {
         std::filesystem::create_directories(folder);
         // WARP checks that the benchmark runs; the hardware run measures.
-        const std::vector<unsigned> counts = warp ? std::vector<unsigned>{100} : std::vector<unsigned>{100, 200, 400};
+        const std::vector<Level> counts = warp ? std::vector<Level>{{100}} : std::vector<Level>{{100}, {200}, {400}};
+        const std::vector<Level> partial =
+            warp ? std::vector<Level>{{100}, {100, 100}}
+                 : std::vector<Level>{{100}, {200}, {400}, {400, 10}, {400, 100}, {400, 400}};
         const unsigned warmup = warp ? warp_warmup_frames : warmup_frames;
         const unsigned samples = warp ? warp_sample_frames : sample_frames;
         auto json_page = session();
@@ -164,8 +177,8 @@ namespace probes {
             warp, counts.size(), warmup, samples, source(*json_page, counts, json_owner, warmup, Push::Json), adapter);
         auto own_page = session();
         std::vector<Owner> own_owner;
-        const auto own = particle_benchmark::d3d11(warp, counts.size(), warmup, samples,
-                                                   source(*own_page, counts, own_owner, warmup, Push::Page), adapter);
+        const auto own = particle_benchmark::d3d11(warp, partial.size(), warmup, samples,
+                                                   source(*own_page, partial, own_owner, warmup, Push::Page), adapter);
         std::string out = "{\"format\":\"weft-hud-benchmark-v1\",\"page\":[1920,1080],\"target\":[3840,2160],"
                           "\"scale\":2,\"warmup_frames\":" +
                           std::to_string(warmup) + ",\"sample_frames\":" + std::to_string(samples) +
@@ -175,7 +188,7 @@ namespace probes {
                           ",\"build\":\"Debug\"" +
 #endif
                           ",\"passes\":[" + report("D3D11", "json", adapter, counts, json_owner, json) + "," +
-                          report("D3D11", "page", adapter, counts, own_owner, own);
+                          report("D3D11", "page", adapter, partial, own_owner, own);
         PROCESS_MEMORY_COUNTERS_EX memory{};
         require(GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&memory),
                                      sizeof(memory)),
@@ -183,7 +196,7 @@ namespace probes {
         std::cout << "process peak working set " << memory.PeakWorkingSetSize / (1024 * 1024) << " MiB\n";
         write_text(folder / "hud.json",
                    out + "],\"process_peak_working_set_bytes\":" + std::to_string(memory.PeakWorkingSetSize) + "}");
-        std::cout << "PASS HUD benchmark: " << counts.size() << " counts at 3840 x 2160, " << samples
+        std::cout << "PASS HUD benchmark: " << counts.size() + partial.size() << " levels at 3840 x 2160, " << samples
                   << " frames each\n";
         return 0;
     }
