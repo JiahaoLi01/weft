@@ -75,6 +75,15 @@ namespace weft::render {
             } -> std::same_as<weft_render_result>;
         };
 
+    // Optional View frames (weft_renderer_prepare_scene).
+    template <class B>
+    concept SceneFrameBackend =
+        RenderBackend<B> && requires(B& backend, const weft_render_scene_frame& frame, std::uint64_t& out) {
+            {
+                backend.prepare_scene(frame, out)
+            } -> std::same_as<weft_render_result>;
+        };
+
     // What a backend reports about its device: weft_render_backend's api, device_epoch, queue and capabilities.
     struct BackendDescription {
         std::uint32_t api{};
@@ -163,6 +172,20 @@ namespace weft::render {
             }
         };
 
+        template <SceneFrameBackend B>
+        struct SceneThunks {
+            static weft_render_result prepare_scene(void* user_data, const weft_render_scene_frame* frame,
+                                                    std::uint64_t* native_frame) noexcept {
+                *native_frame = 0;
+                try {
+                    return BackendThunks<B>::self(user_data).prepare_scene(*frame, *native_frame);
+                } catch (...) {
+                    *native_frame = 0;
+                    return WEFT_RENDER_BACKEND_ERROR;
+                }
+            }
+        };
+
         template <ExternalTextureBackend B>
         struct ExternalThunks {
             static weft_render_result import_texture(void* user_data, const weft_render_external_texture* texture,
@@ -195,7 +218,8 @@ namespace weft::render {
     } // namespace detail
 
     // The C function table for backend; it borrows backend until weft_renderer_destroy succeeds. A DisplayListBackend
-    // that reports WEFT_RENDER_FEATURE_DISPLAY_LIST also prepares display list frames.
+    // that reports WEFT_RENDER_FEATURE_DISPLAY_LIST also prepares display list frames, a SceneFrameBackend that reports
+    // WEFT_RENDER_FEATURE_SCENE View frames.
     template <RenderBackend B>
     weft_render_backend make_c_backend(B& backend, const BackendDescription& description) noexcept {
         using Thunks = detail::BackendThunks<B>;
@@ -215,10 +239,16 @@ namespace weft::render {
                                   Thunks::completed,
                                   Thunks::abandon,
                                   Thunks::shutdown,
+                                  nullptr,
                                   nullptr};
         if constexpr (DisplayListBackend<B>) {
             if (description.capabilities.features & WEFT_RENDER_FEATURE_DISPLAY_LIST) {
                 table.prepare_list = detail::ListThunks<B>::prepare_list;
+            }
+        }
+        if constexpr (SceneFrameBackend<B>) {
+            if (description.capabilities.features & WEFT_RENDER_FEATURE_SCENE) {
+                table.prepare_scene = detail::SceneThunks<B>::prepare_scene;
             }
         }
         return table;

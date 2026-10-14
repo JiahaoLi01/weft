@@ -575,7 +575,7 @@ namespace weft::render::vulkan {
     }
 
     void SceneRenderer::record(const ScenePrepared& prepared, VkFramebuffer out, VkImage image, float scale,
-                               const SceneAnchorFrame* anchors, std::uint64_t serial) {
+                               const SceneAnchorFrame* anchors, std::uint64_t serial, const paint::Color* clear) {
         const auto& d = gpu;
         const auto& pass = prepared.pass;
         const auto command = command_buffer_;
@@ -929,7 +929,11 @@ namespace weft::render::vulkan {
             d.vkd.vkCmdDraw(command, vertices, count, 0, first);
             ++draws;
         };
-        begin(out, true, pass.clear);
+        if (!prepared.over) {
+            begin(out, true, pass.clear);
+        } else {
+            begin(out, clear != nullptr, clear ? *clear : pass.clear);
+        }
         std::size_t depth{};
         std::size_t next_effect{};
         std::size_t next_chain{};
@@ -1061,7 +1065,8 @@ namespace weft::render::vulkan {
 
     bool SceneRenderer::encode(Slot& slot, const SceneFrame& frame, VkCommandBuffer command, const Target& target,
                                float scale, std::optional<std::array<float, 4>> crop, unsigned view_index,
-                               const std::vector<NodeIdentity>& layers, const SceneAnchorTable* anchors) {
+                               const std::vector<NodeIdentity>& layers, const SceneAnchorTable* anchors,
+                               const SceneTargetStart& start) {
         const auto& d = gpu;
         if (slot.state == Slot::State::Submitted) {
             retire(slot);
@@ -1086,7 +1091,8 @@ namespace weft::render::vulkan {
         auto& kept = kept_[view_index];
         std::shared_ptr<const ScenePrepared> prepared;
         if (keep && kept.prepared && kept.revision == frame.revision && kept.scale == scale &&
-            kept.width == target.width && kept.height == target.height && kept.layers == layers) {
+            kept.width == target.width && kept.height == target.height && kept.layers == layers &&
+            kept.prepared->over == start.over) {
             if (preparer_.place(*kept.prepared, view_index, anchors, kept.frame)) {
                 prepared = kept.prepared;
                 ++kept_passes;
@@ -1096,8 +1102,8 @@ namespace weft::render::vulkan {
         }
         if (!prepared) {
             kept = {};
-            prepared =
-                preparer_.prepare(frame, scale, target.width, target.height, crop, view_index, layers, anchors, keep);
+            prepared = preparer_.prepare(frame, scale, target.width, target.height, crop, view_index, layers, anchors,
+                                         keep, start.over);
             if (!prepared) {
                 return false;
             }
@@ -1137,7 +1143,8 @@ namespace weft::render::vulkan {
             check_pending(*prepared);
             upload(*prepared);
             slot.framebuffer = framebuffer(target.view, target.width, target.height);
-            record(*prepared, slot.framebuffer, target.image, scale, placed, serial);
+            record(*prepared, slot.framebuffer, target.image, scale, placed, serial,
+                   start.clear ? &*start.clear : nullptr);
         } catch (...) {
             // The host discards the commands: what they would upload or draw leaves the cache.
             for (const auto id : slot.created) {

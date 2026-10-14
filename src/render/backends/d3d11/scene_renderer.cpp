@@ -38,7 +38,11 @@ namespace weft::render::d3d11 {
     } // namespace
 
     SceneRenderer::SceneRenderer(Renderer& gpu, SceneText& text, SceneCacheBounds bounds)
-        : gpu_(gpu),
+        : SceneRenderer(gpu.device.Get(), text, bounds) {
+    }
+
+    SceneRenderer::SceneRenderer(ID3D11Device* device, SceneText& text, SceneCacheBounds bounds)
+        : device_(device),
           reference_(text),
           preparer_(
               text, *this, std::uint32_t(constants::render::d3d11::max_surface_dimension),
@@ -46,6 +50,24 @@ namespace weft::render::d3d11 {
                   return reference_.raster(frame, scale);
               },
               bounds) {
+        ensure(device_ != nullptr, "a D3D11 device");
+        device_->GetImmediateContext(&immediate_);
+        // The same states as the display list renderer's (Renderer): equal descriptions give the same state objects.
+        D3D11_BLEND_DESC over{};
+        auto& target = over.RenderTarget[0];
+        target.BlendEnable = TRUE;
+        target.SrcBlend = target.SrcBlendAlpha = D3D11_BLEND_ONE;
+        target.DestBlend = target.DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
+        target.BlendOp = target.BlendOpAlpha = D3D11_BLEND_OP_ADD;
+        target.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+        throw_if_failed(device_->CreateBlendState(&over, &blend_), "native scene blend state");
+        D3D11_SAMPLER_DESC linear{};
+        linear.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+        linear.AddressU = linear.AddressV = linear.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+        linear.MaxLOD = D3D11_FLOAT32_MAX;
+        throw_if_failed(device_->CreateSamplerState(&linear, &sampler_), "native scene sampler");
+        linear.AddressU = linear.AddressV = linear.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+        throw_if_failed(device_->CreateSamplerState(&linear, &effect_sampler_), "native scene effect sampler");
         // Compiled at build time from scene.hlsl, always /O3 (cmake/WeftShaders.cmake).
         static constexpr unsigned char vs[] = {
 #include "shaders/scene_native.vs.inc"
@@ -53,17 +75,17 @@ namespace weft::render::d3d11 {
         static constexpr unsigned char ps[] = {
 #include "shaders/scene_native.ps.inc"
         };
-        throw_if_failed(gpu.device->CreateVertexShader(vs, sizeof(vs), nullptr, &vs_), "native scene vertex shader");
-        throw_if_failed(gpu.device->CreatePixelShader(ps, sizeof(ps), nullptr, &ps_), "native scene pixel shader");
+        throw_if_failed(device_->CreateVertexShader(vs, sizeof(vs), nullptr, &vs_), "native scene vertex shader");
+        throw_if_failed(device_->CreatePixelShader(ps, sizeof(ps), nullptr, &ps_), "native scene pixel shader");
         static constexpr unsigned char particle_vs[] = {
 #include "shaders/scene_particles.vs.inc"
         };
         static constexpr unsigned char particle_ps[] = {
 #include "shaders/scene_particles.ps.inc"
         };
-        throw_if_failed(gpu.device->CreateVertexShader(particle_vs, sizeof(particle_vs), nullptr, &particle_vs_),
+        throw_if_failed(device_->CreateVertexShader(particle_vs, sizeof(particle_vs), nullptr, &particle_vs_),
                         "native particle vertex shader");
-        throw_if_failed(gpu.device->CreatePixelShader(particle_ps, sizeof(particle_ps), nullptr, &particle_ps_),
+        throw_if_failed(device_->CreatePixelShader(particle_ps, sizeof(particle_ps), nullptr, &particle_ps_),
                         "native particle pixel shader");
         static constexpr unsigned char backdrop_vs[] = {
 #include "shaders/backdrop_blur.vs.inc"
@@ -77,19 +99,19 @@ namespace weft::render::d3d11 {
         static constexpr unsigned char matrix_ps[] = {
 #include "shaders/backdrop_matrix.ps.inc"
         };
-        throw_if_failed(gpu.device->CreateVertexShader(backdrop_vs, sizeof(backdrop_vs), nullptr, &backdrop_vs_),
+        throw_if_failed(device_->CreateVertexShader(backdrop_vs, sizeof(backdrop_vs), nullptr, &backdrop_vs_),
                         "native backdrop vertex shader");
-        throw_if_failed(gpu.device->CreatePixelShader(area_ps, sizeof(area_ps), nullptr, &area_ps_),
+        throw_if_failed(device_->CreatePixelShader(area_ps, sizeof(area_ps), nullptr, &area_ps_),
                         "native backdrop area shader");
-        throw_if_failed(gpu.device->CreatePixelShader(blur_ps, sizeof(blur_ps), nullptr, &blur_ps_),
+        throw_if_failed(device_->CreatePixelShader(blur_ps, sizeof(blur_ps), nullptr, &blur_ps_),
                         "native backdrop blur shader");
-        throw_if_failed(gpu.device->CreatePixelShader(matrix_ps, sizeof(matrix_ps), nullptr, &matrix_ps_),
+        throw_if_failed(device_->CreatePixelShader(matrix_ps, sizeof(matrix_ps), nullptr, &matrix_ps_),
                         "native backdrop matrix shader");
         D3D11_SAMPLER_DESC mirror{};
         mirror.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
         mirror.AddressU = mirror.AddressV = mirror.AddressW = D3D11_TEXTURE_ADDRESS_MIRROR;
         mirror.MaxLOD = D3D11_FLOAT32_MAX;
-        throw_if_failed(gpu.device->CreateSamplerState(&mirror, &mirror_), "native backdrop sampler");
+        throw_if_failed(device_->CreateSamplerState(&mirror, &mirror_), "native backdrop sampler");
         // Destination over, premultiplied: what the group holds stays over the backdrop.
         D3D11_BLEND_DESC under{};
         auto& rt = under.RenderTarget[0];
@@ -98,22 +120,21 @@ namespace weft::render::d3d11 {
         rt.DestBlend = rt.DestBlendAlpha = D3D11_BLEND_ONE;
         rt.BlendOp = rt.BlendOpAlpha = D3D11_BLEND_OP_ADD;
         rt.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-        throw_if_failed(gpu.device->CreateBlendState(&under, &under_), "native backdrop blend state");
+        throw_if_failed(device_->CreateBlendState(&under, &under_), "native backdrop blend state");
         D3D11_BUFFER_DESC constants{};
         constants.ByteWidth = limits::backdrop_constants_bytes;
         constants.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-        throw_if_failed(gpu.device->CreateBuffer(&constants, nullptr, &backdrop_constants_),
-                        "native backdrop constants");
+        throw_if_failed(device_->CreateBuffer(&constants, nullptr, &backdrop_constants_), "native backdrop constants");
         D3D11_RASTERIZER_DESC raster{};
         raster.FillMode = D3D11_FILL_SOLID;
         raster.CullMode = D3D11_CULL_NONE;
         raster.ScissorEnable = TRUE;
         raster.DepthClipEnable = TRUE;
-        throw_if_failed(gpu.device->CreateRasterizerState(&raster, &raster_), "native scene raster state");
+        throw_if_failed(device_->CreateRasterizerState(&raster, &raster_), "native scene raster state");
         D3D11_FEATURE_DATA_D3D11_OPTIONS options{};
         offsets_supported_ =
-            SUCCEEDED(gpu.immediate.As(&context1_)) &&
-            SUCCEEDED(gpu.device->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS, &options, sizeof(options))) &&
+            SUCCEEDED(immediate_.As(&context1_)) &&
+            SUCCEEDED(device_->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS, &options, sizeof(options))) &&
             options.ConstantBufferOffsetting;
         constant_offsets = offsets_supported_;
     }
@@ -169,8 +190,8 @@ namespace weft::render::d3d11 {
             desc.Format = key.format == SceneImage::Format::Data ? DXGI_FORMAT_R8_UNORM : DXGI_FORMAT_B8G8R8A8_UNORM;
             desc.SampleDesc.Count = 1;
             desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-            throw_if_failed(gpu_.device->CreateTexture2D(&desc, nullptr, &page.texture), "native scene atlas page");
-            throw_if_failed(gpu_.device->CreateShaderResourceView(page.texture.Get(), nullptr, &page.view),
+            throw_if_failed(device_->CreateTexture2D(&desc, nullptr, &page.texture), "native scene atlas page");
+            throw_if_failed(device_->CreateShaderResourceView(page.texture.Get(), nullptr, &page.view),
                             "native scene atlas page view");
         }
         return page;
@@ -195,8 +216,8 @@ namespace weft::render::d3d11 {
             const auto pixels = scene_atlas_pixels(*image);
             const D3D11_BOX box{
                 at->x - border, at->y - border, 0, at->x + image->width + border, at->y + image->height + border, 1};
-            gpu_.immediate->UpdateSubresource(on.texture.Get(), 0, &box, pixels.data(),
-                                              UINT((image->width + 2 * border) * texel), 0);
+            immediate_->UpdateSubresource(on.texture.Get(), 0, &box, pixels.data(),
+                                          UINT((image->width + 2 * border) * texel), 0);
             return textures_.emplace(image->id, Texture{image, on.view}).first->second.view.Get();
         }
         D3D11_TEXTURE2D_DESC desc{};
@@ -213,8 +234,8 @@ namespace weft::render::d3d11 {
         D3D11_SUBRESOURCE_DATA data{image->pixels.data(), UINT(image->width * texel), 0};
         ComPtr<ID3D11Texture2D> pixels;
         Texture texture{image, {}};
-        throw_if_failed(gpu_.device->CreateTexture2D(&desc, &data, &pixels), "native scene image");
-        throw_if_failed(gpu_.device->CreateShaderResourceView(pixels.Get(), nullptr, &texture.view),
+        throw_if_failed(device_->CreateTexture2D(&desc, &data, &pixels), "native scene image");
+        throw_if_failed(device_->CreateShaderResourceView(pixels.Get(), nullptr, &texture.view),
                         "native scene image view");
         return textures_.emplace(image->id, std::move(texture)).first->second.view.Get();
     }
@@ -226,13 +247,13 @@ namespace weft::render::d3d11 {
         // The pass's buffers and targets serve this pass alone: D3D11 keeps them until the GPU is done with them.
         Slot pass;
         shape(pass, *layer->content, true);
-        pass.target = group_target(gpu_.device.Get(), layer->width, layer->height);
+        pass.target = group_target(device_.Get(), layer->width, layer->height);
         draw_pass(pass, *layer->content, pass.target.rtv.Get(), scale);
         return textures_.emplace(layer->id, Texture{layer, pass.target.srv}).first->second.view.Get();
     }
 
     ID3D11ShaderResourceView* SceneRenderer::backdrop(const ScenePass::Backdrop& b, ID3D11RenderTargetView* from) {
-        auto* ctx = gpu_.immediate.Get();
+        auto* ctx = immediate_.Get();
         ComPtr<ID3D11Resource> resource;
         from->GetResource(&resource);
         ComPtr<ID3D11Texture2D> source;
@@ -253,10 +274,10 @@ namespace weft::render::d3d11 {
                 d.Format = format;
                 d.SampleDesc.Count = 1;
                 d.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-                throw_if_failed(gpu_.device->CreateTexture2D(&d, nullptr, &s.texture), "native backdrop texture");
-                throw_if_failed(gpu_.device->CreateRenderTargetView(s.texture.Get(), nullptr, &s.rtv),
+                throw_if_failed(device_->CreateTexture2D(&d, nullptr, &s.texture), "native backdrop texture");
+                throw_if_failed(device_->CreateRenderTargetView(s.texture.Get(), nullptr, &s.rtv),
                                 "native backdrop RTV");
-                throw_if_failed(gpu_.device->CreateShaderResourceView(s.texture.Get(), nullptr, &s.srv),
+                throw_if_failed(device_->CreateShaderResourceView(s.texture.Get(), nullptr, &s.srv),
                                 "native backdrop SRV");
             }
             return s;
@@ -315,8 +336,8 @@ namespace weft::render::d3d11 {
         }
         ensure(!program->d3d11_encoded.empty(), "an effect built for D3D11");
         EffectShader made{program, {}};
-        throw_if_failed(gpu_.device->CreatePixelShader(program->d3d11_encoded.data(), program->d3d11_encoded.size(),
-                                                       nullptr, &made.shader),
+        throw_if_failed(device_->CreatePixelShader(program->d3d11_encoded.data(), program->d3d11_encoded.size(),
+                                                   nullptr, &made.shader),
                         "native scene effect shader");
         return effect_shaders_.emplace(program.get(), std::move(made)).first->second.shader.Get();
     }
@@ -337,17 +358,18 @@ namespace weft::render::d3d11 {
         d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
         d.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
         d.StructureByteStride = stride;
-        throw_if_failed(gpu_.device->CreateBuffer(&d, nullptr, &buffer), what);
+        throw_if_failed(device_->CreateBuffer(&d, nullptr, &buffer), what);
         D3D11_SHADER_RESOURCE_VIEW_DESC v{};
         v.Format = DXGI_FORMAT_UNKNOWN;
         v.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
         v.Buffer.NumElements = grown;
-        throw_if_failed(gpu_.device->CreateShaderResourceView(buffer.Get(), &v, &view), what);
+        throw_if_failed(device_->CreateShaderResourceView(buffer.Get(), &v, &view), what);
         capacity = grown;
     }
 
     void SceneRenderer::draw_pass(Slot& slot, const ScenePrepared& prepared, ID3D11RenderTargetView* destination,
-                                  float scale, const SceneAnchorFrame* anchors, std::uint64_t serial) {
+                                  float scale, const SceneAnchorFrame* anchors, std::uint64_t serial,
+                                  const paint::Color* clear) {
         // A kept pass the slot drew before: its records, rounded clips, plane contents and leases are the slot's.
         const bool again = serial && slot.kept == serial;
         // Plane contents first, each into its slot's image; then layers not drawn before, and the textures of the
@@ -361,7 +383,7 @@ namespace weft::render::d3d11 {
             if (prepared.planes[i]) {
                 auto& nested = *slot.planes.at(next++);
                 if (!nested.target.texture) {
-                    nested.target = group_target(gpu_.device.Get(), nested.width, nested.height);
+                    nested.target = group_target(device_.Get(), nested.width, nested.height);
                 }
                 if (!again) {
                     draw_pass(nested, *prepared.planes[i], nested.target.rtv.Get(), scale);
@@ -422,17 +444,17 @@ namespace weft::render::d3d11 {
             d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
             d.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
             d.StructureByteStride = sizeof(Record);
-            throw_if_failed(gpu_.device->CreateBuffer(&d, nullptr, &slot.records), "native instance buffer");
+            throw_if_failed(device_->CreateBuffer(&d, nullptr, &slot.records), "native instance buffer");
             D3D11_SHADER_RESOURCE_VIEW_DESC v{};
             v.Format = DXGI_FORMAT_UNKNOWN;
             v.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
             v.Buffer.NumElements = capacity;
-            throw_if_failed(gpu_.device->CreateShaderResourceView(slot.records.Get(), &v, &slot.view),
+            throw_if_failed(device_->CreateShaderResourceView(slot.records.Get(), &v, &slot.view),
                             "native instance view");
             d = {};
             d.ByteWidth = limits::view_constants_bytes;
             d.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-            throw_if_failed(gpu_.device->CreateBuffer(&d, nullptr, &slot.constants), "native view constants");
+            throw_if_failed(device_->CreateBuffer(&d, nullptr, &slot.constants), "native view constants");
         }
         if (!pass.clips.empty() && slot.clip_capacity < pass.clips.size()) {
             unsigned capacity = limits::record_initial_capacity;
@@ -446,18 +468,17 @@ namespace weft::render::d3d11 {
             d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
             d.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
             d.StructureByteStride = sizeof(SceneClip);
-            throw_if_failed(gpu_.device->CreateBuffer(&d, nullptr, &clips), "native rounded clip buffer");
+            throw_if_failed(device_->CreateBuffer(&d, nullptr, &clips), "native rounded clip buffer");
             D3D11_SHADER_RESOURCE_VIEW_DESC v{};
             v.Format = DXGI_FORMAT_UNKNOWN;
             v.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
             v.Buffer.NumElements = capacity;
-            throw_if_failed(gpu_.device->CreateShaderResourceView(clips.Get(), &v, &clip_view),
-                            "native rounded clip view");
+            throw_if_failed(device_->CreateShaderResourceView(clips.Get(), &v, &clip_view), "native rounded clip view");
             slot.clips = std::move(clips);
             slot.clip_view = std::move(clip_view);
             slot.clip_capacity = capacity;
         }
-        auto* ctx = gpu_.immediate.Get();
+        auto* ctx = immediate_.Get();
         ctx->ClearState();
         if (!records.empty() && !again) {
             D3D11_BOX box{0, 0, 0, UINT(records.size() * sizeof(Record)), 1, 1};
@@ -532,13 +553,17 @@ namespace weft::render::d3d11 {
             ctx->RSSetViewports(1, &vp);
             const D3D11_RECT clip{0, 0, LONG(target_width), LONG(target_height)};
             ctx->RSSetScissorRects(1, &clip);
-            ctx->OMSetBlendState(gpu_.blend.Get(), blend, UINT_MAX);
-            auto* sampler = gpu_.sampler.Get();
+            ctx->OMSetBlendState(blend_.Get(), blend, UINT_MAX);
+            auto* sampler = sampler_.Get();
             ctx->PSSetSamplers(0, 1, &sampler);
         };
         bind();
-        Color clear{};
-        ctx->ClearRenderTargetView(destination, pass.clear.data());
+        const Color transparent{};
+        if (!prepared.over) {
+            ctx->ClearRenderTargetView(destination, pass.clear.data());
+        } else if (clear) {
+            ctx->ClearRenderTargetView(destination, clear->data());
+        }
         ctx->OMSetRenderTargets(1, &destination, nullptr);
         unsigned depth{};
         std::vector<ID3D11RenderTargetView*> stack{destination};
@@ -560,7 +585,7 @@ namespace weft::render::d3d11 {
                 d.Usage = D3D11_USAGE_DYNAMIC;
                 d.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
                 d.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-                throw_if_failed(gpu_.device->CreateBuffer(&d, nullptr, &slot.draw_constants), "native draw constants");
+                throw_if_failed(device_->CreateBuffer(&d, nullptr, &slot.draw_constants), "native draw constants");
             }
         }
         constexpr unsigned stride = constants::render::d3d11::constant_buffer_offset_bytes;
@@ -610,10 +635,10 @@ namespace weft::render::d3d11 {
                 case Step::BeginGroup: {
                     auto& s = slot.groups.at(depth++);
                     if (!s.texture) {
-                        s = group_target(gpu_.device.Get(), target_width, target_height);
+                        s = group_target(device_.Get(), target_width, target_height);
                     }
                     target(s.rtv.Get());
-                    ctx->ClearRenderTargetView(s.rtv.Get(), clear.data());
+                    ctx->ClearRenderTargetView(s.rtv.Get(), transparent.data());
                     stack.push_back(s.rtv.Get());
                     break;
                 }
@@ -642,7 +667,7 @@ namespace weft::render::d3d11 {
                     ctx->PSSetShader(effect_shader(effect.program), nullptr, 0);
                     ctx->PSSetShaderResources(effect_texture_slot, UINT(effect_views[batch.source].size()),
                                               effect_views[batch.source].data());
-                    auto* repeat = gpu_.effect_sampler.Get();
+                    auto* repeat = effect_sampler_.Get();
                     ctx->PSSetSamplers(1, 1, &repeat);
                     instances(batch.first, batch.count, nullptr);
                     ctx->PSSetShader(ps_.Get(), nullptr, 0);
@@ -661,7 +686,7 @@ namespace weft::render::d3d11 {
                     }
                     instances(batch.first, 1, filtered);
                     if (b.under) {
-                        ctx->OMSetBlendState(gpu_.blend.Get(), blend, UINT_MAX);
+                        ctx->OMSetBlendState(blend_.Get(), blend, UINT_MAX);
                     }
                     break;
                 }
@@ -685,7 +710,7 @@ namespace weft::render::d3d11 {
     bool SceneRenderer::paint(Slot& slot, const SceneFrame& frame, ID3D11RenderTargetView* destination, float scale,
                               unsigned target_width, unsigned target_height, std::optional<std::array<float, 4>> crop,
                               unsigned view_index, const std::vector<NodeIdentity>& layers,
-                              const SceneAnchorTable* anchors) {
+                              const SceneAnchorTable* anchors, const SceneTargetStart& start) {
         // Textures of images and layers that neither the preparer nor a slot holds any more, and backdrop targets
         // neither the last frame nor this one used (D3D11 keeps a released texture until the GPU is done with it).
         std::erase_if(textures_, [](const auto& texture) {
@@ -711,13 +736,15 @@ namespace weft::render::d3d11 {
         // A frame of the revision the view's kept pass was prepared for draws it again with the frame's anchors.
         const bool keep = frame.revision && !crop;
         auto& kept = kept_[view_index];
+        const auto* clear = start.clear ? &*start.clear : nullptr;
         if (keep && kept.prepared && kept.revision == frame.revision && kept.scale == scale &&
-            kept.width == target_width && kept.height == target_height && kept.layers == layers) {
+            kept.width == target_width && kept.height == target_height && kept.layers == layers &&
+            kept.prepared->over == start.over) {
             if (preparer_.place(*kept.prepared, view_index, anchors, kept.frame)) {
                 if (!fits(*kept.prepared)) {
                     return false;
                 }
-                draw_pass(slot, *kept.prepared, destination, scale, &kept.frame, kept.serial);
+                draw_pass(slot, *kept.prepared, destination, scale, &kept.frame, kept.serial, clear);
                 ++passes;
                 ++kept_passes;
                 return true;
@@ -725,19 +752,19 @@ namespace weft::render::d3d11 {
             ++kept_rebuilds;
         }
         kept = {};
-        std::shared_ptr<const ScenePrepared> prepared =
-            preparer_.prepare(frame, scale, target_width, target_height, crop, view_index, layers, anchors, keep);
+        std::shared_ptr<const ScenePrepared> prepared = preparer_.prepare(
+            frame, scale, target_width, target_height, crop, view_index, layers, anchors, keep, start.over);
         if (!prepared || !fits(*prepared)) {
             return false;
         }
         if (!prepared->keepable) {
-            draw_pass(slot, *prepared, destination, scale);
+            draw_pass(slot, *prepared, destination, scale, nullptr, 0, clear);
             ++passes;
             return true;
         }
         kept = {frame.revision, scale, target_width, target_height, layers, prepared, ++serial_, {}};
         ensure(preparer_.place(*prepared, view_index, anchors, kept.frame), "a pass placed as it was planned");
-        draw_pass(slot, *prepared, destination, scale, &kept.frame, kept.serial);
+        draw_pass(slot, *prepared, destination, scale, &kept.frame, kept.serial, clear);
         ++passes;
         return true;
     }

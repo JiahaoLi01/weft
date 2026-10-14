@@ -11,8 +11,9 @@ weft_add_hlsl(weft_render_d3d11 display_linear "${PROJECT_SOURCE_DIR}/src/render
 # Native D3D11 pass of compiled scenes, prepared by the portable weft::scene_native; the D2D reference raster draws
 # only text whose color glyphs are images.
 weft_add_library(scene_d3d11
-    SOURCES scene_renderer.cpp
-    PUBLIC weft::render_d3d11 weft::scene_d2d weft::scene_native)
+    SOURCES scene_renderer.cpp view_backend.cpp
+    PUBLIC weft::render_d3d11 weft::scene_d2d weft::scene_native
+    PRIVATE weft::view ole32)
 weft_add_hlsl(weft_scene_d3d11 scene_native "${PROJECT_SOURCE_DIR}/src/render/shaders/scene.hlsl" ALWAYS_OPTIMIZE)
 # Its backdrop passes: a fullscreen triangle with the area downsample, the Gaussian pass and the color matrix.
 foreach(variant AREA BLUR MATRIX)

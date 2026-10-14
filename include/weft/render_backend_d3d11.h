@@ -3,6 +3,12 @@
 #include "weft/render_backend.h"
 #include "weft/render_external_texture.h"
 
+#ifdef __cplusplus
+#define WEFT_RENDER_D3D11_NOEXCEPT noexcept
+#else
+#define WEFT_RENDER_D3D11_NOEXCEPT
+#endif
+
 /* Native payload schema v1. Only the D3D11 adapter casts these pointers.
  * Fresh exclusive deferred ID3D11DeviceContext and single-sample RTV, both on
  * the backend device. The adapter closes its command list; host owns the
@@ -33,4 +39,38 @@ typedef struct weft_render_d3d11_texture {
     void* shader_resource_view;
     uint64_t reserved;
 } weft_render_d3d11_texture;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* The built-in D3D11 backend of View frames (WEFT_RENDER_FEATURE_SCENE) on the host's device. A pass draws the frame
+ * on the device's immediate context during weft_renderer_encode: its weft_render_d3d11_pass has no deferred context
+ * (out_command_list stays NULL), and the renderer's owner thread encodes where the host's immediate-context work for
+ * the frame belongs. The target is a UNORM RGBA8 or BGRA8 Texture2D view of the pass's size (target_format
+ * WEFT_RENDER_TARGET_LINEAR_RGBA8 or _BGRA8); the pass draws over it, clearing it first when asked. The context's
+ * bound state is undefined afterwards. The context orders the pass's writes after the reads before it, so the backend
+ * holds nothing for completions, though the host reports its submissions and completions as for any backend. The
+ * renderer's owner thread runs COM (the backend initializes it when the thread has not). One backend draws the Views
+ * of one runtime. */
+typedef struct weft_render_d3d11 weft_render_d3d11;
+
+typedef struct weft_render_d3d11_desc {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    void* device;   /* ID3D11Device, referenced while the backend lives */
+    uint64_t queue; /* nonzero: the host's name of the immediate context's queue in its submissions */
+    uint64_t reserved;
+} weft_render_d3d11_desc;
+
+/* The backend and its table for weft_renderer_create; the table borrows the backend. */
+weft_render_result weft_render_d3d11_create(const weft_render_d3d11_desc* desc, weft_render_d3d11** out_backend,
+                                            weft_render_backend* out_table) WEFT_RENDER_D3D11_NOEXCEPT;
+/* After weft_renderer_destroy succeeded. */
+void weft_render_d3d11_destroy(weft_render_d3d11* backend) WEFT_RENDER_D3D11_NOEXCEPT;
+
+#ifdef __cplusplus
+}
+#endif
+#undef WEFT_RENDER_D3D11_NOEXCEPT
 #endif

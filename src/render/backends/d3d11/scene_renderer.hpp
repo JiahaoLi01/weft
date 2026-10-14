@@ -62,8 +62,10 @@ namespace weft::render::d3d11 {
             unsigned order_capacity{};
         };
 
-        // bounds are the preparer's image caches' (SceneCacheBounds).
+        // bounds are the preparer's image caches' (SceneCacheBounds). On gpu's device, or on a host's device: either
+        // way the passes draw on the device's immediate context.
         SceneRenderer(Renderer& gpu, SceneText& text, SceneCacheBounds bounds = {});
+        SceneRenderer(ID3D11Device* device, SceneText& text, SceneCacheBounds bounds = {});
         SceneRenderer(const SceneRenderer&) = delete;
 
         // A pass writes its draws' view constants once per chunk of draws and binds each by offset (D3D11.1), where the
@@ -75,6 +77,11 @@ namespace weft::render::d3d11 {
             return scratch_bytes_;
         }
 
+        // The views the renderer keeps a pass for, until it forgets them.
+        std::size_t kept_views() const {
+            return kept_.size();
+        }
+
         // The owning surface confirms the slot's last GPU use complete first. Destroying a backing also retires its
         // share of the scratch budget, its planes' slots included.
         void retire(Slot& slot);
@@ -82,10 +89,18 @@ namespace weft::render::d3d11 {
         // Draws frame into destination (target_width x target_height device pixels, scale per CSS px) on the
         // immediate context, clipped to crop when given. layers are the nodes drawn as cached layer images; anchors
         // place the anchored elements (ScenePreparer::prepare), deferred to the pass when the frame has a revision.
+        // start: whether the pass replaces what destination holds or draws over it (SceneTargetStart).
         bool paint(Slot& slot, const SceneFrame& frame, ID3D11RenderTargetView* destination, float scale,
                    unsigned target_width, unsigned target_height, std::optional<std::array<float, 4>> crop,
                    unsigned view_index, const std::vector<NodeIdentity>& layers,
-                   const SceneAnchorTable* anchors = nullptr);
+                   const SceneAnchorTable* anchors = nullptr, const SceneTargetStart& start = {});
+
+        // Drops what the renderer and its preparer keep for a view: its kept pass and its anchored elements' last
+        // anchors. The view's slots are the caller's to retire.
+        void forget(unsigned view_index) {
+            kept_.erase(view_index);
+            preparer_.forget(view_index);
+        }
 
     private:
         // The texture of a preparer's image or layer, kept while that lives.
@@ -107,7 +122,13 @@ namespace weft::render::d3d11 {
             ComPtr<ID3D11PixelShader> shader;
         };
 
-        Renderer& gpu_;
+        // The device, its immediate context, and the states its passes share: premultiplied over blending, the
+        // clamping linear sampler and the repeating one effects sample.
+        ComPtr<ID3D11Device> device_;
+        ComPtr<ID3D11DeviceContext> immediate_;
+        ComPtr<ID3D11BlendState> blend_;
+        ComPtr<ID3D11SamplerState> sampler_;
+        ComPtr<ID3D11SamplerState> effect_sampler_;
         ComPtr<ID3D11DeviceContext1> context1_;
         // Whether the device binds constant buffer ranges by offset.
         bool offsets_supported_{};
@@ -180,8 +201,10 @@ namespace weft::render::d3d11 {
         // Draws a prepared pass into destination: its planes' contents first, each into the image of its slot. anchors
         // are the frame's (none for a pass whose anchors are not deferred); serial names a kept pass, whose records the
         // slot may hold already (0 for one drawn once).
+        // clear, for a pass drawn over its target: the color the target is cleared to first (none: kept).
         void draw_pass(Slot& slot, const ScenePrepared& prepared, ID3D11RenderTargetView* destination, float scale,
-                       const SceneAnchorFrame* anchors = nullptr, std::uint64_t serial = 0);
+                       const SceneAnchorFrame* anchors = nullptr, std::uint64_t serial = 0,
+                       const paint::Color* clear = nullptr);
         // A structured buffer of count elements of stride bytes and its view, grown to at least count (by doubling).
         void structured(ComPtr<ID3D11Buffer>& buffer, ComPtr<ID3D11ShaderResourceView>& view, unsigned& capacity,
                         std::size_t count, unsigned stride, const char* what);

@@ -350,6 +350,14 @@ if(WIN32)
     endif()
     weft_add_test(NAME render_scene_anchor_contract COMMAND weft_render_scene_anchor_tests
         "${artifacts}/scene-anchor-$<CONFIG>" TIMEOUT 120)
+    # View frames through the renderer C ABI on the built-in D3D11 (WARP) and Vulkan backends, against their native
+    # passes drawn directly.
+    weft_add_executable(weft_render_view_tests SOURCES render_view_tests.cpp
+        LINK weft::core weft::view ${scene_effect_links} d3d11 ole32 LARGE_STACK)
+    if(WEFT_RENDER_VULKAN)
+        target_compile_definitions(weft_render_view_tests PRIVATE WEFT_TEST_VULKAN)
+    endif()
+    weft_add_test(NAME render_view_contract COMMAND weft_render_view_tests TIMEOUT 180)
     # The CRPG UI's smoke as a UI shader effect against the original's tick on the CPU, on both scene passes.
     weft_add_executable(weft_render_crpg_smoke_tests SOURCES render_crpg_smoke_tests.cpp
         LINK ${scene_effect_links} weft_gallery_effects windowscodecs ole32 SOURCE_DIR)

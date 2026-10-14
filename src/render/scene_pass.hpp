@@ -221,8 +221,10 @@ namespace weft::render {
     // for one texture, such as an atlas page); then a run of consecutive boxes and images that sample one texture is
     // one draw. anchors is how many anchors the pass draws with: an item's anchor past them is Diag::PaintList. The
     // records of items an anchor moves keep their element's space, crop and target aside (a path's mask covers its
-    // whole path there).
+    // whole path there). fold: a first box that covers the target opaquely becomes the pass's clear, for a pass that
+    // replaces its target; a pass drawn over what the target holds draws it as a box.
     Result<ScenePass> plan_scene_pass(const paint::DisplayList& list, float scale, unsigned width, unsigned height,
                                       std::optional<paint::ClipRect> crop = std::nullopt, Space space = Space::Encoded,
-                                      const std::vector<std::uint64_t>* textures = nullptr, std::uint32_t anchors = 0);
+                                      const std::vector<std::uint64_t>* textures = nullptr, std::uint32_t anchors = 0,
+                                      bool fold = true);
 } // namespace weft::render

@@ -1,6 +1,6 @@
 # Weft 当前状态
 
-更新日期：2026 年 10 月 14 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG、键盘/IME 与移动尚未实现，仍未达到 M0 全部退出条件。
+更新日期：2026 年 10 月 15 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG、键盘/IME 与移动尚未实现，仍未达到 M0 全部退出条件。
 
 ## 待办
 
@@ -10,10 +10,35 @@
   - 剩下的（两个场景分开采样）：K 线主要是虚线十字线每帧重新光栅化（约 32%）与它们的大纹理（约 10%），画成一串盒子估计省约 40%；散点图是刻度文字的字形轮廓随平移重画（约 41%）与属性变了的元素重新解析（显示列表约 50%），路径按形状与亚像素位置缓存估计省约 35%，只重新解析变了的属性约 15%；SVG 值缓存的逐项校验只占 2–7%；
   - 半透明窗口（11.5c，4K）：32 个窗口时 owner 约 2 ms、渲染 CPU 2.3–2.9 ms，随窗口里的元素数增长，三种窗口相近；背景拷贝本身 GPU 约 0.5–0.8 ms；
   - 低优先级，暂不做。
-- **与引擎通信**（2026-10-14 起，第 13 步，[计划](refactoring-plan.md#第-13-步计划2026-10-14与引擎通信)，[技术路线](engine-communication.md)）：血条这类每帧变位置的元素不靠每帧推 JSON（锚点在渲染线程取最新值），双向事件、带 Promise 的引擎调用与视图模型，C ABI 与 CRPG UI 的兼容层。基线：200 个血条每帧约 13 ms，页面自己算出同样的值（零传输）也一样慢，瓶颈在逐个改 DOM 之后的样式、布局与场景更新。13.1 已完成（2026-10-14）：400 个名牌只移动时 UI 线程每帧约 0.005 ms、渲染 CPU 约 0.02–0.04 ms（推 JSON 时分别约 23 ms 与 4 ms）。13.2 已完成（2026-10-14）：带类型的值、双向事件、调用与 Promise、同步函数、视图模型与 CRPG 兼容层；每秒约 1,000 个 10 KB 的事件时 UI 线程每帧 0.79 ms（CRPG 的拼脚本求值约 4.5 ms）。13.3 分三段（[计划](refactoring-plan.md#第-13-步记录2026-10-14)）：13.3a 对外 View 与它的 C ABI 已完成（2026-10-14）；接下来 13.3b 渲染 C ABI 接 View 的帧与模拟引擎的宿主样例，13.3c 页面显示引擎的纹理（用户 2026-10-14 提出，如 UE 的 render target）。
+- **与引擎通信**（2026-10-14 起，第 13 步，[计划](refactoring-plan.md#第-13-步计划2026-10-14与引擎通信)，[技术路线](engine-communication.md)）：血条这类每帧变位置的元素不靠每帧推 JSON（锚点在渲染线程取最新值），双向事件、带 Promise 的引擎调用与视图模型，C ABI 与 CRPG UI 的兼容层。基线：200 个血条每帧约 13 ms，页面自己算出同样的值（零传输）也一样慢，瓶颈在逐个改 DOM 之后的样式、布局与场景更新。13.1 已完成（2026-10-14）：400 个名牌只移动时 UI 线程每帧约 0.005 ms、渲染 CPU 约 0.02–0.04 ms（推 JSON 时分别约 23 ms 与 4 ms）。13.2 已完成（2026-10-14）：带类型的值、双向事件、调用与 Promise、同步函数、视图模型与 CRPG 兼容层；每秒约 1,000 个 10 KB 的事件时 UI 线程每帧 0.79 ms（CRPG 的拼脚本求值约 4.5 ms）。13.3 分三段（[计划](refactoring-plan.md#第-13-步记录2026-10-14)）：13.3a 对外 View 与它的 C ABI、13.3b 渲染 C ABI 接 View 的帧与模拟引擎的宿主样例已完成（2026-10-14）；接下来 13.3c 页面显示引擎的纹理（用户 2026-10-14 提出，如 UE 的 render target）。
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
+
+重构第 13 步之三（b）：渲染 C ABI 接 View 的帧（2026-10-14）。详见 [重构计划](refactoring-plan.md#第-13-步记录2026-10-14) 与 [渲染后端 API](render-backend-api.md#view-帧2026-10-14)。
+- **结果**：
+  - `weft_renderer_prepare_scene`：把 `weft_view_acquire_frame` 取到的帧交给渲染器（能力位 `WEFT_RENDER_FEATURE_SCENE`），之后的录制、提交与完成协议与其他帧相同；准备好的帧自己持有引用，View 销毁后仍可画；
+  - 内置后端的 C 创建入口，用宿主的设备：D3D11 `weft_render_d3d11_create`（encode 时画在设备的立即上下文上），Vulkan `weft_render_vulkan_create`（录进宿主的命令缓冲；`weft_render_vulkan_pass` 末尾新增可选的 `target_image`，`backdrop-filter` 据此读游戏画面）；
+  - 画在宿主目标的内容之上：不清屏，根元素的背景照常画（不折进清屏），宿主可以要求先清成某个颜色；锚点在 encode 时取最新值；每个 View 一个保留的 pass，只动锚点的帧重画保留的记录，View 销毁后下一次准备时丢弃；
+  - 与计划不同：D3D11 不录进宿主的延迟上下文，改为 encode 时画在立即上下文上（scene pass 的上传、平面与图层、背景拷贝依赖立即上下文的顺序；引擎的 D3D11 后端本来也在立即上下文上画），理由见重构计划；
+  - 模拟引擎的宿主样例 `samples/engine-host`（`weft_engine_host`，只用公开头文件）：1280 × 720，12 个单位绕圈移动、每帧写锚点，血量走视图模型、伤害走事件，同步函数 `loc.get`，第 30 帧命中查询并点击“结束回合”、回答页面的调用；View 的帧画在每帧变色的游戏画面之上，D3D11 或 Vulkan，最后一帧写成 BMP；
+  - 样例每帧的 CPU 耗时（Ryzen 9 9950X3D，固定 CCD0、高优先级，Release，90 帧，三次运行的中位数；GPU 时间没有测）：D3D11 WARP 的 encode p50 0.26 / p99 0.39 ms（第一帧 23.7 ms：建图集、上传字形、建管线状态），View 推进 p50 0.29 / p99 1.06 / 最慢 1.45 ms；Vulkan（RTX 5090）的 encode p50 0.16 / p99 0.23 ms（第一帧 22.8 ms），View 推进 p50 0.15 / p99 0.81 / 最慢 1.50 ms。推进的 p99 是有伤害事件、改了 DOM 的帧（整页的固定开销，13.5 处理）；WARP 的光栅线程与 owner 在同一个 CCD 上，所以 D3D11 那次运行的推进慢一些。
+- **验证**：
+  - 新测试 `render_view_contract`：
+    - D3D11（WARP）：经 C 接口画出的帧与直接用原生 scene pass 画在同样游戏画面上的逐字节相同；页面以外是游戏画面，毛玻璃面板把它下面的游戏画面调暗；宿主的清屏（第一个 pass 与保留的 pass 都是）；锚点移动、场景不变时画在新位置；宿主给的缩放；半透明的根背景混合在游戏画面或清屏颜色之上，不透明的根背景盖住游戏画面；同一个渲染器先替换后叠加时与只叠加相同；保留的 pass（只动锚点时重画、内容变了重新准备）；同一 Runtime 的第二个 View 有自己的 pass，View 销毁后被丢弃；
+    - D3D11 的拒绝：延迟上下文、sRGB 目标、与视图不符的格式、别的设备的目标（`WRONG_BACKEND`）、第二级 mip、与 pass 大小不同的目标、不是预乘的清屏颜色、四边形帧、别的 Runtime 的帧、负数与无穷大的缩放、保留字段、短的结构、别的版本、空的帧；声明了能力却没有 `prepare_scene` 的表；没有该能力的后端；View 销毁之后画准备好的帧；有准备好的帧时销毁渲染器返回 `BUSY`；创建参数的错误；
+    - Vulkan（本机设备，验证层，零告警）：与直接录制的原生 pass 逐字节相同（包括读目标图像的毛玻璃）；游戏画面、清屏、锚点移动；同一个渲染器先替换后叠加；丢弃的录制归还槽位；两帧在途时第一帧完成不动还没提交的录制（之后又录两帧，都不拿它的槽位）；宿主给的缩放；第一版结构（在 `target_image` 之前结束）照常画，毛玻璃看不到下面；别的设备、不是预乘的清屏颜色、两种过短的结构；第二个 View 被丢弃；
+  - 新测试 `engine_host_d3d11_warp`、`engine_host_vulkan`（没有 Vulkan 设备时跳过）：样例在两个后端上跑完，页面就绪、调用得到回答、没有诊断；`render_backend_c_abi` 检查新的结构布局与入口；`render_vulkan_backend_contract` 的显示列表后端接受第一版结构；
+  - 57 个变异全部被发现（pass 的起始方式、根背景的折叠、清屏、保留的 pass 与它的起始方式、忘记 View；`prepare_scene` 的校验与表的规则；两个后端的目标检查、清屏、缩放、锚点、View 的编号与丢弃、命令列表；Vulkan 的提交、完成、丢弃、目标图像与借来的设备）。第一轮 54 个里存活 4 个：不透明的根背景在叠加时被折进清屏（两处，测试只有半透明的根）、View 第一个 pass 上的宿主清屏、Vulkan 上宿主给的缩放，补了反例；之后为第一版 Vulkan 结构加了 3 个，也都被发现。
+  - `ctest`：Release 159/159，Debug 159/159（新增 3 个）；产物与 12.3 基线相比与 13.2 相同（已知按时序变化的套件、13.1b 的图层复用数、13.2 的 VM 峰值），新的 `engine-host` 只在本次产物里；Android 零警告。
+  - 命令与产物：`ctest --preset windows-release --parallel 6 --output-on-failure`（与 `windows-debug`）；`python -I tools/compare_artifacts.py build/step12-3-baseline build/windows-msvc/artifacts`；样例 `build/windows-msvc/bin/Release/weft_engine_host.exe --d3d11 --warp --frames 90 --out <file.bmp>`（或 `--vulkan`，或不带 `--warp` 用硬件 D3D11），测试的输出在 `build/windows-msvc/artifacts/engine-host-<配置>/`；`cmake --build --preset android-arm64`（样例与这些测试只在 Windows 上）。
+- **限制**：
+  - D3D11 只在立即上下文上画 View 的帧（延迟上下文返回 `UNSUPPORTED_FEATURE`）；目标只支持 UNORM 的 BGRA8（D3D11 另有 RGBA8），不支持 sRGB 视图；
+  - 一个后端只画一个 Runtime 的 View；
+  - 页面还不能显示引擎的纹理（13.3c）；D3D12 与 UE 的 RHI 后端在 M5；
+  - 样例只在 Windows 上；没有窗口与交换链（离屏，最后一帧写成文件），硬件 D3D11 路径没有自动测试；
+  - 发布帧仍复制整棵场景树（13.5）。
+- **下一步**：13.3c：页面显示引擎的纹理（`background-image: -weft-texture(name)`，宿主每帧给出名字对应的外部纹理租约）。
 
 重构第 13 步之三（a）：对外 View 与它的 C ABI（2026-10-14）。详见 [重构计划](refactoring-plan.md#第-13-步记录2026-10-14) 与 [技术路线](engine-communication.md#8-对外-view133)。
 - **结果**：

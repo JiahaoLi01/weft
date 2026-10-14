@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <exception>
 #include <iostream>
 #include <memory>
@@ -243,12 +244,13 @@ namespace weft::render::vulkan {
 
     weft_render_result Backend::encode(std::uint64_t native, const weft_render_pass& render_pass, std::uint64_t& out) {
         out = 0;
-        if (native != limits::prepared_frame_handle || !prepared ||
-            render_pass.native_pass_size < sizeof(weft_render_vulkan_pass)) {
+        // A pass from before target_image ends where it starts.
+        constexpr auto v1 = offsetof(weft_render_vulkan_pass, target_image);
+        if (native != limits::prepared_frame_handle || !prepared || render_pass.native_pass_size < v1) {
             return WEFT_RENDER_INVALID_ARGUMENT;
         }
         const auto& p = *static_cast<const weft_render_vulkan_pass*>(render_pass.native_pass);
-        if (p.struct_size < sizeof(p) || p.abi_version != WEFT_RENDER_ABI_VERSION || p.reserved || p.clear_target > 1 ||
+        if (p.struct_size < v1 || p.abi_version != WEFT_RENDER_ABI_VERSION || p.reserved || p.clear_target > 1 ||
             !p.device || !p.command_buffer || !p.target_view) {
             return WEFT_RENDER_INVALID_ARGUMENT;
         }

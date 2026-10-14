@@ -397,10 +397,17 @@ const player = weft.engine.model('player');      // {value, subscribe}
 - 推进（`weft_view_advance`）：取 owner 的锚点表，交付引擎的输入，跑任务、rAF、任务，把 DOM 的变化同步进场景，交付 ResizeObserver，再同步一次；场景内容变了（版本号变了）或 View 的大小、缩放变了才发布新的帧。页面抛出的异常、处理函数与 rAF 回调的异常、样式做不出场景都记成诊断（`weft_view_drain_diagnostics`），推进照常返回；做不出场景时保留上一帧。VM 资源耗尽使 View 进入 Faulted（`WEFT_FAULTED`），直到重新加载。
 - 输入（`weft_view_pointer`）：移动、按下、抬起、滚轮、离开，按画廊的顺序合成 pointer 与 mouse 事件、over/out、enter/leave（随悬停元素变化）与 click（在按下的同一元素上抬起）；返回主事件的默认动作是否被阻止。键盘、IME 与手柄不在 13.3（手柄照 CRPG 的 `uiInput` 走桥的事件）。
 - 命中（`weft_view_hit_test`，取代草案的 `weft_view_hit_interactive`）：某点下最上层接收指针事件的元素是否是场景根以外的元素，以及它的 `cursor`（它或最近一个声明了 `cursor` 的祖先的值，没有时是 auto）。CRPG 现在按光标是否在可交互元素上把点击交给 UI，否则交给游戏的射线检测（`UUltralightWidget::NativeOnMouseButtonDown`），宿主可以照做。
-- 帧（`weft_view_acquire_frame`，任意线程）：引用计数的不可变帧，内容是场景树（不含元素几何）、View 的大小与缩放、布局用的字体目录与 View 的锚点通道；View 销毁后仍可用。渲染在 13.3b 接上。
+- 帧（`weft_view_acquire_frame`，任意线程）：引用计数的不可变帧，内容是场景树（不含元素几何）、View 的大小与缩放、布局用的字体目录与 View 的锚点通道；View 销毁后仍可用。渲染器经 `weft_renderer_prepare_scene` 画它（13.3b，见下文）。
 - 线程：加载、推进、输入、命中、取消息、注册函数、取诊断、调整大小只在 Runtime 的 owner 线程；写锚点、发事件、完成调用、设置视图模型、取帧可在任意线程，经 Runtime 里加锁的表找到 View 的共享部分，与销毁并发时返回 `WEFT_STALE_HANDLE`。宿主的回调（取消息、同步函数、取诊断）里对同一 View 的 owner 操作返回 `WEFT_BUSY`，任意线程的操作照常。owner 线程要至少 8 MiB 的栈（React 与 D3 的包递归很深）。
 - 字体：Runtime 一份字体目录：`WEFT_RUNTIME_SYSTEM_FONTS`（空描述符时默认开）用平台的系统字体，宿主再加字体文件、通用族与回退族；第一个页面加载时固定（之后 `WEFT_BUSY`），owner 建一个 SceneText，帧带着目录，渲染线程据此建自己的 SceneText。
 - 同步函数（`weft_view_register_function`）：在 JS 执行当中调用，参数是 MessagePack，结果写进 `weft_value_writer`（MessagePack 或 JSON），返回其他结果即 `invoke` 的异常；注册在页面加载前也可以，跨加载保留。
+
+渲染（13.3b，`include/weft/render_backend*.h`，详见 [渲染后端 API](render-backend-api.md#view-帧2026-10-14)）：
+- 渲染线程（渲染器的 owner）取最新的帧，`weft_renderer_prepare_scene` 准备（之后就可以释放帧的句柄），`weft_renderer_encode` 录制或画进宿主的目标，再照渲染器的协议报告提交与完成。锚点在 encode 时取最新值：准备之后、录制之前写的锚点也会画上。
+- 画在目标已有的内容（游戏画面）之上：不清屏，页面没画的地方保留游戏画面；宿主可以要求先清成某个颜色。目标是 UNORM 格式，页面按浏览器的方式在 sRGB 编码空间合成。
+- 内置后端用宿主的设备创建：D3D11（`weft_render_d3d11_create`）在 encode 时画在设备的立即上下文上；Vulkan（`weft_render_vulkan_create`）录进宿主的命令缓冲，宿主给出目标的 VkImage 时 `backdrop-filter` 能模糊游戏画面。UE 的插件在 M5 用 RHI 实现后端（同一设备上的 RHI 纹理，覆盖 D3D12、Vulkan 与主机平台）。
+- 每个 View 一个保留的 pass：内容不变、只动锚点的帧只重新摆放锚定的元素（13.1b 的 GPU 路径）；View 销毁后，下一次准备时丢弃它的 pass。
+- 样例 `samples/engine-host`：只用公开头文件的模拟引擎，HUD 页面、锚点、视图模型、事件、命中与点击、调用与同步函数，在 D3D11 与 Vulkan 上画在游戏画面之上。
 
 ## 9. JS API 草案
 
@@ -438,7 +445,18 @@ void OnMessage(void* self, weft_view_handle view, const weft_message* m) {
     }
 }
 
-// 渲染线程，每帧：取最新场景帧，准备与录制（锚点在这里取最新值）
+// 渲染线程（渲染器的 owner），每帧：取最新场景帧，准备与录制（锚点在这里取最新值）
+void FWeftRenderer::Render(void* commands, void* target) {
+    weft_view_frame* frame = nullptr;
+    weft_view_acquire_frame(Runtime, View, &frame);                     // 任意线程可取
+    const weft_render_scene_frame scene{sizeof(scene), WEFT_RENDER_ABI_VERSION, frame, 0 /* View 的缩放 */, 0};
+    weft_render_handle prepared{}, use{};
+    weft_renderer_prepare_scene(Renderer, &scene, &prepared);
+    weft_view_frame_release(frame);                                     // 准备好的帧自己持有引用
+    weft_renderer_encode(Renderer, prepared, Pass(commands, target), &use); // 画在游戏画面之上
+    weft_renderer_release_prepared(Renderer, prepared);
+    Submitted.Add(use);  // 提交后 weft_renderer_notify_submitted，GPU 完成后 weft_renderer_notify_completed
+}
 ```
 
 ## 11. 从 CRPG 的 Ultralight 桥迁移

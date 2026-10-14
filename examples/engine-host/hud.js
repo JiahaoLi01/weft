@@ -39,12 +39,12 @@
     u.unit.parentNode.removeChild(u.unit);
     units.delete(id);
   });
-  // A damage number rises from the unit's anchor for a second.
+  // A damage number rises for a second from just above the unit's nameplate (its bottom 24 px over the anchor).
   engine.on('hud.damage', ({id, amount}) => {
     if (!units.has(id)) return;
     const number = add(layer, 'div', 'hud-damage', String(amount));
     number.setAttribute('data-anchor', String(id));
-    number.setAttribute('data-anchor-pivot', '50% 100%');
+    number.setAttribute('data-anchor-pivot', '50% 220%');
     number.setAttribute('data-anchor-scale', 'off');
     setTimeout(() => number.parentNode && number.parentNode.removeChild(number), 1000);
   });

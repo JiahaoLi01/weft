@@ -38,6 +38,9 @@ typedef struct weft_render_vulkan_pass {
     uint32_t clear_target;
     uint32_t reserved;
     float clear_linear_premultiplied[4];
+    /* Optional (0, or a struct_size that ends before it): the target view's VkImage, with transfer source usage, which
+     * a View frame's backdrop filters at the target's level read; without it they see nothing beneath them. */
+    uint64_t target_image;
 } weft_render_vulkan_pass;
 
 /* A host texture of the external texture extension (render_external_texture.h), borrowed during import; the host
@@ -56,4 +59,45 @@ typedef struct weft_render_vulkan_texture {
     uint64_t device;      /* VkDevice of the backend */
     uint64_t image_view;  /* VkImageView */
 } weft_render_vulkan_texture;
+
+#ifdef __cplusplus
+#define WEFT_RENDER_VULKAN_NOEXCEPT noexcept
+extern "C" {
+#else
+#define WEFT_RENDER_VULKAN_NOEXCEPT
+#endif
+
+/* The built-in Vulkan backend of View frames (WEFT_RENDER_FEATURE_SCENE) on the host's device: the instance (Vulkan
+ * 1.1 or later), its physical device, the device and a queue of a graphics family, and the vkGetInstanceProcAddr of
+ * the host's loader, through which the backend loads what it calls; it allocates its own memory on the device and
+ * never destroys the host's objects. A pass records a View's frame into the host's command buffer as
+ * weft_render_vulkan_pass says, over what the target holds (clearing it first when asked): the target is a
+ * VK_FORMAT_B8G8R8A8_UNORM view (target_format WEFT_RENDER_TARGET_LINEAR_BGRA8) in
+ * VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL. A recording's resources stay until the host reports its submission
+ * complete. One backend draws the Views of one runtime. */
+typedef struct weft_render_vulkan weft_render_vulkan;
+
+typedef struct weft_render_vulkan_desc {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint64_t instance;        /* VkInstance */
+    uint64_t physical_device; /* VkPhysicalDevice */
+    uint64_t device;          /* VkDevice */
+    uint64_t queue;           /* VkQueue the host submits the passes on */
+    uint32_t queue_family;
+    uint32_t reserved;
+    void* get_instance_proc_addr; /* PFN_vkGetInstanceProcAddr */
+    uint64_t queue_identity;      /* nonzero: the host's name of the queue in its submissions */
+} weft_render_vulkan_desc;
+
+/* The backend and its table for weft_renderer_create; the table borrows the backend. */
+weft_render_result weft_render_vulkan_create(const weft_render_vulkan_desc* desc, weft_render_vulkan** out_backend,
+                                             weft_render_backend* out_table) WEFT_RENDER_VULKAN_NOEXCEPT;
+/* After weft_renderer_destroy succeeded. */
+void weft_render_vulkan_destroy(weft_render_vulkan* backend) WEFT_RENDER_VULKAN_NOEXCEPT;
+
+#ifdef __cplusplus
+}
+#endif
+#undef WEFT_RENDER_VULKAN_NOEXCEPT
 #endif

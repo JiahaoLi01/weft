@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -334,7 +335,8 @@ int main(int argc, char** argv) {
             {
                 const auto valid = payload;
                 auto p = pass;
-                p.native_pass_size = sizeof(payload) - 1;
+                // Shorter than the first version of the payload (which ends before target_image).
+                p.native_pass_size = offsetof(weft_render_vulkan_pass, target_image) - 1;
                 expect(p, WEFT_RENDER_INVALID_ARGUMENT, "short payload");
                 payload.struct_size = 8;
                 expect(pass, WEFT_RENDER_INVALID_ARGUMENT, "payload struct size");
@@ -382,8 +384,15 @@ int main(int argc, char** argv) {
                   uploads_pending(backend));
 
             // A discarded recording: the host resets its commands, the frame's resources go at once, and the next
-            // recording uploads again.
-            ok(weft_renderer_encode(r, prepared, &pass, &use), "encode to discard");
+            // recording uploads again. Its payload is of the first version, which ends before target_image.
+            {
+                auto first_version = payload;
+                first_version.struct_size = std::uint32_t(offsetof(weft_render_vulkan_pass, target_image));
+                auto p = pass;
+                p.native_pass = &first_version;
+                p.native_pass_size = first_version.struct_size;
+                ok(weft_renderer_encode(r, prepared, &p, &use), "encode to discard");
+            }
             CHECK(gpu.recordings == recordings + 1 && gpu.uploads == page_assets);
             host.reset(0);
             ok(weft_renderer_discard_encoded(r, use), "discard");

@@ -12,7 +12,7 @@
 #include <vector>
 
 // One Vulkan device of the system's loader: an instance, with the validation layer when it is installed, one physical
-// device and one graphics queue. Owner thread of the renderers that use it.
+// device and one graphics queue; or a host's (Device::adopt). Owner thread of the renderers that use it.
 namespace weft::render::vulkan {
     struct DeviceOptions {
         // The physical device whose name contains this; otherwise the first discrete GPU, else the first device.
@@ -49,11 +49,27 @@ namespace weft::render::vulkan {
         VkDeviceSize size{};
     };
 
+    // A host's Vulkan objects: its instance (Vulkan 1.1 or later), the physical device and the device it made on it, a
+    // queue of a graphics family of that device, and the loader's entry the host uses.
+    struct HostDevice {
+        VkInstance instance{};
+        VkPhysicalDevice physical{};
+        VkDevice device{};
+        VkQueue queue{};
+        std::uint32_t queue_family{};
+        PFN_vkGetInstanceProcAddr get_instance_proc{};
+    };
+
     class Device {
     public:
         // The device, or nullptr with the reason when this system has no Vulkan loader or no device with a graphics
         // queue. Failures after that throw std::runtime_error.
         static std::unique_ptr<Device> open(const DeviceOptions& options, std::string& unavailable);
+        // The host's device: Weft loads the functions it needs through the host's entry and allocates its own memory
+        // on the device; destroying the Device frees only that memory, never the host's device or instance, and does
+        // not wait for the device (the host has seen Weft's work complete). Throws std::invalid_argument for a missing
+        // object, std::runtime_error for a device older than Vulkan 1.1 or a function it lacks.
+        static std::unique_ptr<Device> adopt(const HostDevice& host);
         ~Device();
         Device(const Device&) = delete;
         Device& operator=(const Device&) = delete;
@@ -128,6 +144,8 @@ namespace weft::render::vulkan {
 
         void* library_{};
         VkDebugUtilsMessengerEXT messenger_{};
+        // The device and instance are the host's.
+        bool adopted_{};
         mutable std::mutex blocks_mutex_;
         mutable std::vector<std::unique_ptr<ImageBlock>> blocks_;
         mutable std::atomic<std::size_t> memory_allocations_{};

@@ -98,9 +98,13 @@ namespace weft::render::vulkan {
         // uses in slot: an idle slot, or one whose submitted commands completed (it retires first). False, with the
         // reason counted and nothing recorded, when a native pass cannot draw the frame. Throws Busy, recording
         // nothing, while the frame samples what another recording uploads or draws and that is not submitted yet.
+        // start: whether the pass replaces what the target holds or draws over it (SceneTargetStart); over it, the
+        // target is in VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL when the commands execute, the host's writes made
+        // available to color attachment access.
         bool encode(Slot& slot, const SceneFrame& frame, VkCommandBuffer command, const Target& target, float scale,
                     std::optional<std::array<float, 4>> crop, unsigned view_index,
-                    const std::vector<NodeIdentity>& layers, const SceneAnchorTable* anchors = nullptr);
+                    const std::vector<NodeIdentity>& layers, const SceneAnchorTable* anchors = nullptr,
+                    const SceneTargetStart& start = {});
         // The slot's recorded commands were submitted: what they upload or draw is no longer pending.
         void submitted(Slot& slot);
         // The slot's recorded commands will never be submitted: what they would upload or draw leaves the cache, and the
@@ -123,6 +127,18 @@ namespace weft::render::vulkan {
         std::size_t uploads{};
         std::size_t recordings{};
         std::size_t slot_objects{};
+
+        // Drops what the renderer and its preparer keep for a view: its kept pass and its anchored elements' last
+        // anchors. The view's slots are the caller's to retire.
+        void forget(unsigned view_index) {
+            kept_.erase(view_index);
+            preparer_.forget(view_index);
+        }
+
+        // The views the renderer keeps a pass for, until it forgets them.
+        std::size_t kept_views() const {
+            return kept_.size();
+        }
 
     private:
         // The image of a preparer's image or layer, kept while that lives (none for an image on an atlas page, whose
@@ -216,8 +232,10 @@ namespace weft::render::vulkan {
         // Records prepared's pass into the framebuffer of an image of prepared's size (image, when the pass may read
         // it): its planes' and new layers' contents first, each into an image of its own. anchors are the frame's
         // (none for a pass whose anchors are not deferred); serial names a kept pass, whose records the slot keeps.
+        // clear, for a pass drawn over its target: the color the target is cleared to first (none: kept).
         void record(const ScenePrepared& prepared, VkFramebuffer framebuffer, VkImage image, float scale,
-                    const SceneAnchorFrame* anchors = nullptr, std::uint64_t serial = 0);
+                    const SceneAnchorFrame* anchors = nullptr, std::uint64_t serial = 0,
+                    const paint::Color* clear = nullptr);
         // An atlas page's image, created empty and shader-readable the first time.
         const Image& page(const SceneAtlasPage& page);
         // The image of a layer, its content recorded the first time.

@@ -307,7 +307,47 @@ namespace weft::render::vulkan {
         return d;
     }
 
+    std::unique_ptr<Device> Device::adopt(const HostDevice& host) {
+        if (!host.instance || !host.physical || !host.device || !host.queue || !host.get_instance_proc) {
+            throw std::invalid_argument("a host's Vulkan instance, physical device, device, queue and loader entry");
+        }
+        std::unique_ptr<Device> d(new Device);
+        d->adopted_ = true;
+        d->instance = host.instance;
+        d->physical = host.physical;
+        d->device = host.device;
+        d->queue = host.queue;
+        d->queue_family = host.queue_family;
+        d->get_instance_proc = host.get_instance_proc;
+        const auto get = host.get_instance_proc;
+#define WEFT_VULKAN_LOAD(name)                                                                                         \
+    d->vki.name = reinterpret_cast<PFN_##name>(get(d->instance, #name));                                               \
+    ensure(d->vki.name != nullptr, #name);
+        WEFT_VULKAN_INSTANCE_FUNCTIONS(WEFT_VULKAN_LOAD)
+#undef WEFT_VULKAN_LOAD
+        VkPhysicalDeviceProperties properties{};
+        d->vki.vkGetPhysicalDeviceProperties(d->physical, &properties);
+        ensure(properties.apiVersion >= VK_API_VERSION_1_1, "a Vulkan 1.1 device");
+        d->name = properties.deviceName;
+        d->api_version = properties.apiVersion;
+        d->driver_version = properties.driverVersion;
+        d->discrete = properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+        d->vki.vkGetPhysicalDeviceMemoryProperties(d->physical, &d->memory);
+#define WEFT_VULKAN_LOAD(name)                                                                                         \
+    d->vkd.name = reinterpret_cast<PFN_##name>(d->vki.vkGetDeviceProcAddr(d->device, #name));                          \
+    ensure(d->vkd.name != nullptr, #name);
+        WEFT_VULKAN_DEVICE_FUNCTIONS(WEFT_VULKAN_LOAD)
+#undef WEFT_VULKAN_LOAD
+        return d;
+    }
+
     Device::~Device() {
+        if (adopted_) {
+            for (const auto& block : blocks_) {
+                vkd.vkFreeMemory(device, block->memory, nullptr);
+            }
+            return;
+        }
         if (device) {
             vkd.vkDeviceWaitIdle(device);
             for (const auto& block : blocks_) {

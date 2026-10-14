@@ -6,6 +6,7 @@
 #include <constants/core.hpp>
 #include <scene/scene_text.hpp>
 #include <view/view.hpp>
+#include <view/view_abi.hpp>
 #if defined(_WIN32)
 #include <platform/win32/system_fonts.hpp>
 #elif defined(__ANDROID__)
@@ -91,10 +92,6 @@ struct weft_runtime {
     weft::FontCatalog catalog;
     std::shared_ptr<const weft::FontCatalog> fonts;
     std::unique_ptr<weft::SceneText> text;
-};
-
-struct weft_view_frame {
-    std::shared_ptr<const weft::ViewFrame> frame;
 };
 
 struct weft_value_writer {

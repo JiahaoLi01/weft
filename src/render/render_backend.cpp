@@ -499,12 +499,14 @@ weft_render_result weft_renderer_create(const weft_render_backend* b, const weft
     table.struct_size = sizeof(table);
     const auto& c = table.capabilities;
     const bool lists = c.features & WEFT_RENDER_FEATURE_DISPLAY_LIST;
+    const bool scenes = c.features & WEFT_RENDER_FEATURE_SCENE;
     if (!table.api || table.reserved || !table.device_epoch || !table.queue || c.struct_size < sizeof(c) ||
         c.reserved || !c.max_texture_size || !c.max_target_size ||
         (c.features & ~weft::constants::render::known_feature_bits) || !c.target_formats ||
         (c.target_formats & ~weft::constants::render::known_target_format_bits) || !table.prepare ||
         !table.release_prepared || !table.encode || !table.discard_encoded || !table.submitted || !table.completed ||
-        !table.abandon || !table.shutdown || lists != (table.prepare_list != nullptr)) {
+        !table.abandon || !table.shutdown || lists != (table.prepare_list != nullptr) ||
+        scenes != (table.prepare_scene != nullptr)) {
         return WEFT_RENDER_INVALID_ARGUMENT;
     }
     weft_renderer_desc limits{sizeof(weft_renderer_desc),
@@ -678,6 +680,45 @@ weft_render_result weft_renderer_prepare_list(weft_renderer* r, const weft_rende
         return v == WEFT_RENDER_OK ? WEFT_RENDER_BACKEND_ERROR : v;
     }
     *out = publish(*r, r->prepared, index, native, prepared_kind);
+    ++r->prepared_count;
+    return WEFT_RENDER_OK;
+}
+
+weft_render_result weft_renderer_prepare_scene(weft_renderer* r, const weft_render_scene_frame* f,
+                                               weft_render_handle* out) noexcept {
+    if (!out) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    *out = {};
+    if (const auto v = owner(r, true); v != WEFT_RENDER_OK) {
+        return v;
+    }
+    if (!f || f->struct_size < sizeof(*f) || !f->frame || f->reserved || !std::isfinite(f->scale) || f->scale < 0) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    if (f->abi_version != WEFT_RENDER_ABI_VERSION) {
+        return WEFT_RENDER_UNSUPPORTED_ABI;
+    }
+    if (!r->backend.prepare_scene) {
+        return WEFT_RENDER_UNSUPPORTED_FEATURE;
+    }
+    const auto i = r->prepared.first_free();
+    if (i == r->prepared.size()) {
+        return WEFT_RENDER_BUSY;
+    }
+    uint64_t native{};
+    weft_render_result v;
+    {
+        Callback guard(*r);
+        v = r->backend.prepare_scene(r->backend.user_data, f, &native);
+    }
+    if (v != WEFT_RENDER_OK) {
+        return v;
+    }
+    if (!native) {
+        return WEFT_RENDER_BACKEND_ERROR;
+    }
+    *out = publish(*r, r->prepared, i, native, prepared_kind);
     ++r->prepared_count;
     return WEFT_RENDER_OK;
 }

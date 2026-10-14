@@ -295,7 +295,7 @@ namespace weft {
     std::unique_ptr<ScenePrepared> ScenePreparer::prepare(const SceneFrame& frame, float scale, unsigned width,
                                                           unsigned height, std::optional<std::array<float, 4>> crop,
                                                           unsigned view_index, const std::vector<NodeIdentity>& layers,
-                                                          const SceneAnchorTable* anchors, bool defer) {
+                                                          const SceneAnchorTable* anchors, bool defer, bool over) {
         const auto fallback = [&](const std::string& reason) {
             ++work_.fallbacks;
             ++work_.reasons[reason];
@@ -345,8 +345,8 @@ namespace weft {
             return fallback(valid.error().message);
         }
         try {
-            auto prepared =
-                prepare(compiled.list, scale, width, height, crop, view_index, std::uint32_t(compiled.anchors.size()));
+            auto prepared = prepare(compiled.list, scale, width, height, crop, view_index,
+                                    std::uint32_t(compiled.anchors.size()), over);
             if (defer) {
                 prepared->anchors = std::move(compiled.anchors);
                 prepared->runs = std::move(compiled.runs);
@@ -813,7 +813,7 @@ namespace weft {
 
     std::unique_ptr<ScenePrepared> ScenePreparer::prepare(const paint::DisplayList& list, float scale, unsigned width,
                                                           unsigned height, std::optional<std::array<float, 4>> crop,
-                                                          unsigned view_index, std::uint32_t anchors) {
+                                                          unsigned view_index, std::uint32_t anchors, bool over) {
         // Scene passes sample no asset images.
         if (std::any_of(list.items.begin(), list.items.end(), [](const paint::Item& item) {
                 return item.kind == Kind::Image;
@@ -821,12 +821,13 @@ namespace weft {
             throw std::invalid_argument("scene renderer draws no image items");
         }
         auto planned =
-            render::plan_scene_pass(list, scale, width, height, crop, render::Space::Encoded, nullptr, anchors);
+            render::plan_scene_pass(list, scale, width, height, crop, render::Space::Encoded, nullptr, anchors, !over);
         if (!planned) {
             throw std::invalid_argument(planned.error().message);
         }
         auto out = std::make_unique<ScenePrepared>();
         out->pass = std::move(*planned);
+        out->over = over;
         out->width = width;
         out->height = height;
         out->images.resize(list.items.size());

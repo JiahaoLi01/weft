@@ -2177,7 +2177,7 @@ CMake 拆分：
   - scene 样式加 `cursor`（继承）。
   - 由桥驱动的 HUD 页面（`examples/engine-host`）：名牌跟锚点、血量来自视图模型、伤害数字来自事件、按钮调用引擎。
   - 测试：C ABI 合同（struct_size、版本、线程、过期句柄、任意线程入口与销毁并发）；View 的行为（加载、推进、事件、调用、锚点决定命中、跨线程取帧）；同一页面与探针会话的帧逐项相同。
-- 13.3b 渲染 C ABI 接 View 的帧：`weft_renderer_prepare_scene`（帧、缩放、图层）；内置 D3D11、Vulkan 后端的 C 创建入口，用宿主的设备（D3D11 设备；Vulkan 的实例、物理设备、设备与队列）；D3D11 的 scene 渲染器改为录进宿主的延迟上下文；只用公开头文件的模拟引擎宿主样例，在 D3D11 与 Vulkan 上跑 HUD 加事件，与 C++ 路径逐像素对照。
+- 13.3b 渲染 C ABI 接 View 的帧：`weft_renderer_prepare_scene`（帧、缩放、图层）；内置 D3D11、Vulkan 后端的 C 创建入口，用宿主的设备（D3D11 设备；Vulkan 的实例、物理设备、设备与队列）；D3D11 的 scene 渲染器改为录进宿主的延迟上下文（实际改为 encode 时在设备的立即上下文上画，见下文 13.3b 的记录）；只用公开头文件的模拟引擎宿主样例，在 D3D11 与 Vulkan 上跑 HUD 加事件，与 C++ 路径逐像素对照。
 - 13.3c 引擎纹理进页面：`background-image: -weft-texture(name)`，帧记下名字，宿主随每帧把名字对应的外部纹理租约交给 `prepare_scene`；两个 scene 渲染器采样（线性预乘转到编码空间合成）；样例显示宿主每帧用 GPU 画的纹理。
 - 不在 13.3（记入兼容表与诊断）：键盘、IME 与手柄（手柄照 CRPG 的 `uiInput` 走桥的事件）；页面效果与粒子的注册接口；从内存加载字体；跨设备、跨 API 的纹理共享。
 - UE 与 D3D12：UE5 在 Windows 上默认 D3D12（CRPG 是 `DefaultGraphicsRHI_DX12`），Weft 只有 D3D11 与 Vulkan 后端。CRPG 现在的 Ultralight 用 UE 的 RHI 自己实现了 GPU driver（`CRPGUltralight/GPUDriver`），Gameface 的 UE 插件也走 RHI。建议 UE 插件（M5）同样在 RHI 上实现 Weft 的渲染后端：UE 的 render target 就是同一设备上的 RHI 纹理，零拷贝，不需要共享句柄，也同时覆盖 D3D12、Vulkan 与主机平台。跨 API 共享（D3D12 资源经共享 NT 句柄交给 D3D11 设备，共享 fence 同步）要独立的设备、多一帧延迟和额外的同步，只作退路；原生 D3D12 后端等有不经 UE 的 D3D12 宿主时再做。
@@ -2188,6 +2188,16 @@ CMake 拆分：
 - C ABI（`src/core/runtime.cpp`，`weft::core` 私下依赖 `weft::view` 与平台字体）：View 在第一次加载时才建 VM 与场景（之前只有共享部分），所以创建后不加载的 View 仍然便宜；`weft_runtime_desc.reserved` 改为 `flags`（`WEFT_RUNTIME_SYSTEM_FONTS`，空描述符时默认开）；`weft_view_record_tick` 保留，与 `weft_view_advance` 共用单调时间。
 - 基准：`weft_view_benchmark --quick|--full <dir>`（`probes/view_benchmark.cpp`，可移植）。
 - 与技术路线不同：命中查询返回元素与光标（`weft_view_hit_test`），不是只回答“是否可交互”；页面资源没有宿主回调（scene 页面不画 `<img>`，脚本与样式由宿主交进来）；输入只有指针与滚轮。
+
+**13.3b：渲染 C ABI 接 View 的帧**（2026-10-14）：
+- 渲染器 C ABI（`include/weft/render_backend.h`）：`weft_renderer_prepare_scene(renderer, weft_render_scene_frame*, handle*)`，帧是 `weft_view_acquire_frame` 取到的 View 帧，调用期间借用，准备成功后自己持有一份引用；`scale` 为 0 时用 View 的缩放。能力位 `WEFT_RENDER_FEATURE_SCENE` 与后端表末尾的可选回调 `prepare_scene` 必须同时出现（与显示列表帧的规则相同）；之后的录制、提交与完成协议不变。C++ 后端满足 `SceneFrameBackend` concept，由 `make_c_backend` 生成回调。
+- scene pass 的起始方式（`SceneTargetStart`）：画在目标已有的内容之上（over），或照旧替换。over 时不清屏，根元素的不透明背景不折进清屏（`plan_scene_pass` 的 `fold`），照常画成盒子；宿主要求清屏时先清成宿主的颜色（线性预乘转成编码值）。保留的 pass 记下自己的起始方式，只给同一种起始方式复用。原有的调用默认替换，探针与画廊的产物不变。
+- 内置后端的 C 创建入口，用宿主的设备：
+  - D3D11（`weft_render_d3d11_create`，`render::d3d11::ViewBackend`）：宿主的 `ID3D11Device`；scene 渲染器加了只取设备的构造函数，pass 画在设备的立即上下文上。encode 时直接画（`weft_render_d3d11_pass.deferred_context` 必须为空，`out_command_list` 置空）；目标是同一设备的 RTV，二维纹理的 mip 0、单采样、大小等于 pass，格式 `LINEAR_BGRA8`（`B8G8R8A8_UNORM`）或 `LINEAR_RGBA8`（`R8G8B8A8_UNORM`）。创建时在调用线程初始化 COM（多线程套间，scene 的参考光栅要用），销毁时对应地反初始化。
+  - Vulkan（`weft_render_vulkan_create`，`render::vulkan::ViewBackend`）：宿主的实例、物理设备、设备、图形队列与 `vkGetInstanceProcAddr`；`vulkan::Device::adopt` 经它载入函数，在宿主设备上分配自己的内存，析构时只释放这些内存。录进宿主的命令缓冲；`weft_render_vulkan_pass` 末尾新增可选的 `target_image`（目标视图的 VkImage，带传输源用途），有它时 `backdrop-filter` 读目标里已有的游戏画面，没有时背后为空（第一版的结构仍被接受）。每次录制的槽位留到宿主报告它的提交完成；丢弃的录制归还槽位与它要上传的内容。
+  - 两个后端只画一个 Runtime 的 View（字体目录相同，别的 Runtime 的帧返回 `INVALID_ARGUMENT`），每个 View 一个保留的 pass 与槽位，以 View 的锚点通道区分（只有 View 持有它）；View 销毁后，下一次准备时丢弃它的 pass 与槽位。锚点在 encode 时取最新值。
+- 模拟引擎的宿主样例（`samples/engine-host`，`WEFT_BUILD_SAMPLES`，Windows）：只用公开头文件。1280 × 720，12 个单位绕圈移动、每帧写锚点；血量走视图模型，伤害走事件；同步函数 `loc.get`；第 30 帧做命中查询并点击“结束回合”，回答页面的调用；View 的帧画在每帧变色的游戏画面之上，D3D11（WARP 或硬件，立即上下文，event query 等完成）或 Vulkan（自己的实例与设备，命令缓冲与 fence）；最后一帧写成 BMP。
+- 与计划不同：D3D11 不录进宿主的延迟上下文，而是在 encode 时画在设备的立即上下文上。scene 渲染器的 pass 一边画一边上传图像（`UpdateSubresource`）、先画平面与图层的内容、拷贝目标做背景模糊，这些都依赖立即上下文的执行顺序，改成延迟上下文要重写它的资源管理；延迟上下文在多数驱动上是模拟的，引擎的 D3D11 后端（如 UE 的 D3D11 RHI）也在立即上下文上画。宿主在它的帧里该画 UI 的位置调用 encode，效果与在那里执行一份命令列表相同。立即上下文按序执行、资源由 COM 引用保活，所以后端不按完成序号钉住任何东西，宿主仍照协议报告提交与完成。D3D11 的显示列表后端仍录进宿主的延迟上下文。
 
 ## 顺序调整（2026-10-10）
 

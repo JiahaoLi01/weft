@@ -168,6 +168,17 @@ namespace weft {
         std::vector<SceneListRun> runs;
         std::array<float, 2> view{};
         bool keepable{};
+        // Drawn over what the target holds (SceneTargetStart::over): the page's root background is a box, not the
+        // pass's clear.
+        bool over{};
+    };
+
+    // How a pass starts on its target: it replaces what the target holds (the probes' targets: the page's root
+    // background folded into the clear), or it draws over it, as a host's frame (a game's) is drawn over, first
+    // cleared to clear (encoded premultiplied) when given.
+    struct SceneTargetStart {
+        bool over{};
+        std::optional<paint::Color> clear;
     };
 
     // What a pass with deferred anchors draws with at one frame: per anchored element its anchor's map to target px,
@@ -214,10 +225,18 @@ namespace weft {
         // view what they took in its last pass or placing. With defer, and without crop, anchors are deferred where the
         // list can defer them: the pass is keepable, and place gives each frame's anchors. Null, with a fallback and
         // its reason counted in work, when a native pass cannot draw the frame.
+        // over prepares the pass to draw over its target's contents (ScenePrepared::over).
         std::unique_ptr<ScenePrepared> prepare(const SceneFrame& frame, float scale, unsigned width, unsigned height,
                                                std::optional<std::array<float, 4>> crop, unsigned view_index,
                                                const std::vector<NodeIdentity>& layers,
-                                               const SceneAnchorTable* anchors = nullptr, bool defer = false);
+                                               const SceneAnchorTable* anchors = nullptr, bool defer = false,
+                                               bool over = false);
+
+        // Drops what the preparer keeps for a view (its anchored elements' last anchors).
+        void forget(unsigned view_index) {
+            anchored_.erase(view_index);
+        }
+
         // Places a keepable pass's anchored elements by anchors, as the list would place them, into frame; false when
         // they are to be ordered otherwise than a batch of the pass can draw (prepare the frame again).
         bool place(const ScenePrepared& prepared, unsigned view_index, const SceneAnchorTable* anchors,
@@ -292,7 +311,7 @@ namespace weft {
         // anchors move its items. Throws std::invalid_argument with the reason for a list a native pass cannot draw.
         std::unique_ptr<ScenePrepared> prepare(const paint::DisplayList& list, float scale, unsigned width,
                                                unsigned height, std::optional<std::array<float, 4>> crop,
-                                               unsigned view_index, std::uint32_t anchors = 0);
+                                               unsigned view_index, std::uint32_t anchors = 0, bool over = false);
 
         struct Built {
             std::shared_ptr<const SceneImage> text;

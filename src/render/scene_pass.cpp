@@ -372,7 +372,7 @@ namespace weft::render {
 
     Result<ScenePass> plan_scene_pass(const paint::DisplayList& list, float scale, unsigned width, unsigned height,
                                       std::optional<paint::ClipRect> crop, Space space,
-                                      const std::vector<std::uint64_t>* textures, std::uint32_t anchors) {
+                                      const std::vector<std::uint64_t>* textures, std::uint32_t anchors, bool fold) {
         ScenePass pass;
         pass.space = space;
         pass.clips.reserve(list.clips.size());
@@ -415,7 +415,7 @@ namespace weft::render {
         }
         pass.group_depth = paint::group_depth(list);
         std::uint32_t i{};
-        if (!pass.records.empty() && !list.items.front().clips_count &&
+        if (fold && !pass.records.empty() && !list.items.front().clips_count &&
             clears(list, pass.records.front().clip, scale, width, height)) {
             pass.clear = in(space, list.boxes[list.items.front().payload].background);
             i = 1;

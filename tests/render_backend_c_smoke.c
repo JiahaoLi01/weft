@@ -2,6 +2,8 @@
 #include "weft/render_backend_d3d11.h"
 #include "weft/render_backend_vulkan.h"
 
+#include <stddef.h>
+
 int main(void) {
     weft_render_backend backend = {0};
     weft_renderer* renderer = (weft_renderer*)1;
@@ -17,10 +19,18 @@ int main(void) {
     weft_render_handle handle = {0};
     weft_render_d3d11_texture native = {0};
     weft_render_vulkan_pass vulkan = {0};
-    /* Fixed layout on every platform: 64-bit handles, then the clear fields. */
+    weft_render_scene_frame scene = {0};
+    /* Fixed layout on every platform: 64-bit handles, the clear fields, then the target's image. */
     vulkan.struct_size = sizeof(vulkan);
-    if (vulkan.struct_size != 56 || sizeof(vulkan.command_buffer) != 8) {
+    if (vulkan.struct_size != 64 || offsetof(weft_render_vulkan_pass, target_image) != 56 ||
+        sizeof(vulkan.command_buffer) != 8) {
         return 4;
+    }
+    scene.struct_size = sizeof(scene);
+    scene.abi_version = WEFT_RENDER_ABI_VERSION;
+    if (weft_renderer_prepare_scene(0, &scene, &handle) != WEFT_RENDER_INVALID_ARGUMENT ||
+        weft_renderer_prepare_scene(0, &scene, 0) != WEFT_RENDER_INVALID_ARGUMENT) {
+        return 5;
     }
     texture.native_texture = &native;
     if (weft_renderer_install_external_backend(0, &extension) != WEFT_RENDER_INVALID_ARGUMENT ||

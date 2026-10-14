@@ -19,8 +19,9 @@ weft_add_spirv(weft_render_vulkan display_linear "${PROJECT_SOURCE_DIR}/src/rend
 # Native Vulkan pass of compiled scenes, prepared by the portable weft::scene_native: the shared scene shader's encoded
 # pass compiled to SPIR-V.
 weft_add_library(scene_vulkan
-    SOURCES scene_renderer.cpp
-    PUBLIC weft::render_vulkan weft::scene_native)
+    SOURCES scene_renderer.cpp view_backend.cpp
+    PUBLIC weft::render_vulkan weft::scene_native
+    PRIVATE weft::view)
 weft_add_spirv(weft_scene_vulkan scene_encoded "${PROJECT_SOURCE_DIR}/src/render/shaders/scene.hlsl")
 # Its backdrop passes: a fullscreen triangle with the area downsample, the Gaussian pass and the color matrix.
 foreach(variant AREA BLUR MATRIX)
