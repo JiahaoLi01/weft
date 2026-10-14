@@ -73,6 +73,8 @@ flowchart LR
 | DestroyView | owner 停止脚本并取消请求；已提交 GPU 资源继续由 Runtime 退休管理 |
 | DestroyRuntime | 停止 producer 后清理；存在异步 lease、录制包、GPU 使用或外部纹理 lease 时返回 busy |
 
+与引擎的数据与调用（每帧位置用的锚点、带类型的事件与调用、视图模型）的设计见 [与引擎通信](engine-communication.md)（第 13 步，设计中，尚未实现）。
+
 字符串输入只在调用期间借用，异步使用必须复制。返回缓冲区通过本库的释放接口或约定 allocator 释放，避免跨 CRT 释放。宿主回调不能抛异常或同步重入 View；要执行 DOM 操作时排入下一安全点。
 
 独立 sample 可以提供 SubmitFrame 便利封装，但必须内部经过 encode、实际 submit 和完成协议。引擎集成时，UI 只是宿主 command buffer 的一部分，不能替宿主独立提交。

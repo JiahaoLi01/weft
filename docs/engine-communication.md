@@ -192,6 +192,11 @@ weft_result weft_view_write_anchors(weft_runtime* runtime, weft_view_handle view
 - 带类型的值：null、布尔、整数（int64/uint64）、浮点、UTF-8 字符串、字节、数组、键为字符串的对象。
 - 线上格式：MessagePack 的这个子集（规范简单，编码解码都快，自带二进制），自己实现编解码（约数百行，带随机往返测试），不引入第三方库；SDK 提供一个单文件的 C 写入器。
 - 也接受 JSON 文本（迁移期方便），由原生侧解析成同样的值。
+
+```c
+typedef enum weft_value_format { WEFT_VALUE_MSGPACK = 1, WEFT_VALUE_JSON = 2 } weft_value_format;
+typedef struct weft_value_writer weft_value_writer;   /* 库提供：同步函数把结果写进它 */
+```
 - 转成 JS 时直接构造 JS 对象与数组，不经过 JSON 文本，也不求值脚本；从 JS 转出时拒绝函数、symbol、循环引用，并有深度与大小上限。
 
 ### 6.2 引擎 → 页面：事件
@@ -369,7 +374,7 @@ void OnMessage(void* self, weft_view_handle view, const weft_message* m) {
 
 | 段 | 内容 | 验证与退出条件 |
 | --- | --- | --- |
-| 13.1 锚点 | 每 View 的锚点三缓冲；显示列表应用锚点（pivot、缩放、深度排序、offscreen 与 missing 规则）；owner 命中与几何读取；保留显示列表；HUD 基准增加锚点模式 | 锚点画面与用 CSS transform 摆到同样位置的画面逐像素比较；命中；隐藏、缺失、贴边；画的是最后写入的值；写者线程压力测试；保留与全量逐像素相同；400 个锚点元素：owner ≤ 0.1 ms、渲染 CPU p50 ≤ 1 ms |
+| 13.1 锚点 | 每 View 的锚点三缓冲；显示列表应用锚点（pivot、缩放、深度排序、offscreen 与 missing 规则）；owner 命中与几何读取；保留显示列表；HUD 基准增加锚点模式 | 锚点画面与用 CSS transform 摆到同样位置的画面逐像素比较；命中；隐藏、缺失、贴边；画的是最后写入的值；写者线程压力测试；保留与全量逐像素相同；400 个锚点元素只移动、没有 DOM 变化时：owner ≤ 0.1 ms、渲染 CPU p50 ≤ 1 ms；另报每帧约二十分之一掉血（经现有的 JSON 推送改血条宽度）时的耗时 |
 | 13.2 桥接 | 值的编解码与 JS 转换；双向事件；调用与 Promise、超时；同步函数；视图模型；有界队列；CRPG 兼容层 | 值的随机往返；重入被拒；View 重置后迟到的完成被拒；多线程投递压力；兼容层跑 CRPG 的消息样例；与“JSON 拼进脚本”的转换耗时对比 |
 | 13.3 C ABI 与宿主 | 对外 View（加载、推进、输入、命中查询、取帧）；锚点与桥接的 C 接口；模拟引擎的宿主样例（HUD 加事件） | C ABI 合同测试（struct_size、版本、线程要求、过期句柄）；样例在 D3D11 与 Vulkan 上运行 |
 | 13.4 CRPG 浮动 UI | 按 CRPG 的血条、伤害数字、状态标记做的页面，改用锚点与事件；伤害数字的生成与退场 | 与推 JSON 的同一页面对比耗时与画面 |
