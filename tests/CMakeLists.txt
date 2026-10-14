@@ -42,6 +42,9 @@ target_include_directories(weft_c_api_smoke PRIVATE "${PROJECT_SOURCE_DIR}/inclu
 set_target_properties(weft_c_api_smoke PROPERTIES LINKER_LANGUAGE CXX)
 target_link_libraries(weft_c_api_smoke PRIVATE weft::core)
 weft_add_test(NAME c_api_smoke COMMAND weft_c_api_smoke)
+# The View's C ABI: sizes, versions, threads, stale handles, pages, the bridge, anchors, hits, frames and faults.
+weft_add_executable(weft_c_api_view_tests SOURCES c_api_view_tests.cpp LINK weft::core weft::bridge SOURCE_DIR LARGE_STACK)
+weft_add_test(NAME c_api_view_contract COMMAND weft_c_api_view_tests TIMEOUT 180)
 
 weft_add_executable(weft_resource_lifetime_tests SOURCES resource_lifetime_tests.cpp LINK weft::render)
 weft_add_test(NAME resource_lifetime COMMAND weft_resource_lifetime_tests)
@@ -259,6 +262,11 @@ if(WIN32)
     weft_add_test(NAME scene_native_contract COMMAND weft_scene_native_tests)
     # Anchors on the CPU reference path: the data-anchor grammar, the tables a writer thread hands both readers, where
     # anchors put elements, and the display list, hits and geometry of anchored elements.
+    # The public View: a bridge-driven page, its events, anchors, hits, diagnostics and frames, and the gallery session's
+    # scene for the same page.
+    weft_add_executable(weft_view_tests SOURCES view_tests.cpp
+        LINK weft::view weft::scene_d2d weft::platform_win32 d2d1 windowscodecs ole32 SOURCE_DIR LARGE_STACK)
+    weft_add_test(NAME view_contract COMMAND weft_view_tests TIMEOUT 120)
     weft_add_executable(weft_scene_anchor_tests SOURCES scene_anchor_tests.cpp
         LINK weft::scene_native weft::scene_d2d weft::platform_win32 d2d1 windowscodecs ole32)
     weft_add_test(NAME scene_anchor_contract COMMAND weft_scene_anchor_tests)

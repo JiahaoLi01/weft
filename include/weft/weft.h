@@ -1,6 +1,7 @@
 #ifndef WEFT_H
 #define WEFT_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -8,7 +9,8 @@ extern "C" {
 #endif
 
 /* Experimental M0 ABI. Every runtime function requires its owner thread unless
- * explicitly stated. A runtime pointer is invalid after successful destroy. */
+ * explicitly stated. A runtime pointer is invalid after successful destroy.
+ * Strings are UTF-8 with an explicit size and are borrowed only during the call. */
 #define WEFT_ABI_VERSION 1u
 
 typedef struct weft_runtime weft_runtime;
@@ -23,14 +25,21 @@ typedef enum weft_result {
     WEFT_STALE_HANDLE = 6,
     WEFT_CAPACITY_EXCEEDED = 7,
     WEFT_TIME_REGRESSION = 8,
-    WEFT_INTERNAL_ERROR = 9
+    WEFT_INTERNAL_ERROR = 9,
+    /* The page threw; its diagnostics say what. */
+    WEFT_SCRIPT_ERROR = 10,
+    /* A resource limit ended the View's page: load a page again or destroy the View. */
+    WEFT_FAULTED = 11
 } weft_result;
+
+/* Runtime flags: the platform's installed fonts (Windows, Android) with its generic families and fallbacks. */
+#define WEFT_RUNTIME_SYSTEM_FONTS 1u
 
 typedef struct weft_runtime_desc {
     uint32_t struct_size;
     uint32_t abi_version;
     uint32_t max_views;
-    uint32_t reserved;
+    uint32_t flags; /* WEFT_RUNTIME_* */
 } weft_runtime_desc;
 
 typedef struct weft_view_handle {
@@ -75,10 +84,234 @@ weft_result weft_runtime_get_info(weft_runtime* runtime, weft_runtime_info* out_
 weft_result weft_view_create(weft_runtime* runtime, const weft_view_desc* desc, weft_view_handle* out_view);
 weft_result weft_view_destroy(weft_runtime* runtime, weft_view_handle view);
 weft_result weft_view_get_info(weft_runtime* runtime, weft_view_handle view, weft_view_info* out_info);
-/* M0 only validates/stores host monotonic time. This does not render or run JS. */
+/* Validates and stores host monotonic time without running the page (weft_view_advance runs it). */
 weft_result weft_view_record_tick(weft_runtime* runtime, weft_view_handle view, double time_seconds);
 /* Stateless; callable from any thread. Borrowed static text, do not free. */
 const char* weft_result_string(weft_result result);
+
+/* ---- Fonts. Owner thread, before the runtime's first page loads (WEFT_BUSY after). ---- */
+
+/* A face of a font file: CSS matches its family (ASCII case-insensitive), weight (1-1000) and style. */
+typedef struct weft_font_face {
+    uint32_t struct_size;
+    uint32_t weight;
+    uint32_t italic;     /* 0 or 1 */
+    uint32_t face_index; /* in a font collection */
+    const char* family;
+    size_t family_size;
+    const char* path; /* the file */
+    size_t path_size;
+} weft_font_face;
+
+weft_result weft_runtime_add_font(weft_runtime* runtime, const weft_font_face* face);
+/* The family a CSS generic keyword (serif, sans-serif, monospace, system-ui, cursive, fantasy) names. */
+weft_result weft_runtime_set_generic_family(weft_runtime* runtime, const char* generic, size_t generic_size,
+                                            const char* family, size_t family_size);
+/* Appends a family tried for characters no family of an element's font-family list covers. */
+weft_result weft_runtime_add_fallback_family(weft_runtime* runtime, const char* family, size_t family_size);
+
+/* ---- Pages. Owner thread. The owner thread needs at least 8 MiB of stack for React and D3 pages. ---- */
+
+typedef struct weft_script {
+    const char* name; /* for stack traces */
+    size_t name_size;
+    const char* source;
+    size_t source_size;
+} weft_script;
+
+/* CRPG Framework's window.ue.sendEvent, __ue_dispatch and __vm_update over weft.engine. */
+#define WEFT_PAGE_CRPG_BRIDGE 1u
+
+/* A page: scripts evaluated in order after the platform modules (DOM host, animation frames, the scene platform,
+ * weft.engine), the scene's stylesheet and keyframes, and the selector of the scene's root ("#id" or a tag name; NULL
+ * is "#root", the element the document's body starts with). */
+typedef struct weft_page_desc {
+    uint32_t struct_size;
+    uint32_t flags; /* WEFT_PAGE_* */
+    const weft_script* scripts;
+    uint32_t script_count;
+    uint32_t reserved;
+    const char* stylesheet;
+    size_t stylesheet_size;
+    const char* keyframes;
+    size_t keyframes_size;
+    const char* root;
+    size_t root_size;
+} weft_page_desc;
+
+/* Replaces the View's page. WEFT_SCRIPT_ERROR leaves an empty View and the error a diagnostic. The View's engine
+ * functions stay; its pending engine inputs and the page's messages are dropped, its open calls closed. */
+weft_result weft_view_load(weft_runtime* runtime, weft_view_handle view, const weft_page_desc* page);
+/* Runs the page up to time_seconds (monotonic with weft_view_record_tick): engine events, completions and view
+ * models, tasks, animation frames, observers and the scene; publishes a frame when what it shows changed. Exceptions
+ * of the page are diagnostics, not errors. */
+weft_result weft_view_advance(weft_runtime* runtime, weft_view_handle view, double time_seconds);
+weft_result weft_view_resize(weft_runtime* runtime, weft_view_handle view, float logical_width, float logical_height,
+                             float device_scale);
+
+/* ---- Pointer input and hit queries. Owner thread; positions in the View's logical px. ---- */
+
+typedef enum weft_pointer_kind {
+    WEFT_POINTER_MOVE = 0,
+    WEFT_POINTER_DOWN = 1,
+    WEFT_POINTER_UP = 2,
+    WEFT_POINTER_WHEEL = 3,
+    WEFT_POINTER_LEAVE = 4 /* the pointer left the View */
+} weft_pointer_kind;
+
+typedef struct weft_pointer_event {
+    uint32_t struct_size;
+    uint32_t kind; /* weft_pointer_kind */
+    float x;
+    float y;
+    uint32_t buttons; /* MouseEvent.buttons after the event */
+    uint32_t reserved;
+    float wheel_x; /* logical px */
+    float wheel_y;
+} weft_pointer_event;
+
+/* Dispatches the pointer and mouse events of the input (over, out, enter and leave as the hovered element changes,
+ * click when a button comes up over the element it went down on). out_prevented, when given: whether a listener
+ * prevented the main event's default action. */
+weft_result weft_view_pointer(weft_runtime* runtime, weft_view_handle view, const weft_pointer_event* event,
+                              uint32_t* out_prevented);
+
+/* What is under a point: whether the topmost element taking pointer events is something other than the scene's
+ * root (and its ancestors), and that element's cursor (of it or its nearest ancestor that declares one). A host can
+ * give a click to the page when element is 1 and the cursor shows something to interact with, and to the game
+ * otherwise. cursor holds the CSS keyword ("auto" when none), NUL-terminated and cut to fit. */
+typedef struct weft_hit {
+    uint32_t struct_size;
+    uint32_t element;
+    char cursor[32];
+} weft_hit;
+
+weft_result weft_view_hit_test(weft_runtime* runtime, weft_view_handle view, float x, float y, weft_hit* out_hit);
+
+/* ---- Frames. Any thread. ---- */
+
+/* A frame the View published: immutable, reference-counted; it outlives the View while held. */
+typedef struct weft_view_frame weft_view_frame;
+
+typedef struct weft_view_frame_info {
+    uint32_t struct_size;
+    uint32_t animated;
+    uint64_t revision; /* frames of one nonzero revision draw alike */
+    double time_seconds;
+    float logical_width;
+    float logical_height;
+    float device_scale;
+    uint32_t reserved;
+} weft_view_frame_info;
+
+/* The frame published last; WEFT_BUSY before the first. Release it with weft_view_frame_release. */
+weft_result weft_view_acquire_frame(weft_runtime* runtime, weft_view_handle view, weft_view_frame** out_frame);
+void weft_view_frame_release(weft_view_frame* frame);
+weft_result weft_view_frame_get_info(const weft_view_frame* frame, weft_view_frame_info* out_info);
+
+/* ---- Anchors (docs/engine-communication.md section 5). Any thread. ---- */
+
+#define WEFT_ANCHOR_HIDDEN 1u
+#define WEFT_ANCHOR_BEHIND 2u
+#define WEFT_ANCHOR_OFFSCREEN 4u
+
+/* Where the element with data-anchor="key" goes: x, y in the View's logical px, scaled by scale, ordered by depth
+ * (far to near among siblings); flags 0 is visible. */
+typedef struct weft_anchor {
+    uint64_t key;
+    float x;
+    float y;
+    float scale;
+    float depth;
+    uint32_t flags;
+    uint32_t reserved;
+} weft_anchor;
+
+/* Replaces all of the View's anchors; renderers draw with the latest table, the owner hits with it. */
+weft_result weft_view_write_anchors(weft_runtime* runtime, weft_view_handle view, const weft_anchor* anchors,
+                                    size_t count);
+
+/* ---- The engine bridge (docs/engine-communication.md section 6). ---- */
+
+typedef enum weft_value_format {
+    WEFT_VALUE_MSGPACK = 1,
+    WEFT_VALUE_JSON = 2
+} weft_value_format;
+
+/* weft_view_emit: replace the value of an undelivered event of the name instead of queueing another. */
+#define WEFT_EMIT_LATEST 1u
+
+/* Any thread; the payload is copied and delivered at the View's next advance. WEFT_CAPACITY_EXCEEDED when the
+ * View's queue is full (nothing is taken). */
+weft_result weft_view_emit(weft_runtime* runtime, weft_view_handle view, const char* name, size_t name_size,
+                           uint32_t format, const void* payload, size_t payload_size, uint32_t flags);
+/* Any thread: settles the page's call (resolves it, or rejects it with the value). WEFT_STALE_HANDLE for a call that
+ * is not open (completed, timed out, from an earlier page, or never made). */
+weft_result weft_view_complete_call(weft_runtime* runtime, weft_view_handle view, uint64_t call_id, uint32_t succeeded,
+                                    uint32_t format, const void* payload, size_t payload_size);
+/* Any thread: merges fields (a map of field names to values) into the view model; the page sees one batch an
+ * advance. */
+weft_result weft_view_set_model(weft_runtime* runtime, weft_view_handle view, const char* model, size_t model_size,
+                                uint32_t format, const void* fields, size_t fields_size);
+
+#define WEFT_MESSAGE_SEND 1u
+#define WEFT_MESSAGE_CALL 2u
+
+/* A message of the page: weft.engine.send (call_id 0) or weft.engine.call. The name and the MessagePack payload are
+ * valid during the callback. */
+typedef struct weft_message {
+    uint32_t struct_size;
+    uint32_t kind; /* WEFT_MESSAGE_* */
+    uint64_t call_id;
+    const char* name;
+    size_t name_size;
+    const void* payload;
+    size_t payload_size;
+} weft_message;
+
+typedef void (*weft_message_fn)(void* user, weft_view_handle view, const weft_message* message);
+
+/* Owner thread: hands the page's messages since the last drain to fn, oldest first. fn may complete calls and emit
+ * events; owner operations on the View from fn return WEFT_BUSY. */
+weft_result weft_view_drain_messages(weft_runtime* runtime, weft_view_handle view, weft_message_fn fn, void* user);
+
+/* Where a sync function writes its result. Valid during the function's call. */
+typedef struct weft_value_writer weft_value_writer;
+
+/* The function's result: one value in format (an empty result is undefined). */
+weft_result weft_value_writer_set(weft_value_writer* writer, uint32_t format, const void* value, size_t size);
+
+/* A sync function: weft.engine.invoke(name, value) calls it on the owner thread in the middle of JS with the value
+ * as MessagePack. It must not call into the View (WEFT_BUSY). A result other than WEFT_OK is the invoke's exception. */
+typedef weft_result (*weft_function_fn)(void* user, const void* argument, size_t argument_size,
+                                        weft_value_writer* result);
+
+/* Owner thread. Kept across page loads; registering a name again replaces it. */
+weft_result weft_view_register_function(weft_runtime* runtime, weft_view_handle view, const char* name,
+                                        size_t name_size, weft_function_fn fn, void* user);
+
+/* ---- Diagnostics. Owner thread. ---- */
+
+typedef enum weft_diagnostic_kind {
+    WEFT_DIAGNOSTIC_SCRIPT = 1,  /* a script or task threw */
+    WEFT_DIAGNOSTIC_HANDLER = 2, /* a weft.engine handler or subscriber threw */
+    WEFT_DIAGNOSTIC_FRAME = 3,   /* an animation frame callback threw */
+    WEFT_DIAGNOSTIC_SCENE = 4    /* the page's styles make no scene (the last frame stays) */
+} weft_diagnostic_kind;
+
+typedef struct weft_diagnostic {
+    uint32_t struct_size;
+    uint32_t kind; /* weft_diagnostic_kind */
+    const char* message;
+    size_t message_size;
+} weft_diagnostic;
+
+typedef void (*weft_diagnostic_fn)(void* user, weft_view_handle view, const weft_diagnostic* diagnostic);
+
+/* Hands the diagnostics since the last drain to fn, oldest first; out_dropped, when given, receives how many were
+ * dropped past the View's bound. */
+weft_result weft_view_drain_diagnostics(weft_runtime* runtime, weft_view_handle view, weft_diagnostic_fn fn, void* user,
+                                        uint32_t* out_dropped);
 
 #ifdef __cplusplus
 }

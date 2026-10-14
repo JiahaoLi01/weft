@@ -10,10 +10,39 @@
   - 剩下的（两个场景分开采样）：K 线主要是虚线十字线每帧重新光栅化（约 32%）与它们的大纹理（约 10%），画成一串盒子估计省约 40%；散点图是刻度文字的字形轮廓随平移重画（约 41%）与属性变了的元素重新解析（显示列表约 50%），路径按形状与亚像素位置缓存估计省约 35%，只重新解析变了的属性约 15%；SVG 值缓存的逐项校验只占 2–7%；
   - 半透明窗口（11.5c，4K）：32 个窗口时 owner 约 2 ms、渲染 CPU 2.3–2.9 ms，随窗口里的元素数增长，三种窗口相近；背景拷贝本身 GPU 约 0.5–0.8 ms；
   - 低优先级，暂不做。
-- **与引擎通信**（2026-10-14 起，第 13 步，[计划](refactoring-plan.md#第-13-步计划2026-10-14与引擎通信)，[技术路线](engine-communication.md)）：血条这类每帧变位置的元素不靠每帧推 JSON（锚点在渲染线程取最新值），双向事件、带 Promise 的引擎调用与视图模型，C ABI 与 CRPG UI 的兼容层。基线：200 个血条每帧约 13 ms，页面自己算出同样的值（零传输）也一样慢，瓶颈在逐个改 DOM 之后的样式、布局与场景更新。13.1 已完成（2026-10-14）：400 个名牌只移动时 UI 线程每帧约 0.005 ms、渲染 CPU 约 0.02–0.04 ms（推 JSON 时分别约 23 ms 与 4 ms）。13.2 已完成（2026-10-14）：带类型的值、双向事件、调用与 Promise、同步函数、视图模型与 CRPG 兼容层；每秒约 1,000 个 10 KB 的事件时 UI 线程每帧 0.79 ms（CRPG 的拼脚本求值约 4.5 ms）。接下来是 13.3 C ABI 与对外 View。
+- **与引擎通信**（2026-10-14 起，第 13 步，[计划](refactoring-plan.md#第-13-步计划2026-10-14与引擎通信)，[技术路线](engine-communication.md)）：血条这类每帧变位置的元素不靠每帧推 JSON（锚点在渲染线程取最新值），双向事件、带 Promise 的引擎调用与视图模型，C ABI 与 CRPG UI 的兼容层。基线：200 个血条每帧约 13 ms，页面自己算出同样的值（零传输）也一样慢，瓶颈在逐个改 DOM 之后的样式、布局与场景更新。13.1 已完成（2026-10-14）：400 个名牌只移动时 UI 线程每帧约 0.005 ms、渲染 CPU 约 0.02–0.04 ms（推 JSON 时分别约 23 ms 与 4 ms）。13.2 已完成（2026-10-14）：带类型的值、双向事件、调用与 Promise、同步函数、视图模型与 CRPG 兼容层；每秒约 1,000 个 10 KB 的事件时 UI 线程每帧 0.79 ms（CRPG 的拼脚本求值约 4.5 ms）。13.3 分三段（[计划](refactoring-plan.md#第-13-步记录2026-10-14)）：13.3a 对外 View 与它的 C ABI 已完成（2026-10-14）；接下来 13.3b 渲染 C ABI 接 View 的帧与模拟引擎的宿主样例，13.3c 页面显示引擎的纹理（用户 2026-10-14 提出，如 UE 的 render target）。
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
+
+重构第 13 步之三（a）：对外 View 与它的 C ABI（2026-10-14）。详见 [重构计划](refactoring-plan.md#第-13-步记录2026-10-14) 与 [技术路线](engine-communication.md#8-对外-view133)。
+- **结果**：
+  - `weft::View`（`src/view`）把探针的画廊会话收拢成通用的部件：加载页面（脚本、样式表与关键帧、场景根）、推进（引擎的输入、任务、rAF、观察者、场景）、指针输入（合成 pointer 与 mouse 事件、over/out、enter/leave 与 click）、命中查询（元素与它继承来的 `cursor`，宿主据此决定点击交给 UI 还是游戏，同 CRPG 现在的做法）、发布不可变的帧（场景的版本号、View 的大小或缩放变了才复制一份场景树）。页面的异常记成诊断，VM 资源耗尽使 View 进入 Faulted；
+  - C ABI（`include/weft/weft.h`）：
+    - 字体：系统字体、字体文件、通用族与回退族，第一个页面加载时固定；
+    - owner 线程：`weft_view_load`、`advance`、`resize`、`pointer`、`hit_test`、`drain_messages`、`register_function`（结果写进 `weft_value_writer`）、`drain_diagnostics`；
+    - 任意线程：`weft_view_acquire_frame`（帧比 View 活得久）、`weft_view_write_anchors`、`weft_view_emit`、`complete_call`、`set_model`（MessagePack 或 JSON）；与销毁并发时返回过期句柄；
+    - 新结果 `WEFT_SCRIPT_ERROR`、`WEFT_FAULTED`；宿主回调里对同一 View 的 owner 操作返回 `WEFT_BUSY`；
+  - 由桥驱动的 HUD 示例页面 `examples/engine-host`：名牌跟锚点，血量来自视图模型，伤害数字来自事件，按钮调用引擎；
+  - View 每帧的开销（`weft_view_benchmark --full`，Ryzen 9 9950X3D，固定 CCD0，Release，1920 × 1080，每档预热 30 帧、240 帧）：画廊的锚点 HUD 只移动时推进 0.003 ms（没有新帧）；400 个名牌（1,603 个节点）每帧 20 处掉血时推进 p50 6.3 ms、p99 7.2 ms（与 13.1a 测的 7.1 ms 相同，整页的固定开销留给 13.5），其中发布帧复制场景树 0.53 ms。
+- **验证**：
+  - 新测试 `view_contract`：
+    - HUD 页面：加载与同步函数、事件与视图模型（视图模型先于事件交付，所以新名牌从模型取血量）、伤害数字一秒后消失、按钮的命中与光标、点击调用引擎与它的完成、按下与抬起不在同一元素上时没有 click；
+    - 锚点决定命中与 JS 读到的几何，继承的光标，enter、滚轮（默认动作被阻止）与 leave；
+    - 诊断：加载失败后 View 为空，处理函数、rAF 与任务的异常，样式做不出场景时保留上一帧；
+    - 帧：不变时不发布，只改缩放也发布，另一个线程读帧时帧不变，ResizeObserver 与 resize 事件，时间不倒退；
+    - 同一页面在 View 与画廊会话里的场景逐项相同（节点身份除外，两个 VM 各自编号）；
+  - 新测试 `c_api_view_contract`：结构体大小与版本；字体（第一个页面之后 `WEFT_BUSY`）；没有页面时；经 C 接口跑 HUD（JSON 与 MessagePack 的事件与完成、latest、视图模型、点击与完成、过期与不合法的完成、命中）；回调里的重入（owner 操作 `WEFT_BUSY`，发事件照常）；锚点（隐藏、非有限数、超量）；owner 操作在别的线程上返回 `WEFT_WRONG_THREAD`，任意线程的操作可用；销毁后与槽位被重用后的过期句柄；4 个线程与 owner 反复创建销毁 View 并发；加载失败丢弃消息与调用；Faulted（加载时与之后的推进，重新加载后恢复）；
+  - `c_api_smoke` 用 C11 编译并调用全部新入口；`view_benchmark_quick` 是基准的短跑；
+  - 37 个变异全部被发现（View 的发布、交付、观察者、锚点、命中与光标、click、enter/leave、滚轮、加载与诊断、Faulted、时间与 resize；C 接口的重入、代际、销毁、字体、函数、时间、latest、完成、光标、prevented、诊断种类、帧时间、锚点、错误映射、JSON 结果与消息种类）。第一轮 38 个里存活 3 个：失败的加载留下消息与调用、MessagePack 完成的成功标志，补了反例；`weft_view_advance` 里对 Faulted 的提前返回与 View 自己的检查等价，删去（`weft_view_pointer` 里同样的检查一并删去）；
+  - `ctest`：Release 156/156，Debug 156/156（新增 3 个）；产物与 12.3 基线相比与 13.2 相同；Android 零警告。
+  - 命令与产物：`build/windows-msvc/bin/Release/weft_view_benchmark.exe --full <dir>`（固定 CCD0、高优先级，结果在 `<dir>/view.json`；测试的短跑写到 `build/windows-msvc/artifacts/view-benchmark-<配置>/view.json`）。
+- **限制**：
+  - 渲染 View 的帧还没有 C 接口（13.3b）；
+  - 输入只有指针与滚轮；键盘、IME 与手柄在之后（手柄可以走桥的事件）；
+  - 没有页面效果与粒子的注册接口、从内存加载字体、图片等资源的宿主回调；页面脚本由宿主读好交进来，没有模块加载器；
+  - 发布帧时复制整棵场景树（1,600 个节点约 0.5 ms），13.5 改成共享不变的子树。
+- **下一步**：13.3b：渲染 C ABI 接 View 的帧，内置 D3D11、Vulkan 后端的 C 创建入口（用宿主的设备），模拟引擎的宿主样例。
 
 重构第 13 步之二：桥接（2026-10-14），13.2 完成。详见 [重构计划](refactoring-plan.md#第-13-步记录2026-10-14) 与 [技术路线](engine-communication.md#6-桥接)。
 - **结果**：

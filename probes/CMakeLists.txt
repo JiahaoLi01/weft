@@ -177,6 +177,19 @@ if(WEFT_BUILD_TESTS)
 endif()
 # The engine bridge against CRPG's JSON spliced into a script (docs/engine-communication.md, 13.2): the quick run checks
 # that the three ways hand the page the same values; --full measures, by hand.
+# What a View costs its owner each frame (docs/engine-communication.md, 13.3): the gallery's anchored HUD, with and
+# without health changes; the quick run checks that it runs, --full measures, by hand.
+set(view_benchmark_fonts)
+if(WIN32)
+    set(view_benchmark_fonts weft::platform_win32)
+elseif(ANDROID)
+    set(view_benchmark_fonts weft::platform_android)
+endif()
+weft_add_executable(weft_view_benchmark SOURCES view_benchmark.cpp LINK weft::view ${view_benchmark_fonts} SOURCE_DIR LARGE_STACK)
+if(WEFT_BUILD_TESTS)
+    weft_add_test(NAME view_benchmark_quick
+        COMMAND weft_view_benchmark --quick "${artifacts}/view-benchmark-$<CONFIG>" TIMEOUT 120)
+endif()
 weft_add_executable(weft_bridge_benchmark SOURCES bridge_benchmark.cpp LINK weft::script)
 if(WEFT_BUILD_TESTS)
     weft_add_test(NAME bridge_benchmark_quick

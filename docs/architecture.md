@@ -73,7 +73,7 @@ flowchart LR
 | DestroyView | owner 停止脚本并取消请求；已提交 GPU 资源继续由 Runtime 退休管理 |
 | DestroyRuntime | 停止 producer 后清理；存在异步 lease、录制包、GPU 使用或外部纹理 lease 时返回 busy |
 
-与引擎的数据与调用（每帧位置用的锚点、带类型的事件与调用、视图模型）的设计见 [与引擎通信](engine-communication.md)（第 13 步）。已实现锚点（下文“锚点”）与桥接（下文“引擎桥接”）的内部接口，C 接口尚未实现。
+与引擎的数据与调用（每帧位置用的锚点、带类型的事件与调用、视图模型）的设计见 [与引擎通信](engine-communication.md)（第 13 步）。已实现锚点（下文“锚点”）、桥接（下文“引擎桥接”）与对外 View（下文“对外 View”）及其 C 接口；渲染 View 的帧的 C 接口在 13.3b。
 
 字符串输入只在调用期间借用，异步使用必须复制。返回缓冲区通过本库的释放接口或约定 allocator 释放，避免跨 CRT 释放。宿主回调不能抛异常或同步重入 View；要执行 DOM 操作时排入下一安全点。
 
@@ -326,6 +326,15 @@ CSS 与普通 PNG 输入按 sRGB 来源解释，先 transfer decode 到线性，
 - 页面 → 引擎：`send` 与 `call` 的消息留在 ScriptDom（有界），宿主在 owner 上取走（`take_engine_messages`），取的时候不会进入 JS。同步函数（`invoke`）在 JS 执行当中调用宿主，期间 ScriptDom 的任何接口都拒绝进入（`WEFT_ENGINE_REENTRY`）。
 - 身份与生命周期：调用的 id 由通道发放、从不重用；已完成、超时关闭或重置之前的调用，其完成立即被拒绝（Stale），完成与超时相遇时页面一侧把它记为 stale。重置丢弃等待中的输入与页面的消息、关闭全部调用；通道与同步函数属于 View，留给之后加载的页面。
 - 值的转换：在原生侧直接建 JS 对象与数组（自有数据属性，`__proto__` 键不改原型），不经 JSON 文本，不求值脚本；从 JS 转出时检查循环、深度与大小上限，类型规则与 JSON.stringify 一致的部分（toJSON、Proxy 包着的数组）照它，函数与 symbol 拒绝而不是省略。
+
+## 对外 View
+
+2026-10-14 第 13.3a 步。设计与接口见 [与引擎通信](engine-communication.md#8-对外-view133)。
+- 组成：`weft::View`（`src/view`）在 owner 线程持有一个页面的 VM（ScriptDom）、场景求解器与几何；`ViewShared` 是其他线程能碰到的部分：锚点通道、引擎通道与最近发布的帧，都是线程安全的值与队列，View 销毁后由持有者继续持有。C ABI（`src/core/runtime.cpp`）的 Runtime 用代际槽位存 View，任意线程的入口经一个加锁的表按槽位与代际找到 `ViewShared`。
+- 帧：只在场景内容的版本号、View 的大小或缩放变了时复制一份场景树发布（`std::shared_ptr<const ViewFrame>`），之后不再改；渲染线程按帧里的字体目录建自己的 SceneText 重新排版文字，帧里只有值（文字、样式、盒子），没有 Node、JSValue 或 owner 的缓存。
+- 一致性：渲染与命中各自取最新的锚点表（13.1）；JS 读几何用推进开始时 owner 取到的表，命中与指针输入时再取一次。
+- 错误：页面的异常是诊断，不是 C 接口的错误；VM 资源耗尽使 View 进入 Faulted，直到重新加载；宿主回调里的重入返回 `WEFT_BUSY`。
+- 不变量：加载总是从新的文档开始（`reset_document`），关闭上一页面的调用、丢弃等待的输入与消息；引擎通道与同步函数属于 View，跨加载保留。
 
 ## 文本和字体
 

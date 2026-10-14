@@ -1,0 +1,11 @@
+#root{position:relative;width:100%;height:100%;overflow:hidden;font-family:sans-serif;color:#f5e6c8}
+.hud-layer{position:absolute;left:0;top:0;right:0;bottom:0;pointer-events:none}
+.hud-unit{position:absolute;left:0;top:0;width:96px}
+.hud-name{height:16px;font-size:12px;line-height:16px;text-align:center}
+.hud-bar{height:6px;background-color:rgba(0,0,0,0.6);border:1px solid #3a2a12}
+.hud-fill{width:100%;height:100%;background-color:#c0392b;transform-origin:0 50%}
+.hud-damage{position:absolute;left:0;top:0;width:48px;height:20px;font-size:16px;line-height:20px;text-align:center;color:#ffd166;animation:hud-rise 1s linear forwards}
+.hud-panel{position:absolute;right:24px;bottom:24px;width:160px;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.hud-title{height:20px;font-size:16px;line-height:20px}
+.hud-turn{height:18px;font-size:14px;line-height:18px}
+.hud-end{width:120px;height:32px;font-size:14px;line-height:30px;background-color:#3b2a1a;border:1px solid #a07040;border-radius:4px;color:#f5e6c8;cursor:pointer}

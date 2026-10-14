@@ -2169,6 +2169,26 @@ CMake 拆分：
   - 同步函数在 13.2 是 C++ 的 `std::function`，结果是 bridge 值的字节（C ABI 的写入器在 13.3）；
   - CRPG 兼容层把视图模型 `vm` 转给 `__vm_update`（CRPG 一个 widget 只绑一个视图模型）。
 
+**13.3 计划**（2026-10-14）：C ABI、对外 View 与引擎纹理。用户同时提出：页面要能用引擎放进来的纹理（如 UE 的 render target），不经 CPU。现状：渲染器 C ABI 已有外部纹理租约（D3D11 的 SRV、Vulkan 的 VkImageView，同设备同队列、零拷贝、按宿主确认的完成序号退休），但只接在四边形帧与显示列表帧上；scene 页面没有渲染 C ABI，页面也没有引用引擎纹理的写法；跨设备或跨图形 API 的共享没有实现。分三段，各自验证、提交：
+- 13.3a 对外 View（`src/view`，库 `weft::view`）与它的 C ABI（`include/weft/weft.h`），不含渲染：
+  - View 把探针的 `GallerySceneSession` 收拢成通用的部件：加载页面（脚本按序求值，样式表与关键帧，场景根的选择器；平台模块 WebHost、AnimationFrame、ScenePlatform、Engine，可选 CrpgBridge）、推进（取锚点、交付引擎的输入、任务、rAF、观察者、场景帧）、指针输入（移动、按下、抬起、滚轮、离开；按画廊的顺序合成 pointer、mouse、over/out、enter/leave 与 click）、命中查询（某点下是否有接收指针事件的元素，以及它的 `cursor`：CRPG 按光标是否在可交互元素上决定点击交给 UI 还是游戏）、发布不可变的帧（内容版本变了才复制）。页面的错误记成诊断，资源耗尽使 View 进入 Faulted。
+  - 字体：Runtime 一份字体目录（系统字体，或宿主列出的字体文件与通用族、回退族）；owner 与渲染线程各建自己的 SceneText，帧里只有文字与盒子的值。
+  - C ABI：加载、推进、指针、命中、取帧（任意线程，引用计数的不可变帧）、写锚点（任意线程）、发事件、完成调用、设置视图模型（任意线程）、取消息与注册同步函数（owner）、取诊断；新结果 `WEFT_SCRIPT_ERROR`、`WEFT_FAULTED`。任意线程的入口经 Runtime 里加锁的表找到 View 的共享部分，与销毁并发时返回过期句柄。
+  - scene 样式加 `cursor`（继承）。
+  - 由桥驱动的 HUD 页面（`examples/engine-host`）：名牌跟锚点、血量来自视图模型、伤害数字来自事件、按钮调用引擎。
+  - 测试：C ABI 合同（struct_size、版本、线程、过期句柄、任意线程入口与销毁并发）；View 的行为（加载、推进、事件、调用、锚点决定命中、跨线程取帧）；同一页面与探针会话的帧逐项相同。
+- 13.3b 渲染 C ABI 接 View 的帧：`weft_renderer_prepare_scene`（帧、缩放、图层）；内置 D3D11、Vulkan 后端的 C 创建入口，用宿主的设备（D3D11 设备；Vulkan 的实例、物理设备、设备与队列）；D3D11 的 scene 渲染器改为录进宿主的延迟上下文；只用公开头文件的模拟引擎宿主样例，在 D3D11 与 Vulkan 上跑 HUD 加事件，与 C++ 路径逐像素对照。
+- 13.3c 引擎纹理进页面：`background-image: -weft-texture(name)`，帧记下名字，宿主随每帧把名字对应的外部纹理租约交给 `prepare_scene`；两个 scene 渲染器采样（线性预乘转到编码空间合成）；样例显示宿主每帧用 GPU 画的纹理。
+- 不在 13.3（记入兼容表与诊断）：键盘、IME 与手柄（手柄照 CRPG 的 `uiInput` 走桥的事件）；页面效果与粒子的注册接口；从内存加载字体；跨设备、跨 API 的纹理共享。
+- UE 与 D3D12：UE5 在 Windows 上默认 D3D12（CRPG 是 `DefaultGraphicsRHI_DX12`），Weft 只有 D3D11 与 Vulkan 后端。CRPG 现在的 Ultralight 用 UE 的 RHI 自己实现了 GPU driver（`CRPGUltralight/GPUDriver`），Gameface 的 UE 插件也走 RHI。建议 UE 插件（M5）同样在 RHI 上实现 Weft 的渲染后端：UE 的 render target 就是同一设备上的 RHI 纹理，零拷贝，不需要共享句柄，也同时覆盖 D3D12、Vulkan 与主机平台。跨 API 共享（D3D12 资源经共享 NT 句柄交给 D3D11 设备，共享 fence 同步）要独立的设备、多一帧延迟和额外的同步，只作退路；原生 D3D12 后端等有不经 UE 的 D3D12 宿主时再做。
+
+**13.3a：对外 View 与它的 C ABI**（2026-10-14）：
+- View（`src/view/view.hpp`，库 `weft::view`，依赖 script、scene、bridge）：`View(fonts, SceneText&, width, height, scale, shared)`，`load(ViewPage)`、`advance(ms)`、`resize`、`pointer(PointerInput)`、`hit(x, y)`、`take_diagnostics`、`take_messages`、`install_function`；`ViewShared`（锚点通道、引擎通道、最近的帧，线程安全）；`ViewFrame`（场景树、大小与缩放、字体目录、锚点通道）。整数格式化宿主换成可移植的 en-US 分组（画廊会话用 Windows 的 `GetNumberFormatEx`）；不装粒子宿主与效果（页面用到时是诊断）。
+- 与画廊会话不同：加载时总是 `reset_document`；页面错误是诊断而不是异常；`innerWidth`、`innerHeight` 与 `devicePixelRatio` 在加载与调整大小时设好，调整大小时派发 window 的 resize；离开（Leave）只结束悬停，不取消按下；命中查询把场景根当作页面本身（不算命中）；光标按祖先查找（scene 样式里 `cursor` 不继承，改成继承会改变全部子孙的样式与现有产物）。
+- C ABI（`src/core/runtime.cpp`，`weft::core` 私下依赖 `weft::view` 与平台字体）：View 在第一次加载时才建 VM 与场景（之前只有共享部分），所以创建后不加载的 View 仍然便宜；`weft_runtime_desc.reserved` 改为 `flags`（`WEFT_RUNTIME_SYSTEM_FONTS`，空描述符时默认开）；`weft_view_record_tick` 保留，与 `weft_view_advance` 共用单调时间。
+- 基准：`weft_view_benchmark --quick|--full <dir>`（`probes/view_benchmark.cpp`，可移植）。
+- 与技术路线不同：命中查询返回元素与光标（`weft_view_hit_test`），不是只回答“是否可交互”；页面资源没有宿主回调（scene 页面不画 `<img>`，脚本与样式由宿主交进来）；输入只有指针与滚轮。
+
 ## 顺序调整（2026-10-10）
 
 用户决定先完成第 7–9 步，第 10 步（第二个图形后端与移动平台）暂缓。跨平台仍是硬性需求：

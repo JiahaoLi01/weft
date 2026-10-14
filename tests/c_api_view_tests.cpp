@@ -1,0 +1,661 @@
+#include <weft/weft.h>
+
+#include "bridge/bridge_value.hpp"
+#include "support/check.hpp"
+#include "support/files.hpp"
+
+#include <atomic>
+#include <cmath>
+#include <cstring>
+#include <iostream>
+#include <limits>
+#include <stdexcept>
+#include <string>
+#include <thread>
+#include <vector>
+
+// The View's C ABI (include/weft/weft.h, docs/engine-communication.md section 8): struct sizes and versions, owner and
+// any-thread calls, stale handles (also against concurrent destruction), pages, engine events, calls, view models,
+// sync functions and their reentry, anchors, hit queries, frames that outlive their View, diagnostics and faults.
+namespace {
+    namespace bridge = weft::bridge;
+    using weft::testing::require;
+
+    std::string source(const std::string& relative) {
+        return weft::testing::read_file(std::string(WEFT_SOURCE_DIR) + "/" + relative);
+    }
+
+    struct Runtime {
+        weft_runtime* runtime{};
+
+        Runtime() {
+            require(weft_runtime_create(nullptr, &runtime) == WEFT_OK, "runtime");
+        }
+
+        ~Runtime() {
+            weft_runtime_destroy(runtime);
+        }
+
+        weft_view_handle view(float width = 1280, float height = 720) const {
+            const weft_view_desc desc{sizeof(weft_view_desc), 0, width, height, 1, 0};
+            weft_view_handle out{};
+            require(weft_view_create(runtime, &desc, &out) == WEFT_OK, "view");
+            return out;
+        }
+    };
+
+    // A page's sources, kept alive for its descriptor.
+    struct Page {
+        std::vector<std::string> names;
+        std::vector<std::string> sources;
+        std::vector<weft_script> scripts;
+        std::string stylesheet;
+        std::string keyframes;
+        uint32_t flags{};
+
+        weft_page_desc desc() {
+            scripts.clear();
+            for (std::size_t i = 0; i < sources.size(); ++i) {
+                scripts.push_back({names[i].data(), names[i].size(), sources[i].data(), sources[i].size()});
+            }
+            return {sizeof(weft_page_desc),
+                    flags,
+                    scripts.data(),
+                    uint32_t(scripts.size()),
+                    0,
+                    stylesheet.data(),
+                    stylesheet.size(),
+                    keyframes.data(),
+                    keyframes.size(),
+                    nullptr,
+                    0};
+        }
+    };
+
+    Page hud() {
+        Page p;
+        p.names = {"hud.js"};
+        p.sources = {source("examples/engine-host/hud.js")};
+        p.stylesheet = source("examples/engine-host/hud.css");
+        p.keyframes = source("examples/engine-host/hud-keyframes.css");
+        return p;
+    }
+
+    Page inline_page(std::string script, std::string stylesheet = {}) {
+        Page p;
+        p.names = {"inline.js"};
+        p.sources = {std::move(script)};
+        p.stylesheet = "#root{position:relative;width:100%;height:100%}" + stylesheet;
+        return p;
+    }
+
+    weft_result load(const Runtime& r, weft_view_handle view, Page page) {
+        const auto desc = page.desc();
+        return weft_view_load(r.runtime, view, &desc);
+    }
+
+    struct Message {
+        uint32_t kind{};
+        uint64_t call{};
+        std::string name;
+        std::string json;
+    };
+
+    std::vector<Message> drain(const Runtime& r, weft_view_handle view) {
+        std::vector<Message> out;
+        require(weft_view_drain_messages(
+                    r.runtime, view,
+                    [](void* user, weft_view_handle, const weft_message* m) {
+                        static_cast<std::vector<Message>*>(user)->push_back(
+                            {m->kind, m->call_id, std::string(m->name, m->name_size),
+                             bridge::value_to_json({static_cast<const std::uint8_t*>(m->payload), m->payload_size})});
+                    },
+                    &out) == WEFT_OK,
+                "drain");
+        return out;
+    }
+
+    std::vector<std::pair<uint32_t, std::string>> diagnostics(const Runtime& r, weft_view_handle view) {
+        std::vector<std::pair<uint32_t, std::string>> out;
+        uint32_t dropped = 9;
+        require(weft_view_drain_diagnostics(
+                    r.runtime, view,
+                    [](void* user, weft_view_handle, const weft_diagnostic* d) {
+                        static_cast<std::vector<std::pair<uint32_t, std::string>>*>(user)->emplace_back(
+                            d->kind, std::string(d->message, d->message_size));
+                    },
+                    &out, &dropped) == WEFT_OK &&
+                    dropped == 0,
+                "diagnostics");
+        return out;
+    }
+
+    weft_result emit(const Runtime& r, weft_view_handle view, std::string_view name, std::string_view json,
+                     uint32_t flags = 0) {
+        return weft_view_emit(r.runtime, view, name.data(), name.size(), WEFT_VALUE_JSON, json.data(), json.size(),
+                              flags);
+    }
+
+    weft_result pointer(const Runtime& r, weft_view_handle view, uint32_t kind, float x, float y, uint32_t buttons = 0,
+                        uint32_t* prevented = nullptr) {
+        const weft_pointer_event e{sizeof(weft_pointer_event), kind, x, y, buttons, 0, 0, 0};
+        return weft_view_pointer(r.runtime, view, &e, prevented);
+    }
+
+    weft_hit hit(const Runtime& r, weft_view_handle view, float x, float y) {
+        weft_hit out{};
+        out.struct_size = sizeof(out);
+        require(weft_view_hit_test(r.runtime, view, x, y, &out) == WEFT_OK, "hit");
+        return out;
+    }
+
+    weft_view_frame_info frame_info(const Runtime& r, weft_view_handle view) {
+        weft_view_frame* frame{};
+        require(weft_view_acquire_frame(r.runtime, view, &frame) == WEFT_OK && frame, "frame");
+        weft_view_frame_info info{};
+        info.struct_size = sizeof(info);
+        require(weft_view_frame_get_info(frame, &info) == WEFT_OK, "frame info");
+        weft_view_frame_release(frame);
+        return info;
+    }
+
+    void sizes_and_versions() {
+        weft_runtime* runtime = reinterpret_cast<weft_runtime*>(1);
+        weft_runtime_desc desc{sizeof(weft_runtime_desc), WEFT_ABI_VERSION, 4, 2};
+        require(weft_runtime_create(&desc, &runtime) == WEFT_INVALID_ARGUMENT && !runtime, "unknown runtime flags");
+        desc = {sizeof(weft_runtime_desc) - 4, WEFT_ABI_VERSION, 4, 0};
+        require(weft_runtime_create(&desc, &runtime) == WEFT_INVALID_ARGUMENT, "a short runtime descriptor");
+        desc = {sizeof(weft_runtime_desc), WEFT_ABI_VERSION + 1, 4, 0};
+        require(weft_runtime_create(&desc, &runtime) == WEFT_UNSUPPORTED_ABI, "another ABI version");
+
+        Runtime r;
+        const auto view = r.view();
+        auto page = inline_page("1");
+        auto d = page.desc();
+        d.struct_size = sizeof(d) - 8;
+        require(weft_view_load(r.runtime, view, &d) == WEFT_INVALID_ARGUMENT, "a short page descriptor");
+        d = page.desc();
+        d.flags = 2;
+        require(weft_view_load(r.runtime, view, &d) == WEFT_INVALID_ARGUMENT, "unknown page flags");
+        d = page.desc();
+        d.reserved = 1;
+        require(weft_view_load(r.runtime, view, &d) == WEFT_INVALID_ARGUMENT, "reserved page field");
+        d = page.desc();
+        d.scripts = nullptr;
+        require(weft_view_load(r.runtime, view, &d) == WEFT_INVALID_ARGUMENT, "scripts missing");
+        d = page.desc();
+        page.scripts[0].source = nullptr;
+        require(weft_view_load(r.runtime, view, &d) == WEFT_INVALID_ARGUMENT, "a script's text missing");
+        require(weft_view_load(r.runtime, view, nullptr) == WEFT_INVALID_ARGUMENT, "no page");
+
+        weft_pointer_event e{sizeof(weft_pointer_event) - 4, WEFT_POINTER_MOVE, 0, 0, 0, 0, 0, 0};
+        require(weft_view_pointer(r.runtime, view, &e, nullptr) == WEFT_INVALID_ARGUMENT, "a short pointer event");
+        e = {sizeof(weft_pointer_event), 9, 0, 0, 0, 0, 0, 0};
+        require(weft_view_pointer(r.runtime, view, &e, nullptr) == WEFT_INVALID_ARGUMENT, "an unknown pointer kind");
+        e = {sizeof(weft_pointer_event), WEFT_POINTER_MOVE, 0, 0, 0, 1, 0, 0};
+        require(weft_view_pointer(r.runtime, view, &e, nullptr) == WEFT_INVALID_ARGUMENT, "reserved pointer field");
+        weft_hit h{};
+        h.struct_size = sizeof(h) - 1;
+        require(weft_view_hit_test(r.runtime, view, 0, 0, &h) == WEFT_INVALID_ARGUMENT, "a short hit");
+        weft_font_face face{sizeof(weft_font_face), 400, 0, 0, "Ahem", 4, "x.ttf", 5};
+        face.struct_size -= 8;
+        require(weft_runtime_add_font(r.runtime, &face) == WEFT_INVALID_ARGUMENT, "a short font face");
+        face = {sizeof(weft_font_face), 0, 0, 0, "Ahem", 4, "x.ttf", 5};
+        require(weft_runtime_add_font(r.runtime, &face) == WEFT_INVALID_ARGUMENT, "weight 0");
+        face = {sizeof(weft_font_face), 400, 2, 0, "Ahem", 4, "x.ttf", 5};
+        require(weft_runtime_add_font(r.runtime, &face) == WEFT_INVALID_ARGUMENT, "italic 2");
+        face = {sizeof(weft_font_face), 400, 0, 0, "", 0, "x.ttf", 5};
+        require(weft_runtime_add_font(r.runtime, &face) == WEFT_INVALID_ARGUMENT, "no family");
+        require(weft_runtime_set_generic_family(r.runtime, "math", 4, "Ahem", 4) == WEFT_INVALID_ARGUMENT,
+                "an unknown generic family");
+        require(weft_runtime_set_generic_family(r.runtime, "serif", 5, "Ahem", 4) == WEFT_OK &&
+                    weft_runtime_add_fallback_family(r.runtime, "Ahem", 4) == WEFT_OK,
+                "font families before the first page");
+        const auto ahem = std::string(WEFT_SOURCE_DIR) + "/third_party/ahem/Ahem.ttf";
+        face = {sizeof(weft_font_face), 400, 0, 0, "Ahem", 4, ahem.data(), ahem.size()};
+        require(weft_runtime_add_font(r.runtime, &face) == WEFT_OK, "a font file");
+        require(load(r, view, inline_page("1")) == WEFT_OK, "a page");
+        require(weft_runtime_add_font(r.runtime, &face) == WEFT_BUSY &&
+                    weft_runtime_add_fallback_family(r.runtime, "Ahem", 4) == WEFT_BUSY,
+                "fonts are fixed once a page loaded");
+        weft_view_frame_info info{};
+        info.struct_size = sizeof(info) - 4;
+        weft_view_frame* frame{};
+        require(weft_view_acquire_frame(r.runtime, view, &frame) == WEFT_OK &&
+                    weft_view_frame_get_info(frame, &info) == WEFT_INVALID_ARGUMENT,
+                "a short frame info");
+        weft_view_frame_release(frame);
+        require(std::string(weft_result_string(WEFT_SCRIPT_ERROR)) == "page script error" &&
+                    std::string(weft_result_string(WEFT_FAULTED)) == "view faulted",
+                "the new results' names");
+        weft_view_destroy(r.runtime, view);
+    }
+
+    void without_a_page() {
+        Runtime r;
+        const auto view = r.view();
+        weft_view_frame* frame = reinterpret_cast<weft_view_frame*>(1);
+        require(weft_view_acquire_frame(r.runtime, view, &frame) == WEFT_BUSY && !frame, "no frame yet");
+        require(weft_view_advance(r.runtime, view, 0.5) == WEFT_OK &&
+                    pointer(r, view, WEFT_POINTER_MOVE, 10, 10) == WEFT_OK,
+                "advance and pointer without a page");
+        const auto h = hit(r, view, 10, 10);
+        require(!h.element && std::string(h.cursor) == "auto", "nothing under a point");
+        require(drain(r, view).empty() && diagnostics(r, view).empty(), "nothing to drain");
+        require(weft_view_advance(r.runtime, view, 0.25) == WEFT_TIME_REGRESSION &&
+                    weft_view_advance(r.runtime, view, std::nan("")) == WEFT_INVALID_ARGUMENT,
+                "time");
+        weft_view_destroy(r.runtime, view);
+    }
+
+    struct Calls {
+        const Runtime* r{};
+        weft_view_handle view{};
+        weft_result reentry = WEFT_OK;
+        weft_result emitted = WEFT_INTERNAL_ERROR;
+        unsigned count{};
+    };
+
+    weft_result loc_get(void* user, const void* argument, size_t size, weft_value_writer* result) {
+        auto& calls = *static_cast<Calls*>(user);
+        ++calls.count;
+        // Owner operations wait; the bridge's any-thread calls work.
+        calls.reentry = weft_view_advance(calls.r->runtime, calls.view, 1000);
+        calls.emitted = emit(*calls.r, calls.view, "from.function", "1");
+        const auto key = bridge::value_to_json({static_cast<const std::uint8_t*>(argument), size});
+        const std::string answer = key == R"({"key":"hud.title"})" ? R"("Battle")" : R"("?")";
+        return weft_value_writer_set(result, WEFT_VALUE_JSON, answer.data(), answer.size());
+    }
+
+    void pages_and_bridge() {
+        Runtime r;
+        const auto view = r.view();
+        Calls calls{&r, view};
+        require(weft_view_register_function(r.runtime, view, "loc.get", 7, loc_get, &calls) == WEFT_OK,
+                "a function before the page");
+        require(weft_view_register_function(r.runtime, view, "", 0, loc_get, &calls) == WEFT_INVALID_ARGUMENT &&
+                    weft_view_register_function(r.runtime, view, "x", 1, nullptr, &calls) == WEFT_INVALID_ARGUMENT,
+                "a function needs a name and a callback");
+        require(load(r, view, hud()) == WEFT_OK, "the HUD");
+        require(calls.count == 1 && calls.reentry == WEFT_BUSY && calls.emitted == WEFT_OK,
+                "a function's owner calls wait; its emits go");
+        auto messages = drain(r, view);
+        require(messages.size() == 1 && messages[0].kind == WEFT_MESSAGE_SEND && messages[0].call == 0 &&
+                    messages[0].name == "hud.ready" && messages[0].json == R"({"title":"Battle"})",
+                "the ready message");
+        const auto first = frame_info(r, view);
+        require(first.revision && first.logical_width == 1280 && first.logical_height == 720 && first.device_scale == 1,
+                "the first frame");
+        // Events in JSON and MessagePack, latest, a model; malformed input refused.
+        require(emit(r, view, "hud.spawn", R"({"id":1,"name":"Goblin"})") == WEFT_OK, "JSON event");
+        bridge::ValueWriter w;
+        w.map(2);
+        w.string("id");
+        w.integer(2);
+        w.string("name");
+        w.string("Orc");
+        require(weft_view_emit(r.runtime, view, "hud.spawn", 9, WEFT_VALUE_MSGPACK, w.data().data(), w.data().size(),
+                               0) == WEFT_OK,
+                "MessagePack event");
+        require(emit(r, view, "hud.spawn", "{", 0) == WEFT_INVALID_ARGUMENT &&
+                    emit(r, view, "hud.spawn", "{}", 2) == WEFT_INVALID_ARGUMENT &&
+                    weft_view_emit(r.runtime, view, "x", 1, 3, "1", 1, 0) == WEFT_INVALID_ARGUMENT,
+                "malformed events");
+        const std::string fields = R"({"1":0.25})";
+        require(weft_view_set_model(r.runtime, view, "health", 6, WEFT_VALUE_JSON, fields.data(), fields.size()) ==
+                    WEFT_OK,
+                "a model");
+        require(weft_view_set_model(r.runtime, view, "health", 6, WEFT_VALUE_JSON, "[1]", 3) == WEFT_INVALID_ARGUMENT,
+                "a model that is not a map");
+        require(weft_view_advance(r.runtime, view, 0.016) == WEFT_OK, "advance");
+        const auto second = frame_info(r, view);
+        require(second.revision != first.revision && std::abs(second.time_seconds - 0.016) < 1e-9, "a new frame");
+        // The button calls the engine; a completion settles it at the next advance.
+        require(pointer(r, view, WEFT_POINTER_MOVE, 1200, 680) == WEFT_OK &&
+                    pointer(r, view, WEFT_POINTER_DOWN, 1200, 680, 1) == WEFT_OK &&
+                    pointer(r, view, WEFT_POINTER_UP, 1200, 680, 0) == WEFT_OK,
+                "a click");
+        messages = drain(r, view);
+        require(messages.size() == 1 && messages[0].kind == WEFT_MESSAGE_CALL && messages[0].call &&
+                    messages[0].name == "hud.endTurn" && messages[0].json == R"({"turn":1})",
+                "the click's call");
+        const std::string answer = R"({"turn":2})";
+        require(weft_view_complete_call(r.runtime, view, messages[0].call, 1, WEFT_VALUE_JSON, answer.data(),
+                                        answer.size()) == WEFT_OK,
+                "complete");
+        require(weft_view_complete_call(r.runtime, view, messages[0].call, 1, WEFT_VALUE_JSON, answer.data(),
+                                        answer.size()) == WEFT_STALE_HANDLE &&
+                    weft_view_complete_call(r.runtime, view, 999999, 1, WEFT_VALUE_JSON, "1", 1) == WEFT_STALE_HANDLE &&
+                    weft_view_complete_call(r.runtime, view, messages[0].call, 2, WEFT_VALUE_JSON, "1", 1) ==
+                        WEFT_INVALID_ARGUMENT,
+                "stale and malformed completions");
+        require(weft_view_advance(r.runtime, view, 0.032) == WEFT_OK && frame_info(r, view).revision != second.revision,
+                "the answer shows");
+        // Hits: the button (a pointer), the title (no cursor), the root (nothing).
+        auto h = hit(r, view, 1200, 680);
+        require(h.element && std::string(h.cursor) == "pointer", "the button");
+        h = hit(r, view, 1200, 620);
+        require(h.element && std::string(h.cursor) == "auto", "the title");
+        h = hit(r, view, 10, 10);
+        require(!h.element, "the root");
+        require(diagnostics(r, view).empty(), "no diagnostics");
+
+        // A page that echoes: calls the engine, answers what it gets.
+        require(load(r, view, inline_page(R"JS(
+            weft.engine.on('echo', v => weft.engine.send('echo', v));
+            weft.engine.call('ask', 1).then(v => weft.engine.send('answer', v), e => weft.engine.send('refused', e.value));
+            try { weft.engine.invoke('fails'); } catch (e) { weft.engine.send('fails', e.message); }
+          )JS")) == WEFT_OK,
+                "the echo page");
+        messages = drain(r, view);
+        require(messages.size() == 2 && messages[0].kind == WEFT_MESSAGE_CALL && messages[0].name == "ask" &&
+                    messages[1].name == "fails" && messages[1].json == R"("WEFT_ENGINE: no function fails")",
+                "a call and an unknown function");
+        require(weft_view_complete_call(r.runtime, view, messages[0].call, 0, WEFT_VALUE_JSON, "42", 2) == WEFT_OK,
+                "a refusal");
+        require(load(r, view, inline_page("weft.engine.call('ask', 1).then(v => weft.engine.send('answer', v))")) ==
+                    WEFT_OK,
+                "a page that asks");
+        messages = drain(r, view);
+        const std::uint8_t packed[]{0x92, 0x01, 0xa1, 'x'};
+        require(messages.size() == 1 &&
+                    weft_view_complete_call(r.runtime, view, messages[0].call, 1, WEFT_VALUE_MSGPACK, packed,
+                                            sizeof packed) == WEFT_OK &&
+                    weft_view_complete_call(r.runtime, view, 7, 1, WEFT_VALUE_MSGPACK, packed, sizeof packed) ==
+                        WEFT_STALE_HANDLE &&
+                    weft_view_complete_call(r.runtime, view, 7, 1, WEFT_VALUE_MSGPACK, packed, 2) ==
+                        WEFT_INVALID_ARGUMENT,
+                "a completion in MessagePack");
+        require(weft_view_advance(r.runtime, view, 0.040) == WEFT_OK, "advance");
+        messages = drain(r, view);
+        require(messages.size() == 1 && messages[0].name == "answer" && messages[0].json == R"([1,"x"])", "its answer");
+        require(load(r, view, inline_page(R"JS(
+            weft.engine.on('echo', v => weft.engine.send('echo', v));
+            weft.engine.call('ask', 1).then(v => weft.engine.send('answer', v), e => weft.engine.send('refused', e.value));
+            try { weft.engine.invoke('fails'); } catch (e) { weft.engine.send('fails', e.message); }
+          )JS")) == WEFT_OK,
+                "the echo page again");
+        messages = drain(r, view);
+        require(weft_view_complete_call(r.runtime, view, messages[0].call, 0, WEFT_VALUE_JSON, "42", 2) == WEFT_OK,
+                "a refusal again");
+        require(emit(r, view, "echo", R"({"a":[1,2]})") == WEFT_OK &&
+                    emit(r, view, "echo", "5", WEFT_EMIT_LATEST) == WEFT_OK,
+                "events");
+        require(weft_view_advance(r.runtime, view, 0.048) == WEFT_OK, "advance");
+        messages = drain(r, view);
+        require(messages.size() == 2 && messages[0].name == "refused" && messages[0].json == "42" &&
+                    messages[1].name == "echo" && messages[1].json == "5",
+                "the refusal, then the echo whose value the latest replaced");
+        // A function that fails is the invoke's exception.
+        require(weft_view_register_function(
+                    r.runtime, view, "fails", 5,
+                    [](void*, const void*, size_t, weft_value_writer*) {
+                        return WEFT_INVALID_ARGUMENT;
+                    },
+                    nullptr) == WEFT_OK,
+                "a failing function");
+        require(
+            load(r, view,
+                 inline_page("try { weft.engine.invoke('fails'); } catch (e) { weft.engine.send('x', e.message); }")) ==
+                WEFT_OK,
+            "a page");
+        messages = drain(r, view);
+        require(messages.size() == 1 &&
+                    messages[0].json == R"("WEFT_ENGINE_FUNCTION: fails returned invalid argument")",
+                "a failing function's exception: " + (messages.empty() ? "" : messages[0].json));
+        // Owner calls from a drain callback wait.
+        require(load(r, view, inline_page("weft.engine.send('a'); weft.engine.send('b');")) == WEFT_OK, "a page");
+
+        struct Drain {
+            const Runtime* r;
+            weft_view_handle view;
+            weft_result advance = WEFT_OK;
+            weft_result destroy = WEFT_OK;
+            weft_result emit = WEFT_INTERNAL_ERROR;
+        } during{&r, view};
+
+        require(weft_view_drain_messages(
+                    r.runtime, view,
+                    [](void* user, weft_view_handle v, const weft_message*) {
+                        auto& d = *static_cast<Drain*>(user);
+                        d.advance = weft_view_advance(d.r->runtime, v, 2000);
+                        d.destroy = weft_view_destroy(d.r->runtime, v);
+                        d.emit = weft_view_emit(d.r->runtime, v, "x", 1, WEFT_VALUE_JSON, "1", 1, 0);
+                    },
+                    &during) == WEFT_OK,
+                "a drain");
+        require(during.advance == WEFT_BUSY && during.destroy == WEFT_BUSY && during.emit == WEFT_OK,
+                "a drain's owner calls wait; its emits go");
+        weft_view_destroy(r.runtime, view);
+    }
+
+    void anchors_and_hits() {
+        Runtime r;
+        const auto view = r.view();
+        require(load(r, view,
+                     inline_page(R"JS(
+            const pick = document.createElement('div');
+            pick.className = 'pick';
+            pick.setAttribute('data-anchor', '7');
+            document.getElementById('root').appendChild(pick);
+            pick.addEventListener('mousedown', e => e.preventDefault());
+          )JS",
+                                 ".pick{position:absolute;left:0;top:0;width:40px;height:40px;cursor:grab}")) ==
+                    WEFT_OK,
+                "a page");
+        weft_anchor anchor{7, 100, 100, 1, 0, 0, 0};
+        require(weft_view_write_anchors(r.runtime, view, &anchor, 1) == WEFT_OK, "anchors");
+        auto h = hit(r, view, 100, 100);
+        require(h.element && std::string(h.cursor) == "grab", "at its anchor");
+        uint32_t prevented = 9;
+        require(pointer(r, view, WEFT_POINTER_DOWN, 100, 100, 1, &prevented) == WEFT_OK && prevented == 1 &&
+                    pointer(r, view, WEFT_POINTER_UP, 100, 100, 0, &prevented) == WEFT_OK && prevented == 0,
+                "a prevented press");
+        anchor.flags = WEFT_ANCHOR_HIDDEN;
+        require(weft_view_write_anchors(r.runtime, view, &anchor, 1) == WEFT_OK && !hit(r, view, 100, 100).element,
+                "hidden");
+        anchor.x = std::numeric_limits<float>::quiet_NaN();
+        require(weft_view_write_anchors(r.runtime, view, &anchor, 1) == WEFT_INVALID_ARGUMENT, "not finite");
+        std::vector<weft_anchor> many(65537, weft_anchor{1, 0, 0, 1, 0, 0, 0});
+        require(weft_view_write_anchors(r.runtime, view, many.data(), many.size()) == WEFT_CAPACITY_EXCEEDED,
+                "too many");
+        require(weft_view_write_anchors(r.runtime, view, nullptr, 1) == WEFT_INVALID_ARGUMENT &&
+                    weft_view_write_anchors(r.runtime, view, nullptr, 0) == WEFT_OK,
+                "an empty table");
+        weft_view_destroy(r.runtime, view);
+    }
+
+    void threads_and_stale_handles() {
+        Runtime r;
+        auto view = r.view();
+        require(load(r, view, inline_page("1")) == WEFT_OK, "a page");
+        // Owner calls from another thread are refused; any-thread calls work there.
+        std::vector<weft_result> owner;
+        std::vector<weft_result> any;
+        std::thread([&] {
+            auto page = inline_page("1");
+            const auto desc = page.desc();
+            weft_hit h{};
+            h.struct_size = sizeof(h);
+            owner = {weft_view_load(r.runtime, view, &desc),
+                     weft_view_advance(r.runtime, view, 1),
+                     pointer(r, view, WEFT_POINTER_MOVE, 0, 0),
+                     weft_view_hit_test(r.runtime, view, 0, 0, &h),
+                     weft_view_resize(r.runtime, view, 10, 10, 1),
+                     weft_view_destroy(r.runtime, view),
+                     weft_view_drain_messages(
+                         r.runtime, view,
+                         [](void*, weft_view_handle, const weft_message*) {
+                         },
+                         nullptr),
+                     weft_view_register_function(r.runtime, view, "f", 1, loc_get, nullptr)};
+            weft_view_frame* frame{};
+            const weft_anchor anchor{1, 0, 0, 1, 0, 0, 0};
+            any = {emit(r, view, "e", "1"), weft_view_set_model(r.runtime, view, "m", 1, WEFT_VALUE_JSON, "{}", 2),
+                   weft_view_complete_call(r.runtime, view, 5, 1, WEFT_VALUE_JSON, "1", 1),
+                   weft_view_write_anchors(r.runtime, view, &anchor, 1),
+                   weft_view_acquire_frame(r.runtime, view, &frame)};
+            weft_view_frame_release(frame);
+        }).join();
+        for (const auto result : owner) {
+            require(result == WEFT_WRONG_THREAD, "an owner call from another thread");
+        }
+        require(any == std::vector<weft_result>{WEFT_OK, WEFT_OK, WEFT_STALE_HANDLE, WEFT_OK, WEFT_OK},
+                "any-thread calls from another thread");
+        // A frame outlives its View; the View's handle goes stale everywhere.
+        weft_view_frame* kept{};
+        require(weft_view_acquire_frame(r.runtime, view, &kept) == WEFT_OK, "a frame");
+        require(weft_view_destroy(r.runtime, view) == WEFT_OK, "destroy");
+        weft_view_frame_info info{};
+        info.struct_size = sizeof(info);
+        require(weft_view_frame_get_info(kept, &info) == WEFT_OK && info.logical_width == 1280, "the frame stays");
+        weft_view_frame_release(kept);
+        weft_view_frame* frame{};
+        const weft_anchor anchor{1, 0, 0, 1, 0, 0, 0};
+        weft_hit h{};
+        h.struct_size = sizeof(h);
+        auto stale_page = inline_page("1");
+        auto desc = stale_page.desc();
+        for (const auto result :
+             {weft_view_load(r.runtime, view, &desc), weft_view_advance(r.runtime, view, 1),
+              pointer(r, view, WEFT_POINTER_MOVE, 0, 0), weft_view_hit_test(r.runtime, view, 0, 0, &h),
+              weft_view_destroy(r.runtime, view), emit(r, view, "e", "1"),
+              weft_view_set_model(r.runtime, view, "m", 1, WEFT_VALUE_JSON, "{}", 2),
+              weft_view_write_anchors(r.runtime, view, &anchor, 1), weft_view_acquire_frame(r.runtime, view, &frame)}) {
+            require(result == WEFT_STALE_HANDLE, "a destroyed View's handle is stale");
+        }
+        // The slot holds a new View: the old handle stays stale.
+        const auto reused = r.view();
+        require(reused.slot == view.slot && reused.generation != view.generation, "the slot reused");
+        require(emit(r, view, "e", "1") == WEFT_STALE_HANDLE &&
+                    weft_view_write_anchors(r.runtime, view, &anchor, 1) == WEFT_STALE_HANDLE &&
+                    weft_view_advance(r.runtime, view, 1) == WEFT_STALE_HANDLE && emit(r, reused, "e", "1") == WEFT_OK,
+                "an old handle to a reused slot");
+        weft_view_destroy(r.runtime, reused);
+        // Other threads call while the owner destroys and makes Views: each call is done or stale, never more.
+        std::atomic<bool> stop{};
+        std::atomic<weft_view_handle> current{r.view()};
+        std::atomic<unsigned> calls{};
+        std::atomic<bool> bad{};
+        std::vector<std::thread> threads;
+        for (int t = 0; t < 4; ++t) {
+            threads.emplace_back([&, t] {
+                while (!stop) {
+                    const auto v = current.load();
+                    weft_result result{};
+                    weft_view_frame* f{};
+                    switch (t) {
+                        case 0:
+                            result = emit(r, v, "e", "1");
+                            break;
+                        case 1:
+                            result = weft_view_write_anchors(r.runtime, v, &anchor, 1);
+                            break;
+                        case 2:
+                            result = weft_view_acquire_frame(r.runtime, v, &f);
+                            weft_view_frame_release(f);
+                            break;
+                        default:
+                            result = weft_view_set_model(r.runtime, v, "m", 1, WEFT_VALUE_JSON, "{\"a\":1}", 7);
+                            break;
+                    }
+                    if (result != WEFT_OK && result != WEFT_STALE_HANDLE && result != WEFT_BUSY &&
+                        result != WEFT_CAPACITY_EXCEEDED) {
+                        bad = true;
+                    }
+                    ++calls;
+                }
+            });
+        }
+        for (int i = 0; i < 40; ++i) {
+            const auto v = current.load();
+            require(load(r, v, inline_page("1")) == WEFT_OK, "a page while others call");
+            require(weft_view_destroy(r.runtime, v) == WEFT_OK, "destroy while others call");
+            current = r.view();
+        }
+        stop = true;
+        for (auto& t : threads) {
+            t.join();
+        }
+        require(!bad && calls > 0, "racing calls end done or stale");
+        weft_view_destroy(r.runtime, current.load());
+        weft_runtime_info runtime_info{};
+        runtime_info.struct_size = sizeof(runtime_info);
+        require(weft_runtime_get_info(r.runtime, &runtime_info) == WEFT_OK && runtime_info.live_views == 0,
+                "no View left");
+    }
+
+    void errors_and_faults() {
+        Runtime r;
+        const auto view = r.view();
+        require(load(r, view,
+                     inline_page("weft.engine.send('before'); weft.engine.call('pending', 1);"
+                                 "throw new Error('broken page')")) == WEFT_SCRIPT_ERROR,
+                "a broken page");
+        require(drain(r, view).empty() &&
+                    weft_view_complete_call(r.runtime, view, 1, 1, WEFT_VALUE_JSON, "1", 1) == WEFT_STALE_HANDLE,
+                "a page that failed to load leaves no messages and no open calls");
+        auto found = diagnostics(r, view);
+        require(found.size() == 1 && found[0].first == WEFT_DIAGNOSTIC_SCRIPT &&
+                    found[0].second.find("broken page") != std::string::npos,
+                "its diagnostic");
+        weft_view_frame* frame{};
+        require(load(r, view, inline_page(R"JS(
+            weft.engine.on('boom', () => { throw new Error('handler boom'); });
+            requestAnimationFrame(() => { throw new Error('frame boom'); });
+          )JS")) == WEFT_OK &&
+                    weft_view_acquire_frame(r.runtime, view, &frame) == WEFT_OK,
+                "a page whose callbacks throw");
+        weft_view_frame_release(frame);
+        // The load's first advance ran the frame callback.
+        found = diagnostics(r, view);
+        require(found.size() == 1 && found[0].first == WEFT_DIAGNOSTIC_FRAME &&
+                    found[0].second.find("frame boom") != std::string::npos,
+                "a frame diagnostic");
+        emit(r, view, "boom", "1");
+        require(weft_view_advance(r.runtime, view, 0.016) == WEFT_OK, "advance despite the page's errors");
+        found = diagnostics(r, view);
+        require(found.size() == 1 && found[0].first == WEFT_DIAGNOSTIC_HANDLER &&
+                    found[0].second.find("handler boom") != std::string::npos,
+                "a handler diagnostic");
+        // A frame callback that allocates past the VM's bound faults the View until a page loads: at once in the
+        // load's first advance, or in a later one.
+        require(load(r, view, inline_page(R"JS(
+            requestAnimationFrame(() => { const a = []; for (;;) a.push(new Array(1 << 16).fill(1)); });
+          )JS")) == WEFT_FAULTED &&
+                    weft_view_advance(r.runtime, view, 0.020) == WEFT_FAULTED,
+                "a page that faults as it loads");
+        require(load(r, view, inline_page(R"JS(
+            let frames = 0;
+            requestAnimationFrame(function frame() {
+              if (++frames > 1) { const a = []; for (;;) a.push(new Array(1 << 16).fill(1)); }
+              requestAnimationFrame(frame);
+            });
+          )JS")) == WEFT_OK,
+                "a page that will fault");
+        require(weft_view_advance(r.runtime, view, 0.032) == WEFT_FAULTED &&
+                    weft_view_advance(r.runtime, view, 0.048) == WEFT_FAULTED &&
+                    pointer(r, view, WEFT_POINTER_MOVE, 0, 0) == WEFT_FAULTED,
+                "faulted");
+        require(load(r, view, inline_page("weft.engine.send('again')")) == WEFT_OK && drain(r, view).size() == 1 &&
+                    weft_view_advance(r.runtime, view, 0.064) == WEFT_OK,
+                "a page again");
+        weft_view_destroy(r.runtime, view);
+    }
+} // namespace
+
+int main() {
+    try {
+        sizes_and_versions();
+        without_a_page();
+        pages_and_bridge();
+        anchors_and_hits();
+        threads_and_stale_handles();
+        errors_and_faults();
+        std::cout << "C ABI view tests passed\n";
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "C ABI view tests failed: " << e.what() << '\n';
+        return 1;
+    }
+}
