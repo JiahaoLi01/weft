@@ -11,7 +11,7 @@ if(WIN32)
         gallery_interaction_profile.cpp gallery_preview_probe.cpp react_window_host.cpp render_backend_probe.cpp
         render_cache_probe.cpp render_stages_probe.cpp sampling_profiler.cpp scene_gpu_surface_probe.cpp
         scene_surface_retirement_probe.cpp two_frame_probe.cpp particle_benchmark.cpp particle_page_benchmark.cpp
-        glass_page_benchmark.cpp scene_interaction_benchmark.cpp
+        glass_page_benchmark.cpp scene_interaction_benchmark.cpp hud_benchmark.cpp
         LINK weft::render_d3d11 weft::scene_d3d11 weft::text weft::script weft::layout weft::input weft::canvas_d2d weft::scene_d2d weft::platform_win32
         d3d11 dxgi windowscodecs ole32 user32 dbghelp
         SOURCE_DIR LARGE_STACK GC_STRESS)
@@ -88,6 +88,7 @@ if(WIN32 AND WEFT_BUILD_TESTS)
         glass-page-benchmark-$<CONFIG>/warp TIMEOUT 300)
     weft_add_d3d11_test(d3d11_warp_scene_interaction_benchmark --scene-interaction-benchmark-warp
         scene-interaction-benchmark-$<CONFIG>/warp TIMEOUT 300)
+    weft_add_d3d11_test(d3d11_warp_hud_benchmark --hud-benchmark-warp hud-benchmark-$<CONFIG>/warp TIMEOUT 300)
     weft_add_d3d11_test(d3d11_warp_gallery_cluster --gallery-cluster-gpu-warp gallery-cluster-$<CONFIG>/warp TIMEOUT 300)
     weft_add_d3d11_test(d3d11_warp_scene_gpu --scene-gpu-test-warp scene-gpu-$<CONFIG>/warp
         TIMEOUT 240 GC_STRESS_TIMEOUT 600)
