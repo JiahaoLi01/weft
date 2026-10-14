@@ -192,28 +192,62 @@ namespace weft {
         return out;
     }
 
-    std::shared_ptr<const paint::Path> scene_svg_path(const SceneNode& n) {
+    std::optional<SceneSvgShape> scene_svg_shape(const SceneNode& n) {
         using scene_values::len;
         const auto& a = n.attributes;
         const auto v = [&](const char* k, float def = 0) {
             const auto i = a.find(k);
             return i == a.end() ? def : len(i->second);
         };
-        auto out = std::make_shared<paint::Path>();
-        out->evenodd = scene_values::get(n.style, PropertyId::FillRule) == "evenodd";
-        Builder b(*out);
+        using Kind = SceneSvgShape::Kind;
         if (n.tag == "rect") {
             const double x = v("x");
             const double y = v("y");
             const double w = v("width");
             const double h = v("height");
             if (!(w > 0) || !(h > 0)) {
-                return {};
+                return std::nullopt;
             }
             // Radii: either one stands for both, each at most half the side (as the reference raster clamps them).
             const float rx_value = v("rx");
             const double rx = std::min(std::max(double(rx_value), 0.0), w / 2);
             const double ry = std::min(std::max(double(v("ry", rx_value)), 0.0), h / 2);
+            const bool rounded = rx > 0 && ry > 0;
+            return SceneSvgShape{Kind::Rect, x, y, w, h, rounded ? rx : 0, rounded ? ry : 0};
+        }
+        if (n.tag == "circle" || n.tag == "ellipse") {
+            const double cx = v("cx");
+            const double cy = v("cy");
+            const double rx = n.tag == "circle" ? v("r") : v("rx");
+            const double ry = n.tag == "circle" ? v("r") : v("ry");
+            if (!(rx > 0) || !(ry > 0)) {
+                return std::nullopt;
+            }
+            return SceneSvgShape{Kind::Ellipse, cx, cy, 0, 0, rx, ry};
+        }
+        if (n.tag == "line") {
+            return SceneSvgShape{Kind::Line, v("x1"), v("y1"), v("x2"), v("y2"), 0, 0};
+        }
+        return std::nullopt;
+    }
+
+    std::shared_ptr<const paint::Path> scene_svg_path(const SceneNode& n) {
+        using scene_values::len;
+        const auto& a = n.attributes;
+        auto out = std::make_shared<paint::Path>();
+        out->evenodd = scene_values::get(n.style, PropertyId::FillRule) == "evenodd";
+        Builder b(*out);
+        if (n.tag == "rect") {
+            const auto shape = scene_svg_shape(n);
+            if (!shape) {
+                return {};
+            }
+            const double x = shape->x;
+            const double y = shape->y;
+            const double w = shape->w;
+            const double h = shape->h;
+            const double rx = shape->rx;
+            const double ry = shape->ry;
             if (rx <= 0 || ry <= 0) {
                 b.move({x, y});
                 b.line({x + w, y});
@@ -235,13 +269,14 @@ namespace weft {
             return out;
         }
         if (n.tag == "circle" || n.tag == "ellipse") {
-            const double cx = v("cx");
-            const double cy = v("cy");
-            const double rx = n.tag == "circle" ? v("r") : v("rx");
-            const double ry = n.tag == "circle" ? v("r") : v("ry");
-            if (!(rx > 0) || !(ry > 0)) {
+            const auto shape = scene_svg_shape(n);
+            if (!shape) {
                 return {};
             }
+            const double cx = shape->x;
+            const double cy = shape->y;
+            const double rx = shape->rx;
+            const double ry = shape->ry;
             const double kx = rx * quarter_circle_kappa;
             const double ky = ry * quarter_circle_kappa;
             b.move({cx + rx, cy});
@@ -253,8 +288,9 @@ namespace weft {
             return out;
         }
         if (n.tag == "line") {
-            b.move({v("x1"), v("y1")});
-            b.line({v("x2"), v("y2")});
+            const auto shape = scene_svg_shape(n);
+            b.move({shape->x, shape->y});
+            b.line({shape->w, shape->h});
             return out;
         }
         if (n.tag == "polygon" || n.tag == "polyline") {

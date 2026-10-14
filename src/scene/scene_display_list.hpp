@@ -3,6 +3,7 @@
 #include "paint/display_list.hpp"
 #include "scene/scene.hpp"
 #include "scene/scene_image_cache.hpp"
+#include "scene/scene_path.hpp"
 
 #include <array>
 #include <cstddef>
@@ -25,7 +26,8 @@ namespace weft {
 
     // What a display list takes from an SVG element's own values: its transform in its parent's user units and its
     // opacity; its text's line box origin in user units, size, fill and glyph outlines (null when the text draws as an
-    // image); its path with the fill and stroke colors (alpha 0 when not drawn) and the stroke style.
+    // image); its path with the fill and stroke colors (alpha 0 when not drawn) and the stroke style, and its shape
+    // when it is a rect, circle, ellipse or line (which may draw as boxes).
     struct SceneSvgValues {
         std::array<float, 6> local{};
         float opacity{};
@@ -37,6 +39,7 @@ namespace weft {
         std::array<float, 4> fill{};
         std::array<float, 4> stroke{};
         paint::Stroke stroke_style;
+        std::optional<SceneSvgShape> shape;
     };
 
     // SVG elements' values (SceneSvgValues) by view and element identity, while the element's tag, attributes, style and

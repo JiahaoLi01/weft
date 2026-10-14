@@ -307,6 +307,14 @@ if(WIN32)
         target_compile_definitions(weft_render_scene_backdrop_tests PRIVATE WEFT_TEST_VULKAN)
     endif()
     weft_add_test(NAME render_scene_backdrop_contract COMMAND weft_render_scene_backdrop_tests TIMEOUT 120)
+    # SVG rects, circles and lines drawn as boxes, against the same outlines drawn as path coverage, on both passes.
+    weft_add_executable(weft_render_scene_shape_boxes_tests SOURCES render_scene_shape_boxes_tests.cpp
+        LINK ${scene_effect_links})
+    if(WEFT_RENDER_VULKAN)
+        target_compile_definitions(weft_render_scene_shape_boxes_tests PRIVATE WEFT_TEST_VULKAN)
+    endif()
+    weft_add_test(NAME render_scene_shape_boxes_contract COMMAND weft_render_scene_shape_boxes_tests
+        "${artifacts}/shape-boxes-$<CONFIG>" TIMEOUT 120)
     # The CRPG UI's smoke as a UI shader effect against the original's tick on the CPU, on both scene passes.
     weft_add_executable(weft_render_crpg_smoke_tests SOURCES render_crpg_smoke_tests.cpp
         LINK ${scene_effect_links} weft_gallery_effects windowscodecs ole32 SOURCE_DIR)

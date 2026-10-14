@@ -4,6 +4,7 @@
 #include "scene/scene.hpp"
 
 #include <array>
+#include <cstdint>
 #include <memory>
 #include <optional>
 
@@ -29,6 +30,30 @@ namespace weft {
     // endpoints grow until they do.
     std::optional<SceneArc> scene_center_arc(std::array<double, 2> p0, double rx, double ry, double degrees, bool large,
                                              bool sweep, std::array<double, 2> p1);
+
+    // An SVG rect, circle, ellipse or line by its geometry attributes in its user units. A rect: (x, y) and the size
+    // (w, h), with its corner radii (rx, ry) as the path takes them (either one standing for a missing other, each at
+    // most half its side; 0 for square corners). A circle or an ellipse: its center (x, y) and radii (rx, ry). A line:
+    // from (x, y) to (w, h).
+    struct SceneSvgShape {
+        enum class Kind : std::uint8_t {
+            Rect,
+            Ellipse,
+            Line
+        };
+
+        Kind kind{};
+        double x{};
+        double y{};
+        double w{};
+        double h{};
+        double rx{};
+        double ry{};
+    };
+
+    // The shape of an SVG rect, circle, ellipse or line; null for any other element and for a rectangle or an ellipse
+    // without area.
+    std::optional<SceneSvgShape> scene_svg_shape(const SceneNode& element);
 
     // The path of an SVG shape element (rect, circle, ellipse, path, polygon, polyline, line) in its user units, with
     // its fill rule; null for any other element and for a shape that renders nothing (no path data, a rectangle or

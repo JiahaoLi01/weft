@@ -659,8 +659,9 @@ float4 ps_main(Vertex v) : SV_Target {
     float2 inner[4] = {float2(p.widths.w, p.widths.x), float2(p.size.x - p.widths.y, p.widths.x),
                        float2(p.size.x - p.widths.y, p.size.y - p.widths.z), float2(p.widths.w, p.size.y - p.widths.z)};
     bool equal = all(abs(p.widths - p.widths.x) < EqualBorderWidthEpsilon);
-    // A pixel whose center lies just outside a rectangular box (its antialiased edge) takes the side it is beside.
-    float2 sided = rectangular ? clamp(position, 0, p.size.xy) : position;
+    // A pixel whose center lies just outside the box (its antialiased edge) takes the side it is beside, under a
+    // rotation or round corners too: otherwise it lies in no side's wedge and the edge loses its antialiasing.
+    float2 sided = clamp(position, 0, p.size.xy);
     [unroll]
     for (uint i = 0; i < QuadCorners; i++) {
         if (p.widths[i] > 0 && wedge(sided, equal ? p.size.xy * .5 : inner[i], corners[i],

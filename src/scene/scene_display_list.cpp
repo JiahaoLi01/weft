@@ -523,6 +523,7 @@ namespace weft {
                             taken.stroke_style = scene_svg_stroke(c.style);
                         }
                         taken.path = std::move(path);
+                        taken.shape = scene_svg_shape(c);
                     }
                     kept = cache ? &cache->put(c, std::move(taken)) : &taken;
                 }
@@ -584,15 +585,112 @@ namespace weft {
                         own.push_back(item);
                     }
                 }
+                // A shape the box shader draws as it is, as a box in the element's user units: no coverage to
+                // rasterize, and boxes draw in batches.
+                const auto add_box = [&](const Matrix& local, float width, float height, const paint::Box& value) {
+                    auto item = base();
+                    item.kind = paint::Item::Kind::Box;
+                    item.transform = multiply(m, local);
+                    item.width = width;
+                    item.height = height;
+                    item.payload = std::uint32_t(list.boxes.size());
+                    list.boxes.push_back(value);
+                    own.push_back(item);
+                };
+                using ShapeKind = SceneSvgShape::Kind;
+                // A rectangle with circular corners (or square ones), or a circle.
+                const auto fill_box = [&] {
+                    if (!v.shape || v.shape->rx != v.shape->ry) {
+                        return false;
+                    }
+                    const auto& s = *v.shape;
+                    paint::Box value;
+                    value.background = v.fill;
+                    value.radii.fill(float(s.rx));
+                    if (s.kind == ShapeKind::Rect) {
+                        add_box({1, 0, 0, 1, float(s.x), float(s.y)}, float(s.w), float(s.h), value);
+                        return true;
+                    }
+                    if (s.kind == ShapeKind::Ellipse) {
+                        add_box({1, 0, 0, 1, float(s.x - s.rx), float(s.y - s.rx)}, float(2 * s.rx), float(2 * s.rx),
+                                value);
+                        return true;
+                    }
+                    return false;
+                };
+                // A solid stroke centered on such an outline: a border box half the stroke out, its corners the
+                // outline's grown by as much (square corners meet in a miter or a round join; a bevel cuts them). A
+                // line's stroke: a box along it, its caps butt, square or round.
+                const auto stroke_box = [&] {
+                    const auto& style = v.stroke_style;
+                    if (!v.shape || !style.dashes.empty()) {
+                        return false;
+                    }
+                    const auto& s = *v.shape;
+                    const float half = style.width / 2;
+                    paint::Box value;
+                    if (s.kind == ShapeKind::Line) {
+                        const double dx = s.w - s.x;
+                        const double dy = s.h - s.y;
+                        const double length = std::hypot(dx, dy);
+                        if (!(length > 0)) {
+                            return false;
+                        }
+                        const float extend = style.cap == paint::Stroke::Cap::Butt ? 0.f : half;
+                        if (style.cap == paint::Stroke::Cap::Round) {
+                            value.radii.fill(half);
+                        }
+                        value.background = v.stroke;
+                        // A level or upright line is a box of the user space, which covers each pixel by its share
+                        // as a path's coverage does (a turned box antialiases by distance).
+                        if (dx == 0 || dy == 0) {
+                            const float left = float(std::min(s.x, s.w));
+                            const float top = float(std::min(s.y, s.h));
+                            if (dy == 0) {
+                                add_box({1, 0, 0, 1, left - extend, top - half}, float(std::abs(dx)) + 2 * extend,
+                                        style.width, value);
+                            } else {
+                                add_box({1, 0, 0, 1, left - half, top - extend}, style.width,
+                                        float(std::abs(dy)) + 2 * extend, value);
+                            }
+                            return true;
+                        }
+                        // Along the line from its start, across it centered on it.
+                        const Matrix along{float(dx / length), float(dy / length), float(-dy / length),
+                                           float(dx / length), float(s.x),         float(s.y)};
+                        add_box(multiply(along, {1, 0, 0, 1, -extend, -half}), float(length) + 2 * extend, style.width,
+                                value);
+                        return true;
+                    }
+                    if (s.rx != s.ry || (s.kind == ShapeKind::Rect && s.rx == 0 &&
+                                         (style.join == paint::Stroke::Join::Bevel ||
+                                          (style.join == paint::Stroke::Join::Miter &&
+                                           style.miter_limit < std::numbers::sqrt2_v<float>)))) {
+                        return false;
+                    }
+                    value.widths.fill(style.width);
+                    value.edges.fill(v.stroke);
+                    const bool square = s.kind == ShapeKind::Rect && s.rx == 0;
+                    value.radii.fill(square ? (style.join == paint::Stroke::Join::Round ? half : 0.f)
+                                            : float(s.rx) + half);
+                    if (s.kind == ShapeKind::Rect) {
+                        add_box({1, 0, 0, 1, float(s.x) - half, float(s.y) - half}, float(s.w) + style.width,
+                                float(s.h) + style.width, value);
+                    } else {
+                        add_box({1, 0, 0, 1, float(s.x - s.rx) - half, float(s.y - s.rx) - half},
+                                float(2 * s.rx) + style.width, float(2 * s.rx) + style.width, value);
+                    }
+                    return true;
+                };
                 if (v.path) {
-                    if (v.fill[3] > 0) {
+                    if (v.fill[3] > 0 && !fill_box()) {
                         auto item = base();
                         item.kind = paint::Item::Kind::Path;
                         item.payload = std::uint32_t(list.paths.size());
                         list.paths.push_back({v.path, v.fill, std::nullopt});
                         own.push_back(item);
                     }
-                    if (v.stroke[3] > 0 && v.stroke_style.width > 0) {
+                    if (v.stroke[3] > 0 && v.stroke_style.width > 0 && !stroke_box()) {
                         auto item = base();
                         item.kind = paint::Item::Kind::Path;
                         item.payload = std::uint32_t(list.paths.size());

@@ -148,21 +148,34 @@ int main() {
             auto& text = weft::testing::thread_scene_text();
             const auto plan = weft::scene_display_list(frame, {}, &text);
             const auto& items = plan.list.items;
+            // Rects and circles are boxes (12.2): a rect's fill, its stroke as a border box half the stroke out, a
+            // circle's fill; a dashed stroke stays a path, and so does text.
             require(plan.fallback.empty() && items.size() == 8 && items[0].kind == Kind::BeginGroup &&
-                        items[1].kind == Kind::Path && items[2].kind == Kind::Path && items[3].kind == Kind::Path &&
-                        items[4].kind == Kind::EndGroup && items[5].kind == Kind::Path && items[6].kind == Kind::Path &&
+                        items[1].kind == Kind::Box && items[2].kind == Kind::Box && items[3].kind == Kind::Box &&
+                        items[4].kind == Kind::EndGroup && items[5].kind == Kind::Path && items[6].kind == Kind::Box &&
                         items[7].kind == Kind::Path,
                     "SVG items: a group of fills and strokes, a dashed stroke, a clipped fill, text; no line fill");
             const auto at = [&](std::size_t i) -> const weft::paint::PathPaint& {
                 return plan.list.paths[items[i].payload];
             };
+            const auto box = [&](std::size_t i) -> const weft::paint::Box& {
+                return plan.list.boxes[items[i].payload];
+            };
+            const weft::paint::Color clear{};
+            const weft::paint::Color blue_half{0, 0, 1, .5f};
             require(items[0].opacity == .5f && items[4].opacity == .5f &&
-                        at(1).color == weft::paint::Color{1, 0, 0, 1} && !at(1).stroke &&
-                        at(2).color == weft::paint::Color{0, 0, 1, .5f} && at(2).stroke && at(2).stroke->width == 2 &&
-                        at(3).color == weft::paint::Color{0, 1, 0, 1},
+                        box(1).background == weft::paint::Color{1, 0, 0, 1} &&
+                        box(1).widths == std::array<float, 4>{} && box(1).radii == std::array<float, 4>{} &&
+                        box(2).background == clear && box(2).widths == std::array<float, 4>{2, 2, 2, 2} &&
+                        box(2).edges == std::array<weft::paint::Color, 4>{blue_half, blue_half, blue_half, blue_half} &&
+                        box(2).radii == std::array<float, 4>{} && box(3).background == weft::paint::Color{0, 1, 0, 1} &&
+                        box(3).radii == std::array<float, 4>{4, 4, 4, 4},
                     "SVG fills and strokes");
-            require(items[1].transform == weft::paint::Affine{2, 0, 0, 2, 20, 20} &&
-                        items[5].transform == weft::paint::Affine{2, 0, 0, 2, 10, 10},
+            require(items[1].transform == weft::paint::Affine{2, 0, 0, 2, 20, 20} && items[1].width == 10 &&
+                        items[1].height == 8 && items[2].transform == weft::paint::Affine{2, 0, 0, 2, 18, 18} &&
+                        items[2].width == 12 && items[2].height == 10 &&
+                        items[3].transform == weft::paint::Affine{2, 0, 0, 2, 52, 32} && items[3].width == 8 &&
+                        items[3].height == 8 && items[5].transform == weft::paint::Affine{2, 0, 0, 2, 10, 10},
                     "SVG viewport and group transforms");
             require(at(5).stroke && at(5).stroke->dashes == std::vector<float>{2, 1} && at(5).path->verbs.size() == 4,
                     "SVG dashed stroke");
@@ -226,7 +239,7 @@ int main() {
             // the inverse of the element's transform.
             const auto turned = weft::scene_display_list(rotated, {}, &text);
             const auto& clipped = turned.list.items[6];
-            require(turned.fallback.empty() && clipped.kind == Kind::Path && clipped.clips_count == 2,
+            require(turned.fallback.empty() && clipped.kind == Kind::Box && clipped.clips_count == 2,
                     "rotated clip-path keeps the viewport clip and adds its own");
             const auto& local = turned.list.clips[clipped.clips_begin + 1];
             const auto& m = clipped.transform;

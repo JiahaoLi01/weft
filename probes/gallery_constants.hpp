@@ -172,8 +172,11 @@ namespace weft::probe_constants::gallery {
     inline constexpr double max_vector_oracle_mean = 1.0;
     inline constexpr int max_vector_oracle_solid = 1;
     // Pixels that may differ by more than vector_outlier_level: edge antialiasing differs by less, except at a few
-    // high-contrast edges of rotated boxes (the encoded pass widens their ramp by the derivative's L1 norm).
-    inline constexpr unsigned max_vector_oracle_outliers = 16;
+    // high-contrast edges of rotated boxes (the encoded pass widens their ramp by the derivative's L1 norm), and along
+    // the outer edge of the rotated bordered box, where the reference raster leaves the antialiased band nearly without
+    // the border and the native pass draws it as Chrome does (2026-10-14, a pixel there: Chrome 155, native 148,
+    // reference 214).
+    inline constexpr unsigned max_vector_oracle_outliers = 40;
     // The stroke (#0a0806) fills a stroked rectangle's corner pixel: channels at most this level.
     inline constexpr int corner_stroke_level = 24;
     inline constexpr int vector_outlier_level = 64;
