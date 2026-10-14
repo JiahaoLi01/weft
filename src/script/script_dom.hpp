@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <map>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -16,6 +17,10 @@
 #include "dom/node.hpp"
 
 namespace weft {
+    namespace bridge {
+        class EngineChannel;
+    } // namespace bridge
+
     // M0 evidence API, not a stable public runtime or C ABI. The DOM value types are in dom/node.hpp and
     // dom/geometry.hpp.
     struct ScriptStats {
@@ -55,6 +60,28 @@ namespace weft {
     };
 
     using ParticleHost = std::function<void(NodeIdentity element, const ParticleRequest&)>;
+
+    // A message weft.engine sent the engine (docs/engine-communication.md, 6.3): a send (call 0) or a call (its id),
+    // with its name and its value as a bridge value (bridge/bridge_value.hpp).
+    struct EngineMessage {
+        std::uint64_t call{};
+        std::string name;
+        std::vector<std::uint8_t> value;
+    };
+
+    // A sync engine function (weft.engine.invoke): its argument as a bridge value, its result as one; what it throws
+    // becomes the invoke's exception. It runs on the owner in the middle of JS and cannot enter the ScriptDom.
+    using EngineFunction = std::function<std::vector<std::uint8_t>(std::span<const std::uint8_t> argument)>;
+
+    // What a delivery handed the page: view-model batches, events and call completions; completions of calls the
+    // page no longer waited for (stale); and the messages of the exceptions its handlers threw.
+    struct EngineDelivery {
+        std::size_t models{};
+        std::size_t events{};
+        std::size_t completions{};
+        std::size_t stale{};
+        std::vector<std::string> errors;
+    };
 
     struct ScriptConfig {
         std::size_t max_stack_bytes{
@@ -202,6 +229,17 @@ namespace weft {
         // The owner's particles: weft.emitParticles (the scene platform) hands each burst to the host, which records it
         // for the next frame and cannot enter JS; what it throws becomes the call's exception.
         void install_particle_host(ParticleHost);
+        // The engine bridge (the Engine platform module's weft.engine): the channel through which the engine gives the
+        // page events, call completions and view models, and where the page's calls open. A reset drops what waits
+        // there and closes the calls.
+        void install_engine(std::shared_ptr<bridge::EngineChannel> channel);
+        // weft.engine.invoke(name, value) calls function.
+        void install_engine_function(std::string name, EngineFunction function);
+        // What the page sent and called since the last take, oldest first.
+        std::vector<EngineMessage> take_engine_messages();
+        // Hands the page what waits in the channel: view-model batches, then events and completions in the order
+        // given, each followed by a microtask checkpoint, under one execution budget. Nothing without a channel.
+        EngineDelivery deliver_engine();
         DispatchResult dispatch_wheel(NodeIdentity target, double delta_x, double delta_y);
         DispatchResult dispatch_wheel(NodeIdentity target, const WheelEvent& event);
 

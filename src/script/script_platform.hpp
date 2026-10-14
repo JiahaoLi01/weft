@@ -16,6 +16,10 @@ namespace weft {
         AnimationFrame,
         // SVG/Element prototypes, window events, geometry reads, ResizeObserver and matchMedia.
         ScenePlatform,
+        // weft.engine, the engine bridge (ScriptDom::install_engine).
+        Engine,
+        // CRPG Framework's window.ue.sendEvent, __ue_dispatch and __vm_update over weft.engine; after Engine.
+        CrpgBridge,
     };
 
     std::string_view script_platform_source(ScriptPlatformModule module) noexcept;

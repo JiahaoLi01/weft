@@ -1,7 +1,8 @@
 # QuickJS DOM bindings. The owner platform JS modules are compiled into the library, so a running engine needs no
 # source tree.
 set(embedded_js)
-foreach(module web_host_bootstrap animation_frame_bootstrap scene_platform_bootstrap)
+foreach(module web_host_bootstrap animation_frame_bootstrap scene_platform_bootstrap engine_bootstrap
+        crpg_bridge_bootstrap)
     set(input "${CMAKE_CURRENT_SOURCE_DIR}/js/${module}.js")
     set(output "${CMAKE_BINARY_DIR}/generated/script/js/${module}.js.inc")
     add_custom_command(OUTPUT "${output}"
@@ -14,6 +15,6 @@ endforeach()
 
 weft_add_library(script
     SOURCES script_dom.cpp script_platform.cpp ${embedded_js}
-    PUBLIC weft::canvas weft::dom
+    PUBLIC weft::bridge weft::canvas weft::dom
     PRIVATE qjs)
 target_include_directories(weft_script PRIVATE "${CMAKE_BINARY_DIR}/generated")

@@ -10,10 +10,57 @@
   - 剩下的（两个场景分开采样）：K 线主要是虚线十字线每帧重新光栅化（约 32%）与它们的大纹理（约 10%），画成一串盒子估计省约 40%；散点图是刻度文字的字形轮廓随平移重画（约 41%）与属性变了的元素重新解析（显示列表约 50%），路径按形状与亚像素位置缓存估计省约 35%，只重新解析变了的属性约 15%；SVG 值缓存的逐项校验只占 2–7%；
   - 半透明窗口（11.5c，4K）：32 个窗口时 owner 约 2 ms、渲染 CPU 2.3–2.9 ms，随窗口里的元素数增长，三种窗口相近；背景拷贝本身 GPU 约 0.5–0.8 ms；
   - 低优先级，暂不做。
-- **与引擎通信**（2026-10-14 起，第 13 步，[计划](refactoring-plan.md#第-13-步计划2026-10-14与引擎通信)，[技术路线](engine-communication.md)）：血条这类每帧变位置的元素不靠每帧推 JSON（锚点在渲染线程取最新值），双向事件、带 Promise 的引擎调用与视图模型，C ABI 与 CRPG UI 的兼容层。基线：200 个血条每帧约 13 ms，页面自己算出同样的值（零传输）也一样慢，瓶颈在逐个改 DOM 之后的样式、布局与场景更新。13.1 已完成（2026-10-14）：400 个名牌只移动时 UI 线程每帧约 0.005 ms、渲染 CPU 约 0.02–0.04 ms（推 JSON 时分别约 23 ms 与 4 ms）；接下来是 13.2 桥接。
+- **与引擎通信**（2026-10-14 起，第 13 步，[计划](refactoring-plan.md#第-13-步计划2026-10-14与引擎通信)，[技术路线](engine-communication.md)）：血条这类每帧变位置的元素不靠每帧推 JSON（锚点在渲染线程取最新值），双向事件、带 Promise 的引擎调用与视图模型，C ABI 与 CRPG UI 的兼容层。基线：200 个血条每帧约 13 ms，页面自己算出同样的值（零传输）也一样慢，瓶颈在逐个改 DOM 之后的样式、布局与场景更新。13.1 已完成（2026-10-14）：400 个名牌只移动时 UI 线程每帧约 0.005 ms、渲染 CPU 约 0.02–0.04 ms（推 JSON 时分别约 23 ms 与 4 ms）。13.2 已完成（2026-10-14）：带类型的值、双向事件、调用与 Promise、同步函数、视图模型与 CRPG 兼容层；每秒约 1,000 个 10 KB 的事件时 UI 线程每帧 0.79 ms（CRPG 的拼脚本求值约 4.5 ms）。接下来是 13.3 C ABI 与对外 View。
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
+
+重构第 13 步之二：桥接（2026-10-14），13.2 完成。详见 [重构计划](refactoring-plan.md#第-13-步记录2026-10-14) 与 [技术路线](engine-communication.md#6-桥接)。
+- **结果**：
+  - 带类型的值：MessagePack 的子集（null、布尔、int64/uint64、有限浮点、UTF-8 字符串、字节、数组、键为字符串的对象），编解码自己写（`src/bridge`，不引入第三方库），单个值至多 1 MiB、嵌套至多 64 层；也接受 JSON 文本（严格的 RFC 8259），在给出的线程上转换；
+  - 引擎一侧（`bridge::EngineChannel`）：任意线程发事件（可选替换同名未交付的那个）、完成调用、合并视图模型的字段；有界，满了返回 Full、不丢；页面打开的调用登记在这里，已完成、超时关闭、重置之前的或从未打开的调用的完成立即返回 Stale；
+  - 页面一侧 `weft.engine`（平台模块 `Engine`）：`on`、`once`、`onAny`（都返回取消函数）、`send`、`call`（Promise，可带超时）、`invoke`（宿主的同步函数）、`model(name)`（`{name, value, subscribe}`，可直接给 React 的 `useSyncExternalStore`）；
+  - owner 每次交付（`ScriptDom::deliver_engine`）先交视图模型的批次，再按投递顺序交事件与完成，每项之后一次微任务检查点，共用一个执行预算；处理函数的异常记下，不影响其他处理函数；页面发出的消息由宿主在 owner 上取走（`take_engine_messages`）；
+  - 值在原生侧直接建成 JS 对象与数组，不拼脚本、不求值；超过 2^53 的整数是 BigInt，字节是 Uint8Array；从 JS 转出时 toJSON 与 Proxy 包着的数组同 JSON.stringify，函数、symbol、循环引用与非有限数被拒绝；
+  - 同步函数在 JS 执行当中被调用，期间进入 ScriptDom 的任何接口都被拒绝（`WEFT_ENGINE_REENTRY`）；
+  - CRPG 兼容层（平台模块 `CrpgBridge`）：`window.ue.sendEvent` 照 CRPG 宿主的规则发消息，引擎的事件转给页面定义的 `window.__ue_dispatch`，视图模型 `vm` 每一批变化的字段转给 `window.__vm_update`；CRPG 的页面代码不用改；
+  - 对比基准（`weft_bridge_benchmark --full`，Ryzen 9 9950X3D，固定 CCD0，Release，每种 600 帧、预热 60 帧，三次运行的中位数；同一个按 CRPG ue-bridge 写的页面，处理函数读出全部字段）。UI 线程每帧 p50 / p99 / 最慢：
+
+| 每帧 | 负载 | 拼进脚本求值（CRPG 现在的做法） | 桥接，引擎给 JSON | 桥接，引擎写 MessagePack |
+| --- | --- | --- | --- | --- |
+| 1 个事件 | 血量（7 字节） | 3.5 / 5.5 / 9.6 µs | 1.1 / 1.2 / 2.2 µs | 1.1 / 1.8 / 1.9 µs |
+| 17 个事件 | 血量 | 59 / 89 / 109 µs | 14 / 24 / 38 µs | 14 / 23 / 38 µs |
+| 1 个事件 | 市场（1 KB，8 项） | 32 / 56 / 71 µs | 6.2 / 9.8 / 31 µs | 6.1 / 11 / 40 µs |
+| 17 个事件 | 市场 1 KB | 0.56 / 0.68 / 0.90 ms | 0.10 / 0.14 / 0.18 ms | 0.10 / 0.13 / 0.17 ms |
+| 1 个事件 | 市场（10 KB，77 项） | 265 / 327 / 396 µs | 47 / 59 / 80 µs | 47 / 59 / 73 µs |
+| 17 个事件 | 市场 10 KB | 4.49 / 4.82 / 6.07 ms | 0.79 / 0.90 / 1.12 ms | 0.78 / 0.88 / 1.07 ms |
+
+  - 每秒约 1,000 个 10 KB 的事件（每帧 17 个）时，UI 线程每帧从 4.49 ms 降到 0.79 ms（p99 4.82 → 0.90 ms），约 5.7 倍；剩下的几乎全是建 JS 对象。引擎写 MessagePack 与给 JSON 在 UI 线程上一样快：JSON 在给出的线程上转换，10 KB 约 18 µs（p99 30 µs）；
+  - 调用的往返（宿主取到就完成）：页面在一帧里调用，下一帧兑现。
+- **验证**：
+  - 新测试 `bridge_contract`：
+    - 随机值往返：3,000 个随机值，两种容器头写法，JSON 两次往返不变；每个截短的前缀都被拒绝；2 万个随机改了字节的值要么被拒绝，要么能转换；
+    - 最短编码的各个边界；读的一侧接受较长的形式；
+    - 拒绝的输入：类型外、扩展类型、非有限浮点、不是 UTF-8、截短、个数超过剩余字节、键不是字符串、多余字节、深度与大小的上限（恰在上限上的被接受）；
+    - JSON：空白、转义、代理对、整数与浮点的界、−0，以及 37 种不合法的文本与超过深度、大小上限的文本；
+    - 通道：顺序、替换、名字、上限（满时完成不关闭调用）、过期的完成、视图模型的合并（同一个键出现两次只算一次字节）；
+    - 多线程：6 个线程各发 2 万个事件、1 个线程 2 万次替换、2 个线程抢着完成 2,000 个调用，owner 同时取：每个线程的事件按序且不丢，替换的值不回退，每个调用恰好完成一次；
+  - 新测试 `engine_bridge_contract`：
+    - 两个方向的转换（整数与 BigInt 的界、字节与视图的偏移、`__proto__` 键不改原型、−0、孤立代理项、Proxy、toJSON、拒绝的值与名字、上限）；300 轮随机值经页面原样发回，引擎 → JS → 引擎不变；
+    - 事件：处理函数的顺序、once、交付中途取消与新增、异常隔离、每个事件之后的检查点；
+    - 调用：兑现、三种拒绝、超时、完成在超时之前给出而在之后交付（stale）、重置之后的完成被拒、id 不重用；同步函数的结果、异常、坏结果与四种重入；
+    - 视图模型：合并、冻结、先于事件、批次中途取消订阅；没有通道时；
+    - CRPG：按 CRPG `ue-bridge.ts` 编译出的代码与 MVVM 测试页，跑引擎侧的 `pushUI`、`loadMarket`、`setLocale` 与视图模型样例，`sendEvent` 的缺省值与 JSON.stringify 规则；
+  - `bridge_benchmark_quick`：基准的短跑，三种方式交给页面的值的校验和必须相同；
+  - 66 个变异全部被发现（值的读写与 JSON、通道、ScriptDom 的转换、交付与同步函数、两个 JS 模块）。第一轮存活 1 个：`sendEvent` 不给缺省值，因为 CRPG 的页面自己先补了 `{}`；对照 CRPG 宿主（`UEBridgeSendEvent`）补了反例，并照它处理不是字符串的名字与 JSON.stringify 会省略的值；
+  - `ctest`：Release 153/153，Debug 153/153（新增 3 个）；产物与 12.3 基线相比，不同的只有已知按时序变化的套件、13.1b 已说明的图层复用数，以及 gallery 与 scene-gallery 报告的 VM 峰值多 1,000 字节（节点原型上新增的四个原生方法；去掉它们时与基线相同），新的 `bridge-benchmark` 只在本次产物里；Android 零警告。
+  - 命令与产物：`ctest --preset windows-release --parallel 6 --output-on-failure`（与 `windows-debug`）；`python -I tools/compare_artifacts.py build/step12-3-baseline build/windows-msvc/artifacts`；基准 `build/windows-msvc/bin/Release/weft_bridge_benchmark.exe --full <dir>`（固定 CCD0、高优先级，结果在 `<dir>/bridge.json`；测试的短跑写到 `build/windows-msvc/artifacts/bridge-benchmark-<配置>/bridge.json`）；`cmake --build --preset android-arm64`（Android 不构建探针，基准未在 Android 上编译）。
+- **限制**：
+  - 只有内部 C++ 接口与 JS 模块；C ABI（`weft_view_emit`、`weft_view_complete_call`、`weft_view_set_model`、取消息、注册函数）与对外 View 在 13.3，交付现在要宿主调用（13.3 在推进开始时做）；View 处于 Faulted 时的投递也在 13.3；
+  - 交给 JS 的开销主要是建对象：10 KB 的市场数据约 47 µs；字节总是复制（零拷贝的 ArrayBuffer 留给技术路线 6.5）；
+  - 从 JS 转出时函数与 symbol 成员被拒绝，不像 JSON.stringify 那样省略（CRPG 兼容层的 `sendEvent` 例外，照 CRPG 宿主）；
+  - 画廊与 HUD 探针还没接桥接（13.3、13.4）。
+- **下一步**：13.3 C ABI 与对外 View（加载、推进、输入、命中、取帧；锚点与桥接的 C 接口；模拟引擎的宿主样例）。
 
 重构第 13 步之一（b）：锚点的 GPU 路径与保留的 pass（2026-10-14），13.1 完成。详见 [重构计划](refactoring-plan.md#第-13-步记录2026-10-14) 与 [技术路线](engine-communication.md#53-渲染线程取值与应用)。
 - **结果**：

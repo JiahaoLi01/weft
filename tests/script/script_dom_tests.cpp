@@ -20,8 +20,9 @@ namespace {
     // source (CRLF normalized), and they install in order without any file access.
     void embedded_platform_modules() {
         using weft::ScriptPlatformModule;
-        for (const auto module : {ScriptPlatformModule::WebHost, ScriptPlatformModule::AnimationFrame,
-                                  ScriptPlatformModule::ScenePlatform}) {
+        for (const auto module :
+             {ScriptPlatformModule::WebHost, ScriptPlatformModule::AnimationFrame, ScriptPlatformModule::ScenePlatform,
+              ScriptPlatformModule::Engine, ScriptPlatformModule::CrpgBridge}) {
             auto source = read_file(std::string(WEFT_SOURCE_DIR) + "/src/script/js/" +
                                     std::string(weft::script_platform_file(module)));
             std::erase(source, '\r');
@@ -31,8 +32,11 @@ namespace {
         weft::install_script_platform(vm, ScriptPlatformModule::WebHost);
         weft::install_script_platform(vm, ScriptPlatformModule::AnimationFrame);
         weft::install_script_platform(vm, ScriptPlatformModule::ScenePlatform);
-        require(vm.eval("[typeof setTimeout, typeof requestAnimationFrame, typeof ResizeObserver].join()") ==
-                    "function,function,function",
+        weft::install_script_platform(vm, ScriptPlatformModule::Engine);
+        weft::install_script_platform(vm, ScriptPlatformModule::CrpgBridge);
+        require(vm.eval("[typeof setTimeout, typeof requestAnimationFrame, typeof ResizeObserver, "
+                        "typeof weft.emitParticles, typeof weft.engine.send, typeof ue.sendEvent].join()") ==
+                    "function,function,function,function,function,function",
                 "embedded platform modules install");
     }
 

@@ -1,6 +1,6 @@
 # 与引擎通信：技术路线（第 13 步）
 
-2026-10-14 起草。本文是第 13 步的设计合同与路线；实现状态以 [status](status.md) 与 [重构计划](refactoring-plan.md#第-13-步记录2026-10-14) 的记录为准。已实现：13.1 锚点（CPU 参考路径与 GPU 路径，2026-10-14，内部 C++ 接口）。
+2026-10-14 起草。本文是第 13 步的设计合同与路线；实现状态以 [status](status.md) 与 [重构计划](refactoring-plan.md#第-13-步记录2026-10-14) 的记录为准。已实现：13.1 锚点（CPU 参考路径与 GPU 路径，2026-10-14，内部 C++ 接口）；13.2 桥接（值、事件、调用、同步函数、视图模型与 CRPG 兼容层，2026-10-14，内部 C++ 接口与 JS 平台模块）。
 
 ## 摘要
 
@@ -250,6 +250,11 @@ typedef enum weft_value_format { WEFT_VALUE_MSGPACK = 1, WEFT_VALUE_JSON = 2 } w
 typedef struct weft_value_writer weft_value_writer;   /* 库提供：同步函数把结果写进它 */
 ```
 - 转成 JS 时直接构造 JS 对象与数组，不经过 JSON 文本，也不求值脚本；从 JS 转出时拒绝函数、symbol、循环引用，并有深度与大小上限。
+- 实现（13.2，`src/bridge/bridge_value.hpp`）：
+  - 读写：`ValueWriter` 写最短的形式，浮点总写 float64，先写元素后知道个数的容器用 32 位头再补；`ValueReader` 接受任何形式，拒绝扩展类型、0xc1、非有限浮点、不是 UTF-8 的字符串、超过剩余字节的个数；`valid_value` 另查键是字符串、嵌套至多 64 层（数组与对象的层数）、至多 1 MiB、没有多余字节。
+  - JSON：RFC 8259，严格（前导零、尾随逗号、控制字符、孤立代理项都拒绝）；int64 或 uint64 放得下的整数仍是整数，其余是 float64，`-0` 是浮点 −0。
+  - JS → 值：±(2^53−1) 以内的整数写成整数，其余与 −0 写成浮点；int64、uint64 以内的 BigInt 写成整数；字符串按 USVString（孤立代理项变成 U+FFFD）；ArrayBuffer 与类型化数组写成字节；数组与 Proxy 包着的数组写成数组；有 toJSON 的对象写它返回的值（只调一次，同 JSON.stringify，Date 因此是 ISO 文本）；其余对象写自有的可枚举字符串键，值为 undefined 的成员省略；拒绝函数、symbol、循环引用（同一个对象出现在自己里面；在别处出现两次不算）、非有限数与超过 64 位的 BigInt。
+  - 值 → JS：nil 是 null；超过 ±(2^53−1) 的整数与大于 int64 的 uint64 是 BigInt；字节是复制出的 Uint8Array；对象的键定义成自有数据属性（`__proto__` 键不改原型）。
 
 ### 6.2 引擎 → 页面：事件
 
@@ -270,6 +275,7 @@ weft.engine.onAny((name, value) => { /* 路由层、兼容层用 */ });
 
 - 交付在推进开始的任务阶段，每个事件之后做一次微任务检查点；处理函数抛出的异常记诊断，不影响其他处理函数。
 - 队列有上限；满时 `weft_view_emit` 返回 `WEFT_CAPACITY_EXCEEDED`，不静默丢弃。
+- 实现（13.2）：`bridge::EngineChannel::emit`、`emit_json`（`latest` 替换同名的最后一个未交付事件的值，留在它原来的位置）；`ScriptDom::deliver_engine` 一次交付全部等待的内容：先是视图模型的批次，再按投递顺序交事件与调用的完成，每项之后一次微任务检查点，共用一个执行预算；返回交付的个数与处理函数的异常（每次至多 64 条，每条至多 512 个字符）。名字的处理函数先于 `onAny`；交付中途取消的处理函数不再被调用，新增的从下一个事件起生效。
 
 ### 6.3 页面 → 引擎：消息、调用、同步函数
 
@@ -308,6 +314,12 @@ weft_result weft_view_register_function(weft_runtime* runtime, weft_view_handle 
 - 消息与调用由宿主主动取走，回调里不会再进入 JS，没有重入问题；宿主可以把处理推迟到自己合适的时机（CRPG 现在用 `SetTimerForNextTick` 达到同样的目的）。
 - 调用可以带超时（`weft.engine.call(name, value, {timeout})`），超时拒绝；完成迟于超时时返回 `WEFT_STALE_HANDLE`。
 - 同步函数只适合便宜的查询；在回调里调用会进入 View 的接口返回 `WEFT_BUSY`。
+- 实现（13.2）：
+  - `ScriptDom::take_engine_messages()` 按发出的顺序返回 `EngineMessage{call, name, value}`（`call` 为 0 是只发的消息）；页面未被取走的消息至多 4,096 条、16 MiB，超出时 `send` 与 `call` 抛出 `WEFT_ENGINE_FULL`；同时打开的调用至多 4,096 个。
+  - 调用的 id 由通道发放，从不为 0、从不重用；`call` 的各种错误都表现为被拒绝的 Promise。超时用页面的计时器（宿主时钟），到时拒绝（`WEFT_ENGINE_TIMEOUT: <name>`）并关闭调用，之后的完成返回 Stale；引擎在超时之前完成、交付在超时之后时，页面一侧把它记为 stale（`EngineDelivery::stale`）。
+  - 失败的完成拒绝成一个 Error：值是字符串时它是 message，是带字符串 `message` 的对象时用它，否则是 `weft.engine.call <name> failed`；引擎给的值在 `error.value`。
+  - 同步函数是 `ScriptDom::install_engine_function(name, fn)`（13.3 的 C ABI 改用写入器）：参数与结果都是 bridge 值，空结果是 undefined；它抛出的异常成为 `invoke` 的异常；它运行期间进入 ScriptDom 的任何接口都抛出 `WEFT_ENGINE_REENTRY`（13.3 映射到 `WEFT_BUSY`）。
+  - 调用的往返：页面在一次推进里调用，宿主在推进之后取消息并立即完成，下一次推进交付，Promise 在这次推进里兑现（1 帧）。
 
 ### 6.4 视图模型
 
@@ -325,6 +337,7 @@ const player = weft.engine.model('player');      // {value, subscribe}
 
 - 同一次推进里对同一字段的多次设置只保留最后一次；交给 JS 的是变化的字段。
 - 低频数据（血量、名字、状态）走视图模型或事件，不再随位置整份重推。
+- 实现（13.2）：`EngineChannel::set_model`、`set_model_json`（字段是一个对象；同一个键出现两次取后一个；满了整批不合并）。`weft.engine.model(name)` 返回同一个冻结的句柄 `{name, value, subscribe}`：`value` 在第一批之前是 undefined，之后每一批换成一个新的冻结对象（浅冻结，已有字段与这一批合并）；`subscribe(fn)` 返回取消函数，`fn(value, changed)` 在每一批之后被调用（`changed` 是这一批的字段）；页面还没问过的模型的批次也会保存。视图模型的批次先于同一次交付里的事件。
 
 ### 6.5 批量数值（后续）
 
@@ -343,11 +356,14 @@ const player = weft.engine.model('player');      // {value, subscribe}
 
 引擎侧把 `CallUI(fn, json)` 换成 `weft_view_emit(view, fn, WEFT_VALUE_JSON, json)`，把 `OnEvent` 换成取消息的循环；`UUIBaseSubsystem` 本来就把 `CallUI` 合同与后端分开，换后端不影响业务代码。
 
+实现（13.2）：平台模块 `ScriptPlatformModule::CrpgBridge`，装在 `Engine` 之后、页面之前。`window.ue.sendEvent(name, data)` 发 `engine.send(String(name), data ?? {})`；页面先建了 `window.ue` 时保留它，只加 `sendEvent`。引擎的每个事件转给页面定义的 `window.__ue_dispatch(name, value)`（没有定义时跳过，同 CRPG 的 `if (window.__ue_dispatch)`）；视图模型 `vm` 每一批变化的字段转给 `window.__vm_update(changed)`（CRPG 一个 widget 绑定一个视图模型）。`requestFromUE` 留给页面改写成 `weft.engine.call`。
+
 ### 6.7 错误、上限与生命周期
 
 - 名字至多 256 字节；单个负载、嵌套深度、队列长度有上限（常量集中在 `constants`），超出返回错误并记诊断。
 - 页面重新加载或 View 重置：未完成的调用全部拒绝，未交付的事件丢弃；之后的完成返回 `WEFT_STALE_HANDLE`。
 - View 处于 Faulted 状态时，投递返回错误，不排队。
+- 实现（13.2，`constants/bridge.hpp`）：名字 1–256 字节的 UTF-8；单个值至多 1 MiB、嵌套至多 64 层；通道至多 4,096 项、16 MiB；页面的消息至多 4,096 条、16 MiB；打开的调用至多 4,096 个。`reset_document` 重置通道（丢弃等待的输入、关闭全部调用）并丢弃页面未被取走的消息；旧页面的 Promise 随它的 JS 上下文一起消失。通道与同步函数属于 View，重置后保留。Faulted 状态下的投递在 13.3 的 View 里处理。
 
 ## 7. 线程与同步
 
@@ -437,6 +453,18 @@ void OnMessage(void* self, weft_view_handle view, const weft_message* m) {
 - 硬件：RTX 5090 + Ryzen 9 9950X3D；windows-profile（Release 加 PDB）；4K 目标、2 倍缩放；进程固定在 CCD0、高优先级；多个版本交替运行、每轮换先后，取中位数；报告 p50、p95、p99 与最慢帧，以及首帧。
 - HUD 基准：推 JSON、零传输、锚点三种模式；单位数 100、200、400；400 个单位时每帧只改 1、4、40 个的档位。
 - 桥接：每秒 1,000 个事件的交付耗时；10 KB 负载的转换耗时；调用往返（宿主立即完成）的帧数。
+- 13.2 的测量（`weft_bridge_benchmark --full`，9950X3D，固定 CCD0，Release，每种 600 帧，三次运行的中位数）。UI 线程每帧 p50 / p99 / 最慢：
+
+| 每帧 | 负载 | 拼进脚本求值（CRPG 现在的做法） | 桥接，引擎给 JSON | 桥接，引擎写 MessagePack |
+| --- | --- | --- | --- | --- |
+| 1 个事件 | 血量（7 字节） | 3.5 / 5.5 / 9.6 µs | 1.1 / 1.2 / 2.2 µs | 1.1 / 1.8 / 1.9 µs |
+| 17 个事件 | 血量 | 59 / 89 / 109 µs | 14 / 24 / 38 µs | 14 / 23 / 38 µs |
+| 1 个事件 | 市场（1 KB，8 项） | 32 / 56 / 71 µs | 6.2 / 9.8 / 31 µs | 6.1 / 11 / 40 µs |
+| 17 个事件 | 市场 1 KB | 0.56 / 0.68 / 0.90 ms | 0.10 / 0.14 / 0.18 ms | 0.10 / 0.13 / 0.17 ms |
+| 1 个事件 | 市场（10 KB，77 项） | 265 / 327 / 396 µs | 47 / 59 / 80 µs | 47 / 59 / 73 µs |
+| 17 个事件 | 市场 10 KB | 4.49 / 4.82 / 6.07 ms | 0.79 / 0.90 / 1.12 ms | 0.78 / 0.88 / 1.07 ms |
+
+  - 每秒约 1,000 个 10 KB 事件时 UI 线程约 5.7 倍快；10 KB 的 JSON 转 MessagePack 约 18 µs（在给出的线程上）；调用往返 1 帧。
 - 移动端：Android 真机尚未运行（[待办](status.md)），目标先按桌面定，真机数据出来后修订。
 
 ## 14. 风险与未决问题

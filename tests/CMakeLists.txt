@@ -130,6 +130,12 @@ weft_add_test(NAME render_backend_c_abi COMMAND weft_render_backend_c_smoke)
 weft_add_executable(weft_script_dom_tests SOURCES script/script_dom_tests.cpp LINK weft::script SOURCE_DIR)
 weft_add_test(NAME script_dom_lifecycle COMMAND weft_script_dom_tests TIMEOUT 30)
 
+# The engine bridge: values, the channel, and weft.engine over a ScriptDom.
+weft_add_executable(weft_bridge_tests SOURCES bridge_tests.cpp LINK weft::bridge)
+weft_add_test(NAME bridge_contract COMMAND weft_bridge_tests TIMEOUT 120)
+weft_add_executable(weft_engine_bridge_tests SOURCES script/engine_bridge_tests.cpp LINK weft::script)
+weft_add_test(NAME engine_bridge_contract COMMAND weft_engine_bridge_tests TIMEOUT 60)
+
 weft_add_executable(weft_owner_executor_tests SOURCES owner_executor_tests.cpp LINK weft::script)
 weft_add_test(NAME owner_executor_contract COMMAND weft_owner_executor_tests TIMEOUT 180)
 

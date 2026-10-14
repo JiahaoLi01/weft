@@ -30,7 +30,7 @@
   // frame, options.count of them (1 by default) over options.duration seconds, flying to options.target (an element's
   // centre, or {x, y} in viewport px) when given. Throws without a particle host, for an unknown name, a bad count or
   // duration, or a target that is neither.
-  globalThis.weft = Object.freeze({emitParticles(element, name, options = {}) {
+  globalThis.weft = Object.freeze({...(globalThis.weft ?? {}), emitParticles(element, name, options = {}) {
     if (!(element instanceof Element)) throw new TypeError('weft.emitParticles: an element');
     const target = options.target ?? null, node = target instanceof Element ? target : null;
     const x = target && !node ? Number(target.x) : NaN, y = target && !node ? Number(target.y) : NaN;

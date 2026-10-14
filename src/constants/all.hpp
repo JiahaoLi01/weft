@@ -4,6 +4,7 @@
 // module header they need from src/constants/. Test and probe constants live in
 // tests/test_constants/ and probes/{probe,gallery}_constants.hpp.
 #include "constants/common.hpp"
+#include "constants/bridge.hpp"
 #include "constants/canvas.hpp"
 #include "constants/core.hpp"
 #include "constants/input.hpp"

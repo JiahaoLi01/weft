@@ -1,4 +1,7 @@
 #include "script/script_dom.hpp"
+#include "bridge/bridge_value.hpp"
+#include "bridge/engine_channel.hpp"
+#include "constants/bridge.hpp"
 #include "constants/common.hpp"
 #include "base/diagnostic.hpp"
 #include "base/owner_thread.hpp"
@@ -14,6 +17,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cctype>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -208,24 +212,32 @@ namespace weft {
             Next,
             Pending,
             ErrorCount,
-            Errors
+            Errors,
+            // The engine bridge's dispatch (__ceEngineHost of the Engine platform module).
+            EngineEvent,
+            EngineSettle,
+            EngineModel,
+            EngineErrors
         };
 
-        std::array<HostBinding, 6> host_bindings;
+        std::array<HostBinding, 10> host_bindings;
 
         JSValue call_host(HostMethod method, int argc = 0, JSValueConst* args = nullptr) {
             auto& binding = host_bindings[method];
             if (JS_IsUndefined(binding.function)) {
                 Value global(context, JS_GetGlobalObject(context));
                 Value object(context, JS_GetPropertyStr(context, global.value,
-                                                        method == Pump ? "__ceHost" : "__ceAnimationHost"));
+                                                        method == Pump          ? "__ceHost"
+                                                        : method >= EngineEvent ? "__ceEngineHost"
+                                                                                : "__ceAnimationHost"));
                 if (JS_IsException(object.value)) {
                     throw PendingJsException{};
                 }
                 if (JS_IsUndefined(object.value)) {
                     throw std::runtime_error("WEFT_HOST_BINDING: optional platform module missing");
                 }
-                const char* names[]{"pumpNative", "begin", "next", "pending", "errorCount", "errors"};
+                const char* names[]{"pumpNative", "begin", "next",   "pending", "errorCount",
+                                    "errors",     "event", "settle", "model",   "errors"};
                 Value function(context, JS_GetPropertyStr(context, object.value, names[method]));
                 if (JS_IsException(function.value)) {
                     throw PendingJsException{};
@@ -290,6 +302,347 @@ namespace weft {
             if (layout_running) {
                 throw std::logic_error("WEFT_LAYOUT_REENTRY: layout/measure must not enter JS or DOM");
             }
+            if (engine_running) {
+                throw std::logic_error("WEFT_ENGINE_REENTRY: a sync engine function must not enter JS or DOM");
+            }
+        }
+
+        // The engine bridge: the channel, the sync functions, the page's messages not yet taken and their bytes, and
+        // whether a sync function runs.
+        std::shared_ptr<bridge::EngineChannel> engine;
+        std::map<std::string, EngineFunction, std::less<>> engine_functions;
+        std::vector<EngineMessage> engine_messages;
+        std::size_t engine_message_bytes{};
+        bool engine_running{};
+
+        static void engine_name(const std::string& name) {
+            if (name.empty() || name.size() > constants::bridge::max_name_bytes || !bridge::utf8(name)) {
+                throw std::runtime_error("WEFT_ENGINE_NAME: a name of 1 to 256 bytes of UTF-8");
+            }
+        }
+
+        // A JS string's text as Unicode scalar values (a USVString): QuickJS gives a lone surrogate as its WTF-8
+        // form, which becomes U+FFFD.
+        std::string scalar_text(JSValueConst value) {
+            auto text = string_value(context, value);
+            if (bridge::utf8(text)) {
+                return text;
+            }
+            std::string out;
+            out.reserve(text.size());
+            for (std::size_t i = 0; i < text.size(); ++i) {
+                if (static_cast<unsigned char>(text[i]) == 0xed && i + 2 < text.size() &&
+                    (static_cast<unsigned char>(text[i + 1]) & 0xe0) == 0xa0) {
+                    out += "\xef\xbf\xbd";
+                    i += 2;
+                } else {
+                    out.push_back(text[i]);
+                }
+            }
+            return out;
+        }
+
+        // A JS value as a bridge value, as weft.engine sends it: null and undefined as nil, booleans, numbers
+        // (integers within 2^53 as integers, others and -0 as floats), BigInts within int64 or uint64, strings (lone
+        // surrogates as U+FFFD), ArrayBuffers and typed arrays as their bytes, arrays (and proxies of arrays), objects
+        // with a toJSON method as what it returns (as in JSON.stringify: a Date as its text), and other objects as maps
+        // of their own enumerable string keys (members that are undefined left out). Functions, symbols, numbers that
+        // are not finite and cycles are refused, as is anything nested deeper than constants::bridge::max_value_depth
+        // or longer than max_value_bytes.
+        std::vector<std::uint8_t> engine_value(JSValueConst value) {
+            bridge::ValueWriter out;
+            std::vector<void*> path;
+            engine_write(out, value, path);
+            if (out.data().size() > constants::bridge::max_value_bytes) {
+                throw std::runtime_error("WEFT_ENGINE_VALUE: a value past the size bound");
+            }
+            return out.take();
+        }
+
+        // ECMAScript's IsArray: an array, or a proxy whose target is one (as MobX's and Immer's arrays are).
+        bool is_array(JSValueConst v) {
+            if (!JS_IsProxy(v)) {
+                return JS_IsArray(v);
+            }
+            Value target(context, JS_GetProxyTarget(context, v));
+            for (;;) {
+                if (!JS_IsProxy(target.value)) {
+                    return JS_IsArray(target.value);
+                }
+                JSValue next = JS_GetProxyTarget(context, target.value);
+                if (JS_IsException(next)) {
+                    throw PendingJsException{};
+                }
+                JS_FreeValue(context, target.value);
+                target.value = next;
+            }
+        }
+
+        // path holds the objects and arrays the value is in; converted, whether v is what a toJSON returned.
+        void engine_write(bridge::ValueWriter& out, JSValueConst v, std::vector<void*>& path, bool converted = false) {
+            if (out.data().size() > constants::bridge::max_value_bytes) {
+                throw std::runtime_error("WEFT_ENGINE_VALUE: a value past the size bound");
+            }
+            if (JS_IsNull(v) || JS_IsUndefined(v)) {
+                out.nil();
+            } else if (JS_IsBool(v)) {
+                out.boolean(JS_ToBool(context, v) > 0);
+            } else if (JS_IsNumber(v)) {
+                double d{};
+                if (JS_ToFloat64(context, &d, v) < 0) {
+                    throw PendingJsException{};
+                }
+                if (!std::isfinite(d)) {
+                    throw std::runtime_error("WEFT_ENGINE_VALUE: a number that is not finite");
+                }
+                if (d == std::floor(d) && std::abs(d) <= constants::script::max_safe_integer &&
+                    !(d == 0 && std::signbit(d))) {
+                    out.integer(std::int64_t(d));
+                } else {
+                    out.number(d);
+                }
+            } else if (JS_IsBigInt(v)) {
+                const auto digits = string_value(context, v);
+                std::int64_t i{};
+                std::uint64_t u{};
+                const auto* first = digits.data();
+                const auto* last = first + digits.size();
+                if (const auto r = std::from_chars(first, last, i); r.ec == std::errc{} && r.ptr == last) {
+                    out.integer(i);
+                } else if (const auto q = std::from_chars(first, last, u); q.ec == std::errc{} && q.ptr == last) {
+                    out.unsigned_integer(u);
+                } else {
+                    throw std::runtime_error("WEFT_ENGINE_VALUE: a BigInt past int64 and uint64");
+                }
+            } else if (JS_IsString(v)) {
+                out.string(scalar_text(v));
+            } else if (JS_IsSymbol(v)) {
+                throw std::runtime_error("WEFT_ENGINE_VALUE: a symbol cannot cross");
+            } else if (JS_IsFunction(context, v)) {
+                throw std::runtime_error("WEFT_ENGINE_VALUE: a function cannot cross");
+            } else if (!JS_IsObject(v)) {
+                throw std::runtime_error("WEFT_ENGINE_VALUE: a value that cannot cross");
+            } else {
+                if (!converted) {
+                    Value to_json(context, JS_GetPropertyStr(context, v, "toJSON"));
+                    if (JS_IsFunction(context, to_json.value)) {
+                        Value result(context, JS_Call(context, to_json.value, v, 0, nullptr));
+                        engine_write(out, result.value, path, true);
+                        return;
+                    }
+                }
+                auto* const identity = JS_VALUE_GET_PTR(v);
+                if (std::find(path.begin(), path.end(), identity) != path.end()) {
+                    throw std::runtime_error("WEFT_ENGINE_VALUE: a cycle cannot cross");
+                }
+                if (path.size() >= constants::bridge::max_value_depth) {
+                    throw std::runtime_error("WEFT_ENGINE_VALUE: nested past the depth bound");
+                }
+                path.push_back(identity);
+
+                struct Leave {
+                    std::vector<void*>& path;
+
+                    ~Leave() {
+                        path.pop_back();
+                    }
+                } leave{path};
+
+                if (JS_IsArrayBuffer(v)) {
+                    // Null only for a detached buffer, with its TypeError.
+                    std::size_t size{};
+                    const auto* data = JS_GetArrayBuffer(context, &size, v);
+                    if (!data) {
+                        throw PendingJsException{};
+                    }
+                    out.bytes({data, size});
+                } else if (JS_GetTypedArrayType(v) >= 0) {
+                    std::size_t offset{};
+                    std::size_t length{};
+                    std::size_t per{};
+                    Value buffer(context, JS_GetTypedArrayBuffer(context, v, &offset, &length, &per));
+                    std::size_t size{};
+                    const auto* data = JS_GetArrayBuffer(context, &size, buffer.value);
+                    if (!data) {
+                        throw PendingJsException{};
+                    }
+                    out.bytes({data + offset, length});
+                } else if (is_array(v)) {
+                    Value length_value(context, JS_GetPropertyStr(context, v, "length"));
+                    std::uint32_t length{};
+                    if (JS_ToUint32(context, &length, length_value.value) < 0) {
+                        throw PendingJsException{};
+                    }
+                    out.array(length);
+                    for (std::uint32_t i = 0; i < length; ++i) {
+                        Value item(context, JS_GetPropertyUint32(context, v, i));
+                        engine_write(out, item.value, path);
+                    }
+                } else {
+                    JSPropertyEnum* names{};
+                    std::uint32_t count{};
+                    if (JS_GetOwnPropertyNames(context, &names, &count, v, JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY) < 0) {
+                        throw PendingJsException{};
+                    }
+
+                    struct Names {
+                        JSContext* context;
+                        JSPropertyEnum* names;
+                        std::uint32_t count;
+
+                        ~Names() {
+                            JS_FreePropertyEnum(context, names, count);
+                        }
+                    } held{context, names, count};
+
+                    const auto header = out.open_map();
+                    std::uint32_t written{};
+                    for (std::uint32_t k = 0; k < count; ++k) {
+                        Value member(context, JS_GetProperty(context, v, names[k].atom));
+                        if (JS_IsUndefined(member.value)) {
+                            continue;
+                        }
+                        Value key(context, JS_AtomToString(context, names[k].atom));
+                        out.string(scalar_text(key.value));
+                        engine_write(out, member.value, path);
+                        ++written;
+                    }
+                    out.close(header, written);
+                }
+            }
+        }
+
+        // A bridge value as a JS value: maps as plain objects, bytes as a Uint8Array, integers past 2^53 as BigInts;
+        // nothing (an engine function's empty result) as undefined.
+        JSValue js_value(std::span<const std::uint8_t> bytes) {
+            if (bytes.empty()) {
+                return JS_UNDEFINED;
+            }
+            bridge::ValueReader reader(bytes);
+            Value out(context, js_item(reader, 1));
+            if (!reader.done()) {
+                throw std::runtime_error("WEFT_ENGINE_VALUE: bytes past the value");
+            }
+            return JS_DupValue(context, out.value);
+        }
+
+        // depth counts the arrays and maps the item is in, itself included.
+        JSValue js_item(bridge::ValueReader& reader, unsigned depth) {
+            const auto item = reader.next();
+            using Type = bridge::ValueReader::Type;
+            if ((item.type == Type::Array || item.type == Type::Map) && depth > constants::bridge::max_value_depth) {
+                throw std::runtime_error("WEFT_ENGINE_VALUE: nested past the depth bound");
+            }
+            switch (item.type) {
+                case Type::Nil:
+                    return JS_NULL;
+                case Type::Bool:
+                    return JS_NewBool(context, item.boolean);
+                case Type::Int:
+                    return std::abs(double(item.integer)) <= constants::script::max_safe_integer
+                               ? JS_NewInt64(context, item.integer)
+                               : JS_NewBigInt64(context, item.integer);
+                case Type::Unsigned:
+                    return JS_NewBigUint64(context, item.unsigned_integer);
+                case Type::Float:
+                    return JS_NewFloat64(context, item.number);
+                case Type::String:
+                    return JS_NewStringLen(context, item.text.data(), item.text.size());
+                case Type::Bytes:
+                    return JS_NewUint8ArrayCopy(context, item.bytes.data(), item.bytes.size());
+                case Type::Array: {
+                    Value array(context, JS_NewArray(context));
+                    for (std::uint32_t i = 0; i < item.count; ++i) {
+                        Value element(context, js_item(reader, depth + 1));
+                        if (JS_SetPropertyUint32(context, array.value, i, JS_DupValue(context, element.value)) < 0) {
+                            throw PendingJsException{};
+                        }
+                    }
+                    return JS_DupValue(context, array.value);
+                }
+                case Type::Map: {
+                    Value object(context, JS_NewObject(context));
+                    for (std::uint32_t i = 0; i < item.count; ++i) {
+                        const auto key = reader.next();
+                        Value member(context, js_item(reader, depth + 1));
+                        define(object.value, key.text, member.value);
+                    }
+                    return JS_DupValue(context, object.value);
+                }
+            }
+            return JS_NULL;
+        }
+
+        // Defines an own member (never a setter or __proto__'s prototype).
+        void define(JSValueConst object, std::string_view key, JSValueConst value) {
+            const JSAtom atom = JS_NewAtomLen(context, key.data(), key.size());
+            if (atom == JS_ATOM_NULL) {
+                throw PendingJsException{};
+            }
+            const int defined =
+                JS_DefinePropertyValue(context, object, atom, JS_DupValue(context, value), JS_PROP_C_W_E);
+            JS_FreeAtom(context, atom);
+            if (defined < 0) {
+                throw PendingJsException{};
+            }
+        }
+
+        EngineDelivery deliver_engine() {
+            require_runtime();
+            EngineDelivery report;
+            if (!engine) {
+                return report;
+            }
+            auto pending = engine->take();
+            if (pending.models.empty() && pending.inputs.empty()) {
+                return report;
+            }
+            execute([&] {
+                std::size_t jobs{};
+                for (const auto& model : pending.models) {
+                    Value fields(context, JS_NewObject(context));
+                    for (const auto& [field, value] : model.fields) {
+                        Value member(context, js_value(value));
+                        define(fields.value, field, member.value);
+                    }
+                    Value name(context, JS_NewStringLen(context, model.name.data(), model.name.size()));
+                    JSValueConst args[]{name.value, fields.value};
+                    Value result(context, call_host(EngineModel, 2, args));
+                    checkpoint(jobs);
+                    ++report.models;
+                }
+                for (const auto& input : pending.inputs) {
+                    Value value(context, js_value(input.value));
+                    if (input.kind == bridge::EngineInput::Kind::Event) {
+                        Value name(context, JS_NewStringLen(context, input.name.data(), input.name.size()));
+                        JSValueConst args[]{name.value, value.value};
+                        Value result(context, call_host(EngineEvent, 2, args));
+                        ++report.events;
+                    } else {
+                        JSValueConst args[]{JS_NewFloat64(context, double(input.call)),
+                                            JS_NewBool(context, input.succeeded), value.value};
+                        Value result(context, call_host(EngineSettle, 3, args));
+                        if (JS_ToBool(context, result.value) > 0) {
+                            ++report.completions;
+                        } else {
+                            ++report.stale;
+                        }
+                    }
+                    checkpoint(jobs);
+                }
+                Value errors(context, call_host(EngineErrors));
+                Value length_value(context, JS_GetPropertyStr(context, errors.value, "length"));
+                std::uint32_t length{};
+                if (JS_ToUint32(context, &length, length_value.value) < 0) {
+                    throw PendingJsException{};
+                }
+                for (std::uint32_t i = 0; i < length; ++i) {
+                    Value error(context, JS_GetPropertyUint32(context, errors.value, i));
+                    report.errors.push_back(string_value(context, error.value));
+                }
+                return JS_UNDEFINED;
+            });
+            return report;
         }
 
         void require_runtime() const {
@@ -1267,7 +1620,11 @@ namespace weft {
             SceneGeometry,
             GetComputedStyle,
             EmitParticles,
-            FormatInteger
+            FormatInteger,
+            EngineSend,
+            EngineCall,
+            EngineInvoke,
+            EngineClose
         };
 
         static JSValue arg(int argc, JSValueConst* argv, int index) {
@@ -1494,6 +1851,70 @@ namespace weft {
                             }
                         }
                         owner.particle_host(n.identity, request);
+                        return JS_UNDEFINED;
+                    }
+                    case EngineSend:
+                    case EngineCall: {
+                        // weft.engine.send(name, value) and call(name, value): a message for the host; a call's id.
+                        if (!owner.engine) {
+                            throw std::runtime_error("WEFT_ENGINE: no engine bridge");
+                        }
+                        auto name = string_value(c, arg(argc, argv, 0));
+                        engine_name(name);
+                        auto value = owner.engine_value(arg(argc, argv, 1));
+                        if (owner.engine_messages.size() >= constants::bridge::max_pending_messages ||
+                            owner.engine_message_bytes + value.size() > constants::bridge::max_pending_message_bytes) {
+                            throw std::runtime_error("WEFT_ENGINE_FULL: the host has not taken the page's messages");
+                        }
+                        std::uint64_t call{};
+                        if (magic == EngineCall) {
+                            call = owner.engine->open_call();
+                            if (!call) {
+                                throw std::runtime_error("WEFT_ENGINE_FULL: too many open calls");
+                            }
+                        }
+                        owner.engine_message_bytes += value.size();
+                        owner.engine_messages.push_back({call, std::move(name), std::move(value)});
+                        return magic == EngineCall ? JS_NewFloat64(c, double(call)) : JS_UNDEFINED;
+                    }
+                    case EngineInvoke: {
+                        // weft.engine.invoke(name, value): the host's function, at once.
+                        auto name = string_value(c, arg(argc, argv, 0));
+                        const auto found = owner.engine_functions.find(name);
+                        if (found == owner.engine_functions.end()) {
+                            throw std::runtime_error("WEFT_ENGINE: no function " + name);
+                        }
+                        const auto value = owner.engine_value(arg(argc, argv, 1));
+                        std::vector<std::uint8_t> result;
+                        {
+                            owner.engine_running = true;
+
+                            struct Done {
+                                Impl& owner;
+
+                                ~Done() {
+                                    owner.engine_running = false;
+                                }
+                            } done{owner};
+
+                            result = found->second(value);
+                        }
+                        // Nothing is undefined.
+                        std::string why;
+                        if (!result.empty() && !bridge::valid_value(result, &why)) {
+                            throw std::runtime_error("WEFT_ENGINE: " + name + " returned " + why);
+                        }
+                        return owner.js_value(result);
+                    }
+                    case EngineClose: {
+                        // A call the page settled itself (its timeout): later completions are stale.
+                        double call{};
+                        if (JS_ToFloat64(c, &call, arg(argc, argv, 0)) < 0) {
+                            throw PendingJsException{};
+                        }
+                        if (owner.engine) {
+                            owner.engine->close_call(std::uint64_t(call));
+                        }
                         return JS_UNDEFINED;
                     }
                     case FormatInteger: {
@@ -1963,6 +2384,10 @@ namespace weft {
                 method(prototype.value, "__ceComputedStyle", GetComputedStyle, 0);
                 method(prototype.value, "__ceEmitParticles", EmitParticles, 6);
                 method(prototype.value, "__ceFormatInteger", FormatInteger, 1);
+                method(prototype.value, "__ceEngineSend", EngineSend, 2);
+                method(prototype.value, "__ceEngineCall", EngineCall, 2);
+                method(prototype.value, "__ceEngineInvoke", EngineInvoke, 2);
+                method(prototype.value, "__ceEngineClose", EngineClose, 1);
                 JS_SetClassProto(context, node_class, JS_DupValue(context, prototype.value));
 
                 document_root = make_node(constants::document_node_type, "#document", "", {});
@@ -2528,6 +2953,27 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         impl_->clear_host_reads();
     }
 
+    void ScriptDom::install_engine(std::shared_ptr<bridge::EngineChannel> channel) {
+        impl_->check_owner();
+        impl_->engine = std::move(channel);
+    }
+
+    void ScriptDom::install_engine_function(std::string name, EngineFunction function) {
+        impl_->check_owner();
+        Impl::engine_name(name);
+        impl_->engine_functions[std::move(name)] = std::move(function);
+    }
+
+    std::vector<EngineMessage> ScriptDom::take_engine_messages() {
+        impl_->check_owner();
+        impl_->engine_message_bytes = 0;
+        return std::exchange(impl_->engine_messages, {});
+    }
+
+    EngineDelivery ScriptDom::deliver_engine() {
+        return impl_->deliver_engine();
+    }
+
     void ScriptDom::install_particle_host(ParticleHost host) {
         impl_->require_runtime();
         impl_->particle_host = std::move(host);
@@ -2874,6 +3320,12 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
         impl_->shutdown();
         ++impl_->view_epoch;
         impl_->faulted = false;
+        // The page's calls are gone with it, and what waited for it.
+        if (impl_->engine) {
+            impl_->engine->reset();
+        }
+        impl_->engine_messages.clear();
+        impl_->engine_message_bytes = 0;
         try {
             impl_->initialize();
         } catch (const PendingJsException&) {

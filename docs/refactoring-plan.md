@@ -2155,6 +2155,20 @@ CMake 拆分：
 - 验证：见 [status](status.md)；33 个变异全部被发现；第一轮存活的 3 个里两个补了反例（缩到十分之一的元素、Vulkan 换版本号），一个与重置后整帧重建等价，删去了那行代码；Debug 运行发现的释放后读取（stay 记忆在排序前被替换）已修正并补了反例。
 - 与技术路线不同：顺序缓冲是全部记录的顺序（不只锚点子树），跨批次的重排直接重新准备；保留 pass 的范围比锚点更广（版本号不变的任何帧都重画保留的 pass）。
 
+**13.2：桥接**（2026-10-14）：
+- 值（`src/bridge/bridge_value.hpp`，库 `weft::bridge`，只依赖 `weft::base`）：MessagePack 的子集，自己写的读写器（约 800 行，无第三方库）；`valid_value` 查完整的值（类型、UTF-8、键、深度 64、大小 1 MiB、没有多余字节）；`value_from_json` 是严格的 RFC 8259 解析，`value_to_json` 用于诊断与测试。上限在 `constants/bridge.hpp`。
+- 通道（`src/bridge/engine_channel.hpp`）：`EngineChannel` 一把锁，任意线程 `emit`（可选 latest）、`complete`、`set_model`（各有 JSON 版本）；owner `open_call`、`close_call`、`take`、`reset`。返回 `ChannelStatus`：Ok、Invalid（名字或值不合法）、Full（超过上限，什么也不收）、Stale（调用不在打开状态）。满了时完成不关闭调用，宿主可以稍后再完成。视图模型按模型、字段合并（同一批里重复的键只算一次字节）。
+- ScriptDom（`script_dom.hpp`）：`install_engine(shared_ptr<EngineChannel>)`、`install_engine_function(name, fn)`、`take_engine_messages()`、`deliver_engine()`（返回 `EngineDelivery`：批次、事件、完成、stale 的个数与处理函数的异常）。原生方法 `__ceEngineSend`、`__ceEngineCall`、`__ceEngineInvoke`、`__ceEngineClose` 挂在节点原型上（JS 模块经 `document` 调用）；宿主绑定 `__ceEngineHost` 的 `event`、`settle`、`model`、`errors`。同步函数运行期间 `check_owner()` 拒绝任何进入（`WEFT_ENGINE_REENTRY`）。值的转换见 [技术路线 6.1](engine-communication.md#61-值)。
+- JS 模块：`src/script/js/engine_bootstrap.js`（`ScriptPlatformModule::Engine`，`weft.engine`）与 `crpg_bridge_bootstrap.js`（`CrpgBridge`）；`weft` 由各模块合并（场景平台的 `weft.emitParticles` 改成合并，与安装顺序无关）。
+- 基准：`weft_bridge_benchmark --quick|--full <dir>`（`probes/bridge_benchmark.cpp`，可移植，不用 GPU）：CRPG 的“JSON 拼进脚本求值”对比桥接（引擎给 JSON、引擎写 MessagePack），同一个按 CRPG ue-bridge 写的页面；`bridge_benchmark_quick` 是它的短跑测试（三种方式的校验和必须相同）。
+- 与技术路线不同：
+  - 交付顺序定为视图模型的批次先于事件与完成（处理事件时看到的是新的模型）；
+  - latest 替换同名的最后一个未交付事件，并留在它原来的位置；
+  - 视图模型的句柄多一个 `name`，订阅者拿到 `(value, changed)`；第一批之前 `value` 是 undefined；
+  - 从 JS 转出时按 JSON.stringify 处理 toJSON 与 Proxy 包着的数组，孤立代理项变成 U+FFFD，−0 保持浮点；
+  - 同步函数在 13.2 是 C++ 的 `std::function`，结果是 bridge 值的字节（C ABI 的写入器在 13.3）；
+  - CRPG 兼容层把视图模型 `vm` 转给 `__vm_update`（CRPG 一个 widget 只绑一个视图模型）。
+
 ## 顺序调整（2026-10-10）
 
 用户决定先完成第 7–9 步，第 10 步（第二个图形后端与移动平台）暂缓。跨平台仍是硬性需求：
