@@ -62,7 +62,12 @@ namespace probes {
             std::vector<Timings> out;
             for (std::size_t level = 0; level < levels; ++level) {
                 Timings t;
+                // The work counters as the sampled frames begin.
+                std::array<std::size_t, 3> before{};
                 for (unsigned k = 0; k < warmup + samples; ++k) {
+                    if (k == warmup) {
+                        before = {scene.draws, scene.text_builds, scene.path_builds};
+                    }
                     const auto& f = source(level, k);
                     const auto began = std::chrono::steady_clock::now();
                     gpu.immediate->Begin(disjoint.Get());
@@ -96,6 +101,9 @@ namespace probes {
                         t.cpu.push_back(cpu.count());
                     }
                 }
+                t.draws = double(scene.draws - before[0]) / samples;
+                t.text_builds = double(scene.text_builds - before[1]) / samples;
+                t.path_builds = double(scene.path_builds - before[2]) / samples;
                 out.push_back(std::move(t));
             }
             gpu.check_debug_messages();
@@ -150,7 +158,12 @@ namespace probes {
             std::vector<Timings> out;
             for (std::size_t level = 0; level < levels; ++level) {
                 Timings t;
+                // The work counters as the sampled frames begin.
+                std::array<std::size_t, 3> before{};
                 for (unsigned k = 0; k < warmup + samples; ++k) {
+                    if (k == warmup) {
+                        before = {scene.draws, scene.text_builds, scene.path_builds};
+                    }
                     const auto& f = source(level, k);
                     const auto began = std::chrono::steady_clock::now();
                     VkCommandBufferBeginInfo begin{};
@@ -187,6 +200,9 @@ namespace probes {
                         t.cpu.push_back(cpu.count());
                     }
                 }
+                t.draws = double(scene.draws - before[0]) / samples;
+                t.text_builds = double(scene.text_builds - before[1]) / samples;
+                t.path_builds = double(scene.path_builds - before[2]) / samples;
                 out.push_back(std::move(t));
             }
             d.vkd.vkDeviceWaitIdle(d.device);

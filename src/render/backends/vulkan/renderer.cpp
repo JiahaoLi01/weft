@@ -726,9 +726,11 @@ namespace weft::render::vulkan {
                             effect_pipeline(list.programs[effect.program], open ? layer_format_ : target.format));
                         break;
                     }
+                    case ScenePass::Step::Atlas:
                     case ScenePass::Step::Particles:
                     case ScenePass::Step::Backdrop:
-                        // prepare refuses particles and backdrops: they draw in the scene pass alone.
+                        // prepare refuses particles and backdrops: they draw in the scene pass alone, as atlas pages
+                        // do.
                         break;
                 }
             }
@@ -875,6 +877,7 @@ namespace weft::render::vulkan {
                                   depth ? layer_passes : target_passes, false, paint::Color{});
                             draw_records(batch.first, 1);
                             break;
+                        case ScenePass::Step::Atlas:
                         case ScenePass::Step::Particles:
                         case ScenePass::Step::Backdrop:
                             break;

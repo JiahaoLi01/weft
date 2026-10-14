@@ -237,6 +237,124 @@ namespace {
         require(twice, "a region released twice");
     }
 
+    // Space comes back while a page holds other regions: a released span takes a region as short as its shelf, free
+    // neighbours join, an emptied shelf takes a shorter region at its top and keeps the rest, empty shelves at the end
+    // give their rows back, and a shelf more than half as tall again as a region is left for a new one. Random regions
+    // never overlap or leave their page.
+    void packer_reuse() {
+        using Region = weft::render::AtlasPacker::Region;
+        weft::render::AtlasPacker atlas(16, 1);
+        const auto a = atlas.allocate(4, 4).value();
+        const auto b = atlas.allocate(4, 4).value();
+        const auto c = atlas.allocate(4, 4).value();
+        const auto d = atlas.allocate(4, 4).value();
+        const auto e = atlas.allocate(16, 6).value();
+        const auto f = atlas.allocate(16, 2).value();
+        require(a.x == 0 && d.x == 12 && d.y == 0 && e.y == 4 && f.y == 10 && !atlas.allocate(16, 5),
+                "three shelves fill the page but its last rows");
+        atlas.release(b);
+        const auto g = atlas.allocate(4, 3).value();
+        require(g.x == 4 && g.y == 0, "a released span takes a region as short as its shelf");
+        atlas.release(g);
+        atlas.release(c);
+        const auto h = atlas.allocate(8, 4).value();
+        require(h.x == 4 && h.y == 0, "free neighbours join");
+        atlas.release(e);
+        const auto i = atlas.allocate(16, 2).value();
+        const auto j = atlas.allocate(16, 4).value();
+        require(i.y == 4 && j.y == 6, "an emptied shelf takes a shorter region at its top, and the rest another");
+        atlas.release(f);
+        const auto k = atlas.allocate(16, 6).value();
+        require(k.y == 10 && atlas.live() == 6, "an empty shelf at the end gives its rows back");
+        bool twice{};
+        try {
+            atlas.release(h);
+            atlas.release(h);
+        } catch (const std::logic_error&) {
+            twice = true;
+        }
+        require(twice && atlas.live() == 5, "a span released twice");
+        // Free spans and empty shelves join their neighbours on either side, whichever empties first.
+        weft::render::AtlasPacker spans(16, 1);
+        const auto s0 = spans.allocate(4, 4).value();
+        const auto s1 = spans.allocate(4, 4).value();
+        const auto s2 = spans.allocate(4, 4).value();
+        const auto s3 = spans.allocate(4, 4).value();
+        spans.release(s2);
+        spans.release(s1);
+        const auto both = spans.allocate(8, 4).value();
+        require(s0.x == 0 && s3.x == 12 && both.x == 4 && both.y == 0, "a released span joins the free span after it");
+        weft::render::AtlasPacker rows(16, 1);
+        const auto top = rows.allocate(16, 4).value();
+        const auto upper = rows.allocate(16, 3).value();
+        const auto lower = rows.allocate(16, 3).value();
+        const auto bottom = rows.allocate(16, 6).value();
+        require(top.y == 0 && upper.y == 4 && lower.y == 7 && bottom.y == 10 && !rows.allocate(1, 1),
+                "four shelves fill the page");
+        rows.release(lower);
+        rows.release(upper);
+        const auto joined = rows.allocate(16, 5);
+        require(joined && joined->y == 4, "an emptied shelf joins the empty shelf below it");
+        rows.release(*joined);
+        const auto first = rows.allocate(16, 3).value();
+        const auto second = rows.allocate(16, 3).value();
+        require(first.y == 4 && second.y == 7, "the joined shelf split in two");
+        rows.release(first);
+        rows.release(second);
+        const auto again = rows.allocate(16, 5);
+        require(again && again->y == 4, "an emptied shelf joins the empty shelf above it");
+        weft::render::AtlasPacker tall(16, 1);
+        const auto x = tall.allocate(4, 8).value();
+        const auto y = tall.allocate(4, 2).value();
+        const auto z = tall.allocate(12, 6).value();
+        require(x.y == 0 && y.y == 8 && z.y == 0 && z.x == 4,
+                "a shelf more than half as tall again is left for a new one, one less tall takes the region");
+        // Random regions on three pages of 64: none overlaps another or leaves its page; all of them back, the pages
+        // start empty.
+        constexpr std::uint32_t side = 64;
+        weft::render::AtlasPacker random(side, 3);
+        std::vector<Region> live;
+        std::uint32_t seed = 0x12345u;
+        const auto next = [&] {
+            seed = seed * 1664525u + 1013904223u;
+            return seed >> 8;
+        };
+        std::size_t placed{};
+        for (unsigned step = 0; step < 20000; ++step) {
+            if (!live.empty() && next() % 2) {
+                const auto at = next() % live.size();
+                random.release(live[at]);
+                live.erase(live.begin() + std::ptrdiff_t(at));
+            } else if (const auto r = random.allocate(1 + next() % 24, 1 + next() % 16)) {
+                live.push_back(*r);
+                ++placed;
+            }
+            require(random.live() == live.size(), "random live count");
+            if (step % 100) {
+                continue;
+            }
+            std::vector<std::uint8_t> used(std::size_t(3) * side * side);
+            for (const auto& r : live) {
+                require(r.page < 3 && r.x + r.width <= side && r.y + r.height <= side, "random region on its page");
+                for (std::uint32_t v = r.y; v < r.y + r.height; ++v) {
+                    for (std::uint32_t u = r.x; u < r.x + r.width; ++u) {
+                        auto& cell = used[(std::size_t(r.page) * side + v) * side + u];
+                        require(!cell, "random regions overlap");
+                        cell = 1;
+                    }
+                }
+            }
+        }
+        require(placed > 5000, "random regions placed");
+        for (const auto& r : live) {
+            random.release(r);
+        }
+        for (std::uint32_t page = 0; page < 3; ++page) {
+            const auto whole = random.allocate(side, side);
+            require(whole && whole->page == page, "pages start empty once every region is back");
+        }
+    }
+
     // With texture names, consecutive boxes and images that sample one texture are one draw; another texture or a
     // group ends the run. Without them every image is its own step.
     void batching() {
@@ -1190,6 +1308,7 @@ int main() {
         scene_pass();
         bounds();
         packer();
+        packer_reuse();
         batching();
         quads();
         external_textures();

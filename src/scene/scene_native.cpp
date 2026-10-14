@@ -147,7 +147,96 @@ namespace weft {
             }
             return h;
         }
+
+        // The records of images on atlas pages sample their pages, and each run of steps next to each other in item order
+        // that are boxes or images on one page (or paths with no image, which draw nothing) draws in one Atlas step.
+        void atlas_batches(ScenePrepared& p) {
+            using Step = render::ScenePass::Step;
+            auto& pass = p.pass;
+            for (std::size_t i = 0; i < p.images.size(); ++i) {
+                if (const auto& image = p.images[i]; image && image->atlas) {
+                    const auto size = float(scene_atlas_page_size(image->format));
+                    pass.records[i].uv = {float(image->atlas->x) / size, float(image->atlas->y) / size,
+                                          float(image->width) / size, float(image->height) / size};
+                }
+            }
+            std::vector<render::ScenePass::Batch> merged;
+            merged.reserve(pass.batches.size());
+            // The open run: whether there is one, the steps it joined, and its page once an image on one joined it.
+            bool open{};
+            std::size_t joined{};
+            std::optional<SceneAtlasPage> page;
+            const auto close = [&] {
+                if (open && page) {
+                    auto& run = merged.back();
+                    run.step = Step::Atlas;
+                    const auto found = std::find(p.pages.begin(), p.pages.end(), *page);
+                    run.source = std::uint32_t(found - p.pages.begin());
+                    if (found == p.pages.end()) {
+                        p.pages.push_back(*page);
+                    }
+                } else if (open && joined > 1) {
+                    merged.back().step = Step::Boxes;
+                }
+                open = false;
+                joined = 0;
+                page.reset();
+            };
+            for (const auto& batch : pass.batches) {
+                const bool image = batch.step == Step::Image && !p.planes[batch.first] && !p.layers[batch.first];
+                const auto* drawn = image ? p.images[batch.first].get() : nullptr;
+                if (!(batch.step == Step::Boxes || (image && (!drawn || drawn->atlas)))) {
+                    close();
+                    merged.push_back(batch);
+                    continue;
+                }
+                std::optional<SceneAtlasPage> on;
+                if (drawn) {
+                    on = SceneAtlasPage{drawn->format, drawn->atlas->page};
+                }
+                if (open &&
+                    (merged.back().first + merged.back().count != batch.first || (on && page && *on != *page))) {
+                    close();
+                }
+                if (open) {
+                    merged.back().count += batch.count;
+                } else {
+                    merged.push_back(batch);
+                    open = true;
+                }
+                ++joined;
+                if (on) {
+                    page = on;
+                }
+            }
+            close();
+            pass.batches = std::move(merged);
+        }
     } // namespace
+
+    std::uint32_t scene_atlas_page_size(SceneImage::Format format) {
+        return std::uint32_t(format == SceneImage::Format::Data ? limits::atlas_page_size
+                                                                : limits::atlas_color_page_size);
+    }
+
+    std::vector<std::uint8_t> scene_atlas_pixels(const SceneImage& image) {
+        constexpr auto border = std::uint32_t(limits::atlas_border);
+        const auto texel = scene_image_texel_bytes(image.format);
+        const auto row = std::size_t(image.width) * texel;
+        const auto w = std::size_t(image.width + 2 * border) * texel;
+        std::vector<std::uint8_t> out(w * (image.height + 2 * border));
+        for (std::uint32_t y = 0; y < image.height + 2 * border; ++y) {
+            // The nearest row of the image, and on it the nearest texels beyond its ends.
+            const auto* from = image.pixels.data() + std::min(std::max(y, border) - border, image.height - 1) * row;
+            auto* to = out.data() + y * w;
+            for (std::uint32_t x = 0; x < border; ++x) {
+                std::memcpy(to + x * texel, from, texel);
+                std::memcpy(to + border * texel + row + x * texel, from + row - texel, texel);
+            }
+            std::memcpy(to + border * texel, from, row);
+        }
+        return out;
+    }
 
     std::string scene_paint_source_key(const SceneNode& node) {
         SourceKey key;
@@ -177,7 +266,29 @@ namespace weft {
           layers_(bounds.entries, bounds.bytes),
           shadows_(bounds.entries, bounds.bytes),
           paths_(bounds.entries, bounds.bytes),
-          effect_textures_(bounds.entries, bounds.bytes) {
+          effect_textures_(bounds.entries, bounds.bytes),
+          coverage_atlas_(std::uint32_t(limits::atlas_page_size), bounds.atlas_pages),
+          color_atlas_(std::uint32_t(limits::atlas_color_page_size), bounds.atlas_pages),
+          atlas_(bounds.atlas_pages > 0) {
+    }
+
+    void ScenePreparer::place(const std::shared_ptr<SceneImage>& image) {
+        constexpr auto border = std::uint32_t(limits::atlas_border);
+        const bool coverage = image->format == SceneImage::Format::Data;
+        auto& atlas = coverage ? coverage_atlas_ : color_atlas_;
+        const auto width = image->width + 2 * border;
+        const auto height = image->height + 2 * border;
+        if (!atlas_ || width > atlas.page_size() / 2 || height > std::uint32_t(limits::atlas_max_height)) {
+            return;
+        }
+        const auto region = atlas.allocate(width, height);
+        if (!region) {
+            ++work_.atlas_refusals;
+            return;
+        }
+        image->atlas = SceneAtlasPlace{region->page, region->x + border, region->y + border};
+        placed_.push_back({image, coverage, *region});
+        ++work_.atlas_placements;
     }
 
     std::unique_ptr<ScenePrepared> ScenePreparer::prepare(const SceneFrame& frame, float scale, unsigned width,
@@ -189,6 +300,14 @@ namespace weft {
             ++work_.reasons[reason];
             return nullptr;
         };
+        // The atlas regions of images that are gone.
+        std::erase_if(placed_, [this](const Placed& placed) {
+            if (!placed.image.expired()) {
+                return false;
+            }
+            (placed.coverage ? coverage_atlas_ : color_atlas_).release(placed.region);
+            return true;
+        });
         // What this pass uses stays in the caches until the next pass.
         svg_.begin_pass(view_index);
         texts_.begin_pass();
@@ -377,25 +496,36 @@ namespace weft {
             } else {
                 throw std::invalid_argument("color glyph image reference");
             }
-            const auto bytes = bitmap.rgba.size();
-            if (bytes > limits::image_max_bytes) {
+            if (bitmap.rgba.size() > limits::image_max_bytes) {
                 throw std::invalid_argument("text source byte bound");
-            }
-            // Straight RGBA to premultiplied BGRA.
-            for (std::size_t i = 0; i < bitmap.rgba.size(); i += 4) {
-                std::swap(bitmap.rgba[i], bitmap.rgba[i + 2]);
-                for (unsigned c = 0; c < 3; ++c) {
-                    bitmap.rgba[i + c] = std::uint8_t(
-                        (unsigned(bitmap.rgba[i + c]) * bitmap.rgba[i + 3] + constants::color_channel_max / 2) /
-                        constants::color_channel_max);
-                }
             }
             auto image = std::make_shared<SceneImage>();
             image->id = ++next_id_;
             image->width = bitmap.width;
             image->height = bitmap.height;
-            image->pixels = std::move(bitmap.rgba);
+            if (raster.mask) {
+                // A mask is white text, whose premultiplied channels all equal its alpha: the coverage its record
+                // tints, a byte per texel.
+                image->format = SceneImage::Format::Data;
+                image->pixels.resize(bitmap.rgba.size() / constants::rgba8_bytes_per_pixel);
+                for (std::size_t i = 0; i < image->pixels.size(); ++i) {
+                    image->pixels[i] = bitmap.rgba[i * constants::rgba8_bytes_per_pixel + 3];
+                }
+            } else {
+                // Straight RGBA to premultiplied BGRA.
+                for (std::size_t i = 0; i < bitmap.rgba.size(); i += 4) {
+                    std::swap(bitmap.rgba[i], bitmap.rgba[i + 2]);
+                    for (unsigned c = 0; c < 3; ++c) {
+                        bitmap.rgba[i + c] = std::uint8_t(
+                            (unsigned(bitmap.rgba[i + c]) * bitmap.rgba[i + 3] + constants::color_channel_max / 2) /
+                            constants::color_channel_max);
+                    }
+                }
+                image->pixels = std::move(bitmap.rgba);
+            }
+            const auto bytes = image->pixels.size();
             ++work_.text_builds;
+            place(image);
             const auto evictions = texts_.evictions();
             texts_.put(source, image, bytes);
             work_.image_evictions += texts_.evictions() - evictions;
@@ -448,6 +578,7 @@ namespace weft {
         result->height = image->geometry.height;
         result->pixels = std::move(pixels);
         ++work_.shadow_builds;
+        place(result);
         const auto evictions = shadows_.evictions();
         shadows_.put(key, result, bytes);
         work_.image_evictions += shadows_.evictions() - evictions;
@@ -507,12 +638,8 @@ namespace weft {
         if (!coverage) {
             throw std::invalid_argument(coverage.error().message);
         }
-        // White coverage, premultiplied BGRA: the record tints it.
-        std::vector<std::uint8_t> pixels(coverage->coverage.size() * 4);
-        for (std::size_t i = 0; i < coverage->coverage.size(); ++i) {
-            std::fill_n(pixels.data() + i * 4, 4, coverage->coverage[i]);
-        }
-        const auto bytes = pixels.size();
+        // The coverage as it is, a byte per texel: the record tints it.
+        const auto bytes = coverage->coverage.size();
         if (bytes > limits::image_max_bytes) {
             throw std::invalid_argument("path image byte bound");
         }
@@ -520,8 +647,10 @@ namespace weft {
         result->id = ++next_id_;
         result->width = coverage->width;
         result->height = coverage->height;
-        result->pixels = std::move(pixels);
+        result->format = SceneImage::Format::Data;
+        result->pixels = std::move(coverage->coverage);
         ++work_.path_builds;
+        place(result);
         const auto evictions = paths_.evictions();
         paths_.put(key, {p.path, dashes, result}, bytes);
         work_.image_evictions += paths_.evictions() - evictions;
@@ -638,6 +767,7 @@ namespace weft {
                 out->planes[i] = prepare(content, scale, pixels[0], pixels[1], std::nullopt, view_index);
             }
         }
+        atlas_batches(*out);
         return out;
     }
 } // namespace weft

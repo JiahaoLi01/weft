@@ -18,11 +18,15 @@ namespace probes::particle_benchmark {
     inline constexpr unsigned target_height = 2160;
     inline constexpr float scale = 2;
 
-    // The sampled frames' times, and the first frame's: the start-up spike of a level's first pass.
+    // The sampled frames' times, and the first frame's: the start-up spike of a level's first pass. Per sampled frame,
+    // the pass's draw calls and the text and path images it built (SceneNativeWork).
     struct Timings {
         std::vector<double> gpu;
         std::vector<double> cpu;
         std::array<double, 2> first{};
+        double draws{};
+        double text_builds{};
+        double path_builds{};
     };
 
     // The frame to draw at frame index of level (0, 1, ...); a frame lives until the next call.

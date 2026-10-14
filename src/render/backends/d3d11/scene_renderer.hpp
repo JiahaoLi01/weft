@@ -17,7 +17,8 @@
 // Native D3D11 pass of a scene: the passes a ScenePreparer prepares (scene/scene_native.hpp), drawn by scene.hlsl as
 // instanced box records, transparent groups in scratch targets, perspective planes and explicit layers whose content a
 // nested pass draws into an image of its own, the text, shadow and path images the preparer builds, uploaded once
-// each, and UI shader effects in their encoded pass with their textures. Only text whose color glyphs are images (PNG or SVG) comes from the D2D reference raster. The destination
+// each (small ones into the region the preparer gives them on an atlas page), and UI shader effects in their encoded
+// pass with their textures. Only text whose color glyphs are images (PNG or SVG) comes from the D2D reference raster. The destination
 // holds encoded premultiplied BGRA, like the D2D scene targets.
 //
 // Owner thread of the SceneText. A frame the pass cannot draw returns false with a counted reason, and the caller
@@ -80,6 +81,12 @@ namespace weft::render::d3d11 {
             ComPtr<ID3D11ShaderResourceView> view;
         };
 
+        // An atlas page of the preparer's: the images on it are written into their regions when first drawn.
+        struct Page {
+            ComPtr<ID3D11Texture2D> texture;
+            ComPtr<ID3D11ShaderResourceView> view;
+        };
+
         // The encoded pass of an effect program (its d3d11_encoded bytecode), created on first use. The lease keeps
         // the program alive, so its address names it alone.
         struct EffectShader {
@@ -120,11 +127,15 @@ namespace weft::render::d3d11 {
         SceneRaster reference_;
         ScenePreparer preparer_;
         std::unordered_map<std::uint64_t, Texture> textures_;
+        // By format and page number.
+        std::map<std::array<std::uint32_t, 2>, Page> pages_;
         std::unordered_map<const paint::EffectProgram*, EffectShader> effect_shaders_;
         std::size_t scratch_bytes_{};
 
-        // An image's texture in the image's format, uploaded the first time.
+        // An image's texture in the image's format, uploaded the first time: its atlas page, or one of its own.
         ID3D11ShaderResourceView* texture(const std::shared_ptr<const SceneImage>& image);
+        // An atlas page's texture, created empty the first time.
+        Page& page(const SceneAtlasPage& page);
         ID3D11PixelShader* effect_shader(const std::shared_ptr<const paint::EffectProgram>& program);
         // A layer's texture, its content drawn the first time.
         ID3D11ShaderResourceView* texture(const std::shared_ptr<const SceneLayerImage>& layer, float scale);

@@ -70,6 +70,10 @@ namespace weft::render {
             // Records [first, first + count) in one instanced draw of the image of source: one Text, Layer, Shadow,
             // Path, Plane or Image item, or with texture names a run of boxes and images that sample one texture.
             Image,
+            // Records [first, first + count) in one instanced draw of an atlas page: a run of boxes, and of Text, Shadow
+            // and Path items whose images lie on the page, which source names among the pass's pages (a scene pass's
+            // ScenePrepared::pages). A path with no image in the run draws nothing.
+            Atlas,
             // Continue in a cleared group target one level deeper.
             BeginGroup,
             // Return to the enclosing target, where record first composites the group's target.
@@ -90,8 +94,8 @@ namespace weft::render {
             Step step{};
             std::uint32_t first{};
             std::uint32_t count{};
-            // The image source (DisplayList asset index, past the assets an external texture) an Image step binds, or
-            // the effect (DisplayList::effects index) of an Effect step's first item.
+            // The image source (DisplayList asset index, past the assets an external texture) an Image step binds, the
+            // page an Atlas step binds, or the effect (DisplayList::effects index) of an Effect step's first item.
             std::uint32_t source{};
         };
 

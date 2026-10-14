@@ -233,13 +233,22 @@ namespace weft::constants::render {
         inline constexpr int image_cache_budget_bytes = 32 * constants::bytes_per_mib;
         // The bytes of one text, layer, shadow or path image.
         inline constexpr int image_max_bytes = 16 * constants::bytes_per_mib;
+        // Atlases of a scene preparer: text, shadow and path images that, with a border of atlas_border texels that
+        // repeat their edge texels, are at most half a page wide and atlas_max_height texels high share pages of their
+        // format, atlas_page_size texels a side for coverage (a byte per texel) and atlas_color_page_size for colors
+        // (4 MiB a page either way), at most atlas_max_pages pages of each.
+        inline constexpr int atlas_page_size = 2048;
+        inline constexpr int atlas_color_page_size = 1024;
+        inline constexpr int atlas_max_pages = 8;
+        inline constexpr int atlas_max_height = 128;
+        inline constexpr int atlas_border = 1;
         // Transparent-group scratch targets across all slots.
         inline constexpr int scratch_budget_bytes = 128 * constants::bytes_per_mib;
     } // namespace scene
 
     // Vector paths (vector/path_raster.hpp).
     namespace path {
-        // Largest coverage mask, in device pixels; its BGRA image fits the scene image budget.
+        // Largest coverage mask, in device pixels; its image (a byte per pixel) fits the scene image budget.
         inline constexpr int max_mask_pixels = 2048 * 2048;
         // Coverage reaches this many device pixels past a path's bounds.
         inline constexpr int antialias_margin = 1;

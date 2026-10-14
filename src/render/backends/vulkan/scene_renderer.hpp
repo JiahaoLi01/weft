@@ -9,6 +9,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -17,8 +18,8 @@
 // Native Vulkan pass of a scene: the passes a ScenePreparer prepares (scene/scene_native.hpp), drawn by the shared
 // scene shader's encoded pass (src/render/shaders/scene.hlsl without SPACE_LINEAR, as SPIR-V) as instanced box records,
 // transparent groups in scratch images, perspective planes and explicit layers whose content a nested pass draws into
-// an image of its own, the text, shadow and path images the preparer builds, uploaded once each, and UI shader effects
-// in their encoded pass with their textures. Every target holds encoded premultiplied BGRA (B8G8R8A8_UNORM), as the
+// an image of its own, the text, shadow and path images the preparer builds, uploaded once each (small ones into the
+// region the preparer gives them on an atlas page), and UI shader effects in their encoded pass with their textures. Every target holds encoded premultiplied BGRA (B8G8R8A8_UNORM), as the
 // D3D11 scene targets do. A device that cannot filter linear float images draws no effect with a translucent color
 // texture: the frame falls back.
 //
@@ -78,7 +79,8 @@ namespace weft::render::vulkan {
             const Device* device{};
         };
 
-        SceneRenderer(Device& device, SceneText& text);
+        // bounds are the preparer's image caches' and atlases' (SceneCacheBounds).
+        SceneRenderer(Device& device, SceneText& text, SceneCacheBounds bounds = {});
         ~SceneRenderer();
         SceneRenderer(const SceneRenderer&) = delete;
         SceneRenderer& operator=(const SceneRenderer&) = delete;
@@ -115,8 +117,8 @@ namespace weft::render::vulkan {
         std::size_t slot_objects{};
 
     private:
-        // The image of a preparer's image or layer, kept while that lives; pending while the recording that uploads or
-        // draws it is not submitted.
+        // The image of a preparer's image or layer, kept while that lives (none for an image on an atlas page, whose
+        // page holds it); pending while the recording that uploads or draws it is not submitted.
         struct Texture {
             std::weak_ptr<const void> source;
             Image image;
@@ -165,6 +167,12 @@ namespace weft::render::vulkan {
         Image blank_image_;
         Buffer blank_buffer_;
         std::unordered_map<std::uint64_t, Texture> textures_;
+        // The preparer's atlas pages by format and page number, in VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL outside the
+        // copies of a recording that uploads images into them.
+        std::map<std::array<std::uint32_t, 2>, Image> pages_;
+        // Makes a new page shader-readable, once, before any recording uses it.
+        VkCommandBuffer setup_{};
+        VkFence setup_fence_{};
         std::uint64_t next_recording_{};
         // draw()'s target and its copy, of the last frame's size, and its slot.
         Image target_;
@@ -182,6 +190,8 @@ namespace weft::render::vulkan {
         // Records prepared's pass into the framebuffer of an image of prepared's size (image, when the pass may read
         // it): its planes' and new layers' contents first, each into an image of its own.
         void record(const ScenePrepared& prepared, VkFramebuffer framebuffer, VkImage image, float scale);
+        // An atlas page's image, created empty and shader-readable the first time.
+        const Image& page(const SceneAtlasPage& page);
         // The image of a layer, its content recorded the first time.
         VkImageView layer(const std::shared_ptr<const SceneLayerImage>& layer, float scale);
         // The pipeline of an effect program's encoded pass (its spirv_encoded), created on first use.

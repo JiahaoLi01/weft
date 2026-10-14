@@ -10,16 +10,18 @@
 #include <vector>
 
 // The native D3D11 scene pass on WARP over a transparent width x height target, read back as encoded premultiplied
-// BGRA rows. The pass keeps the D2D reference raster for color glyph images, which needs COM on the thread.
+// BGRA rows; bounds are its preparer's (SceneCacheBounds). The pass keeps the D2D reference raster for color glyph
+// images, which needs COM on the thread.
 namespace weft::testing {
     struct D3D11Scene {
         unsigned width{};
         unsigned height{};
         render::d3d11::Renderer gpu{true, width, height};
-        render::d3d11::SceneRenderer scene{gpu, thread_scene_text()};
+        render::d3d11::SceneRenderer scene;
         render::d3d11::SceneRenderer::Slot slot;
 
-        D3D11Scene(unsigned w, unsigned h) : width(w), height(h) {
+        D3D11Scene(unsigned w, unsigned h, SceneCacheBounds bounds = {})
+            : width(w), height(h), scene(gpu, thread_scene_text(), bounds) {
         }
 
         std::vector<std::uint8_t> draw(const SceneFrame& frame, float scale = 1) {

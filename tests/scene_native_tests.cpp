@@ -2,13 +2,16 @@
 #include "support/check.hpp"
 #include "support/scene_fonts.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <iostream>
 #include <map>
+#include <vector>
 
 // The backend-neutral preparation of native scene passes: the prepared tree's images, planes and layers, the scratch
-// its targets take, its caches by content, and the fallbacks it counts.
+// its targets take, its caches by content, the fallbacks it counts, and its atlas pages: where small images lie, which
+// runs of steps draw at once, and when a region comes back.
 namespace {
     using weft::testing::require;
 
@@ -23,6 +26,67 @@ namespace {
             n.style[k] = v;
         }
         return n;
+    }
+
+    // Small and large images among boxes: labels (text of one color) over boxes, a shadow, text in colors of its own, a
+    // label in a translucent group, an SVG path, and text too tall for an atlas page; between two labels, a backdrop
+    // over no pixel of the target, which draws nothing.
+    weft::SceneFrame atlas_frame() {
+        weft::SceneFrame f;
+        f.root = node(600, {0, 0, 400, 300}, {{"background-color", "#ffffff"}});
+        auto& c = f.root.children;
+        c.push_back(node(601, {4, 4, 80, 20}, {{"background-color", "#e0e0e0"}}));
+        c.push_back(node(602, {4, 4, 80, 20}, {{"font-size", "12px"}, {"color", "#202020"}}, "Open 1"));
+        c.push_back(node(613, {500, 400, 20, 20}, {{"backdrop-filter", "blur(4px)"}}));
+        c.push_back(node(603, {4, 30, 80, 20}, {{"background-color", "#d0d0d0"}}));
+        c.push_back(node(604, {4, 30, 80, 20}, {{"font-size", "12px"}, {"color", "#2060c0"}}, "Close 2"));
+        c.push_back(node(605, {100, 4, 40, 30},
+                         {{"background-color", "#3060c0"}, {"box-shadow", "2px 3px 4px 0px rgba(0, 0, 0, 0.5)"}}));
+        c.push_back(node(606, {100, 50, 80, 20}, {{"font-size", "12px"}, {"color", "#202020"}}, "\xe2\x98\x85 star"));
+        auto group = node(607, {200, 4, 80, 40}, {{"opacity", "0.5"}, {"background-color", "#40a040"}});
+        group.children = {node(608, {4, 4, 60, 20}, {{"font-size", "12px"}, {"color", "#ffffff"}}, "Inside")};
+        c.push_back(group);
+        auto svg = node(609, {4, 80, 100, 60}, {});
+        svg.tag = "svg";
+        svg.space = weft::constants::svg_namespace_uri;
+        svg.attributes = {{"width", "100"}, {"height", "60"}};
+        auto path = node(610, {0, 0, 100, 60}, {{"fill", "#c03030"}});
+        path.tag = "path";
+        path.space = weft::constants::svg_namespace_uri;
+        path.attributes = {{"d", "M10 10 L50 15 L30 40 Z"}};
+        svg.children = {path};
+        c.push_back(svg);
+        c.push_back(node(611, {4, 150, 300, 120}, {{"font-size", "80px"}, {"color", "#202020"}}, "Big"));
+        c.push_back(node(612, {150, 80, 80, 20}, {{"background-color", "#a0a0a0"}}));
+        return f;
+    }
+
+    // Steps that draw: all but a group's beginning, and an image step with no image.
+    std::size_t draws(const weft::ScenePrepared& p) {
+        using Step = weft::render::ScenePass::Step;
+        return std::size_t(std::count_if(p.pass.batches.begin(), p.pass.batches.end(), [&](const auto& b) {
+            return b.step != Step::BeginGroup &&
+                   (b.step != Step::Image || p.images[b.first] || p.planes[b.first] || p.layers[b.first]);
+        }));
+    }
+
+    // Where each image of a pass on an atlas page lies: page, x, y, width and height, with its format.
+    std::vector<std::array<std::uint32_t, 6>> places(const weft::ScenePrepared& p) {
+        std::vector<std::array<std::uint32_t, 6>> out;
+        for (const auto& image : p.images) {
+            if (image && image->atlas) {
+                out.push_back({std::uint32_t(image->format), image->atlas->page, image->atlas->x, image->atlas->y,
+                               image->width, image->height});
+            }
+        }
+        return out;
+    }
+
+    // Two places' regions share a texel, their borders included.
+    bool overlap(const std::array<std::uint32_t, 6>& a, const std::array<std::uint32_t, 6>& b) {
+        const auto border = std::uint32_t(weft::constants::render::scene::atlas_border);
+        return a[0] == b[0] && a[1] == b[1] && a[2] < b[2] + b[4] + 2 * border && b[2] < a[2] + a[4] + 2 * border &&
+               a[3] < b[3] + b[5] + 2 * border && b[3] < a[3] + a[5] + 2 * border;
     }
 
     // The images and layers of a prepared tree by id: one object per id.
@@ -205,8 +269,145 @@ int main() {
         require(bool(bounded.prepare(labels(300, "Name"), 1, 200, 200, std::nullopt, 0, {})) &&
                     bounded_work.text_builds == 12 && bounded_work.image_evictions == 6,
                 "a later pass evicts the earlier pass's images");
+        // Small images lie on atlas pages of their format, coverage (paths, text of one color) or colors (shadows, text in
+        // colors of its own); an image too large has a texture of its own. Their records sample their pages, and runs of
+        // boxes and of images on one page next to each other are one Atlas step, never across a group. Without pages,
+        // the same records but for their images' places, and more draws.
+        {
+            using Step = weft::render::ScenePass::Step;
+            using Format = weft::SceneImage::Format;
+            weft::SceneNativeWork atlas_work;
+            weft::ScenePreparer atlas(text, atlas_work, 4096);
+            const auto small = atlas_frame();
+            const auto p = atlas.prepare(small, 2, 800, 600, std::nullopt, 0, {});
+            require(p && !atlas_work.fallbacks, "an atlas pass");
+            std::size_t coverage{};
+            std::size_t colors{};
+            std::size_t own{};
+            for (std::size_t i = 0; i < p->images.size(); ++i) {
+                const auto& image = p->images[i];
+                if (!image) {
+                    continue;
+                }
+                if (!image->atlas) {
+                    ++own;
+                    continue;
+                }
+                (image->format == Format::Data ? coverage : colors) += 1;
+                const auto size = float(weft::scene_atlas_page_size(image->format));
+                require(p->pass.records[i].uv == weft::render::SceneRecord::Vector{float(image->atlas->x) / size,
+                                                                                   float(image->atlas->y) / size,
+                                                                                   float(image->width) / size,
+                                                                                   float(image->height) / size},
+                        "an atlas image's record samples its page");
+            }
+            // Coverage keeps its antialiasing: a text mask is its white text's alpha, which edges cover in part, not a
+            // color channel, which white text fills wherever it covers at all.
+            for (const auto& image : p->images) {
+                require(!image || image->format != Format::Data ||
+                            std::any_of(image->pixels.begin(), image->pixels.end(),
+                                        [](std::uint8_t v) {
+                                            return v > 0 && v < 255;
+                                        }),
+                        "coverage keeps its antialiasing");
+            }
+            require(std::none_of(p->pass.batches.begin(), p->pass.batches.end(),
+                                 [](const auto& b) {
+                                     return b.step == Step::Backdrop;
+                                 }) &&
+                        std::any_of(p->pass.records.begin(), p->pass.records.end(),
+                                    [](const auto& r) {
+                                        return r.mode[0] == weft::render::scene_limits::image_mode_backdrop;
+                                    }),
+                    "a backdrop over no pixel has a record and no step");
+            require(coverage == 4 && colors == 2 && own == 1 && atlas_work.atlas_placements == 6 &&
+                        !atlas_work.atlas_refusals,
+                    "labels, the label in the group and the path on a coverage page, the shadow and the colored text "
+                    "on a color page, the tall text on its own");
+            std::size_t runs{};
+            for (const auto& b : p->pass.batches) {
+                require(b.step != Step::Image || !p->images[b.first] || !p->images[b.first]->atlas,
+                        "no atlas image draws alone");
+                if (b.step != Step::Atlas) {
+                    continue;
+                }
+                ++runs;
+                const auto& page = p->pages.at(b.source);
+                for (auto i = b.first; i < b.first + b.count; ++i) {
+                    const auto& image = p->images[i];
+                    require(!p->planes[i] && !p->layers[i] &&
+                                p->pass.records[i].mode[0] != weft::render::scene_limits::image_mode_backdrop &&
+                                (!image ||
+                                 (image->atlas && image->format == page.format && image->atlas->page == page.page)),
+                            "an Atlas step draws boxes and images on its page, and no item that has no step");
+                }
+            }
+            weft::SceneNativeWork plain_work;
+            weft::ScenePreparer plain(text, plain_work, 4096, {}, weft::SceneCacheBounds{.atlas_pages = 0});
+            const auto q = plain.prepare(small, 2, 800, 600, std::nullopt, 0, {});
+            require(q && q->pages.empty() && places(*q).empty() && !plain_work.atlas_placements &&
+                        !plain_work.atlas_refusals,
+                    "no atlas pages, no places");
+            bool alike = q->pass.records.size() == p->pass.records.size();
+            for (std::size_t i = 0; alike && i < q->pass.records.size(); ++i) {
+                auto r = p->pass.records[i];
+                r.uv = q->pass.records[i].uv;
+                alike = std::memcmp(&r, &q->pass.records[i], sizeof r) == 0;
+            }
+            require(alike, "the same records but for where their images lie");
+            require(runs >= 3 && draws(*p) + 5 <= draws(*q),
+                    "runs of boxes and atlas images draw at once: " + std::to_string(draws(*p)) + " draws, " +
+                        std::to_string(draws(*q)) + " without pages");
+        }
+        // A region comes back once its image is gone, and only then: a pass's new images never take the regions of an
+        // earlier pass's images that something still holds, and take those of images nothing holds any more.
+        {
+            weft::SceneNativeWork reuse_work;
+            weft::ScenePreparer reuse(text, reuse_work, 4096, {}, weft::SceneCacheBounds{4, std::size_t(1) << 30});
+            auto held = reuse.prepare(labels(700, "Alpha"), 1, 200, 200, std::nullopt, 0, {});
+            const auto alpha = places(*held);
+            auto beta = reuse.prepare(labels(800, "Beta"), 1, 200, 200, std::nullopt, 0, {});
+            bool apart = alpha.size() == 6 && places(*beta).size() == 6;
+            for (const auto& a : alpha) {
+                for (const auto& b : places(*beta)) {
+                    apart &= !overlap(a, b);
+                }
+            }
+            require(apart && reuse_work.image_evictions == 6, "evicted images still held keep their regions");
+            held.reset();
+            beta.reset();
+            const auto gamma = reuse.prepare(labels(900, "Gamma"), 1, 200, 200, std::nullopt, 0, {});
+            std::size_t taken{};
+            for (const auto& g : places(*gamma)) {
+                taken += std::count_if(alpha.begin(), alpha.end(), [&](const auto& a) {
+                    return a[0] == g[0] && a[1] == g[1] && a[2] == g[2] && a[3] == g[3];
+                });
+            }
+            require(taken == 6, "images nothing holds give their regions to new ones");
+        }
+        // A full atlas: images that find no page with room get textures of their own, and draw on their own.
+        {
+            weft::SceneFrame f;
+            f.root = node(1000, {0, 0, 400, 300}, {{"background-color", "#ffffff"}});
+            for (std::uint32_t i = 0; i < 40; ++i) {
+                f.root.children.push_back(node(1001 + i, {4 + float(i % 4) * 90, 4 + float(i / 4) * 24, 80, 20},
+                                               {{"font-size", "12px"}, {"color", "#202020"}},
+                                               "\xe2\x98\x85 " + std::to_string(i)));
+            }
+            weft::SceneNativeWork full_work;
+            weft::ScenePreparer full(text, full_work, 4096, {}, weft::SceneCacheBounds{.atlas_pages = 1});
+            const auto p = full.prepare(f, 4, 1600, 1200, std::nullopt, 0, {});
+            std::size_t alone{};
+            for (const auto& b : p->pass.batches) {
+                alone +=
+                    b.step == weft::render::ScenePass::Step::Image && p->images[b.first] && !p->images[b.first]->atlas;
+            }
+            require(p && full_work.atlas_refusals > 0 && full_work.atlas_placements + full_work.atlas_refusals == 40 &&
+                        alone == full_work.atlas_refusals,
+                    "a full atlas: " + std::to_string(full_work.atlas_refusals) + " images of their own");
+        }
         std::cout << "PASS scene native preparation: images, planes, layers, scratch, caches, cache bounds, ids, "
-                     "fallbacks\n";
+                     "fallbacks, atlas pages\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

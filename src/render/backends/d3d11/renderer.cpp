@@ -832,9 +832,10 @@ namespace weft::render::d3d11 {
                     context->PSSetShader(display_ps.Get(), nullptr, 0);
                     break;
                 }
+                case ScenePass::Step::Atlas:
                 case ScenePass::Step::Particles:
                 case ScenePass::Step::Backdrop:
-                    // prepare refuses particles and backdrops: they draw in the scene pass alone.
+                    // prepare refuses particles and backdrops: they draw in the scene pass alone, as atlas pages do.
                     break;
             }
         }

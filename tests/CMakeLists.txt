@@ -315,6 +315,14 @@ if(WIN32)
     endif()
     weft_add_test(NAME render_scene_shape_boxes_contract COMMAND weft_render_scene_shape_boxes_tests
         "${artifacts}/shape-boxes-$<CONFIG>" TIMEOUT 120)
+    # Small scene images on atlas pages against textures of their own, on D3D11 WARP and Vulkan.
+    weft_add_executable(weft_render_scene_atlas_tests SOURCES render_scene_atlas_tests.cpp
+        LINK ${scene_effect_links})
+    if(WEFT_RENDER_VULKAN)
+        target_compile_definitions(weft_render_scene_atlas_tests PRIVATE WEFT_TEST_VULKAN)
+    endif()
+    weft_add_test(NAME render_scene_atlas_contract COMMAND weft_render_scene_atlas_tests
+        "${artifacts}/scene-atlas-$<CONFIG>" TIMEOUT 120)
     # The CRPG UI's smoke as a UI shader effect against the original's tick on the CPU, on both scene passes.
     weft_add_executable(weft_render_crpg_smoke_tests SOURCES render_crpg_smoke_tests.cpp
         LINK ${scene_effect_links} weft_gallery_effects windowscodecs ole32 SOURCE_DIR)

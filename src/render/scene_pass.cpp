@@ -212,7 +212,7 @@ namespace weft::render {
                     r.mode = {scene_limits::image_mode_signed_distance, asset->spread, source.stroke, 0};
                 }
             } else if (item.kind == Kind::Path) {
-                // Coverage tinted with the path's color.
+                // Coverage, a byte per texel, tinted with the path's color.
                 r.background = in(space, list.paths[item.payload].color);
                 r.extra[3] = scene_limits::flag_enabled;
             } else if (item.kind == Kind::Effect) {
@@ -276,6 +276,7 @@ namespace weft::render {
                 const auto region = backdrop_region(item, scale, w, h);
                 r.uv = {float(region[0]), float(region[1]), float(region[2] - region[0]), float(region[3] - region[1])};
             } else if ((item.kind == Kind::Text || item.kind == Kind::Layer) && list.rasters[item.payload].mask) {
+                // A mask tinted with the text's color: a text mask's coverage is a byte per texel.
                 r.background = in(space, list.rasters[item.payload].tint);
                 r.extra[3] = scene_limits::flag_enabled;
             }

@@ -157,6 +157,22 @@ namespace weft::render::d3d11 {
         }
     }
 
+    SceneRenderer::Page& SceneRenderer::page(const SceneAtlasPage& key) {
+        auto& page = pages_[{std::uint32_t(key.format), key.page}];
+        if (!page.texture) {
+            D3D11_TEXTURE2D_DESC desc{};
+            desc.Width = desc.Height = scene_atlas_page_size(key.format);
+            desc.MipLevels = desc.ArraySize = 1;
+            desc.Format = key.format == SceneImage::Format::Data ? DXGI_FORMAT_R8_UNORM : DXGI_FORMAT_B8G8R8A8_UNORM;
+            desc.SampleDesc.Count = 1;
+            desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            throw_if_failed(gpu_.device->CreateTexture2D(&desc, nullptr, &page.texture), "native scene atlas page");
+            throw_if_failed(gpu_.device->CreateShaderResourceView(page.texture.Get(), nullptr, &page.view),
+                            "native scene atlas page view");
+        }
+        return page;
+    }
+
     ID3D11ShaderResourceView* SceneRenderer::texture(const std::shared_ptr<const SceneImage>& image) {
         if (const auto it = textures_.find(image->id); it != textures_.end()) {
             return it->second.view.Get();
@@ -168,6 +184,18 @@ namespace weft::render::d3d11 {
         ensure(image->width && image->height &&
                    image->pixels.size() == std::size_t(image->width) * image->height * texel,
                "scene image size");
+        if (const auto& at = image->atlas) {
+            // Into its region of its page, inside its border. The immediate context orders the write after the draws
+            // that sampled what the region held before.
+            auto& on = page({image->format, at->page});
+            constexpr auto border = std::uint32_t(constants::render::scene::atlas_border);
+            const auto pixels = scene_atlas_pixels(*image);
+            const D3D11_BOX box{
+                at->x - border, at->y - border, 0, at->x + image->width + border, at->y + image->height + border, 1};
+            gpu_.immediate->UpdateSubresource(on.texture.Get(), 0, &box, pixels.data(),
+                                              UINT((image->width + 2 * border) * texel), 0);
+            return textures_.emplace(image->id, Texture{image, on.view}).first->second.view.Get();
+        }
         D3D11_TEXTURE2D_DESC desc{};
         desc.Width = image->width;
         desc.Height = image->height;
@@ -438,8 +466,8 @@ namespace weft::render::d3d11 {
         const bool offsets = constant_offsets && offsets_supported_;
         if (offsets) {
             for (const auto& batch : pass.batches) {
-                if (batch.step == Step::Boxes || batch.step == Step::EndGroup || batch.step == Step::Effect ||
-                    batch.step == Step::Particles || batch.step == Step::Backdrop ||
+                if (batch.step == Step::Boxes || batch.step == Step::Atlas || batch.step == Step::EndGroup ||
+                    batch.step == Step::Effect || batch.step == Step::Particles || batch.step == Step::Backdrop ||
                     (batch.step == Step::Image && views[batch.first])) {
                     starts.push_back(batch.first);
                 }
@@ -522,6 +550,9 @@ namespace weft::render::d3d11 {
                     break;
                 case Step::Boxes:
                     instances(batch.first, batch.count, nullptr);
+                    break;
+                case Step::Atlas:
+                    instances(batch.first, batch.count, page(prepared.pages.at(batch.source)).view.Get());
                     break;
                 case Step::Effect: {
                     // The effect's encoded pass over its records, its textures at t3 on, repeated by s1.

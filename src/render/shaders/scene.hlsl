@@ -628,8 +628,9 @@ float4 ps_main(Vertex v) : SV_Target {
             return premult(p.background) * sample.r * p.extra.y * coverage;
         }
         // A tinted mask (scene text, paths) premultiplies its color as a box does: quantized, as the reference
-        // producer's brush.
-        return (p.extra.w == FlagEnabled ? premult(p.background) * sample.a : sample) * p.extra.y * coverage;
+        // producer's brush. Its coverage is in r: an image of a byte per texel, or white content, whose premultiplied
+        // channels all equal its alpha.
+        return (p.extra.w == FlagEnabled ? premult(p.background) * sample.r : sample) * p.extra.y * coverage;
     }
     float sd = distanceRound(position, p.size.xy, p.radii);
     float aa = max(pixelWidth(sd), MinimumAntialiasWidth);
