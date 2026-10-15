@@ -44,7 +44,10 @@ namespace weft::render::d3d11 {
     ViewBackend::~ViewBackend() = default;
 
     weft_render_external_backend ViewBackend::external() {
-        std::uint32_t formats = (1u << WEFT_RENDER_TARGET_LINEAR_RGBA8) | (1u << WEFT_RENDER_TARGET_LINEAR_RGBA16F);
+        // Every device samples and filters 8-bit RGBA and BGRA, linear or sRGB, and RGBA16F; RGBA32F where it says so.
+        std::uint32_t formats = (1u << WEFT_RENDER_TARGET_LINEAR_RGBA8) | (1u << WEFT_RENDER_TARGET_SRGB_RGBA8) |
+                                (1u << WEFT_RENDER_TARGET_LINEAR_BGRA8) | (1u << WEFT_RENDER_TARGET_SRGB_BGRA8) |
+                                (1u << WEFT_RENDER_TARGET_LINEAR_RGBA16F);
         UINT support{};
         if (SUCCEEDED(device_->CheckFormatSupport(DXGI_FORMAT_R32G32B32A32_FLOAT, &support)) &&
             (support & D3D11_FORMAT_SUPPORT_SHADER_SAMPLE)) {

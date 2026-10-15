@@ -817,21 +817,23 @@ namespace weft::render::vulkan {
             const VkDescriptorBufferInfo record_info{records, 0, VK_WHOLE_SIZE};
             const VkDescriptorBufferInfo clip_info{clips, 0, VK_WHOLE_SIZE};
             const VkDescriptorImageInfo sampler_info{sampler_, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
+            // The repeating sampler, which host textures take too (scene.hlsl, linearRepeat).
+            const VkDescriptorImageInfo repeat_info{effect_sampler_, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
             const VkDescriptorBufferInfo order_info{order, 0, VK_WHOLE_SIZE};
             const VkDescriptorBufferInfo anchor_info{anchor_values, 0, VK_WHOLE_SIZE};
             const std::uint32_t bindings[]{
                 std::uint32_t(limits::binding_view),    std::uint32_t(limits::binding_records),
                 std::uint32_t(limits::binding_image),   std::uint32_t(limits::binding_clips),
                 std::uint32_t(limits::binding_sampler), std::uint32_t(limits::binding_order),
-                std::uint32_t(limits::binding_anchors)};
+                std::uint32_t(limits::binding_anchors), std::uint32_t(limits::binding_effect_sampler)};
             const VkDescriptorType types[]{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,  VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                            VK_DESCRIPTOR_TYPE_SAMPLER,        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                           VK_DESCRIPTOR_TYPE_STORAGE_BUFFER};
+                                           VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_SAMPLER};
             for (std::size_t s = 0; s < sets.size(); ++s) {
                 const VkDescriptorImageInfo image_info{VK_NULL_HANDLE, images[s],
                                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-                VkWriteDescriptorSet writes[7]{};
+                VkWriteDescriptorSet writes[8]{};
                 for (unsigned i = 0; i < std::size(writes); ++i) {
                     writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
                     writes[i].dstSet = sets[s];
@@ -846,6 +848,7 @@ namespace weft::render::vulkan {
                 writes[4].pImageInfo = &sampler_info;
                 writes[5].pBufferInfo = &order_info;
                 writes[6].pBufferInfo = &anchor_info;
+                writes[7].pImageInfo = &repeat_info;
                 d.vkd.vkUpdateDescriptorSets(d.device, std::uint32_t(std::size(writes)), writes, 0, nullptr);
                 if (!effect_views[s]) {
                     continue;

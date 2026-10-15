@@ -580,8 +580,9 @@ namespace weft::render::d3d11 {
             const D3D11_RECT clip{0, 0, LONG(target_width), LONG(target_height)};
             ctx->RSSetScissorRects(1, &clip);
             ctx->OMSetBlendState(blend_.Get(), blend, UINT_MAX);
-            auto* sampler = sampler_.Get();
-            ctx->PSSetSamplers(0, 1, &sampler);
+            // The clamping sampler, and the repeating one host textures take (scene.hlsl, linearRepeat).
+            ID3D11SamplerState* samplers[]{sampler_.Get(), effect_sampler_.Get()};
+            ctx->PSSetSamplers(0, 2, samplers);
         };
         bind();
         const Color transparent{};

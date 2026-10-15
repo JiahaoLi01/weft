@@ -77,12 +77,11 @@ namespace weft::render::d3d11 {
         D3D11_SHADER_RESOURCE_VIEW_DESC desc{};
         srv->GetDesc(&desc);
         const auto format = d->format == WEFT_RENDER_TARGET_LINEAR_RGBA8     ? DXGI_FORMAT_R8G8B8A8_UNORM
+                            : d->format == WEFT_RENDER_TARGET_SRGB_RGBA8     ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
+                            : d->format == WEFT_RENDER_TARGET_LINEAR_BGRA8   ? DXGI_FORMAT_B8G8R8A8_UNORM
+                            : d->format == WEFT_RENDER_TARGET_SRGB_BGRA8     ? DXGI_FORMAT_B8G8R8A8_UNORM_SRGB
                             : d->format == WEFT_RENDER_TARGET_LINEAR_RGBA16F ? DXGI_FORMAT_R16G16B16A16_FLOAT
                                                                              : DXGI_FORMAT_R32G32B32A32_FLOAT;
-        if (desc.ViewDimension != D3D11_SRV_DIMENSION_TEXTURE2D || desc.Format != format ||
-            desc.Texture2D.MostDetailedMip || desc.Texture2D.MipLevels != 1) {
-            return WEFT_RENDER_UNSUPPORTED_FEATURE;
-        }
         srv->GetResource(&resource);
         ComPtr<ID3D11Texture2D> texture;
         if (FAILED(resource.As(&texture))) {
@@ -90,11 +89,26 @@ namespace weft::render::d3d11 {
         }
         D3D11_TEXTURE2D_DESC actual{};
         texture->GetDesc(&actual);
+        // The view's levels: from the most detailed one, as many as the description says (all of the texture's when
+        // the view takes the rest).
+        const UINT levels = std::max(1u, d->mip_levels);
+        const UINT viewed = desc.Texture2D.MipLevels == UINT(-1) ? actual.MipLevels - desc.Texture2D.MostDetailedMip
+                                                                 : desc.Texture2D.MipLevels;
+        if (desc.ViewDimension != D3D11_SRV_DIMENSION_TEXTURE2D || desc.Format != format ||
+            desc.Texture2D.MostDetailedMip || viewed != levels) {
+            return WEFT_RENDER_UNSUPPORTED_FEATURE;
+        }
         if (actual.Width != d->width || actual.Height != d->height) {
             return WEFT_RENDER_INVALID_ARGUMENT;
         }
-        if (actual.ArraySize != 1 || actual.MipLevels != 1 || actual.SampleDesc.Count != 1 || actual.MiscFlags ||
-            actual.CPUAccessFlags || (actual.Usage != D3D11_USAGE_DEFAULT && actual.Usage != D3D11_USAGE_IMMUTABLE)) {
+        // A texture the host may make its levels of (GENERATE_MIPS), or one another device or API writes, shared and
+        // opened on this device (the host orders those writes with the UI's reads); no arrays, multisampling or CPU
+        // access.
+        constexpr UINT taken = D3D11_RESOURCE_MISC_GENERATE_MIPS | D3D11_RESOURCE_MISC_SHARED |
+                               D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
+        if (actual.ArraySize != 1 || actual.MipLevels < levels || actual.SampleDesc.Count != 1 ||
+            (actual.MiscFlags & ~taken) || actual.CPUAccessFlags ||
+            (actual.Usage != D3D11_USAGE_DEFAULT && actual.Usage != D3D11_USAGE_IMMUTABLE)) {
             return WEFT_RENDER_UNSUPPORTED_FEATURE;
         }
         view = srv;

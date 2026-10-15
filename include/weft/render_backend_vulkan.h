@@ -58,6 +58,10 @@ typedef struct weft_render_vulkan_texture {
     uint32_t abi_version; /* WEFT_RENDER_EXTERNAL_ABI_VERSION */
     uint64_t device;      /* VkDevice of the backend */
     uint64_t image_view;  /* VkImageView */
+    /* The VkImage of image_view, or 0 (the first version of the structure ends before it): with it, a pass whose
+     * weft_render_vulkan_pass::target_image is a texture its frame binds is refused (WEFT_RENDER_INVALID_STATE), as
+     * the D3D11 backend refuses one; without it, the host keeps them apart. */
+    uint64_t image;
 } weft_render_vulkan_texture;
 
 #ifdef __cplusplus

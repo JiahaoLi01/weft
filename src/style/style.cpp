@@ -1,5 +1,6 @@
 #include "style/style.hpp"
 #include "base/css_scalar.hpp"
+#include "style/background_layer.hpp"
 #include "base/owner_thread.hpp"
 #include "constants/common.hpp"
 #include "constants/style.hpp"
@@ -299,6 +300,25 @@ namespace weft {
             return false;
         }
 
+        // The longhands of one background layer as the scene expands the shorthand, with the parts of it they take
+        // and the initial values they take without one.
+        struct BackgroundLonghand {
+            const char* name;
+            BackgroundPart part;
+            const char* initial;
+        };
+
+        constexpr std::array<BackgroundLonghand, 8> background_longhands{{
+            {"background-color", BackgroundPart::Color, "transparent"},
+            {"background-image", BackgroundPart::Image, "none"},
+            {"background-position", BackgroundPart::Position, "0% 0%"},
+            {"background-size", BackgroundPart::Size, "auto"},
+            {"background-repeat", BackgroundPart::Repeat, "repeat"},
+            {"background-attachment", BackgroundPart::Attachment, "scroll"},
+            {"background-origin", BackgroundPart::Origin, "padding-box"},
+            {"background-clip", BackgroundPart::Clip, "border-box"},
+        }};
+
         struct Declaration {
             std::string key;
             Tokens tokens;
@@ -308,7 +328,8 @@ namespace weft {
             int corner{-1};
             int axis{-1};
             bool solid_background{};
-            // A part of a scene background shorthand: 0 its color, 1 its image, which take the value or none.
+            // A longhand of a scene background shorthand (background_longhands), which takes its part of the value
+            // or its initial value.
             int background_layer{-1};
             // The registered property of a non-custom key.
             PropertyId id{};
@@ -421,12 +442,12 @@ namespace weft {
                     result.push_back({"flex-shrink", {{Kind::Number, "1", {}}}, important});
                     result.push_back({"flex-basis", {{Kind::Percentage, "0%", {}}}, important});
                 } else if (key == "background" && profile.scene_syntax) {
-                    // The color and the image as longhands, so they cascade with the others; which one the value
-                    // gives is known once var() is substituted.
-                    result.push_back({"background-color", tokens, important});
-                    result.back().background_layer = 0;
-                    result.push_back({"background-image", std::move(tokens), important});
-                    result.back().background_layer = 1;
+                    // Every longhand of the layer, so they cascade with the others; which part of the value each
+                    // takes is known once var() is substituted.
+                    for (std::size_t layer = 0; layer < background_longhands.size(); ++layer) {
+                        result.push_back({background_longhands[layer].name, tokens, important});
+                        result.back().background_layer = int(layer);
+                    }
                 } else if (key == "background" && !profile.scene_syntax) {
                     result.push_back({"background-color", std::move(tokens), important});
                     result.back().solid_background = true;
@@ -1267,18 +1288,44 @@ namespace weft {
                             }
                         }
                         if (tokens && d.background_layer >= 0 && !wide(keyword(*tokens))) {
-                            // A gradient, an effect or a host texture is the image; anything else the color.
-                            const bool image = std::any_of(tokens->begin(), tokens->end(), [](const Token& t) {
-                                const auto name = lower(t.text);
-                                return t.kind == Kind::Function && (name.ends_with("gradient") ||
-                                                                    name == "-weft-effect" || name == "-weft-texture");
-                            });
-                            const bool none = keyword(*tokens) == "none";
-                            if (d.background_layer == 0 && (image || none)) {
-                                tokens = Tokens{{Kind::Ident, "transparent", {}}};
-                            } else if (d.background_layer == 1 && !image) {
-                                tokens = Tokens{{Kind::Ident, "none", {}}};
+                            // The part of the layer this longhand takes (background_layer.hpp), or its initial value.
+                            std::vector<std::string> names;
+                            names.reserve(tokens->size());
+                            std::vector<BackgroundComponent> components;
+                            for (const auto& t : *tokens) {
+                                using Part = BackgroundComponent::Kind;
+                                names.push_back(lower(t.text));
+                                const auto kind =
+                                    t.kind == Kind::Ident                    ? Part::Ident
+                                    : t.kind == Kind::Function               ? Part::Function
+                                    : t.kind == Kind::Hash                   ? Part::Hash
+                                    : t.kind == Kind::Delim && t.text == "/" ? Part::Slash
+                                    : t.kind == Kind::Number || t.kind == Kind::Dimension || t.kind == Kind::Percentage
+                                        ? Part::Length
+                                        : Part::Other;
+                                components.push_back({kind, names.back()});
                             }
+                            const auto parts = background_parts(components);
+                            if (!parts) {
+                                fail("background shorthand outside one layer: " + serialize(*tokens));
+                            }
+                            const auto& longhand = background_longhands[std::size_t(d.background_layer)];
+                            Tokens taken;
+                            for (std::size_t i = 0; i < parts->size(); ++i) {
+                                const auto part = (*parts)[i];
+                                if (part == longhand.part || (part == BackgroundPart::OriginAndClip &&
+                                                              (longhand.part == BackgroundPart::Origin ||
+                                                               longhand.part == BackgroundPart::Clip))) {
+                                    taken.push_back((*tokens)[i]);
+                                }
+                            }
+                            if (taken.empty()) {
+                                for (const auto& word : css::split(longhand.initial, ' ').parts) {
+                                    taken.push_back(word.ends_with('%') ? Token{Kind::Percentage, word, {}}
+                                                                        : Token{Kind::Ident, word, {}});
+                                }
+                            }
+                            tokens = std::move(taken);
                         }
                         std::string word = tokens ? keyword(*tokens) : "";
                         bool invalid = !tokens;

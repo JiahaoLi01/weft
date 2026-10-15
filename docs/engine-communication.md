@@ -412,9 +412,11 @@ const player = weft.engine.model('player');      // {value, subscribe}
 - 样例 `samples/engine-host`：只用公开头文件的模拟引擎，HUD 页面、锚点、视图模型、事件、命中与点击、调用与同步函数，在 D3D11 与 Vulkan 上画在游戏画面之上。
 
 引擎的纹理（13.3c）：页面写 `background-image: -weft-texture(name)`，宿主每帧在 `weft_render_scene_frame::textures` 里把名字绑到它导入的纹理（外部纹理扩展的租约），不经 CPU。
-- 宿主先用后端的扩展（`weft_render_d3d11_external`、`weft_render_vulkan_external`）装到渲染器上，再导入纹理：D3D11 的着色器资源视图、Vulkan 的图像视图，线性预乘的 RGBA8、RGBA16F 或 RGBA32F；页面按浏览器合成图片的方式画它（转成 sRGB 编码值）。
+- 宿主先用后端的扩展（`weft_render_d3d11_external`、`weft_render_vulkan_external`）装到渲染器上，再导入纹理：D3D11 的着色器资源视图、Vulkan 的图像视图；线性的 RGBA8、BGRA8、RGBA16F、RGBA32F（设备能过滤时），或 sRGB 的 RGBA8、BGRA8 视图（采样时解码）：采样得到的是线性预乘的颜色。可以带 mip（`weft_render_external_texture::mip_levels`，原来的保留字段；字节预算按整条链算），缩小时在层间采样。页面按浏览器合成图片的方式画它（转成 sRGB 编码值）。
 - 每帧重画的 render target 以 `WEFT_RENDER_EXTERNAL_SAME_QUEUE_LIVE` 导入一次：引擎在同一队列上、UI 之前写它，Vulkan 上自己加屏障，之后每帧都绑同一个租约；冻结方式（默认）的纹理在退休前不能改。
-- 纹理拉伸铺满元素的边框盒，在背景色之上、边框之下，圆角裁剪；没绑定的名字什么也不画。
+- 纹理像 CSS 画背景图那样铺排（2026-10-15）：自然大小是它的像素（1 个 CSS px 一个纹素），`background-size`、`-position`、`-repeat`、`-origin`、`-clip` 与 `background` 简写；在背景色之上、边框之下，裁剪盒的圆角里；没绑定的名字什么也不画。纹理的大小只有渲染线程知道（宿主每帧可以换），所以瓦片由着色器按纹理的大小算，CPU 上同样的算法（`scene_texture_tiles`）供 D2D 参考光栅与测试用。要铺满元素写 `background-size: 100% 100%` 或 `cover`（13.3c 时总是拉伸铺满边框盒）。
+- 别的设备或图形 API 写的纹理（如 UE 的 D3D12 设备上的 render target，经 NT 句柄共享）：宿主在后端的 D3D11 设备上打开它（`OpenSharedResource1`）与共享 fence（`OpenSharedFence`），像同设备的纹理那样以 live 导入；写与读的先后由宿主排：UI 的 pass 画在立即上下文上，宿主在 `weft_renderer_encode` 之前于立即上下文上 `Wait` 生产者写完的值，之后 `Signal` UI 读完的值，生产者写下一帧前等这个值。D3D11 接受带共享标志的纹理（键控互斥由宿主获取与释放）。测试：D3D12 在同一适配器上写、D3D11 画，两帧各是 D3D12 为它写的内容。Vulkan 上宿主可用 `VK_KHR_external_memory_win32` 与外部信号量自己导入，后端不检查图像怎么来的（未测）。
+- Vulkan 的纹理结构末尾可选的 `image`（`weft_render_vulkan_texture::image`）：宿主给出时，画进帧绑定的纹理的 pass 被拒绝（`INVALID_STATE`，同 D3D11）；没有时由宿主保证。
 - UE 插件（M5）里，UE 的 render target 就是同一设备上的 RHI 纹理，由 RHI 后端直接绑定，同样零拷贝。
 
 ## 9. JS API 草案

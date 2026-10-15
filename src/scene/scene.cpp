@@ -1,5 +1,6 @@
 #include "scene/scene.hpp"
 #include "scene/scene_values.hpp"
+#include "scene/scene_background.hpp"
 #include "base/css_scalar.hpp"
 #include "base/owner_thread.hpp"
 #include "constants/scene.hpp"
@@ -8,6 +9,7 @@
 #include "scene/scene_filter.hpp"
 #include "scene/scene_inline.hpp"
 #include "scene/scene_transform.hpp"
+#include "style/background_layer.hpp"
 #include "text/case_mapping.hpp"
 #include <chrono>
 #include <algorithm>
@@ -23,6 +25,7 @@
 #include <deque>
 #include <set>
 #include <thread>
+#include <tuple>
 #include <type_traits>
 
 namespace weft {
@@ -314,6 +317,67 @@ namespace weft {
             fail("text-transform " + std::string(transform) + " outside scene profile");
         }
 
+        // The longhands of a background shorthand of one layer (style/background_layer.hpp), each its part of the
+        // value or its initial value, as the style module expands it in a document's styles.
+        void expand_background(Style& s, const std::string& value) {
+            // The value's components: those between spaces, a '/' outside parentheses one of its own.
+            std::string spaced;
+            int depth{};
+            for (const char ch : value) {
+                depth += ch == '(' ? 1 : ch == ')' ? -1 : 0;
+                spaced += ch == '/' && !depth ? std::string(" / ") : std::string(1, ch);
+            }
+            const auto texts = split(spaced);
+            std::vector<std::string> names;
+            names.reserve(texts.size());
+            std::vector<BackgroundComponent> components;
+            for (const auto& t : texts) {
+                using Kind = BackgroundComponent::Kind;
+                const auto open = t.find('(');
+                std::string name = t.substr(0, open == t.npos ? t.size() : open);
+                std::transform(name.begin(), name.end(), name.begin(), [](unsigned char ch) {
+                    return char(std::tolower(ch));
+                });
+                names.push_back(std::move(name));
+                const char first = t.empty() ? '\0' : t[0];
+                const bool numeric = std::isdigit(static_cast<unsigned char>(first)) || first == '.' ||
+                                     ((first == '-' || first == '+') && t.size() > 1 &&
+                                      (std::isdigit(static_cast<unsigned char>(t[1])) || t[1] == '.'));
+                const auto kind = t == "/"                                      ? Kind::Slash
+                                  : first == '#'                                ? Kind::Hash
+                                  : open != t.npos && t.ends_with(')')          ? Kind::Function
+                                  : numeric                                     ? Kind::Length
+                                  : std::all_of(t.begin(), t.end(), ident_char) ? Kind::Ident
+                                                                                : Kind::Other;
+                components.push_back({kind, names.back()});
+            }
+            const auto parts = background_parts(components);
+            if (!parts) {
+                fail("background shorthand outside one layer: " + value);
+            }
+            constexpr std::array<std::tuple<PropertyId, BackgroundPart, const char*>, 8> longhands{{
+                {PropertyId::BackgroundColor, BackgroundPart::Color, "transparent"},
+                {PropertyId::BackgroundImage, BackgroundPart::Image, "none"},
+                {PropertyId::BackgroundPosition, BackgroundPart::Position, "0% 0%"},
+                {PropertyId::BackgroundSize, BackgroundPart::Size, "auto"},
+                {PropertyId::BackgroundRepeat, BackgroundPart::Repeat, "repeat"},
+                {PropertyId::BackgroundAttachment, BackgroundPart::Attachment, "scroll"},
+                {PropertyId::BackgroundOrigin, BackgroundPart::Origin, "padding-box"},
+                {PropertyId::BackgroundClip, BackgroundPart::Clip, "border-box"},
+            }};
+            for (const auto& [id, part, initial] : longhands) {
+                std::string taken;
+                for (std::size_t i = 0; i < parts->size(); ++i) {
+                    const auto p = (*parts)[i];
+                    if (p == part || (p == BackgroundPart::OriginAndClip &&
+                                      (part == BackgroundPart::Origin || part == BackgroundPart::Clip))) {
+                        taken += (taken.empty() ? "" : " ") + texts[i];
+                    }
+                }
+                s[id] = taken.empty() ? std::string(initial) : taken;
+            }
+        }
+
         // A scene element's computed values from its cascaded ones: shorthands and aliases expanded, viewport
         // lengths in px of `viewport`. `viewport_units` is set when some value used one.
         Style expand(Style s, std::array<float, 2> viewport, bool* viewport_units = nullptr) {
@@ -324,12 +388,7 @@ namespace weft {
                 s.erase(PropertyId::Rotate);
             }
             if (s.contains(PropertyId::Background)) {
-                const auto v = s.at(PropertyId::Background);
-                s[PropertyId::BackgroundImage] = v.find("gradient(") != v.npos || v.find("-weft-effect(") != v.npos ||
-                                                         v.find("-weft-texture(") != v.npos
-                                                     ? v
-                                                     : "none";
-                s[PropertyId::BackgroundColor] = s[PropertyId::BackgroundImage] == "none" ? v : "transparent";
+                expand_background(s, s.at(PropertyId::Background));
                 s.erase(PropertyId::Background);
             }
             if (s.contains(PropertyId::BorderColor)) {
@@ -979,6 +1038,10 @@ namespace weft {
                               "background-image",
                               "background-size",
                               "background-position",
+                              "background-repeat",
+                              "background-attachment",
+                              "background-origin",
+                              "background-clip",
                               "box-shadow",
                               "animation",
                               "animation-delay",
@@ -1454,11 +1517,42 @@ namespace weft {
                     work.paint_changed = true;
                 }
             }
-            // A -weft-texture(name) background: a texture the host binds to the name for each frame.
-            if (const auto texture = scene_values::texture_name(get(out.style, PropertyId::BackgroundImage, "none"));
-                texture && texture->empty()) {
-                fail("-weft-texture() takes one texture name of letters, digits, '-' and '_', at most " +
-                     std::to_string(constants::scene::max_texture_name_bytes) + " bytes");
+            // A -weft-texture(name) background: a texture the host binds to the name for each frame, laid out as CSS
+            // lays out a background image (scene_background.hpp). A gradient or an effect covers the border box and
+            // repeats: other boxes, repeats and attachments are outside the profile for them.
+            if (const auto image = get(out.style, PropertyId::BackgroundImage, "none"); image != "none") {
+                const auto texture = scene_values::texture_name(image);
+                if (texture && texture->empty()) {
+                    fail("-weft-texture() takes one texture name of letters, digits, '-' and '_', at most " +
+                         std::to_string(constants::scene::max_texture_name_bytes) + " bytes");
+                }
+                try {
+                    if (texture) {
+                        const auto layout = scene_background_layout(out.style);
+                        for (const auto b : {layout.origin, layout.clip}) {
+                            if (b == BackgroundBox::Content) {
+                                (void)scene_background_box(out.style, b, 0, 0);
+                            }
+                        }
+                    } else {
+                        const auto repeat = split(get(out.style, PropertyId::BackgroundRepeat, "repeat"));
+                        if (!std::all_of(repeat.begin(), repeat.end(), [](const std::string& w) {
+                                return w == "repeat";
+                            })) {
+                            fail("background-repeat " + get(out.style, PropertyId::BackgroundRepeat) +
+                                 " of a gradient or an effect");
+                        }
+                        for (const auto& [property, initial] : {std::pair{PropertyId::BackgroundAttachment, "scroll"},
+                                                                std::pair{PropertyId::BackgroundOrigin, "padding-box"},
+                                                                std::pair{PropertyId::BackgroundClip, "border-box"}}) {
+                            if (const auto v = trim(get(out.style, property, initial)); v != initial) {
+                                fail(std::string(property_name(property)) + " " + v + " of a gradient or an effect");
+                            }
+                        }
+                    }
+                } catch (const std::invalid_argument& e) {
+                    fail(e.what());
+                }
             }
             const bool shown = !hidden && get(out.style, PropertyId::Display) != "none";
             emit(out, st, id, c, shown);

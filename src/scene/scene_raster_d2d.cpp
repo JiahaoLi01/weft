@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include "scene/scene.hpp"
+#include "scene/scene_background.hpp"
 #include "scene/scene_border.hpp"
 #include "scene/scene_inline.hpp"
 #include "scene/scene_geometry.hpp"
@@ -8,6 +9,7 @@
 #include "scene/scene_values.hpp"
 #include "base/css_scalar.hpp"
 #include "render/shadow_image.hpp"
+#include "render/srgb.hpp"
 #include "base/owner_thread.hpp"
 #include "constants/render.hpp"
 #include "constants/scene.hpp"
@@ -143,6 +145,8 @@ namespace weft {
         const OwnerThread owner;
         // Measurement and shaping; the raster only draws the runs.
         SceneText& text;
+        // The host textures by name, which nested rasters (planes, drop shadows) share.
+        std::shared_ptr<const std::map<std::string, SceneRasterTexture>> host_textures;
 
         void require_owner() const {
             owner.require(Diag::SceneRasterOwner);
@@ -977,6 +981,7 @@ namespace weft {
                 alone.root.paint->values[constants::scene::paint_slot_transform].reset();
             }
             SceneRaster nested(text);
+            nested.impl_->host_textures = host_textures;
             const auto content = nested.raster(alone, scale);
             const auto pad =
                 unsigned(std::ceil(std::ceil(constants::scene::shadow_kernel_sigmas * dropped->sigma) * scale));
@@ -1277,6 +1282,109 @@ namespace weft {
             }
         }
 
+        // A host texture (-weft-texture(name)) as the scene shader draws it (scene.hlsl, fittedTexture): over
+        // background-clip's box inside its corners, laid out in background-origin's box (scene_background.hpp), each
+        // device pixel bilinear between the texels around it (wrapping along an axis the tile repeats along, stopping
+        // at the edge texels' centers along another), its straight color encoded and premultiplied again. Nothing for
+        // a name the raster was not given.
+        void host_texture(const SceneNode& n) {
+            const auto name = scene_values::texture_name(get(n.style, PropertyId::BackgroundImage, "none"));
+            if (!name || name->empty() || !host_textures) {
+                return;
+            }
+            const auto bound = host_textures->find(*name);
+            if (bound == host_textures->end()) {
+                return;
+            }
+            const auto& t = bound->second;
+            if (!t.width || !t.height || t.rgba.size() != std::size_t(t.width) * t.height * 4) {
+                fail("host texture " + *name + " of no texels or a wrong size");
+            }
+            BackgroundLayout layout;
+            BackgroundRect painting;
+            paint::TextureFit fit;
+            try {
+                layout = scene_background_layout(n.style);
+                painting = scene_background_box(n.style, layout.clip, n.box[2], n.box[3]);
+                fit = scene_texture_fit(layout, painting,
+                                        scene_background_box(n.style, layout.origin, n.box[2], n.box[3]));
+            } catch (const std::invalid_argument& e) {
+                fail(e.what());
+            }
+            const auto tiles = scene_texture_tiles(fit, float(t.width), float(t.height));
+            const unsigned iw = unsigned(std::ceil(painting.rect[2] * scale));
+            const unsigned ih = unsigned(std::ceil(painting.rect[3] * scale));
+            if (!iw || !ih) {
+                return;
+            }
+            if (std::uint64_t(iw) * ih > constants::scene::max_bitmap_pixels) {
+                fail("host texture bitmap bound");
+            }
+            using Repeat = paint::TextureFit::Repeat;
+            const auto texel = [&](int x, int y, unsigned c) {
+                return t.rgba[(std::size_t(y) * t.width + x) * 4 + c];
+            };
+            // One axis of the bilinear footprint: the texels on either side of u (0 to 1) and the weight of the second.
+            const auto axis = [](float u, unsigned size, bool wraps) {
+                float x = u * float(size) - .5f;
+                if (!wraps) {
+                    x = std::clamp(x, 0.f, float(size - 1));
+                }
+                const float base = std::floor(x);
+                const auto index = [&](float i) {
+                    const auto k = static_cast<long long>(i);
+                    return wraps ? int(((k % size) + size) % size) : int(std::clamp<long long>(k, 0, size - 1));
+                };
+                return std::tuple{index(base), index(base + 1), x - base};
+            };
+            const auto channel = [](float v) {
+                return std::uint8_t(std::clamp(v * constants::color_channel_max + .5f, 0.f,
+                                               static_cast<float>(constants::color_channel_max)));
+            };
+            const bool wrap_x = fit.repeat[0] == Repeat::Repeat || fit.repeat[0] == Repeat::Round;
+            const bool wrap_y = fit.repeat[1] == Repeat::Repeat || fit.repeat[1] == Repeat::Round;
+            std::vector<std::uint8_t> pixels(std::size_t(iw) * ih * 4);
+            for (unsigned y = 0; y < ih; ++y) {
+                const auto v = scene_texture_point(tiles[1], (y + .5f) / scale);
+                for (unsigned x = 0; x < iw; ++x) {
+                    const auto u = scene_texture_point(tiles[0], (x + .5f) / scale);
+                    if (!u.inside || !v.inside) {
+                        continue;
+                    }
+                    const auto [x0, x1, fx] = axis(u.u, t.width, wrap_x);
+                    const auto [y0, y1, fy] = axis(v.u, t.height, wrap_y);
+                    std::array<float, 4> c{};
+                    for (unsigned k = 0; k < 4; ++k) {
+                        c[k] = (texel(x0, y0, k) * (1 - fx) + texel(x1, y0, k) * fx) * (1 - fy) +
+                               (texel(x0, y1, k) * (1 - fx) + texel(x1, y1, k) * fx) * fy;
+                    }
+                    const float a = std::clamp(c[3], 0.f, 1.f);
+                    auto* p = pixels.data() + (std::size_t(y) * iw + x) * 4;
+                    if (a <= 0) {
+                        continue;
+                    }
+                    for (unsigned k = 0; k < 3; ++k) {
+                        p[2 - k] = channel(render::linear_to_srgb(std::clamp(c[k] / c[3], 0.f, 1.f)) * a);
+                    }
+                    p[3] = channel(a);
+                }
+            }
+            ComPtr<ID2D1Bitmap> bitmap;
+            check(target->CreateBitmap(
+                {iw, ih}, pixels.data(), iw * 4,
+                D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)),
+                &bitmap));
+            ComPtr<ID2D1BitmapBrush> fill;
+            check(target->CreateBitmapBrush(bitmap.Get(), &fill));
+            fill->SetTransform(D2D1::Matrix3x2F::Scale(1 / scale, 1 / scale) *
+                               D2D1::Matrix3x2F::Translation(painting.rect[0], painting.rect[1]));
+            RoundedClip area;
+            area.rect = painting.rect;
+            area.radius_x = painting.radius_x;
+            area.radius_y = painting.radius_y;
+            target->FillGeometry(rounded_rect(area).Get(), fill.Get());
+        }
+
         void projective(const SceneNode& node, const D2D1::Matrix3x2F& parent) {
             // Plane projection for preserve-3d descendants of perspective/rotateY.
             // Rasterize the whole subtree first, then inverse-map with bilinear
@@ -1297,6 +1405,7 @@ namespace weft {
             auto it = projected.find(key);
             if (it == projected.end() || it->second.node != f.root || it->second.scale != scale) {
                 SceneRaster nested(text);
+                nested.impl_->host_textures = host_textures;
                 auto pixels = nested.raster(f, scale);
                 if (pixels.rgba.size() > constants::scene::projective_cache_max_bytes) {
                     uncached = std::move(pixels);
@@ -1769,9 +1878,31 @@ namespace weft {
                                           get(n.style, PropertyId::BackgroundColor, "transparent"));
             if (!gpu_target || background.a > 0) {
                 solid(background);
-                target->FillGeometry(shape.Get(), brush.Get());
+                // In background-clip's box: the border box's shape, or a padding or content box inside its inner
+                // corners.
+                const auto clip = get(n.style, PropertyId::BackgroundClip, "border-box");
+                if (clip == "padding-box" || clip == "content-box") {
+                    BackgroundRect area;
+                    try {
+                        area = scene_background_box(
+                            n.style, clip == "padding-box" ? BackgroundBox::Padding : BackgroundBox::Content, n.box[2],
+                            n.box[3]);
+                    } catch (const std::invalid_argument& e) {
+                        fail(e.what());
+                    }
+                    RoundedClip painted;
+                    painted.rect = area.rect;
+                    painted.radius_x = area.radius_x;
+                    painted.radius_y = area.radius_y;
+                    if (area.rect[2] > 0 && area.rect[3] > 0) {
+                        target->FillGeometry(rounded_rect(painted).Get(), brush.Get());
+                    }
+                } else {
+                    target->FillGeometry(shape.Get(), brush.Get());
+                }
             }
             gradient(n, shape.Get());
+            host_texture(n);
             shadow(n, radii, true);
             // Dotted and dashed sides as Chrome draws them, laid out on the target's pixels, before the solid sides.
             {
@@ -2141,6 +2272,11 @@ namespace weft {
     SceneBitmap SceneRaster::raster(const SceneFrame& f, float scale) {
         impl_->require_owner();
         return impl_->raster(f, scale);
+    }
+
+    void SceneRaster::bind_textures(std::map<std::string, SceneRasterTexture> textures) {
+        impl_->require_owner();
+        impl_->host_textures = std::make_shared<const std::map<std::string, SceneRasterTexture>>(std::move(textures));
     }
 
     NodeIdentity SceneRaster::hit_test(const SceneFrame& f, float x, float y) const {

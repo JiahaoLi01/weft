@@ -334,6 +334,7 @@ CSS 与普通 PNG 输入按 sRGB 来源解释，先 transfer decode 到线性，
 - 帧：只在场景内容的版本号、View 的大小或缩放变了时复制一份场景树发布（`std::shared_ptr<const ViewFrame>`），之后不再改；渲染线程按帧里的字体目录建自己的 SceneText 重新排版文字，帧里只有值（文字、样式、盒子），没有 Node、JSValue 或 owner 的缓存。
 - 一致性：渲染与命中各自取最新的锚点表（13.1）；JS 读几何用推进开始时 owner 取到的表，命中与指针输入时再取一次。
 - 错误：页面的异常是诊断，不是 C 接口的错误；VM 资源耗尽使 View 进入 Faulted，直到重新加载，故障消息写明最先达到的上限（VM 内存或执行预算，13.4；页面捕获了内存不足、之后被中断时也是）；宿主回调里的重入返回 `WEFT_BUSY`。
+- 引擎纹理的铺排（2026-10-15）：显示列表的图片条目带 `paint::TextureFit`（定位区、尺寸或 cover/contain、位置的比例与长度、两轴的重复），条目本身覆盖 `background-clip` 的盒子；纹理的自然大小只有渲染线程知道，着色器按绑定纹理的大小算瓦片（`fittedTexture`），所以宿主换了大小不同的纹理，保留的 pass 也画对。CPU 上同样的算法（`scene_texture_tiles`）供 D2D 参考光栅（宿主给像素，`SceneRaster::bind_textures`）与测试用。纹理一律用重复的采样器：重复的轴跨接缝过滤，不重复的轴把坐标夹在边缘纹素的中心，不另设采样器组合；导数按展开前的坐标取，所以接缝处不会选错 mip 层。
 - 不变量：加载总是从新的文档开始（`reset_document`），关闭上一页面的调用、丢弃等待的输入与消息；引擎通道与同步函数属于 View，跨加载保留。
 - 渲染（13.3b）：渲染器的 owner 线程经 `weft_renderer_prepare_scene` 准备 View 的帧，内置的 D3D11、Vulkan 后端用宿主的设备把它画在宿主目标的内容之上（D3D11 在 encode 时画在立即上下文上，Vulkan 录进宿主的命令缓冲），锚点在录制时取最新值。后端按 View 的锚点通道保留每个 View 的 pass：通道只有 View 与它的帧持有，View 销毁、帧都释放后通道过期，下一次准备时丢弃那个 pass，不会把一个 View 的 pass 给另一个。见 [渲染后端 API](render-backend-api.md#view-帧2026-10-14)。
 - 引擎的纹理（13.3c）：页面只记名字（`-weft-texture(name)`，显示列表的 `DisplayList::textures`），帧也只带名字；宿主在渲染线程上为每次准备把名字绑到它导入的纹理（外部纹理扩展的租约），渲染器在画的时候才按名字取视图，所以 owner 与帧里没有任何 GPU 对象，宿主每帧可以换纹理或重写同一张（live）。租约由准备好的帧与它的使用钉住，按宿主报告的完成退休。

@@ -2247,6 +2247,33 @@ CMake 拆分：
   - 7 个变异全部被发现（两处内存上限、执行预算、第一次的原因被覆盖、重置不清原因、交付时的时钟、命中 6 帧一次）。第一轮存活 1 个：重新分配的上限（QuickJS-ng 0.17 的 arena 把小块的增长改成新分配，测试的 16 字节缓冲没有走到重新分配），改为从 1 MiB 起增长后被发现。
 - 与计划不同：计划要“与推 JSON 的同一页面对比”。锚点页面不是原样的 `FloatingUIOverlay`，而是同样的实例组件与外层包装加上事件与视图模型（原样的那个依赖每帧的整批数据）；伤害数字的元素池没有做（实例组件原样，生成与退场的开销留给 13.5）。
 
+**13.3c 之后：引擎纹理的五项限制**（2026-10-15，用户定为中优先级，接在 13.4 之后）：
+- 铺排：`-weft-texture()` 像 CSS 的背景图那样铺排，不再总是拉伸铺满边框盒。
+  - 样式：新属性 `background-repeat`、`background-origin`、`background-clip`、`background-attachment`。scene 的 `background` 简写按 CSS Backgrounds 3 拆成一层的全部分量（`style/background_layer`，样式模块与求解器的关键帧共用）。`scene_background`（新）解析 `background-size` 与 `background-position` 的完整语法、两轴的重复与盒子，算出 `paint::TextureFit`（定位区、尺寸或 cover/contain、位置、重复），条目覆盖 `background-clip` 的盒子与它的圆角。
+  - 着色器：纹理的大小只有渲染线程知道（宿主每帧可以换），所以由 `fittedTexture` 按绑定纹理的大小算瓦片（`GetDimensions`）；`scene_texture_tiles` 是同样算法的 CPU 版。纹理一律用重复采样器（两个后端的普通绘制都绑上），不重复的轴把坐标夹在边缘纹素中心；导数按展开前的坐标取，接缝处不会选错 mip 层。
+  - 背景色：`background-clip` 也裁剪背景色（任何元素）。
+  - 渐变与效果：仍铺满边框盒并重复，非初始的重复、盒子与 attachment 是诊断。
+- sRGB、BGRA 与 mip：外部纹理接受线性的 RGBA8、BGRA8、RGBA16F、RGBA32F 与 sRGB 的 RGBA8、BGRA8 视图（核心的白名单、两个 View 后端的列表、D3D11 的格式核对）；`weft_render_external_texture::reserved` 改为 `mip_levels`（0、1 都是一层，至多一整条链），字节预算按每一层算，D3D11 核对视图的层数，接受 `GENERATE_MIPS`；Vulkan 的屏障覆盖全部层，`vulkan::Device::image` 可带层数。
+- D2D 参考光栅：画宿主给的像素（`SceneRaster::bind_textures`，嵌套的平面与投影共用），铺排与采样同着色器；也按 `background-clip` 裁剪背景色。
+- Vulkan 的目标别名：`weft_render_vulkan_texture` 末尾新增可选的 `image`；给出时画进帧绑定的纹理的 pass 是 `INVALID_STATE`（同 D3D11）；第一版结构仍被接受，介于两版之间的大小拒绝。
+- 跨设备、跨 API：D3D11 接受别的设备或 API 共享来、宿主在后端设备上打开的纹理（`SHARED`、`SHARED_NTHANDLE`、`SHARED_KEYEDMUTEX`）。写与读的同步由宿主用共享 fence 在立即上下文上做（encode 之前 `Wait`，之后 `Signal`），不需要新的 C ABI。测试为 D3D12 在同一适配器上写、D3D11 画。
+- 验证：
+  - 新测试 `scene_background_contract`：
+    - 解析：大小、一到四值的位置、重复、盒子、内容盒；
+    - 铺排：自然大小、cover、contain、单轴 auto、远边偏移、round 与比例、space、无大小的瓦片；
+    - 求解器：简写的各分量、一个盒子、关键帧里的简写与尺寸插值、诊断；
+    - 原生 D3D11 WARP 与 D2D 参考在九种铺排、缩放 1 与 2 下，各绘制区内部最多差 2 级；
+  - `scene_paint_reference` 新增 4 个 Chrome 用例（尺寸、位置、重复、盒子，纹理在 Chrome 里是 `url()` 的 PNG）：平均差 0.2–0.6 级，D3D11 WARP 与 D2D 参考都在限内；
+  - `render_view_contract`：
+    - 带铺排的纹理在 Vulkan 与 D3D11 WARP 上一致（高对比纹素之间至多差 8 级：硬件的子纹素权重）；
+    - sRGB 视图的编码值往返不变，BGRA 的通道，缩到四分之一时取第三层，两个后端都测；
+    - 拒绝声明为线性的 sRGB 视图、层数不符的视图；
+    - Vulkan 拒绝画进帧绑定的纹理、接受第一版结构；
+    - D3D12 写、D3D11 画的共享纹理；
+  - `render_backend_contract`：未知的格式位、超过一整条链的层数、按层计的字节。
+  - 变异：27 个变异全部被发现。第一轮存活 1 个：关键帧简写里不带空格的斜杠（测试原来只写了带空格的），补了反例。
+- 与计划不同：文档页面没做。文档页面目前根本没有背景图片（渐变、效果都没有，11.2 起就推迟），纹理要等它支持背景图片时一起做。跨 API 没有新的同步方式进 C ABI：宿主在立即上下文上排 fence 已经足够，也符合 D3D11 的立即上下文模型。D3D12 本身的后端仍在 M5（UE 的 RHI 后端）。
+
 ## 顺序调整（2026-10-10）
 
 用户决定先完成第 7–9 步，第 10 步（第二个图形后端与移动平台）暂缓。跨平台仍是硬性需求：

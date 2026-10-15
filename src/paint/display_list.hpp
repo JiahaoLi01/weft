@@ -85,11 +85,43 @@ namespace weft::paint {
         Gradient gradient;
     };
 
+    // Where a host texture lies over its item, as CSS lays out a background image of the texture's natural size, which
+    // only the renderer knows (CSS Backgrounds 3): the item is the painting area (background-clip's box) and area the
+    // positioning area (background-origin's box), x, y, width, height in item px. background-size scales the tile:
+    // lengths, or the texture covering the area or contained in it; background-position places the first tile;
+    // background-repeat repeats it on each axis (space spreads whole tiles over the area, round scales them to fit a
+    // whole number). scene_texture_tiles (scene/scene_background.hpp) and the scene shader lay it out alike.
+    struct TextureFit {
+        enum class Scale : std::uint8_t {
+            Lengths,
+            Cover,
+            Contain
+        };
+        enum class Repeat : std::uint8_t {
+            Repeat,
+            NoRepeat,
+            Space,
+            Round
+        };
+        std::array<float, 4> area{};
+        Scale scale{};
+        // The tile's size on each axis with Lengths, px; below 0 for auto: the natural size, or the other axis's at
+        // the texture's ratio.
+        std::array<float, 2> size{-1, -1};
+        // background-position on each axis: the share of the room the tile leaves in the area (0 at its start, 1 at
+        // its end), and a length added to it, px.
+        std::array<float, 2> fraction{};
+        std::array<float, 2> offset{};
+        std::array<Repeat, 2> repeat{};
+
+        friend bool operator==(const TextureFit&, const TextureFit&) = default;
+    };
+
     // An asset drawn over the item, sampled over uv (normalized origin and extent): an image keeps its own colors, a
     // coverage mask paints color where it covers, and signed distances paint color inside the contour and outline up
     // to stroke source texels outside it. An asset index past DisplayList::assets names an external texture. A
     // texture (one past an index of DisplayList::textures) names a host texture instead, which a scene pass binds by
-    // name for each frame and draws with its own colors; its asset is then 0.
+    // name for each frame, lays out over the item as fit says and draws with its own colors; its asset is then 0.
     struct Image {
         std::uint32_t asset{};
         std::array<float, 4> uv{0, 0, 1, 1};
@@ -97,6 +129,7 @@ namespace weft::paint {
         float stroke{};
         Color outline{};
         std::uint32_t texture{};
+        TextureFit fit;
     };
 
     // Content the renderer rasterizes at device scale and draws as an image over the item. Transitional: scene text

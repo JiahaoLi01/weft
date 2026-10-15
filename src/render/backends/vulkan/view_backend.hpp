@@ -76,6 +76,14 @@ namespace weft::render::vulkan {
             std::shared_ptr<const ViewFrame> frame;
             float scale{};
             std::vector<SceneTexture> textures;
+            // The images of its textures that the host named.
+            std::vector<VkImage> images;
+        };
+
+        // An imported host texture: its view, and its image when the host named it (free: no view).
+        struct Import {
+            VkImageView view{};
+            VkImage image{};
         };
 
         // A recording: its slot, and the serial of its submission once the host made it.
@@ -93,8 +101,8 @@ namespace weft::render::vulkan {
         std::unordered_map<std::uint64_t, Prepared> prepared_;
         std::unordered_map<std::uint64_t, Use> uses_;
         std::vector<std::unique_ptr<SceneRenderer::Slot>> idle_;
-        // Imported host textures' views (null: free).
-        std::vector<VkImageView> imports_;
+        // Imported host textures.
+        std::vector<Import> imports_;
         // By the View's anchor channel, which only its View holds: a View's index never passes to another.
         std::map<std::weak_ptr<SceneAnchorChannel>, unsigned, std::owner_less<>> views_;
         std::uint64_t next_ = 1;

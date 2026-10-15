@@ -249,10 +249,15 @@ namespace weft::render {
                 r.uv = source.uv;
                 r.background = in(space, source.color);
                 r.outline = in(space, source.outline);
-                // A host texture's linear colors, in the pass's encoding; external textures are images with their own
-                // colors.
+                // A host texture's linear colors, in the pass's encoding, laid out as its fit says (scene.hlsl,
+                // fittedTexture); external textures are images with their own colors.
                 if (source.texture) {
+                    const auto& f = source.fit;
                     r.mode[0] = scene_limits::image_mode_texture;
+                    r.stops[0] = f.area;
+                    r.stops[1] = {f.size[0], f.size[1], float(static_cast<int>(f.scale)), 0};
+                    r.stops[2] = {f.fraction[0], f.fraction[1], f.offset[0], f.offset[1]};
+                    r.stops[3] = {float(static_cast<int>(f.repeat[0])), float(static_cast<int>(f.repeat[1])), 0, 0};
                 }
                 const auto* asset =
                     !source.texture && source.asset < list.assets.size() ? list.assets[source.asset].get() : nullptr;

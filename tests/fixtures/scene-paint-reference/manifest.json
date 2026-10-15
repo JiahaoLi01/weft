@@ -33,7 +33,7 @@
    "webnn": "disabled_off"
   }
  },
- "cases_sha256": "52aefb3a4dbe650389a410c4d6b8d1fb27db3a4905e5f3663cb0c33fa7d66dd8",
+ "cases_sha256": "3fd88fc96408cb3600efe993d8805670ef4a1da2651444bfd1979e46536105a0",
  "captures": [
   {
    "name": "ellipsis",
@@ -89,6 +89,26 @@
    "name": "layout",
    "scale": 1,
    "sha256": "411c8563729b1603dab32cd48ef2071a6a59525ef9778318e2efea53e547ccfd"
+  },
+  {
+   "name": "texture-size",
+   "scale": 2,
+   "sha256": "5cdf5aab605077a7209e225648bb0833d33988fd3c5fcc34c486185a894aac2b"
+  },
+  {
+   "name": "texture-position",
+   "scale": 2,
+   "sha256": "922f067cfe12c104ff3cf0650cc27c2f3c8a55af5aedc39a94b75d8618e83f9a"
+  },
+  {
+   "name": "texture-repeat",
+   "scale": 2,
+   "sha256": "ee3cffcabaa73b7f1bc304975db91467c001cfea62575e3dc120cf8083529f8f"
+  },
+  {
+   "name": "texture-boxes",
+   "scale": 2,
+   "sha256": "4dc2fcc0fae9325d48052dd71f104346f6074769223dd7538f0f51a748ec58eb"
   }
  ]
 }

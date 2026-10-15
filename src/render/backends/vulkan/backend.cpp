@@ -116,26 +116,31 @@ namespace weft::render::vulkan {
     }
 
     weft_render_result check_external_texture(const weft_render_external_texture& description, VkDevice device,
-                                              VkImageView& view) {
-        if (description.native_texture_size < sizeof(weft_render_vulkan_texture)) {
+                                              VkImageView& view, VkImage& image) {
+        // Either version of the structure: the first ends before image, the second holds it.
+        constexpr auto v1 = offsetof(weft_render_vulkan_texture, image);
+        if (description.native_texture_size < v1) {
             return WEFT_RENDER_INVALID_ARGUMENT;
         }
         const auto& p = *static_cast<const weft_render_vulkan_texture*>(description.native_texture);
-        if (p.struct_size < sizeof(p) || p.abi_version != WEFT_RENDER_EXTERNAL_ABI_VERSION || !p.device ||
-            !p.image_view) {
+        const bool second = p.struct_size >= sizeof(p);
+        if ((p.struct_size != v1 && !second) || p.abi_version != WEFT_RENDER_EXTERNAL_ABI_VERSION || !p.device ||
+            !p.image_view || (second && description.native_texture_size < sizeof(p))) {
             return WEFT_RENDER_INVALID_ARGUMENT;
         }
         if (native_handle<VkDevice>(p.device) != device) {
             return WEFT_RENDER_WRONG_BACKEND;
         }
         view = native_handle<VkImageView>(p.image_view);
+        image = second ? native_handle<VkImage>(p.image) : VkImage{};
         return WEFT_RENDER_OK;
     }
 
     weft_render_result Backend::import_texture(const weft_render_external_texture& description, std::uint64_t& out) {
         out = 0;
         VkImageView view{};
-        if (const auto v = check_external_texture(description, gpu.gpu.device, view); v != WEFT_RENDER_OK) {
+        VkImage image{};
+        if (const auto v = check_external_texture(description, gpu.gpu.device, view, image); v != WEFT_RENDER_OK) {
             return v;
         }
         if (std::find(imports_.begin(), imports_.end(), view) != imports_.end()) {

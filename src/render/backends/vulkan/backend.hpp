@@ -22,9 +22,9 @@ namespace weft::render::vulkan {
     VkFormat target_format(std::uint32_t format);
 
     // A host texture of the external texture extension on device, checked as its Vulkan schema says
-    // (weft_render_vulkan_texture of device): its view.
+    // (weft_render_vulkan_texture of device, either version): its view, and its image when the host gave it.
     weft_render_result check_external_texture(const weft_render_external_texture& description, VkDevice device,
-                                              VkImageView& view);
+                                              VkImageView& view, VkImage& image);
 
     class Backend {
     public:

@@ -33,11 +33,15 @@ typedef struct weft_render_external_texture {
     uint64_t content_version;
     uint32_t width;
     uint32_t height;
+    /* A weft_render_target_format the backend's extension lists: what the view's sampling returns is linear
+     * premultiplied color, an sRGB view's after its decode. */
     uint32_t format;
     uint32_t encoding;
     uint32_t origin;
     uint32_t synchronization;
-    uint32_t reserved;
+    /* The levels the view holds, its most detailed first (0 or 1: one), at most a full chain; a scene samples
+     * between them by how much it shrinks the texture. Formerly reserved (zero). */
+    uint32_t mip_levels;
     uint32_t reserved2;
     const void* native_texture; /* typed backend schema; borrowed during import */
     uint64_t native_texture_size;

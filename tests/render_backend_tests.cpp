@@ -742,7 +742,8 @@ namespace {
         EXPECT(weft_renderer_import_texture(r, &d, &texture), UNSUPPORTED_FEATURE);
         auto table = ext.table();
         auto bad = table;
-        bad.formats = 1u << WEFT_RENDER_TARGET_SRGB_RGBA8;
+        // A format no weft_render_target_format names.
+        bad.formats = 1u << (WEFT_RENDER_TARGET_LINEAR_RGBA16F + 1);
         EXPECT(weft_renderer_install_external_backend(r, &bad), INVALID_ARGUMENT);
         deny_allocation = true;
         EXPECT(weft_renderer_install_external_backend(r, &table), OUT_OF_MEMORY);
@@ -770,6 +771,10 @@ namespace {
         invalid = d;
         invalid.width = 0;
         EXPECT(weft_renderer_import_texture(r, &invalid, &failed), INVALID_ARGUMENT);
+        // A 2 x 2 texture has two levels.
+        invalid = d;
+        invalid.mip_levels = 3;
+        EXPECT(weft_renderer_import_texture(r, &invalid, &failed), INVALID_ARGUMENT);
         ext.fail_import = true;
         EXPECT(weft_renderer_import_texture(r, &d, &failed), BACKEND_ERROR);
         ext.fail_import = false;
@@ -786,6 +791,11 @@ namespace {
         CHECK(external_info(r).texture_bytes == 128);
         EXPECT(weft_renderer_release_texture(r, second), OK);
         CHECK(retired.calls == 1);
+        // Every level's bytes count: two levels of 2 x 2 RGBA32F (80 bytes) do not fit beside the first (64 of 128).
+        d.content_version = 4;
+        d.mip_levels = 2;
+        EXPECT(weft_renderer_import_texture(r, &d, &failed), BUSY);
+        d.mip_levels = 0;
         Frame f;
         auto input = external_frame(f, &texture);
         weft_render_handle frame{};

@@ -7,6 +7,7 @@
 #include "render/rounded_clip.hpp"
 #include <algorithm>
 #include <atomic>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -966,8 +967,11 @@ weft_render_result weft_renderer_install_external_backend(weft_renderer* r,
     if (b->abi_version != WEFT_RENDER_EXTERNAL_ABI_VERSION) {
         return WEFT_RENDER_UNSUPPORTED_ABI;
     }
-    constexpr uint32_t formats = (1u << WEFT_RENDER_TARGET_LINEAR_RGBA8) | (1u << WEFT_RENDER_TARGET_LINEAR_RGBA16F) |
-                                 (1u << WEFT_RENDER_TARGET_LINEAR_RGBA32F);
+    // Views whose sampling returns linear values: linear 8-bit, half and float RGBA, and 8-bit RGBA and BGRA, linear or
+    // sRGB (the view decodes it).
+    constexpr uint32_t formats = (1u << WEFT_RENDER_TARGET_LINEAR_RGBA8) | (1u << WEFT_RENDER_TARGET_SRGB_RGBA8) |
+                                 (1u << WEFT_RENDER_TARGET_LINEAR_BGRA8) | (1u << WEFT_RENDER_TARGET_SRGB_BGRA8) |
+                                 (1u << WEFT_RENDER_TARGET_LINEAR_RGBA16F) | (1u << WEFT_RENDER_TARGET_LINEAR_RGBA32F);
     if (b->reserved || b->reserved2 || !b->formats || (b->formats & ~formats) || !b->max_textures ||
         b->max_textures > weft::constants::render::max_external_textures_limit || !b->max_texture_bytes ||
         !b->import_texture || !b->release_texture || !b->prepare) {
@@ -1022,7 +1026,12 @@ weft_render_result weft_renderer_import_texture(weft_renderer* r, const weft_ren
         return WEFT_RENDER_WRONG_EPOCH;
     }
     if (d->identity.reserved || d->identity.queue != r->identity.queue || !d->content_id || !d->content_version ||
-        !d->width || !d->height || d->reserved || d->reserved2 || !d->native_texture || !d->native_texture_size) {
+        !d->width || !d->height || d->reserved2 || !d->native_texture || !d->native_texture_size) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    // At most a full chain: one level more than halvings of the larger side until a texel.
+    const uint32_t levels = std::max(1u, d->mip_levels);
+    if (levels > uint32_t(std::bit_width(std::max(d->width, d->height)))) {
         return WEFT_RENDER_INVALID_ARGUMENT;
     }
     if (d->width > r->backend.capabilities.max_texture_size || d->height > r->backend.capabilities.max_texture_size ||
@@ -1031,11 +1040,15 @@ weft_render_result weft_renderer_import_texture(weft_renderer* r, const weft_ren
         !(r->external.formats & (1u << d->format))) {
         return WEFT_RENDER_UNSUPPORTED_FEATURE;
     }
-    const uint64_t pixels = uint64_t(d->width) * d->height;
-    const uint64_t bpp = d->format == WEFT_RENDER_TARGET_LINEAR_RGBA8 ? weft::constants::rgba8_bytes_per_pixel
-                         : d->format == WEFT_RENDER_TARGET_LINEAR_RGBA16F
-                             ? weft::constants::render::rgba16f_bytes_per_pixel
-                             : weft::constants::render::rgba32f_bytes_per_pixel;
+    // The texels of every level, each half the one before on each side down to one.
+    uint64_t pixels{};
+    for (uint32_t level = 0; level < levels; ++level) {
+        pixels += uint64_t(std::max(1u, d->width >> level)) * std::max(1u, d->height >> level);
+    }
+    const uint64_t bpp =
+        d->format == WEFT_RENDER_TARGET_LINEAR_RGBA16F   ? weft::constants::render::rgba16f_bytes_per_pixel
+        : d->format == WEFT_RENDER_TARGET_LINEAR_RGBA32F ? weft::constants::render::rgba32f_bytes_per_pixel
+                                                         : weft::constants::rgba8_bytes_per_pixel;
     if (pixels > UINT64_MAX / bpp) {
         return WEFT_RENDER_INVALID_ARGUMENT;
     }

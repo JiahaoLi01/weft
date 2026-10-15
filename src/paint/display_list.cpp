@@ -164,6 +164,19 @@ namespace weft::paint {
                                 return make_diagnostic(Diag::PaintList,
                                                        "named texture out of range, with an asset or a stroke" + at);
                             }
+                            const auto& f = image.fit;
+                            using Fit = TextureFit;
+                            const auto finite = [](const auto& values) {
+                                return std::all_of(values.begin(), values.end(), finite_value);
+                            };
+                            const auto repeat = [](Fit::Repeat r) {
+                                return r <= Fit::Repeat::Round;
+                            };
+                            if (!finite(f.area) || f.area[2] < 0 || f.area[3] < 0 || f.scale > Fit::Scale::Contain ||
+                                !finite(f.size) || !finite(f.fraction) || !finite(f.offset) ||
+                                !std::all_of(f.repeat.begin(), f.repeat.end(), repeat)) {
+                                return make_diagnostic(Diag::PaintList, "named texture fit" + at);
+                            }
                             break;
                         }
                         if (image.asset < list.assets.size()

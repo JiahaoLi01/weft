@@ -1,4 +1,5 @@
 #include "scene/scene_display_list.hpp"
+#include "scene/scene_background.hpp"
 #include "scene/scene_gradient.hpp"
 #include "scene/scene_geometry.hpp"
 #include "scene/scene_path.hpp"
@@ -941,6 +942,43 @@ namespace weft {
                     list.boxes.push_back(value);
                     list.items.push_back(shape);
                 };
+                // The background under the borders, in background-clip's box (the background painting area): the
+                // border box with its corners, or a padding or content box of its own inside its inner corners (a
+                // rounded clip).
+                const auto clip_box = scene_values::view(n.style, PropertyId::BackgroundClip, "border-box");
+                const auto add_under = [&](paint::Box under) {
+                    under.widths = {};
+                    if (clip_box == "border-box" || clip_box.empty()) {
+                        add_box(under);
+                        return;
+                    }
+                    const auto area = scene_background_box(
+                        n.style, clip_box == "content-box" ? BackgroundBox::Content : BackgroundBox::Padding,
+                        item.width, item.height);
+                    const auto& r = area.rect;
+                    if (r[2] <= 0 || r[3] <= 0) {
+                        return;
+                    }
+                    under.radii = {};
+                    auto shape = item;
+                    shape.kind = paint::Item::Kind::Box;
+                    shape.transform = multiply(m, {1, 0, 0, 1, r[0], r[1]});
+                    shape.width = r[2];
+                    shape.height = r[3];
+                    if (std::any_of(area.radius_x.begin(), area.radius_x.end(), [](float c) {
+                            return c > 0;
+                        })) {
+                        const auto corners = axis_aligned(m) ? add_rounded(chain, m, point(m, r[0], r[1]),
+                                                                           point(m, r[0] + r[2], r[1] + r[3]),
+                                                                           area.radius_x, area.radius_y)
+                                                             : add_local(chain, m, r, area.radius_x, area.radius_y);
+                        shape.clips_begin = corners.begin;
+                        shape.clips_count = corners.count;
+                    }
+                    shape.payload = std::uint32_t(list.boxes.size());
+                    list.boxes.push_back(under);
+                    list.items.push_back(shape);
+                };
                 // Dotted and dashed sides, laid out on the pass's device pixels, before the solid sides as Chrome
                 // paints them.
                 const auto add_dashes = [&] {
@@ -967,13 +1005,12 @@ namespace weft {
                         }
                     }
                 };
-                if (painted && !n.effect && host_texture.empty() && !dashed && !inset) {
+                const bool clipped = clip_box != "border-box" && !clip_box.empty() && box.background[3] > 0;
+                if (painted && !n.effect && host_texture.empty() && !dashed && !inset && !clipped) {
                     add_box(box);
                 } else if (painted && !n.effect && host_texture.empty()) {
-                    auto under = box;
-                    under.widths = {};
-                    if (under.background[3] > 0 || under.gradient.kind != paint::GradientKind::None) {
-                        add_box(under);
+                    if (box.background[3] > 0 || box.gradient.kind != paint::GradientKind::None) {
+                        add_under(box);
                     }
                     add_shadows(true);
                     add_dashes();
@@ -990,9 +1027,7 @@ namespace weft {
                     // As CSS paints a background image: over the background color and under the borders, inside the
                     // border box's corners. The effect's time is the frame's.
                     if (box.background[3] > 0) {
-                        auto under = box;
-                        under.widths = {};
-                        add_box(under);
+                        add_under(box);
                     }
                     paint::Effect effect;
                     effect.program = index_of(list.programs, n.effect->program);
@@ -1028,25 +1063,32 @@ namespace weft {
                     }
                 } else if (!host_texture.empty()) {
                     // A host texture, as CSS paints a background image: over the background color and under the
-                    // borders, stretched over the border box inside its corners (a rounded clip), into the rect
-                    // snapped to device pixels as Chrome draws an image, unless the box rotates, skews or mirrors.
+                    // borders, over background-clip's box inside its corners (a rounded clip), laid out in
+                    // background-origin's box as the fit says (scene_background.hpp), the box snapped to device
+                    // pixels as Chrome draws an image, unless it rotates, skews or mirrors.
                     if (box.background[3] > 0) {
-                        auto under = box;
-                        under.widths = {};
-                        add_box(under);
+                        add_under(box);
                     }
+                    const auto layout = scene_background_layout(n.style);
+                    const auto painting = scene_background_box(n.style, layout.clip, item.width, item.height);
                     paint::Image image;
                     image.texture = index_of(list.textures, host_texture) + 1;
+                    image.fit = scene_texture_fit(
+                        layout, painting, scene_background_box(n.style, layout.origin, item.width, item.height));
+                    const auto& r = painting.rect;
                     auto shape = item;
                     shape.kind = paint::Item::Kind::Image;
-                    if (std::any_of(box.radii.begin(), box.radii.end(), [](float r) {
-                            return r > 0;
+                    shape.transform = multiply(m, {1, 0, 0, 1, r[0], r[1]});
+                    shape.width = r[2];
+                    shape.height = r[3];
+                    if (std::any_of(painting.radius_x.begin(), painting.radius_x.end(), [](float c) {
+                            return c > 0;
                         })) {
                         const auto corners =
                             axis_aligned(m)
-                                ? add_rounded(chain, m, point(m, 0, 0), point(m, item.width, item.height), box.radii,
-                                              box.radii)
-                                : add_local(chain, m, {0, 0, item.width, item.height}, box.radii, box.radii);
+                                ? add_rounded(chain, m, point(m, r[0], r[1]), point(m, r[0] + r[2], r[1] + r[3]),
+                                              painting.radius_x, painting.radius_y)
+                                : add_local(chain, m, r, painting.radius_x, painting.radius_y);
                         shape.clips_begin = corners.begin;
                         shape.clips_count = corners.count;
                     }
@@ -1054,15 +1096,17 @@ namespace weft {
                         const auto snap = [&](float px) {
                             return std::round(px * scale) / scale;
                         };
-                        const float left = snap(m[4]);
-                        const float top = snap(m[5]);
+                        const float left = snap(m[4] + m[0] * r[0]);
+                        const float top = snap(m[5] + m[3] * r[1]);
                         shape.transform = {m[0], 0, 0, m[3], left, top};
-                        shape.width = (snap(m[4] + m[0] * item.width) - left) / m[0];
-                        shape.height = (snap(m[5] + m[3] * item.height) - top) / m[3];
+                        shape.width = (snap(m[4] + m[0] * (r[0] + r[2])) - left) / m[0];
+                        shape.height = (snap(m[5] + m[3] * (r[1] + r[3])) - top) / m[3];
                     }
-                    shape.payload = std::uint32_t(list.images.size());
-                    list.images.push_back(image);
-                    list.items.push_back(shape);
+                    if (shape.width > 0 && shape.height > 0) {
+                        shape.payload = std::uint32_t(list.images.size());
+                        list.images.push_back(image);
+                        list.items.push_back(shape);
+                    }
                     add_shadows(true);
                     add_dashes();
                     if (bordered) {

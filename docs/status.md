@@ -10,16 +10,44 @@
   - 剩下的（两个场景分开采样）：K 线主要是虚线十字线每帧重新光栅化（约 32%）与它们的大纹理（约 10%），画成一串盒子估计省约 40%；散点图是刻度文字的字形轮廓随平移重画（约 41%）与属性变了的元素重新解析（显示列表约 50%），路径按形状与亚像素位置缓存估计省约 35%，只重新解析变了的属性约 15%；SVG 值缓存的逐项校验只占 2–7%；
   - 半透明窗口（11.5c，4K）：32 个窗口时 owner 约 2 ms、渲染 CPU 2.3–2.9 ms，随窗口里的元素数增长，三种窗口相近；背景拷贝本身 GPU 约 0.5–0.8 ms；
   - 低优先级，暂不做。
-- **与引擎通信**（2026-10-14 起，第 13 步，[计划](refactoring-plan.md#第-13-步计划2026-10-14与引擎通信)，[技术路线](engine-communication.md)）：血条这类每帧变位置的元素不靠每帧推 JSON（锚点在渲染线程取最新值），双向事件、带 Promise 的引擎调用与视图模型，C ABI 与 CRPG UI 的兼容层。基线：200 个血条每帧约 13 ms，页面自己算出同样的值（零传输）也一样慢，瓶颈在逐个改 DOM 之后的样式、布局与场景更新。13.1 已完成（2026-10-14）：400 个名牌只移动时 UI 线程每帧约 0.005 ms、渲染 CPU 约 0.02–0.04 ms（推 JSON 时分别约 23 ms 与 4 ms）。13.2 已完成（2026-10-14）：带类型的值、双向事件、调用与 Promise、同步函数、视图模型与 CRPG 兼容层；每秒约 1,000 个 10 KB 的事件时 UI 线程每帧 0.79 ms（CRPG 的拼脚本求值约 4.5 ms）。13.3 已完成（[计划](refactoring-plan.md#第-13-步记录2026-10-14)）：13.3a 对外 View 与它的 C ABI、13.3b 渲染 C ABI 接 View 的帧与模拟引擎的宿主样例（2026-10-14），13.3c 页面显示引擎的纹理（2026-10-15，用户提出，如 UE 的 render target）。13.4 已完成（2026-10-15）：CRPG 原样的浮动 UI 跑在 scene 上，200 个单位时锚点方式的 UI 线程每帧 p50 29 ms、推 JSON 191 ms（剩下的是动画每帧改 DOM 后按整个文档的计算，13.5）。接下来是引擎纹理的五项限制（下一条），然后 13.5 增量管线。
-- **引擎纹理的限制**（13.3c 之后，用户 2026-10-15 定为中优先级）：
-  - 纹理总是拉伸铺满元素的边框盒：`background-size`、`background-position`、`background-repeat` 不支持；
-  - 只接受线性预乘的 UNORM 或浮点视图：sRGB 视图与 mipmap 不支持；
-  - 文档页面不支持 `-weft-texture()`，D2D 参考光栅不画（报错）；
-  - Vulkan 后端无法检查绑定的纹理是否就是目标本身（D3D11 会拒绝），由宿主保证；
-  - 同设备、同队列：跨设备、跨图形 API 的共享没有实现；UE 默认的 D3D12 要等 M5 的 RHI 后端。
+- **与引擎通信**（2026-10-14 起，第 13 步，[计划](refactoring-plan.md#第-13-步计划2026-10-14与引擎通信)，[技术路线](engine-communication.md)）：血条这类每帧变位置的元素不靠每帧推 JSON（锚点在渲染线程取最新值），双向事件、带 Promise 的引擎调用与视图模型，C ABI 与 CRPG UI 的兼容层。基线：200 个血条每帧约 13 ms，页面自己算出同样的值（零传输）也一样慢，瓶颈在逐个改 DOM 之后的样式、布局与场景更新。13.1 已完成（2026-10-14）：400 个名牌只移动时 UI 线程每帧约 0.005 ms、渲染 CPU 约 0.02–0.04 ms（推 JSON 时分别约 23 ms 与 4 ms）。13.2 已完成（2026-10-14）：带类型的值、双向事件、调用与 Promise、同步函数、视图模型与 CRPG 兼容层；每秒约 1,000 个 10 KB 的事件时 UI 线程每帧 0.79 ms（CRPG 的拼脚本求值约 4.5 ms）。13.3 已完成（[计划](refactoring-plan.md#第-13-步记录2026-10-14)）：13.3a 对外 View 与它的 C ABI、13.3b 渲染 C ABI 接 View 的帧与模拟引擎的宿主样例（2026-10-14），13.3c 页面显示引擎的纹理（2026-10-15，用户提出，如 UE 的 render target）。13.4 已完成（2026-10-15）：CRPG 原样的浮动 UI 跑在 scene 上，200 个单位时锚点方式的 UI 线程每帧 p50 29 ms、推 JSON 191 ms（剩下的是动画每帧改 DOM 后按整个文档的计算，13.5）。引擎纹理的限制已做（下一条），接下来 13.5 增量管线。
+- **引擎纹理的限制**（13.3c 之后，用户 2026-10-15 定为中优先级）：2026-10-15 做了铺排（`background-size`、`-position`、`-repeat`、`-origin`、`-clip`）、sRGB 与 BGRA 视图、mip、D2D 参考光栅、Vulkan 的目标别名检查、D3D11 上别的设备或 API 共享的纹理（见下方“本次已实现”）。剩下：文档页面（整体没有背景图片）、Vulkan 的跨 API 导入（未测）、D3D12 与 UE 的 RHI 后端（M5）。
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
+
+引擎纹理的五项限制（2026-10-15，13.3c 之后，用户定为中优先级）。详见 [重构计划](refactoring-plan.md#第-13-步记录2026-10-14)、[与引擎通信](engine-communication.md#8-对外-view133) 与 [兼容表](compatibility.md)。
+- **结果**：
+  - 铺排：`-weft-texture()` 像 CSS 的背景图那样铺排：`background-size`（长度、百分比、`auto`、`cover`、`contain`；自然大小是纹理的像素）、`background-position`（一到四个值）、`background-repeat`（`repeat`、`no-repeat`、`space`、`round`，两轴各自）、`background-origin`、`background-clip`，以及 `background` 简写的一层。瓦片由着色器按绑定纹理的大小算，宿主换了大小不同的纹理也画对。13.3c 时纹理总是拉伸铺满边框盒，现在要铺满写 `background-size: 100% 100%`（HUD 样例已改）；
+  - `background-clip` 也裁剪背景色（任何元素）；`background` 简写拆成全部分量（此前只分颜色与图像）；
+  - sRGB 与 BGRA：外部纹理接受 sRGB 的 RGBA8、BGRA8 视图与线性 BGRA8；
+  - mip：`weft_render_external_texture::mip_levels`（原来的保留字段，0 与 1 都是一层），缩小时在层间采样，字节预算按每层算；
+  - D2D 参考光栅画宿主给的像素（`SceneRaster::bind_textures`），铺排与采样同着色器；
+  - Vulkan 的目标别名：纹理结构末尾可选的 `image`，给出时拒绝画进帧绑定的纹理（同 D3D11）；
+  - 跨设备、跨 API：D3D11 接受别的设备或 API（如 D3D12）共享、宿主在后端设备上打开的纹理，写与读由宿主在立即上下文上用共享 fence 排（encode 之前 Wait，之后 Signal），不需要新的 C ABI。
+- **验证**：
+  - 新测试 `scene_background_contract`：
+    - 解析、铺排（含 round 的比例与 space）、简写、一个盒子、关键帧里的简写、诊断；
+    - 原生 D3D11 WARP 与 D2D 参考在九种铺排、缩放 1 与 2 下，各绘制区内部至多差 2 级；
+  - `scene_paint_reference` 新增 4 个 Chrome 155 用例（尺寸、位置、重复、盒子，Chrome 里纹理是 `url()` 的 PNG）：平均差 0.2–0.6 级，差 32 级以上的像素 ≤ 0.8%，5 × 5 平均后最大 13 级；
+  - `render_view_contract`：
+    - 带铺排的纹理在 Vulkan（本机设备）与 D3D11 WARP 上一致：高对比纹素之间至多差 8 级（硬件的子纹素权重），超过 2 级的通道不到 0.1%；
+    - sRGB 视图的编码值往返不变，BGRA 的通道正确，缩到四分之一取第三层，D3D11 与 Vulkan 都测；
+    - 拒绝声明为线性的 sRGB 视图与层数不符的视图；
+    - Vulkan 拒绝画进帧绑定的纹理，接受第一版结构；
+    - D3D12 在同一适配器上写、D3D11 画，两帧各是 D3D12 为它写的内容；Vulkan 验证层零告警；
+  - `render_backend_contract`：未知的格式位、超过一整条链的层数、按层计的字节；
+  - 27 个变异全部被发现。第一轮存活 1 个：关键帧简写里不带空格的斜杠（测试原来只写了带空格的），补了反例；
+  - `ctest`：Release 164/164，Debug 164/164（第一次并行运行时 `d3d11_warp_gallery_preview` 段错误一次，单独、负载下 3 次与再跑全套都通过，未能复现，原因未查明）（新增 1 个）；产物与 12.3 基线相比与 13.4 相同，现有画面不变；Android 零警告。
+  - 命令与产物：同 13.4；`build/windows-msvc/artifacts/scene-background-<配置>/`（原生与参考并排）与 `scene-paint-reference-<配置>/texture-*.png`；Chrome 截图：`node tools/browser_scene_paint_reference.mjs`。
+- **限制**：
+  - 文档页面不支持（文档页面整体没有背景图片）；
+  - Vulkan 的跨 API 导入未测（宿主可用外部内存扩展自己导入）；
+  - D3D12 与 UE 的 RHI 后端仍在 M5；
+  - 渐变与效果仍铺满边框盒并重复，非初始的重复与盒子是诊断；
+  - D2D 参考光栅只用纹理的第一层；
+  - `background-attachment: fixed` 与 `local`、多层背景不支持。
+- **下一步**：13.5 增量管线。
 
 重构第 13 步之四：CRPG 浮动 UI（2026-10-15），13.4 完成。详见 [重构计划](refactoring-plan.md#第-13-步记录2026-10-14)、[与引擎通信](engine-communication.md#13-性能目标与测量方法) 与 [兼容表](compatibility.md)。
 - **13.4a：原样组件所需的 CSS**：CRPG 的 `FloatingUIOverlay`、`HealthBar`、`DamageNumber`、`AbnormalFlagFloating` 不改一行跑在 scene 上，补齐它们用到而 scene 不支持的：

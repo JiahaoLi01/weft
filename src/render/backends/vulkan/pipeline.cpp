@@ -35,7 +35,8 @@ namespace weft::render::vulkan {
         out.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         out.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         out.image = image;
-        out.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        // Every level: images with levels (a host texture's) change layout whole.
+        out.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, 1};
         return out;
     }
 

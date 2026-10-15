@@ -283,6 +283,12 @@ if(WIN32)
     weft_add_executable(weft_scene_texture_tests SOURCES scene_texture_tests.cpp
         LINK weft::scene weft::platform_win32)
     weft_add_test(NAME scene_texture_contract COMMAND weft_scene_texture_tests)
+    # Their background layouts (background-origin, -clip, -size, -position, -repeat): parsed, laid out, diagnosed, and
+    # drawn by the native D3D11 pass (WARP) as the reference raster lays them out on the CPU.
+    weft_add_executable(weft_scene_background_tests SOURCES scene_background_tests.cpp
+        LINK weft::scene_d3d11 weft::scene_d2d weft::platform_win32 windowscodecs ole32)
+    weft_add_test(NAME scene_background_contract COMMAND weft_scene_background_tests
+        "${artifacts}/scene-background-$<CONFIG>" TIMEOUT 120)
     # UI particles as scene elements show them: registration, overrides, streams, bursts, flights, bounds, damage,
     # and weft.emitParticles.
     weft_add_executable(weft_scene_particles_tests SOURCES scene_particles_tests.cpp
@@ -379,7 +385,7 @@ if(WIN32)
     # View frames through the renderer C ABI on the built-in D3D11 (WARP) and Vulkan backends, against their native
     # passes drawn directly.
     weft_add_executable(weft_render_view_tests SOURCES render_view_tests.cpp
-        LINK weft::core weft::view ${scene_effect_links} d3d11 ole32 LARGE_STACK)
+        LINK weft::core weft::view ${scene_effect_links} d3d11 d3d12 dxgi ole32 LARGE_STACK)
     if(WEFT_RENDER_VULKAN)
         target_compile_definitions(weft_render_view_tests PRIVATE WEFT_TEST_VULKAN)
     endif()

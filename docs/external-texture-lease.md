@@ -32,6 +32,12 @@ sRGB SRV、straight alpha、encoded-premultiplied Canvas、HDR、BGRA、mipmap�
 
 2026-10-12 起 Vulkan 适配器实现了 native import：[Vulkan schema](../include/weft/render_backend_vulkan.h) 借用宿主的 `VkImageView`，校验设备，拒绝同一视图的第二次导入。Vulkan 不能查询视图的属性，格式（线性 RGBA8、RGBA16F，设备能线性过滤时 RGBA32F）、尺寸与用法由宿主保证；宿主写入的命令在同一队列上先提交，把图像留在 `SHADER_READ_ONLY_OPTIMAL` 并让写入对片元着色器可见。`render_vulkan_external_contract` 在 RTX 5090 与 AMD 核显上验证像素、bottom-left、租约退休与拒绝路径，验证层含同步验证零告警。Metal 仍需实现 native import、barrier 和颜色合同；现有 API ID 和模拟合同不能当作移动后端已通过。
 
+2026-10-15（引擎纹理的限制）：
+- 格式：也接受 sRGB 的 RGBA8、BGRA8 视图与线性 BGRA8（`format` 是视图的格式，采样解码后仍是线性预乘的颜色）。核心的白名单与两个内置 View 后端都列出；D3D11 核对视图的格式。
+- 层：`weft_render_external_texture::mip_levels`（原来的 `reserved`，0 与 1 都是一层）是视图从最详细一层起的层数，至多一整条链；字节预算按每一层算。D3D11 核对视图的层数，接受 `GENERATE_MIPS`。
+- 共享：D3D11 接受别的设备或 API 共享来、宿主在后端设备上打开的纹理（`SHARED`、`SHARED_NTHANDLE`、`SHARED_KEYEDMUTEX`）。写与读的先后由宿主在立即上下文上用共享 fence 排。
+- Vulkan：schema 末尾可选的 `image`（VkImage）。宿主给出时，View 后端拒绝画进帧绑定的纹理。
+
 ## 实际验证与运行
 
 ```powershell

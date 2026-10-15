@@ -48,7 +48,11 @@ namespace weft::render::vulkan {
     }
 
     weft_render_external_backend ViewBackend::external() {
-        std::uint32_t formats = (1u << WEFT_RENDER_TARGET_LINEAR_RGBA8) | (1u << WEFT_RENDER_TARGET_LINEAR_RGBA16F);
+        // Every device samples and filters 8-bit RGBA and BGRA, linear or sRGB, and RGBA16F (Vulkan's required
+        // formats); RGBA32F where it says so.
+        std::uint32_t formats = (1u << WEFT_RENDER_TARGET_LINEAR_RGBA8) | (1u << WEFT_RENDER_TARGET_SRGB_RGBA8) |
+                                (1u << WEFT_RENDER_TARGET_LINEAR_BGRA8) | (1u << WEFT_RENDER_TARGET_SRGB_BGRA8) |
+                                (1u << WEFT_RENDER_TARGET_LINEAR_RGBA16F);
         if (device_->filters(VK_FORMAT_R32G32B32A32_SFLOAT)) {
             formats |= 1u << WEFT_RENDER_TARGET_LINEAR_RGBA32F;
         }
@@ -59,28 +63,34 @@ namespace weft::render::vulkan {
     weft_render_result ViewBackend::import_texture(const weft_render_external_texture& description,
                                                    std::uint64_t& out) {
         out = 0;
-        VkImageView view{};
-        if (const auto v = check_external_texture(description, device_->device, view); v != WEFT_RENDER_OK) {
+        Import imported;
+        if (const auto v = check_external_texture(description, device_->device, imported.view, imported.image);
+            v != WEFT_RENDER_OK) {
             return v;
         }
         // One import of a view at a time, live or frozen.
-        if (std::find(imports_.begin(), imports_.end(), view) != imports_.end()) {
+        const auto viewing = [](VkImageView view) {
+            return [view](const Import& i) {
+                return i.view == view;
+            };
+        };
+        if (std::find_if(imports_.begin(), imports_.end(), viewing(imported.view)) != imports_.end()) {
             return WEFT_RENDER_INVALID_STATE;
         }
-        const auto free = std::find(imports_.begin(), imports_.end(), VkImageView{});
+        const auto free = std::find_if(imports_.begin(), imports_.end(), viewing(VkImageView{}));
         if (free == imports_.end()) {
             return WEFT_RENDER_BUSY;
         }
-        *free = view;
+        *free = imported;
         out = std::uint64_t(free - imports_.begin()) + 1;
         return WEFT_RENDER_OK;
     }
 
     void ViewBackend::release_texture(std::uint64_t native) {
-        if (!native || native > imports_.size() || !imports_[native - 1]) {
+        if (!native || native > imports_.size() || !imports_[native - 1].view) {
             std::terminate();
         }
-        imports_[native - 1] = VkImageView{};
+        imports_[native - 1] = {};
     }
 
     weft_render_result ViewBackend::prepare_external(const weft_render_frame&, const weft_render_external_asset*,
@@ -118,15 +128,19 @@ namespace weft::render::vulkan {
                 ++it;
             }
         }
-        Prepared prepared{held, frame.scale ? frame.scale : held->scale, {}};
+        Prepared prepared{held, frame.scale ? frame.scale : held->scale, {}, {}};
         for (std::uint32_t i = 0; i < count; ++i) {
             const auto token = textures[i].native_texture;
-            if (!token || token > imports_.size() || !imports_[token - 1]) {
+            if (!token || token > imports_.size() || !imports_[token - 1].view) {
                 return WEFT_RENDER_STALE_HANDLE;
             }
             const auto& bound = frame.textures[i];
-            prepared.textures.push_back({std::string(bound.name, bound.name_size), abi_handle(imports_[token - 1]),
+            const auto& imported = imports_[token - 1];
+            prepared.textures.push_back({std::string(bound.name, bound.name_size), abi_handle(imported.view),
                                          textures[i].description.origin == WEFT_RENDER_EXTERNAL_BOTTOM_LEFT});
+            if (imported.image) {
+                prepared.images.push_back(imported.image);
+            }
         }
         out = next_++;
         prepared_.emplace(out, std::move(prepared));
@@ -167,6 +181,13 @@ namespace weft::render::vulkan {
             return WEFT_RENDER_INVALID_ARGUMENT;
         }
         const auto& prepared = found->second;
+        const auto target_image =
+            p.struct_size >= sizeof(p) && p.target_image ? native_handle<VkImage>(p.target_image) : VkImage{};
+        // A pass reads no image it draws into, as on D3D11: the host named both.
+        if (target_image &&
+            std::find(prepared.images.begin(), prepared.images.end(), target_image) != prepared.images.end()) {
+            return WEFT_RENDER_INVALID_STATE;
+        }
         const auto& frame = *prepared.frame;
         auto& index = views_[std::weak_ptr<SceneAnchorChannel>(frame.anchors)];
         if (!index) {
@@ -177,9 +198,8 @@ namespace weft::render::vulkan {
         if (p.clear_target) {
             start.clear = encoded(p.clear_linear_premultiplied);
         }
-        const SceneRenderer::Target target{
-            native_handle<VkImageView>(p.target_view), pass.width, pass.height,
-            p.struct_size >= sizeof(p) && p.target_image ? native_handle<VkImage>(p.target_image) : VkImage{}};
+        const SceneRenderer::Target target{native_handle<VkImageView>(p.target_view), pass.width, pass.height,
+                                           target_image};
         std::unique_ptr<SceneRenderer::Slot> slot;
         if (!idle_.empty()) {
             slot = std::move(idle_.back());

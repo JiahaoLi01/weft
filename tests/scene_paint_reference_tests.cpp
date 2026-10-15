@@ -7,6 +7,11 @@
 #include "support/native_scene.hpp"
 #include "support/png.hpp"
 #include "support/scene_fonts.hpp"
+#include "render/srgb.hpp"
+
+#include <DirectXPackedVector.h>
+#include <d3d11.h>
+#include <wrl/client.h>
 #ifdef WEFT_TEST_VULKAN
 #include "render/backends/vulkan/scene_renderer.hpp"
 #endif
@@ -65,6 +70,12 @@ namespace {
             {"radial", {{{.5, .005, 6}, {.5, .005, 6}}}},
             {"repeating", {{{.5, .005, 6}, {.5, .005, 6}}}},
             {"layout", {{{.5, .005, 8}, {.5, .005, 8}}}},
+            // Host textures laid out as background images: Chrome filters the PNG's encoded values, the scene its
+            // linear ones, and upscales with its own kernel; tiles' seams and edges.
+            {"texture-size", {{{1, .01, 24}, {1, .01, 24}}}},
+            {"texture-position", {{{1, .01, 24}, {1, .01, 24}}}},
+            {"texture-repeat", {{{1, .01, 24}, {1, .01, 24}}}},
+            {"texture-boxes", {{{1, .01, 24}, {1, .01, 24}}}},
         };
         return cases;
     }
@@ -178,6 +189,26 @@ int main(int argc, char** argv) {
         require(manifest["captures"].size() == spec["cases"].size(), "a capture for each case");
         const auto width = unsigned(spec["width"].number);
         const auto height = unsigned(spec["height"].number);
+        // The cases' host textures: straight sRGB RGBA8 as Chrome's PNG holds them, as linear premultiplied texels.
+        std::map<std::string, weft::SceneRasterTexture> textures;
+        if (const auto* listed = spec.find("textures")) {
+            for (const auto& [name, t] : listed->object) {
+                weft::SceneRasterTexture texture{unsigned(t["width"].number), unsigned(t["height"].number), {}};
+                const auto& hex = t["rgba"].string;
+                require(hex.size() == std::size_t(texture.width) * texture.height * 8, name + ": the texture's texels");
+                for (std::size_t k = 0; k < hex.size(); k += 8) {
+                    std::array<float, 4> c{};
+                    for (unsigned j = 0; j < 4; ++j) {
+                        c[j] = float(std::stoi(hex.substr(k + 2 * j, 2), nullptr, 16)) / 255;
+                    }
+                    for (unsigned j = 0; j < 3; ++j) {
+                        texture.rgba.push_back(weft::render::srgb_to_linear(c[j]) * c[3]);
+                    }
+                    texture.rgba.push_back(c[3]);
+                }
+                textures.emplace(name, std::move(texture));
+            }
+        }
         auto& text = weft::testing::thread_scene_text();
 #ifdef WEFT_TEST_VULKAN
         namespace vk = weft::render::vulkan;
@@ -211,11 +242,35 @@ int main(int argc, char** argv) {
             const auto w = unsigned(width * scale);
             const auto h = unsigned(height * scale);
             weft::testing::D3D11Scene d3d11{w, h};
-            const auto native = d3d11.draw(frame, scale);
+            // The textures on the device: RGBA16F of their linear premultiplied texels.
+            std::vector<Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>> views;
+            std::vector<weft::SceneTexture> bound;
+            for (const auto& [texture_name, t] : textures) {
+                std::vector<std::uint16_t> halves;
+                for (const float v : t.rgba) {
+                    halves.push_back(DirectX::PackedVector::XMConvertFloatToHalf(v));
+                }
+                D3D11_TEXTURE2D_DESC desc{};
+                desc.Width = t.width;
+                desc.Height = t.height;
+                desc.MipLevels = desc.ArraySize = 1;
+                desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+                desc.SampleDesc.Count = 1;
+                desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+                const D3D11_SUBRESOURCE_DATA data{halves.data(), t.width * 8, 0};
+                Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
+                auto& view = views.emplace_back();
+                require(SUCCEEDED(d3d11.gpu.device->CreateTexture2D(&desc, &data, &texture)) &&
+                            SUCCEEDED(d3d11.gpu.device->CreateShaderResourceView(texture.Get(), nullptr, &view)),
+                        texture_name + ": the host texture");
+                bound.push_back({texture_name, std::uint64_t(reinterpret_cast<std::uintptr_t>(view.Get())), false});
+            }
+            const auto native = d3d11.draw(frame, scale, nullptr, {}, bound);
             d3d11.gpu.check_debug_messages();
             require(d3d11.scene.fallbacks == 0, name + ": the native pass drew the case");
 #ifdef WEFT_TEST_VULKAN
-            if (vulkan) {
+            // Host textures are bound by the View backends on Vulkan (render_view_contract); these cases draw none.
+            if (vulkan && !name.starts_with("texture-")) {
                 const auto drawn = vulkan->draw(frame, scale, w, h, std::nullopt, 0, {});
                 require(drawn.has_value() && drawn->size() == native.size(), name + ": the native Vulkan pass");
                 int worst{};
@@ -227,6 +282,7 @@ int main(int argc, char** argv) {
             }
 #endif
             weft::SceneRaster reference(text);
+            reference.bind_textures(textures);
             const auto raster = reference.raster(frame, scale);
             require(raster.width == w && raster.height == h, name + ": the reference raster's size");
             const auto chrome = weft::testing::read_png(fixtures / (name + ".png"));

@@ -596,6 +596,100 @@ float4 ps_main(Vertex v) : SV_Target {
     return color * outer * p.extra.y * coverage;
 }
 #else
+#if !SPACE_LINEAR
+// A host texture's repeating, filtering sampler (the effects' sampler, s1).
+SamplerState linearRepeat : register(s1);
+// paint::TextureFit::Scale and Repeat values (src/paint/display_list.hpp).
+static const float FitCover = 1;
+static const float FitContain = 2;
+static const float RepeatNone = 1;
+static const float RepeatSpace = 2;
+static const float RepeatRound = 3;
+
+// One axis of a host texture's tiles, as scene_texture_tiles (src/scene/scene_background.cpp) lays them out: where a tile
+// starts and the period they repeat at (0 for one tile), from the tile's size, the positioning area's start and length,
+// the position's share of the room and its length, and the repeat. space spreads whole tiles over the area, the first
+// and the last at its edges, and places one by the position when two do not fit.
+float2 textureAxis(float tile, float start, float length, float share, float offset, float repeats) {
+    float first = start + (length - tile) * share + offset;
+    float period = repeats == RepeatNone ? 0 : tile;
+    if (repeats == RepeatSpace) {
+        float n = floor(length / max(tile, MinimumRadius));
+        first = n >= 2 ? start : first;
+        period = n >= 2 ? tile + (length - n * tile) / (n - 1) : 0;
+    }
+    return float2(first, period);
+}
+
+// Where a point of an axis lies in its tile: x where in it (0 to 1), y 1 inside a tile and 0 outside.
+float2 texturePoint(float tile, float first, float period, float x) {
+    float d = x - first;
+    d = period > 0 ? d - floor(d / period) * period : d;
+    return float2(d / max(tile, MinimumRadius), tile > 0 && d >= 0 && d < tile ? 1 : 0);
+}
+
+// A host texture at a point of its item (CSS px), its tiles laid out from its size for paint::TextureFit, which the
+// record holds: stops[0] the positioning area, stops[1] the size (below 0 auto) and the scale, stops[2] the position's
+// shares of the room and its lengths, stops[3] the repeats. Transparent outside the tiles. An axis the tile repeats
+// along wraps across the tiles' edges; another stops at its edge texels' centers, so that the repeating sampler blends
+// nothing across.
+float4 fittedTexture(Paint p, float2 position) {
+    uint width, height, levels;
+    image.GetDimensions(0, width, height, levels);
+    float2 natural = float2(width, height);
+    float4 area = p.stops[0];
+    float2 size = p.stops[1].xy;
+    float scaling = p.stops[1].z;
+    float2 repeats = p.stops[3].xy;
+    bool lengths = scaling != FitCover && scaling != FitContain;
+    float2 tile = size;
+    if (!lengths) {
+        float2 s = area.zw / natural;
+        tile = natural * (scaling == FitCover ? max(s.x, s.y) : min(s.x, s.y));
+    } else if (tile.x < 0 && tile.y < 0) {
+        tile = natural;
+    } else if (tile.x < 0) {
+        tile.x = tile.y * natural.x / natural.y;
+    } else if (tile.y < 0) {
+        tile.y = tile.x * natural.y / natural.x;
+    }
+    // round: as many whole tiles as fit best, scaled to fill the area; the other axis keeps the texture's ratio when
+    // its size is auto.
+    float2 unrounded = tile;
+    if (repeats.x == RepeatRound && unrounded.x > 0) {
+        tile.x = area.z / max(1, floor(area.z / unrounded.x + .5));
+    }
+    if (repeats.y == RepeatRound && unrounded.y > 0) {
+        tile.y = area.w / max(1, floor(area.w / unrounded.y + .5));
+    }
+    if (lengths && repeats.x == RepeatRound && repeats.y != RepeatRound && size.y < 0 && unrounded.x > 0) {
+        tile.y = unrounded.y * tile.x / unrounded.x;
+    } else if (lengths && repeats.y == RepeatRound && repeats.x != RepeatRound && size.x < 0 && unrounded.y > 0) {
+        tile.x = unrounded.x * tile.y / unrounded.y;
+    }
+    float2 x = textureAxis(tile.x, area.x, area.z, p.stops[2].x, p.stops[2].z, repeats.x);
+    float2 y = textureAxis(tile.y, area.y, area.w, p.stops[2].y, p.stops[2].w, repeats.y);
+    // The tile's coordinates before they repeat: their derivatives choose the texture's level without a seam.
+    float2 raw = (position - float2(x.x, y.x)) / max(tile, MinimumRadius);
+    float2 dx = ddx(raw) * p.uv.zw;
+    float2 dy = ddy(raw) * p.uv.zw;
+    float2 u = texturePoint(tile.x, x.x, x.y, position.x);
+    float2 v = texturePoint(tile.y, y.x, y.y, position.y);
+    if (u.y == 0 || v.y == 0) {
+        return float4(0, 0, 0, 0);
+    }
+    float2 t = float2(u.x, v.x);
+    float2 edge = .5 / natural;
+    if (repeats.x == RepeatNone || repeats.x == RepeatSpace) {
+        t.x = clamp(t.x, edge.x, 1 - edge.x);
+    }
+    if (repeats.y == RepeatNone || repeats.y == RepeatSpace) {
+        t.y = clamp(t.y, edge.y, 1 - edge.y);
+    }
+    return image.SampleGrad(linearRepeat, p.uv.xy + t * p.uv.zw, dx, dy);
+}
+#endif
+
 float4 ps_main(Vertex v) : SV_Target {
     Paint p = paints[v.index];
     float2 world = v.position.xy / scale;
@@ -680,8 +774,9 @@ float4 ps_main(Vertex v) : SV_Target {
         if (p.mode.x == ImageModeTexture) {
             // The filtered texel's straight linear color, encoded and premultiplied again: a host texture composites
             // as an image of the page does.
-            float a = saturate(sample.a);
-            float4 c = a > 0 ? float4(effectEncoded(saturate(sample.rgb / sample.a)) * a, a) : float4(0, 0, 0, 0);
+            float4 texel = fittedTexture(p, position);
+            float a = saturate(texel.a);
+            float4 c = a > 0 ? float4(effectEncoded(saturate(texel.rgb / texel.a)) * a, a) : float4(0, 0, 0, 0);
             return c * p.extra.y * coverage;
         }
 #endif

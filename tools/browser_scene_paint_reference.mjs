@@ -2,11 +2,14 @@
 // tests/fixtures/scene-paint-reference/cases.json (text-overflow: ellipsis, text-shadow, filter: drop-shadow() on svg
 // icons, inset box-shadow, radial gradients of every shape, size and position, repeating gradients, calc() insets,
 // transform-origin keywords, translate3d() and em lengths) drawn by Chrome at its device scale, its nodes as inline styles
-// and svg attributes. Writes one screenshot per case and a manifest of the browser, its GPU and the hash of the cases.
-// Offline: each page is a data URL; fonts are this machine's installed fonts, as for the scene's text.
+// and svg attributes. Host textures (-weft-texture(name), the cases' textures, straight sRGB RGBA8) are PNG images in
+// url(), whose background layout CSS gives as it gives the scene's. Writes one screenshot per case and a manifest of the
+// browser, its GPU and the hash of the cases. Offline: each page is a data URL; fonts are this machine's installed
+// fonts, as for the scene's text.
 //
 //   node tools/browser_scene_paint_reference.mjs [output directory] [chrome.exe]
 import {spawn} from 'node:child_process';
+import {deflateSync} from 'node:zlib';
 import {readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {resolve, join} from 'node:path';
@@ -19,13 +22,52 @@ const casesPath = resolve(repo, 'tests/fixtures/scene-paint-reference/cases.json
 const casesText = readFileSync(casesPath, 'utf8');
 const spec = JSON.parse(casesText);
 
+// A texture as a PNG data URL: 8-bit RGBA rows, no filter, no color chunk (sRGB as browsers take it).
+const crcTable = Array.from({length: 256}, (_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; ++k) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c >>> 0;
+});
+const crc32 = (bytes) => {
+  let c = 0xffffffff;
+  for (const b of bytes) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+};
+const chunk = (type, data) => {
+  const out = Buffer.alloc(12 + data.length);
+  out.writeUInt32BE(data.length, 0);
+  out.write(type, 4, 'ascii');
+  data.copy(out, 8);
+  out.writeUInt32BE(crc32(out.subarray(4, 8 + data.length)), 8 + data.length);
+  return out;
+};
+const png = ({width, height, rgba}) => {
+  const pixels = Buffer.from(rgba, 'hex');
+  if (pixels.length !== width * height * 4) throw new Error('a texture of the wrong size');
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header.set([8, 6, 0, 0, 0], 8);
+  const rows = Buffer.concat(Array.from({length: height}, (_, y) =>
+    Buffer.concat([Buffer.from([0]), pixels.subarray(y * width * 4, (y + 1) * width * 4)])));
+  const file = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', header),
+    chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))]);
+  return 'data:image/png;base64,' + file.toString('base64');
+};
+const textures = Object.fromEntries(Object.entries(spec.textures ?? {}).map(([name, t]) => [name, png(t)]));
+// A style with each host texture as its image.
+const imaged = (style) => style.replace(/-weft-texture\(([^)]*)\)/g, (_, name) => {
+  const url = textures[name.trim()];
+  if (!url) throw new Error('no texture ' + name);
+  return `url("${url}")`;
+});
 const escape = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 // A node as markup: a string is text; an element its tag, style, attributes and children (svg ones take the parser's
 // namespace from their svg root).
 const markup = (n) => {
   if (typeof n === 'string') return escape(n);
   const attributes = Object.entries(n.attributes ?? {}).map(([k, v]) => ` ${k}="${escape(v)}"`).join('');
-  const style = n.style ? ` style="${escape(n.style)}"` : '';
+  const style = n.style ? ` style="${escape(imaged(n.style))}"` : '';
   return `<${n.tag}${attributes}${style}>${(n.children ?? []).map(markup).join('')}</${n.tag}>`;
 };
 const page = (c) => '<!doctype html><html><head><meta charset=utf-8><style>*{box-sizing:border-box;margin:0;padding:0}' +

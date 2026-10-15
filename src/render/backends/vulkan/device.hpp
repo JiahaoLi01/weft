@@ -80,7 +80,9 @@ namespace weft::render::vulkan {
         void wait(VkFence fence) const;
         // A new image or buffer; a failure throws and leaves nothing behind. Images of at most block_image_max_bytes
         // share blocks of device memory: allocating and freeing device memory costs far more than making an image.
-        Image image(VkFormat format, std::uint32_t width, std::uint32_t height, VkImageUsageFlags usage) const;
+        // An image of levels mip levels (its most detailed first), its view holding them all.
+        Image image(VkFormat format, std::uint32_t width, std::uint32_t height, VkImageUsageFlags usage,
+                    std::uint32_t levels = 1) const;
         Buffer buffer(VkDeviceSize size, VkBufferUsageFlags usage, bool mapped) const;
         // Destroys what exists of image or buffer and empties it. The device must no longer use it.
         void destroy(Image& image) const noexcept;

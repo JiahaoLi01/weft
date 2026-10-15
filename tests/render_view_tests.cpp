@@ -8,6 +8,10 @@
 #include "render/srgb.hpp"
 #include "support/check.hpp"
 #include "view/view_abi.hpp"
+
+#include <d3d11_4.h>
+#include <d3d12.h>
+#include <dxgi1_4.h>
 #ifdef WEFT_TEST_VULKAN
 #include <weft/render_backend_vulkan.h>
 
@@ -148,7 +152,7 @@ namespace {
     // under a white border, and "missing", which no frame binds.
     constexpr std::string_view textures_script = R"JS(
       const root = document.getElementById('root');
-      for (const name of ['portrait', 'minimap', 'missing']) {
+      for (const name of ['portrait', 'minimap', 'missing', 'tiled']) {
         const element = document.createElement('div');
         element.className = name;
         root.appendChild(element);
@@ -157,11 +161,14 @@ namespace {
     const std::string textures_css =
         "#root{position:relative;width:100%;height:100%}"
         ".portrait{position:absolute;left:20px;top:20px;width:64px;height:48px;border-radius:16px;"
-        "background-image:-weft-texture(portrait)}"
-        ".minimap{position:absolute;left:120px;top:20px;width:80px;height:60px;background:-weft-texture(minimap);"
-        "background-color:#ff0000;border:4px solid #ffffff}"
+        "background-image:-weft-texture(portrait);background-size:100% 100%}"
+        ".minimap{position:absolute;left:120px;top:20px;width:80px;height:60px;background:-weft-texture(minimap) "
+        "border-box;background-size:100% 100%;background-color:#ff0000;border:4px solid #ffffff}"
         ".missing{position:absolute;left:220px;top:20px;width:40px;height:40px;"
-        "background-image:-weft-texture(missing)}";
+        "background-image:-weft-texture(missing)}"
+        ".tiled{position:absolute;left:20px;top:100px;width:120px;height:60px;border:3px solid #ffffff;"
+        "border-radius:10px;background:-weft-texture(portrait) right 5px center / 14px 10px space round;"
+        "background-color:#202020}";
 
     // A page of one host texture on a plane that turns away from the viewer (perspective): the pass draws the plane's
     // content into an image of its own first.
@@ -173,12 +180,72 @@ namespace {
     const std::string tilted_css =
         "#root{position:relative;width:100%;height:100%}"
         ".tilted{position:absolute;left:20px;top:110px;width:64px;height:48px;transform:perspective(200px) "
-        "rotateY(25deg);background-image:-weft-texture(tilted)}";
+        "rotateY(25deg);background-image:-weft-texture(tilted);background-size:100% 100%}";
 
     // A 4 x 4 texture of linear premultiplied RGBA8 in quadrants of 2 x 2 texels: red, green; a linear grey, and blue
     // at half opacity. The rows are top down; bottom up, the quadrants swap rows.
     constexpr std::array<std::array<std::uint8_t, 4>, 4> quadrant{
         {{255, 0, 0, 255}, {0, 255, 0, 255}, {128, 128, 128, 255}, {0, 0, 128, 128}}};
+
+    // The texture page as the D3D11 backend (WARP) drew it, for the Vulkan backend's.
+    std::vector<std::uint8_t> d3d11_textured;
+
+    // A page of textures in other forms: an sRGB view, a BGRA one, and one of five levels shown at its size and at a
+    // quarter of it.
+    constexpr std::string_view formats_script = R"JS(
+      const root = document.getElementById('root');
+      for (const name of ['srgb', 'bgra', 'shrunk', 'full']) {
+        const element = document.createElement('div');
+        element.className = name;
+        root.appendChild(element);
+      }
+    )JS";
+    const std::string formats_css = "#root{position:relative;width:100%;height:100%}"
+                                    ".srgb{position:absolute;left:10px;top:10px;width:40px;height:40px;"
+                                    "background:-weft-texture(srgb) 0 0 / 100% 100% no-repeat}"
+                                    ".bgra{position:absolute;left:60px;top:10px;width:40px;height:40px;"
+                                    "background:-weft-texture(bgra) 0 0 / 100% 100% no-repeat}"
+                                    ".shrunk{position:absolute;left:110px;top:10px;width:4px;height:4px;"
+                                    "background:-weft-texture(levels) 0 0 / 100% 100% no-repeat}"
+                                    ".full{position:absolute;left:130px;top:10px;width:16px;height:16px;"
+                                    "background:-weft-texture(levels) 0 0 / 100% 100% no-repeat}";
+
+    std::vector<std::uint8_t> solid_texels(unsigned w, unsigned h, std::array<std::uint8_t, 4> c) {
+        std::vector<std::uint8_t> out;
+        for (unsigned i = 0; i < w * h; ++i) {
+            out.insert(out.end(), c.begin(), c.end());
+        }
+        return out;
+    }
+
+    // The texels: the sRGB view's encoded (200, 100, 50), the BGRA one's red (in B, G, R, A order), and the 16 x 16
+    // texture's levels each its own color: red, green, blue, white, black.
+    constexpr std::array<std::uint8_t, 4> srgb_texel{200, 100, 50, 255};
+    constexpr std::array<std::uint8_t, 4> bgra_texel{0, 0, 255, 255};
+    constexpr std::array<std::array<std::uint8_t, 4>, 5> level_colors{
+        {{255, 0, 0, 255}, {0, 255, 0, 255}, {0, 0, 255, 255}, {255, 255, 255, 255}, {0, 0, 0, 255}}};
+
+    std::vector<std::vector<std::uint8_t>> level_texels() {
+        std::vector<std::vector<std::uint8_t>> out;
+        for (unsigned k = 0; k < level_colors.size(); ++k) {
+            out.push_back(solid_texels(16 >> k, 16 >> k, level_colors[k]));
+        }
+        return out;
+    }
+
+    bool close(const std::array<std::uint8_t, 4>& a, const std::array<std::uint8_t, 4>& b);
+
+    // What the page shows (B, G, R, A): the sRGB view's encoded values again (decoded, then encoded as the page
+    // composites), red from the BGRA view, the texture shrunk to a quarter its third level, at its size its first.
+    void formats_shown(const Pixels& p) {
+        require(close(pixel(p, 30, 30), {50, 100, 200, 255}), "an sRGB view's encoded values");
+        require(pixel(p, 80, 30) == std::array<std::uint8_t, 4>{0, 0, 255, 255}, "a BGRA view's channels");
+        require(close(pixel(p, 112, 12), {255, 0, 0, 255}), "a texture shrunk to a quarter shows its third level");
+        require(pixel(p, 138, 18) == std::array<std::uint8_t, 4>{0, 0, 255, 255}, "a texture at its size, its first");
+    }
+
+    // The format page as the D3D11 backend (WARP) drew it, for the Vulkan backend's.
+    std::vector<std::uint8_t> d3d11_formatted;
 
     std::vector<std::uint8_t> quadrants(bool bottom_up) {
         std::vector<std::uint8_t> out;
@@ -267,6 +334,27 @@ namespace {
                         SUCCEEDED(device->CreateShaderResourceView(t.texture.Get(), &srv, &t.srv)) &&
                         SUCCEEDED(device->CreateRenderTargetView(t.texture.Get(), &rtv, &t.rtv)),
                     "a host texture");
+            return t;
+        }
+
+        // A texture of a format and its levels' texels (4 bytes each, rows top down), sampled whole.
+        Texture made(DXGI_FORMAT format, unsigned w, unsigned h, const std::vector<std::vector<std::uint8_t>>& levels) {
+            D3D11_TEXTURE2D_DESC desc{};
+            desc.Width = w;
+            desc.Height = h;
+            desc.MipLevels = UINT(levels.size());
+            desc.ArraySize = 1;
+            desc.Format = format;
+            desc.SampleDesc.Count = 1;
+            desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            std::vector<D3D11_SUBRESOURCE_DATA> data;
+            for (std::size_t k = 0; k < levels.size(); ++k) {
+                data.push_back({levels[k].data(), std::max(1u, w >> k) * 4, 0});
+            }
+            Texture t;
+            require(SUCCEEDED(device->CreateTexture2D(&desc, data.data(), &t.texture)) &&
+                        SUCCEEDED(device->CreateShaderResourceView(t.texture.Get(), nullptr, &t.srv)),
+                    "a host texture of its format and levels");
             return t;
         }
 
@@ -650,7 +738,8 @@ namespace {
     // An import of a host texture of size w x h into renderer: native is its schema's payload.
     weft_render_result import(weft_renderer* renderer, const void* native, std::uint64_t native_size, unsigned w,
                               unsigned h, std::uint64_t id, std::uint32_t origin, std::uint32_t synchronization,
-                              Retired* retired, weft_render_handle& out) {
+                              Retired* retired, weft_render_handle& out,
+                              std::uint32_t format = WEFT_RENDER_TARGET_LINEAR_RGBA8, std::uint32_t levels = 0) {
         weft_render_info info{};
         info.struct_size = sizeof(info);
         ok(weft_renderer_get_info(renderer, &info), "info");
@@ -661,11 +750,11 @@ namespace {
                                              1,
                                              w,
                                              h,
-                                             WEFT_RENDER_TARGET_LINEAR_RGBA8,
+                                             format,
                                              WEFT_RENDER_EXTERNAL_LINEAR_PREMULTIPLIED,
                                              origin,
                                              synchronization,
-                                             0,
+                                             levels,
                                              0,
                                              native,
                                              native_size,
@@ -723,6 +812,203 @@ namespace {
     // directly, in the page's encoding, over the background color, under the border, inside the corners; rows from the
     // bottom flip; an unbound name draws nothing; a live texture's new content shows on the kept pass; a released lease
     // lives until the frame's use completes; and what the C ABI refuses.
+    // Views of other forms on the D3D11 backend (WARP): an sRGB view, a BGRA one, a texture's five levels; and what
+    // it refuses: an sRGB view imported as a linear one, a view of five levels said to hold one.
+    void d3d11_texture_formats() {
+        D3D11 gpu;
+        Page page(formats_script, formats_css);
+        auto* frame = page.frame(0.016);
+        weft::render::d3d11::ViewBackend backend(gpu.device.Get(), queue);
+        weft_renderer* renderer{};
+        ok(weft_renderer_create(&backend.table(), nullptr, &renderer), "renderer");
+        const auto external = backend.external();
+        for (const auto format :
+             {WEFT_RENDER_TARGET_SRGB_RGBA8, WEFT_RENDER_TARGET_LINEAR_BGRA8, WEFT_RENDER_TARGET_SRGB_BGRA8}) {
+            require(external.formats & (1u << format), "sRGB and BGRA views among the extension's formats");
+        }
+        ok(weft_renderer_install_external_backend(renderer, &external), "install the extension");
+        auto srgb = gpu.made(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, 2, 2, {solid_texels(2, 2, srgb_texel)});
+        auto bgra = gpu.made(DXGI_FORMAT_B8G8R8A8_UNORM, 2, 2, {solid_texels(2, 2, bgra_texel)});
+        auto levels = gpu.made(DXGI_FORMAT_R8G8B8A8_UNORM, 16, 16, level_texels());
+        const weft_render_d3d11_texture srgb_native{sizeof(srgb_native), WEFT_RENDER_EXTERNAL_ABI_VERSION,
+                                                    srgb.srv.Get(), 0};
+        const weft_render_d3d11_texture bgra_native{sizeof(bgra_native), WEFT_RENDER_EXTERNAL_ABI_VERSION,
+                                                    bgra.srv.Get(), 0};
+        const weft_render_d3d11_texture levels_native{sizeof(levels_native), WEFT_RENDER_EXTERNAL_ABI_VERSION,
+                                                      levels.srv.Get(), 0};
+        constexpr auto top = WEFT_RENDER_EXTERNAL_TOP_LEFT;
+        constexpr auto ordered = WEFT_RENDER_EXTERNAL_SAME_QUEUE_ORDERED;
+        weft_render_handle failed{};
+        require(import(renderer, &srgb_native, sizeof(srgb_native), 2, 2, 1, top, ordered, nullptr, failed) ==
+                    WEFT_RENDER_UNSUPPORTED_FEATURE,
+                "an sRGB view imported as a linear one");
+        require(import(renderer, &levels_native, sizeof(levels_native), 16, 16, 2, top, ordered, nullptr, failed) ==
+                    WEFT_RENDER_UNSUPPORTED_FEATURE,
+                "a view of five levels said to hold one");
+        weft_render_handle srgb_lease{};
+        weft_render_handle bgra_lease{};
+        weft_render_handle levels_lease{};
+        ok(import(renderer, &srgb_native, sizeof(srgb_native), 2, 2, 3, top, ordered, nullptr, srgb_lease,
+                  WEFT_RENDER_TARGET_SRGB_RGBA8),
+           "import the sRGB view");
+        ok(import(renderer, &bgra_native, sizeof(bgra_native), 2, 2, 4, top, ordered, nullptr, bgra_lease,
+                  WEFT_RENDER_TARGET_LINEAR_BGRA8),
+           "import the BGRA view");
+        ok(import(renderer, &levels_native, sizeof(levels_native), 16, 16, 5, top, ordered, nullptr, levels_lease,
+                  WEFT_RENDER_TARGET_LINEAR_RGBA8, 5),
+           "import the levels");
+        weft_render_handle prepared{};
+        ok(prepare_bound(renderer, frame,
+                         {bound("srgb", srgb_lease), bound("bgra", bgra_lease), bound("levels", levels_lease)},
+                         prepared),
+           "prepare");
+        std::uint64_t serial{};
+        auto target = gpu.target();
+        ok(draw(renderer, prepared, target.rtv.Get(), serial), "draw");
+        ok(weft_renderer_release_prepared(renderer, prepared), "release");
+        d3d11_formatted = gpu.read(target);
+        formats_shown(d3d11_formatted);
+        weft_view_frame_release(frame);
+        for (const auto lease : {srgb_lease, bgra_lease, levels_lease}) {
+            ok(weft_renderer_release_texture(renderer, lease), "release");
+        }
+        ok(weft_renderer_destroy(renderer), "destroy");
+    }
+
+    // A texture another API writes: D3D12 on the same adapter clears a texture it shares through an NT handle,
+    // signalling a fence it shares too; the host opens both on the backend's D3D11 device, waits on the fence in the
+    // immediate context before the UI's pass and signals it after, so that D3D12 writes the next content only after the
+    // UI read the last. Imported live; each frame shows the content D3D12 wrote for it.
+    void d3d11_shared_texture() {
+        D3D11 gpu;
+        ComPtr<ID3D11Device5> device5;
+        ComPtr<ID3D11DeviceContext4> context4;
+        ComPtr<IDXGIDevice> dxgi;
+        ComPtr<IDXGIAdapter> adapter;
+        require(SUCCEEDED(gpu.device.As(&device5)) && SUCCEEDED(gpu.context.As(&context4)) &&
+                    SUCCEEDED(gpu.device.As(&dxgi)) && SUCCEEDED(dxgi->GetAdapter(&adapter)),
+                "D3D11.4 fences on the device");
+        ComPtr<ID3D12Device> d12;
+        if (FAILED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&d12)))) {
+            std::cout << "D3D12 skipped: no D3D12 device on the D3D11 device's adapter\n";
+            return;
+        }
+        // The shared texture and fence, and what D3D12 draws with.
+        D3D12_HEAP_PROPERTIES heap{};
+        heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+        D3D12_RESOURCE_DESC desc{};
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        desc.Width = 2;
+        desc.Height = 2;
+        desc.DepthOrArraySize = 1;
+        desc.MipLevels = 1;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+        ComPtr<ID3D12Resource> shared;
+        ComPtr<ID3D12Fence> fence12;
+        HANDLE texture_handle{};
+        HANDLE fence_handle{};
+        require(SUCCEEDED(d12->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_SHARED, &desc,
+                                                       D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&shared))) &&
+                    SUCCEEDED(d12->CreateSharedHandle(shared.Get(), nullptr, GENERIC_ALL, nullptr, &texture_handle)) &&
+                    SUCCEEDED(d12->CreateFence(0, D3D12_FENCE_FLAG_SHARED, IID_PPV_ARGS(&fence12))) &&
+                    SUCCEEDED(d12->CreateSharedHandle(fence12.Get(), nullptr, GENERIC_ALL, nullptr, &fence_handle)),
+                "a shared D3D12 texture and fence");
+        D3D12_COMMAND_QUEUE_DESC queue_desc{};
+        queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+        ComPtr<ID3D12CommandQueue> queue12;
+        ComPtr<ID3D12CommandAllocator> allocator;
+        ComPtr<ID3D12GraphicsCommandList> list;
+        ComPtr<ID3D12DescriptorHeap> rtvs;
+        D3D12_DESCRIPTOR_HEAP_DESC rtv_heap{};
+        rtv_heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+        rtv_heap.NumDescriptors = 1;
+        require(SUCCEEDED(d12->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue12))) &&
+                    SUCCEEDED(d12->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator))) &&
+                    SUCCEEDED(d12->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr,
+                                                     IID_PPV_ARGS(&list))) &&
+                    SUCCEEDED(list->Close()) && SUCCEEDED(d12->CreateDescriptorHeap(&rtv_heap, IID_PPV_ARGS(&rtvs))),
+                "D3D12 commands");
+        const auto rtv = rtvs->GetCPUDescriptorHandleForHeapStart();
+        d12->CreateRenderTargetView(shared.Get(), nullptr, rtv);
+        // D3D12 clears the texture to color once the fence reaches wait, then signals done.
+        const auto write = [&](std::array<float, 4> color, std::uint64_t wait, std::uint64_t done) {
+            require(SUCCEEDED(allocator->Reset()) && SUCCEEDED(list->Reset(allocator.Get(), nullptr)), "record");
+            D3D12_RESOURCE_BARRIER barrier{};
+            barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barrier.Transition.pResource = shared.Get();
+            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+            list->ResourceBarrier(1, &barrier);
+            list->ClearRenderTargetView(rtv, color.data(), 0, nullptr);
+            std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
+            list->ResourceBarrier(1, &barrier);
+            require(SUCCEEDED(list->Close()), "close");
+            if (wait) {
+                require(SUCCEEDED(queue12->Wait(fence12.Get(), wait)), "D3D12 waits for the UI's reads");
+            }
+            ID3D12CommandList* lists[]{list.Get()};
+            queue12->ExecuteCommandLists(1, lists);
+            require(SUCCEEDED(queue12->Signal(fence12.Get(), done)), "D3D12 signals its writes");
+        };
+        write({1, 0, 0, 1}, 0, 1);
+        // The host opens both on the D3D11 device.
+        ComPtr<ID3D11Device1> device1;
+        ComPtr<ID3D11Texture2D> opened;
+        ComPtr<ID3D11Fence> fence11;
+        ComPtr<ID3D11ShaderResourceView> view;
+        require(SUCCEEDED(gpu.device.As(&device1)) &&
+                    SUCCEEDED(device1->OpenSharedResource1(texture_handle, IID_PPV_ARGS(&opened))) &&
+                    SUCCEEDED(device5->OpenSharedFence(fence_handle, IID_PPV_ARGS(&fence11))) &&
+                    SUCCEEDED(gpu.device->CreateShaderResourceView(opened.Get(), nullptr, &view)),
+                "the texture and fence opened on the D3D11 device");
+        D3D11_TEXTURE2D_DESC opened_desc{};
+        opened->GetDesc(&opened_desc);
+        require(opened_desc.MiscFlags & (D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE),
+                "a shared texture");
+        CloseHandle(texture_handle);
+        CloseHandle(fence_handle);
+
+        Page page(textures_script, textures_css);
+        weft::render::d3d11::ViewBackend backend(gpu.device.Get(), queue);
+        weft_renderer* renderer{};
+        ok(weft_renderer_create(&backend.table(), nullptr, &renderer), "renderer");
+        const auto external = backend.external();
+        ok(weft_renderer_install_external_backend(renderer, &external), "install the extension");
+        const weft_render_d3d11_texture native{sizeof(native), WEFT_RENDER_EXTERNAL_ABI_VERSION, view.Get(), 0};
+        weft_render_handle lease{};
+        ok(import(renderer, &native, sizeof(native), 2, 2, 1, WEFT_RENDER_EXTERNAL_TOP_LEFT,
+                  WEFT_RENDER_EXTERNAL_SAME_QUEUE_LIVE, nullptr, lease),
+           "import the shared texture, live");
+        std::uint64_t serial{};
+        // A frame: the host waits for D3D12's writes, the UI draws, the host signals its reads.
+        const auto drawn = [&](double time, std::uint64_t written, std::uint64_t read) {
+            auto* frame = page.frame(time);
+            weft_render_handle prepared{};
+            ok(prepare_bound(renderer, frame, {bound("minimap", lease)}, prepared), "prepare");
+            weft_view_frame_release(frame);
+            auto target = gpu.target();
+            require(SUCCEEDED(context4->Wait(fence11.Get(), written)), "the UI waits for D3D12's writes");
+            ok(draw(renderer, prepared, target.rtv.Get(), serial), "draw");
+            require(SUCCEEDED(context4->Signal(fence11.Get(), read)), "the UI signals its reads");
+            ok(weft_renderer_release_prepared(renderer, prepared), "release");
+            return pixel(gpu.read(target), 160, 50);
+        };
+        require(drawn(0.016, 1, 2) == std::array<std::uint8_t, 4>{0, 0, 255, 255}, "what D3D12 wrote: red");
+        write({0, 0, 1, 1}, 2, 3);
+        require(drawn(0.032, 3, 4) == std::array<std::uint8_t, 4>{255, 0, 0, 255}, "what D3D12 wrote next: blue");
+        ok(weft_renderer_release_texture(renderer, lease), "release");
+        ok(weft_renderer_destroy(renderer), "destroy");
+        // D3D12 finishes before its objects go.
+        HANDLE idle = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        require(SUCCEEDED(queue12->Signal(fence12.Get(), 5)) && SUCCEEDED(fence12->SetEventOnCompletion(5, idle)) &&
+                    WaitForSingleObject(idle, 5000) == WAIT_OBJECT_0,
+                "D3D12 idle");
+        CloseHandle(idle);
+    }
+
     void d3d11_textures() {
         D3D11 gpu;
         Page page(textures_script, textures_css);
@@ -796,8 +1082,9 @@ namespace {
                     pixel(first, 121, 50) == std::array<std::uint8_t, 4>{255, 255, 255, 255} &&
                     pixel(first, 240, 40) == game,
                 "the minimap under its border; the missing texture draws nothing");
-        require(backend.renderer()->texture_draws == 2 && backend.renderer()->unbound_textures == 1,
-                "two textures drawn, one name unbound");
+        require(backend.renderer()->texture_draws == 3 && backend.renderer()->unbound_textures == 1,
+                "three textures drawn, one name unbound");
+        d3d11_textured = first;
 
         // The caller's leases can go once the frame is prepared: the use pins them until it completes.
         ok(prepare_bound(renderer, frame, both, prepared), "prepare again");
@@ -887,8 +1174,8 @@ namespace {
         }
 
         // What the C ABI refuses: names a page cannot give or given twice, a reserved field, textures without their
-        // array or in a first-version description; imports of an sRGB view, of a texture imported already, of
-        // another device's; a pass into a texture its frame binds.
+        // array or in a first-version description; imports of an sRGB view said to be linear, of a texture imported
+        // already, of another device's; a pass into a texture its frame binds.
         const auto refuses = [&](std::vector<weft_render_scene_texture> textures, weft_render_result expected,
                                  const char* what) {
             require(prepare_bound(renderer, frame, textures, refused) == expected, what);
@@ -921,7 +1208,7 @@ namespace {
         weft_render_handle failed{};
         require(import(renderer, &srgb_native, sizeof(srgb_native), 2, 2, 4, WEFT_RENDER_EXTERNAL_TOP_LEFT,
                        WEFT_RENDER_EXTERNAL_SAME_QUEUE_ORDERED, nullptr, failed) == WEFT_RENDER_UNSUPPORTED_FEATURE,
-                "an sRGB view");
+                "an sRGB view said to be linear");
         require(import(renderer, &minimap_native, sizeof(minimap_native), 2, 2, 5, WEFT_RENDER_EXTERNAL_TOP_LEFT,
                        WEFT_RENDER_EXTERNAL_SAME_QUEUE_LIVE, nullptr, failed) == WEFT_RENDER_INVALID_STATE,
                 "a texture imported already");
@@ -1543,6 +1830,26 @@ namespace {
         const auto first = through_abi(frame, true);
         weft_view_frame_release(frame);
         require(first == directly(), "the C ABI records textures as the native pass");
+        // The same page as D3D11 WARP draws it, the laid out texture's tiles too: within 2 levels but where the device
+        // filters texels of high contrast with its own subtexel weights (8 bits on the hardware), which the encoding
+        // of dark texels magnifies.
+        if (!d3d11_textured.empty()) {
+            int worst{};
+            std::size_t at{};
+            std::size_t apart{};
+            for (std::size_t k = 0; k < first.size(); ++k) {
+                const int difference = std::abs(int(first[k]) - int(d3d11_textured[k]));
+                apart += difference > 2;
+                if (difference > worst) {
+                    worst = difference;
+                    at = k / 4;
+                }
+            }
+            require(worst <= 8 && apart <= first.size() / 200,
+                    "Vulkan draws the textures as D3D11 WARP does, worst " + std::to_string(worst) + " at " +
+                        std::to_string(at % width) + ", " + std::to_string(at / width) + "; " + std::to_string(apart) +
+                        " channels more than 2 apart");
+        }
         require(close(pixel(first, 36, 32), over_game(quadrant[0])) &&
                     close(pixel(first, 68, 32), over_game(quadrant[1])) &&
                     close(pixel(first, 36, 56), over_game(quadrant[2])) &&
@@ -1683,6 +1990,58 @@ namespace {
             require(on_plane(0.032) == std::array<std::uint8_t, 4>{0, 255, 0, 255},
                     "the texture's new content on its plane");
         }
+        // A texture that is the target itself, its image named: the pass into it is refused, as on D3D11, and nothing
+        // is recorded; the first version of the structure (no image) is still taken.
+        {
+            const weft_render_vulkan_texture target_native{sizeof(target_native), WEFT_RENDER_EXTERNAL_ABI_VERSION,
+                                                           u64(d.device), u64(host.target.view),
+                                                           u64(host.target.image)};
+            weft_render_handle target_lease{};
+            ok(import(renderer, &target_native, sizeof(target_native), width, height, 8, WEFT_RENDER_EXTERNAL_TOP_LEFT,
+                      WEFT_RENDER_EXTERNAL_SAME_QUEUE_LIVE, nullptr, target_lease),
+               "import the target as a texture");
+            frame = page.frame(0.048);
+            weft_render_handle prepared{};
+            ok(prepare_bound(renderer, frame, {bound("minimap", target_lease)}, prepared), "prepare");
+            weft_view_frame_release(frame);
+            const auto recorded = backend.renderer()->recordings;
+            (void)host.frame(
+                [&](VkCommandBuffer command) {
+                    weft_render_vulkan_pass payload{sizeof(payload),
+                                                    WEFT_RENDER_ABI_VERSION,
+                                                    u64(d.device),
+                                                    u64(command),
+                                                    u64(host.target.view),
+                                                    0,
+                                                    0,
+                                                    {},
+                                                    u64(host.target.image)};
+                    const weft_render_pass pass{sizeof(pass),
+                                                WEFT_RENDER_ABI_VERSION,
+                                                info.identity,
+                                                width,
+                                                height,
+                                                WEFT_RENDER_TARGET_LINEAR_BGRA8,
+                                                1,
+                                                &payload,
+                                                sizeof(payload)};
+                    weft_render_handle use{};
+                    require(weft_renderer_encode(renderer, prepared, &pass, &use) == WEFT_RENDER_INVALID_STATE,
+                            "a pass into a texture its frame binds");
+                },
+                [](bool) {
+                });
+            require(backend.renderer()->recordings == recorded, "nothing recorded");
+            ok(weft_renderer_release_prepared(renderer, prepared), "release");
+            ok(weft_renderer_release_texture(renderer, target_lease), "release");
+            weft_render_handle first_version{};
+            auto version_one = target_native;
+            version_one.struct_size = std::uint32_t(offsetof(weft_render_vulkan_texture, image));
+            ok(import(renderer, &version_one, version_one.struct_size, width, height, 9, WEFT_RENDER_EXTERNAL_TOP_LEFT,
+                      WEFT_RENDER_EXTERNAL_SAME_QUEUE_LIVE, nullptr, first_version),
+               "a first-version texture");
+            ok(weft_renderer_release_texture(renderer, first_version), "release");
+        }
         ok(weft_renderer_release_texture(renderer, portrait_lease), "release");
         ok(weft_renderer_release_texture(renderer, minimap_lease), "release");
         require(portrait_retired.calls == 1 && minimap_retired.calls == 1, "both retired");
@@ -1691,6 +2050,159 @@ namespace {
         d.destroy(minimap);
         d.destroy(portrait_pixels);
         d.destroy(minimap_pixels);
+        require(d.validation_messages == 0, "validation: " + d.first_validation_message);
+    }
+
+    // The same views on the Vulkan backend: an sRGB image view, a BGRA one, an image's five levels, each level written
+    // in the frame's commands; drawn within 2 levels of D3D11 WARP; no validation message.
+    void vulkan_texture_formats() {
+        std::string unavailable;
+        auto device = vk::Device::open({}, unavailable);
+        if (!device) {
+            std::cout << "Vulkan skipped: " << unavailable << '\n';
+            return;
+        }
+        VulkanHost host(std::move(device));
+        auto& d = *host.device;
+        Page page(formats_script, formats_css);
+        auto* frame = page.frame(0.016);
+        constexpr std::uint64_t identity = 9;
+        vk::ViewBackend backend({d.instance, d.physical, d.device, d.queue, d.queue_family, d.get_instance_proc},
+                                identity);
+        weft_renderer* renderer{};
+        ok(weft_renderer_create(&backend.table(), nullptr, &renderer), "renderer");
+        const auto external = backend.external();
+        for (const auto format :
+             {WEFT_RENDER_TARGET_SRGB_RGBA8, WEFT_RENDER_TARGET_LINEAR_BGRA8, WEFT_RENDER_TARGET_SRGB_BGRA8}) {
+            require(external.formats & (1u << format), "sRGB and BGRA views among the extension's formats");
+        }
+        ok(weft_renderer_install_external_backend(renderer, &external), "install the extension");
+        weft_render_info info{};
+        info.struct_size = sizeof(info);
+        ok(weft_renderer_get_info(renderer, &info), "info");
+
+        // The images and their texels, every level's in one buffer.
+        struct Texture {
+            vk::Image image;
+            vk::Buffer pixels;
+            std::vector<std::vector<std::uint8_t>> levels;
+        };
+
+        const auto make = [&](VkFormat format, unsigned size, std::vector<std::vector<std::uint8_t>> levels) {
+            Texture t;
+            t.image = d.image(format, size, size, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                              std::uint32_t(levels.size()));
+            std::size_t bytes{};
+            for (const auto& l : levels) {
+                bytes += l.size();
+            }
+            t.pixels = d.buffer(bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true);
+            std::size_t at{};
+            for (const auto& l : levels) {
+                std::memcpy(static_cast<std::uint8_t*>(t.pixels.mapped) + at, l.data(), l.size());
+                at += l.size();
+            }
+            t.levels = std::move(levels);
+            return t;
+        };
+        auto srgb = make(VK_FORMAT_R8G8B8A8_SRGB, 2, {solid_texels(2, 2, srgb_texel)});
+        auto bgra = make(VK_FORMAT_B8G8R8A8_UNORM, 2, {solid_texels(2, 2, bgra_texel)});
+        auto levels = make(VK_FORMAT_R8G8B8A8_UNORM, 16, level_texels());
+        // The host's writes in the frame's commands before the pass: every level, then shader-readable.
+        const auto write = [&](VkCommandBuffer command, Texture& t) {
+            vk::transition(d, command, t.image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                           VK_PIPELINE_STAGE_TRANSFER_BIT);
+            VkDeviceSize at{};
+            for (std::uint32_t k = 0; k < t.levels.size(); ++k) {
+                VkBufferImageCopy copy{};
+                copy.bufferOffset = at;
+                copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, k, 0, 1};
+                copy.imageExtent = {std::max(1u, t.image.width >> k), std::max(1u, t.image.height >> k), 1};
+                d.vkd.vkCmdCopyBufferToImage(command, t.pixels.buffer, t.image.image,
+                                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+                at += t.levels[k].size();
+            }
+            vk::transition(d, command, t.image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT,
+                           VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                           VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        };
+        const auto native = [&](const Texture& t) {
+            return weft_render_vulkan_texture{sizeof(weft_render_vulkan_texture), WEFT_RENDER_EXTERNAL_ABI_VERSION,
+                                              u64(d.device), u64(t.image.view)};
+        };
+        const auto srgb_native = native(srgb);
+        const auto bgra_native = native(bgra);
+        const auto levels_native = native(levels);
+        constexpr auto top = WEFT_RENDER_EXTERNAL_TOP_LEFT;
+        constexpr auto ordered = WEFT_RENDER_EXTERNAL_SAME_QUEUE_ORDERED;
+        weft_render_handle srgb_lease{};
+        weft_render_handle bgra_lease{};
+        weft_render_handle levels_lease{};
+        ok(import(renderer, &srgb_native, sizeof(srgb_native), 2, 2, 1, top, ordered, nullptr, srgb_lease,
+                  WEFT_RENDER_TARGET_SRGB_RGBA8),
+           "import the sRGB view");
+        ok(import(renderer, &bgra_native, sizeof(bgra_native), 2, 2, 2, top, ordered, nullptr, bgra_lease,
+                  WEFT_RENDER_TARGET_LINEAR_BGRA8),
+           "import the BGRA view");
+        ok(import(renderer, &levels_native, sizeof(levels_native), 16, 16, 3, top, ordered, nullptr, levels_lease,
+                  WEFT_RENDER_TARGET_LINEAR_RGBA8, 5),
+           "import the levels");
+        weft_render_handle prepared{};
+        ok(prepare_bound(renderer, frame,
+                         {bound("srgb", srgb_lease), bound("bgra", bgra_lease), bound("levels", levels_lease)},
+                         prepared),
+           "prepare");
+        std::uint64_t serial{};
+        weft_render_handle use{};
+        const auto pixels = host.frame(
+            [&](VkCommandBuffer command) {
+                for (auto* t : {&srgb, &bgra, &levels}) {
+                    write(command, *t);
+                }
+                weft_render_vulkan_pass payload{sizeof(payload),
+                                                WEFT_RENDER_ABI_VERSION,
+                                                u64(d.device),
+                                                u64(command),
+                                                u64(host.target.view),
+                                                0,
+                                                0,
+                                                {},
+                                                u64(host.target.image)};
+                const weft_render_pass pass{sizeof(pass),
+                                            WEFT_RENDER_ABI_VERSION,
+                                            info.identity,
+                                            width,
+                                            height,
+                                            WEFT_RENDER_TARGET_LINEAR_BGRA8,
+                                            1,
+                                            &payload,
+                                            sizeof(payload)};
+                ok(weft_renderer_encode(renderer, prepared, &pass, &use), "encode");
+            },
+            [&](bool done) {
+                if (!done) {
+                    ok(weft_renderer_notify_submitted(renderer, use, identity, ++serial), "submitted");
+                } else {
+                    ok(weft_renderer_notify_completed(renderer, info.identity.device_epoch, identity, serial),
+                       "completed");
+                }
+            });
+        ok(weft_renderer_release_prepared(renderer, prepared), "release");
+        formats_shown(pixels);
+        if (!d3d11_formatted.empty()) {
+            require(within(pixels, d3d11_formatted, 2), "the views drawn as D3D11 WARP draws them");
+        }
+        weft_view_frame_release(frame);
+        for (const auto lease : {srgb_lease, bgra_lease, levels_lease}) {
+            ok(weft_renderer_release_texture(renderer, lease), "release");
+        }
+        ok(weft_renderer_destroy(renderer), "destroy");
+        for (auto* t : {&srgb, &bgra, &levels}) {
+            d.destroy(t->image);
+            d.destroy(t->pixels);
+        }
         require(d.validation_messages == 0, "validation: " + d.first_validation_message);
     }
 #endif
@@ -1705,9 +2217,12 @@ int main() {
         d3d11_root_backgrounds();
         d3d11_kept();
         d3d11_textures();
+        d3d11_texture_formats();
+        d3d11_shared_texture();
 #ifdef WEFT_TEST_VULKAN
         vulkan_frames();
         vulkan_textures();
+        vulkan_texture_formats();
 #endif
         std::cout << "render view tests passed\n";
         return 0;

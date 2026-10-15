@@ -378,7 +378,8 @@ namespace weft::render::vulkan {
               "vkWaitForFences");
     }
 
-    Image Device::image(VkFormat format, std::uint32_t w, std::uint32_t h, VkImageUsageFlags usage) const {
+    Image Device::image(VkFormat format, std::uint32_t w, std::uint32_t h, VkImageUsageFlags usage,
+                        std::uint32_t levels) const {
         Image out;
         out.format = format;
         out.width = w;
@@ -388,7 +389,7 @@ namespace weft::render::vulkan {
         info.imageType = VK_IMAGE_TYPE_2D;
         info.format = format;
         info.extent = {w, h, 1};
-        info.mipLevels = 1;
+        info.mipLevels = levels;
         info.arrayLayers = 1;
         info.samples = VK_SAMPLE_COUNT_1_BIT;
         info.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -416,7 +417,7 @@ namespace weft::render::vulkan {
             view.image = out.image;
             view.viewType = VK_IMAGE_VIEW_TYPE_2D;
             view.format = format;
-            view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, levels, 0, 1};
             check(vkd.vkCreateImageView(device, &view, nullptr, &out.view), "vkCreateImageView");
         } catch (...) {
             destroy(out);

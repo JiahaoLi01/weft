@@ -7,7 +7,10 @@
 #include "scene/scene_particles.hpp"
 #include "scene/scene_text.hpp"
 #include <functional>
+#include <map>
 #include <memory>
+#include <string>
+#include <vector>
 
 #ifdef _WIN32
 struct ID2D1RenderTarget;
@@ -238,6 +241,14 @@ namespace weft {
         std::vector<std::uint8_t> rgba;
     };
 
+    // A host texture the reference raster draws for a -weft-texture(name) background, as pixels: width x height texels
+    // of linear premultiplied RGBA, rows top down.
+    struct SceneRasterTexture {
+        unsigned width{};
+        unsigned height{};
+        std::vector<float> rgba;
+    };
+
     class SceneRaster {
     public:
         // Text is measured and shaped by text (owner thread); the raster draws the runs.
@@ -249,6 +260,9 @@ namespace weft {
         // the two (tests/scene_geometry_compare.hpp).
         std::array<double, 6> transform_matrix(const SceneNode&) const;
         SceneBitmap raster(const SceneFrame&, float scale = 1);
+        // The textures -weft-texture(name) backgrounds show, by name, as the scene shader lays them out
+        // (scene_background.hpp); an unbound name draws nothing, as on the native passes.
+        void bind_textures(std::map<std::string, SceneRasterTexture> textures);
 
         struct Work {
             std::size_t gpu_projective_draws{};
