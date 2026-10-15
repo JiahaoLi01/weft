@@ -15,8 +15,9 @@
  * treats it as lost). The host's resources keep their states.
  *
  * The target is a single-sample 2D texture of one mip level and array slice, at least the pass's width x height
- * (the pass draws at its top-left), of DXGI_FORMAT_B8G8R8A8_UNORM (target_format WEFT_RENDER_TARGET_LINEAR_BGRA8) or
- * DXGI_FORMAT_R8G8B8A8_UNORM (WEFT_RENDER_TARGET_LINEAR_RGBA8), or of the typeless format of either; the adapter makes
+ * (the pass draws at its top-left), of DXGI_FORMAT_B8G8R8A8_UNORM (target_format WEFT_RENDER_TARGET_LINEAR_BGRA8),
+ * DXGI_FORMAT_R8G8B8A8_UNORM (WEFT_RENDER_TARGET_LINEAR_RGBA8) or DXGI_FORMAT_R10G10B10A2_UNORM
+ * (WEFT_RENDER_TARGET_LINEAR_RGB10A2: a game's 10-bit back buffer), or of the typeless format of one; the adapter makes
  * its own render target view of it with that format. It is in D3D12_RESOURCE_STATE_RENDER_TARGET when the commands
  * execute, the host's earlier writes done, and the commands leave it there. A View frame's backdrop filters at the
  * target's level read what the target holds beneath them (the adapter copies from it, returning it to the render

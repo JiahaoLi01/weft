@@ -69,7 +69,9 @@ typedef enum weft_render_target_format {
     WEFT_RENDER_TARGET_LINEAR_RGBA32F = 2,
     WEFT_RENDER_TARGET_SRGB_BGRA8 = 3,
     WEFT_RENDER_TARGET_LINEAR_BGRA8 = 4,
-    WEFT_RENDER_TARGET_LINEAR_RGBA16F = 5
+    WEFT_RENDER_TARGET_LINEAR_RGBA16F = 5,
+    /* 10-bit UNORM color and 2-bit alpha (a game's 10-bit back buffer, as Unreal's): render targets only. */
+    WEFT_RENDER_TARGET_LINEAR_RGB10A2 = 6
 } weft_render_target_format;
 
 typedef struct weft_render_asset {

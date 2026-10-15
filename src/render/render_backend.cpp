@@ -496,7 +496,7 @@ namespace {
         }
         const auto& c = r.backend.capabilities;
         if (p->width > c.max_target_size || p->height > c.max_target_size || p->sample_count != 1 ||
-            p->target_format > WEFT_RENDER_TARGET_LINEAR_RGBA16F || !(c.target_formats & (1u << p->target_format))) {
+            p->target_format > WEFT_RENDER_TARGET_LINEAR_RGB10A2 || !(c.target_formats & (1u << p->target_format))) {
             return WEFT_RENDER_UNSUPPORTED_FEATURE;
         }
         return WEFT_RENDER_OK;

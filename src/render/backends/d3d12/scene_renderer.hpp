@@ -47,7 +47,8 @@ namespace weft::render::d3d12 {
     class SceneRenderer : public SceneNativeWork {
     public:
         // A host color target: a single-sample texture of at least width x height device px, of format (its view
-        // format: B8G8R8A8_UNORM or R8G8B8A8_UNORM), in D3D12_RESOURCE_STATE_RENDER_TARGET when the commands execute,
+        // format: B8G8R8A8_UNORM, R8G8B8A8_UNORM or R10G10B10A2_UNORM), in D3D12_RESOURCE_STATE_RENDER_TARGET when the
+        // commands execute,
         // where they leave it.
         struct Target {
             ID3D12Resource* resource{};

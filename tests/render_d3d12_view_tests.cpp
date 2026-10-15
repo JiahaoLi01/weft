@@ -32,7 +32,7 @@
 // View frames through the renderer C ABI on the built-in D3D12 backend (WARP, with the debug layer when it is
 // installed), against the D3D11 backend (WARP) drawing the same frames, byte for byte: over the game's picture in the host's target
 // and replacing it with the host's clear; anchored elements where the View's latest anchors are, the kept pass drawn
-// again; backdrops that read the target and a group; host textures by name; BGRA8, RGBA8 and typeless targets; a
+// again; backdrops that read the target and a group; host textures by name; BGRA8, RGBA8, typeless and 10-bit targets; a
 // recording the host discards; and what the backend refuses. Every frame's commands pass the debug layer without
 // errors.
 namespace {
@@ -764,6 +764,25 @@ namespace {
              reference.draw(theirs, DXGI_FORMAT_R8G8B8A8_UNORM), "an RGBA8 target");
         target = gpu.target(DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_B8G8R8A8_TYPELESS);
         same(d3d12.draw(ours, target.Get()), moved, "a typeless target");
+
+        // A 10-bit target (a game's back buffer, as Unreal's): the 8-bit target's picture, blended at 10 bits.
+        target = gpu.target(DXGI_FORMAT_R10G10B10A2_UNORM);
+        const auto deep = d3d12.draw(ours, target.Get(), WEFT_RENDER_TARGET_LINEAR_RGB10A2);
+        Pixels narrowed(deep.size());
+        for (std::size_t i = 0; i < deep.size(); i += 4) {
+            std::uint32_t v{};
+            std::memcpy(&v, deep.data() + i, 4);
+            const auto eight = [](std::uint32_t c) {
+                return std::uint8_t((c * 255 + 511) / 1023);
+            };
+            narrowed[i] = eight((v >> 20) & 1023);
+            narrowed[i + 1] = eight((v >> 10) & 1023);
+            narrowed[i + 2] = eight(v & 1023);
+            narrowed[i + 3] = std::uint8_t((v >> 30) * 85);
+        }
+        const int deep_difference = difference(narrowed, moved);
+        require(deep_difference <= 2, "a 10-bit target draws the 8-bit one's picture");
+        std::cout << "  a 10-bit target: at most " << deep_difference << " levels from the 8-bit one" << std::endl;
 
         // A recording the host never executes: discarded, and the next one draws as before.
         target = gpu.target();

@@ -57,6 +57,8 @@ namespace weft::render::d3d12 {
                     return DXGI_FORMAT_R16G16B16A16_TYPELESS;
                 case DXGI_FORMAT_R32G32B32A32_FLOAT:
                     return DXGI_FORMAT_R32G32B32A32_TYPELESS;
+                case DXGI_FORMAT_R10G10B10A2_UNORM:
+                    return DXGI_FORMAT_R10G10B10A2_TYPELESS;
                 default:
                     return DXGI_FORMAT_UNKNOWN;
             }
@@ -77,7 +79,8 @@ namespace weft::render::d3d12 {
         description.queue = queue;
         description.capabilities = {sizeof(weft_render_capabilities),
                                     WEFT_RENDER_FEATURE_SCENE,
-                                    (1u << WEFT_RENDER_TARGET_LINEAR_RGBA8) | (1u << WEFT_RENDER_TARGET_LINEAR_BGRA8),
+                                    (1u << WEFT_RENDER_TARGET_LINEAR_RGBA8) | (1u << WEFT_RENDER_TARGET_LINEAR_BGRA8) |
+                                        (1u << WEFT_RENDER_TARGET_LINEAR_RGB10A2),
                                     std::uint32_t(constants::render::d3d12::max_surface_dimension),
                                     std::uint32_t(constants::render::d3d12::max_surface_dimension),
                                     0};
@@ -240,9 +243,10 @@ namespace weft::render::d3d12 {
         if (command->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) {
             return WEFT_RENDER_INVALID_ARGUMENT;
         }
-        const auto format = pass.target_format == WEFT_RENDER_TARGET_LINEAR_BGRA8   ? DXGI_FORMAT_B8G8R8A8_UNORM
-                            : pass.target_format == WEFT_RENDER_TARGET_LINEAR_RGBA8 ? DXGI_FORMAT_R8G8B8A8_UNORM
-                                                                                    : DXGI_FORMAT_UNKNOWN;
+        const auto format = pass.target_format == WEFT_RENDER_TARGET_LINEAR_BGRA8     ? DXGI_FORMAT_B8G8R8A8_UNORM
+                            : pass.target_format == WEFT_RENDER_TARGET_LINEAR_RGBA8   ? DXGI_FORMAT_R8G8B8A8_UNORM
+                            : pass.target_format == WEFT_RENDER_TARGET_LINEAR_RGB10A2 ? DXGI_FORMAT_R10G10B10A2_UNORM
+                                                                                      : DXGI_FORMAT_UNKNOWN;
         if (format == DXGI_FORMAT_UNKNOWN) {
             return WEFT_RENDER_UNSUPPORTED_FEATURE;
         }

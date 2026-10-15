@@ -32,9 +32,9 @@ namespace weft::constants::render {
     inline constexpr int max_external_textures_limit = 4096;
 
     // Bits a backend may report: WEFT_RENDER_FEATURE_* (six features) and one bit per
-    // weft_render_target_format (six formats).
+    // weft_render_target_format (seven formats).
     inline constexpr unsigned known_feature_bits = 63u;
-    inline constexpr unsigned known_target_format_bits = 63u;
+    inline constexpr unsigned known_target_format_bits = 127u;
 
     // Accepted sdf_spread range, in texels, for signed distance assets.
     inline constexpr int min_sdf_spread = 2;
