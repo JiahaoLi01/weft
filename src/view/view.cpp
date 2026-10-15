@@ -404,6 +404,8 @@ namespace weft {
         i.faulted = false;
         i.root_selector = page.root.empty() ? "#root" : page.root;
         i.scene = std::make_unique<SceneSolver>(page.stylesheet, page.keyframes, i.text);
+        // Geometry reads take the View's own (ensure_geometry).
+        i.scene->set_element_geometry(false);
         try {
             i.install_hosts();
             install_script_platform(i.vm, ScriptPlatformModule::WebHost);

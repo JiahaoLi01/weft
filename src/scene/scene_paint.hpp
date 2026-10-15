@@ -66,4 +66,8 @@ namespace weft {
     std::optional<PaintValue> parse_scene_paint_value(const std::string&);
     PaintValue interpolate_scene_paint_value(const PaintValue&, const PaintValue&, double);
     ScenePaintValues compile_scene_paint_values(const StyleValues&);
+    // The same values, those of slots whose text `before` gave as style does taken from `last` (compiled from
+    // before): an animation or a moved element parses only what changed.
+    ScenePaintValues compile_scene_paint_values(const StyleValues& style, const StyleValues& before,
+                                                const ScenePaintValues& last);
 } // namespace weft

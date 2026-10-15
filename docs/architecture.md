@@ -454,6 +454,11 @@ Windows `SceneRaster` 是可替换的软件矢量参考适配器：DirectWrite m
 - 显示列表记下每个元素访问的上下文与它在列表各部分加进的区间，也能只在原上下文里列一个子树。
 - 每个视图保留的 pass 在内容版本变了时就地补丁：两帧的场景树按存储比较（相等的句柄就是相等的子树），自身值变了的子树在原上下文里重列，形状相同的原地换掉条目、记录、圆角裁剪与图像；不满足条件时重新准备。补丁只改 CPU 侧的保留数据：在途录制持有自己的缓冲与图像租约，槽位按版本序号只补写之后的补丁写过的区间。
 
+2026-10-15 重构第 13.5c 步：owner 侧每个元素的开销。
+- 级联：只改了内联样式、改的都是不继承的属性（不含 `var()`、CSS 全局关键字与简写的分量）的元素，只把这些属性对缓存的规则胜者重新级联，计入的上限与全量相同；子元素只在它读的父值变了时重算（继承的值，有 `inherit` 或 `var()` 时全部值，同缓存键）。
+- 布局边界：绝对定位、两个方向都有插入值、父元素就是包含块（根，或 relative、absolute 的 HTML 盒，内边距与边框不是百分比）的盒子不影响父与兄弟，它的布局只取决于包含块的边框盒、边框与它自己的子树。改动只重排所在的最外层边界：在一个取包含块样式与已排边框盒的替身里排，结果沿路径写回。CSS 语义不变（与整页布局逐值相同，`incremental_contract` 的 layout 段）；边界外的结构变化、视口变化与 fixed 盒仍整页布局。
+- 求解器的元素几何可以关（`SceneSolver::set_element_geometry`）：View 与画廊会话读几何时自己算，布局后不列整页的几何。
+
 2026-10-10 增量更新补充：`CompiledStyle::update` 保留canonical raw computed值，可报告变化/重建的own节点身份。同父重排保留值，跨父挂载重建；输出不是shorthand展开表示。Scene另存expanded派生值，按changed identities及代际重建，不把展开值写回cascade。`SceneSolver::update`可修改owner专属输出，异常后必须丢弃部分输出/reset；跨线程发布仍创建完整独立immutable snapshot。geometry reuse由字体/文本/盒子/transform/SVG geometry/身份投影证明，pure paint变化不失效，measure/layout仍不调用JS。
 
 检查host区分主动正常ReleaseCapture和真实捕获/焦点丢失；hover/active只更新weak generational旧/新路径。诊断footer在native overlay，原应用DOM/事件正常更新。所有不可见卡片统一暂停rAF、继续timer，属于Gallery显式host策略。详细profiler默认关闭，关闭时无阶段timestamp/trace；保留必要completion及调度/FPS。开启后每线程有界latest trace、600样本曲线、5Hz HUD；串联共同steady-clock和run_id，不能把旧文件或采样子集当全运行。Windows factory-scoped shape/stroke缓存与本次solve局部bounds不跨线程保留DOM引用，GPU重写/退休继续只按actual serial。实际证据见[增量与profiler](incremental-ui-profiler.md)。

@@ -146,6 +146,8 @@ struct GallerySceneSession {
           height(h) {
         scene.set_effects(options.effects);
         scene.set_particles(options.particles);
+        // Geometry reads take the session's own (ensure_geometry).
+        scene.set_element_geometry(false);
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         weft::install_script_platform(vm, weft::ScriptPlatformModule::AnimationFrame);
         vm.eval(scene_read(WEFT_SOURCE_DIR "/examples/crpg-gallery/native/platform.js"));

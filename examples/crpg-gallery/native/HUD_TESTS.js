@@ -87,15 +87,15 @@
     ++applied;
   }
   // The values the host would push at t seconds of frame `frame`, computed here (probes/hud_benchmark.cpp, place), for
-  // every `every`-th unit; the others stay where they are.
-  function simulate(t, frame, every = 1) {
+  // every `every`-th unit; the others stay where they are. Without health, the units only move.
+  function simulate(t, frame, every = 1, health = true) {
     if (!nodes) throw new Error('CE_HUD: not mounted');
     for (let i = 0; i < nodes.units.length; i += every) {
       const u = nodes.units[i];
       const cx = 80 + (i * 197) % 1660, cy = 60 + (i * 113) % 920, r = 20 + (i % 7) * 9;
       const a = t * (0.6 + (i % 5) * 0.25) + i * 0.7;
       let hp = u.hp < 0 ? 1 : u.hp;
-      if ((i + frame) % 20 === 0) hp = hp > 0.05 ? hp - 0.05 : 1;
+      if (health && (i + frame) % 20 === 0) hp = hp > 0.05 ? hp - 0.05 : 1;
       u.unit.style.transform = 'translate(' + (cx + r * Math.cos(a)) + 'px,' + (cy + r * Math.sin(a)) + 'px)';
       if (hp !== u.hp) {
         u.hp = hp;

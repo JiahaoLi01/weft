@@ -12,8 +12,11 @@
 #include <charconv>
 #include <cmath>
 #include <functional>
+#include <limits>
+#include <memory>
 #include <set>
 #include <stdexcept>
+#include <unordered_map>
 
 namespace weft {
     namespace {
@@ -815,13 +818,39 @@ namespace weft {
             std::string selector_path;
             std::vector<std::size_t> selector_lengths;
 
+            // The inline style an element was last restyled to (restyle_inline), and its declarations that win among
+            // themselves, by key: its next restyle starts from them.
+            struct InlineLast {
+                std::string text;
+                std::shared_ptr<const std::map<std::string, Declaration>> winners;
+            };
+
+            struct IdentityHash {
+                std::size_t operator()(const NodeIdentity& n) const {
+                    return std::hash<std::uint64_t>{}(n.view_epoch ^ (std::uint64_t(n.slot) << 32 | n.generation));
+                }
+            };
+
             struct MemoState {
                 std::map<std::string, Memo> entries;
                 std::map<std::string, Winners> winners;
+                // By element: an animated element's style is parsed once.
+                std::unordered_map<NodeIdentity, InlineLast, IdentityHash> inline_last;
+                // Each memo's entries by last use (`used`, unique), least recent first: what the bounds evict.
+                std::map<std::size_t, std::map<std::string, Memo>::iterator> entry_uses;
+                std::map<std::size_t, std::map<std::string, Winners>::iterator> winner_uses;
                 std::size_t bytes{};
                 std::size_t winner_bytes{};
                 std::size_t clock{};
             };
+
+            // A memo entry taken again: its use is the latest.
+            template <class Uses, class Iterator>
+            static void touch(Uses& uses, Iterator it, std::size_t& clock) {
+                uses.erase(it->second.used);
+                it->second.used = ++clock;
+                uses.emplace(it->second.used, it);
+            }
 
             MemoState local_memo;
             MemoState* memo_state = &local_memo;
@@ -1050,6 +1079,220 @@ namespace weft {
                 }
             }
 
+            // Whether two values of an element hold the same values for its children to inherit.
+            bool same_inherited_values(const StyleValues& a, const StyleValues& b) const {
+                const auto next = [&](const StyleValues& v, StyleValues::const_iterator it) {
+                    while (it != v.end() && !profile_index.inherited[std::size_t(it->first)]) {
+                        ++it;
+                    }
+                    return it;
+                };
+                for (auto x = next(a, a.begin()), y = next(b, b.begin());;
+                     x = next(a, std::next(x)), y = next(b, std::next(y))) {
+                    if (x == a.end() || y == b.end()) {
+                        return x == a.end() && y == b.end();
+                    }
+                    if (*x != *y) {
+                        return false;
+                    }
+                }
+            }
+
+            // Whether a child of dom may read its parent's values beyond those it inherits: an `inherit`, or a var()
+            // that could give one, in a rule or in the child's own declarations (as memo_key keys a child).
+            bool children_read_all(const DomSnapshot& dom) const {
+                if (parent_all) {
+                    return true;
+                }
+                const auto reads = [](std::string_view text) {
+                    return contains_ascii_lower(text, "inherit") || contains_ascii_lower(text, "var(");
+                };
+                for (const auto& child : dom.children) {
+                    if (child.type != constants::element_node_type) {
+                        continue;
+                    }
+                    if (const auto it = child.attributes.find("style");
+                        it != child.attributes.end() && reads(it->second)) {
+                        return true;
+                    }
+                    if (profile.scene_syntax) {
+                        for (const auto k : presentation_attributes) {
+                            if (const auto it = child.attributes.find(k);
+                                it != child.attributes.end() && reads(it->second)) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                return false;
+            }
+
+            // Whether a change of dom's own values from target's to own reaches its children (children_read_all);
+            // target holding another node's values reaches them.
+            bool reaches_children(const DomSnapshot& dom, const ComputedStyle& target, const ComputedStyle& own) const {
+                return target.identity != dom.identity || !same_inherited_values(target.values, own.values) ||
+                       children_read_all(dom);
+            }
+
+            static bool same_declaration(const Declaration& a, const Declaration& b) {
+                return a.key == b.key && a.tokens == b.tokens && a.important == b.important &&
+                       a.from_inset == b.from_inset && a.box_edge == b.box_edge && a.corner == b.corner &&
+                       a.axis == b.axis && a.solid_background == b.solid_background &&
+                       a.background_layer == b.background_layer && a.id == b.id;
+            }
+
+            // An element whose own input changed in its inline style alone (old, the copy it was last computed from),
+            // apart from attributes the cascade does not read (an HTML element's that no selector reads), where the
+            // declarations that changed set values no child inherits, without var() or a CSS-wide keyword,
+            // as do the declarations that win their properties before and after: only those values are cascaded
+            // again, against the rule winners kept for its selectors, and the bounds are charged as a full cascade of
+            // it charges them. Whether its own values changed; nullopt, with nothing changed, where it is to be
+            // cascaded in full.
+            std::optional<bool> restyle_inline(const DomSnapshot& dom, const DomSnapshot& old, ComputedStyle& target,
+                                               const std::string& selectors) {
+                if (!memoize || dom.namespace_uri != constants::xhtml_namespace_uri || dom.type != old.type ||
+                    dom.local_name != old.local_name || dom.namespace_uri != old.namespace_uri ||
+                    dom.hovered != old.hovered || dom.active != old.active || !same_selector_input(dom, old)) {
+                    return std::nullopt;
+                }
+                const auto winners = memo_state->winners.find(selectors);
+                if (winners == memo_state->winners.end()) {
+                    return std::nullopt;
+                }
+                // The inline declarations that win among themselves, by key: the last important one, else the last.
+                using Parse = std::shared_ptr<const std::map<std::string, Declaration>>;
+                static const Parse none = std::make_shared<const std::map<std::string, Declaration>>();
+                const auto parse = [&](const std::string& text) {
+                    auto out = std::make_shared<std::map<std::string, Declaration>>();
+                    for (const auto& d : declarations(comments(text, profile.scene_syntax), profile)) {
+                        if (const auto found = out->find(d.key);
+                            found == out->end() || !found->second.important || d.important) {
+                            (*out)[d.key] = d;
+                        }
+                    }
+                    return Parse(std::move(out));
+                };
+                const auto then_style = old.attributes.find("style");
+                const auto now_style = dom.attributes.find("style");
+                if (memo_state->inline_last.size() >= constants::max_document_nodes) {
+                    memo_state->inline_last.clear();
+                }
+                auto& last = memo_state->inline_last[dom.identity];
+                const auto then_parse = then_style == old.attributes.end()                ? none
+                                        : last.winners && last.text == then_style->second ? last.winners
+                                                                                          : parse(then_style->second);
+                const auto now_parse = now_style == dom.attributes.end() ? none : parse(now_style->second);
+                last = {now_style == dom.attributes.end() ? std::string() : now_style->second, now_parse};
+                const auto& then_inline = *then_parse;
+                const auto& now_inline = *now_parse;
+                const auto& rules = winners->second;
+                // What wins a property: the inline declaration unless a rule outranks it (as apply ranks it, after
+                // every rule), or the rule's.
+                const auto winner = [&](const std::map<std::string, Declaration>& inline_values,
+                                        const std::string& key) -> const Declaration* {
+                    if (const auto it = inline_values.find(key); it != inline_values.end()) {
+                        Rank rank{it->second.important ? 1u : 0u, 1, 1, 0, 0, 0, 0};
+                        rank[constants::style::cascade_rank_order_index] = std::numeric_limits<unsigned>::max();
+                        if (const auto r = rules.ranks.find(key); r == rules.ranks.end() || r->second <= rank) {
+                            return &it->second;
+                        }
+                    }
+                    const auto r = rules.declarations.find(key);
+                    return r == rules.declarations.end() ? nullptr : &r->second;
+                };
+                const auto plain = [](const Declaration& d) {
+                    return !references(d.tokens) && !wide(keyword(d.tokens)) && d.box_edge < 0 && d.corner < 0 &&
+                           d.axis < 0 && d.background_layer < 0 && !d.solid_background;
+                };
+
+                struct Contest {
+                    const std::string* key{};
+                    PropertyId id{};
+                    const Declaration* before{};
+                    const Declaration* after{};
+                };
+
+                std::vector<Contest> contests;
+                const auto contest = [&](const std::string& key, PropertyId id) {
+                    if (custom(key) || !profile.properties.contains(key) || profile_index.inherited[std::size_t(id)]) {
+                        return false;
+                    }
+                    const auto* before = winner(then_inline, key);
+                    const auto* after = winner(now_inline, key);
+                    if ((before && !plain(*before)) || (after && !plain(*after))) {
+                        return false;
+                    }
+                    contests.push_back({&key, id, before, after});
+                    return true;
+                };
+                for (const auto& [k, d] : then_inline) {
+                    const auto it = now_inline.find(k);
+                    if ((it == now_inline.end() || !same_declaration(d, it->second)) && !contest(k, d.id)) {
+                        return std::nullopt;
+                    }
+                }
+                for (const auto& [k, d] : now_inline) {
+                    if (!then_inline.contains(k) && !contest(k, d.id)) {
+                        return std::nullopt;
+                    }
+                }
+                // The charges: the element's as before, but for the declarations that won the properties that changed,
+                // which the winners now substitute as apply's winners are.
+                std::size_t removed{};
+                for (const auto& c : contests) {
+                    removed += c.before ? token_count(c.before->tokens) : 0;
+                }
+                if (removed > target.own_work) {
+                    return std::nullopt;
+                }
+                touch(memo_state->winner_uses, winners, memo_state->clock);
+                charge(target.own_work - removed);
+                const std::function<std::optional<Tokens>(const std::string&)> no_variables = [](const std::string&) {
+                    return std::optional<Tokens>{};
+                };
+                bool changed{};
+                for (const auto& c : contests) {
+                    if (c.after) {
+                        const auto tokens = substitute(c.after->tokens, no_variables);
+                        auto text = serialize(*tokens);
+                        if (const auto* current = target.values.find(c.id); !current || current->text() != text) {
+                            target.values.set(c.id, CssValue(std::move(text)));
+                            changed = true;
+                        }
+                    } else if (target.values.erase(c.id)) {
+                        changed = true;
+                    }
+                    if (bool(c.before) != bool(c.after)) {
+                        auto& specified = target.specified_properties;
+                        const auto at = std::lower_bound(specified.begin(), specified.end(), *c.key);
+                        if (c.after) {
+                            specified.insert(at, *c.key);
+                        } else if (at != specified.end() && *at == *c.key) {
+                            specified.erase(at);
+                        }
+                        changed = true;
+                    }
+                }
+                std::size_t own_bytes{};
+                for (const auto& [id, v] : target.values) {
+                    own_bytes += property_name(id).size() + v.text().size();
+                }
+                for (const auto& [k, v] : target.custom_properties) {
+                    own_bytes += k.size() + (v ? v->size() : 0);
+                }
+                bytes += own_bytes;
+                if (bytes > constants::style::max_computed_output_bytes) {
+                    fail("computed output byte bound");
+                }
+                if (changed) {
+                    if (changed_nodes) {
+                        changed_nodes->push_back(dom.identity);
+                    }
+                    target.stamp = stamp;
+                }
+                return changed;
+            }
+
             // The element children of dom into out, reusing owner values by identity and retaining no DOM references.
             // Order and generation changes are verified even when the rule memo hits. With old, the copy of dom the
             // children were last computed from, a child whose subtree revision did not move keeps its values without a
@@ -1195,12 +1438,25 @@ namespace weft {
                     close(destination, nodes_before, work_before, bytes_before);
                     return;
                 }
+                // Only the inline style changed, in values the children do not inherit: those values alone.
+                if (old && !dirty && !selectors_dirty && destination.identity == dom.identity &&
+                    destination.environment) {
+                    if (const auto restyled = restyle_inline(dom, *old, destination, selectors)) {
+                        destination.own_work = work - work_before;
+                        destination.own_bytes = bytes - bytes_before;
+                        const auto environment = destination.environment;
+                        children_into(dom, destination, environment->variables, old,
+                                      *restyled && children_read_all(dom), false);
+                        close(destination, nodes_before, work_before, bytes_before);
+                        return;
+                    }
+                }
                 // What the children's selectors read of dom changed, so may what they match.
                 const bool child_selectors = selectors_dirty || !old || !same_selector_input(dom, *old);
                 auto key = memoize ? memo_key(parent, inherited, selectors) : std::string{};
                 if (memoize) {
                     if (auto it = memo_state->entries.find(key); it != memo_state->entries.end()) {
-                        it->second.used = ++memo_state->clock;
+                        touch(memo_state->entry_uses, it, memo_state->clock);
                         const auto variables = it->second.variables;
                         const auto token_work = it->second.token_work;
                         const auto output_bytes = it->second.output_bytes;
@@ -1209,11 +1465,13 @@ namespace weft {
                         if (bytes > constants::style::max_computed_output_bytes) {
                             fail("computed output byte bound");
                         }
+                        const bool reaches = reaches_children(dom, destination, it->second.own);
                         const bool changed = own_into(destination, it->second.own, dom.identity);
                         destination.own_work = token_work;
                         destination.own_bytes = output_bytes;
                         const bool inherited_changed = inherit(destination, variables, parent);
-                        children_into(dom, destination, variables, old, changed || inherited_changed, child_selectors);
+                        children_into(dom, destination, variables, old, (changed && reaches) || inherited_changed,
+                                      child_selectors);
                         close(destination, nodes_before, work_before, bytes_before);
                         return;
                     }
@@ -1245,7 +1503,7 @@ namespace weft {
                 bool winner_hit{};
                 if (memoize) {
                     if (auto it = memo_state->winners.find(selectors); it != memo_state->winners.end()) {
-                        it->second.used = ++memo_state->clock;
+                        touch(memo_state->winner_uses, it, memo_state->clock);
                         winning = it->second.declarations;
                         ranks = it->second.ranks;
                         order = it->second.order;
@@ -1264,16 +1522,17 @@ namespace weft {
                             while (!memo_state->winners.empty() &&
                                    (memo_state->winners.size() >= constants::style::memo_max_entries ||
                                     memo_state->winner_bytes + payload > constants::style::memo_max_bytes)) {
-                                auto victim = std::min_element(memo_state->winners.begin(), memo_state->winners.end(),
-                                                               [](const auto& a, const auto& b) {
-                                                                   return a.second.used < b.second.used;
-                                                               });
+                                const auto victim = memo_state->winner_uses.begin()->second;
+                                memo_state->winner_uses.erase(memo_state->winner_uses.begin());
                                 memo_state->winner_bytes -= victim->second.payload;
                                 memo_state->winners.erase(victim);
                             }
                             memo_state->winner_bytes += payload;
-                            memo_state->winners.emplace(selectors,
-                                                        Winners{winning, ranks, order, payload, ++memo_state->clock});
+                            const auto [entry, added] = memo_state->winners.emplace(
+                                selectors, Winners{winning, ranks, order, payload, ++memo_state->clock});
+                            if (added) {
+                                memo_state->winner_uses.emplace(entry->second.used, entry);
+                            }
                         }
                     }
                 }
@@ -1532,23 +1791,27 @@ namespace weft {
                         while (!memo_state->entries.empty() &&
                                (memo_state->entries.size() >= constants::style::memo_max_entries ||
                                 memo_state->bytes + payload > constants::style::memo_max_bytes)) {
-                            auto victim = std::min_element(memo_state->entries.begin(), memo_state->entries.end(),
-                                                           [](const auto& a, const auto& b) {
-                                                               return a.second.used < b.second.used;
-                                                           });
+                            const auto victim = memo_state->entry_uses.begin()->second;
+                            memo_state->entry_uses.erase(memo_state->entry_uses.begin());
                             memo_state->bytes -= victim->second.payload_bytes;
                             memo_state->entries.erase(victim);
                         }
-                        memo_state->entries.emplace(std::move(key), Memo{out, variables, work - work_before,
-                                                                         output_bytes, payload, ++memo_state->clock});
+                        const auto [entry, added] = memo_state->entries.emplace(
+                            std::move(key),
+                            Memo{out, variables, work - work_before, output_bytes, payload, ++memo_state->clock});
+                        if (added) {
+                            memo_state->entry_uses.emplace(entry->second.used, entry);
+                        }
                         memo_state->bytes += payload;
                     }
                 }
+                const bool reaches = reaches_children(dom, destination, out);
                 const bool changed = own_into(destination, out, dom.identity);
                 destination.own_work = work - work_before;
                 destination.own_bytes = bytes - bytes_before;
                 const bool inherited_changed = inherit(destination, variables, parent);
-                children_into(dom, destination, variables, old, changed || inherited_changed, child_selectors);
+                children_into(dom, destination, variables, old, (changed && reaches) || inherited_changed,
+                              child_selectors);
                 close(destination, nodes_before, work_before, bytes_before);
             }
         };

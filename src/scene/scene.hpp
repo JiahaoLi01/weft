@@ -543,6 +543,10 @@ namespace weft {
         void update(const DomSnapshot&, SceneFrame&, float width, float height, double time_ms);
         void reset();
         void set_profiling(bool);
+        // Whether frames carry the element geometry layout gives (SceneFrame::elements: border boxes without
+        // transforms, in tree order); on at first. A host that computes geometry itself (SceneGeometry, as View does)
+        // turns it off: frames' elements are then empty, and layout skips the walk that lists them.
+        void set_element_geometry(bool);
         // The effects background-image: -weft-effect(name) names; the host keeps them alive. Without them such a
         // background is a scene profile diagnostic.
         void set_effects(const SceneEffects* effects);
@@ -568,6 +572,8 @@ namespace weft {
         struct Work {
             std::size_t style_evaluations{};
             std::size_t layout_evaluations{};
+            // Layouts of the subtrees around what changed alone (each one of layout_evaluations).
+            std::size_t partial_layouts{};
             std::size_t style_reuses{};
             std::size_t layout_reuses{};
             std::size_t animation_compilations{};

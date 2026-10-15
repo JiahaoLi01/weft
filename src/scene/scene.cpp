@@ -1160,6 +1160,18 @@ namespace weft {
         std::set<SceneId> seen;
         std::vector<SceneId> removed;
         bool layout_dirty{};
+        bool element_geometry = true;
+
+        // Where the frame being built must be laid out again (refresh): each node whose own layout input or children
+        // changed, by its child indices from the root (refresh_path while it is built), with its node in the last
+        // frame (none for a new one).
+        struct LayoutPoint {
+            std::vector<std::uint32_t> path;
+            const SceneNode* old{};
+        };
+
+        std::vector<LayoutPoint> layout_points;
+        std::vector<std::uint32_t> refresh_path;
         // The revision of the content the last update gave (0 before the first; after a reset the next update lays
         // the frame out anew, a new revision).
         std::uint64_t revision{};
@@ -1354,11 +1366,13 @@ namespace weft {
                 }
             }
             if (target_changed) {
-                st.target = out.style;
                 if (incremental) {
-                    st.paint = compile_scene_paint_values(st.target);
+                    // Slots whose text stayed keep the values compiled from the last target.
+                    st.paint = st.target.empty() ? compile_scene_paint_values(out.style)
+                                                 : compile_scene_paint_values(out.style, st.target, st.paint);
                     ++work.paint_compilations;
                 }
+                st.target = out.style;
             }
             if (incremental) {
                 out.paint = st.paint;
@@ -1743,7 +1757,10 @@ namespace weft {
             const bool structure = fresh || !same_dom_children(d, *od);
             const bool own = fresh || force || inherited || structure || restyled_children || c.stamp > built ||
                              active.contains(id) || pending.contains(id) || !same_dom_own(d, *od);
-            SceneNode n = fresh ? SceneNode{} : *old;
+            // The node as it was (none when fresh), and its own part built again; copied only for a new node.
+            static const SceneNode none;
+            const SceneNode& last = fresh ? none : *old;
+            std::optional<SceneNode> rebuilt;
             // The style the children inherit from, before and after.
             const Style* before = fresh ? nullptr : st.children_style ? &*st.children_style : &old->style;
             Built built_now{st.shown, false, false};
@@ -1754,7 +1771,7 @@ namespace weft {
                 SceneNode out;
                 const bool animated_before = animated;
                 animated = false;
-                built_now = build_own(out, n, d, c, parent);
+                built_now = build_own(out, last, d, c, parent);
                 if (animated) {
                     next_active.insert(id);
                 }
@@ -1765,25 +1782,26 @@ namespace weft {
                     pre = out.style;
                     out.style[PropertyId::FontWeight] = constants::scene::bold_font_weight;
                 }
-                if (!in_svg) {
-                    layout_dirty = layout_dirty || fresh || !same_layout_own(n, out);
+                if (!in_svg && (fresh || !same_layout_own(last, out))) {
+                    layout_dirty = true;
+                    layout_points.push_back({refresh_path, fresh ? nullptr : &last});
                 }
-                own_changed = own_changed || !scene_own_equal(n, out);
+                own_changed = own_changed || !scene_own_equal(last, out);
                 force_children = force || (!fresh && st.shown != built_now.shown);
                 st.shown = built_now.shown;
                 inherit = inherit || !before || !same_inherited(*before, pre ? *pre : out.style);
-                out.children = std::move(n.children);
-                n = std::move(out);
+                rebuilt = std::move(out);
                 st.children_style = std::move(pre);
             }
-            const Style& child_parent = st.children_style ? *st.children_style : n.style;
-            const auto& prior = std::as_const(n.children);
+            const SceneNode& current = rebuilt ? *rebuilt : last;
+            const Style& child_parent = st.children_style ? *st.children_style : current.style;
+            const auto& prior = last.children;
             SceneChildren next;
             next.reserve(d.children.size());
             bool handles_changed{};
             const bool hidden_before = hidden;
             hidden = !built_now.shown;
-            const bool svg_inside = in_svg || n.space == constants::svg_namespace_uri;
+            const bool svg_inside = in_svg || current.space == constants::svg_namespace_uri;
             std::size_t ci{};
             std::size_t old_hint{};
             for (const auto& child : d.children) {
@@ -1806,7 +1824,9 @@ namespace weft {
                         ++work.static_subtree_reuses;
                         h = kept;
                     } else {
+                        refresh_path.push_back(std::uint32_t(next.size()));
                         h = refresh(kept, child, odc, cc, &child_parent, id, inherit, force_children, svg_inside);
+                        refresh_path.pop_back();
                     }
                     handles_changed = handles_changed || h != kept;
                     next.push_back(std::move(h));
@@ -1819,6 +1839,7 @@ namespace weft {
                         } else {
                             if (!in_svg) {
                                 layout_dirty = true;
+                                layout_points.push_back({refresh_path, fresh ? nullptr : &last});
                             }
                             handles_changed = true;
                             next.push_back(std::move(run));
@@ -1845,6 +1866,7 @@ namespace weft {
                 handles_changed = true;
                 if (!svg_inside) {
                     layout_dirty = true;
+                    layout_points.push_back({refresh_path, fresh ? nullptr : &last});
                 }
                 for (std::size_t k = 0; k < prior.size(); ++k) {
                     if (find_child(built_children, prior[k].identity, k) == built_children.size()) {
@@ -1855,6 +1877,7 @@ namespace weft {
             if (!own_changed && !handles_changed) {
                 return old;
             }
+            SceneNode n = rebuilt ? std::move(*rebuilt) : SceneNode(last);
             n.children = std::move(next);
             return std::make_shared<const SceneNode>(std::move(n));
         }
@@ -2114,6 +2137,8 @@ namespace weft {
                 seen.clear();
                 removed.clear();
                 layout_dirty = false;
+                layout_points.clear();
+                refresh_path.clear();
                 auto root = retained;
                 const bool kept = root && previous_dom && previous_dom->identity == d.identity && d.revision != 0 &&
                                   previous_dom->revision == d.revision && computed->subtree_stamp <= built &&
@@ -2144,7 +2169,13 @@ namespace weft {
                 if (layout) {
                     work.geometry_changed = work.paint_changed = true;
                     SceneNode laid_root = *root;
-                    layout_frame(laid_root, w, h, retained_elements);
+                    // Only the subtrees around what changed where they are laid out apart; else the whole frame.
+                    if (retained && w == previous_width && h == previous_height &&
+                        layout_part(laid_root, retained_elements)) {
+                        ++work.partial_layouts;
+                    } else {
+                        layout_frame(laid_root, w, h, retained_elements);
+                    }
                     root = std::make_shared<const SceneNode>(std::move(laid_root));
                     ++work.layout_evaluations;
                 } else {
@@ -2853,7 +2884,177 @@ namespace weft {
             check_fixed_clips(root, {0, 0}, clips, {0, 0, w, h});
             atomic_memo.clear();
             elements.clear();
-            list_elements(root, 0, 0, elements);
+            if (element_geometry) {
+                list_elements(root, 0, 0, elements);
+            }
+        }
+
+        // A box laid out apart from the rest of its frame, as a full layout lays it out, given its parent's box
+        // (layout_boundary): a shown HTML absolute box with an inset on each axis (no static position)...
+        static bool apart(const SceneNode& n) {
+            const auto& s = n.style;
+            const auto set = [&](PropertyId id) {
+                return s.text(id, "auto") != "auto";
+            };
+            return (n.space.empty() || n.space == constants::xhtml_namespace_uri) &&
+                   s.text(PropertyId::Position, "static") == "absolute" &&
+                   s.text(PropertyId::Display, "inline") != "none" &&
+                   (set(PropertyId::Left) || set(PropertyId::Right)) &&
+                   (set(PropertyId::Top) || set(PropertyId::Bottom));
+        }
+
+        // ... in a parent that is its containing block (the root, or a shown relative or absolute HTML box laid out
+        // as a box of boxes), whose padding and borders are lengths of their own (no percentage of its own parent).
+        static bool holds_apart(const SceneNode& parent, bool root) {
+            const auto& s = parent.style;
+            const auto position = s.text(PropertyId::Position, "static");
+            if (!(parent.space.empty() || parent.space == constants::xhtml_namespace_uri) ||
+                s.text(PropertyId::Display, "inline") == "none" || !parent.text.empty() ||
+                (!root && position != "relative" && position != "absolute") || scene_inline_children(parent)) {
+                return false;
+            }
+            for (const auto id : {PropertyId::PaddingTop, PropertyId::PaddingRight, PropertyId::PaddingBottom,
+                                  PropertyId::PaddingLeft, PropertyId::BorderTopWidth, PropertyId::BorderRightWidth,
+                                  PropertyId::BorderBottomWidth, PropertyId::BorderLeftWidth}) {
+                const auto v = s.text(id, "0");
+                if (v.find('%') != std::string_view::npos || v.find('(') != std::string_view::npos) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // Whether a subtree holds a fixed box, which a layout of its own cannot place.
+        static bool holds_fixed(const SceneNode& n) {
+            if (n.style.text(PropertyId::Position, "static") == "fixed" &&
+                n.style.text(PropertyId::Display, "inline") != "none") {
+                return true;
+            }
+            return std::any_of(n.children.begin(), n.children.end(), [](const SceneNode& c) {
+                return holds_fixed(c);
+            });
+        }
+
+        // Lays out b, a box laid out apart (apart) in its containing block cb (holds_apart), as a full layout lays
+        // it out: the only child of a box standing for cb, of cb's laid out border box and its edges. b's subtree
+        // takes its output in `laid`.
+        void layout_boundary(const SceneNode& cb, const Handle& b) {
+            SceneNode container;
+            container.identity = cb.identity;
+            container.tag = cb.tag;
+            container.space = cb.space;
+            container.style = cb.style;
+            container.style.set(PropertyId::BoxSizing, "border-box");
+            for (const auto id :
+                 {PropertyId::MinWidth, PropertyId::MaxWidth, PropertyId::MinHeight, PropertyId::MaxHeight}) {
+                container.style.erase(id);
+            }
+            container.box = cb.box;
+            container.children.push_back(b);
+            LayoutOptions options;
+            options.viewport = std::array{cb.box[2], cb.box[3]};
+            try {
+                layout_run(container, options);
+            } catch (...) {
+                laid.erase(&container);
+                throw;
+            }
+            laid.erase(&container);
+        }
+
+        // Lays out the frame being built again around its layout points alone: for each point, the nearest box at
+        // or above it below the root laid out apart (one that was laid out apart in the last frame too, for the
+        // point itself, whose own values changed), the subtrees of those boxes outside one another. False, with
+        // nothing done, where the whole frame is to be laid out.
+        bool layout_part(SceneNode& root, std::vector<ElementGeometry>& elements) {
+            if (layout_points.empty()) {
+                return false;
+            }
+            std::vector<std::vector<std::uint32_t>> parts;
+            std::vector<const SceneNode*> chain;
+            for (const auto& point : layout_points) {
+                chain.assign(1, &root);
+                for (const auto k : point.path) {
+                    if (k >= chain.back()->children.size()) {
+                        return false;
+                    }
+                    chain.push_back(&chain.back()->children[k]);
+                }
+                std::size_t at = chain.size() - 1;
+                for (; at >= 1; --at) {
+                    if (apart(*chain[at]) && holds_apart(*chain[at - 1], at == 1) &&
+                        (at + 1 < chain.size() || (point.old && apart(*point.old)))) {
+                        break;
+                    }
+                }
+                if (at == 0) {
+                    return false;
+                }
+                for (std::size_t j = 0; j < at; ++j) {
+                    if (chain[j]->style.text(PropertyId::Display, "inline") == "none") {
+                        return false;
+                    }
+                }
+                parts.emplace_back(point.path.begin(), point.path.begin() + std::ptrdiff_t(at));
+            }
+            // A part inside another is laid out with it.
+            std::sort(parts.begin(), parts.end());
+            std::vector<std::vector<std::uint32_t>> outer;
+            for (auto& part : parts) {
+                if (!outer.empty() && part.size() >= outer.back().size() &&
+                    std::equal(outer.back().begin(), outer.back().end(), part.begin())) {
+                    continue;
+                }
+                outer.push_back(std::move(part));
+            }
+            const auto node_at = [&](const std::vector<std::uint32_t>& path, std::size_t depth) -> const SceneNode& {
+                const SceneNode* n = &root;
+                for (std::size_t j = 0; j < depth; ++j) {
+                    n = &n->children[path[j]];
+                }
+                return *n;
+            };
+            for (const auto& part : outer) {
+                if (holds_fixed(node_at(part, part.size()))) {
+                    return false;
+                }
+            }
+            atomic_memo.clear();
+            context_baselines.clear();
+            laid.clear();
+            try {
+                for (const auto& part : outer) {
+                    const auto& cb = node_at(part, part.size() - 1);
+                    layout_boundary(cb, cb.children.handle(part.back()));
+                }
+                // Written back along the parts' paths; nothing else changed.
+                for (const auto& part : outer) {
+                    const auto& cb = node_at(part, part.size() - 1);
+                    const auto before = cb.children.handle(part.back());
+                    auto laid_part = apply_layout(before);
+                    if (laid_part == before) {
+                        continue;
+                    }
+                    SceneNode* n = &root;
+                    for (std::size_t j = 0; j + 1 < part.size(); ++j) {
+                        n = &n->children.edit(part[j]);
+                    }
+                    n->children.set(part.back(), std::move(laid_part));
+                }
+            } catch (...) {
+                laid.clear();
+                throw;
+            }
+            laid.clear();
+            context_baselines.clear();
+            // The fixed boxes and the clips between them and their containing blocks lie outside the parts, as they
+            // were (check_fixed_clips held for them).
+            atomic_memo.clear();
+            elements.clear();
+            if (element_geometry) {
+                list_elements(root, 0, 0, elements);
+            }
+            return true;
         }
     };
 
@@ -2947,6 +3148,11 @@ namespace weft {
     void SceneSolver::set_profiling(bool enabled) {
         impl_->owner.require(Diag::SceneOwner);
         impl_->profiling = enabled;
+    }
+
+    void SceneSolver::set_element_geometry(bool on) {
+        impl_->owner.require(Diag::SceneOwner);
+        impl_->element_geometry = on;
     }
 
     void SceneSolver::set_effects(const SceneEffects* effects) {

@@ -18,15 +18,17 @@
 // health as JSON and evaluates a script call with it; the page parses it and writes each nameplate's transform and
 // changed bar widths; the owner then takes the DOM's changes into the scene. A second run hands the page no data at
 // all: it computes the same values itself, the floor of any way to hand JS the data (shared memory included); with 400
-// units it also changes only every 10th, 100th or 400th, which shows what a frame costs when little changes. The page
+// units it also changes only every 10th, 100th or 400th, which shows what a frame costs when little changes, and at
+// one level moves every unit without changing health (transforms alone, no layout). The page
 // is 1920 x 1080 CSS px drawn at scale 2 into 3840 x 2160 with the particle benchmarks' loops (particle_benchmark.hpp).
 // A third run anchors the nameplates (data-anchor, docs/engine-communication.md): each frame the host writes every
 // unit's anchor, the pass places the nameplates with the latest anchors, and the page changes only the health bars
 // the host pushes as JSON (none at a level without health changes): their width, which lays the page out again, or at
 // one level their scale, which does not. Timed per frame: the host's JSON (and anchors), the
 // script call, the owner's update (styles, layout and the scene), and the pass (CPU, GPU). Sampled, the page computes
-// its values with 400 units, changing one or all each frame, and the owner's updates and the passes of the sampled frames
-// are sampled apart (owner-samples-<changed>.txt, render-samples-<changed>.txt; names need the windows-profile PDBs).
+// its values with 400 units, changing one or all each frame or moving all of them, and the owner's updates and the
+// passes of the sampled frames are sampled apart (owner-samples-<changed>.txt, render-samples-<changed>.txt, <changed>
+// 400-moving for the moves; names need the windows-profile PDBs).
 namespace probes {
     namespace {
         using namespace particle_benchmark;
@@ -63,7 +65,8 @@ namespace probes {
         };
 
         // How many units there are, and which change each frame: every `every`-th (the page computes only those);
-        // anchored, whether health changes, and whether bars scale instead of changing width.
+        // whether health changes (computed by the page, without it the units only move), and anchored, whether bars
+        // scale instead of changing width.
         struct Level {
             unsigned units{};
             unsigned every = 1;
@@ -143,7 +146,8 @@ namespace probes {
                 }
                 if (push == Push::Page) {
                     const auto call = "__ceHud.simulate(" + weft::testing::format_host_time(t) + "," +
-                                      std::to_string(index) + "," + std::to_string(levels[level].every) + ")";
+                                      std::to_string(index) + "," + std::to_string(levels[level].every) + "," +
+                                      (levels[level].health ? "true" : "false") + ")";
                     const auto written = std::chrono::steady_clock::now();
                     s.vm.eval(call);
                     const auto applied = std::chrono::steady_clock::now();
@@ -211,20 +215,23 @@ namespace probes {
                 const auto changed = std::string(push) == "anchor"
                                          ? (levels[i].health ? (levels[i].units + 19) / 20 : 0)
                                          : (levels[i].units + levels[i].every - 1) / levels[i].every;
+                // A page whose units only move.
+                const bool moving = std::string(push) == "page" && !levels[i].health;
                 out << (i ? "," : "") << "{\"units\":" << levels[i].units << ",\"changed\":" << changed
                     << ",\"scaled_bars\":" << (levels[i].scaled ? "true" : "false")
-                    << ",\"json_bytes\":" << o.json_bytes << ",\"host_json_ms\":" << stats(o.json)
-                    << ",\"script_ms\":" << stats(o.script) << ",\"owner_update_ms\":" << stats(o.update)
-                    << ",\"render_cpu_ms\":" << stats(t.cpu) << ",\"gpu_ms\":" << stats(t.gpu)
-                    << ",\"per_frame\":{\"draws\":" << std::fixed << std::setprecision(1) << t.draws
-                    << ",\"text_builds\":" << t.text_builds << "}}";
+                    << ",\"health\":" << (levels[i].health ? "true" : "false") << ",\"json_bytes\":" << o.json_bytes
+                    << ",\"host_json_ms\":" << stats(o.json) << ",\"script_ms\":" << stats(o.script)
+                    << ",\"owner_update_ms\":" << stats(o.update) << ",\"render_cpu_ms\":" << stats(t.cpu)
+                    << ",\"gpu_ms\":" << stats(t.gpu) << ",\"per_frame\":{\"draws\":" << std::fixed
+                    << std::setprecision(1) << t.draws << ",\"text_builds\":" << t.text_builds << "}}";
                 std::cout << backend << ' ' << push << ' ' << std::setw(5) << levels[i].units << " units, "
                           << std::setw(3) << changed << (levels[i].scaled ? " scaled" : "")
-                          << " changing: host JSON p50 " << std::fixed << std::setprecision(3) << percentile(o.json, .5)
-                          << " ms (" << o.json_bytes << " bytes); script p50 " << percentile(o.script, .5) << " p99 "
-                          << percentile(o.script, .99) << " ms; owner update p50 " << percentile(o.update, .5)
-                          << " p99 " << percentile(o.update, .99) << " ms; render CPU p50 " << percentile(t.cpu, .5)
-                          << " p99 " << percentile(t.cpu, .99) << " ms; GPU p50 " << percentile(t.gpu, .5) << " ms; "
+                          << (moving ? " moving" : " changing") << ": host JSON p50 " << std::fixed
+                          << std::setprecision(3) << percentile(o.json, .5) << " ms (" << o.json_bytes
+                          << " bytes); script p50 " << percentile(o.script, .5) << " p99 " << percentile(o.script, .99)
+                          << " ms; owner update p50 " << percentile(o.update, .5) << " p99 "
+                          << percentile(o.update, .99) << " ms; render CPU p50 " << percentile(t.cpu, .5) << " p99 "
+                          << percentile(t.cpu, .99) << " ms; GPU p50 " << percentile(t.gpu, .5) << " ms; "
                           << std::setprecision(1) << t.draws << " draws\n";
             }
             return out.str() + "]}";
@@ -245,8 +252,8 @@ namespace probes {
         // WARP checks that the benchmark runs; the hardware run measures.
         const std::vector<Level> counts = warp ? std::vector<Level>{{100}} : std::vector<Level>{{100}, {200}, {400}};
         const std::vector<Level> partial =
-            warp ? std::vector<Level>{{100}, {100, 100}}
-                 : std::vector<Level>{{100}, {200}, {400}, {400, 10}, {400, 100}, {400, 400}};
+            warp ? std::vector<Level>{{100}, {100, 100}, {100, 1, false}}
+                 : std::vector<Level>{{100}, {200}, {400}, {400, 10}, {400, 100}, {400, 400}, {400, 1, false}};
         const std::vector<Level> anchored =
             warp ? std::vector<Level>{{100}, {100, 1, false}, {100, 1, true, true}}
                  : std::vector<Level>{{100}, {200}, {400}, {400, 1, false}, {400, 1, true, true}};
@@ -315,8 +322,9 @@ namespace probes {
     int run_hud_benchmark_sampled(const std::filesystem::path& folder) {
         std::filesystem::create_directories(folder);
         const auto period = std::chrono::microseconds(weft::probe_constants::gallery::owner_sample_period_us);
-        for (const unsigned every : {400u, 1u}) {
-            const std::vector<Level> levels{{400, every}};
+        for (const Level level : {Level{400, 400}, Level{400, 1}, Level{400, 1, false}}) {
+            const std::vector<Level> levels{level};
+            const auto every = level.every;
             SamplingProfiler owner_sampler(period);
             SamplingProfiler render_sampler(period);
             auto page = session();
@@ -326,13 +334,13 @@ namespace probes {
                 false, levels.size(), warmup_frames, sample_frames,
                 source(*page, levels, owner, warmup_frames, Push::Page, nullptr, {&owner_sampler, &render_sampler}),
                 adapter);
-            const auto changed = std::to_string(400 / every);
+            const auto changed = std::to_string(400 / every) + (level.health ? "" : "-moving");
             const auto owner_samples = owner_sampler.write(folder / ("owner-samples-" + changed + ".txt"));
             const auto render_samples = render_sampler.write(folder / ("render-samples-" + changed + ".txt"));
-            std::cout << "400 units, " << changed << " changing: owner update p50 " << std::fixed
-                      << std::setprecision(3) << percentile(owner[0].update, .5) << " ms (" << owner_samples
-                      << " samples); render CPU p50 " << percentile(timings[0].cpu, .5) << " ms (" << render_samples
-                      << " samples); " << timings[0].patches << " patched passes";
+            std::cout << "400 units, " << changed << (level.health ? " changing" : "") << ": owner update p50 "
+                      << std::fixed << std::setprecision(3) << percentile(owner[0].update, .5) << " ms ("
+                      << owner_samples << " samples); render CPU p50 " << percentile(timings[0].cpu, .5) << " ms ("
+                      << render_samples << " samples); " << timings[0].patches << " patched passes";
             for (const auto& [reason, count] : timings[0].refusals) {
                 std::cout << ", " << count << " refused: " << reason;
             }

@@ -126,6 +126,66 @@ namespace {
                     break;
             }
         }
+
+        // One random change for a sheet whose rules read no parent value: mostly an inline style, in values children
+        // inherit or not, against rules that set them too (some important), or gone; then a class, a move, a removal
+        // or a new element.
+        void change_inline(Random& r) {
+            auto& n = *elements[r.below(elements.size())];
+            switch (r.below(8)) {
+                case 0:
+                case 1:
+                case 2: {
+                    static const std::array<const char*, 14> styles{"transform:translate(3px,4px)",
+                                                                    "opacity:.5",
+                                                                    "opacity:.5 !important",
+                                                                    "width:10px;transform:scale(2)",
+                                                                    "background-color:#ff0000",
+                                                                    "transform:none;opacity:1;width:20px",
+                                                                    "opacity:.5;opacity:.25",
+                                                                    "opacity:.4 !important;opacity:.6",
+                                                                    "color:#123456",
+                                                                    "width:inherit",
+                                                                    "transform:var(--t,none)",
+                                                                    "--t:translate(1px,1px)",
+                                                                    "margin:4px",
+                                                                    ""};
+                    s.set(n, "style", styles[r.below(styles.size())]);
+                    break;
+                }
+                case 3:
+                    if (const auto it = std::find_if(n.attributes.begin(), n.attributes.end(),
+                                                     [](const auto& a) {
+                                                         return a.name == "style";
+                                                     });
+                        it != n.attributes.end()) {
+                        n.attributes.erase(it);
+                        s.tree.changed(n);
+                    }
+                    break;
+                case 4:
+                    s.toggle_class(n, r.below(3) == 0 ? "lock" : r.below(2) ? "box" : "wide");
+                    break;
+                case 5:
+                    if (&n != s.root) {
+                        auto& to = *elements[r.below(elements.size())];
+                        if (!contains(n, &to)) {
+                            s.tree.insert(to, n, nullptr);
+                        }
+                    }
+                    break;
+                case 6:
+                    if (&n != s.root && n.parent.generation) {
+                        s.tree.detach(n);
+                    }
+                    break;
+                default:
+                    if (s.tree.connected(n)) {
+                        add(n, r.below(2) ? "span" : "div");
+                    }
+                    break;
+            }
+        }
     };
 
     // The nodes whose own values differ between two outputs, matched by identity within their parents (an output
@@ -173,24 +233,24 @@ namespace {
         return true;
     }
 
-    void cascade_differential() {
-        const std::string sheet = ".on span{color:#ff0000}.on>div{font-size:24px}.hot{background-color:#336699}"
-                                  "[data-tone=gold] div{--ink:#ffd700}div:hover>span{color:#00ff00}"
-                                  "span{color:var(--ink,#123456)}.hot span{width:inherit}";
+    // Random updates of a page against full cascades, steps of each seed: the values, the nodes reported changed, the
+    // stamps, and the bounds kept subtrees charged.
+    void cascade_runs(const std::string& sheet, void (Page::*change)(Random&),
+                      std::initializer_list<std::uint32_t> seeds, int steps) {
         const auto profile = weft::scene_style_profile();
         const weft::CompiledStyle compiled(sheet, profile);
-        for (std::uint32_t seed : {0x51u, 0x9e3u, 0x1234u}) {
+        for (std::uint32_t seed : seeds) {
             Random r{seed};
             Page page(r);
             weft::ComputedStyle output;
             weft::StyleMemo memo;
             std::optional<weft::DomSnapshot> previous;
             std::uint64_t stamp{};
-            for (int step = 0; step < 400; ++step) {
+            for (int step = 0; step < steps; ++step) {
                 const auto at = " at step " + std::to_string(step) + " of seed " + std::to_string(seed);
                 // Now and then several changes at once.
                 for (std::size_t k = r.below(4) ? 1 : 1 + r.below(5); k > 0; --k) {
-                    page.change(r);
+                    (page.*change)(r);
                 }
                 const auto dom = page.s.tree.snapshot(*page.s.root);
                 const auto prior = output;
@@ -243,6 +303,20 @@ namespace {
                 require(same_charges(output, full), "kept subtrees charged the bounds as a full update" + at);
             }
         }
+    }
+
+    void cascade_differential() {
+        const std::string sheet = ".on span{color:#ff0000}.on>div{font-size:24px}.hot{background-color:#336699}"
+                                  "[data-tone=gold] div{--ink:#ffd700}div:hover>span{color:#00ff00}"
+                                  "span{color:var(--ink,#123456)}.hot span{width:inherit}";
+        cascade_runs(sheet, &Page::change, {0x51u, 0x9e3u, 0x1234u}, 400);
+        // Rules that read no parent value: a change of values children do not inherit leaves them alone, and an
+        // inline style alone is cascaded again against the rules kept for the element.
+        cascade_runs(".box{transform:translate(1px,2px);opacity:.8}.lock{opacity:.3 !important}.wide{width:30px}"
+                     ".wide>div{width:12px}div{background-color:#101010}span{color:#202020}.box span{color:#ff0000}",
+                     &Page::change_inline, {0x61u, 0x7f1u, 0x2468u}, 400);
+        const auto profile = weft::scene_style_profile();
+        const weft::CompiledStyle compiled(sheet, profile);
         // Copies the DOM did not produce (revision 0) are never taken as unchanged.
         {
             Random r{0x77};
@@ -294,7 +368,7 @@ namespace {
             refused = true;
         }
         require(refused, "a document over the node bound fails though most of it is kept");
-        std::cout << "PASS incremental cascade: 1,200 random updates against full cascades\n";
+        std::cout << "PASS incremental cascade: 2,400 random updates against full cascades\n";
     }
 
     // A scene page: positioned panels of nameplates (a name over a bar), text in lines, a flex row, a rounded box that
@@ -556,6 +630,8 @@ namespace {
         auto& text = weft::testing::thread_scene_text();
         std::size_t shared{};
         std::size_t compared{};
+        std::size_t layouts{};
+        std::size_t partial{};
         for (std::uint32_t seed : {0x2au, 0x5150u, 0xbeefu}) {
             Random r{seed};
             ScenePage page(r);
@@ -614,12 +690,17 @@ namespace {
                 }
                 before = dom;
             }
+            layouts += incremental.work().layout_evaluations;
+            partial += incremental.work().partial_layouts;
         }
         // Layout may move a sibling's box, which gives it new storage; most stay.
         require(compared > 100 && shared * 10 > compared * 8,
                 "untouched subtrees keep their storage: " + std::to_string(shared) + " of " + std::to_string(compared));
+        // Most layouts take the subtrees around what changed alone.
+        require(partial * 2 > layouts,
+                "partial layouts: " + std::to_string(partial) + " of " + std::to_string(layouts));
         std::cout << "PASS incremental scene: 900 random updates against full builds; " << shared << " of " << compared
-                  << " untouched subtrees shared\n";
+                  << " untouched subtrees shared; " << partial << " of " << layouts << " layouts partial\n";
     }
 
     // Particles: a stream on a panel in a wrapper that hides and shows (its descendants' particles follow), streams
@@ -751,6 +832,214 @@ namespace {
                                                      style + " at step " + std::to_string(step));
         }
         std::cout << "PASS incremental inline context: 60 updates against full builds\n";
+    }
+
+    // Layouts of the subtrees around what changed (absolute boxes with an inset on each axis, laid out apart in their
+    // containing block) against full layouts: insets on either side, sizes in px, percentages or auto, containing
+    // blocks with padding and borders in px or percentages, static boxes between, text that wraps, and changes to
+    // all of them, to positions and to the tree.
+    void layout_differential() {
+        auto& text = weft::testing::thread_scene_text();
+        std::size_t layouts{};
+        std::size_t partial{};
+        for (std::uint32_t seed : {0x31u, 0x5a5u, 0x7777u}) {
+            Random r{seed};
+            weft::testing::NativeScene s;
+            std::vector<weft::dom::Node*> boxes;
+            std::vector<weft::dom::Node*> texts;
+            // Some on one axis alone: the box takes its static position on the other.
+            static const std::array<const char*, 9> insets{"left:6px;top:4px",
+                                                           "right:6px;top:4px",
+                                                           "left:6px;bottom:4px",
+                                                           "right:6px;bottom:4px",
+                                                           "left:4px;right:10px;top:8px",
+                                                           "left:5%;top:10%",
+                                                           "left:3px;top:2px;bottom:5px",
+                                                           "left:6px",
+                                                           "top:4px"};
+            static const std::array<const char*, 5> widths{"width:40px", "width:30%", "", "width:auto", "width:120px"};
+            static const std::array<const char*, 4> heights{"height:20px", "", "height:25%", "height:auto"};
+            static const std::array<const char*, 4> edges{"padding:4px", "padding:5%", "",
+                                                          "padding:2px;border:3px solid #000000"};
+            static const std::array<const char*, 4> words{"Short", "Two words", "A few more words that wrap",
+                                                          "Words that run on for a while and wrap in narrow boxes"};
+            const auto style_of = [&](bool container) {
+                std::string out = std::string("position:") +
+                                  (container && r.below(3) == 0 ? "relative"
+                                   : r.below(5)                 ? "absolute"
+                                                                : "static") +
+                                  ";";
+                out += std::string(insets[r.below(insets.size())]) + ";";
+                out += std::string(widths[r.below(widths.size())]) + ";";
+                out += std::string(heights[r.below(heights.size())]) + ";";
+                if (container) {
+                    out += std::string(edges[r.below(edges.size())]) + ";";
+                    // Elements are border-box at first; some are content-box.
+                    if (r.below(3) == 0) {
+                        out += r.below(2) ? "box-sizing:content-box;max-height:90px;" : "box-sizing:border-box;";
+                    }
+                }
+                out += "font-size:" + std::to_string(10 + r.below(6)) + "px;background-color:#334455";
+                return out;
+            };
+            const auto add = [&](weft::dom::Node& parent, bool container) -> weft::dom::Node& {
+                auto& n = s.html("div");
+                s.set(n, "style", style_of(container));
+                s.tree.insert(parent, n, nullptr);
+                boxes.push_back(&n);
+                if (!container || r.below(3) == 0) {
+                    auto& t = s.tree.create(weft::constants::text_node_type, "#text", "", s.document->identity);
+                    t.data = words[r.below(words.size())];
+                    s.tree.insert(n, t, nullptr);
+                    texts.push_back(&t);
+                }
+                return n;
+            };
+            for (int c = 0; c < 4; ++c) {
+                auto& container = add(*s.root, true);
+                for (int k = 0; k < 3; ++k) {
+                    // Some children hold boxes of their own, absolute ones among them.
+                    auto& child = add(container, r.below(2) == 0);
+                    if (!child.children.empty()) {
+                        continue;
+                    }
+                    if (r.below(2) == 0) {
+                        add(child, false);
+                    }
+                }
+            }
+            weft::SceneSolver incremental("", "", text);
+            weft::SceneSolver full("", "", text, false);
+            weft::SceneFrame frame;
+            for (int step = 0; step < 300; ++step) {
+                const auto at = " at step " + std::to_string(step) + " of seed " + std::to_string(seed);
+                for (std::size_t k = r.below(4) ? 1 : 2; k > 0; --k) {
+                    auto& n = *boxes[r.below(boxes.size())];
+                    switch (r.below(7)) {
+                        case 0:
+                        case 1:
+                            s.set(n, "style", style_of(!n.children.empty()));
+                            break;
+                        case 2: {
+                            auto& t = *texts[r.below(texts.size())];
+                            t.data = words[r.below(words.size())];
+                            s.tree.changed(t);
+                            break;
+                        }
+                        case 3: {
+                            // Shown or hidden.
+                            const auto it = std::find_if(n.attributes.begin(), n.attributes.end(), [](const auto& a) {
+                                return a.name == "style";
+                            });
+                            const std::string style = it == n.attributes.end() ? std::string() : it->value;
+                            s.set(n, "style",
+                                  style.ends_with(";display:none") ? style.substr(0, style.size() - 13)
+                                                                   : style + ";display:none");
+                            break;
+                        }
+                        case 4: {
+                            // Moved under another box, outside its own subtree.
+                            auto& to = *boxes[r.below(boxes.size())];
+                            bool inside{};
+                            for (const weft::dom::Node* b = &to; b; b = s.tree.parent_of(*b)) {
+                                inside = inside || b == &n;
+                            }
+                            if (!inside && s.tree.connected(n)) {
+                                s.tree.insert(to, n, nullptr);
+                            }
+                            break;
+                        }
+                        default: {
+                            // Another width, alone.
+                            const auto it = std::find_if(n.attributes.begin(), n.attributes.end(), [](const auto& a) {
+                                return a.name == "style";
+                            });
+                            const std::string style = it == n.attributes.end() ? std::string() : it->value;
+                            s.set(n, "style", style + ";width:" + std::to_string(20 + r.below(80)) + "px");
+                            break;
+                        }
+                    }
+                }
+                const auto dom = s.tree.snapshot(*s.root);
+                incremental.update(dom, frame, 400, 300, step * 16.0);
+                const auto expected = full.frame(dom, 400, 300, step * 16.0);
+                require(frame.root == expected.root && same_elements(frame.elements, expected.elements),
+                        "an incremental layout differs from a full one" + at);
+            }
+            layouts += incremental.work().layout_evaluations;
+            partial += incremental.work().partial_layouts;
+        }
+        require(partial * 4 > layouts,
+                "partial layouts: " + std::to_string(partial) + " of " + std::to_string(layouts));
+        // One box laid out apart in a containing block of each kind, its width changed: the part is the box alone.
+        static const std::array<const char*, 5> blocks{
+            "position:relative;left:10px;top:10px;width:200px;height:100px;padding:10px;border:3px solid #000000;"
+            "box-sizing:content-box",
+            "position:absolute;left:10px;top:10px;width:200px;height:100px;padding:6px 12px;box-sizing:border-box",
+            "position:relative;left:10px;top:10px;width:50%;min-width:220px;max-height:80px;height:120px;padding:4px;"
+            "box-sizing:content-box",
+            "position:absolute;left:0;right:30px;top:0;bottom:40px;padding:8px;border:1px solid #000000",
+            // Padding of a percentage of its own parent: the part is the containing block.
+            "position:absolute;left:10px;top:10px;width:200px;height:100px;padding:5%"};
+        static const std::array<const char*, 5> placed{"position:absolute;right:5px;top:5px;width:50px;height:20px",
+                                                       "position:absolute;left:5px;bottom:5px;width:30%;height:20%",
+                                                       "position:absolute;left:4px;right:4px;top:4px;bottom:4px",
+                                                       "position:absolute;right:0;bottom:0;font-size:12px",
+                                                       "position:absolute;left:10%;top:8%;width:40px;height:10px"};
+        for (const auto* block : blocks) {
+            for (const auto* box : placed) {
+                weft::testing::NativeScene s;
+                auto& cb = s.html("div");
+                s.set(cb, "style", block);
+                s.tree.insert(*s.root, cb, nullptr);
+                auto& sibling = s.html("div");
+                s.set(sibling, "style", "height:30px;background-color:#202020");
+                s.tree.insert(cb, sibling, nullptr);
+                auto& b = s.html("div");
+                s.set(b, "style", box);
+                s.tree.insert(cb, b, nullptr);
+                auto& t = s.tree.create(weft::constants::text_node_type, "#text", "", s.document->identity);
+                t.data = "A label in the box";
+                s.tree.insert(b, t, nullptr);
+                weft::SceneSolver incremental("", "", text);
+                weft::SceneSolver full("", "", text, false);
+                weft::SceneFrame frame;
+                incremental.update(s.tree.snapshot(*s.root), frame, 400, 300, 0);
+                s.set(b, "style", std::string(box) + ";min-width:60px");
+                const auto dom = s.tree.snapshot(*s.root);
+                incremental.update(dom, frame, 400, 300, 16);
+                const auto expected = full.frame(dom, 400, 300, 16);
+                require(incremental.work().partial_layouts == 1, std::string("a part alone in ") + block);
+                require(frame.root == expected.root && same_elements(frame.elements, expected.elements),
+                        std::string("a part laid out alone differs from a full layout: ") + box + " in " + block);
+            }
+        }
+        // A containing block wider than its parent, its padding a percentage of that parent: in a box of its own size
+        // the padding would be wider, more than its height, so the part is the containing block.
+        {
+            weft::testing::NativeScene s;
+            auto& parent = s.html("div");
+            s.set(parent, "style", "position:absolute;left:10px;top:10px;width:100px;height:200px");
+            s.tree.insert(*s.root, parent, nullptr);
+            auto& cb = s.html("div");
+            s.set(cb, "style", "position:absolute;left:0;top:0;width:300px;height:6px;padding:2%");
+            s.tree.insert(parent, cb, nullptr);
+            auto& b = s.html("div");
+            s.set(b, "style", "position:absolute;left:5%;top:10%;width:40px;height:50%");
+            s.tree.insert(cb, b, nullptr);
+            weft::SceneSolver incremental("", "", text);
+            weft::SceneSolver full("", "", text, false);
+            weft::SceneFrame frame;
+            incremental.update(s.tree.snapshot(*s.root), frame, 400, 300, 0);
+            s.set(b, "style", "position:absolute;left:5%;top:10%;width:44px;height:50%");
+            const auto dom = s.tree.snapshot(*s.root);
+            incremental.update(dom, frame, 400, 300, 16);
+            const auto expected = full.frame(dom, 400, 300, 16);
+            require(incremental.work().partial_layouts == 1 && frame.root == expected.root,
+                    "a part in a containing block whose padding is a percentage of its parent");
+        }
+        std::cout << "PASS incremental layout: 900 random updates against full layouts; " << partial << " of "
+                  << layouts << " layouts partial; 26 parts alone in containing blocks of six kinds\n";
     }
 
     // Whether two passes draw alike, byte for byte: records, masks, rounded clips, batches, images, anchors and runs.
@@ -1344,9 +1633,9 @@ int main(int argc, char** argv) {
         require(SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED)), "COM init");
         // A section's name runs that section alone.
         const std::pair<const char*, void (*)()> sections[]{
-            {"cascade", cascade_differential}, {"scene", scene_differential}, {"particles", particles_differential},
-            {"inline", inline_differential},   {"effects", effect_refusal},   {"pass", pass_differential},
-            {"warp", warp_differential}};
+            {"cascade", cascade_differential}, {"scene", scene_differential},   {"particles", particles_differential},
+            {"inline", inline_differential},   {"layout", layout_differential}, {"effects", effect_refusal},
+            {"pass", pass_differential},       {"warp", warp_differential}};
         for (const auto& [name, section] : sections) {
             if (argc < 2 || std::string_view(argv[1]) == name) {
                 section();

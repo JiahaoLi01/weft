@@ -542,6 +542,12 @@ namespace {
         std::size_t diagnostics{};
         std::string first_diagnostic;
         std::map<unsigned, std::vector<std::uint8_t>> shots;
+        // The passes over the run: drawn, drawn from the kept pass, the kept pass patched (13.5b), and the patches
+        // refused, by reason.
+        std::size_t passes{};
+        std::size_t kept_passes{};
+        std::size_t patches{};
+        std::map<std::string, std::size_t> refusals;
     };
 
     std::size_t count(const weft::SceneNode& n) {
@@ -666,6 +672,10 @@ namespace {
         }
         run.nodes = count(view.scene().root);
         run.peak_vm = view.script().stats().peak_vm_allocated_bytes;
+        run.passes = pass.scene.passes;
+        run.kept_passes = pass.scene.kept_passes;
+        run.patches = pass.scene.kept_patches;
+        run.refusals = pass.scene.patch_refusals;
     }
 
     // How two drawings of a frame differ: pixels that differ, those more than alike_levels apart (apart), and by how
@@ -849,6 +859,12 @@ int main(int argc, char** argv) {
                           << " ms, VM peak " << double(run->peak_vm) / (1 << 20) << " MiB, " << run->nodes
                           << " nodes, instances that went stayed " << run->most_left << " at most and " << run->left
                           << " at the end\n";
+                std::cout << "  " << run->passes << " passes, " << run->kept_passes << " from the kept pass, "
+                          << run->patches << " patched";
+                for (const auto& [reason, count] : run->refusals) {
+                    std::cout << ", " << count << " refused: " << reason;
+                }
+                std::cout << '\n';
                 if (run->diagnostics) {
                     std::cerr << "page diagnostic: " << run->first_diagnostic << '\n';
                 }

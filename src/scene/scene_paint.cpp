@@ -7,7 +7,6 @@
 #include <cctype>
 #include <stdexcept>
 #include <numbers>
-#include <sstream>
 
 namespace weft {
     namespace {
@@ -61,11 +60,24 @@ namespace weft {
             }
             PaintOperation op;
             op.kind = kind->second;
-            auto args = s.substr(b + 1, e - b - 1);
-            std::replace(args.begin(), args.end(), ',', ' ');
-            std::istringstream stream(args);
-            std::string arg;
-            while (stream >> arg) {
+            // The arguments, apart at spaces and commas.
+            const std::string_view args = std::string_view(s).substr(b + 1, e - b - 1);
+            const auto separator = [](char c) {
+                return std::isspace(static_cast<unsigned char>(c)) || c == ',';
+            };
+            for (std::size_t at = 0;;) {
+                while (at < args.size() && separator(args[at])) {
+                    ++at;
+                }
+                if (at == args.size()) {
+                    break;
+                }
+                auto end = at;
+                while (end < args.size() && !separator(args[end])) {
+                    ++end;
+                }
+                auto arg = args.substr(at, end - at);
+                at = end;
                 if (op.count >= op.args.size()) {
                     return make_diagnostic(Diag::SceneRaster, "transform arguments of " + name);
                 }
@@ -73,11 +85,11 @@ namespace weft {
                 if ((op.kind == PaintOp::Rotate || op.kind == PaintOp::RotateY) && op.count == 0) {
                     const bool degrees = arg.ends_with("deg");
                     if (degrees) {
-                        arg.resize(arg.size() - 3);
+                        arg.remove_suffix(3);
                     }
                     auto value = paint_number(arg);
                     if (!value) {
-                        return make_diagnostic(Diag::SceneRaster, "transform number " + arg);
+                        return make_diagnostic(Diag::SceneRaster, "transform number " + std::string(arg));
                     }
                     const auto factor =
                         degrees || svg
@@ -89,7 +101,7 @@ namespace weft {
                 } else if (const auto value = paint_number(arg)) {
                     op.args[op.count++] = *value;
                 } else {
-                    return make_diagnostic(Diag::SceneRaster, "transform number " + arg);
+                    return make_diagnostic(Diag::SceneRaster, "transform number " + std::string(arg));
                 }
             }
             if (name == "translate3d" || name == "translateZ") {
@@ -214,27 +226,45 @@ namespace weft {
         return out;
     }
 
+    namespace {
+        // The text a paint slot reads of a style: its property's value or the slot's initial one, currentcolor
+        // taking the color's.
+        std::string_view paint_text(const StyleValues& style, unsigned slot) {
+            static const auto keys = [] {
+                std::array<PropertyId, constants::scene::paint_property_count> ids{};
+                for (std::size_t i = 0; i < ids.size(); ++i) {
+                    ids[i] = *find_property(scene_paint_properties()[i]);
+                }
+                return ids;
+            }();
+            const auto* value = style.find(keys[slot]);
+            const auto fallback = slot == constants::scene::paint_slot_opacity            ? "1"
+                                  : slot == constants::scene::paint_slot_transform        ? "none"
+                                  : slot == constants::scene::paint_slot_background_color ? "transparent"
+                                  : slot == constants::scene::paint_slot_color            ? constants::default_color
+                                                                                          : "currentcolor";
+            const std::string_view s = value ? std::string_view(value->text()) : std::string_view(fallback);
+            if (s == "currentcolor" || s == "currentColor") {
+                return style.text(PropertyId::Color, constants::default_color);
+            }
+            return s;
+        }
+    } // namespace
+
     ScenePaintValues compile_scene_paint_values(const StyleValues& style) {
         ScenePaintValues out;
-        static const auto keys = [] {
-            std::array<PropertyId, constants::scene::paint_property_count> ids{};
-            for (std::size_t i = 0; i < ids.size(); ++i) {
-                ids[i] = *find_property(scene_paint_properties()[i]);
-            }
-            return ids;
-        }();
-        for (unsigned i = 0; i < keys.size(); ++i) {
-            const auto* value = style.find(keys[i]);
-            const auto fallback = i == constants::scene::paint_slot_opacity            ? "1"
-                                  : i == constants::scene::paint_slot_transform        ? "none"
-                                  : i == constants::scene::paint_slot_background_color ? "transparent"
-                                  : i == constants::scene::paint_slot_color            ? constants::default_color
-                                                                                       : "currentcolor";
-            auto s = value ? value->text() : std::string(fallback);
-            if (s == "currentcolor" || s == "currentColor") {
-                s = std::string(style.text(PropertyId::Color, constants::default_color));
-            }
-            out.values[i] = parse_scene_paint_value(s);
+        for (unsigned i = 0; i < out.values.size(); ++i) {
+            out.values[i] = parse_scene_paint_value(std::string(paint_text(style, i)));
+        }
+        return out;
+    }
+
+    ScenePaintValues compile_scene_paint_values(const StyleValues& style, const StyleValues& before,
+                                                const ScenePaintValues& last) {
+        ScenePaintValues out;
+        for (unsigned i = 0; i < out.values.size(); ++i) {
+            const auto text = paint_text(style, i);
+            out.values[i] = text == paint_text(before, i) ? last.values[i] : parse_scene_paint_value(std::string(text));
         }
         return out;
     }

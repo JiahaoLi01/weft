@@ -647,48 +647,51 @@ namespace weft {
         svg_.begin_pass(view_index);
         const float scale = listed.scale;
         const auto anchor_count = std::uint32_t(prepared.anchors.size());
+        // What refuses a part without listing it, for every part first: a refusal after listing parts wastes them.
+        std::vector<std::pair<const Changed*, const SceneListSpan*>> wholes;
         for (const auto& part : changed) {
-            if (!part.whole) {
-                if (!listed.spans.contains(part.old)) {
-                    return refuse("a node without a span");
-                }
-                continue;
-            }
             const auto found = listed.spans.find(part.old);
             if (found == listed.spans.end()) {
                 return refuse("a node without a span");
+            }
+            if (!part.whole) {
+                continue;
             }
             if (!same_for_ancestors(*part.old, *part.now)) {
                 return refuse("an anchoring or backdrop filter changed");
             }
             const auto& span = found->second;
-            const auto first = span.begin[Part::Items];
-            const auto count = span.end[Part::Items] - first;
-            if (first == 0 && count) {
+            if (span.begin[Part::Items] == 0 && span.end[Part::Items] > 0) {
                 return refuse("a part at the first item");
             }
+            wholes.emplace_back(&part, &span);
+        }
+        // Each part listed again, in the shape of the span it replaces.
+        for (const auto& [part, span] : wholes) {
+            const auto first = span->begin[Part::Items];
+            const auto count = span->end[Part::Items] - first;
             // The anchored element of the whole list the part lies in: the innermost listed before it whose items
             // hold its own.
             std::uint32_t enclosing{};
-            for (std::uint32_t k = 0; k < span.begin[Part::Anchors]; ++k) {
+            for (std::uint32_t k = 0; k < span->begin[Part::Anchors]; ++k) {
                 const auto& a = whole.anchors[k];
                 if (a.first <= first && first + count <= a.end) {
                     enclosing = k + 1;
                 }
             }
             auto& listing = listings.emplace_back();
-            listing.span = span;
-            listing.old = part.old;
+            listing.span = *span;
+            listing.old = part->old;
             listing.list = scene_display_list(frame, {}, &text_, scale, &svg_, {anchors, &anchored_[view_index], true},
-                                              {&listing.spans, part.now, &listing.span, &whole.list, enclosing});
+                                              {&listing.spans, part->now, &listing.span, &whole.list, enclosing});
             const auto& built = listing.list;
             if (!built.fallback.empty() || !built.deferred) {
                 return refuse("a part the list cannot defer");
             }
             const auto sizes = scene_list_sizes(built);
             for (unsigned p = 0; p < Part::Parts; ++p) {
-                const auto size = p == Part::Clips ? sizes[p] - span.chain_count : sizes[p];
-                if (size != span.end[p] - span.begin[p]) {
+                const auto size = p == Part::Clips ? sizes[p] - span->chain_count : sizes[p];
+                if (size != span->end[p] - span->begin[p]) {
                     return refuse("a part of other sizes");
                 }
             }
@@ -701,15 +704,20 @@ namespace weft {
             if (!paint::check(built.list, limits::max_group_depth)) {
                 return refuse("a part the checks refuse");
             }
-            for (std::size_t c = span.chain_count; c < built.list.clips.size(); ++c) {
+            for (std::size_t c = span->chain_count; c < built.list.clips.size(); ++c) {
                 auto planned = render::plan_scene_clip(built.list.clips[c]);
                 if (!planned) {
                     return refuse("a rounded clip refused");
                 }
                 listing.clips.push_back(*planned);
             }
-            // Records as the plan makes them, with the whole list's rounded clips; images, which must join the batches
-            // the items they replace joined.
+        }
+        // Records as the plan makes them, with the whole list's rounded clips; images, which must join the batches
+        // the items they replace joined.
+        for (auto& listing : listings) {
+            const auto& built = listing.list;
+            const auto first = listing.span.begin[Part::Items];
+            const auto count = listing.span.end[Part::Items] - first;
             listing.items.resize(count);
             for (std::uint32_t i = 0; i < count; ++i) {
                 const auto& item = built.list.items[i];
