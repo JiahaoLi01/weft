@@ -1037,7 +1037,8 @@ namespace weft::render::d3d12 {
         host.state = D3D12_RESOURCE_STATE_RENDER_TARGET;
         try {
             check_pending(*prepared);
-            slot.held.push_back(host.resource);
+            // No reference to the host's target: the host keeps it while the commands run, and a swap chain's buffer
+            // must lose every reference before the swap chain resizes.
             slot.target_rtv = gpu.render_target(target.resource, target.format, host.rtv);
             upload(*prepared);
             record(*prepared, {&host, host.rtv, host.format, prepared->width, prepared->height}, scale, placed, serial,

@@ -21,7 +21,9 @@
  * its own render target view of it with that format. It is in D3D12_RESOURCE_STATE_RENDER_TARGET when the commands
  * execute, the host's earlier writes done, and the commands leave it there. A View frame's backdrop filters at the
  * target's level read what the target holds beneath them (the adapter copies from it, returning it to the render
- * target state). Preserve existing target contents by default. */
+ * target state). Preserve existing target contents by default. The adapter takes no reference to the target: the host
+ * keeps it alive until the commands complete (a swap chain's buffer can then be resized once the host's own references
+ * are gone, while a recording that drew into it waits to be reported complete). */
 typedef struct weft_render_d3d12_pass {
     uint32_t struct_size;
     uint32_t abi_version;

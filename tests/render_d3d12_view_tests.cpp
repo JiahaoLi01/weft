@@ -793,6 +793,28 @@ namespace {
         ok(weft_renderer_discard_encoded(d3d12.renderer, use), "discard");
         same(d3d12.draw(ours, target.Get()), moved, "after a discarded recording");
 
+        // No reference to the target: a game's swap chain resizes its buffers (every reference to them gone) while a
+        // recording that drew into one runs, before the host reports it complete.
+        const auto references = [](IUnknown* object) {
+            object->AddRef();
+            return object->Release();
+        };
+        target = gpu.target();
+        const auto before = references(target.Get());
+        gpu.begin();
+        ok(d3d12.encode(ours, d3d12.payload(target.Get()), use), "encode into a swap chain's buffer");
+        require(SUCCEEDED(gpu.list->Close()), "close");
+        ID3D12CommandList* lists[]{gpu.list.Get()};
+        gpu.queue->ExecuteCommandLists(1, lists);
+        ok(weft_renderer_notify_submitted(d3d12.renderer, use, queue, ++d3d12.serial), "submitted");
+        const bool unreferenced = references(target.Get()) == before;
+        gpu.wait();
+        ok(weft_renderer_notify_completed(d3d12.renderer, info_of(d3d12.renderer).identity.device_epoch, queue,
+                                          d3d12.serial),
+           "completed");
+        require(unreferenced, "the target keeps only the host's references while drawn into");
+        std::cout << "  no reference to the target" << std::endl;
+
         // What is not this backend's, or not a target it draws: nothing is recorded. Another device's target, when
         // this machine has a hardware adapter (D3D12 gives one device per adapter).
         D3D12 other;

@@ -20,7 +20,7 @@ D3D12 后端（2026-10-15，`unreal` 分支，为 UE 5 的 D3D12 RHI；用户要
 - **接口**：`include/weft/render_backend_d3d12.h`：`weft_render_d3d12_create`、`_external`、`_destroy`，`weft_render_d3d12_pass`（打开的命令列表与目标资源）、`weft_render_d3d12_texture`；`WEFT_RENDER_API_D3D12`（4）。
 - **实现**：`src/render/backends/d3d12`（`weft::scene_d3d12`）：照 Vulkan 的场景 pass 移植（保留的 pass、补丁、槽位、待提交检查、背景滤镜链、粒子与效果），着色器复用 D3D11 的 DXBC，根签名、描述符堆、上传与资源状态是自己的。
 - **验证**（Release，RTX 5090 机器）：
-  - `render_d3d12_view_contract`：D3D12 WARP 与 D3D11 WARP 画同一帧逐字节相同：游戏画面之上、宿主清屏、保留的 pass、锚点移动、RGBA8 目标、typeless 目标、丢弃的录制、宿主纹理；另一设备的目标、格式不符、pass 大于目标、空命令列表、非预乘的清屏色被拒，帧绑定的纹理作目标是 `INVALID_STATE`；D3D12 调试层无错误；`WEFT_D3D12_GPU_VALIDATION=1` 时 GPU 校验也无错误。
+  - `render_d3d12_view_contract`：D3D12 WARP 与 D3D11 WARP 画同一帧逐字节相同：游戏画面之上、宿主清屏、保留的 pass、锚点移动、RGBA8 目标、typeless 目标、丢弃的录制、宿主纹理；另一设备的目标、格式不符、pass 大于目标、空命令列表、非预乘的清屏色被拒，帧绑定的纹理作目标是 `INVALID_STATE`；录制已提交、尚未报告完成时目标的引用计数不变（适配器不引用目标，交换链能改大小）；D3D12 调试层无错误；`WEFT_D3D12_GPU_VALIDATION=1` 时 GPU 校验也无错误。
   - `engine_host_d3d12_warp`：样例的 D3D12 模式（每帧写的小地图纹理、锚点、事件与调用）与 D3D11 WARP 的末帧逐字节相同；本机 GPU 上与 WARP 至多差 3 级。
   - 全量 ctest（167 项）：153 项通过；其余 14 项是 Python 夹具与浏览器输入的散列校验（如 `react_fixture_integrity`、`scene_fixture_integrity`），它们核对的文件这次都没改，有的在仓库之外（CaseCheetah 的 `UI/src`），在这台机器的新克隆上无论 CRLF 还是 LF 签出都不符，与 D3D12 后端无关。
 - **未验证**：UE 里的整合（weft-unreal 插件）；多 GPU；设备移除。
