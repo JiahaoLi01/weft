@@ -35,6 +35,9 @@ namespace weft {
         bool scene_syntax{};     // Explicit scene profile: escaped selectors, SVG, raw shorthands.
     };
 
+    // The custom properties an element's children inherit, as the cascade resolved them (opaque).
+    struct StyleEnvironment;
+
     struct ComputedStyle {
         NodeIdentity identity;
         std::string local_name;
@@ -46,7 +49,30 @@ namespace weft {
         std::vector<std::string> invalid_at_computed_value;
         std::vector<ComputedStyle> children;           // Element children, DOM order.
         std::vector<std::string> specified_properties; // Cascade provenance for animated inheritance.
-        friend bool operator==(const ComputedStyle&, const ComputedStyle&) = default;
+
+        // Bookkeeping of the cascade, not content: == ignores it. stamp is the update (CompiledStyle::update) that last
+        // changed the node's own values (its identity, name, values, custom properties or lists), children_stamp the
+        // one that last changed which element children it has or their order, and subtree_stamp the latest of either
+        // in its subtree. What the node charged against the cascade's bounds, and what its subtree did,
+        // which an update charges again for what it keeps without computing it: the node's own token work and output
+        // bytes, and its subtree's nodes, token work and output bytes. environment holds the custom properties its
+        // children inherit.
+        std::uint64_t stamp{};
+        std::uint64_t children_stamp{};
+        std::uint64_t subtree_stamp{};
+        std::size_t own_work{};
+        std::size_t own_bytes{};
+        std::size_t subtree_nodes{};
+        std::size_t subtree_work{};
+        std::size_t subtree_bytes{};
+        std::shared_ptr<const StyleEnvironment> environment;
+
+        friend bool operator==(const ComputedStyle& a, const ComputedStyle& b) {
+            return a.identity == b.identity && a.local_name == b.local_name && a.values == b.values &&
+                   a.custom_properties == b.custom_properties &&
+                   a.invalid_at_computed_value == b.invalid_at_computed_value && a.children == b.children &&
+                   a.specified_properties == b.specified_properties;
+        }
     };
 
     ComputedStyle compute_style(const DomSnapshot& root, std::string_view author_stylesheet,
@@ -122,6 +148,14 @@ namespace weft {
         // Discard both output and changed_nodes on failure.
         void update(const DomSnapshot&, ComputedStyle&, StyleMemo&,
                     std::vector<NodeIdentity>* changed_nodes = nullptr) const;
+        // The same, from `previous`, the document `output` was last updated from (whose update ended without an
+        // exception), so the work follows what changed: a subtree whose revision did not move (non-zero, of one node,
+        // DomSnapshot::revision) keeps its values without a visit unless its context changed (an ancestor's values,
+        // or what a selector reads of an ancestor), and a node only an descendant of which changed keeps its own
+        // values. Nodes whose own values change take `stamp` (ComputedStyle::stamp), which must exceed every earlier
+        // update's. The bounds are charged as a full update charges them. Null previous: every node is visited.
+        void update(const DomSnapshot& dom, const DomSnapshot* previous, ComputedStyle& output, StyleMemo& memo,
+                    std::uint64_t stamp, std::vector<NodeIdentity>* changed_nodes = nullptr) const;
         // Makes input describe dom as this cascade reads it and returns whether that changed. A subtree whose
         // revision matches the one input last read is not visited. A document outside the node/depth bounds throws
         // and leaves input as it was; any other failure leaves it empty, so the next read reports a change.

@@ -6,9 +6,15 @@
 #include "scene/scene_paint.hpp"
 #include "scene/scene_particles.hpp"
 #include "scene/scene_text.hpp"
+#include <algorithm>
+#include <atomic>
+#include <cstddef>
 #include <functional>
+#include <initializer_list>
+#include <iterator>
 #include <map>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -39,6 +45,267 @@ namespace weft {
         friend bool operator==(const SceneFragment&, const SceneFragment&) = default;
     };
 
+    struct SceneNode;
+
+    // The children of a scene node: values that share their storage while they are equal. Copying a node copies its
+    // children's handles, not their subtrees; changing a child (edit, edit_back, edit_all) first gives it storage of its
+    // own when another value shares it (copy on write), so no value that other code holds (a published frame, a
+    // renderer's cache) ever changes. Reading (operator[], at, front, back, iteration) never copies. Equal handles hold
+    // equal subtrees: a renderer may keep what it made of a subtree while the subtree's handle stays.
+    //
+    // A reference that edit returned is valid until the next change of these children or of the node that holds them;
+    // a copy of that node made meanwhile shares the child, which the reference must not change.
+    class SceneChildren {
+        using Storage = std::vector<std::shared_ptr<SceneNode>>;
+
+    public:
+        using value_type = SceneNode;
+        using size_type = std::size_t;
+        // A child's storage, shared read only.
+        using Handle = std::shared_ptr<const SceneNode>;
+
+        class const_iterator {
+        public:
+            using iterator_category = std::random_access_iterator_tag;
+            using value_type = SceneNode;
+            using difference_type = std::ptrdiff_t;
+            using pointer = const SceneNode*;
+            using reference = const SceneNode&;
+
+            const_iterator() = default;
+
+            explicit const_iterator(Storage::const_iterator at) : at_(at) {
+            }
+
+            reference operator*() const {
+                return **at_;
+            }
+
+            pointer operator->() const {
+                return at_->get();
+            }
+
+            reference operator[](difference_type n) const {
+                return *at_[n];
+            }
+
+            const_iterator& operator++() {
+                ++at_;
+                return *this;
+            }
+
+            const_iterator operator++(int) {
+                auto old = *this;
+                ++at_;
+                return old;
+            }
+
+            const_iterator& operator--() {
+                --at_;
+                return *this;
+            }
+
+            const_iterator operator--(int) {
+                auto old = *this;
+                --at_;
+                return old;
+            }
+
+            const_iterator& operator+=(difference_type n) {
+                at_ += n;
+                return *this;
+            }
+
+            const_iterator& operator-=(difference_type n) {
+                at_ -= n;
+                return *this;
+            }
+
+            friend const_iterator operator+(const_iterator i, difference_type n) {
+                return i += n;
+            }
+
+            friend const_iterator operator+(difference_type n, const_iterator i) {
+                return i += n;
+            }
+
+            friend const_iterator operator-(const_iterator i, difference_type n) {
+                return i -= n;
+            }
+
+            friend difference_type operator-(const const_iterator& a, const const_iterator& b) {
+                return a.at_ - b.at_;
+            }
+
+            friend bool operator==(const const_iterator&, const const_iterator&) = default;
+            friend auto operator<=>(const const_iterator&, const const_iterator&) = default;
+
+        private:
+            Storage::const_iterator at_;
+            friend class SceneChildren;
+        };
+
+        using iterator = const_iterator;
+        using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+
+        // Changes each child as it is reached: for (auto& c : node.children.edit_all()).
+        class EditRange {
+        public:
+            class iterator {
+            public:
+                using iterator_category = std::forward_iterator_tag;
+                using value_type = SceneNode;
+                using difference_type = std::ptrdiff_t;
+                using pointer = SceneNode*;
+                using reference = SceneNode&;
+
+                iterator() = default;
+
+                iterator(SceneChildren* children, size_type at) : children_(children), at_(at) {
+                }
+
+                reference operator*() const {
+                    return children_->edit(at_);
+                }
+
+                pointer operator->() const {
+                    return &children_->edit(at_);
+                }
+
+                iterator& operator++() {
+                    ++at_;
+                    return *this;
+                }
+
+                iterator operator++(int) {
+                    auto old = *this;
+                    ++at_;
+                    return old;
+                }
+
+                friend bool operator==(const iterator& a, const iterator& b) {
+                    return a.at_ == b.at_;
+                }
+
+            private:
+                SceneChildren* children_{};
+                size_type at_{};
+            };
+
+            explicit EditRange(SceneChildren& children) : children_(&children) {
+            }
+
+            iterator begin() const {
+                return {children_, 0};
+            }
+
+            iterator end() const {
+                return {children_, children_->size()};
+            }
+
+        private:
+            SceneChildren* children_;
+        };
+
+        SceneChildren() = default;
+        SceneChildren(std::initializer_list<SceneNode> nodes);
+        SceneChildren(std::vector<SceneNode> nodes);
+        SceneChildren& operator=(std::initializer_list<SceneNode> nodes);
+        SceneChildren& operator=(std::vector<SceneNode> nodes);
+
+        size_type size() const noexcept {
+            return nodes_.size();
+        }
+
+        bool empty() const noexcept {
+            return nodes_.empty();
+        }
+
+        void reserve(size_type n) {
+            nodes_.reserve(n);
+        }
+
+        void clear() noexcept {
+            nodes_.clear();
+        }
+
+        void pop_back() {
+            nodes_.pop_back();
+        }
+
+        const_iterator begin() const noexcept {
+            return const_iterator(nodes_.begin());
+        }
+
+        const_iterator end() const noexcept {
+            return const_iterator(nodes_.end());
+        }
+
+        const_reverse_iterator rbegin() const noexcept {
+            return const_reverse_iterator(end());
+        }
+
+        const_reverse_iterator rend() const noexcept {
+            return const_reverse_iterator(begin());
+        }
+
+        const SceneNode& operator[](size_type i) const {
+            return *nodes_[i];
+        }
+
+        const SceneNode& at(size_type i) const {
+            if (i >= nodes_.size()) {
+                throw std::out_of_range("SceneChildren::at");
+            }
+            return *nodes_[i];
+        }
+
+        const SceneNode& front() const {
+            return *nodes_.front();
+        }
+
+        const SceneNode& back() const {
+            return *nodes_.back();
+        }
+
+        // Child i to change, unshared first.
+        SceneNode& edit(size_type i);
+
+        SceneNode& edit_back() {
+            return edit(nodes_.size() - 1);
+        }
+
+        EditRange edit_all() {
+            return EditRange(*this);
+        }
+
+        void push_back(const SceneNode& node);
+        void push_back(SceneNode&& node);
+        template <class... Args>
+        SceneNode& emplace_back(Args&&... args);
+        const_iterator insert(const_iterator at, SceneNode node);
+        const_iterator erase(const_iterator at);
+
+        void reverse() {
+            std::reverse(nodes_.begin(), nodes_.end());
+        }
+
+        // Child i's storage, to share.
+        Handle handle(size_type i) const {
+            return nodes_[i];
+        }
+
+        // Appends, or puts at i, a child that shares the handle's storage.
+        void push_back(Handle node);
+        void set(size_type i, Handle node);
+
+        // Equal handles, or equal values.
+        friend bool operator==(const SceneChildren& a, const SceneChildren& b);
+
+    private:
+        Storage nodes_;
+    };
+
     struct SceneNode {
         NodeIdentity identity;
         std::string tag;
@@ -51,7 +318,7 @@ namespace weft {
         // box (its box is their bounding box). Empty outside a context.
         std::vector<SceneLine> lines;
         std::vector<SceneFragment> fragments;
-        std::vector<SceneNode> children;
+        SceneChildren children;
         std::optional<ScenePaintValues> paint; // Derived numeric cache, not DOM/style identity.
         // The -weft-effect() background and its parameters, resolved from the custom properties.
         std::shared_ptr<const SceneEffect> effect;
@@ -71,10 +338,101 @@ namespace weft {
         }
     };
 
+    inline SceneChildren::SceneChildren(std::initializer_list<SceneNode> nodes) {
+        nodes_.reserve(nodes.size());
+        for (const auto& n : nodes) {
+            nodes_.push_back(std::make_shared<SceneNode>(n));
+        }
+    }
+
+    inline SceneChildren::SceneChildren(std::vector<SceneNode> nodes) {
+        nodes_.reserve(nodes.size());
+        for (auto& n : nodes) {
+            nodes_.push_back(std::make_shared<SceneNode>(std::move(n)));
+        }
+    }
+
+    inline SceneChildren& SceneChildren::operator=(std::vector<SceneNode> nodes) {
+        return *this = SceneChildren(std::move(nodes));
+    }
+
+    inline SceneChildren& SceneChildren::operator=(std::initializer_list<SceneNode> nodes) {
+        Storage storage;
+        storage.reserve(nodes.size());
+        for (const auto& n : nodes) {
+            storage.push_back(std::make_shared<SceneNode>(n));
+        }
+        nodes_ = std::move(storage);
+        return *this;
+    }
+
+    inline SceneNode& SceneChildren::edit(size_type i) {
+        auto& node = nodes_[i];
+        if (node.use_count() > 1) {
+            node = std::make_shared<SceneNode>(*node);
+        } else {
+            // Whoever released the last other handle read the node before; reading the count alone does not order
+            // those reads before the changes that follow.
+            std::atomic_thread_fence(std::memory_order_acquire);
+        }
+        return *node;
+    }
+
+    inline void SceneChildren::push_back(const SceneNode& node) {
+        nodes_.push_back(std::make_shared<SceneNode>(node));
+    }
+
+    inline void SceneChildren::push_back(SceneNode&& node) {
+        nodes_.push_back(std::make_shared<SceneNode>(std::move(node)));
+    }
+
+    template <class... Args>
+    SceneNode& SceneChildren::emplace_back(Args&&... args) {
+        return *nodes_.emplace_back(std::make_shared<SceneNode>(std::forward<Args>(args)...));
+    }
+
+    inline SceneChildren::const_iterator SceneChildren::insert(const_iterator at, SceneNode node) {
+        return const_iterator(nodes_.insert(at.at_, std::make_shared<SceneNode>(std::move(node))));
+    }
+
+    inline SceneChildren::const_iterator SceneChildren::erase(const_iterator at) {
+        return const_iterator(nodes_.erase(at.at_));
+    }
+
+    inline void SceneChildren::push_back(Handle node) {
+        // Shared storage changes only through edit, which copies it first.
+        nodes_.push_back(std::const_pointer_cast<SceneNode>(std::move(node)));
+    }
+
+    inline void SceneChildren::set(size_type i, Handle node) {
+        nodes_[i] = std::const_pointer_cast<SceneNode>(std::move(node));
+    }
+
+    inline bool operator==(const SceneChildren& a, const SceneChildren& b) {
+        if (a.nodes_.size() != b.nodes_.size()) {
+            return false;
+        }
+        for (std::size_t i = 0; i < a.nodes_.size(); ++i) {
+            if (a.nodes_[i] != b.nodes_[i] && !(*a.nodes_[i] == *b.nodes_[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     // Whether two nodes show the same effect: none, or one of equal values.
     inline bool scene_effect_equal(const std::shared_ptr<const SceneEffect>& a,
                                    const std::shared_ptr<const SceneEffect>& b) {
         return a == b || (a && b && *a == *b);
+    }
+
+    // Whether two nodes hold the same values of their own, children aside, the numeric paint cache included.
+    inline bool scene_own_equal(const SceneNode& a, const SceneNode& b) {
+        return a.identity == b.identity && a.tag == b.tag && a.space == b.space && a.text == b.text &&
+               a.attributes == b.attributes && a.style == b.style && a.box == b.box && a.lines == b.lines &&
+               a.fragments == b.fragments && bool(a.paint) == bool(b.paint) &&
+               (!a.paint || a.paint->values == b.paint->values) && scene_effect_equal(a.effect, b.effect) &&
+               a.particles == b.particles && a.anchoring == b.anchoring;
     }
 
     struct SceneFrame {

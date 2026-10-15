@@ -102,7 +102,7 @@ namespace probes {
                 root.children.push_back(n);
             }
             if (f % 31 == 0) {
-                std::reverse(root.children.begin(), root.children.end());
+                root.children.reverse();
             }
             if (f % 37 == 0) {
                 root.children.pop_back();

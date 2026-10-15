@@ -211,7 +211,7 @@ namespace probes {
         }
         const auto before = surfaces.raster_work();
         for (unsigned frame = 0; frame < weft::probe_constants::gallery::complex_css_angle_frames; ++frame) {
-            stable.root.children[0].children[0].style["transform"] =
+            stable.root.children.edit(0).children.edit(0).style["transform"] =
                 "perspective(400px) rotateY(" + std::to_string(frame * 3) + "deg)";
             const auto expected = reference.raster(stable, weft::probe_constants::gallery::scene_raster_scale);
             auto& image = surfaces.paint(0, stable, weft::probe_constants::gallery::scene_raster_scale);
@@ -338,7 +338,7 @@ namespace probes {
                 scene.root.children.push_back(std::move(child));
             }
             if (frame % 2) {
-                std::reverse(scene.root.children.begin(), scene.root.children.end());
+                scene.root.children.reverse();
             }
             const auto expected = reference.raster(scene, weft::probe_constants::gallery::scene_raster_scale);
             auto& image = surfaces.paint(0, scene, weft::probe_constants::gallery::scene_raster_scale);

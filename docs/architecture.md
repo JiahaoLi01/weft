@@ -443,6 +443,12 @@ Windows `SceneRaster` 是可替换的软件矢量参考适配器：DirectWrite m
 - 宿主几何/样式读保留一份文档副本原地刷新。scene 会话与求解器用 `dom::update_copy` 增量维护副本，用 `dom::same_content` 按版本号跳过未变子树的比较。
 - 交给宿主与求解器的仍是完整、自包含的值。
 
+2026-10-15 重构第 13.5a 步：owner 侧只处理变化的节点。
+- 场景树写时复制：`SceneNode::children` 是 `SceneChildren`，子节点各有共享的存储；复制一个节点只复制句柄，改子节点必须经 `edit`，被共享时先复制。发布的帧、渲染器缓存里的值因此永远不变，相等的句柄就是相等的子树。`edit` 返回的引用在节点被复制之后不能再用来改。
+- 级联从上一次读的文档更新：子树版本号没变、上下文没变的子树不访问；上下文是父的值与继承的自定义属性（影响子元素），以及祖先上选择器读的名字、类、id、属性与状态（影响整个子树）。节点记录 stamp 与子树计入上限的量，保留的子树照记录计入，所以上限的结果与全量相同。
+- 求解器的增量路径只重建输入变了的元素（DOM 节点与文字子节点、它和元素子节点的计算样式、继承的值、显示与否、跟随时间），其余子树共享上一帧的存储；只有重建的节点比较布局读的值。布局的输出先写进旁表，最后只写回变了的盒子。全量路径作为对照不变；两者逐值相同由随机变更测试（`incremental_contract`）检查。
+- 内容相同的帧对象得到同一修订号；`View` 的元素几何只在几何读取时计算。
+
 2026-10-10 增量更新补充：`CompiledStyle::update` 保留canonical raw computed值，可报告变化/重建的own节点身份。同父重排保留值，跨父挂载重建；输出不是shorthand展开表示。Scene另存expanded派生值，按changed identities及代际重建，不把展开值写回cascade。`SceneSolver::update`可修改owner专属输出，异常后必须丢弃部分输出/reset；跨线程发布仍创建完整独立immutable snapshot。geometry reuse由字体/文本/盒子/transform/SVG geometry/身份投影证明，pure paint变化不失效，measure/layout仍不调用JS。
 
 检查host区分主动正常ReleaseCapture和真实捕获/焦点丢失；hover/active只更新weak generational旧/新路径。诊断footer在native overlay，原应用DOM/事件正常更新。所有不可见卡片统一暂停rAF、继续timer，属于Gallery显式host策略。详细profiler默认关闭，关闭时无阶段timestamp/trace；保留必要completion及调度/FPS。开启后每线程有界latest trace、600样本曲线、5Hz HUD；串联共同steady-clock和run_id，不能把旧文件或采样子集当全运行。Windows factory-scoped shape/stroke缓存与本次solve局部bounds不跨线程保留DOM引用，GPU重写/退休继续只按actual serial。实际证据见[增量与profiler](incremental-ui-profiler.md)。

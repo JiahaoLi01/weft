@@ -89,7 +89,7 @@ namespace {
 
     void strip(weft::SceneNode& n) {
         n.particles.clear();
-        for (auto& c : n.children) {
+        for (auto& c : n.children.edit_all()) {
             strip(c);
         }
     }

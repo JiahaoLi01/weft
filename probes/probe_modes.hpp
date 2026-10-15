@@ -48,6 +48,8 @@ namespace probes {
     int run_scene_interaction_benchmark(bool warp, const std::filesystem::path& folder, bool sampled = false);
     // hud_benchmark.cpp
     int run_hud_benchmark(bool warp, const std::filesystem::path& folder);
+    // The owner's updates and the passes sampled apart, 400 units, one or all changing (needs PDBs for names).
+    int run_hud_benchmark_sampled(const std::filesystem::path& folder);
     // gallery_cluster_gpu_probe.cpp
     int run_gallery_cluster_gpu(bool warp, const std::filesystem::path& folder);
     // gallery_interaction_profile.cpp

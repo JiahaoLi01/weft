@@ -164,7 +164,7 @@ int main() {
                                  {{"x", "0"}, {"y", "0"}, {"width", "10"}, {"height", "10"}, {"clip-path", "url(#c)"}},
                                  {{"fill", "#ffffff"}}),
                             label};
-            svg.children.back().text = "A";
+            svg.children.edit_back().text = "A";
             frame.root.children = {svg};
             auto& text = weft::testing::thread_scene_text();
             const auto plan = weft::scene_display_list(frame, {}, &text);
@@ -251,11 +251,11 @@ int main() {
             }
             require(weft::scene_display_list(frame).fallback == "SVG text reference", "SVG text needs a text engine");
             auto foreign = frame;
-            foreign.root.children[0].children.push_back(node("foreignObject", 152, {}, {}));
+            foreign.root.children.edit(0).children.push_back(node("foreignObject", 152, {}, {}));
             require(weft::scene_display_list(foreign, {}, &text).fallback == "SVG element foreignObject",
                     "unknown SVG element");
             auto rotated = frame;
-            rotated.root.children[0].children[4].attributes["transform"] = "rotate(10)";
+            rotated.root.children.edit(0).children.edit(4).attributes["transform"] = "rotate(10)";
             // Under a rotation the clip-path rectangle clips in the element's own space: its map from target px is
             // the inverse of the element's transform.
             const auto turned = weft::scene_display_list(rotated, {}, &text);
@@ -359,14 +359,14 @@ int main() {
                         std::abs(h[5] / h[8] - (20 + 30 + 20 - 20 / w)) < 1e-3,
                     "plane homography");
             auto edge_on = frame;
-            edge_on.root.children[0].children[0].style["transform"] = "perspective(200px) rotateY(90deg)";
+            edge_on.root.children.edit(0).children.edit(0).style["transform"] = "perspective(200px) rotateY(90deg)";
             const auto hidden = weft::scene_display_list(edge_on);
             require(hidden.fallback.empty() && hidden.list.items.empty(), "edge-on plane draws nothing");
             auto behind = frame;
-            behind.root.children[0].children[0].style["transform"] = "perspective(20px) rotateY(80deg)";
+            behind.root.children.edit(0).children.edit(0).style["transform"] = "perspective(20px) rotateY(80deg)";
             require(weft::scene_display_list(behind).fallback == "plane behind the viewer", "plane behind the viewer");
             auto nesting = frame;
-            auto& first = nesting.root.children[0].children[0];
+            auto& first = nesting.root.children.edit(0).children.edit(0);
             first.children.push_back(
                 node(184, {20, 10, 30, 20}, {{"transform", "perspective(100px) rotateY(-20deg)"}, {"opacity", "0.5"}}));
             const auto two = weft::scene_display_list(nesting);
@@ -374,7 +374,7 @@ int main() {
             require(two.fallback.empty() && in.items.size() == 3 && in.items[2].kind == Kind::Plane &&
                         in.planes[in.items[2].payload].width == 30,
                     "plane in a plane");
-            first.children.back().children.push_back(
+            first.children.edit_back().children.push_back(
                 node(185, {2, 2, 10, 10}, {{"transform", "perspective(100px) rotateY(10deg)"}}));
             require(weft::scene_display_list(nesting).fallback == "plane nesting bound", "plane nesting bound");
         }

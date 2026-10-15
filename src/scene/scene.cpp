@@ -27,6 +27,8 @@
 #include <thread>
 #include <tuple>
 #include <type_traits>
+#include <unordered_map>
+#include <utility>
 
 namespace weft {
     namespace {
@@ -914,6 +916,8 @@ namespace weft {
             return plans;
         }
 
+        using SceneId = std::array<std::uint64_t, 3>;
+
         struct State {
             Style target;
             Style current;
@@ -957,9 +961,14 @@ namespace weft {
             // Emissions until their particles die, and how many the element has started (their seeds).
             std::vector<Emission> emissions;
             std::uint32_t emitted{};
-        };
 
-        using SceneId = std::array<std::uint64_t, 3>;
+            // The incremental build (SceneSolver::Impl::refresh): the parent element (zeros for the root), whether the
+            // element showed (no display: none on it or an ancestor), and the style its children inherit when its build
+            // gave it another font weight after them (a b or strong element).
+            SceneId parent{};
+            bool shown = true;
+            std::optional<Style> children_style;
+        };
 
         SceneId identity(NodeIdentity n) {
             return {n.view_epoch, n.slot, n.generation};
@@ -975,10 +984,8 @@ namespace weft {
             return std::uint32_t(h);
         }
 
-        // Pairs of a node of the current build and the previous-frame node it was taken from; taken_from needs them
-        // sorted by the first (sort_reused).
-        template <class T>
-        using Reused = std::vector<std::pair<const T*, const T*>>;
+        // Whether two styles lay out alike: they differ in paint-only properties alone (below the solver).
+        bool same_layout_style(const Style& a, const Style& b);
     } // namespace
 
     StyleProfile scene_style_profile() {
@@ -1131,15 +1138,28 @@ namespace weft {
         StyleInput style_input;
         std::optional<ComputedStyle> cascade;
         std::optional<ComputedStyle> computed;
-        std::optional<SceneFrame> previous;
+        // The document the last update read (the incremental path's cascade and build compare what changed with it).
         std::optional<DomSnapshot> previous_dom;
-        std::optional<ComputedStyle> previous_computed;
-        // What the last build took whole from the previous frame (build_into's static path): each output node and
-        // computed style with the previous one it equals. Layout may since have moved the output's boxes.
-        Reused<SceneNode> reused_nodes;
-        Reused<ComputedStyle> reused_styles;
         float previous_width{};
         float previous_height{};
+        // The incremental path: the scene the last update gave, which the next one changes where its input changed,
+        // sharing the rest, and its element geometry; the count of updates (ComputedStyle::stamp) and the stamps of
+        // the last build and expansion; the elements whose frames follow the time (running transitions and
+        // animations, particles, effects that read the time) and those the update in progress finds so. While an
+        // update builds: the elements whose subtrees hold such an element or one with bursts, which it builds though
+        // their DOM did not change; the elements it built; those of the subtrees it dropped; and whether what it built
+        // moved the layout.
+        std::shared_ptr<const SceneNode> retained;
+        std::vector<ElementGeometry> retained_elements;
+        std::uint64_t stamp{};
+        std::uint64_t built{};
+        std::uint64_t expanded{};
+        std::set<SceneId> active;
+        std::set<SceneId> next_active;
+        std::set<SceneId> marked;
+        std::set<SceneId> seen;
+        std::vector<SceneId> removed;
+        bool layout_dirty{};
         // The revision of the content the last update gave (0 before the first; after a reset the next update lays
         // the frame out anew, a new revision).
         std::uint64_t revision{};
@@ -1175,31 +1195,49 @@ namespace weft {
         double now = -1;
         bool animated{};
 
-        // Cascade output remains canonical. Shorthand expansion is a separate
-        // owner derivation, so it cannot turn memo hits into full property copies.
-        void expand_into(const ComputedStyle& raw, ComputedStyle& out) {
+        // Cascade output remains canonical. Shorthand expansion is a separate owner derivation, so it cannot turn
+        // memo hits into full property copies. A subtree whose cascade did not change since the last expansion (its
+        // subtree stamp) stays as it is unless `all` (the viewport moved: values with viewport lengths expand again).
+        // A node whose expanded values change takes the update's stamp, as the cascade's nodes do.
+        void expand_into(const ComputedStyle& raw, ComputedStyle& out, bool all = true) {
+            if (!all && out.identity == raw.identity && raw.subtree_stamp <= expanded) {
+                return;
+            }
             auto& state = states[identity(raw.identity)];
-            if (out.identity != raw.identity || state.expand_dirty) {
+            bool changed = out.identity != raw.identity;
+            if (changed || state.expand_dirty || raw.stamp > expanded) {
                 state.viewport_units = false;
-                out.values = expand(raw.values, viewport, &state.viewport_units);
+                auto values = expand(raw.values, viewport, &state.viewport_units);
                 state.expand_dirty = false;
+                if (changed || !(values == out.values)) {
+                    out.values = std::move(values);
+                    changed = true;
+                }
             }
             out.identity = raw.identity;
             if (out.local_name != raw.local_name) {
                 out.local_name = raw.local_name;
+                changed = true;
             }
             if (out.custom_properties != raw.custom_properties) {
                 out.custom_properties = raw.custom_properties;
+                changed = true;
             }
             if (out.invalid_at_computed_value != raw.invalid_at_computed_value) {
                 out.invalid_at_computed_value = raw.invalid_at_computed_value;
+                changed = true;
             }
             if (out.specified_properties != raw.specified_properties) {
                 out.specified_properties = raw.specified_properties;
+                changed = true;
+            }
+            if (changed) {
+                out.stamp = stamp;
             }
             auto prior = std::move(out.children);
             out.children.clear();
             out.children.reserve(prior.capacity());
+            out.subtree_stamp = out.stamp;
             for (std::size_t i = 0; i < raw.children.size(); ++i) {
                 const auto& child = raw.children[i];
                 auto index = i;
@@ -1210,98 +1248,30 @@ namespace weft {
                     }
                 }
                 out.children.push_back(index < prior.size() ? std::move(prior[index]) : ComputedStyle{});
-                expand_into(child, out.children.back());
+                expand_into(child, out.children.back(), all);
+                out.subtree_stamp = std::max(out.subtree_stamp, out.children.back().subtree_stamp);
             }
         }
 
-        bool static_subtree(const SceneNode& n) const {
-            // An effect that reads the time changes every frame.
-            if (n.effect && n.effect->program->animated) {
-                return false;
-            }
-            // Particles move every frame; an element that names them may start a stream, and one asked for a burst
-            // starts it.
-            if (!n.particles.empty()) {
-                return false;
-            }
-            if (n.tag != "#text") {
-                auto it = states.find(identity(n.identity));
-                const auto* stream = n.style.find(PropertyId::WeftParticles);
-                if (it == states.end() || !it->second.plans_valid || !it->second.transitions.empty() ||
-                    !it->second.plans.empty() || it->second.current != n.style || !it->second.emissions.empty() ||
-                    (!pending.empty() && pending.contains(it->first)) ||
-                    (stream && !trim(stream->text()).empty() && trim(stream->text()) != "none")) {
-                    return false;
-                }
-            }
-            for (const auto& child : n.children) {
-                if (!static_subtree(child)) {
-                    return false;
-                }
-            }
-            return true;
-        }
+        // What an element's build decides of its children: whether it shows (no display: none on it or an
+        // ancestor), and whether its text nodes are #text children (mixed content), all of them, spaces too (an inline
+        // formatting context) or those with more than spaces.
+        struct Built {
+            bool shown{};
+            bool inline_context{};
+            bool mixed{};
+        };
 
-        bool same_inheritance(const Style* a, const Style* b) const {
-            if (!a || !b) {
-                return a == b;
-            }
-            for (const auto k : inherited_properties) {
-                if (a->text(k) != b->text(k)) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        void keep_live(const SceneNode& n) {
-            if (n.tag != "#text") {
-                live.insert(identity(n.identity));
-            }
-            for (const auto& c : n.children) {
-                keep_live(c);
-            }
-        }
-
-        void build_into(SceneNode& output, const DomSnapshot& d, const ComputedStyle& c, const Style* parent = nullptr,
-                        const DomSnapshot* old_dom = nullptr, const ComputedStyle* old_computed = nullptr,
-                        const SceneNode* old_node = nullptr, const Style* old_parent = nullptr) {
-            if (incremental && old_dom && old_computed && old_node && dom::same_content(d, *old_dom) &&
-                same_inheritance(parent, old_parent) && c == *old_computed && static_subtree(*old_node)) {
-                keep_live(*old_node);
-                ++work.static_subtree_reuses;
-                if (!scene_paint_source_equal(output, *old_node)) {
-                    work.geometry_changed |= !scene_geometry_equal(output, *old_node);
-                    work.paint_changed = true;
-                    output = *old_node;
-                }
-                reused_nodes.emplace_back(&output, old_node);
-                reused_styles.emplace_back(&c, old_computed);
-                return;
-            }
-            // A stable node target may own thousands of repeated property strings.
-            // Move those values within the owner instead of reconstructing them;
-            // animated targets and changed inheritance take the complete path.
-            const auto previous_state = states.find(identity(d.identity));
-            bool reuse_style = incremental && output.identity == d.identity && output.style == c.values &&
-                               previous_state != states.end() && previous_state->second.plans_valid &&
-                               previous_state->second.plans.empty() && previous_state->second.transitions.empty() &&
-                               previous_state->second.target == output.style &&
-                               previous_state->second.current == output.style;
-            if (reuse_style && parent) {
-                for (const auto k : inherited_properties) {
-                    const auto* inherited = parent->find(k);
-                    if (inherited && !specified(c, k) && output.style.text(k) != inherited->text()) {
-                        reuse_style = false;
-                        break;
-                    }
-                }
-            }
-            SceneNode out;
+        // An element's own scene values from its DOM node d, its computed style c and its parent's style: everything
+        // but its children, into out, which keeps the layout output of `before` (the element's last node, or an empty
+        // one) until layout runs again. Updates the element's state (transitions, animations, particles) at the
+        // frame's time, and the frame's work flags against before.
+        Built build_own(SceneNode& out, const SceneNode& last, const DomSnapshot& d, const ComputedStyle& c,
+                        const Style* parent) {
             // Layout outputs stay until layout runs again.
-            out.box = output.box;
-            out.lines = output.lines;
-            out.fragments = output.fragments;
+            out.box = last.box;
+            out.lines = last.lines;
+            out.fragments = last.fragments;
             out.identity = d.identity;
             out.tag = d.local_name;
             out.space = d.namespace_uri;
@@ -1314,11 +1284,7 @@ namespace weft {
             } else {
                 out.anchoring = *anchoring;
             }
-            if (reuse_style) {
-                out.style = std::move(output.style);
-            } else {
-                out.style = incremental ? c.values : expand(c.values, viewport);
-            }
+            out.style = incremental ? c.values : expand(c.values, viewport);
             if ((d.scroll_left != 0 || d.scroll_top != 0) && get(out.style, PropertyId::Overflow) == "auto") {
                 fail("scene scrolling outside supported non-overflowing auto profile");
             }
@@ -1566,15 +1532,6 @@ namespace weft {
                     fail("backdrop-filter on an SVG element inside svg");
                 }
             }
-            work.geometry_changed |= !scene_geometry_own_equal(output, out, reuse_style);
-            work.paint_changed |= output.identity != out.identity || output.tag != out.tag ||
-                                  output.space != out.space || output.text != out.text ||
-                                  output.attributes != out.attributes || (!reuse_style && output.style != out.style) ||
-                                  bool(output.paint) != bool(out.paint) ||
-                                  (output.paint && out.paint && output.paint->values != out.paint->values) ||
-                                  !scene_effect_equal(output.effect, out.effect) || output.particles != out.particles;
-            auto retained = std::move(output.children);
-            std::size_t ci{};
             // Text beside elements becomes #text children. In an inline formatting context (an element that is not
             // flex or grid, whose in-flow element children are all inline-level) every text node does, spaces too:
             // they collapse with their neighbours in the lines. Elsewhere spaces-only text between boxes goes.
@@ -1603,79 +1560,303 @@ namespace weft {
             if (mixed) {
                 out.text.clear();
             }
-            auto prior_child = [](const auto& children, NodeIdentity id,
-                                  std::size_t hint) -> const typename std::decay_t<decltype(children)>::value_type* {
-                if (hint < children.size() && children[hint].identity == id) {
-                    return &children[hint];
+            work.geometry_changed |= !scene_geometry_own_equal(last, out);
+            work.paint_changed |= last.identity != out.identity || last.tag != out.tag || last.space != out.space ||
+                                  last.text != out.text || last.attributes != out.attributes ||
+                                  last.style != out.style || bool(last.paint) != bool(out.paint) ||
+                                  (last.paint && out.paint && last.paint->values != out.paint->values) ||
+                                  !scene_effect_equal(last.effect, out.effect) || last.particles != out.particles;
+            return {shown, inline_context, mixed};
+        }
+
+        // Whether an element with mixed content shows text node t as a #text child.
+        static bool shows_text(const DomSnapshot& t, const Built& built) {
+            return built.mixed && t.type == constants::text_node_type &&
+                   (built.inline_context || !trim(t.data).empty());
+        }
+
+        // A text node an element with mixed content shows: anonymous inline text, of the element's inherited
+        // properties and initial others.
+        static SceneNode text_run(const DomSnapshot& t, const Style& style) {
+            SceneNode run;
+            run.identity = t.identity;
+            run.tag = "#text";
+            run.text = transformed(css::collapse_spaces(t.data), style);
+            for (const auto k : inherited_properties) {
+                if (const auto* v = style.find(k)) {
+                    run.style.set(k, *v);
                 }
-                for (const auto& value : children) {
-                    if (value.identity == id) {
-                        return &value;
-                    }
-                }
-                return nullptr;
-            };
-            // At most one scene child per DOM child. SceneNode's move may throw (std::map), so a reallocation
-            // would copy every subtree built so far.
+            }
+            run.style[PropertyId::Display] = "inline";
+            run.style[PropertyId::Position] = "static";
+            return run;
+        }
+
+        // Whether a b or strong element of no font-weight of its own takes the bold weight again after its children
+        // took the weight its animations gave it.
+        static bool bold_again(const SceneNode& out, const ComputedStyle& c) {
+            return out.style.contains(PropertyId::FontWeight) && (out.tag == "b" || out.tag == "strong") &&
+                   std::find(c.specified_properties.begin(), c.specified_properties.end(), "font-weight") ==
+                       c.specified_properties.end() &&
+                   out.style.text(PropertyId::FontWeight) != constants::scene::bold_font_weight;
+        }
+
+        // The full path: d's scene node anew into output (its last node, whose layout output it keeps).
+        void build_into(SceneNode& output, const DomSnapshot& d, const ComputedStyle& c,
+                        const Style* parent = nullptr) {
+            SceneNode out;
+            const auto own_built = build_own(out, output, d, c, parent);
+            const auto& prior = std::as_const(output.children);
+            // At most one scene child per DOM child.
             out.children.reserve(d.children.size());
             const bool hidden_before = hidden;
-            hidden = !shown;
-            std::size_t di{};
+            hidden = !own_built.shown;
+            std::size_t ci{};
             for (const auto& child : d.children) {
-                const auto dom_index = di++;
                 if (child.type == constants::element_node_type) {
-                    const DomSnapshot* od =
-                        old_dom ? prior_child(old_dom->children, child.identity, dom_index) : nullptr;
-                    const ComputedStyle* oc =
-                        old_computed ? prior_child(old_computed->children, child.identity, ci) : nullptr;
-                    const SceneNode* on =
-                        old_node ? prior_child(old_node->children, child.identity, out.children.size()) : nullptr;
-                    auto current_index = out.children.size();
-                    if (current_index >= retained.size() || retained[current_index].identity != child.identity) {
-                        current_index = 0;
-                        while (current_index < retained.size() && retained[current_index].identity != child.identity) {
-                            ++current_index;
-                        }
-                    }
-                    out.children.push_back(current_index < retained.size() ? std::move(retained[current_index])
-                                                                           : SceneNode{});
-                    build_into(out.children.back(), child, c.children.at(ci++), &out.style, od, oc, on,
-                               old_node ? &old_node->style : nullptr);
-                } else if (mixed && child.type == constants::text_node_type &&
-                           (inline_context || !trim(child.data).empty())) {
-                    // Anonymous inline text: the element's inherited properties and initial others.
-                    SceneNode run;
-                    run.identity = child.identity;
-                    run.tag = "#text";
-                    run.text = transformed(css::collapse_spaces(child.data), out.style);
-                    for (const auto k : inherited_properties) {
-                        if (const auto* v = out.style.find(k)) {
-                            run.style.set(k, *v);
-                        }
-                    }
-                    run.style[PropertyId::Display] = "inline";
-                    run.style[PropertyId::Position] = "static";
-                    out.children.push_back(std::move(run));
+                    const auto at = find_child(prior, child.identity, out.children.size());
+                    out.children.push_back(at < prior.size() ? prior[at] : SceneNode{});
+                    build_into(out.children.edit_back(), child, c.children.at(ci++), &out.style);
+                } else if (shows_text(child, own_built)) {
+                    out.children.push_back(text_run(child, out.style));
                 }
             }
             hidden = hidden_before;
-            if (out.style.contains(PropertyId::FontWeight) && (out.tag == "b" || out.tag == "strong") &&
-                std::find(c.specified_properties.begin(), c.specified_properties.end(), "font-weight") ==
-                    c.specified_properties.end()) {
+            if (bold_again(out, c)) {
                 out.style[PropertyId::FontWeight] = constants::scene::bold_font_weight;
             }
-            if (out.children.size() != retained.size()) {
+            if (out.children.size() != prior.size()) {
                 work.paint_changed = true;
                 work.geometry_changed = true;
             } else {
                 for (std::size_t n = 0; n < out.children.size(); ++n) {
-                    if (out.children[n].identity != retained[n].identity) {
+                    if (std::as_const(out.children)[n].identity != prior[n].identity) {
                         work.paint_changed = true;
                         work.geometry_changed = true;
                     }
                 }
             }
             output = std::move(out);
+        }
+
+        using Handle = std::shared_ptr<const SceneNode>;
+
+        // The index of the node of identity id among children, looked for at hint first; children.size() for none.
+        template <class Children>
+        static std::size_t find_child(const Children& children, NodeIdentity id, std::size_t hint) {
+            if (hint < children.size() && children[hint].identity == id) {
+                return hint;
+            }
+            for (std::size_t k = 0; k < children.size(); ++k) {
+                if (children[k].identity == id) {
+                    return k;
+                }
+            }
+            return children.size();
+        }
+
+        // Whether two copies of a DOM node hold the same values of its own for a scene build.
+        static bool same_dom_own(const DomSnapshot& a, const DomSnapshot& b) {
+            return a.local_name == b.local_name && a.namespace_uri == b.namespace_uri &&
+                   a.scroll_left == b.scroll_left && a.scroll_top == b.scroll_top && a.attributes == b.attributes;
+        }
+
+        // Whether two copies of a DOM node have the same children: the same nodes in the same order, and text of the
+        // same data.
+        static bool same_dom_children(const DomSnapshot& a, const DomSnapshot& b) {
+            if (a.children.size() != b.children.size()) {
+                return false;
+            }
+            for (std::size_t k = 0; k < a.children.size(); ++k) {
+                const auto& x = a.children[k];
+                const auto& y = b.children[k];
+                if (x.identity != y.identity || x.type != y.type ||
+                    (x.type != constants::element_node_type && x.data != y.data)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // Whether children inherit the same from two styles: the inherited properties.
+        static bool same_inherited(const Style& a, const Style& b) {
+            for (const auto k : inherited_properties) {
+                const auto* x = a.find(k);
+                const auto* y = b.find(k);
+                if (!x != !y || (x && !(*x == *y))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // Whether a laid-out node keeps its layout as its values change from a to b: the values layout reads.
+        static bool same_layout_own(const SceneNode& a, const SceneNode& b) {
+            if (a.identity != b.identity || a.tag != b.tag || a.space != b.space || a.text != b.text ||
+                !same_layout_style(a.style, b.style)) {
+                return false;
+            }
+            if (a.space == constants::svg_namespace_uri) {
+                for (const auto* key : {"width", "height", "viewBox"}) {
+                    if (get(a.attributes, key) != get(b.attributes, key)) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        // The elements of a subtree the update drops: their states go unless the update builds them elsewhere.
+        void drop(const SceneNode& n) {
+            if (n.tag != "#text") {
+                removed.push_back(identity(n.identity));
+            }
+            for (const auto& c : n.children) {
+                drop(c);
+            }
+        }
+
+        // The incremental path: d's scene node (an element) brought up to date from old, its node from the last
+        // update (null for none), od, the copy of d that update read, its computed style c and its parent's style.
+        // inherited: what its parent passes down changed; force: an ancestor started or stopped showing, so the
+        // subtree is built anew; in_svg: d lies inside an svg element, whose content layout does not see. The node is
+        // built again when anything it is made of changed (its DOM node and text children, its computed style or its
+        // element children's, what it inherits) or it follows the time; a child whose DOM subtree, computed styles and
+        // inheritance did not change and that holds nothing that follows the time keeps its storage, shared with old's.
+        // Returns old when nothing changed.
+        Handle refresh(const Handle& old, const DomSnapshot& d, const DomSnapshot* od, const ComputedStyle& c,
+                       const Style* parent, const SceneId& parent_id, bool inherited, bool force, bool in_svg) {
+            const auto id = identity(d.identity);
+            seen.insert(id);
+            auto& st = states[id];
+            st.parent = parent_id;
+            const bool fresh = !old || old->identity != d.identity || !od || od->identity != d.identity;
+            bool restyled_children{};
+            {
+                std::size_t k{};
+                for (const auto& child : d.children) {
+                    if (child.type == constants::element_node_type && c.children.at(k++).stamp > built) {
+                        restyled_children = true;
+                    }
+                }
+            }
+            const bool structure = fresh || !same_dom_children(d, *od);
+            const bool own = fresh || force || inherited || structure || restyled_children || c.stamp > built ||
+                             active.contains(id) || pending.contains(id) || !same_dom_own(d, *od);
+            SceneNode n = fresh ? SceneNode{} : *old;
+            // The style the children inherit from, before and after.
+            const Style* before = fresh ? nullptr : st.children_style ? &*st.children_style : &old->style;
+            Built built_now{st.shown, false, false};
+            bool own_changed = fresh;
+            bool inherit = fresh;
+            bool force_children = force;
+            if (own) {
+                SceneNode out;
+                const bool animated_before = animated;
+                animated = false;
+                built_now = build_own(out, n, d, c, parent);
+                if (animated) {
+                    next_active.insert(id);
+                }
+                animated = animated || animated_before;
+                // The children inherit the style before bold_again.
+                std::optional<Style> pre;
+                if (bold_again(out, c)) {
+                    pre = out.style;
+                    out.style[PropertyId::FontWeight] = constants::scene::bold_font_weight;
+                }
+                if (!in_svg) {
+                    layout_dirty = layout_dirty || fresh || !same_layout_own(n, out);
+                }
+                own_changed = own_changed || !scene_own_equal(n, out);
+                force_children = force || (!fresh && st.shown != built_now.shown);
+                st.shown = built_now.shown;
+                inherit = inherit || !before || !same_inherited(*before, pre ? *pre : out.style);
+                out.children = std::move(n.children);
+                n = std::move(out);
+                st.children_style = std::move(pre);
+            }
+            const Style& child_parent = st.children_style ? *st.children_style : n.style;
+            const auto& prior = std::as_const(n.children);
+            SceneChildren next;
+            next.reserve(d.children.size());
+            bool handles_changed{};
+            const bool hidden_before = hidden;
+            hidden = !built_now.shown;
+            const bool svg_inside = in_svg || n.space == constants::svg_namespace_uri;
+            std::size_t ci{};
+            std::size_t old_hint{};
+            for (const auto& child : d.children) {
+                if (child.type == constants::element_node_type) {
+                    const auto& cc = c.children.at(ci++);
+                    const auto at = fresh ? prior.size() : find_child(prior, child.identity, next.size());
+                    const Handle kept = at < prior.size() ? prior.handle(at) : nullptr;
+                    const DomSnapshot* odc{};
+                    if (od) {
+                        const auto k = find_child(od->children, child.identity, old_hint);
+                        if (k < od->children.size()) {
+                            odc = &od->children[k];
+                            old_hint = k + 1;
+                        }
+                    }
+                    Handle h;
+                    if (kept && !inherit && !force_children && odc && child.revision != 0 &&
+                        odc->revision == child.revision && cc.subtree_stamp <= built &&
+                        !marked.contains(identity(child.identity))) {
+                        ++work.static_subtree_reuses;
+                        h = kept;
+                    } else {
+                        h = refresh(kept, child, odc, cc, &child_parent, id, inherit, force_children, svg_inside);
+                    }
+                    handles_changed = handles_changed || h != kept;
+                    next.push_back(std::move(h));
+                } else if (own) {
+                    if (shows_text(child, built_now)) {
+                        auto run = text_run(child, child_parent);
+                        const auto at = find_child(prior, child.identity, next.size());
+                        if (at < prior.size() && prior[at] == run) {
+                            next.push_back(prior.handle(at));
+                        } else {
+                            if (!in_svg) {
+                                layout_dirty = true;
+                            }
+                            handles_changed = true;
+                            next.push_back(std::move(run));
+                        }
+                    }
+                } else if (child.type == constants::text_node_type) {
+                    // Kept: the text nodes and what their parent gives them did not change.
+                    const auto at = find_child(prior, child.identity, next.size());
+                    if (at < prior.size()) {
+                        next.push_back(prior.handle(at));
+                    }
+                }
+            }
+            hidden = hidden_before;
+            // Children that went: their elements' states go unless built elsewhere; a new order is new content.
+            const auto& built_children = std::as_const(next);
+            bool same_order = built_children.size() == prior.size();
+            for (std::size_t k = 0; same_order && k < built_children.size(); ++k) {
+                same_order = built_children[k].identity == prior[k].identity;
+            }
+            if (!same_order) {
+                work.paint_changed = true;
+                work.geometry_changed = true;
+                handles_changed = true;
+                if (!svg_inside) {
+                    layout_dirty = true;
+                }
+                for (std::size_t k = 0; k < prior.size(); ++k) {
+                    if (find_child(built_children, prior[k].identity, k) == built_children.size()) {
+                        drop(prior[k]);
+                    }
+                }
+            }
+            if (!own_changed && !handles_changed) {
+                return old;
+            }
+            n.children = std::move(next);
+            return std::make_shared<const SceneNode>(std::move(n));
         }
 
         // The element's particles at the frame (SceneSolver::set_particles): its -weft-particles stream started,
@@ -1790,7 +1971,7 @@ namespace weft {
         // Places the flights of the bursts that started at the laid out frame f: a target element's centre, or a
         // point, in the emitting element's border box px. A burst whose target the frame does not show (absent, or
         // display: none), or whose element maps the plane to a line, flies nowhere.
-        void place_flights(SceneFrame& f) {
+        void place_flights(SceneNode& root) {
             std::set<SceneId> wanted(flights.begin(), flights.end());
             for (const auto& id : flights) {
                 for (const auto& e : states.at(id).emissions) {
@@ -1801,13 +1982,16 @@ namespace weft {
             }
 
             struct Placed {
-                SceneNode* node{};
+                const SceneNode* node{};
                 ScenePlane plane;
+                // The child indices from the root down to the node.
+                std::vector<std::size_t> path;
             };
 
             std::map<SceneId, Placed> found;
+            std::vector<std::size_t> path;
             // Each element's border box px to the viewport, as SceneGeometry maps them.
-            const auto walk = [&](auto&& self, SceneNode& n, const ScenePlane& parent) -> void {
+            const auto walk = [&](auto&& self, const SceneNode& n, const ScenePlane& parent) -> void {
                 if (n.tag == "#text" || get(n.style, PropertyId::Display) == "none") {
                     return;
                 }
@@ -1815,16 +1999,27 @@ namespace weft {
                     parent *
                     (n.fragments.empty() ? scene_plane(n) : affine_plane(SceneAffine::translation(n.box[0], n.box[1])));
                 if (const auto id = identity(n.identity); wanted.contains(id)) {
-                    found[id] = {&n, plane};
+                    found[id] = {&n, plane, path};
                 }
                 if (n.space == constants::svg_namespace_uri) {
                     return;
                 }
-                for (auto& c : n.children) {
-                    self(self, c, plane);
+                for (std::size_t k = 0; k < n.children.size(); ++k) {
+                    path.push_back(k);
+                    self(self, n.children[k], plane);
+                    path.pop_back();
                 }
             };
-            walk(walk, f.root, ScenePlane{});
+            walk(walk, std::as_const(root), ScenePlane{});
+
+            // Where each burst flies, in its element's px; written once every target is read.
+            struct Flight {
+                const std::vector<std::size_t>* path{};
+                std::size_t emission{};
+                std::array<float, 2> local{};
+            };
+
+            std::vector<Flight> placed;
             for (const auto& id : flights) {
                 const auto emitter = found.find(id);
                 ScenePlane inverse;
@@ -1850,11 +2045,148 @@ namespace weft {
                     if (std::abs(local[0]) <= constants::max_logical_px_magnitude &&
                         std::abs(local[1]) <= constants::max_logical_px_magnitude) {
                         e.local = std::array<float, 2>{float(local[0]), float(local[1])};
-                        emitter->second.node->particles.at(k).emission.target = e.local;
+                        placed.push_back({&emitter->second.path, k, *e.local});
                     }
                 }
             }
+            // Only the paths to the emitters change.
+            for (const auto& flight : placed) {
+                SceneNode* node = &root;
+                for (const auto k : *flight.path) {
+                    node = &node->children.edit(k);
+                }
+                node->particles.at(flight.emission).emission.target = flight.local;
+            }
             flights.clear();
+        }
+
+        // The incremental update (SceneSolver::update): the cascade and the expansion from the last document, the
+        // scene built where its input changed, layout where what it reads changed, and f given the scene, which
+        // shares its unchanged subtrees with the last frame's.
+        template <class Clock>
+        void update_incremental(const DomSnapshot& d, SceneFrame& f, float w, float h, double time, bool viewport_moved,
+                                const Clock& clock) {
+            const auto ms = [](auto a, auto b) {
+                return std::chrono::duration<double, std::milli>(b - a).count();
+            };
+            const auto style_start = clock();
+            try {
+                ++stamp;
+                const bool input_changed = compiled->refresh_input(d, style_input);
+                if (input_changed || viewport_moved || !computed) {
+                    if (!cascade) {
+                        cascade.emplace();
+                    }
+                    if (!computed) {
+                        computed.emplace();
+                    }
+                    if (input_changed) {
+                        compiled->update(d, previous_dom ? &*previous_dom : nullptr, *cascade, style_memo, stamp);
+                    }
+                    expand_into(*cascade, *computed, viewport_moved);
+                    expanded = stamp;
+                    expanded_viewport = viewport;
+                    ++work.style_evaluations;
+                } else {
+                    ++work.style_reuses;
+                }
+                const auto build_start = clock();
+                work.style_ms += ms(style_start, build_start);
+                // The ancestors of elements that follow the time or have bursts are built though their DOM did not
+                // change.
+                marked.clear();
+                const auto mark = [&](SceneId id) {
+                    while (marked.insert(id).second) {
+                        const auto it = states.find(id);
+                        if (it == states.end() || it->second.parent == SceneId{}) {
+                            return;
+                        }
+                        id = it->second.parent;
+                    }
+                };
+                for (const auto& id : active) {
+                    mark(id);
+                }
+                for (const auto& [id, bursts] : pending) {
+                    mark(id);
+                }
+                next_active.clear();
+                seen.clear();
+                removed.clear();
+                layout_dirty = false;
+                auto root = retained;
+                const bool kept = root && previous_dom && previous_dom->identity == d.identity && d.revision != 0 &&
+                                  previous_dom->revision == d.revision && computed->subtree_stamp <= built &&
+                                  !marked.contains(identity(d.identity));
+                if (kept) {
+                    ++work.static_subtree_reuses;
+                } else {
+                    root = refresh(retained, d, previous_dom ? &*previous_dom : nullptr, *computed, nullptr, SceneId{},
+                                   false, false, false);
+                }
+                // Bursts on elements the frame did not show are dropped.
+                pending.clear();
+                pending_count = 0;
+                if (frame_particles > constants::scene::max_particles_per_frame) {
+                    fail("particles: " + std::to_string(frame_particles) + " in a frame, more than " +
+                         std::to_string(constants::scene::max_particles_per_frame));
+                }
+                for (const auto& id : removed) {
+                    if (!seen.contains(id)) {
+                        states.erase(id);
+                    }
+                }
+                active = std::move(next_active);
+                next_active.clear();
+                const auto layout_start = clock();
+                work.build_ms += ms(build_start, layout_start);
+                const bool layout = !retained || layout_dirty || w != previous_width || h != previous_height;
+                if (layout) {
+                    work.geometry_changed = work.paint_changed = true;
+                    SceneNode laid_root = *root;
+                    layout_frame(laid_root, w, h, retained_elements);
+                    root = std::make_shared<const SceneNode>(std::move(laid_root));
+                    ++work.layout_evaluations;
+                } else {
+                    ++work.layout_reuses;
+                }
+                if (!flights.empty()) {
+                    SceneNode placed = *root;
+                    place_flights(placed);
+                    root = std::make_shared<const SceneNode>(std::move(placed));
+                }
+                retained = std::move(root);
+                built = stamp;
+                if (previous_dom) {
+                    dom::update_copy(*previous_dom, d);
+                } else {
+                    previous_dom = d;
+                }
+                f.root = *retained;
+                // f holds the last frame's element geometry unless it is another frame.
+                if (layout || f.revision != revision || !revision) {
+                    f.elements = retained_elements;
+                }
+                f.time_ms = time;
+                f.animated = animated;
+                previous_width = w;
+                previous_height = h;
+                // Content that did not change keeps its revision.
+                if (!revision || work.paint_changed || work.geometry_changed || animated) {
+                    revision = next_revision.fetch_add(1, std::memory_order_relaxed);
+                }
+                f.revision = revision;
+                work.layout_ms += ms(layout_start, clock());
+            } catch (...) {
+                // The next update starts anew.
+                cascade.reset();
+                computed.reset();
+                style_input = {};
+                previous_dom.reset();
+                retained.reset();
+                built = expanded = 0;
+                throw;
+            }
         }
 
         // viewBox width over height; NaN when the viewBox is not four numbers with a positive size.
@@ -1878,7 +2210,7 @@ namespace weft {
         // its content in its own coordinates.
         struct LayoutRun {
             struct Context {
-                SceneNode* root{};
+                const SceneNode* root{};
                 bool anonymous{};
                 std::unique_ptr<SceneInlineContent> content;
                 // Layouts by available width, the most recent last.
@@ -1887,7 +2219,7 @@ namespace weft {
 
             std::vector<LayoutBox> boxes;
             // The node of each box; null for an anonymous block.
-            std::vector<SceneNode*> targets;
+            std::vector<const SceneNode*> targets;
             std::map<std::size_t, Context> contexts;
             // Fixed boxes, laid out as absolute ones in their containing block (with these styles) and then placed in
             // their parent's coordinates: each box with its parent's.
@@ -1920,20 +2252,74 @@ namespace weft {
             return p == "absolute" || p == "fixed";
         }
 
+        // Layout output by node while a frame is laid out: the tree stays as it is until layout_frame writes what
+        // changed (apply_layout), so subtrees whose layout did not change keep their storage. A node layout does not
+        // reach keeps its own.
+        struct LaidOut {
+            std::array<float, 4> box{};
+            std::vector<SceneLine> lines;
+            std::vector<SceneFragment> fragments;
+        };
+
+        std::unordered_map<const SceneNode*, LaidOut> laid;
+
+        // The output layout writes for n, starting from n's own.
+        LaidOut& laid_out(const SceneNode& n) {
+            auto [it, fresh] = laid.try_emplace(&n);
+            if (fresh) {
+                it->second = {n.box, n.lines, n.fragments};
+            }
+            return it->second;
+        }
+
+        const std::array<float, 4>& box_of(const SceneNode& n) const {
+            const auto it = laid.find(&n);
+            return it == laid.end() ? n.box : it->second.box;
+        }
+
         // Clears the layout of a subtree whose boxes the lines of an inline formatting context place.
-        static void clear_layout(SceneNode& n) {
-            n.box = {};
-            n.lines.clear();
-            n.fragments.clear();
-            for (auto& c : n.children) {
+        void clear_layout(const SceneNode& n) {
+            auto& out = laid[&n];
+            out.box = {};
+            out.lines.clear();
+            out.fragments.clear();
+            for (const auto& c : n.children) {
                 clear_layout(c);
             }
         }
 
+        // n with the layout's output written: n itself when nothing in its subtree changed.
+        Handle apply_layout(const Handle& node) {
+            const auto& n = *node;
+            const auto it = laid.find(&n);
+            const bool own = it != laid.end() && (it->second.box != n.box || it->second.lines != n.lines ||
+                                                  it->second.fragments != n.fragments);
+            std::vector<std::pair<std::size_t, Handle>> changed;
+            for (std::size_t k = 0; k < n.children.size(); ++k) {
+                const auto child = n.children.handle(k);
+                if (auto laid_child = apply_layout(child); laid_child != child) {
+                    changed.emplace_back(k, std::move(laid_child));
+                }
+            }
+            if (!own && changed.empty()) {
+                return node;
+            }
+            auto copy = std::make_shared<SceneNode>(n);
+            if (own) {
+                copy->box = it->second.box;
+                copy->lines = std::move(it->second.lines);
+                copy->fragments = std::move(it->second.fragments);
+            }
+            for (auto& [k, child] : changed) {
+                copy->children.set(k, std::move(child));
+            }
+            return copy;
+        }
+
         // `fixed_block` is the box of the containing block of fixed boxes here: the run's top when it is the scene's
         // root (the viewport), or the nearest box with a transform; none inside an inline-block without one.
-        static void collect_boxes(SceneNode& n, std::size_t parent, LayoutRun& run,
-                                  std::optional<std::size_t> fixed_block) {
+        void collect_boxes(const SceneNode& n, std::size_t parent, LayoutRun& run,
+                           std::optional<std::size_t> fixed_block) {
             bool dashed{};
             for (std::size_t side = 0; side < border_style_edges.size(); ++side) {
                 const auto style = n.style.text(border_style_edges[side], "solid");
@@ -1958,8 +2344,11 @@ namespace weft {
                 truncation != "clip" && truncation != "ellipsis") {
                 fail("unsupported scene value text-overflow:" + std::string(truncation));
             }
-            n.lines.clear();
-            n.fragments.clear();
+            {
+                auto& out = laid_out(n);
+                out.lines.clear();
+                out.fragments.clear();
+            }
             const auto index = run.boxes.size();
             LayoutBox box;
             box.style = &n.style;
@@ -2021,7 +2410,7 @@ namespace weft {
                 run.boxes.push_back(anonymous);
                 run.targets.push_back(nullptr);
                 // Positioned children stay boxes of the element; the lines place the others.
-                for (auto& c : n.children) {
+                for (const auto& c : n.children) {
                     if (out_of_flow(c) && c.style.text(PropertyId::Display) != "none") {
                         collect_boxes(c, index, run, inner_block);
                     } else {
@@ -2030,7 +2419,7 @@ namespace weft {
                 }
                 return;
             }
-            for (auto& c : n.children) {
+            for (const auto& c : n.children) {
                 collect_boxes(c, index, run, inner_block);
             }
         }
@@ -2144,7 +2533,7 @@ namespace weft {
                 for (const auto& c : n.children) {
                     if (in_flow(c)) {
                         const auto b = baseline_of(c);
-                        return b ? std::optional<float>(c.box[1] + *b) : std::nullopt;
+                        return b ? std::optional<float>(box_of(c)[1] + *b) : std::nullopt;
                     }
                 }
                 return std::nullopt;
@@ -2152,7 +2541,7 @@ namespace weft {
             for (auto c = n.children.rbegin(); c != n.children.rend(); ++c) {
                 if (in_flow(*c)) {
                     if (const auto b = baseline_of(*c)) {
-                        return c->box[1] + *b;
+                        return box_of(*c)[1] + *b;
                     }
                 }
             }
@@ -2161,7 +2550,7 @@ namespace weft {
 
         // Lays out an atomic inline's subtree, shrunk to fit the available width, and returns its extents; its box
         // is placed later.
-        SceneAtomicExtent lay_out_atomic(SceneNode& node, float available) {
+        SceneAtomicExtent lay_out_atomic(const SceneNode& node, float available) {
             SceneAtomicExtent e;
             const float base = std::isfinite(available) ? available : 0;
             e.margin = {edge_length(node.style, PropertyId::MarginTop, base),
@@ -2173,15 +2562,15 @@ namespace weft {
                 options.fit_width = available;
             }
             layout_run(node, options);
-            e.width = node.box[2];
-            e.height = node.box[3];
+            e.width = box_of(node)[2];
+            e.height = box_of(node)[3];
             // Without lines, the bottom margin edge.
             e.baseline = baseline_of(node).value_or(e.height + e.margin[2]);
             return e;
         }
 
-        SceneAtomicExtent atomic_extent(SceneNode& node, float available) {
-            const auto key = std::pair{static_cast<const SceneNode*>(&node), available};
+        SceneAtomicExtent atomic_extent(const SceneNode& node, float available) {
+            const auto key = std::pair{&node, available};
             if (const auto it = atomic_memo.find(key); it != atomic_memo.end()) {
                 return it->second;
             }
@@ -2193,7 +2582,8 @@ namespace weft {
         // Places a context's lines at its final width: text lines on their owners, inline box fragments, atomic
         // inlines (laid out again at that width), and each node's box around its pieces, relative to its parent.
         // origin is the top left of the content box in root's border box.
-        void place(SceneNode& root, const SceneInlineLayout& layout, std::array<float, 2> origin, float available) {
+        void place(const SceneNode& root, const SceneInlineLayout& layout, std::array<float, 2> origin,
+                   float available) {
             struct Bounds {
                 float left = std::numeric_limits<float>::infinity();
                 float top = std::numeric_limits<float>::infinity();
@@ -2217,7 +2607,7 @@ namespace weft {
                     case SceneInlinePiece::Kind::Text:
                         // Text that text-overflow hides is a line without text: it draws nothing but keeps its place.
                         if (p.node == &root) {
-                            root.lines.push_back({p.text, r, p.baseline});
+                            laid_out(root).lines.push_back({p.text, r, p.baseline});
                         } else {
                             lines[p.node].push_back({p.text, r, p.baseline});
                             // An inline element's box is its fragments'; a text node's its lines'.
@@ -2231,13 +2621,13 @@ namespace weft {
                         bounds[p.node].add(r);
                         break;
                     case SceneInlinePiece::Kind::Atomic:
-                        lay_out_atomic(const_cast<SceneNode&>(*p.node), available);
+                        lay_out_atomic(*p.node, available);
                         bounds[p.node].add(r);
                         break;
                 }
             }
-            const auto assign = [&](auto&& self, SceneNode& parent, float px, float py) -> void {
-                for (auto& c : parent.children) {
+            const auto assign = [&](auto&& self, const SceneNode& parent, float px, float py) -> void {
+                for (const auto& c : parent.children) {
                     if (c.style.text(PropertyId::Display) == "none" || (&parent == &root && out_of_flow(c))) {
                         continue;
                     }
@@ -2247,24 +2637,25 @@ namespace weft {
                         at = {b->second.left, b->second.top, b->second.right - b->second.left,
                               b->second.bottom - b->second.top};
                     }
+                    auto& out = laid_out(c);
                     if (scene_atomic_inline(c)) {
-                        c.box[0] = at[0] - px;
-                        c.box[1] = at[1] - py;
+                        out.box[0] = at[0] - px;
+                        out.box[1] = at[1] - py;
                         continue;
                     }
-                    c.box = {at[0] - px, at[1] - py, at[2], at[3]};
+                    out.box = {at[0] - px, at[1] - py, at[2], at[3]};
                     if (const auto l = lines.find(&c); l != lines.end()) {
                         for (auto line : l->second) {
                             line.rect[0] -= at[0];
                             line.rect[1] -= at[1];
-                            c.lines.push_back(std::move(line));
+                            out.lines.push_back(std::move(line));
                         }
                     }
                     if (const auto f = fragments.find(&c); f != fragments.end()) {
                         for (auto fragment : f->second) {
                             fragment.rect[0] -= at[0];
                             fragment.rect[1] -= at[1];
-                            c.fragments.push_back(fragment);
+                            out.fragments.push_back(fragment);
                         }
                     }
                     // A relatively positioned inline element moves with its content.
@@ -2272,10 +2663,10 @@ namespace weft {
                         const auto left = c.style.text(PropertyId::Left, "auto");
                         const auto top = c.style.text(PropertyId::Top, "auto");
                         if (left != "auto") {
-                            c.box[0] += edge_length(c.style, PropertyId::Left, available);
+                            out.box[0] += edge_length(c.style, PropertyId::Left, available);
                         }
                         if (top != "auto") {
-                            c.box[1] += edge_length(c.style, PropertyId::Top, available);
+                            out.box[1] += edge_length(c.style, PropertyId::Top, available);
                         }
                     }
                     self(self, c, at[0], at[1]);
@@ -2286,11 +2677,11 @@ namespace weft {
 
         // Lays out the subtree of `top` and writes the boxes, lines and fragments of its nodes; options size `top`.
         // `scene_root`: top is the scene's root, the containing block of fixed boxes without a transformed ancestor.
-        void layout_run(SceneNode& top, const LayoutOptions& options, bool scene_root = false) {
+        void layout_run(const SceneNode& top, const LayoutOptions& options, bool scene_root = false) {
             LayoutRun run;
             collect_boxes(top, LayoutBox::root, run, scene_root ? std::optional<std::size_t>(0) : std::nullopt);
             const auto atomic = [&](const SceneNode& node, float available) {
-                return atomic_extent(const_cast<SceneNode&>(node), available);
+                return atomic_extent(node, available);
             };
             const auto content = [&](std::size_t i) -> LayoutRun::Context& {
                 auto& c = run.contexts.at(i);
@@ -2324,20 +2715,21 @@ namespace weft {
             };
             const auto geometry = layout_boxes(run.boxes, {lines, min_content, wraps}, options);
             for (std::size_t i = 0; i < run.boxes.size(); ++i) {
-                if (auto* n = run.targets[i]) {
+                if (const auto* n = run.targets[i]) {
                     const auto& g = geometry[i];
-                    n->box = {g.left, g.top, g.width, g.height};
+                    laid_out(*n).box = {g.left, g.top, g.width, g.height};
                 }
             }
             // Fixed boxes in their parent's coordinates: no box between them and their containing block has a
             // transform.
             for (const auto& [i, parent] : run.fixed) {
-                run.targets[i]->box[0] = geometry[i].x - geometry[parent].x;
-                run.targets[i]->box[1] = geometry[i].y - geometry[parent].y;
+                auto& box = laid_out(*run.targets[i]).box;
+                box[0] = geometry[i].x - geometry[parent].x;
+                box[1] = geometry[i].y - geometry[parent].y;
             }
             constexpr float unbounded = std::numeric_limits<float>::infinity();
             for (auto& [i, c] : run.contexts) {
-                auto& root = *c.root;
+                const auto& root = *c.root;
                 std::array<float, 2> origin{};
                 float available{};
                 float shift_x{};
@@ -2347,7 +2739,8 @@ namespace weft {
                     available = geometry[i].width;
                 } else {
                     const auto& s = root.style;
-                    const float base = root.box[2];
+                    const auto& root_box = box_of(root);
+                    const float base = root_box[2];
                     const float left = edge_length(s, PropertyId::BorderLeftWidth, base) +
                                        edge_length(s, PropertyId::PaddingLeft, base);
                     const float right = edge_length(s, PropertyId::BorderRightWidth, base) +
@@ -2357,14 +2750,14 @@ namespace weft {
                     const float bottom = edge_length(s, PropertyId::BorderBottomWidth, base) +
                                          edge_length(s, PropertyId::PaddingBottom, base);
                     origin = {left, over};
-                    available = std::max(0.f, root.box[2] - left - right);
+                    available = std::max(0.f, root_box[2] - left - right);
                     const auto d = s.text(PropertyId::Display, "block");
                     if (d == "flex" || d == "inline-flex") {
                         // The text is an anonymous flex item: as wide as its widest line up to the content box,
                         // placed by justify-content and align-items.
                         available = std::min(available, at(i, unbounded).width);
-                        const float free_x = std::max(0.f, root.box[2] - left - right) - available;
-                        const float free_y = std::max(0.f, root.box[3] - over - bottom) - at(i, available).height;
+                        const float free_x = std::max(0.f, root_box[2] - left - right) - available;
+                        const float free_y = std::max(0.f, root_box[3] - over - bottom) - at(i, available).height;
                         const auto justify = s.text(PropertyId::JustifyContent, "flex-start");
                         const auto align = s.text(PropertyId::AlignItems, "stretch");
                         shift_x = justify == "center"                         ? free_x / 2
@@ -2429,19 +2822,38 @@ namespace weft {
             }
         }
 
-        // Lays out the frame in the viewport: parent-local boxes, lines and fragments on the scene nodes, and element
-        // geometry in tree order.
-        void layout_frame(SceneFrame& f, float w, float h) {
+        // Lays out the scene's root in the viewport: parent-local boxes, lines and fragments on the scene nodes,
+        // written where they changed, and element geometry in tree order.
+        void layout_frame(SceneNode& root, float w, float h, std::vector<ElementGeometry>& elements) {
             atomic_memo.clear();
             context_baselines.clear();
+            laid.clear();
             LayoutOptions options;
             options.viewport = std::array{w, h};
-            layout_run(f.root, options, true);
+            try {
+                layout_run(root, options, true);
+                if (const auto it = laid.find(&root); it != laid.end()) {
+                    root.box = it->second.box;
+                    root.lines = std::move(it->second.lines);
+                    root.fragments = std::move(it->second.fragments);
+                }
+                for (std::size_t k = 0; k < root.children.size(); ++k) {
+                    const auto child = std::as_const(root.children).handle(k);
+                    if (auto laid_child = apply_layout(child); laid_child != child) {
+                        root.children.set(k, std::move(laid_child));
+                    }
+                }
+            } catch (...) {
+                laid.clear();
+                throw;
+            }
+            laid.clear();
+            context_baselines.clear();
             std::vector<std::array<float, 4>> clips;
-            check_fixed_clips(f.root, {0, 0}, clips, {0, 0, w, h});
+            check_fixed_clips(root, {0, 0}, clips, {0, 0, w, h});
             atomic_memo.clear();
-            f.elements.clear();
-            list_elements(f.root, 0, 0, f.elements);
+            elements.clear();
+            list_elements(root, 0, 0, elements);
         }
     };
 
@@ -2514,152 +2926,6 @@ namespace weft {
             }
         }
 
-        bool same_layout(const SceneNode& a, const SceneNode& b) {
-            if (a.identity != b.identity || a.tag != b.tag || a.space != b.space || a.text != b.text ||
-                !same_layout_style(a.style, b.style)) {
-                return false;
-            }
-            if (a.space == constants::svg_namespace_uri) {
-                for (const auto* key : {"width", "height", "viewBox"}) {
-                    if (get(a.attributes, key) != get(b.attributes, key)) {
-                        return false;
-                    }
-                }
-                return true;
-            }
-            if (a.children.size() != b.children.size()) {
-                return false;
-            }
-            for (std::size_t i = 0; i < a.children.size(); ++i) {
-                if (!same_layout(a.children[i], b.children[i])) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        void copy_boxes(SceneNode& a, const SceneNode& b) {
-            a.box = b.box;
-            a.lines = b.lines;
-            a.fragments = b.fragments;
-            if (a.space != constants::svg_namespace_uri) {
-                for (std::size_t i = 0; i < a.children.size(); ++i) {
-                    copy_boxes(a.children[i], b.children[i]);
-                }
-            }
-        }
-
-        // Whether the build took `from` whole from `to`.
-        template <class T>
-        bool taken_from(const Reused<T>& reused, const T& from, const T& to) {
-            const auto it = std::lower_bound(reused.begin(), reused.end(), &from, [](const auto& entry, const T* key) {
-                return std::less<const T*>{}(entry.first, key);
-            });
-            return it != reused.end() && it->first == &from && it->second == &to;
-        }
-
-        template <class T>
-        void sort_reused(Reused<T>& reused) {
-            std::sort(reused.begin(), reused.end(), [](const auto& a, const auto& b) {
-                return std::less<const T*>{}(a.first, b.first);
-            });
-        }
-
-        template <class T>
-        void assign_changed(T& to, const T& from) {
-            if (!(to == from)) {
-                to = from;
-            }
-        }
-
-        // Brings to.children in line with from.children. Children match one to one by identity; `follow` brings each
-        // matched child up to date where it is, before any child moves, and a child new to this parent is copied.
-        template <class T, class Follow>
-        void follow_children(T& to, const T& from, const Follow& follow) {
-            const auto count = from.children.size();
-            if (to.children.size() == count &&
-                std::equal(from.children.begin(), from.children.end(), to.children.begin(), [](const T& a, const T& b) {
-                    return a.identity == b.identity;
-                })) {
-                for (std::size_t i = 0; i < count; ++i) {
-                    follow(to.children[i], from.children[i]);
-                }
-                return;
-            }
-            std::vector<bool> taken(to.children.size());
-            std::vector<T*> matched(count);
-            for (std::size_t i = 0; i < count; ++i) {
-                const auto& id = from.children[i].identity;
-                auto j = i;
-                if (j >= to.children.size() || taken[j] || to.children[j].identity != id) {
-                    j = 0;
-                    while (j < to.children.size() && (taken[j] || to.children[j].identity != id)) {
-                        ++j;
-                    }
-                }
-                if (j < to.children.size()) {
-                    taken[j] = true;
-                    matched[i] = &to.children[j];
-                    follow(*matched[i], from.children[i]);
-                }
-            }
-            std::vector<T> children;
-            children.reserve(count);
-            for (std::size_t i = 0; i < count; ++i) {
-                if (matched[i]) {
-                    children.push_back(std::move(*matched[i]));
-                } else {
-                    children.push_back(from.children[i]);
-                }
-            }
-            to.children = std::move(children);
-        }
-
-        // Makes the previous frame's node `to` equal the built node `from`. Where the build took `from` whole from
-        // `to`, only the boxes layout wrote can differ.
-        void follow(SceneNode& to, const SceneNode& from, const Reused<SceneNode>& reused) {
-            if (taken_from(reused, from, to)) {
-                copy_boxes(to, from);
-                return;
-            }
-            to.identity = from.identity;
-            assign_changed(to.tag, from.tag);
-            assign_changed(to.space, from.space);
-            assign_changed(to.text, from.text);
-            assign_changed(to.attributes, from.attributes);
-            assign_changed(to.style, from.style);
-            to.box = from.box;
-            assign_changed(to.lines, from.lines);
-            assign_changed(to.fragments, from.fragments);
-            if (bool(to.paint) != bool(from.paint) || (to.paint && to.paint->values != from.paint->values)) {
-                to.paint = from.paint;
-            }
-            if (!scene_effect_equal(to.effect, from.effect)) {
-                to.effect = from.effect;
-            }
-            if (to.particles != from.particles) {
-                to.particles = from.particles;
-            }
-            follow_children(to, from, [&](SceneNode& a, const SceneNode& b) {
-                follow(a, b, reused);
-            });
-        }
-
-        // Makes the previous computed style `to` equal `from`; where the build took `from` whole, they are equal.
-        void follow(ComputedStyle& to, const ComputedStyle& from, const Reused<ComputedStyle>& reused) {
-            if (taken_from(reused, from, to)) {
-                return;
-            }
-            to.identity = from.identity;
-            assign_changed(to.local_name, from.local_name);
-            assign_changed(to.values, from.values);
-            assign_changed(to.custom_properties, from.custom_properties);
-            assign_changed(to.invalid_at_computed_value, from.invalid_at_computed_value);
-            assign_changed(to.specified_properties, from.specified_properties);
-            follow_children(to, from, [&](ComputedStyle& a, const ComputedStyle& b) {
-                follow(a, b, reused);
-            });
-        }
     } // namespace
 
     SceneSolver::Work SceneSolver::work() const {
@@ -2728,11 +2994,15 @@ namespace weft {
         impl_->style_input = {};
         impl_->cascade.reset();
         impl_->computed.reset();
-        impl_->previous.reset();
         impl_->previous_dom.reset();
-        impl_->previous_computed.reset();
-        impl_->reused_nodes.clear();
-        impl_->reused_styles.clear();
+        impl_->retained.reset();
+        impl_->retained_elements.clear();
+        impl_->built = impl_->expanded = 0;
+        impl_->active.clear();
+        impl_->next_active.clear();
+        impl_->marked.clear();
+        impl_->seen.clear();
+        impl_->removed.clear();
         impl_->work = {};
         impl_->now = -1;
     }
@@ -2776,44 +3046,17 @@ namespace weft {
                 }
             }
         }
-        const bool input_changed = !i.incremental || i.compiled->refresh_input(d, i.style_input);
-        if (input_changed || viewport_moved) {
-            if (i.incremental) {
-                if (!i.cascade) {
-                    i.cascade.emplace();
-                }
-                if (!i.computed) {
-                    i.computed.emplace();
-                }
-                try {
-                    if (input_changed) {
-                        std::vector<NodeIdentity> changed;
-                        i.compiled->update(d, *i.cascade, i.style_memo, &changed);
-                        for (auto id : changed) {
-                            i.states[identity(id)].expand_dirty = true;
-                        }
-                    }
-                    i.expand_into(*i.cascade, *i.computed);
-                    i.expanded_viewport = i.viewport;
-                } catch (...) {
-                    i.cascade.reset();
-                    i.computed.reset();
-                    i.style_input = {};
-                    throw;
-                }
-            } else {
-                i.computed = compute_style(d, i.sheet, scene_style_profile());
-            }
-            ++i.work.style_evaluations;
-        } else {
-            ++i.work.style_reuses;
+        if (i.incremental) {
+            i.update_incremental(d, f, w, h, time, viewport_moved, [&] {
+                return clock();
+            });
+            return;
         }
+        i.computed = compute_style(d, i.sheet, scene_style_profile());
+        ++i.work.style_evaluations;
         const auto build_start = clock();
         i.work.style_ms += ms(profile_start, build_start);
-        i.reused_nodes.clear();
-        i.reused_styles.clear();
-        i.build_into(f.root, d, *i.computed, nullptr, i.previous_dom ? &*i.previous_dom : nullptr,
-                     i.previous_computed ? &*i.previous_computed : nullptr, i.previous ? &i.previous->root : nullptr);
+        i.build_into(f.root, d, *i.computed, nullptr);
         // Bursts on elements the frame did not show are dropped.
         i.pending.clear();
         i.pending_count = 0;
@@ -2821,7 +3064,6 @@ namespace weft {
             fail("particles: " + std::to_string(i.frame_particles) + " in a frame, more than " +
                  std::to_string(constants::scene::max_particles_per_frame));
         }
-        f.elements.clear();
         f.time_ms = time;
         f.animated = i.animated;
         for (auto it = i.states.begin(); it != i.states.end();) {
@@ -2833,66 +3075,15 @@ namespace weft {
         }
         const auto layout_start = clock();
         i.work.build_ms += ms(build_start, layout_start);
-        bool reuse = i.incremental && i.previous && w == i.previous_width && h == i.previous_height &&
-                     same_layout(f.root, i.previous->root);
-        if (reuse) {
-            copy_boxes(f.root, i.previous->root);
-            f.elements = i.previous->elements;
-            ++i.work.layout_reuses;
-        } else {
-            i.work.geometry_changed = i.work.paint_changed = true;
-            i.layout_frame(f, w, h);
-            ++i.work.layout_evaluations;
-        }
+        i.work.geometry_changed = i.work.paint_changed = true;
+        i.layout_frame(f.root, w, h, f.elements);
+        ++i.work.layout_evaluations;
         if (!i.flights.empty()) {
-            i.place_flights(f);
-        }
-        // The retained frame is a layout reference only. Paint-only animation does
-        // not change its boxes/signature, so it needs no deep copy on a reuse.
-        // Returned frames remain complete, independently owned values.
-        if (!reuse) {
-            // Only what the build did not take whole from the previous frame is compared and copied.
-            if (i.incremental && i.previous && i.previous_computed) {
-                try {
-                    sort_reused(i.reused_nodes);
-                    sort_reused(i.reused_styles);
-                    follow(i.previous->root, f.root, i.reused_nodes);
-                    i.previous->elements = f.elements;
-                    i.previous->animated = f.animated;
-                    i.previous->time_ms = f.time_ms;
-                    follow(*i.previous_computed, *i.computed, i.reused_styles);
-#ifndef NDEBUG
-                    if (!scene_paint_source_equal(i.previous->root, f.root) || !(*i.previous_computed == *i.computed)) {
-                        throw std::logic_error("WEFT_SCENE_CORRUPTION: previous frame differs from the update");
-                    }
-#endif
-                } catch (...) {
-                    i.previous.reset();
-                    i.previous_computed.reset();
-                    throw;
-                }
-            } else {
-                i.previous = f;
-                i.previous_computed = i.computed;
-            }
-            // Only subtrees whose revision moved are copied.
-            if (i.previous_dom) {
-                try {
-                    dom::update_copy(*i.previous_dom, d);
-                } catch (...) {
-                    i.previous_dom.reset();
-                    throw;
-                }
-            } else {
-                i.previous_dom = d;
-            }
+            i.place_flights(f.root);
         }
         i.previous_width = w;
         i.previous_height = h;
-        // Content that did not change keeps its revision.
-        if (!i.revision || i.work.paint_changed || i.work.geometry_changed || f.animated) {
-            i.revision = next_revision.fetch_add(1, std::memory_order_relaxed);
-        }
+        i.revision = next_revision.fetch_add(1, std::memory_order_relaxed);
         f.revision = i.revision;
         i.work.layout_ms += ms(layout_start, clock());
     }

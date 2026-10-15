@@ -528,7 +528,7 @@ namespace {
                 "an anchored layer root");
         // A group holding an anchored element composites over the View, beyond its clipping ancestor.
         auto grouped = plates();
-        auto& clipper = grouped.root.children[0];
+        auto& clipper = grouped.root.children.edit(0);
         auto translucent = node(8, {0, 0, 200, 150}, {{"opacity", "0.5"}});
         translucent.children = std::move(clipper.children);
         clipper.children = {std::move(translucent)};
@@ -541,12 +541,12 @@ namespace {
                 "a group's composite cuts its anchored descendants");
         // What the list cannot draw: an anchored inline box, an anchored perspective plane.
         auto inline_box = plates();
-        inline_box.root.children[0].children[0].fragments = {{{0, 0, 40, 20}, true, true}};
+        inline_box.root.children.edit(0).children.edit(0).fragments = {{{0, 0, 40, 20}, true, true}};
         require(weft::scene_display_list(inline_box, {}, nullptr, 1, nullptr, {&table, nullptr}).fallback ==
                     "anchored inline box",
                 "anchored inline box");
         auto plane = plates();
-        plane.root.children[0].children[0].style["transform"] = "perspective(100px) rotateY(10deg)";
+        plane.root.children.edit(0).children.edit(0).style["transform"] = "perspective(100px) rotateY(10deg)";
         require(weft::scene_display_list(plane, {}, nullptr, 1, nullptr, {&table, nullptr}).fallback ==
                     "anchored element in a perspective plane",
                 "anchored perspective plane");
@@ -626,7 +626,7 @@ namespace {
                 "anchored items at their element's origin");
         // Runs keep to one z-index: A raised alone leaves C and B in a run of their own.
         auto raised = plates();
-        raised.root.children[0].children[0].style["z-index"] = "1";
+        raised.root.children.edit(0).children.edit(0).style["z-index"] = "1";
         const auto apart = weft::scene_display_list(raised, {}, nullptr, 1, nullptr, {&table, nullptr, true});
         require(apart.runs.size() == 1 && apart.runs[0].members.size() == 2 && apart.runs[0].members[0].anchor == 1 &&
                     apart.runs[0].members[1].anchor == 2,
@@ -637,7 +637,7 @@ namespace {
                 "the run of the anchored siblings");
         // A group inside an anchored subtree composites unmoved, over the root's box.
         auto grouped = plates();
-        grouped.root.children[0].children[0].style["opacity"] = "0.5";
+        grouped.root.children.edit(0).children.edit(0).style["opacity"] = "0.5";
         const auto group = weft::scene_display_list(grouped, {}, nullptr, 1, nullptr, {&table, nullptr, true});
         const auto begin = std::find_if(group.list.items.begin(), group.list.items.end(), [](const auto& item) {
             return item.kind == weft::paint::Item::Kind::EndGroup;
@@ -646,7 +646,7 @@ namespace {
                 "a group inside an anchored subtree");
         // What the pass cannot move: the list is to be built placed.
         auto filtered = plates();
-        filtered.root.children[0].children[0].style["backdrop-filter"] = "blur(2px)";
+        filtered.root.children.edit(0).children.edit(0).style["backdrop-filter"] = "blur(2px)";
         const auto refused = weft::scene_display_list(filtered, {}, nullptr, 1, nullptr, {&table, nullptr, true});
         require(refused.fallback.empty() && !refused.deferred && refused.list.items.empty() && refused.anchors.empty(),
                 "a backdrop deferred");
@@ -719,7 +719,7 @@ namespace {
                 "equal depths in the order of their elements");
         // A group among the run: a new order needs the pass prepared again.
         auto grouped = plates();
-        grouped.root.children[0].children[0].style["opacity"] = "0.5";
+        grouped.root.children.edit(0).children.edit(0).style["opacity"] = "0.5";
         grouped.revision = 9;
         const auto group = preparer.prepare(grouped, 1, 400, 300, std::nullopt, 2, {}, &table, true);
         require(group && group->keepable && !group->runs[0].reorderable && preparer.place(*group, 2, &table, frame) &&
@@ -750,7 +750,8 @@ namespace {
         require(first && f.revision == first, "an unchanged frame changed its revision");
         weft::SceneFrame copy;
         scene.update(s.tree.snapshot(*s.root), copy, 100, 100, 20);
-        require(copy.revision != first, "a frame built whole kept a revision");
+        // Another frame of the same content takes the same revision: it draws alike.
+        require(copy.revision == first && copy.root == f.root, "a frame of the same content took another revision");
         s.set(box, "style", "position:absolute;left:10px;top:10px;width:40px;height:20px;background-color:#00ff00");
         scene.update(s.tree.snapshot(*s.root), f, 100, 100, 30);
         require(f.revision != first && f.revision != copy.revision, "a repainted frame kept its revision");

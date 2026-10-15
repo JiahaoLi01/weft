@@ -118,6 +118,8 @@ struct GallerySceneSession {
     float cache_height = -1;
     std::uint64_t layout_epoch = 1;
     bool geometry_valid{};
+    // Whether each flush computes the element geometry (else only geometry reads do, as a View does).
+    bool eager_geometry = true;
 
     GallerySceneSession(bool d3, unsigned index, float w = weft::probe_constants::gallery::d3_card_size)
         : GallerySceneSession(d3 ? "D3_TESTS" : "CSS_TESTS", index, w,
@@ -420,7 +422,9 @@ struct GallerySceneSession {
         dom_revision = revision;
         snapshot_ms = elapsed();
         sync_scene(changed);
-        ensure_geometry();
+        if (eager_geometry) {
+            ensure_geometry();
+        }
         scene_ms = elapsed() - snapshot_ms;
     }
 

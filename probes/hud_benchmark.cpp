@@ -2,6 +2,7 @@
 #include "particle_benchmark.hpp"
 #include "probe_common.hpp"
 #include "probe_modes.hpp"
+#include "sampling_profiler.hpp"
 
 #include <chrono>
 #include <cmath>
@@ -23,7 +24,9 @@
 // unit's anchor, the pass places the nameplates with the latest anchors, and the page changes only the health bars
 // the host pushes as JSON (none at a level without health changes): their width, which lays the page out again, or at
 // one level their scale, which does not. Timed per frame: the host's JSON (and anchors), the
-// script call, the owner's update (styles, layout and the scene), and the pass (CPU, GPU).
+// script call, the owner's update (styles, layout and the scene), and the pass (CPU, GPU). Sampled, the page computes
+// its values with 400 units, changing one or all each frame, and the owner's updates and the passes of the sampled frames
+// are sampled apart (owner-samples-<changed>.txt, render-samples-<changed>.txt; names need the windows-profile PDBs).
 namespace probes {
     namespace {
         using namespace particle_benchmark;
@@ -68,8 +71,15 @@ namespace probes {
             bool scaled{};
         };
 
+        // Samplers, when given, sample the owner's updates and the passes of the sampled frames (a page that computes
+        // its values).
+        struct Samplers {
+            SamplingProfiler* owner{};
+            SamplingProfiler* render{};
+        };
+
         Source source(GallerySceneSession& s, const std::vector<Level>& levels, std::vector<Owner>& owner,
-                      unsigned warmup, Push push, weft::SceneAnchorChannel* anchors = nullptr) {
+                      unsigned warmup, Push push, weft::SceneAnchorChannel* anchors = nullptr, Samplers samplers = {}) {
             owner.assign(levels.size(), {});
             // Each unit's health, from 0 to 1.
             auto health = std::make_shared<std::vector<double>>();
@@ -77,8 +87,11 @@ namespace probes {
             if (push == Push::Anchor) {
                 s.vm.eval("__ceHud.anchor(true)");
             }
-            return [&s, levels, &owner, warmup, health, push, anchors,
-                    places](std::size_t level, unsigned index) -> const weft::SceneFrame& {
+            return [&s, levels, &owner, warmup, health, push, anchors, places,
+                    samplers](std::size_t level, unsigned index) -> const weft::SceneFrame& {
+                if (samplers.render) {
+                    samplers.render->active(false);
+                }
                 const auto n = levels[level].units;
                 auto& hp = *health;
                 if (index == 0) {
@@ -134,7 +147,13 @@ namespace probes {
                     const auto written = std::chrono::steady_clock::now();
                     s.vm.eval(call);
                     const auto applied = std::chrono::steady_clock::now();
+                    if (samplers.owner) {
+                        samplers.owner->active(index >= warmup);
+                    }
                     s.step(s.time + frame_ms);
+                    if (samplers.owner) {
+                        samplers.owner->active(false);
+                    }
                     const auto updated = std::chrono::steady_clock::now();
                     require(s.vm.eval("__ceGallery.state().errors.length") == "0", "HUD page errors");
                     if (index >= warmup) {
@@ -143,6 +162,9 @@ namespace probes {
                         o.json.push_back(ms(written - began).count());
                         o.script.push_back(ms(applied - written).count());
                         o.update.push_back(ms(updated - applied).count());
+                    }
+                    if (samplers.render) {
+                        samplers.render->active(index >= warmup);
                     }
                     return s.current;
                 }
@@ -212,6 +234,8 @@ namespace probes {
             auto s = std::make_unique<GallerySceneSession>("HUD_TESTS", 0, page_width, page_height,
                                                            GallerySceneOptions{"hud-utilities.css", "HUD_TESTS.js"});
             s->set_profiling(false);
+            // As a View: element geometry only for geometry reads, which the page makes none of.
+            s->eager_geometry = false;
             return s;
         }
     } // namespace
@@ -285,6 +309,32 @@ namespace probes {
                    out + "],\"process_peak_working_set_bytes\":" + std::to_string(memory.PeakWorkingSetSize) + "}");
         std::cout << "PASS HUD benchmark: " << counts.size() + partial.size() + anchored.size()
                   << " levels at 3840 x 2160, " << samples << " frames each\n";
+        return 0;
+    }
+
+    int run_hud_benchmark_sampled(const std::filesystem::path& folder) {
+        std::filesystem::create_directories(folder);
+        const auto period = std::chrono::microseconds(weft::probe_constants::gallery::owner_sample_period_us);
+        for (const unsigned every : {400u, 1u}) {
+            const std::vector<Level> levels{{400, every}};
+            SamplingProfiler owner_sampler(period);
+            SamplingProfiler render_sampler(period);
+            auto page = session();
+            std::vector<Owner> owner;
+            std::string adapter;
+            const auto timings = particle_benchmark::d3d11(
+                false, levels.size(), warmup_frames, sample_frames,
+                source(*page, levels, owner, warmup_frames, Push::Page, nullptr, {&owner_sampler, &render_sampler}),
+                adapter);
+            const auto changed = std::to_string(400 / every);
+            const auto owner_samples = owner_sampler.write(folder / ("owner-samples-" + changed + ".txt"));
+            const auto render_samples = render_sampler.write(folder / ("render-samples-" + changed + ".txt"));
+            std::cout << "400 units, " << changed << " changing: owner update p50 " << std::fixed
+                      << std::setprecision(3) << percentile(owner[0].update, .5) << " ms (" << owner_samples
+                      << " samples); render CPU p50 " << percentile(timings[0].cpu, .5) << " ms (" << render_samples
+                      << " samples)\n";
+        }
+        std::cout << "PASS HUD benchmark sampled\n";
         return 0;
     }
 } // namespace probes

@@ -294,7 +294,7 @@ namespace {
     // Every SVG element of a subtree, the element itself first.
     void elements(weft::SceneNode& n, std::vector<weft::SceneNode*>& out) {
         out.push_back(&n);
-        for (auto& c : n.children) {
+        for (auto& c : n.children.edit_all()) {
             elements(c, out);
         }
     }
@@ -325,7 +325,7 @@ namespace {
             for (int step = 0; step < 30; ++step) {
                 fallbacks += !both(cache, 0, frame, "seed " + std::to_string(seed)).second.empty();
                 std::vector<weft::SceneNode*> all;
-                for (auto& c : frame.root.children[0].children) {
+                for (auto& c : frame.root.children.edit(0).children.edit_all()) {
                     elements(c, all);
                 }
                 auto& n = *all[std::size_t(r.below(int(all.size())))];
@@ -359,15 +359,15 @@ namespace {
         require(cache.builds() == 8 && cache.reuses() == 0, "a first list takes every element's values");
         both(cache, 0, frame, "again");
         require(cache.builds() == 8 && cache.reuses() == 8, "an unchanged list keeps every element's values");
-        frame.root.children[0].children[3].attributes["width"] = "33";
+        frame.root.children.edit(0).children.edit(3).attributes["width"] = "33";
         both(cache, 0, frame, "edited");
         require(cache.builds() == 9 && cache.reuses() == 15, "an edited element is taken again");
-        frame.root.children[0].children[5].identity.generation = 9;
+        frame.root.children.edit(0).children.edit(5).identity.generation = 9;
         both(cache, 0, frame, "renewed");
         require(cache.builds() == 10 && cache.reuses() == 22, "a new element is taken anew");
         // Another view with the same identities keeps its own values: alternate views list from the cache.
         auto other = page(scene);
-        for (auto& c : other.root.children[0].children) {
+        for (auto& c : other.root.children.edit(0).children.edit_all()) {
             c.style["fill"] = "#e63946";
         }
         both(cache, 1, other, "other view");
@@ -375,8 +375,8 @@ namespace {
         both(cache, 1, other, "other view again");
         require(cache.builds() == 18 && cache.reuses() == 38, "views keep their own values");
         // Values that fail are never kept: the frame falls back each time, with the same reason.
-        frame.root.children[0].children[2].style["stroke"] = "#ffffff";
-        frame.root.children[0].children[2].style["stroke-width"] = "wide";
+        frame.root.children.edit(0).children.edit(2).style["stroke"] = "#ffffff";
+        frame.root.children.edit(0).children.edit(2).style["stroke-width"] = "wide";
         const auto failed = both(cache, 0, frame, "failing");
         const auto builds = cache.builds();
         require(!failed.second.empty() && both(cache, 0, frame, "failing again") == failed && cache.builds() == builds,
@@ -509,9 +509,9 @@ namespace {
         require(pass() == std::array<std::size_t, 2>{2, 0}, "a fill and a stroke drawn");
         require(pass() == std::array<std::size_t, 2>{2, 2}, "drawn again from the same path object");
         // Another element of the same path: another object, the same points.
-        frame.root.children[0].children[0].identity.generation = 2;
+        frame.root.children.edit(0).children.edit(0).identity.generation = 2;
         require(pass() == std::array<std::size_t, 2>{2, 4}, "another object of the same points");
-        auto& n = frame.root.children[0].children[0];
+        auto& n = frame.root.children.edit(0).children.edit(0);
         n.attributes["d"] = "M10 10 L120 41 C140 80 60 120 20 90 Z";
         require(pass() == std::array<std::size_t, 2>{4, 4}, "another point draws anew");
         n.style["stroke-dasharray"] = "4 2";
@@ -523,7 +523,7 @@ namespace {
         n.style["stroke-width"] = "4";
         require(pass() == std::array<std::size_t, 2>{10, 6}, "another stroke width draws the stroke anew");
         // A narrower svg viewport clips the path to fewer device pixels: the same map, another mask.
-        frame.root.children[0].box[2] = 90;
+        frame.root.children.edit(0).box[2] = 90;
         require(pass() == std::array<std::size_t, 2>{12, 6}, "another mask draws anew");
         // A stroked path past the viewport on every side: its mask is the viewport's whatever the map or the width,
         // so they alone tell the coverage apart.

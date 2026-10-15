@@ -208,6 +208,7 @@ namespace weft {
             sync_scene(changed);
         }
 
+        // The scene's element geometry, which only geometry reads need: computed when one asks after a change.
         void ensure_geometry() {
             if (!geometry_valid) {
                 current.elements = geometry.geometry(current, true);
@@ -235,7 +236,6 @@ namespace weft {
             }
             dom_revision = revision;
             sync_scene(changed);
-            ensure_geometry();
         }
 
         // flush_scene, a scene the styles cannot make a diagnostic (the published frame stays).

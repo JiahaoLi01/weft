@@ -161,7 +161,7 @@ int main() {
         }
         require(same && work.text_builds == 1 && work.text_reuses == 1 && work.shadow_reuses == 1, "cache reuse");
         // A changed text builds a new image with a new id.
-        frame.root.children[0].text = "Ho";
+        frame.root.children.edit(0).text = "Ho";
         const auto third = preparer.prepare(frame, 2, 400, 200, std::nullopt, 0, {});
         require(work.text_builds == 2 && third->images[1] && first->images[1] &&
                     third->images[1]->id != first->images[1]->id,
@@ -188,7 +188,7 @@ int main() {
         require(unique && ids.size() == 4, "unique ids");
         // A frame a native pass cannot draw is null, its reason counted.
         auto behind = frame;
-        behind.root.children[2].style["transform"] = "perspective(20px) rotateY(80deg)";
+        behind.root.children.edit(2).style["transform"] = "perspective(20px) rotateY(80deg)";
         require(!preparer.prepare(behind, 2, 400, 200, std::nullopt, 0, {}) && work.fallbacks == 1 &&
                     work.reasons.at("plane behind the viewer") == 1,
                 "fallback reason");
@@ -247,7 +247,7 @@ int main() {
                         renamed->images == first_pass->images,
                     "other nodes with the same text reuse the images");
             auto changed = labels(200, "Label");
-            changed.root.children[2].text = "Label 30";
+            changed.root.children.edit(2).text = "Label 30";
             const auto relabelled = keyed.prepare(changed, 1, 200, 200, std::nullopt, 0, {});
             require(relabelled && keyed_work.text_builds == 7 && keyed_work.text_reuses == 11 &&
                         relabelled->images[3] != first_pass->images[3],

@@ -90,6 +90,10 @@ namespace weft {
             Kind kind;
             std::string text;
             std::vector<Token> args;
+
+            friend bool operator==(const Token& a, const Token& b) {
+                return a.kind == b.kind && a.text == b.text && a.args == b.args;
+            }
         };
 
         using Tokens = std::vector<Token>;
@@ -724,6 +728,13 @@ namespace weft {
         }
 
         using Variables = std::map<std::string, std::optional<Tokens>>;
+    } // namespace
+
+    struct StyleEnvironment {
+        Variables variables;
+    };
+
+    namespace {
 
         // A profile by property id: whether it inherits, and its parsed initial value.
         struct ProfileIndex {
@@ -815,6 +826,8 @@ namespace weft {
             MemoState local_memo;
             MemoState* memo_state = &local_memo;
             std::vector<NodeIdentity>* changed_nodes{};
+            // An update from a previous document: the stamp of the nodes whose own values change.
+            std::uint64_t stamp{};
 
             Engine(const StyleProfile& p, const ProfileIndex& i, const std::vector<Rule>& u, const std::vector<Rule>& a,
                    bool reuse = false, MemoState* state = nullptr, std::vector<NodeIdentity>* changed = nullptr)
@@ -982,12 +995,13 @@ namespace weft {
                 return invalid ? std::nullopt : std::optional(std::move(out));
             }
 
-            void own_into(ComputedStyle& target, const ComputedStyle& own, NodeIdentity current_identity) {
+            // Whether the own values changed.
+            bool own_into(ComputedStyle& target, const ComputedStyle& own, NodeIdentity current_identity) {
                 if (target.identity == current_identity && target.local_name == own.local_name &&
                     target.values == own.values && target.custom_properties == own.custom_properties &&
                     target.invalid_at_computed_value == own.invalid_at_computed_value &&
                     target.specified_properties == own.specified_properties) {
-                    return;
+                    return false;
                 }
                 if (changed_nodes) {
                     changed_nodes->push_back(current_identity);
@@ -998,27 +1012,103 @@ namespace weft {
                 target.custom_properties = own.custom_properties;
                 target.invalid_at_computed_value = own.invalid_at_computed_value;
                 target.specified_properties = own.specified_properties;
+                target.stamp = stamp;
+                return true;
             }
 
-            void children_into(const DomSnapshot& dom, ComputedStyle& out, const Variables& variables) {
-                // Reuse owner values by identity, retaining no DOM references. Order and
-                // generation changes are verified even when the rule memo hits.
-                auto old = std::move(out.children);
+            // Whether two copies of an element hold the same values for its own cascade: its name, attributes and
+            // state.
+            static bool same_own_input(const DomSnapshot& a, const DomSnapshot& b) {
+                return a.type == b.type && a.local_name == b.local_name && a.namespace_uri == b.namespace_uri &&
+                       a.hovered == b.hovered && a.active == b.active && a.attributes == b.attributes;
+            }
+
+            // Whether two copies of an element read alike to the selectors of its descendants: name, state and the
+            // attributes selectors read.
+            bool same_selector_input(const DomSnapshot& a, const DomSnapshot& b) const {
+                if (a.local_name != b.local_name || a.namespace_uri != b.namespace_uri ||
+                    (uses_hover && a.hovered != b.hovered) || (uses_active && a.active != b.active)) {
+                    return false;
+                }
+                const auto read = [&](const AttributeMap& m, AttributeMap::const_iterator it) {
+                    while (it != m.end() && !memo_attributes.contains(it->first)) {
+                        ++it;
+                    }
+                    return it;
+                };
+                auto x = read(a.attributes, a.attributes.begin());
+                auto y = read(b.attributes, b.attributes.begin());
+                for (;;) {
+                    if (x == a.attributes.end() || y == b.attributes.end()) {
+                        return x == a.attributes.end() && y == b.attributes.end();
+                    }
+                    if (*x != *y) {
+                        return false;
+                    }
+                    x = read(a.attributes, std::next(x));
+                    y = read(b.attributes, std::next(y));
+                }
+            }
+
+            // The element children of dom into out, reusing owner values by identity and retaining no DOM references.
+            // Order and generation changes are verified even when the rule memo hits. With old, the copy of dom the
+            // children were last computed from, a child whose subtree revision did not move keeps its values without a
+            // visit unless `dirty` (dom's values changed) or `selectors` (what selectors read of dom or an ancestor
+            // changed): its bounds are charged as recorded.
+            void children_into(const DomSnapshot& dom, ComputedStyle& out, const Variables& variables,
+                               const DomSnapshot* old = nullptr, bool dirty = true, bool selectors = true) {
+                auto previous = std::move(out.children);
                 out.children.clear();
-                out.children.reserve(old.capacity());
+                out.children.reserve(previous.capacity());
+                // Which children there were, in order: a new list of them is a change of the node's.
+                std::vector<NodeIdentity> before;
+                before.reserve(previous.size());
+                for (const auto& c : previous) {
+                    before.push_back(c.identity);
+                }
                 std::size_t hint{};
+                std::size_t old_hint{};
                 for (const auto& child : dom.children) {
                     if (child.type == constants::element_node_type) {
                         std::size_t index = hint++;
-                        if (index >= old.size() || old[index].identity != child.identity) {
+                        if (index >= previous.size() || previous[index].identity != child.identity) {
                             index = 0;
-                            while (index < old.size() && old[index].identity != child.identity) {
+                            while (index < previous.size() && previous[index].identity != child.identity) {
                                 ++index;
                             }
                         }
-                        out.children.push_back(index < old.size() ? std::move(old[index]) : ComputedStyle{});
-                        compute_into(child, out.children.back(), &out, variables);
+                        const DomSnapshot* old_child{};
+                        if (old) {
+                            const auto& siblings = old->children;
+                            std::size_t k = old_hint;
+                            if (k >= siblings.size() || siblings[k].identity != child.identity) {
+                                k = 0;
+                                while (k < siblings.size() && siblings[k].identity != child.identity) {
+                                    ++k;
+                                }
+                            }
+                            if (k < siblings.size()) {
+                                old_child = &siblings[k];
+                                old_hint = k + 1;
+                            }
+                        }
+                        out.children.push_back(index < previous.size() ? std::move(previous[index]) : ComputedStyle{});
+                        auto& kept = out.children.back();
+                        if (!dirty && !selectors && old_child && child.revision != 0 &&
+                            old_child->revision == child.revision && kept.identity == child.identity &&
+                            kept.environment) {
+                            keep(kept);
+                            continue;
+                        }
+                        compute_into(child, kept, &out, variables, old_child, dirty, selectors);
                     }
+                }
+                if (out.children.size() != before.size() ||
+                    !std::equal(before.begin(), before.end(), out.children.begin(),
+                                [](const NodeIdentity& a, const ComputedStyle& b) {
+                                    return a == b.identity;
+                                })) {
+                    out.children_stamp = stamp;
                 }
                 if (memoize) {
                     selector_path.resize(selector_lengths.back());
@@ -1027,14 +1117,59 @@ namespace weft {
                 path.pop_back();
             }
 
+            // A subtree kept as it was: what it charged against the bounds when it was computed.
+            void keep(const ComputedStyle& subtree) {
+                nodes += subtree.subtree_nodes;
+                if (nodes > constants::max_document_nodes) {
+                    fail("node/depth bound");
+                }
+                charge(subtree.subtree_work);
+                bytes += subtree.subtree_bytes;
+                if (bytes > constants::style::max_computed_output_bytes) {
+                    fail("computed output byte bound");
+                }
+            }
+
+            // Makes node's environment the custom properties its children inherit (the parent's own when they are
+            // the same); whether they changed.
+            static bool inherit(ComputedStyle& node, const Variables& variables, const ComputedStyle* parent) {
+                if (node.environment && node.environment->variables == variables) {
+                    return false;
+                }
+                if (parent && parent->environment && parent->environment->variables == variables) {
+                    node.environment = parent->environment;
+                } else {
+                    node.environment = std::make_shared<const StyleEnvironment>(StyleEnvironment{variables});
+                }
+                return true;
+            }
+
+            // Records the bounds a node and its subtree charged, and its subtree's latest stamp.
+            void close(ComputedStyle& node, std::size_t nodes_before, std::size_t work_before,
+                       std::size_t bytes_before) {
+                node.subtree_nodes = nodes - nodes_before;
+                node.subtree_work = work - work_before;
+                node.subtree_bytes = bytes - bytes_before;
+                node.subtree_stamp = std::max(node.stamp, node.children_stamp);
+                for (const auto& c : node.children) {
+                    node.subtree_stamp = std::max(node.subtree_stamp, c.subtree_stamp);
+                }
+            }
+
             ComputedStyle compute(const DomSnapshot& dom, const ComputedStyle* parent, const Variables& inherited) {
                 ComputedStyle out;
                 compute_into(dom, out, parent, inherited);
                 return out;
             }
 
+            // dom's values into destination, then its children's. With old, the copy of dom destination was last
+            // computed from: dom keeps its own values unless `dirty` (its parent's values changed), `selectors`
+            // (what selectors read of an ancestor changed) or its own input changed, and its children follow
+            // (children_into).
             void compute_into(const DomSnapshot& dom, ComputedStyle& destination, const ComputedStyle* parent,
-                              const Variables& inherited) {
+                              const Variables& inherited, const DomSnapshot* old = nullptr, bool dirty = true,
+                              bool selectors_dirty = true) {
+                const auto nodes_before = nodes;
                 if (path.size() >= constants::max_document_depth || ++nodes > constants::max_document_nodes) {
                     fail("node/depth bound");
                 }
@@ -1047,6 +1182,21 @@ namespace weft {
                 const auto work_before = work;
                 const auto bytes_before = bytes;
                 auto selectors = memoize ? selector_key() : std::string{};
+                // Only a descendant changed: the own values stand, as do the custom properties the children inherit.
+                if (old && !dirty && !selectors_dirty && destination.identity == dom.identity &&
+                    destination.environment && same_own_input(dom, *old)) {
+                    charge(destination.own_work);
+                    bytes += destination.own_bytes;
+                    if (bytes > constants::style::max_computed_output_bytes) {
+                        fail("computed output byte bound");
+                    }
+                    const auto environment = destination.environment;
+                    children_into(dom, destination, environment->variables, old, false, false);
+                    close(destination, nodes_before, work_before, bytes_before);
+                    return;
+                }
+                // What the children's selectors read of dom changed, so may what they match.
+                const bool child_selectors = selectors_dirty || !old || !same_selector_input(dom, *old);
                 auto key = memoize ? memo_key(parent, inherited, selectors) : std::string{};
                 if (memoize) {
                     if (auto it = memo_state->entries.find(key); it != memo_state->entries.end()) {
@@ -1059,8 +1209,12 @@ namespace weft {
                         if (bytes > constants::style::max_computed_output_bytes) {
                             fail("computed output byte bound");
                         }
-                        own_into(destination, it->second.own, dom.identity);
-                        children_into(dom, destination, variables);
+                        const bool changed = own_into(destination, it->second.own, dom.identity);
+                        destination.own_work = token_work;
+                        destination.own_bytes = output_bytes;
+                        const bool inherited_changed = inherit(destination, variables, parent);
+                        children_into(dom, destination, variables, old, changed || inherited_changed, child_selectors);
+                        close(destination, nodes_before, work_before, bytes_before);
                         return;
                     }
                 }
@@ -1390,8 +1544,12 @@ namespace weft {
                         memo_state->bytes += payload;
                     }
                 }
-                own_into(destination, out, dom.identity);
-                children_into(dom, destination, variables);
+                const bool changed = own_into(destination, out, dom.identity);
+                destination.own_work = work - work_before;
+                destination.own_bytes = bytes - bytes_before;
+                const bool inherited_changed = inherit(destination, variables, parent);
+                children_into(dom, destination, variables, old, changed || inherited_changed, child_selectors);
+                close(destination, nodes_before, work_before, bytes_before);
             }
         };
     } // namespace
@@ -1499,6 +1657,24 @@ namespace weft {
         }
         Engine engine{impl_->profile, impl_->index, impl_->ua, impl_->author, true, &cache.values, changed};
         engine.compute_into(dom, output, nullptr, {});
+    }
+
+    void CompiledStyle::update(const DomSnapshot& dom, const DomSnapshot* previous, ComputedStyle& output,
+                               StyleMemo& memo, std::uint64_t stamp, std::vector<NodeIdentity>* changed) const {
+        auto& cache = *memo.impl_;
+        cache.owner.require(Diag::StyleMemoOwner);
+        if (cache.binding != impl_->identity) {
+            cache.values = {};
+            cache.binding = impl_->identity;
+        }
+        if (changed) {
+            changed->clear();
+        }
+        Engine engine{impl_->profile, impl_->index, impl_->ua, impl_->author, true, &cache.values, changed};
+        engine.stamp = stamp;
+        // The root's context is the document's: it changes only with the root itself.
+        engine.compute_into(dom, output, nullptr, {},
+                            previous && previous->identity == dom.identity ? previous : nullptr, false, false);
     }
 
     bool CompiledStyle::refresh_input(const DomSnapshot& dom, StyleInput& input) const {

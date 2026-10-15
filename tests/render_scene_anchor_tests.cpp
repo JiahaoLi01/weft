@@ -140,7 +140,7 @@ namespace {
     // The plates inside the world, where layout puts them, each following its key's anchor.
     weft::SceneFrame anchored(SceneAnchoring::Missing missing = {}) {
         auto f = base();
-        auto& world = f.root.children[0];
+        auto& world = f.root.children.edit(0);
         for (unsigned i = 0; i < plates.size(); ++i) {
             auto p = plate(i, {8 + 9.f * float(i), 6 + 12.f * float(i)});
             p.anchoring.emplace();
@@ -376,7 +376,7 @@ int main(int argc, char** argv) {
         require(gpu.scene.kept_passes == 2, "stay drew the kept pass");
         // A translucent plate is a group, whose items no batch reorders: a new order prepares the pass again.
         auto translucent = anchored();
-        translucent.root.children[0].children[1 + 3].style["opacity"] = "0.8";
+        translucent.root.children.edit(0).children.edit(1 + 3).style["opacity"] = "0.8";
         const auto kept_group = revised(translucent, revisions + 2);
         const auto group_first = d3d11.draw(translucent, scale, &first_table);
         same("D3D11 GPU path, translucent plate", gpu.draw(kept_group, scale, &first_table), group_first, folder,
@@ -387,7 +387,7 @@ int main(int argc, char** argv) {
         require(gpu.scene.kept_rebuilds == 1 && gpu.scene.kept_passes == 2, "a group reordered on a kept pass");
         // A backdrop filter reads its region of the target: the frame is placed each time, as on the CPU path.
         auto filtered = anchored();
-        filtered.root.children[0].children[1].style["backdrop-filter"] = "blur(2px)";
+        filtered.root.children.edit(0).children.edit(1).style["backdrop-filter"] = "blur(2px)";
         const auto kept_filtered = revised(filtered, revisions + 3);
         for (const auto* t : {&first_table, &moved_table}) {
             const auto expected = d3d11.draw(filtered, scale, t);

@@ -536,7 +536,7 @@ int main() {
                 still.elements.push_back({child.identity, {child.box[0], child.box[1], child.box[2], child.box[3]}});
             }
             auto later = still;
-            later.root.children[0].particles[0].emission.elapsed += .1;
+            later.root.children.edit(0).particles[0].emission.elapsed += .1;
             const auto damage = weft::scene_damage(still, later, 1);
             require(damage.changed && damage.full, "moving particles damage the whole target");
             require(!weft::scene_damage(still, still, 1).changed, "still particles damage nothing");

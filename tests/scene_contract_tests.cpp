@@ -275,7 +275,6 @@ namespace {
             chart.children.push_back(std::move(group));
         }
         frame.root.children.push_back(std::move(chart));
-        auto& groups = frame.root.children[0].children;
         static const std::array<const char*, 7> tags{"rect", "circle",  "ellipse", "line",
                                                      "path", "polygon", "polyline"};
         static const std::array<const char*, 13> numbers{"x",  "y",  "width", "height", "r",  "cx", "cy",
@@ -295,11 +294,14 @@ namespace {
         weft::SceneGeometry cached{weft::testing::thread_scene_text()};
         constexpr int steps = 300;
         for (int step = 0; step < steps; ++step) {
-            auto& group = groups[next() % groups.size()];
+            // Taken anew each step: frames the geometry keeps may share the groups since the last.
+            auto& groups = frame.root.children.edit(0).children;
+            auto& group = groups.edit(next() % groups.size());
             if (group.children.empty()) {
                 continue;
             }
-            auto& mark = group.children[next() % group.children.size()];
+            const auto mark_index = next() % group.children.size();
+            auto& mark = group.children.edit(mark_index);
             switch (next() % 9) {
                 case 0:
                 case 1:
@@ -337,16 +339,16 @@ namespace {
                 }
                 case 7: {
                     // Two nodes trade identities, as a reused slot would give a node another's.
-                    auto& other = groups[next() % groups.size()];
+                    auto& other = groups.edit(next() % groups.size());
                     if (!other.children.empty()) {
-                        std::swap(mark.identity, other.children[next() % other.children.size()].identity);
+                        std::swap(mark.identity, other.children.edit(next() % other.children.size()).identity);
                     }
                     break;
                 }
                 default: {
                     auto moved = mark;
-                    group.children.erase(group.children.begin() + (&mark - group.children.data()));
-                    groups[next() % groups.size()].children.push_back(std::move(moved));
+                    group.children.erase(group.children.begin() + std::ptrdiff_t(mark_index));
+                    groups.edit(next() % groups.size()).children.push_back(std::move(moved));
                     break;
                 }
             }
@@ -358,15 +360,16 @@ namespace {
                     "kept shapes hit differently" + at);
         }
         // The fill rule decides a pentagram's center: kept shapes follow it.
+        auto& groups = frame.root.children.edit(0).children;
         auto kept = groups[0].children.empty() ? groups[1].children[0] : groups[0].children[0];
-        for (auto& group : groups) {
+        for (auto& group : groups.edit_all()) {
             group.attributes.erase("transform");
             group.children.clear();
         }
         kept.tag = "polygon";
         kept.attributes = {{"points", points[2]}};
-        groups[0].children.push_back(std::move(kept));
-        auto& star = groups[0].children[0];
+        groups.edit(0).children.push_back(std::move(kept));
+        auto& star = groups.edit(0).children.edit(0);
         const auto& base = frame.root.children[0].box;
         const float cx = base[0] + 50;
         const float cy = base[1] + 50;
@@ -929,7 +932,8 @@ int main() {
         previous.root.children.push_back(child);
         previous.elements = geometry.geometry(previous);
         auto changed = previous;
-        changed.root.children[0].paint->values[weft::constants::scene::paint_slot_opacity]->scalar.absolute = .4999999;
+        changed.root.children.edit(0).paint->values[weft::constants::scene::paint_slot_opacity]->scalar.absolute =
+            .4999999;
         require(previous.root == changed.root && !weft::scene_paint_source_equal(previous.root, changed.root),
                 "rounded diagnostic spelling hid a different numeric source");
         const auto damaged = weft::scene_damage(previous, changed, 2);
