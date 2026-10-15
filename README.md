@@ -2,11 +2,13 @@
 
 Weft 的目标是在 Windows、Android 和 iOS 上，用同一套 HTML、CSS 和 DOM 行为构建游戏 UI，并让宿主引擎控制资源、线程和 GPU 执行。采用自研运行时，复用 JavaScript、字体和 Unicode 基础库。
 
-实现语言为 C++20，当前处于 M0：已有可构建核心、实验 C ABI、原生 DOM/QuickJS、Flex/字体和 GPU 探针。真实 React/Vite JSX 应用已贯通 native DOM → 行内样式 → Yoga → 字体 → D3D11，计数与 keyed 重排输出三帧原生像素，并接入 Windows HWND/swapchain 主鼠标窗口。原版 D3 的 29 项 DOM 检查、33 个 Flex 场景的 452 项浏览器对照继续通过。一般 HTML parser、完整 CSS 格式上下文、通用 SVG、键盘/IME 与移动后端尚未实现；当前不是完整运行时。设计预算仍是验收目标，实际探针测量另列运行条件。
+实现语言为 C++20，当前处于 M0：已有可构建核心、可嵌入引擎的 View 与渲染器 C ABI（实验版本）、原生 DOM/QuickJS、Flex/字体，以及 D3D11 与 Vulkan 渲染器。真实 React/Vite JSX 应用已贯通 native DOM → 行内样式 → Yoga → 字体 → D3D11，计数与 keyed 重排输出三帧原生像素，并接入 Windows HWND/swapchain 主鼠标窗口。原版 D3 的 29 项 DOM 检查、33 个 Flex 场景的 452 项浏览器对照继续通过。一般 HTML parser、完整 CSS 格式上下文、通用 SVG、键盘/IME 与移动后端尚未实现；当前不是完整运行时。设计预算仍是验收目标，实际探针测量另列运行条件。
 
 当前 Gallery 已加入 D3 Interactive 4、K-Line 1、Framer Motion 6、React Spring 3、Icons 2、Anime.js 14，共新增 30 个原样案例，连同此前 36 例为 **66/72 可绘制**。新增共享 SVG/事件/几何、布局和 JS 动画能力；原始组件与库包不改。4K/FPS 预览：`weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/gallery-cluster/interactive`，详细运行、独立浏览器对照和限制见 [共享技术簇](docs/gallery-shared-cluster.md)。原始 Anime Throw 在浏览器也静止，惯性另有同库反例验证。2026-10-13 起画廊窗口去掉两例 Three.js（WebGL 不是产品目标），换成 CRPG UI 的嵌套提示页面（烟雾为 UI 着色器效果，悬停、嵌套、钉住与拖动和 Chrome 逐帧对照），又新增一组 UI 粒子页面（篝火、宝箱飞金币、符文光环与可调密度的漂浮微粒，4K 下 24 万个粒子 GPU 约 0.2 ms）和一组半透明窗口（毛玻璃、普通半透明、只模糊背后：叠放、可拖动、可增减，背景每帧在动，与 Chrome 逐帧对照；4K 下 32 个毛玻璃窗口 GPU 约 1 ms），现为 **71/75 可绘制**，剩余四例 Lottie。
 
 新增 [通用交互优化与可切换 profiler](docs/incremental-ui-profiler.md)：Gallery 侧栏/F8 开启曲线、分项 timer 与 P50/P95/P99/Max，默认关闭、全速运行。修正正常松开鼠标的误 Cancel，精确 style memo 与 owner 增量值/几何复用，诊断 footer 移至 native overlay；原始组件/库不改。当前预览：`weft_d3d11_probe.exe --gallery-window-hardware artifacts/local/incremental-ui/interactive`。Esc 后 `python tools/analyze_gallery_trace.py <输出目录>` 合并有界双线程 trace。Release/Debug 各87/87，K-Line/多案例 Anime 仍需按游戏 UI 毫秒预算继续优化。
+
+交互性能（第 12 步，2026-10-14）：SVG 的派生值与文字图像按内容缓存，SVG 的矩形、圆与线段画成盒子，小的文字、阴影与路径图像放进图集合批，覆盖率每像素 1 字节。4K 下 K 线悬停的重绘 p50 3.42 → 1.48 ms，散点图拖动的渲染 CPU p50 6.62 → 1.56 ms，K 线每帧绘制 58 → 9 次。剩下的图表热点用户定为低优先级，见 [status](docs/status.md)。
 
 代码规范化（2026-10-10）：全部 C/C++ 与 HLSL 按 [代码规范](docs/coding-style.md) 重排并命名常量，Release 反汇编逐函数对照证明行为不变；后续架构重构按 [重构计划](docs/refactoring-plan.md) 分步进行。 第 1–5 步已完成：`src/base` 提供 `Diag`/`Result<T>`、共享 CSS 标量解析、代际槽表与 `OwnerThread`；测试共用 `tests/support`；平台 JS 内嵌进脚本库；源码按 `src/<模块>` 拆成 `weft::<模块>` 静态库，公开 C ABI 位于 `include/weft/`；D3D11 参考渲染器移入 `weft::render_d3d11`，后端经 `RenderBackend` concept 生成 C 函数表，shader 构建期编译内嵌。WARP 与硬件产物与重构前逐字节一致，见 [status](docs/status.md)。
 
@@ -18,7 +20,14 @@ Windows 构建：`cmake --preset windows-msvc` → `cmake --build --preset windo
 
 图形 API 已通过实验 C ABI 接口注册：通用层管理能力、句柄与提交/完成协议，D3D11 reference 和 React 窗口已接入。2026-10-11 起渲染器只有显示列表一条绘制路径：运行时的帧以不透明显示列表穿过 C ABI，宿主的四边形帧在适配器里转成显示列表。Vulkan、原生 Metal 可各自扩展 native pass，不要求经同一图形 API 翻译。2026-10-12 起有 Vulkan 渲染器与它的 C ABI 适配器（与 D3D11 共用规划和着色器源码；宿主录制、提交并报告完成，两帧在途；在本机 NVIDIA 与 AMD GPU 上验证；Windows 上可在 Vulkan 交换链窗口里运行 4K CaseCheetah 页面，双击 `tools/cheetah-flow.bat` 打开）；Android arm64 已能交叉编译与链接（NDK r30，未在设备上运行，见 [构建](docs/building.md)）；具体移动后端尚未实现，见 [后端 API](docs/render-backend-api.md)。
 
-与引擎通信（2026-10-14 起，第 13 步）：锚点让血条这类每帧变位置的元素按引擎写入的屏幕位置画，不经 DOM 与 JSON；带类型的事件、调用与视图模型（CRPG UI 的页面经兼容层不改）；对外 View 与它的 C ABI（`include/weft/weft.h`）加载页面、推进、处理指针与命中查询，帧经渲染器 C ABI 用宿主的 D3D11 或 Vulkan 设备画在游戏画面之上，页面可以用 `background-image: -weft-texture(name)` 显示引擎每帧在 GPU 上画的纹理（如 UE 的 render target），不经 CPU。只用公开头文件的模拟引擎样例在 `samples/engine-host`（`weft_engine_host --d3d11 --warp` 或 `--vulkan`），设计见 [与引擎通信](docs/engine-communication.md)，进度见 [status](docs/status.md)。
+与引擎通信（第 13 步，2026-10-14 至 15，已完成）：
+- 锚点：血条这类每帧变位置的元素按引擎写入的屏幕位置画，不经 DOM 与 JSON；400 个名牌只移动时 UI 线程每帧约 0.005 ms。
+- 桥接：带类型的事件、调用与 Promise、同步函数与视图模型；CRPG UI 的页面经兼容层不改。
+- 对外 View 与它的 C ABI（`include/weft/weft.h`）：加载页面、推进、指针与命中查询；帧经渲染器 C ABI 用宿主的 D3D11 或 Vulkan 设备画在游戏画面之上。页面用 `background-image: -weft-texture(name)` 显示引擎每帧在 GPU 上画的纹理（如 UE 的 render target），按 CSS 背景图铺排（尺寸、位置、重复），不经 CPU。
+- CRPG 原样的浮动 UI（血条、伤害数字、状态标记）跑在 scene 上：200 个单位时，锚点方式的 UI 线程推进 p50 1.6 ms，每帧推 JSON 约 148 ms。
+- 增量管线：样式、场景与布局只处理变化的部分（绝对定位、插入值确定的盒子只重排自己），渲染侧按子树补丁保留的 pass、只上传变了的记录。约 1,600 个节点的 HUD 每帧改 1 个元素时，UI 线程 p50 / p99 0.111 / 0.194 ms，渲染 CPU 0.043 / 0.078 ms（之前分别约 5.3 / 12.1 与 4.1 ms）；增量与全量的结果由随机对照逐值比较。
+
+只用公开头文件的模拟引擎样例在 `samples/engine-host`（`weft_engine_host --d3d11 --warp` 或 `--vulkan`）。设计见 [与引擎通信](docs/engine-communication.md)，各段的测量条件与限制见 [status](docs/status.md)。
 
 后续以用户持续开发的 CaseCheetah UI 为真实 workload，继续 D3D11。已只读捕获固定样本，未修改原游戏；原样 NineSlice.tsx、五条原始 CSS 和三张 PNG 已在自己的 DOM/CSS/DX11 输出三帧，528 项浏览器几何对照通过。新 positioned profile 的边界、运行方法与完整 UI 的后续缺口见 [CaseCheetah 样本](docs/casecheetah-workload.md)。
 
@@ -58,7 +67,7 @@ flow 命中与 HWND 滚轮已接入：命中复用真实绘制顺序、inline �
 | 平台 | Windows 开发验证，Android 和 iOS 为同级产品目标 | 移动 GPU 和中文输入早于前端框架扩展；需要真机和 macOS 验证 |
 | 核心语言 | C++20，版本化 C ABI 对外 | 易于接入不同引擎；所有权、错误和线程必须有明确合同 |
 | 线程 | DOM、JS、样式和布局由单个 owner 线程持有 | 降低首版同步复杂度；图片等纯数据任务可交给宿主 worker |
-| 布局 | 自研格式上下文调度，Yoga 3.2.1 候选仅计算 Flex | CSS 适配与一处已记录补丁通过 33 场景；尚非完整 CSS 布局 |
+| 布局 | 自研格式上下文调度与 CSS 适配层，Yoga 3.2.1 计算 block、Flex 与绝对定位的盒子 | 文档与 scene 共用一个适配器，一处已记录的补丁；绝对定位的盒子可单独重排；尚非完整 CSS 布局 |
 | 渲染 | 不可变 FramePacket，renderer 准备后由宿主执行 UI pass | 录制与实际提交分开；资源等 GPU 完成后退休 |
 | 颜色 | v0.1 设计默认 linear-sRGB 合成 | Windows 探针已验证；50% 白叠黑约 188，Chrome 为 128，记录视觉边界 |
 | 文本 | 固定 HarfBuzz 11.2.1、FreeType 2.13.3、libunibreak 6.1、Roboto/Noto CJK | 有界 LTR 中英回退、inline/Unicode 换行与灰度页面通过；bidi、编辑和生产缓存待实现 |
@@ -98,6 +107,6 @@ flow 命中与 HWND 滚轮已接入：命中复用真实绘制顺序、inline �
 1. Yoga 的测量和 CSS 尺寸适配能处理嵌套 Flex、换行、基线和百分比；不通过就替换算法，不让 DOM 依赖 Yoga。
 2. 快照丢帧、热重载、对象销毁和异步资源晚到时，没有失效引用或 GPU 提前释放。
 3. 移动端真实页面的 GPU 路径和中文输入能工作；桌面或模拟器结果不能代替真机证据。
-4. 增量更新结果与全量重算一致，并且在静态页面上不重复执行布局和绘制列表重建。
+4. 增量更新结果与全量重算一致，并且在静态页面上不重复执行布局和绘制列表重建。scene 路径（游戏 UI 页面）在 13.5 之后有证据：级联、场景、局部布局与保留的 pass 的随机对照逐值相同，内容不变的帧保持原版本号，既不布局也不重建显示列表；文档格式化器（flow）在 DOM 变化后仍整页布局。
 
 研发可以在缺少某个平台环境时推进独立部分，但该平台的验收必须持续保持未验证。
