@@ -576,7 +576,7 @@ namespace weft::render::vulkan {
 
     void SceneRenderer::record(const ScenePrepared& prepared, VkFramebuffer out, VkImage image, float scale,
                                const SceneAnchorFrame* anchors, std::uint64_t serial, const paint::Color* clear,
-                               std::span<const SceneTexture> host_textures) {
+                               std::span<const SceneTexture> host_textures, const ScenePatchHistory* history) {
         const auto& d = gpu;
         const auto& pass = prepared.pass;
         const auto command = command_buffer_;
@@ -644,7 +644,23 @@ namespace weft::render::vulkan {
                 }
                 std::memcpy(kept.mapped, data, bytes);
             };
-            if (slot_->kept != serial) {
+            // A slot holding an earlier version of the kept pass writes only the records and rounded clips patched
+            // since (none of them draws a host texture, so none is flipped).
+            ScenePatch since;
+            if (slot_->kept != serial && slot_->kept && history && history->since(slot_->kept, since) &&
+                slot_->kept_records.size >= std::max<std::size_t>(pass.records.size() * sizeof(SceneRecord), 1) &&
+                slot_->kept_clips.size >= std::max<std::size_t>(pass.clips.size() * sizeof(SceneClip), 1)) {
+                for (const auto& [begin, end] : since.records) {
+                    std::memcpy(static_cast<SceneRecord*>(slot_->kept_records.mapped) + begin,
+                                pass.records.data() + begin, (end - begin) * sizeof(SceneRecord));
+                }
+                for (const auto& [begin, end] : since.clips) {
+                    std::memcpy(static_cast<SceneClip*>(slot_->kept_clips.mapped) + begin, pass.clips.data() + begin,
+                                (end - begin) * sizeof(SceneClip));
+                }
+                slot_->kept = serial;
+                ++partial_uploads;
+            } else if (slot_->kept != serial) {
                 put(slot_->kept_records, record_data, pass.records.size() * sizeof(SceneRecord));
                 put(slot_->kept_clips, pass.clips.data(), pass.clips.size() * sizeof(SceneClip));
                 slot_->kept = serial;
@@ -1115,17 +1131,32 @@ namespace weft::render::vulkan {
                 ++it;
             }
         }
-        // A frame of the revision the view's kept pass was prepared for records it again with the frame's anchors.
+        // A frame of the revision the view's kept pass was prepared for records it again with the frame's anchors; a
+        // frame of another revision patches it where the pass stands (ScenePreparer::patch).
         const bool keep = frame.revision && !crop;
         auto& kept = kept_[view_index];
-        std::shared_ptr<const ScenePrepared> prepared;
-        if (keep && kept.prepared && kept.revision == frame.revision && kept.scale == scale &&
-            kept.width == target.width && kept.height == target.height && kept.layers == layers &&
-            kept.prepared->over == start.over && scene_texture_flips(*kept.prepared, textures) == kept.flips) {
-            if (preparer_.place(*kept.prepared, view_index, anchors, kept.frame)) {
+        std::shared_ptr<ScenePrepared> prepared;
+        if (keep && kept.prepared && kept.scale == scale && kept.width == target.width &&
+            kept.height == target.height && kept.layers == layers && kept.prepared->over == start.over &&
+            scene_texture_flips(*kept.prepared, textures) == kept.flips) {
+            bool drawable = kept.revision == frame.revision;
+            if (!drawable) {
+                if (const auto patched = preparer_.patch(*kept.prepared, frame, view_index, anchors)) {
+                    const auto from = kept.serial;
+                    kept.serial = ++serial_;
+                    kept.revision = frame.revision;
+                    kept.history.add(from, kept.serial, *patched);
+                    ++kept_patches;
+                    for (const auto& [begin, end] : patched->records) {
+                        patched_records += end - begin;
+                    }
+                    drawable = true;
+                }
+            }
+            if (drawable && preparer_.place(*kept.prepared, view_index, anchors, kept.frame)) {
                 prepared = kept.prepared;
                 ++kept_passes;
-            } else {
+            } else if (drawable) {
                 ++kept_rebuilds;
             }
         }
@@ -1137,9 +1168,16 @@ namespace weft::render::vulkan {
                 return false;
             }
             if (prepared->keepable) {
-                kept = {frame.revision, scale,  target.width,
-                        target.height,  layers, prepared,
-                        ++serial_,      {},     scene_texture_flips(*prepared, textures)};
+                kept = {frame.revision,
+                        scale,
+                        target.width,
+                        target.height,
+                        layers,
+                        prepared,
+                        ++serial_,
+                        {},
+                        scene_texture_flips(*prepared, textures),
+                        {}};
                 ensure(preparer_.place(*prepared, view_index, anchors, kept.frame), "a pass placed as it was planned");
             }
         }
@@ -1175,7 +1213,7 @@ namespace weft::render::vulkan {
             upload(*prepared);
             slot.framebuffer = framebuffer(target.view, target.width, target.height);
             record(*prepared, slot.framebuffer, target.image, scale, placed, serial,
-                   start.clear ? &*start.clear : nullptr, textures);
+                   start.clear ? &*start.clear : nullptr, textures, serial ? &kept.history : nullptr);
         } catch (...) {
             // The host discards the commands: what they would upload or draw leaves the cache.
             for (const auto id : slot.created) {

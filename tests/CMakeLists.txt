@@ -167,7 +167,7 @@ if(WIN32)
     # The incremental pipeline against full computation: cascade, scene and display lists (step 13.5).
     weft_add_executable(weft_incremental_tests
         SOURCES incremental_tests.cpp
-        LINK ${scene_libraries} d2d1
+        LINK weft::scene_d3d11 ${scene_libraries} d2d1
         SOURCE_DIR LARGE_STACK)
     weft_add_test(NAME incremental_contract COMMAND weft_incremental_tests TIMEOUT 300)
 

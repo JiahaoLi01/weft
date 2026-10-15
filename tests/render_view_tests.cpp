@@ -679,7 +679,7 @@ namespace {
         ok(weft_renderer_destroy(plain), "destroy");
     }
 
-    // A frame of an unchanged revision redraws the View's kept pass; a changed one prepares again.
+    // A frame of an unchanged revision redraws the View's kept pass; a changed one patches it where it can.
     void d3d11_kept() {
         D3D11 gpu;
         Page page;
@@ -703,8 +703,9 @@ namespace {
         require(backend.renderer()->passes == 2 && backend.renderer()->kept_passes == 1, "moved anchors keep the pass");
         ok(weft_view_emit(page.runtime, page.view, "rename", 6, WEFT_VALUE_JSON, "\"Battle\"", 8, 0), "rename");
         once(0.048);
-        require(backend.renderer()->passes == 3 && backend.renderer()->kept_passes == 1,
-                "a changed scene prepares again");
+        require(backend.renderer()->passes == 3 && backend.renderer()->kept_passes == 2 &&
+                    backend.renderer()->kept_patches == 1 && backend.renderer()->patched_records > 0,
+                "a changed text patches the kept pass");
         // A second View of the runtime keeps a pass of its own; once the View has gone, the next frame's preparation
         // drops that pass and its slot.
         {

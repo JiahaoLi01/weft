@@ -71,6 +71,15 @@ namespace weft {
         // passes prepared again because the anchors reordered records a batch could not take in another order.
         std::size_t kept_passes{};
         std::size_t kept_rebuilds{};
+        // Passes placed in another order than the one they were planned in (runs their anchors' depths reordered).
+        std::size_t reordered_passes{};
+        // Kept passes patched for a frame of another revision (ScenePreparer::patch), and the records the patches
+        // wrote; patches refused (the pass is prepared anew), by reason.
+        std::size_t kept_patches{};
+        std::size_t patched_records{};
+        std::map<std::string, std::size_t> patch_refusals;
+        // Draws of a kept pass whose slot held an earlier version and wrote only what the patches since changed.
+        std::size_t partial_uploads{};
         // Host texture items drawn, and those whose name the frame bound to no texture (they draw nothing).
         std::size_t texture_draws{};
         std::size_t unbound_textures{};
@@ -217,6 +226,36 @@ namespace weft {
         std::vector<std::uint32_t> order;
     };
 
+    // What a patch changed in a kept pass (ScenePreparer::patch): the records [begin, end) and the rounded clips
+    // [begin, end) it wrote, which a backend holding the pass's records in its buffers writes again.
+    struct ScenePatch {
+        std::vector<std::array<std::uint32_t, 2>> records;
+        std::vector<std::array<std::uint32_t, 2>> clips;
+    };
+
+    // The patches a kept pass took (ScenePreparer::patch), by the serials a backend gives the pass's versions: a slot
+    // that holds the records of an earlier version writes again only what the patches since changed, while the
+    // history holds them (the last few).
+    class ScenePatchHistory {
+    public:
+        // A patch took the pass from version `from` (the last patch's `to`, or the version the pass was prepared as)
+        // to version `to`.
+        void add(std::uint64_t from, std::uint64_t to, const ScenePatch& patch);
+
+        // The ranges the patches after version `from` wrote, up to the last; false when the history does not reach
+        // back to it.
+        bool since(std::uint64_t from, ScenePatch& out) const;
+
+    private:
+        struct Applied {
+            std::uint64_t from{};
+            std::uint64_t to{};
+            ScenePatch patch;
+        };
+
+        std::vector<Applied> applied_;
+    };
+
     // Scratch bytes the targets of a prepared pass and of its planes' passes take: their groups, and a plane's pass
     // its image too.
     std::size_t scene_scratch_bytes(const ScenePrepared& prepared, bool plane = false);
@@ -260,9 +299,32 @@ namespace weft {
                                                const SceneAnchorTable* anchors = nullptr, bool defer = false,
                                                bool over = false);
 
-        // Drops what the preparer keeps for a view (its anchored elements' last anchors).
+        // Brings prepared, the keepable pass the last prepare gave view_index, to frame in place where it can: the
+        // subtrees of frame whose storage differs from the last listed frame's (SceneChildren) are listed again in
+        // their elements' context (scene_display_list's part), and their items, rounded clips, records, masks and
+        // images replace those of the elements they replace. Returns what it wrote, or nullopt (prepared unchanged)
+        // where the pass must be prepared anew: another root, children in another order or z-index, a list of the
+        // view with effects, an anchoring or backdrop filter added or gone, a part that lists other items (in number,
+        // kind or payload) or anything but boxes, text, shadows, paths and groups, an image that moves batches (to
+        // another atlas page, on or off the atlas), or a part at the list's first item (which may be the clear).
+        std::optional<ScenePatch> patch(ScenePrepared& prepared, const SceneFrame& frame, unsigned view_index,
+                                        const SceneAnchorTable* anchors);
+
+        // The list and spans patch keeps for a view, null for none: tests compare them with a fresh list's.
+        const SceneDisplayList* listed(unsigned view_index) const {
+            const auto it = listed_.find(view_index);
+            return it == listed_.end() ? nullptr : &it->second.list;
+        }
+
+        const SceneListSpans* listed_spans(unsigned view_index) const {
+            const auto it = listed_.find(view_index);
+            return it == listed_.end() ? nullptr : &it->second.spans;
+        }
+
+        // Drops what the preparer keeps for a view (its anchored elements' last anchors, its last list).
         void forget(unsigned view_index) {
             anchored_.erase(view_index);
+            listed_.erase(view_index);
         }
 
         // Places a keepable pass's anchored elements by anchors, as the list would place them, into frame; false when
@@ -340,6 +402,19 @@ namespace weft {
         std::vector<Placed> placed_;
         // What each view's anchored elements took in its last pass.
         std::unordered_map<unsigned, std::vector<ScenePlacedAnchor>> anchored_;
+
+        // What each view's last keepable deferred pass was listed from, for patch: the frame (its root, whose nodes the
+        // spans name), the list and its elements' spans, and the scale and target size.
+        struct Listed {
+            SceneFrame frame;
+            SceneDisplayList list;
+            SceneListSpans spans;
+            float scale{};
+            unsigned width{};
+            unsigned height{};
+        };
+
+        std::unordered_map<unsigned, Listed> listed_;
 
         // Places a new text, shadow or path image on its format's atlas when it is small enough and a page has room.
         void place(const std::shared_ptr<SceneImage>& image);

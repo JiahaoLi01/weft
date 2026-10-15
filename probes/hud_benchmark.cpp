@@ -332,7 +332,11 @@ namespace probes {
             std::cout << "400 units, " << changed << " changing: owner update p50 " << std::fixed
                       << std::setprecision(3) << percentile(owner[0].update, .5) << " ms (" << owner_samples
                       << " samples); render CPU p50 " << percentile(timings[0].cpu, .5) << " ms (" << render_samples
-                      << " samples)\n";
+                      << " samples); " << timings[0].patches << " patched passes";
+            for (const auto& [reason, count] : timings[0].refusals) {
+                std::cout << ", " << count << " refused: " << reason;
+            }
+            std::cout << '\n';
         }
         std::cout << "PASS HUD benchmark sampled\n";
         return 0;

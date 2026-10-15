@@ -138,8 +138,19 @@ namespace weft {
             .values;
     }
 
+    std::array<std::uint32_t, SceneListSpan::Parts> scene_list_sizes(const SceneDisplayList& out) {
+        const auto& l = out.list;
+        return {
+            std::uint32_t(l.items.size()),     std::uint32_t(l.clips.size()),     std::uint32_t(l.boxes.size()),
+            std::uint32_t(l.images.size()),    std::uint32_t(l.rasters.size()),   std::uint32_t(l.shadows.size()),
+            std::uint32_t(l.paths.size()),     std::uint32_t(l.planes.size()),    std::uint32_t(l.effects.size()),
+            std::uint32_t(l.particles.size()), std::uint32_t(l.backdrops.size()), std::uint32_t(l.path_shadows.size()),
+            std::uint32_t(out.anchors.size()), std::uint32_t(out.runs.size())};
+    }
+
     SceneDisplayList scene_display_list(const SceneFrame& f, const std::vector<NodeIdentity>& layers, SceneText* text,
-                                        float scale, SceneDisplayCache* cache, const SceneAnchorInput& anchors) {
+                                        float scale, SceneDisplayCache* cache, const SceneAnchorInput& anchors,
+                                        const SceneListBuild& build) {
         SceneDisplayList out;
         auto& list = out.list;
         // Anchored elements lie in the root's box, clipped to it alone; deferred, at their origins, unclipped but by
@@ -645,8 +656,30 @@ namespace weft {
                 out.anchors[before].end = std::uint32_t(list.items.size());
                 return std::uint32_t(before + 1);
             };
-            auto visit = [&](auto&& self, const SceneNode& n, Matrix parent, std::array<float, 4> clip,
-                             Chain chain) -> void {
+
+            // The span of a visit of a frame's own node: its context as it starts, its ranges as it ends.
+            struct Spanned {
+                SceneListSpans* spans{};
+                const SceneNode* node{};
+                const SceneDisplayList& out;
+                SceneListSpan span;
+
+                ~Spanned() {
+                    if (spans) {
+                        span.end = scene_list_sizes(out);
+                        spans->insert_or_assign(node, span);
+                    }
+                }
+            };
+
+            // framed: n is a node of the frame, not a piece of one (a fragment of an inline box, its content without
+            // its box).
+            auto visit = [&](auto&& self, const SceneNode& n, Matrix parent, std::array<float, 4> clip, Chain chain,
+                             bool framed) -> void {
+                Spanned spanned{framed ? build.spans : nullptr, &n, out, {}};
+                if (spanned.spans) {
+                    spanned.span = {parent, clip, chain.begin, chain.count, groups, scene_list_sizes(out), {}};
+                }
                 if (get(n.style, PropertyId::Display) == "none" || n.box[2] <= 0 || n.box[3] <= 0) {
                     return;
                 }
@@ -690,9 +723,9 @@ namespace weft {
                 // An inline element in lines: its box a fragment at a time, then its text and children.
                 if (!n.fragments.empty()) {
                     for (const auto& box : scene_fragment_boxes(n)) {
-                        self(self, box, parent, clip, chain);
+                        self(self, box, parent, clip, chain, false);
                     }
-                    self(self, scene_without_box(n), parent, clip, chain);
+                    self(self, scene_without_box(n), parent, clip, chain, false);
                     return;
                 }
                 // A perspective plane, as the reference raster draws it: the subtree flat in the node's own px, then
@@ -1339,7 +1372,7 @@ namespace weft {
                 for (auto i : order) {
                     const auto first = std::uint32_t(list.items.size());
                     const auto before = out.anchors.size();
-                    self(self, n.children[i], item.transform, clip, chain);
+                    self(self, n.children[i], item.transform, clip, chain, true);
                     if (anchors.deferred) {
                         members.push_back({first, std::uint32_t(list.items.size()), anchor_of(before, n.children[i]),
                                            std::uint32_t(i)});
@@ -1375,17 +1408,44 @@ namespace weft {
                     --groups;
                 }
             };
-            visit(visit, f.root, {1, 0, 0, 1, 0, 0}, {0, 0, f.root.box[2], f.root.box[3]}, Chain{});
+            if (build.part) {
+                // The part in its element's context: the rounded clips it inherits first.
+                const auto& span = *build.span;
+                list.clips.assign(build.whole->clips.begin() + span.chain_begin,
+                                  build.whole->clips.begin() + span.chain_begin + span.chain_count);
+                groups = span.groups;
+                visit(visit, *build.part, span.parent, span.clip, Chain{0, span.chain_count}, true);
+            } else {
+                visit(visit, f.root, {1, 0, 0, 1, 0, 0}, {0, 0, f.root.box[2], f.root.box[3]}, Chain{}, true);
+            }
             if (list.items.size() > constants::scene::max_display_list_items) {
                 throw std::invalid_argument("native command bound");
             }
             scene_anchor_sort(out.placed);
             if (anchors.deferred) {
-                (void)anchor_of(0, f.root);
+                (void)anchor_of(0, build.part ? *build.part : f.root);
                 // Items take the anchor of the innermost anchored element around them (outer ones come first). A
                 // group composites over the root's box, unmoved: its items hold the clips. Backdrops, particles,
                 // planes and effects place themselves on the target, so their anchors cannot wait.
                 out.deferred = true;
+                // A part's items count anchors as the whole list does; the part's items outside its own anchored
+                // elements lie in the enclosing one (none at 0), whose groups composite over the root's box.
+                const auto first_anchor = build.part ? build.span->begin[SceneListSpan::Anchors] : 0u;
+                if (build.part && build.enclosing) {
+                    for (auto& item : list.items) {
+                        using Kind = paint::Item::Kind;
+                        if (item.kind == Kind::BeginGroup || item.kind == Kind::EndGroup) {
+                            item.clip = view_clip;
+                            item.clips_begin = item.clips_count = 0;
+                            continue;
+                        }
+                        if (item.kind == Kind::Backdrop || item.kind == Kind::Particles || item.kind == Kind::Plane ||
+                            item.kind == Kind::Effect) {
+                            out.deferred = false;
+                        }
+                        item.anchor = build.enclosing;
+                    }
+                }
                 for (std::size_t k = 0; k < out.anchors.size(); ++k) {
                     for (auto i = out.anchors[k].first; i < out.anchors[k].end; ++i) {
                         auto& item = list.items[i];
@@ -1399,7 +1459,7 @@ namespace weft {
                             item.kind == Kind::Effect) {
                             out.deferred = false;
                         }
-                        item.anchor = std::uint32_t(k + 1);
+                        item.anchor = std::uint32_t(first_anchor + k + 1);
                     }
                 }
                 if (!out.deferred) {

@@ -1,5 +1,6 @@
 #include "scene/scene_native.hpp"
 
+#include "base/css_scalar.hpp"
 #include "constants/common.hpp"
 #include "render/shadow_image.hpp"
 #include "render/srgb.hpp"
@@ -214,6 +215,18 @@ namespace weft {
             close();
             pass.batches = std::move(merged);
         }
+
+        // Whether a pass may draw a run's items in another order without planning it again: they lie in one batch
+        // that draws its records in any order (boxes, or boxes and images on one atlas page).
+        bool reorderable(const ScenePrepared& prepared, const SceneListRun& run) {
+            const auto first = run.members.front().first;
+            const auto end = run.members.back().end;
+            return first == end ||
+                   std::any_of(prepared.pass.batches.begin(), prepared.pass.batches.end(), [&](const auto& b) {
+                       return (b.step == render::ScenePass::Step::Boxes || b.step == render::ScenePass::Step::Atlas) &&
+                              b.first <= first && end <= b.first + b.count;
+                   });
+        }
     } // namespace
 
     std::vector<const SceneTexture*> scene_texture_bindings(const ScenePrepared& prepared,
@@ -361,43 +374,48 @@ namespace weft {
         const auto svg_reuses = svg_.reuses();
         auto& anchored = anchored_[view_index];
         defer = defer && !crop;
-        auto compiled = scene_display_list(frame, layers, &text_, scale, &svg_, {anchors, &anchored, defer});
+        // A deferred list without layers is kept for patch, listed from a copy of the frame whose nodes its spans
+        // name.
+        listed_.erase(view_index);
+        Listed* listed = defer && layers.empty() ? &listed_[view_index] : nullptr;
+        if (listed) {
+            listed->frame.root = frame.root;
+            listed->frame.time_ms = frame.time_ms;
+            listed->frame.animated = frame.animated;
+            listed->frame.revision = frame.revision;
+        }
+        auto compiled = scene_display_list(listed ? listed->frame : frame, layers, &text_, scale, &svg_,
+                                           {anchors, &anchored, defer}, {listed ? &listed->spans : nullptr});
         if (defer && compiled.fallback.empty() && !compiled.deferred) {
             // Anchored subtrees the pass cannot move: placed now, every frame.
             compiled = scene_display_list(frame, layers, &text_, scale, &svg_, {anchors, &anchored});
             defer = false;
+            listed_.erase(view_index);
+            listed = nullptr;
         }
         work_.svg_value_builds += svg_.builds() - svg_builds;
         work_.svg_value_reuses += svg_.reuses() - svg_reuses;
         if (!compiled.fallback.empty()) {
+            listed_.erase(view_index);
             return fallback(compiled.fallback);
         }
         if (!defer) {
             anchored = std::move(compiled.placed);
         }
         if (const auto valid = paint::check(compiled.list, limits::max_group_depth); !valid) {
+            listed_.erase(view_index);
             return fallback(valid.error().message);
         }
         try {
             auto prepared = prepare(compiled.list, scale, width, height, crop, view_index,
                                     std::uint32_t(compiled.anchors.size()), over);
             if (defer) {
-                prepared->anchors = std::move(compiled.anchors);
-                prepared->runs = std::move(compiled.runs);
+                prepared->anchors = compiled.anchors;
+                prepared->runs = compiled.runs;
                 prepared->view = {frame.root.box[2], frame.root.box[3]};
                 prepared->keepable = !scene_planes_draw_textures(*prepared);
-                // A run reorders inside one batch that draws its records in any order: boxes, or boxes and images on
-                // one atlas page.
                 for (auto& run : prepared->runs) {
-                    const auto first = run.members.front().first;
-                    const auto end = run.members.back().end;
-                    run.reorderable =
-                        first == end ||
-                        std::any_of(prepared->pass.batches.begin(), prepared->pass.batches.end(), [&](const auto& b) {
-                            return (b.step == render::ScenePass::Step::Boxes ||
-                                    b.step == render::ScenePass::Step::Atlas) &&
-                                   b.first <= first && end <= b.first + b.count;
-                        });
+                    run.reorderable = reorderable(*prepared, run);
                 }
             }
             // The pass's working set: each image once.
@@ -431,10 +449,435 @@ namespace weft {
             }
             work_.peak_pass_images = std::max(work_.peak_pass_images, images.size());
             work_.peak_pass_image_bytes = std::max(work_.peak_pass_image_bytes, bytes);
+            if (listed && prepared->keepable) {
+                listed->list = std::move(compiled);
+                listed->scale = scale;
+                listed->width = width;
+                listed->height = height;
+            } else {
+                listed_.erase(view_index);
+            }
             return prepared;
         } catch (const std::invalid_argument& e) {
+            listed_.erase(view_index);
             return fallback(e.what());
         }
+    }
+
+    namespace {
+        using Part = SceneListSpan::Part;
+
+        // A node of the frame whose storage is not the listed frame's, and the node it replaces: a subtree to list
+        // again (whole), or a node of the same own values on the way to one, whose span is the node's it replaces.
+        struct Changed {
+            const SceneNode* old{};
+            const SceneNode* now{};
+            bool whole{};
+        };
+
+        std::string_view z_index(const SceneNode& n) {
+            return n.style.text(PropertyId::ZIndex, "0");
+        }
+
+        // A node whose visit lists its subtree as no visit of its descendants does: an svg element (its clip-paths
+        // find their definitions anywhere inside it) and a perspective plane (a list of its own).
+        bool atomic(const SceneNode& n) {
+            return n.tag == "svg" ||
+                   n.style.text(PropertyId::Transform, "none").find("perspective(") != std::string_view::npos;
+        }
+
+        // Adds the nodes below now (whose own values are old's) whose storage differs from old's to changed, each with
+        // the node it replaces: subtrees to list again, and the nodes on the way to them; false when now's children are
+        // not old's in their order and z-index, so that now is to be listed whole.
+        bool changed_parts(const SceneNode& old, const SceneNode& now, std::vector<Changed>& changed) {
+            if (old.children.size() != now.children.size()) {
+                return false;
+            }
+            for (std::size_t k = 0; k < now.children.size(); ++k) {
+                const auto a = old.children.handle(k);
+                const auto b = now.children.handle(k);
+                if (a == b) {
+                    continue;
+                }
+                if (a->identity != b->identity || z_index(*a) != z_index(*b)) {
+                    return false;
+                }
+                const auto before = changed.size();
+                if (!scene_own_equal(*a, *b) || atomic(*b) || !changed_parts(*a, *b, changed)) {
+                    changed.resize(before);
+                    changed.push_back({a.get(), b.get(), true});
+                } else {
+                    changed.push_back({a.get(), b.get(), false});
+                }
+            }
+            return true;
+        }
+
+        // What of a subtree its ancestors' visits read: its anchored elements with their anchoring, and the elements
+        // with a backdrop filter.
+        void ancestors_read(const SceneNode& n, std::vector<std::pair<NodeIdentity, SceneAnchoring>>& anchored,
+                            std::vector<NodeIdentity>& filtered) {
+            if (n.anchoring) {
+                anchored.emplace_back(n.identity, *n.anchoring);
+            }
+            const auto filter = css::trim(n.style.text(PropertyId::BackdropFilter, "none"));
+            if (!filter.empty() && filter != "none") {
+                filtered.push_back(n.identity);
+            }
+            for (const auto& c : n.children) {
+                ancestors_read(c, anchored, filtered);
+            }
+        }
+
+        bool same_for_ancestors(const SceneNode& a, const SceneNode& b) {
+            std::vector<std::pair<NodeIdentity, SceneAnchoring>> anchored_a;
+            std::vector<std::pair<NodeIdentity, SceneAnchoring>> anchored_b;
+            std::vector<NodeIdentity> filtered_a;
+            std::vector<NodeIdentity> filtered_b;
+            ancestors_read(a, anchored_a, filtered_a);
+            ancestors_read(b, anchored_b, filtered_b);
+            return anchored_a == anchored_b && filtered_a == filtered_b;
+        }
+
+        // Whether a patch can replace an item of this kind in place: what it draws needs no effect program, asset,
+        // texture name, plane, backdrop or particles, whose items a pass batches or places by more than their kind.
+        bool patchable(paint::Item::Kind kind) {
+            using Kind = paint::Item::Kind;
+            return kind == Kind::Box || kind == Kind::Text || kind == Kind::Shadow || kind == Kind::Path ||
+                   kind == Kind::PathShadow || kind == Kind::BeginGroup || kind == Kind::EndGroup;
+        }
+
+        // The payload list of an item's kind (SceneListSpan::Part); Parts for groups.
+        Part payload_part(paint::Item::Kind kind) {
+            using Kind = paint::Item::Kind;
+            switch (kind) {
+                case Kind::Box:
+                    return Part::Boxes;
+                case Kind::Text:
+                case Kind::Layer:
+                    return Part::Rasters;
+                case Kind::Image:
+                    return Part::Images;
+                case Kind::Shadow:
+                    return Part::Shadows;
+                case Kind::Path:
+                    return Part::Paths;
+                case Kind::Plane:
+                    return Part::Planes;
+                case Kind::Effect:
+                    return Part::Effects;
+                case Kind::Particles:
+                    return Part::Particles;
+                case Kind::Backdrop:
+                    return Part::Backdrops;
+                case Kind::PathShadow:
+                    return Part::PathShadows;
+                case Kind::BeginGroup:
+                case Kind::EndGroup:
+                    break;
+            }
+            return Part::Parts;
+        }
+
+        // How an image's item joins batches: no image (a path with nothing in its clip), on an atlas page, or a texture
+        // of its own.
+        std::optional<SceneAtlasPage> batch_place(const std::shared_ptr<const SceneImage>& image, bool& own) {
+            own = image && !image->atlas;
+            if (image && image->atlas) {
+                return SceneAtlasPage{image->format, image->atlas->page};
+            }
+            return std::nullopt;
+        }
+    } // namespace
+
+    std::optional<ScenePatch> ScenePreparer::patch(ScenePrepared& prepared, const SceneFrame& frame,
+                                                   unsigned view_index, const SceneAnchorTable* anchors) {
+        using Kind = paint::Item::Kind;
+        const auto refuse = [&](const char* reason) -> std::optional<ScenePatch> {
+            ++work_.patch_refusals[reason];
+            return std::nullopt;
+        };
+        const auto it = listed_.find(view_index);
+        if (it == listed_.end()) {
+            return refuse("no list");
+        }
+        auto& listed = it->second;
+        auto& whole = listed.list;
+        if (!whole.list.effects.empty() || prepared.width != listed.width || prepared.height != listed.height ||
+            !scene_own_equal(listed.frame.root, frame.root)) {
+            return refuse("another root, size or effects");
+        }
+        std::vector<Changed> changed;
+        if (!changed_parts(listed.frame.root, frame.root, changed)) {
+            return refuse("children in another order or z-index");
+        }
+        // Listing most of the list again a part at a time costs more than listing it whole.
+        std::size_t parted{};
+        for (const auto& part : changed) {
+            if (part.whole) {
+                if (const auto found = listed.spans.find(part.old); found != listed.spans.end()) {
+                    parted += found->second.end[Part::Items] - found->second.begin[Part::Items];
+                }
+            }
+        }
+        if (parted * 2 > whole.list.items.size()) {
+            return refuse("most of the list changed");
+        }
+
+        // Each part listed again, its records, masks and images: nothing changes before every part fits.
+        struct Item {
+            render::SceneRecord record;
+            std::array<std::int32_t, 4> mask{};
+            std::shared_ptr<const SceneImage> image;
+        };
+
+        struct Listing {
+            // A copy: committing a part forgets the spans of the subtree it replaces.
+            SceneListSpan span;
+            const SceneNode* old{};
+            SceneDisplayList list;
+            SceneListSpans spans;
+            std::vector<Item> items;
+            // The pass's records of the rounded clips the part adds.
+            std::vector<render::SceneClip> clips;
+        };
+
+        std::vector<Listing> listings;
+        listings.reserve(changed.size());
+        svg_.begin_pass(view_index);
+        const float scale = listed.scale;
+        const auto anchor_count = std::uint32_t(prepared.anchors.size());
+        for (const auto& part : changed) {
+            if (!part.whole) {
+                if (!listed.spans.contains(part.old)) {
+                    return refuse("a node without a span");
+                }
+                continue;
+            }
+            const auto found = listed.spans.find(part.old);
+            if (found == listed.spans.end()) {
+                return refuse("a node without a span");
+            }
+            if (!same_for_ancestors(*part.old, *part.now)) {
+                return refuse("an anchoring or backdrop filter changed");
+            }
+            const auto& span = found->second;
+            const auto first = span.begin[Part::Items];
+            const auto count = span.end[Part::Items] - first;
+            if (first == 0 && count) {
+                return refuse("a part at the first item");
+            }
+            // The anchored element of the whole list the part lies in: the innermost listed before it whose items
+            // hold its own.
+            std::uint32_t enclosing{};
+            for (std::uint32_t k = 0; k < span.begin[Part::Anchors]; ++k) {
+                const auto& a = whole.anchors[k];
+                if (a.first <= first && first + count <= a.end) {
+                    enclosing = k + 1;
+                }
+            }
+            auto& listing = listings.emplace_back();
+            listing.span = span;
+            listing.old = part.old;
+            listing.list = scene_display_list(frame, {}, &text_, scale, &svg_, {anchors, &anchored_[view_index], true},
+                                              {&listing.spans, part.now, &listing.span, &whole.list, enclosing});
+            const auto& built = listing.list;
+            if (!built.fallback.empty() || !built.deferred) {
+                return refuse("a part the list cannot defer");
+            }
+            const auto sizes = scene_list_sizes(built);
+            for (unsigned p = 0; p < Part::Parts; ++p) {
+                const auto size = p == Part::Clips ? sizes[p] - span.chain_count : sizes[p];
+                if (size != span.end[p] - span.begin[p]) {
+                    return refuse("a part of other sizes");
+                }
+            }
+            for (std::uint32_t i = 0; i < count; ++i) {
+                const auto& item = built.list.items[i];
+                if (!patchable(item.kind) || item.kind != whole.list.items[first + i].kind) {
+                    return refuse("a part of other kinds");
+                }
+            }
+            if (!paint::check(built.list, limits::max_group_depth)) {
+                return refuse("a part the checks refuse");
+            }
+            for (std::size_t c = span.chain_count; c < built.list.clips.size(); ++c) {
+                auto planned = render::plan_scene_clip(built.list.clips[c]);
+                if (!planned) {
+                    return refuse("a rounded clip refused");
+                }
+                listing.clips.push_back(*planned);
+            }
+            // Records as the plan makes them, with the whole list's rounded clips; images, which must join the batches
+            // the items they replace joined.
+            listing.items.resize(count);
+            for (std::uint32_t i = 0; i < count; ++i) {
+                const auto& item = built.list.items[i];
+                auto planned = render::plan_scene_item(built.list, i, scale, listed.width, listed.height, std::nullopt,
+                                                       render::Space::Encoded, anchor_count);
+                if (!planned) {
+                    return refuse("an item the plan refuses");
+                }
+                auto& out = listing.items[i];
+                out.record = planned->record;
+                out.mask = planned->mask;
+                try {
+                    if (item.kind == Kind::Text) {
+                        auto made = image(item, built.list.rasters[item.payload], scale, view_index);
+                        out.image = std::move(made.text);
+                    } else if (item.kind == Kind::Shadow) {
+                        out.image = shadow(item, built.list.shadows[item.payload], scale);
+                    } else if (item.kind == Kind::Path && out.mask[2] > out.mask[0] && out.mask[3] > out.mask[1]) {
+                        out.image = path(item, built.list.paths[item.payload], scale, out.mask);
+                    } else if (item.kind == Kind::PathShadow && out.mask[2] > out.mask[0] &&
+                               out.mask[3] > out.mask[1]) {
+                        out.image = path_shadow(built.list, item, scale, out.mask);
+                    }
+                } catch (const std::invalid_argument&) {
+                    return refuse("an image refused");
+                }
+                bool own_now{};
+                bool own_before{};
+                if (batch_place(out.image, own_now) != batch_place(prepared.images[first + i], own_before) ||
+                    own_now != own_before || bool(out.image) != bool(prepared.images[first + i])) {
+                    return refuse("an image in another batch");
+                }
+                if (out.image && out.image->atlas) {
+                    const auto size = float(scene_atlas_page_size(out.image->format));
+                    out.record.uv = {float(out.image->atlas->x) / size, float(out.image->atlas->y) / size,
+                                     float(out.image->width) / size, float(out.image->height) / size};
+                }
+            }
+        }
+        // Every part fits: its values go where the elements they replace were.
+        ScenePatch out;
+        for (auto& listing : listings) {
+            const auto& span = listing.span;
+            auto& built = listing.list;
+            const auto base = [&](Part p) {
+                return span.begin[p];
+            };
+            const auto chain = span.chain_count;
+            // A rounded clip index of the part in the whole list: the inherited run is whole's, the part's own follow
+            // its span's.
+            const auto clip_index = [&](std::uint32_t begin, std::uint32_t count) {
+                if (!count) {
+                    return begin;
+                }
+                return begin < chain ? begin + span.chain_begin : begin - chain + base(Part::Clips);
+            };
+            const auto first = base(Part::Items);
+            for (std::size_t i = 0; i < built.list.items.size(); ++i) {
+                auto item = built.list.items[i];
+                if (const auto part = payload_part(item.kind); part != Part::Parts) {
+                    item.payload += base(part);
+                }
+                item.clips_begin = clip_index(item.clips_begin, item.clips_count);
+                whole.list.items[first + i] = item;
+                auto& planned = listing.items[i];
+                planned.record.clips[0] = float(item.clips_begin);
+                prepared.pass.records[first + i] = planned.record;
+                prepared.pass.masks[first + i] = planned.mask;
+                prepared.images[first + i] = std::move(planned.image);
+            }
+            const auto copy = [&](auto& to, const auto& from, Part p) {
+                std::copy(from.begin(), from.end(), to.begin() + std::ptrdiff_t(base(p)));
+            };
+            copy(whole.list.boxes, built.list.boxes, Part::Boxes);
+            copy(whole.list.rasters, built.list.rasters, Part::Rasters);
+            copy(whole.list.shadows, built.list.shadows, Part::Shadows);
+            copy(whole.list.paths, built.list.paths, Part::Paths);
+            for (auto& shadowed : built.list.path_shadows) {
+                shadowed.first += first;
+            }
+            copy(whole.list.path_shadows, built.list.path_shadows, Part::PathShadows);
+            for (std::size_t c = chain; c < built.list.clips.size(); ++c) {
+                const auto at = base(Part::Clips) + std::uint32_t(c - chain);
+                whole.list.clips[at] = built.list.clips[c];
+                prepared.pass.clips[at] = listing.clips[c - chain];
+            }
+            for (std::size_t k = 0; k < built.anchors.size(); ++k) {
+                auto a = built.anchors[k];
+                a.first += first;
+                a.end += first;
+                whole.anchors[base(Part::Anchors) + k] = a;
+                prepared.anchors[base(Part::Anchors) + k] = a;
+            }
+            for (std::size_t r = 0; r < built.runs.size(); ++r) {
+                auto run = built.runs[r];
+                for (auto& m : run.members) {
+                    m.first += first;
+                    m.end += first;
+                    if (m.anchor) {
+                        m.anchor += base(Part::Anchors);
+                    }
+                }
+                // Its members may hold other items than before (in the batches the pass keeps).
+                run.reorderable = reorderable(prepared, run);
+                whole.runs[base(Part::Runs) + r] = run;
+                prepared.runs[base(Part::Runs) + r] = std::move(run);
+            }
+            // The part's elements' spans, as the whole list's, in place of those of the subtree it replaced.
+            const auto forget = [&](auto&& self, const SceneNode& n) -> void {
+                listed.spans.erase(&n);
+                for (const auto& c : n.children) {
+                    self(self, c);
+                }
+            };
+            forget(forget, *listing.old);
+            for (auto& [node, s] : listing.spans) {
+                s.chain_begin = clip_index(s.chain_begin, s.chain_count);
+                for (unsigned p = 0; p < Part::Parts; ++p) {
+                    if (p == Part::Clips) {
+                        s.begin[p] = s.begin[p] - chain + base(Part::Clips);
+                        s.end[p] = s.end[p] - chain + base(Part::Clips);
+                    } else {
+                        s.begin[p] += base(Part(p));
+                        s.end[p] += base(Part(p));
+                    }
+                }
+                listed.spans.insert_or_assign(node, s);
+            }
+            out.records.push_back({first, span.end[Part::Items]});
+            if (span.end[Part::Clips] > span.begin[Part::Clips]) {
+                out.clips.push_back({span.begin[Part::Clips], span.end[Part::Clips]});
+            }
+        }
+        // The nodes on the way keep their spans under their new storage.
+        for (const auto& part : changed) {
+            if (!part.whole) {
+                auto span = listed.spans.extract(part.old);
+                span.key() = part.now;
+                listed.spans.insert(std::move(span));
+            }
+        }
+        listed.frame.root = frame.root;
+        listed.frame.time_ms = frame.time_ms;
+        listed.frame.animated = frame.animated;
+        listed.frame.revision = frame.revision;
+        return out;
+    }
+
+    void ScenePatchHistory::add(std::uint64_t from, std::uint64_t to, const ScenePatch& patch) {
+        if (applied_.size() >= std::size_t(constants::render::scene::kept_patch_history)) {
+            applied_.erase(applied_.begin());
+        }
+        applied_.push_back({from, to, patch});
+    }
+
+    bool ScenePatchHistory::since(std::uint64_t from, ScenePatch& out) const {
+        const auto first = std::find_if(applied_.begin(), applied_.end(), [&](const Applied& a) {
+            return a.from == from;
+        });
+        if (first == applied_.end()) {
+            return false;
+        }
+        out = {};
+        for (auto it = first; it != applied_.end(); ++it) {
+            out.records.insert(out.records.end(), it->patch.records.begin(), it->patch.records.end());
+            out.clips.insert(out.clips.end(), it->patch.clips.begin(), it->patch.clips.end());
+        }
+        return true;
     }
 
     bool ScenePreparer::place(const ScenePrepared& prepared, unsigned view_index, const SceneAnchorTable* anchors,
@@ -504,6 +947,9 @@ namespace weft {
                 moved.insert(moved.end(), frame.order.begin() + member.first, frame.order.begin() + member.end);
             }
             std::copy(moved.begin(), moved.end(), frame.order.begin() + run.members.front().first);
+        }
+        if (!frame.order.empty()) {
+            ++work_.reordered_passes;
         }
         scene_anchor_sort(placed);
         last = std::move(placed);

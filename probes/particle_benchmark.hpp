@@ -6,6 +6,7 @@
 #include <array>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -28,6 +29,10 @@ namespace probes::particle_benchmark {
         double draws{};
         double text_builds{};
         double path_builds{};
+        // Kept passes patched and patches refused by reason (SceneNativeWork), up to the level's last frame: warm-up
+        // and earlier levels included.
+        std::size_t patches{};
+        std::map<std::string, std::size_t> refusals;
     };
 
     // The frame to draw at frame index of level (0, 1, ...); a frame lives until the next call.

@@ -2,19 +2,24 @@
 #include "dom/tree.hpp"
 #include "paint/particles.hpp"
 #include "scene/scene.hpp"
+#include "scene/scene_native.hpp"
 #include "scene/scene_particles.hpp"
 #include "style/style.hpp"
 #include "support/check.hpp"
+#include "support/d3d11_scene.hpp"
 #include "support/native_scene.hpp"
 #include "support/scene_fonts.hpp"
 
 #include <algorithm>
 #include <array>
+#include <crtdbg.h>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -267,8 +272,8 @@ namespace {
         weft::testing::NativeScene s;
         auto& large = s.html("div");
         s.tree.insert(*s.root, large, nullptr);
-        auto& small = s.html("div");
-        s.tree.insert(*s.root, small, nullptr);
+        auto& sibling = s.html("div");
+        s.tree.insert(*s.root, sibling, nullptr);
         for (int i = 0; i < weft::constants::max_document_nodes - 4; ++i) {
             s.tree.insert(large, s.html("i"), nullptr);
         }
@@ -276,11 +281,11 @@ namespace {
         weft::StyleMemo memo;
         const auto first = s.tree.snapshot(*s.root);
         compiled.update(first, nullptr, output, memo, 1);
-        s.tree.insert(small, s.html("b"), nullptr);
+        s.tree.insert(sibling, s.html("b"), nullptr);
         const auto at_bound = s.tree.snapshot(*s.root);
         compiled.update(at_bound, &first, output, memo, 2);
         require(output.subtree_nodes == std::size_t(weft::constants::max_document_nodes), "a document at the bound");
-        s.tree.insert(small, s.html("b"), nullptr);
+        s.tree.insert(sibling, s.html("b"), nullptr);
         const auto over = s.tree.snapshot(*s.root);
         bool refused{};
         try {
@@ -292,17 +297,33 @@ namespace {
         std::cout << "PASS incremental cascade: 1,200 random updates against full cascades\n";
     }
 
-    // A scene page: positioned panels of nameplates (a name over a bar), text in lines, a flex row, an animation, a
-    // transition, and the changes a game UI makes to them.
+    // A scene page: positioned panels of nameplates (a name over a bar), text in lines, a flex row, a rounded box that
+    // clips its content (a translucent group with shadows, shadowed text), an svg icon, an animation, a transition, and
+    // the changes a game UI makes to them.
     struct ScenePage {
         weft::testing::NativeScene s;
         std::vector<weft::dom::Node*> elements;
         std::vector<weft::dom::Node*> texts;
+        weft::dom::Node* clipper{};
+        weft::dom::Node* icon{};
+        // A box under a translucent group that gains and loses an anchoring, and the first child, a box over the
+        // whole page (a pass folds it into its clear).
+        weft::dom::Node* anchorable{};
+        weft::dom::Node* backdrop{};
+        // The panels, the flock's birds, the flex row, and a caption on one line.
+        std::vector<weft::dom::Node*> panels;
+        std::vector<weft::dom::Node*> birds;
+        weft::dom::Node* row{};
+        weft::dom::Node* caption{};
 
         explicit ScenePage(Random& r) {
+            backdrop = &add(*s.root, "div",
+                            "position:absolute;left:0;top:0;width:400px;height:320px;"
+                            "background-color:#101418");
             for (int p = 0; p < 4; ++p) {
                 auto& panel = add(*s.root, "div",
                                   "position:absolute;left:" + std::to_string(10 + p * 90) + "px;top:10px;width:80px");
+                panels.push_back(&panel);
                 for (int u = 0; u < 3; ++u) {
                     auto& unit = add(panel, "div", "position:relative;height:30px");
                     text(add(unit, "div", "font-size:12px;line-height:14px"), "Unit " + std::to_string(p * 3 + u));
@@ -314,13 +335,63 @@ namespace {
             text(line, "Some ");
             text(add(line, "span", "color:#ff0000"), "inline words");
             text(line, " that wrap in lines");
-            auto& row = add(*s.root, "div", "position:absolute;left:200px;top:200px;display:flex;gap:4px");
+            row = &add(*s.root, "div", "position:absolute;left:200px;top:200px;display:flex;gap:4px");
             for (int i = 0; i < 4; ++i) {
-                add(row, "div", "width:20px;height:20px;background-color:#3366" + std::to_string(10 + i * 20));
+                add(*row, "div", "width:20px;height:20px;background-color:#3366" + std::to_string(10 + i * 20));
             }
             add(*s.root, "div", "position:absolute;left:10px;top:260px;width:30px;height:30px")
                 .attributes.push_back({"class", "class", "", "pulse"});
             s.tree.changed(*elements.back());
+            // A rounded clip before the others: the clips of the box below do not start the list's.
+            auto& first_clip = add(*s.root, "div",
+                                   "position:absolute;left:330px;top:10px;width:60px;height:40px;overflow:hidden;"
+                                   "border-radius:8px;background-color:#304050");
+            add(first_clip, "div",
+                "position:absolute;left:4px;top:4px;width:30px;height:20px;background-color:#80c0f0");
+            // Three anchored siblings of one z-index (a run the pass orders by depth), after the anchored panels.
+            auto& flock = add(*s.root, "div", "position:absolute;left:0;top:0;width:400px;height:320px");
+            for (int k = 0; k < 3; ++k) {
+                auto& bird =
+                    add(flock, "div", "position:absolute;left:0;top:0;width:20px;height:10px;background-color:#e0e040");
+                s.set(bird, "data-anchor", std::to_string(3 + k));
+                birds.push_back(&bird);
+                text(add(bird, "div", "font-size:8px"), "b" + std::to_string(k));
+            }
+            // Rounded clips: the content of a box that clips to its rounded padding box.
+            clipper = &add(*s.root, "div",
+                           "position:absolute;left:220px;top:60px;width:150px;height:110px;overflow:hidden;"
+                           "border-radius:10px;background-color:#202830");
+            auto& group = add(*clipper, "div",
+                              "position:absolute;left:10px;top:10px;width:100px;height:60px;opacity:0.7;"
+                              "background-color:#405060");
+            anchorable = &add(group, "div",
+                              "position:absolute;left:8px;top:8px;width:40px;height:20px;background-color:#d4a843;"
+                              "box-shadow:2px 3px 4px 0px rgba(0,0,0,0.5);border-radius:4px");
+            text(add(*clipper, "div",
+                     "position:absolute;left:10px;top:80px;font-size:12px;color:#ffffff;"
+                     "text-shadow:1px 1px 2px #000000"),
+                 "Clipped");
+            // A rounded clip inside the clipping box: its chain holds the box's.
+            auto& inner = add(*clipper, "div",
+                              "position:absolute;left:115px;top:10px;width:30px;height:30px;overflow:hidden;"
+                              "border-radius:6px;background-color:#506070");
+            add(inner, "div", "position:absolute;left:5px;top:5px;width:30px;height:30px;background-color:#f08080");
+            // An svg icon: listed whole when anything in it changes.
+            icon = &s.svg("svg");
+            s.set(*icon, "width", "40");
+            s.set(*icon, "height", "40");
+            s.set(*icon, "viewBox", "0 0 40 40");
+            s.set(*icon, "style", "position:absolute;left:300px;top:250px;filter:drop-shadow(2px 2px 2px #000000)");
+            s.tree.insert(*s.root, *icon, nullptr);
+            auto& path = s.svg("path");
+            s.set(path, "d", "M2 2 L38 2 L20 38 Z");
+            s.set(path, "fill", "#33aa55");
+            s.tree.insert(*icon, path, nullptr);
+            // A caption on one line: a large text takes a texture of its own where a small one lies on an atlas page.
+            caption = &add(*s.root, "div",
+                           "position:absolute;left:4px;top:300px;font-size:12px;color:#ffffff;white-space:nowrap;"
+                           "text-shadow:1px 1px 2px #000000");
+            text(*caption, "Caption");
             (void)r;
         }
 
@@ -359,7 +430,8 @@ namespace {
                 const auto end = text.find(';', at + 1);
                 text.erase(at, end == std::string::npos ? std::string::npos : end - at);
             }
-            if (text.back() != ';') {
+            // The property alone: nothing is left.
+            if (text.empty() || text.back() != ';') {
                 text += ';';
             }
             s.set(n, "style", text.substr(1) + property + ":" + value);
@@ -367,7 +439,48 @@ namespace {
 
         void change(Random& r) {
             auto& n = *elements[r.below(elements.size())];
-            switch (r.below(12)) {
+            switch (r.below(18)) {
+                case 17: {
+                    // Another anchor for a bird: the run it lies in orders it by that anchor's depth.
+                    const auto it =
+                        std::find_if(birds[0]->attributes.begin(), birds[0]->attributes.end(), [](const auto& a) {
+                            return a.name == "data-anchor";
+                        });
+                    s.set(*birds[0], "data-anchor", it != birds[0]->attributes.end() && it->value == "3" ? "7" : "3");
+                    break;
+                }
+                case 15:
+                    // An anchoring under a translucent group: the group composites over the root's box while it holds
+                    // one.
+                    if (const auto it = std::find_if(anchorable->attributes.begin(), anchorable->attributes.end(),
+                                                     [](const auto& a) {
+                                                         return a.name == "data-anchor";
+                                                     });
+                        it != anchorable->attributes.end()) {
+                        anchorable->attributes.erase(it);
+                        s.tree.changed(*anchorable);
+                    } else {
+                        s.set(*anchorable, "data-anchor", "6");
+                    }
+                    break;
+                case 16:
+                    style(*backdrop, "background-color", r.below(2) ? "#101418" : "#181410");
+                    break;
+                case 12:
+                    style(n, "z-index", std::to_string(r.below(3)));
+                    break;
+                case 13: {
+                    auto& path = s.tree.at(icon->children[0]);
+                    s.set(path, "fill", r.below(2) ? "#33aa55" : "#aa3355");
+                    if (r.below(3) == 0) {
+                        s.set(path, "d", r.below(2) ? "M2 2 L38 2 L20 38 Z" : "M4 4 L36 8 L18 36 Z");
+                    }
+                    break;
+                }
+                case 14:
+                    // No radius: no rounded clip, fewer clips for as many items.
+                    style(*clipper, "border-radius", std::to_string(r.below(3) ? 4 + r.below(10) : 0) + "px");
+                    break;
                 case 0:
                 case 1:
                     style(n, "transform",
@@ -393,7 +506,10 @@ namespace {
                     break;
                 case 8: {
                     auto& t = *texts[r.below(texts.size())];
-                    t.data = r.below(2) ? "Short" : "A longer text that takes more of the line";
+                    static const std::array<const char*, 3> datas{
+                        "Short", "A longer text that takes more of the line",
+                        "A text of many words that runs far wider than half an atlas page could ever hold at all"};
+                    t.data = datas[r.below(datas.size())];
                     s.tree.changed(t);
                     break;
                 }
@@ -636,14 +752,607 @@ namespace {
         }
         std::cout << "PASS incremental inline context: 60 updates against full builds\n";
     }
+
+    // Whether two passes draw alike, byte for byte: records, masks, rounded clips, batches, images, anchors and runs.
+    std::string pass_difference(const weft::ScenePrepared& a, const weft::ScenePrepared& b) {
+        if (a.pass.records.size() != b.pass.records.size() ||
+            std::memcmp(a.pass.records.data(), b.pass.records.data(),
+                        a.pass.records.size() * sizeof(weft::render::SceneRecord))) {
+            for (std::size_t i = 0; i < std::min(a.pass.records.size(), b.pass.records.size()); ++i) {
+                if (std::memcmp(&a.pass.records[i], &b.pass.records[i], sizeof(weft::render::SceneRecord))) {
+                    return "record " + std::to_string(i) + " of " + std::to_string(a.pass.records.size());
+                }
+            }
+            return "records";
+        }
+        if (a.pass.masks != b.pass.masks) {
+            return "masks";
+        }
+        if (a.pass.clear != b.pass.clear) {
+            return "clear";
+        }
+        if (a.pass.clips.size() != b.pass.clips.size() ||
+            std::memcmp(a.pass.clips.data(), b.pass.clips.data(),
+                        a.pass.clips.size() * sizeof(weft::render::SceneClip))) {
+            return "rounded clips";
+        }
+        if (a.pass.batches.size() != b.pass.batches.size()) {
+            return "batch count";
+        }
+        for (std::size_t i = 0; i < a.pass.batches.size(); ++i) {
+            const auto& x = a.pass.batches[i];
+            const auto& y = b.pass.batches[i];
+            if (x.step != y.step || x.first != y.first || x.count != y.count || x.source != y.source) {
+                return "batch " + std::to_string(i);
+            }
+        }
+        if (a.images != b.images || a.pages != b.pages) {
+            return "images";
+        }
+        if (a.anchors.size() != b.anchors.size()) {
+            return "anchors";
+        }
+        for (std::size_t k = 0; k < a.anchors.size(); ++k) {
+            const auto& x = a.anchors[k];
+            const auto& y = b.anchors[k];
+            if (x.element != y.element || !(x.anchoring == y.anchoring) || x.box != y.box || x.own != y.own ||
+                x.first != y.first || x.end != y.end) {
+                return "anchor " + std::to_string(k);
+            }
+        }
+        if (a.runs.size() != b.runs.size()) {
+            return "runs";
+        }
+        for (std::size_t r = 0; r < a.runs.size(); ++r) {
+            const auto& x = a.runs[r];
+            const auto& y = b.runs[r];
+            if (x.reorderable != y.reorderable || x.members.size() != y.members.size()) {
+                return "run " + std::to_string(r);
+            }
+            for (std::size_t m = 0; m < x.members.size(); ++m) {
+                const auto& u = x.members[m];
+                const auto& v = y.members[m];
+                if (u.first != v.first || u.end != v.end || u.anchor != v.anchor || u.child != v.child) {
+                    return "run " + std::to_string(r) + " member " + std::to_string(m);
+                }
+            }
+        }
+        return {};
+    }
+
+    // A WARP target's pixels as a renderer draws a frame into it with a slot (encoded premultiplied BGRA rows).
+    std::vector<std::uint8_t> draw_warp(weft::render::d3d11::Renderer& gpu, weft::render::d3d11::SceneRenderer& scene,
+                                        weft::render::d3d11::SceneRenderer::Slot& slot, const weft::SceneFrame& frame,
+                                        const weft::SceneAnchorTable* anchors, unsigned width, unsigned height) {
+        using Microsoft::WRL::ComPtr;
+        D3D11_TEXTURE2D_DESC desc{};
+        desc.Width = width;
+        desc.Height = height;
+        desc.MipLevels = desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+        ComPtr<ID3D11Texture2D> target;
+        ComPtr<ID3D11RenderTargetView> rtv;
+        require(SUCCEEDED(gpu.device->CreateTexture2D(&desc, nullptr, &target)) &&
+                    SUCCEEDED(gpu.device->CreateRenderTargetView(target.Get(), nullptr, &rtv)),
+                "WARP target");
+        require(scene.paint(slot, frame, rtv.Get(), 1, width, height, std::nullopt, 0, {}, anchors), "a WARP pass");
+        desc.BindFlags = 0;
+        desc.Usage = D3D11_USAGE_STAGING;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        ComPtr<ID3D11Texture2D> staging;
+        require(SUCCEEDED(gpu.device->CreateTexture2D(&desc, nullptr, &staging)), "WARP readback");
+        gpu.immediate->CopyResource(staging.Get(), target.Get());
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        require(SUCCEEDED(gpu.immediate->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped)), "WARP map");
+        std::vector<std::uint8_t> out(std::size_t(width) * height * 4);
+        for (unsigned y = 0; y < height; ++y) {
+            std::memcpy(out.data() + std::size_t(y) * width * 4,
+                        static_cast<const std::uint8_t*>(mapped.pData) + std::size_t(y) * mapped.RowPitch, width * 4);
+        }
+        gpu.immediate->Unmap(staging.Get(), 0);
+        return out;
+    }
+
+    // A renderer that patches its kept pass, drawing with two slots in turn (so a slot holds the records of the version
+    // before last and writes what two patches changed), against one that prepares every frame anew: the same pixels.
+    void warp_differential() {
+        const std::string sheet = ".pulse{animation:pulse 120ms linear 2}";
+        const std::string keyframes = "@keyframes pulse{from{opacity:.25}to{opacity:1}}";
+        auto& text = weft::testing::thread_scene_text();
+        constexpr unsigned width = 400;
+        constexpr unsigned height = 320;
+        weft::render::d3d11::Renderer gpu(true, width, height);
+        weft::render::d3d11::SceneRenderer patching(gpu, text);
+        weft::render::d3d11::SceneRenderer fresh(gpu, text);
+        std::array<weft::render::d3d11::SceneRenderer::Slot, 2> slots;
+        weft::render::d3d11::SceneRenderer::Slot fresh_slot;
+        weft::SceneAnchorChannel channel;
+        Random r{0x777};
+        ScenePage page(r);
+        page.s.set(*page.panels[1], "data-anchor", "1");
+        weft::SceneSolver solver(sheet, keyframes, text);
+        weft::SceneFrame frame;
+        for (int step = 0; step < 120; ++step) {
+            for (std::size_t k = r.below(4) ? 1 : 2; k > 0; --k) {
+                page.change(r);
+            }
+            solver.update(page.s.tree.snapshot(*page.s.root), frame, width, height, step * 16.0);
+            // The flock's depths turn every few frames: the kept pass draws its run in another order over patches.
+            const auto turn = float(step / 5 % 3);
+            (void)channel.write(std::vector<weft::SceneAnchor>{{1, float(30 + step % 9), 40},
+                                                               {3, 60, 200, 1, turn},
+                                                               {4, 66, 203, 1, float((step / 5 + 1) % 3)},
+                                                               {5, 72, 206, 1, float((step / 5 + 2) % 3)},
+                                                               {6, 150, 150},
+                                                               {7, 80, 210, 1, 4}});
+            const auto* anchors = &channel.take(weft::SceneAnchorChannel::Reader::Render);
+            const auto drawn = draw_warp(gpu, patching, slots[step % 2], frame, anchors, width, height);
+            fresh.forget(0);
+            const auto expected = draw_warp(gpu, fresh, fresh_slot, frame, anchors, width, height);
+            require(drawn == expected, "a patched pass drew other pixels at step " + std::to_string(step));
+        }
+        require(patching.kept_patches > 60, "most frames patch: " + std::to_string(patching.kept_patches));
+        require(patching.reordered_passes > 0, "kept passes drawn in the order of turned depths");
+        // A change or two a frame, each patched: a slot writes only the records and rounded clips the patches since its
+        // last draw changed, while the history reaches back to it (past the history's length).
+        const auto patches = patching.kept_patches;
+        const auto partial = patching.partial_uploads;
+        {
+            Random settled{0x779};
+            ScenePage quiet(settled);
+            // A box over the whole clipping box, whose corners its rounded clip cuts.
+            quiet.add(*quiet.clipper, "div",
+                      "position:absolute;left:0;top:0;width:150px;height:110px;background-color:#40a040");
+            weft::SceneSolver quiet_solver(sheet, keyframes, text);
+            weft::SceneFrame quiet_frame;
+            // The page's animation ends before the frames drawn.
+            quiet_solver.update(quiet.s.tree.snapshot(*quiet.s.root), quiet_frame, width, height, 0);
+            (void)channel.write(std::vector<weft::SceneAnchor>{{3, 60, 200}, {4, 66, 203}, {5, 72, 206}});
+            const auto* anchors = &channel.take(weft::SceneAnchorChannel::Reader::Render);
+            auto& unit = quiet.s.tree.at(quiet.panels[2]->children[0]);
+            for (int step = 0; step < 24; ++step) {
+                quiet.style(unit, "color", step % 2 ? "#eeeeee" : "#ffcc00");
+                // Now and then a rounded clip too: the slot a frame behind writes it again.
+                if (step % 3 == 1) {
+                    quiet.style(*quiet.clipper, "border-radius", step % 2 ? "6px" : "9px");
+                }
+                quiet_solver.update(quiet.s.tree.snapshot(*quiet.s.root), quiet_frame, width, height,
+                                    400 + step * 16.0);
+                const auto drawn = draw_warp(gpu, patching, slots[step % 2], quiet_frame, anchors, width, height);
+                fresh.forget(0);
+                const auto expected = draw_warp(gpu, fresh, fresh_slot, quiet_frame, anchors, width, height);
+                require(drawn == expected, "a patched pass drew other pixels at quiet step " + std::to_string(step));
+            }
+        }
+        const auto quiet_patches = patching.kept_patches - patches;
+        const auto quiet_partial = patching.partial_uploads - partial;
+        require(quiet_patches >= 22 && quiet_partial >= 20,
+                "slots write only what the patches since changed: " + std::to_string(quiet_partial) + " of " +
+                    std::to_string(quiet_patches) + " patched frames");
+        std::cout << "PASS incremental WARP: 120 frames, " << patching.kept_patches - quiet_patches << " patched, "
+                  << patching.patched_records << " records written again, " << patching.reordered_passes
+                  << " drawn in another order; then " << quiet_patches << " patched frames, " << quiet_partial
+                  << " written in part\n";
+    }
+
+    bool same_path(const weft::paint::PathPaint& a, const weft::paint::PathPaint& b) {
+        const auto& x = *a.path;
+        const auto& y = *b.path;
+        const auto same_stroke = [](const weft::paint::Stroke& u, const weft::paint::Stroke& v) {
+            return u.width == v.width && u.cap == v.cap && u.join == v.join && u.miter_limit == v.miter_limit &&
+                   u.dashes == v.dashes && u.dash_offset == v.dash_offset;
+        };
+        return x.verbs == y.verbs && x.points == y.points && x.evenodd == y.evenodd && a.color == b.color &&
+               bool(a.stroke) == bool(b.stroke) && (!a.stroke || same_stroke(*a.stroke, *b.stroke));
+    }
+
+    // Whether two lists hold the same values, part by part: items, rounded clips, payloads (paths by value), anchors
+    // and runs.
+    std::string list_difference(const weft::SceneDisplayList& a, const weft::SceneDisplayList& b) {
+        const auto& x = a.list;
+        const auto& y = b.list;
+        if (x.items.size() != y.items.size()) {
+            return "item count";
+        }
+        for (std::size_t i = 0; i < x.items.size(); ++i) {
+            const auto& u = x.items[i];
+            const auto& v = y.items[i];
+            if (u.kind != v.kind || u.transform != v.transform || u.clip != v.clip || u.width != v.width ||
+                u.height != v.height || u.opacity != v.opacity || u.payload != v.payload ||
+                u.clips_begin != v.clips_begin || u.clips_count != v.clips_count || u.anchor != v.anchor) {
+                const auto describe = [](const weft::paint::Item& it) {
+                    std::string out = "kind " + std::to_string(int(it.kind)) + " payload " +
+                                      std::to_string(it.payload) + " clips " + std::to_string(it.clips_begin) + "+" +
+                                      std::to_string(it.clips_count) + " anchor " + std::to_string(it.anchor) +
+                                      " opacity " + std::to_string(it.opacity) + " size " + std::to_string(it.width) +
+                                      "x" + std::to_string(it.height) + " clip";
+                    for (const auto c : it.clip) {
+                        out += " " + std::to_string(c);
+                    }
+                    out += " transform";
+                    for (const auto c : it.transform) {
+                        out += " " + std::to_string(c);
+                    }
+                    return out;
+                };
+                return "item " + std::to_string(i) + ": " + describe(u) + " / " + describe(v);
+            }
+        }
+        if (x.clips.size() != y.clips.size()) {
+            return "clip count";
+        }
+        for (std::size_t i = 0; i < x.clips.size(); ++i) {
+            const auto& u = x.clips[i];
+            const auto& v = y.clips[i];
+            if (u.rect != v.rect || u.radius_x != v.radius_x || u.radius_y != v.radius_y || u.to_local != v.to_local) {
+                return "clip " + std::to_string(i);
+            }
+        }
+        if (x.boxes.size() != y.boxes.size()) {
+            return "box count";
+        }
+        for (std::size_t i = 0; i < x.boxes.size(); ++i) {
+            const auto& u = x.boxes[i];
+            const auto& v = y.boxes[i];
+            const auto& g = u.gradient;
+            const auto& h = v.gradient;
+            bool stops = g.stops.size() == h.stops.size();
+            for (std::size_t k = 0; stops && k < g.stops.size(); ++k) {
+                stops = g.stops[k].offset == h.stops[k].offset && g.stops[k].color == h.stops[k].color;
+            }
+            if (u.radii != v.radii || u.widths != v.widths || u.edges != v.edges || u.background != v.background ||
+                g.kind != h.kind || g.angle != h.angle || g.tile != h.tile || g.shape != h.shape ||
+                g.repeating != h.repeating || !stops) {
+                return "box " + std::to_string(i);
+            }
+        }
+        if (x.rasters.size() != y.rasters.size()) {
+            return "raster count";
+        }
+        for (std::size_t i = 0; i < x.rasters.size(); ++i) {
+            const auto& u = x.rasters[i];
+            const auto& v = y.rasters[i];
+            if (!(*u.source == *v.source) || u.mask != v.mask || u.tint != v.tint || u.part != v.part ||
+                u.overhang != v.overhang || u.blur != v.blur) {
+                return "raster " + std::to_string(i);
+            }
+        }
+        if (x.shadows.size() != y.shadows.size()) {
+            return "shadow count";
+        }
+        for (std::size_t i = 0; i < x.shadows.size(); ++i) {
+            const auto& u = x.shadows[i];
+            const auto& v = y.shadows[i];
+            if (u.color != v.color || u.x != v.x || u.y != v.y || u.blur != v.blur || u.spread != v.spread ||
+                u.radii != v.radii || u.inset != v.inset) {
+                return "shadow " + std::to_string(i);
+            }
+        }
+        if (x.paths.size() != y.paths.size()) {
+            return "path count";
+        }
+        for (std::size_t i = 0; i < x.paths.size(); ++i) {
+            if (!same_path(x.paths[i], y.paths[i])) {
+                return "path " + std::to_string(i);
+            }
+        }
+        if (x.path_shadows.size() != y.path_shadows.size()) {
+            return "path shadow count";
+        }
+        for (std::size_t i = 0; i < x.path_shadows.size(); ++i) {
+            const auto& u = x.path_shadows[i];
+            const auto& v = y.path_shadows[i];
+            if (u.first != v.first || u.count != v.count || u.color != v.color || u.x != v.x || u.y != v.y ||
+                u.blur != v.blur || u.content != v.content) {
+                return "path shadow " + std::to_string(i);
+            }
+        }
+        if (a.anchors.size() != b.anchors.size()) {
+            return "anchor count";
+        }
+        for (std::size_t k = 0; k < a.anchors.size(); ++k) {
+            const auto& u = a.anchors[k];
+            const auto& v = b.anchors[k];
+            if (u.element != v.element || !(u.anchoring == v.anchoring) || u.box != v.box || u.own != v.own ||
+                u.first != v.first || u.end != v.end) {
+                return "anchor " + std::to_string(k);
+            }
+        }
+        if (a.runs.size() != b.runs.size()) {
+            return "run count";
+        }
+        for (std::size_t r = 0; r < a.runs.size(); ++r) {
+            if (a.runs[r].members.size() != b.runs[r].members.size()) {
+                return "run " + std::to_string(r);
+            }
+            for (std::size_t m = 0; m < a.runs[r].members.size(); ++m) {
+                const auto& u = a.runs[r].members[m];
+                const auto& v = b.runs[r].members[m];
+                if (u.first != v.first || u.end != v.end || u.anchor != v.anchor || u.child != v.child) {
+                    return "run " + std::to_string(r) + " member " + std::to_string(m);
+                }
+            }
+        }
+        return {};
+    }
+
+    // Whether the spans a preparer keeps are a fresh list's: the same elements (the root aside, a node of each frame)
+    // with the same contexts and ranges.
+    std::string spans_difference(const weft::SceneListSpans& kept, const weft::SceneListSpans& fresh,
+                                 const weft::SceneNode& fresh_root) {
+        if (kept.size() != fresh.size()) {
+            return "span count " + std::to_string(kept.size()) + " for " + std::to_string(fresh.size());
+        }
+        for (const auto& [node, span] : fresh) {
+            if (node == &fresh_root) {
+                continue;
+            }
+            const auto it = kept.find(node);
+            if (it == kept.end()) {
+                return "no span of a node";
+            }
+            const auto& u = it->second;
+            if (u.parent != span.parent || u.clip != span.clip || u.chain_begin != span.chain_begin ||
+                u.chain_count != span.chain_count || u.groups != span.groups || u.begin != span.begin ||
+                u.end != span.end) {
+                return "the span of a " + node->tag;
+            }
+        }
+        return {};
+    }
+
+    // An effect that reads the time draws the frame's time: a kept pass of a frame that holds one is never patched,
+    // though nothing of its tree changed.
+    void effect_refusal() {
+        auto& text = weft::testing::thread_scene_text();
+        weft::SceneNativeWork work;
+        weft::ScenePreparer preparer(text, work, 4096);
+        auto program = std::make_shared<weft::paint::EffectProgram>();
+        program->name = "clock";
+        program->animated = true;
+        weft::SceneFrame frame;
+        frame.root.identity = {1, 1, 1};
+        frame.root.tag = "div";
+        frame.root.box = {0, 0, 200, 100};
+        weft::SceneNode glow;
+        glow.identity = {2, 1, 1};
+        glow.tag = "div";
+        glow.box = {10, 10, 60, 40};
+        glow.effect = std::make_shared<const weft::SceneEffect>(weft::SceneEffect{program, {}, {}});
+        frame.root.children.push_back(std::move(glow));
+        frame.revision = 1;
+        auto kept = preparer.prepare(frame, 1, 200, 100, std::nullopt, 0, {}, nullptr, true);
+        require(kept && kept->keepable, "a kept pass with an effect");
+        frame.time_ms = 16;
+        frame.revision = 2;
+        require(!preparer.patch(*kept, frame, 0, nullptr) &&
+                    work.patch_refusals.contains("another root, size or effects"),
+                "a pass with an effect that reads the time is prepared anew");
+        std::cout << "PASS incremental effects: a pass with an effect is not patched" << '\n';
+    }
+
+    // The kept pass of a view patched frame by frame (ScenePreparer::patch) against a pass prepared anew for each
+    // frame: the same records, masks, clips, batches, images, anchors and runs. Some panels follow anchors. The
+    // flock's depths stay: a list holds a run in the order of the depths it was listed with, and the kept pass orders
+    // it again each frame (the WARP test turns them).
+    void pass_differential() {
+        const std::string sheet = ".fade{transition-property:opacity;transition-duration:50ms;"
+                                  "transition-timing-function:linear}.pulse{animation:pulse 120ms linear 2}"
+                                  ".pulse div{color:#00ff00}";
+        const std::string keyframes = "@keyframes pulse{from{opacity:.25;color:#ff0000}to{opacity:1;color:#00ff00}}";
+        auto& text = weft::testing::thread_scene_text();
+        weft::SceneNativeWork work;
+        // Caches that hold every image, so that both passes sample the same ones.
+        weft::SceneCacheBounds bounds;
+        bounds.entries = 1u << 20;
+        bounds.bytes = std::size_t(1) << 32;
+        weft::ScenePreparer preparer(text, work, 4096, {}, bounds);
+        weft::SceneAnchorChannel channel;
+        // Brings a view's kept pass to frame, by a patch where it can or prepared anew, and compares it, its list and
+        // its spans with fresh ones (prepared for view + 1): whether it patched.
+        const auto step_view = [&](const weft::SceneFrame& frame, std::shared_ptr<weft::ScenePrepared>& kept,
+                                   unsigned view, const weft::SceneAnchorTable* anchors, const std::string& at) {
+            const bool done = kept && preparer.patch(*kept, frame, view, anchors);
+            if (!done) {
+                kept = preparer.prepare(frame, 2, 800, 640, std::nullopt, view, {}, anchors, true);
+                require(kept && preparer.listed(view), "a kept pass" + at);
+            }
+            const auto fresh = preparer.prepare(frame, 2, 800, 640, std::nullopt, view + 1, {}, anchors, true);
+            require(bool(fresh), "a fresh pass" + at);
+            // The list and spans the patch keeps are a fresh list's.
+            weft::SceneListSpans fresh_spans;
+            const auto list =
+                weft::scene_display_list(frame, {}, &text, 2, nullptr, {anchors, nullptr, true}, {&fresh_spans});
+            const auto kept_list = list_difference(*preparer.listed(view), list);
+            require(kept_list.empty(), "the kept list differs from a fresh one: " + kept_list + at);
+            const auto difference = pass_difference(*kept, *fresh);
+            require(difference.empty(), "the patched pass differs from a fresh one: " + difference + at);
+            const auto kept_spans = spans_difference(*preparer.listed_spans(view), fresh_spans, frame.root);
+            require(kept_spans.empty(), "the kept spans differ from a fresh list's: " + kept_spans + at);
+            return done;
+        };
+        std::size_t patched{};
+        std::size_t prepared_again{};
+        for (std::uint32_t seed : {0x13u, 0x4d2u}) {
+            Random r{seed};
+            ScenePage page(r);
+            // Two panels follow anchors 1 and 2.
+            for (unsigned k = 0; k < 2; ++k) {
+                page.s.set(*page.panels[k], "data-anchor", std::to_string(k + 1));
+            }
+            weft::SceneSolver solver(sheet, keyframes, text);
+            weft::SceneFrame frame;
+            std::shared_ptr<weft::ScenePrepared> kept;
+            for (int step = 0; step < 200; ++step) {
+                const auto at = " at step " + std::to_string(step) + " of seed " + std::to_string(seed);
+                for (std::size_t k = r.below(5) ? 1 : 1 + r.below(3); k > 0; --k) {
+                    page.change(r);
+                }
+                const double time = step * 16.0;
+                solver.update(page.s.tree.snapshot(*page.s.root), frame, 400, 320, time);
+                (void)channel.write(std::vector<weft::SceneAnchor>{{1, float(20 + step % 7), 30},
+                                                                   {2, 200, float(40 + step % 5)},
+                                                                   {3, float(50 + step % 3), 300, 1, 0},
+                                                                   {4, 70, 300, 1, 1},
+                                                                   {5, 90, 300, 1, 2},
+                                                                   {6, 150, 150},
+                                                                   {7, 110, 300, 1, 5}});
+                const auto* anchors = &channel.take(weft::SceneAnchorChannel::Reader::Render);
+                if (step_view(frame, kept, 0, anchors, at)) {
+                    ++patched;
+                } else {
+                    ++prepared_again;
+                }
+            }
+        }
+        require(patched > 200, "most frames patch the kept pass: " + std::to_string(patched) + " of " +
+                                   std::to_string(patched + prepared_again));
+        // Frames of a change or two from a pass kept for the frame before, each to its own view: whether they patch it,
+        // and the reason a refusal gives.
+        const auto refusals = [&](const char* reason) {
+            return work.patch_refusals[reason];
+        };
+        // The refusals so far, for a failure's message.
+        const auto refused = [&] {
+            std::string out = " (refusals:";
+            for (const auto& [reason, count] : work.patch_refusals) {
+                out += " " + std::to_string(count) + " " + reason + ";";
+            }
+            return out + ")";
+        };
+        // An svg whose content alone changed is listed again whole, in place.
+        {
+            Random r{0x51};
+            ScenePage page(r);
+            weft::SceneSolver solver(sheet, keyframes, text);
+            weft::SceneFrame frame;
+            std::shared_ptr<weft::ScenePrepared> kept;
+            solver.update(page.s.tree.snapshot(*page.s.root), frame, 400, 320, 0);
+            (void)step_view(frame, kept, 2, nullptr, " (svg)");
+            page.s.set(page.s.tree.at(page.icon->children[0]), "fill", "#aa3355");
+            solver.update(page.s.tree.snapshot(*page.s.root), frame, 400, 320, 16);
+            require(step_view(frame, kept, 2, nullptr, " (svg)"), "an svg whose path changed is patched" + refused());
+        }
+        // A part whose opacity group moved from one child to another holds as many items, of other kinds.
+        {
+            weft::testing::NativeScene s;
+            const auto add = [&](weft::dom::Node& parent, const std::string& style) -> weft::dom::Node& {
+                auto& n = s.html("div");
+                s.set(n, "style", style);
+                s.tree.insert(parent, n, nullptr);
+                return n;
+            };
+            const std::string box = "position:absolute;top:0;width:40px;height:40px;background-color:#404040;";
+            // Boxes besides the part, so that it is less than half the list.
+            for (int i = 0; i < 8; ++i) {
+                add(*s.root, "position:absolute;left:" + std::to_string(i * 24) +
+                                 "px;top:100px;width:20px;height:20px;background-color:#303030");
+            }
+            auto& p = add(*s.root, "position:absolute;left:30px;top:10px;width:100px;height:60px;"
+                                   "background-color:#202020");
+            auto& a = add(p, box + "left:0;opacity:0.5");
+            add(a, "width:20px;height:20px;background-color:#808080");
+            auto& b = add(p, box + "left:50px");
+            add(b, "width:20px;height:20px;background-color:#808080");
+            weft::SceneSolver solver(sheet, keyframes, text);
+            weft::SceneFrame frame;
+            std::shared_ptr<weft::ScenePrepared> kept;
+            solver.update(s.tree.snapshot(*s.root), frame, 400, 320, 0);
+            (void)step_view(frame, kept, 4, nullptr, " (groups)");
+            s.set(p, "style",
+                  "position:absolute;left:30px;top:10px;width:100px;height:60px;background-color:#202020;"
+                  "transform:translate(1px,0px)");
+            s.set(a, "style", box + "left:0");
+            s.set(b, "style", box + "left:50px;opacity:0.5");
+            solver.update(s.tree.snapshot(*s.root), frame, 400, 320, 16);
+            const auto before = refusals("a part of other kinds");
+            require(!step_view(frame, kept, 4, nullptr, " (groups)"),
+                    "a part whose group moved to another child is prepared anew");
+            require(refusals("a part of other kinds") == before + 1, "a part of other kinds" + refused());
+        }
+        // A text grown too tall for an atlas page takes a texture of its own, in another batch.
+        {
+            Random r{0x52};
+            ScenePage page(r);
+            weft::SceneSolver solver(sheet, keyframes, text);
+            weft::SceneFrame frame;
+            std::shared_ptr<weft::ScenePrepared> kept;
+            solver.update(page.s.tree.snapshot(*page.s.root), frame, 400, 320, 0);
+            (void)step_view(frame, kept, 6, nullptr, " (batches)");
+            page.style(*page.caption, "font-size", "80px");
+            solver.update(page.s.tree.snapshot(*page.s.root), frame, 400, 320, 16);
+            const auto before = refusals("an image in another batch");
+            require(!step_view(frame, kept, 6, nullptr, " (batches)"),
+                    "a text that leaves its atlas page is prepared anew");
+            require(refusals("an image in another batch") == before + 1, "an image in another batch" + refused());
+        }
+        // A translucent element inside an anchored one, listed again: its group composites over the root's box, as
+        // the whole list's does.
+        {
+            Random r{0x53};
+            ScenePage page(r);
+            page.s.set(*page.panels[0], "data-anchor", "1");
+            auto& unit = page.s.tree.at(page.panels[0]->children[0]);
+            page.style(unit, "opacity", "0.5");
+            weft::SceneAnchorChannel own;
+            (void)own.write(std::vector<weft::SceneAnchor>{{1, 40, 50}});
+            const auto* anchors = &own.take(weft::SceneAnchorChannel::Reader::Render);
+            weft::SceneSolver solver(sheet, keyframes, text);
+            weft::SceneFrame frame;
+            std::shared_ptr<weft::ScenePrepared> kept;
+            solver.update(page.s.tree.snapshot(*page.s.root), frame, 400, 320, 0);
+            (void)step_view(frame, kept, 8, anchors, " (anchored group)");
+            page.style(unit, "transform", "translate(2px,1px)");
+            solver.update(page.s.tree.snapshot(*page.s.root), frame, 400, 320, 16);
+            require(step_view(frame, kept, 8, anchors, " (anchored group)"),
+                    "a translucent element inside an anchored one is patched" + refused());
+        }
+        // A frame that changes most of the list: listing it a part at a time costs more than listing it whole.
+        {
+            Random r{0x54};
+            ScenePage page(r);
+            weft::SceneSolver solver(sheet, keyframes, text);
+            weft::SceneFrame frame;
+            std::shared_ptr<weft::ScenePrepared> kept;
+            solver.update(page.s.tree.snapshot(*page.s.root), frame, 400, 320, 0);
+            (void)step_view(frame, kept, 10, nullptr, " (most)");
+            for (auto* panel : page.panels) {
+                page.style(*panel, "transform", "translate(1px,1px)");
+            }
+            page.style(*page.clipper, "transform", "translate(1px,1px)");
+            solver.update(page.s.tree.snapshot(*page.s.root), frame, 400, 320, 16);
+            const auto before = refusals("most of the list changed");
+            require(!step_view(frame, kept, 10, nullptr, " (most)"),
+                    "a frame that changes most of the list is prepared anew");
+            require(refusals("most of the list changed") == before + 1, "most of the list changed" + refused());
+        }
+        std::cout << "PASS incremental pass: " << patched << " patched passes and " << prepared_again
+                  << " prepared anew, each as a fresh pass\n";
+    }
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+#ifdef _DEBUG
+    // A debug library's assertion reports on stderr and fails, rather than waiting on a dialog.
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+#endif
     try {
-        cascade_differential();
-        scene_differential();
-        particles_differential();
-        inline_differential();
+        // The D3D11 renderer's reference raster (color glyph images) needs COM.
+        require(SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED)), "COM init");
+        // A section's name runs that section alone.
+        const std::pair<const char*, void (*)()> sections[]{
+            {"cascade", cascade_differential}, {"scene", scene_differential}, {"particles", particles_differential},
+            {"inline", inline_differential},   {"effects", effect_refusal},   {"pass", pass_differential},
+            {"warp", warp_differential}};
+        for (const auto& [name, section] : sections) {
+            if (argc < 2 || std::string_view(argv[1]) == name) {
+                section();
+                std::cout.flush();
+            }
+        }
         std::cout << "PASS incremental contract\n";
         return 0;
     } catch (const std::exception& e) {

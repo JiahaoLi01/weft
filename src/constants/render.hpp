@@ -219,6 +219,8 @@ namespace weft::constants::render {
         inline constexpr float particle_sprite_coverage = 1.f;
         inline constexpr float particle_sprite_color = 2.f;
         inline constexpr int record_initial_capacity = 16;
+        // Patches of a kept pass whose ranges a backend remembers, for the slots holding earlier versions of it.
+        inline constexpr int kept_patch_history = 8;
         // Nested transparent groups available per slot.
         inline constexpr int max_group_depth = 4;
         // Rounded clips an item's chain may hold; the shader multiplies the coverage of each, so a longer chain is

@@ -105,6 +105,8 @@ namespace probes {
                 t.draws = double(scene.draws - before[0]) / samples;
                 t.text_builds = double(scene.text_builds - before[1]) / samples;
                 t.path_builds = double(scene.path_builds - before[2]) / samples;
+                t.patches = scene.kept_patches;
+                t.refusals = scene.patch_refusals;
                 out.push_back(std::move(t));
             }
             gpu.check_debug_messages();

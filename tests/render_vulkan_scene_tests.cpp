@@ -1,5 +1,6 @@
 #include "render/backends/vulkan/scene_renderer.hpp"
 #include "support/check.hpp"
+#include "support/native_scene.hpp"
 #include "support/scene_fonts.hpp"
 
 #include <cstring>
@@ -9,7 +10,9 @@
 // The Vulkan scene pass recorded into a host's command buffers (--adapter <name> picks the device): three frames in
 // flight from three slots, submitted and retired by the host, draw what draw() draws, and each slot's later recordings
 // reuse what its first one made; a recording that samples what an unsubmitted one uploads is Busy; a discarded
-// recording's uploads leave the cache. Skipped (77) without a device.
+// recording's uploads leave the cache. A page's frames from an incremental solver, recorded three in flight, patch
+// the kept pass (each slot then holds the records of an earlier version and writes what the patches since changed) and
+// draw what a renderer that prepares every frame anew draws. Skipped (77) without a device.
 namespace {
     using weft::testing::require;
     namespace vk = weft::render::vulkan;
@@ -59,6 +62,138 @@ namespace {
         bool in_flight{};
         unsigned frame{};
     };
+
+    // Seeded draws.
+    std::uint32_t draw(std::uint32_t& seed) {
+        seed = seed * weft::constants::lcg_multiplier + weft::constants::lcg_increment;
+        return seed >> 8;
+    }
+
+    // A panel of boxes and text whose boxes move, recolor and fade frame by frame, as an incremental solver gives its
+    // frames (with revisions, so that a renderer keeps and patches its pass), recorded three in flight from three
+    // slots, each slot retired before it records again: every frame draws what a renderer that prepares each frame anew
+    // draws. Returns how many recordings patched the kept pass.
+    std::size_t patched_in_flight(vk::Device& d) {
+        auto& text = weft::testing::thread_scene_text();
+        constexpr std::uint32_t width = 320;
+        constexpr std::uint32_t height = 192;
+        weft::testing::NativeScene s;
+        s.set(*s.root, "style", "position:relative;width:320px;height:192px;background-color:#102030");
+        std::vector<weft::dom::Node*> boxes;
+        for (int i = 0; i < 12; ++i) {
+            auto& box = s.html("div");
+            s.set(box, "style",
+                  "position:absolute;left:" + std::to_string(10 + (i % 6) * 50) +
+                      "px;top:" + std::to_string(10 + (i / 6) * 90) +
+                      "px;width:40px;height:30px;"
+                      "background-color:#d4a843;border-radius:6px");
+            s.tree.insert(*s.root, box, nullptr);
+            auto& label = s.tree.create(weft::constants::text_node_type, "#text", "", s.document->identity);
+            label.data = "B" + std::to_string(i);
+            s.tree.insert(box, label, nullptr);
+            boxes.push_back(&box);
+        }
+        weft::SceneSolver solver("", "", text);
+        weft::SceneFrame frame;
+        vk::SceneRenderer patching(d, text);
+        vk::SceneRenderer fresh(d, text);
+        VkCommandPool pool{};
+        VkCommandPoolCreateInfo pool_info{};
+        pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        pool_info.queueFamilyIndex = d.queue_family;
+        vk::check(d.vkd.vkCreateCommandPool(d.device, &pool_info, nullptr, &pool), "vkCreateCommandPool");
+        std::array<Host, 3> hosts;
+        for (auto& h : hosts) {
+            h.image = d.image(VK_FORMAT_B8G8R8A8_UNORM, width, height,
+                              VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+            h.readback = d.buffer(VkDeviceSize(width) * height * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
+            VkCommandBufferAllocateInfo allocate{};
+            allocate.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            allocate.commandPool = pool;
+            allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocate.commandBufferCount = 1;
+            vk::check(d.vkd.vkAllocateCommandBuffers(d.device, &allocate, &h.command), "vkAllocateCommandBuffers");
+            VkFenceCreateInfo fence{};
+            fence.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            vk::check(d.vkd.vkCreateFence(d.device, &fence, nullptr, &h.fence), "vkCreateFence");
+        }
+        std::vector<std::vector<std::uint8_t>> expected;
+        const auto complete = [&](Host& h) {
+            if (!h.in_flight) {
+                return;
+            }
+            d.wait(h.fence);
+            vk::check(d.vkd.vkResetFences(d.device, 1, &h.fence), "vkResetFences");
+            patching.retire(h.slot);
+            h.in_flight = false;
+            require(std::memcmp(h.readback.mapped, expected[h.frame].data(), expected[h.frame].size()) == 0,
+                    "a patched frame in flight draws what a fresh pass draws, frame " + std::to_string(h.frame));
+        };
+        std::uint32_t seed = 0x9a7;
+        constexpr unsigned frames = 60;
+        for (unsigned i = 0; i < frames; ++i) {
+            auto& box = *boxes[draw(seed) % boxes.size()];
+            const auto kind = draw(seed) % 3;
+            const auto left = 10 + int(draw(seed) % 260);
+            s.set(box, "style",
+                  "position:absolute;left:" + std::to_string(left) +
+                      "px;top:40px;width:40px;height:30px;border-radius:6px;background-color:" +
+                      (kind ? "#d4a843" : "#4080c0") + (kind == 2 ? ";opacity:0.5" : ""));
+            solver.update(s.tree.snapshot(*s.root), frame, width, height, i * 16.0);
+            fresh.forget(0);
+            auto pixels = fresh.draw(frame, 1, width, height, std::nullopt, 0, {});
+            require(pixels.has_value(), "a fresh draw()");
+            expected.push_back(std::move(*pixels));
+            auto& h = hosts[i % hosts.size()];
+            complete(h);
+            VkCommandBufferBeginInfo info{};
+            info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            vk::check(d.vkd.vkBeginCommandBuffer(h.command, &info), "vkBeginCommandBuffer");
+            h.frame = i;
+            require(patching.encode(h.slot, frame, h.command, {h.image.view, width, height}, 1, std::nullopt, 0, {}),
+                    "a patched recording");
+            vk::transition(d, h.command, h.image.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                           VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                           VK_PIPELINE_STAGE_TRANSFER_BIT);
+            VkBufferImageCopy copy{};
+            copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            copy.imageExtent = {width, height, 1};
+            d.vkd.vkCmdCopyImageToBuffer(h.command, h.image.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                         h.readback.buffer, 1, &copy);
+            VkBufferMemoryBarrier host{};
+            host.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+            host.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            host.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+            host.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            host.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            host.buffer = h.readback.buffer;
+            host.size = VK_WHOLE_SIZE;
+            d.vkd.vkCmdPipelineBarrier(h.command, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0,
+                                       nullptr, 1, &host, 0, nullptr);
+            vk::check(d.vkd.vkEndCommandBuffer(h.command), "vkEndCommandBuffer");
+            VkSubmitInfo submit{};
+            submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            submit.commandBufferCount = 1;
+            submit.pCommandBuffers = &h.command;
+            vk::check(d.vkd.vkQueueSubmit(d.queue, 1, &submit, h.fence), "vkQueueSubmit");
+            patching.submitted(h.slot);
+            h.in_flight = true;
+        }
+        for (auto& h : hosts) {
+            complete(h);
+        }
+        for (auto& h : hosts) {
+            patching.retire(h.slot);
+            d.vkd.vkDestroyFence(d.device, h.fence, nullptr);
+            d.destroy(h.readback);
+            d.destroy(h.image);
+        }
+        d.vkd.vkDestroyCommandPool(d.device, pool, nullptr);
+        return patching.kept_patches;
+    }
 } // namespace
 
 int main(int argc, char** argv) {
@@ -240,6 +375,8 @@ int main(int argc, char** argv) {
             d.destroy(h.image);
         }
         d.vkd.vkDestroyCommandPool(d.device, pool, nullptr);
+        const auto patched = patched_in_flight(*device);
+        require(patched > 30, "most recordings patch the kept pass: " + std::to_string(patched));
         if (d.validation_messages) {
             std::cerr << d.first_validation_message << '\n';
         }
@@ -248,7 +385,8 @@ int main(int argc, char** argv) {
         }
         require(!d.validation_messages && !scene.fallbacks, "validation and fallbacks");
         std::cout << "PASS Vulkan scene recording on " << d.name << ": " << compared
-                  << " frames in flight equal to draw(), later recordings of a slot made nothing, Busy, discard\n";
+                  << " frames in flight equal to draw(), later recordings of a slot made nothing, Busy, discard; "
+                  << patched << " patched recordings in flight as fresh passes\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

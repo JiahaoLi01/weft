@@ -209,19 +209,20 @@ namespace weft::render::vulkan {
         VkCommandBuffer command_buffer_{};
         Slot* slot_{};
 
-        // The pass kept for a view: what its frames' revision and the pass's target were, the pass, its serial, and the
-        // anchors of the frame recorded last.
+        // The pass kept for a view: what its frames' revision and the pass's target were, the pass, its serial (a new
+        // one for each patched version), and the anchors of the frame recorded last.
         struct Kept {
             std::uint64_t revision{};
             float scale{};
             std::uint32_t width{};
             std::uint32_t height{};
             std::vector<NodeIdentity> layers;
-            std::shared_ptr<const ScenePrepared> prepared;
+            std::shared_ptr<ScenePrepared> prepared;
             std::uint64_t serial{};
             SceneAnchorFrame frame;
             // Which of its host textures had rows from the bottom: its records sample those flipped.
             std::vector<bool> flips;
+            ScenePatchHistory history;
         };
 
         std::unordered_map<unsigned, Kept> kept_;
@@ -239,9 +240,12 @@ namespace weft::render::vulkan {
         // (none for a pass whose anchors are not deferred); serial names a kept pass, whose records the slot keeps.
         // clear, for a pass drawn over its target: the color the target is cleared to first (none: kept).
         // host_textures: the host textures bound to the names of the pass and its planes.
+        // serial names the kept pass's version (0: none); history, the patches of the kept pass, lets a slot holding
+        // an earlier version write only what they changed.
         void record(const ScenePrepared& prepared, VkFramebuffer framebuffer, VkImage image, float scale,
                     const SceneAnchorFrame* anchors = nullptr, std::uint64_t serial = 0,
-                    const paint::Color* clear = nullptr, std::span<const SceneTexture> host_textures = {});
+                    const paint::Color* clear = nullptr, std::span<const SceneTexture> host_textures = {},
+                    const ScenePatchHistory* history = nullptr);
         // An atlas page's image, created empty and shader-readable the first time.
         const Image& page(const SceneAtlasPage& page);
         // The image of a layer, its content recorded the first time.

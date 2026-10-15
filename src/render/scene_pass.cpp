@@ -427,6 +427,49 @@ namespace weft::render {
         }
     } // namespace
 
+    Result<SceneClip> plan_scene_clip(const RoundedClip& c) {
+        try {
+            const auto n = normalize_rounded(c);
+            const auto& m = n.to_local;
+            // Target px per unit of the clip's space: one over the square root of the map's area scale.
+            const float span = 1 / std::sqrt(std::abs(m[0] * m[3] - m[1] * m[2]));
+            return SceneClip{n.rect, n.radius_x, n.radius_y, {m[0], m[2], m[4], span}, {m[1], m[3], m[5], 0}};
+        } catch (const std::invalid_argument& e) {
+            return make_diagnostic(Diag::PaintList, e.what());
+        }
+    }
+
+    Result<ScenePlannedItem> plan_scene_item(const paint::DisplayList& list, std::size_t i, float scale, unsigned width,
+                                             unsigned height, std::optional<paint::ClipRect> crop, Space space,
+                                             std::uint32_t anchors) {
+        const auto& item = list.items[i];
+        if (item.clips_count > std::uint32_t(scene_limits::max_rounded_clips)) {
+            return make_diagnostic(Diag::PaintList, "rounded clip chain bound");
+        }
+        if (item.anchor > anchors) {
+            return make_diagnostic(Diag::PaintList, "item anchor out of range");
+        }
+        auto clip = item.clip;
+        if (crop && !item.anchor) {
+            clip = {std::max(clip[0], (*crop)[0]), std::max(clip[1], (*crop)[1]), std::min(clip[2], (*crop)[2]),
+                    std::min(clip[3], (*crop)[3])};
+        }
+        ScenePlannedItem out;
+        out.mask = item.kind == Kind::Path         ? path_mask(list, item, clip, scale, width, height)
+                   : item.kind == Kind::PathShadow ? shadow_mask(item, clip, scale, width, height)
+                                                   : std::array<std::int32_t, 4>{};
+        if (item.kind == Kind::Plane) {
+            auto r = plane_record(list.planes[item.payload], item, clip, scale);
+            if (!r) {
+                return make_diagnostic(Diag::PaintList, "plane image behind the viewer or singular");
+            }
+            out.record = *r;
+            return out;
+        }
+        out.record = record(list, item, clip, scale, width, height, space, out.mask);
+        return out;
+    }
+
     Result<ScenePass> plan_scene_pass(const paint::DisplayList& list, float scale, unsigned width, unsigned height,
                                       std::optional<paint::ClipRect> crop, Space space,
                                       const std::vector<std::uint64_t>* textures, std::uint32_t anchors, bool fold) {
@@ -438,42 +481,21 @@ namespace weft::render {
         pass.space = space;
         pass.clips.reserve(list.clips.size());
         for (const auto& c : list.clips) {
-            try {
-                const auto n = normalize_rounded(c);
-                const auto& m = n.to_local;
-                // Target px per unit of the clip's space: one over the square root of the map's area scale.
-                const float span = 1 / std::sqrt(std::abs(m[0] * m[3] - m[1] * m[2]));
-                pass.clips.push_back({n.rect, n.radius_x, n.radius_y, {m[0], m[2], m[4], span}, {m[1], m[3], m[5], 0}});
-            } catch (const std::invalid_argument& e) {
-                return make_diagnostic(Diag::PaintList, e.what());
+            auto planned = plan_scene_clip(c);
+            if (!planned) {
+                return planned.error();
             }
+            pass.clips.push_back(*planned);
         }
         pass.records.reserve(list.items.size());
         pass.masks.reserve(list.items.size());
-        for (const auto& item : list.items) {
-            if (item.clips_count > std::uint32_t(scene_limits::max_rounded_clips)) {
-                return make_diagnostic(Diag::PaintList, "rounded clip chain bound");
+        for (std::size_t i = 0; i < list.items.size(); ++i) {
+            auto planned = plan_scene_item(list, i, scale, width, height, crop, space, anchors);
+            if (!planned) {
+                return planned.error();
             }
-            if (item.anchor > anchors) {
-                return make_diagnostic(Diag::PaintList, "item anchor out of range");
-            }
-            auto clip = item.clip;
-            if (crop && !item.anchor) {
-                clip = {std::max(clip[0], (*crop)[0]), std::max(clip[1], (*crop)[1]), std::min(clip[2], (*crop)[2]),
-                        std::min(clip[3], (*crop)[3])};
-            }
-            pass.masks.push_back(item.kind == Kind::Path         ? path_mask(list, item, clip, scale, width, height)
-                                 : item.kind == Kind::PathShadow ? shadow_mask(item, clip, scale, width, height)
-                                                                 : std::array<std::int32_t, 4>{});
-            if (item.kind == Kind::Plane) {
-                auto r = plane_record(list.planes[item.payload], item, clip, scale);
-                if (!r) {
-                    return make_diagnostic(Diag::PaintList, "plane image behind the viewer or singular");
-                }
-                pass.records.push_back(*r);
-                continue;
-            }
-            pass.records.push_back(record(list, item, clip, scale, width, height, space, pass.masks.back()));
+            pass.masks.push_back(planned->mask);
+            pass.records.push_back(planned->record);
         }
         pass.group_depth = paint::group_depth(list);
         std::uint32_t i{};

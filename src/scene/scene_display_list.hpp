@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace weft {
@@ -43,6 +44,58 @@ namespace weft {
         // Whether a pass may draw the run's items in another order without planning it again: they lie in one batch
         // that draws its records in any order (set by the preparer).
         bool reorderable{};
+    };
+
+    // What the visit of one element put in a display list (scene_display_list), and the context it was visited in: its
+    // parent's map to target px, the clip rectangle, the run of rounded clips it inherited (list.clips[chain_begin,
+    // chain_begin + chain_count)) and the depth of opacity groups around it; and the ranges [begin, end) it added to
+    // each part of the list (Part: the items, the rounded clips and the payload lists, and with deferred anchors the
+    // list's anchors and runs). An element its visit skips (display: none, no box) adds empty ranges.
+    struct SceneListSpan {
+        enum Part : std::uint8_t {
+            Items,
+            Clips,
+            Boxes,
+            Images,
+            Rasters,
+            Shadows,
+            Paths,
+            Planes,
+            Effects,
+            Particles,
+            Backdrops,
+            PathShadows,
+            Anchors,
+            Runs,
+            Parts
+        };
+
+        std::array<float, 6> parent{};
+        std::array<float, 4> clip{};
+        std::uint32_t chain_begin{};
+        std::uint32_t chain_count{};
+        unsigned groups{};
+        std::array<std::uint32_t, Parts> begin{};
+        std::array<std::uint32_t, Parts> end{};
+    };
+
+    // The spans of the elements a list visited, by node: nodes of the frame the list was built from, which must
+    // outlive the map.
+    using SceneListSpans = std::unordered_map<const SceneNode*, SceneListSpan>;
+
+    // How scene_display_list builds. spans, when given, receives the span of every element visited (an element's
+    // pieces drawn on lines are its own). part, when given, is the only subtree visited: the node replaces the element
+    // of span in `whole` (the list of an earlier frame) and is visited in that element's context. The part's list
+    // starts with the rounded clips it inherits, a copy of whole's, then its own, and its ranges start at zero but for
+    // its items' anchors, which are whole's: those of the part's anchored elements count from span's first anchor, and
+    // the part's other items take `enclosing` (0 for none), the anchor of the anchored element of whole the part lies
+    // in.
+    struct SceneListBuild {
+        SceneListSpans* spans{};
+        const SceneNode* part{};
+        const SceneListSpan* span{};
+        const paint::DisplayList* whole{};
+        std::uint32_t enclosing{};
     };
 
     // A scene frame as a display list, or why it has none.
@@ -141,5 +194,8 @@ namespace weft {
     // by the anchors given.
     SceneDisplayList scene_display_list(const SceneFrame& frame, const std::vector<NodeIdentity>& layers = {},
                                         SceneText* text = nullptr, float scale = 1, SceneDisplayCache* cache = nullptr,
-                                        const SceneAnchorInput& anchors = {});
+                                        const SceneAnchorInput& anchors = {}, const SceneListBuild& build = {});
+
+    // The sizes of each part of a list (SceneListSpan::Part): its items, rounded clips, payload lists, anchors and runs.
+    std::array<std::uint32_t, SceneListSpan::Parts> scene_list_sizes(const SceneDisplayList& list);
 } // namespace weft

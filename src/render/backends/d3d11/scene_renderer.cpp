@@ -369,9 +369,15 @@ namespace weft::render::d3d11 {
 
     void SceneRenderer::draw_pass(Slot& slot, const ScenePrepared& prepared, ID3D11RenderTargetView* destination,
                                   float scale, const SceneAnchorFrame* anchors, std::uint64_t serial,
-                                  const paint::Color* clear, std::span<const SceneTexture> host_textures) {
-        // A kept pass the slot drew before: its records, rounded clips, plane contents and leases are the slot's.
+                                  const paint::Color* clear, std::span<const SceneTexture> host_textures,
+                                  const ScenePatchHistory* history) {
+        // A kept pass the slot drew before: its records, rounded clips, plane contents and leases are the slot's. A slot
+        // that drew an earlier version of it holds its plane contents (patches leave planes alone) and writes only the
+        // records and rounded clips patched since.
         const bool again = serial && slot.kept == serial;
+        ScenePatch since;
+        bool partial = !again && serial && slot.kept && history && history->since(slot.kept, since);
+        const bool planes_held = again || partial;
         // Plane contents first, each into its slot's image; then layers not drawn before, and the textures of the
         // images this pass samples.
         std::vector<ID3D11ShaderResourceView*> views(prepared.planes.size());
@@ -385,7 +391,7 @@ namespace weft::render::d3d11 {
                 if (!nested.target.texture) {
                     nested.target = group_target(device_.Get(), nested.width, nested.height);
                 }
-                if (!again) {
+                if (!planes_held) {
                     draw_pass(nested, *prepared.planes[i], nested.target.rtv.Get(), scale, nullptr, 0, nullptr,
                               host_textures);
                     ++plane_passes;
@@ -445,6 +451,7 @@ namespace weft::render::d3d11 {
         const auto target_width = prepared.width;
         const auto target_height = prepared.height;
         if (!slot.records || slot.capacity < records.size()) {
+            partial = false;
             unsigned capacity = limits::record_initial_capacity;
             while (capacity < records.size()) {
                 capacity *= 2;
@@ -474,6 +481,7 @@ namespace weft::render::d3d11 {
             while (capacity < pass.clips.size()) {
                 capacity *= 2;
             }
+            partial = false;
             ComPtr<ID3D11Buffer> clips;
             ComPtr<ID3D11ShaderResourceView> clip_view;
             D3D11_BUFFER_DESC d{};
@@ -493,7 +501,18 @@ namespace weft::render::d3d11 {
         }
         auto* ctx = immediate_.Get();
         ctx->ClearState();
-        if (!records.empty() && !again) {
+        if (partial) {
+            ++partial_uploads;
+            // Patched records draw no host texture: none of them is flipped.
+            for (const auto& [begin, end] : since.records) {
+                D3D11_BOX box{UINT(begin * sizeof(Record)), 0, 0, UINT(end * sizeof(Record)), 1, 1};
+                ctx->UpdateSubresource(slot.records.Get(), 0, &box, records.data() + begin, 0, 0);
+            }
+            for (const auto& [begin, end] : since.clips) {
+                D3D11_BOX box{UINT(begin * sizeof(SceneClip)), 0, 0, UINT(end * sizeof(SceneClip)), 1, 1};
+                ctx->UpdateSubresource(slot.clips.Get(), 0, &box, pass.clips.data() + begin, 0, 0);
+            }
+        } else if (!records.empty() && !again) {
             // The records of host textures whose rows start at the bottom sample them flipped.
             const auto* data = records.data();
             std::vector<Record> flipped;
@@ -510,7 +529,7 @@ namespace weft::render::d3d11 {
             D3D11_BOX box{0, 0, 0, UINT(records.size() * sizeof(Record)), 1, 1};
             ctx->UpdateSubresource(slot.records.Get(), 0, &box, data, 0, 0);
         }
-        if (!pass.clips.empty() && !again) {
+        if (!pass.clips.empty() && !again && !partial) {
             D3D11_BOX box{0, 0, 0, UINT(pass.clips.size() * sizeof(SceneClip)), 1, 1};
             ctx->UpdateSubresource(slot.clips.Get(), 0, &box, pass.clips.data(), 0, 0);
         }
@@ -761,27 +780,45 @@ namespace weft::render::d3d11 {
             scratch_bytes_ = scratch_bytes_ - held + held_bytes(slot);
             return true;
         };
-        // A frame of the revision the view's kept pass was prepared for draws it again with the frame's anchors.
+        // A frame of the revision the view's kept pass was prepared for draws it again with the frame's anchors; a
+        // frame of another revision patches it where the pass stands (ScenePreparer::patch).
         const bool keep = frame.revision && !crop;
         auto& kept = kept_[view_index];
         const auto* clear = start.clear ? &*start.clear : nullptr;
-        if (keep && kept.prepared && kept.revision == frame.revision && kept.scale == scale &&
-            kept.width == target_width && kept.height == target_height && kept.layers == layers &&
-            kept.prepared->over == start.over && scene_texture_flips(*kept.prepared, textures) == kept.flips) {
-            if (preparer_.place(*kept.prepared, view_index, anchors, kept.frame)) {
+        if (keep && kept.prepared && kept.scale == scale && kept.width == target_width &&
+            kept.height == target_height && kept.layers == layers && kept.prepared->over == start.over &&
+            scene_texture_flips(*kept.prepared, textures) == kept.flips) {
+            bool drawable = kept.revision == frame.revision;
+            if (!drawable) {
+                if (const auto patched = preparer_.patch(*kept.prepared, frame, view_index, anchors)) {
+                    const auto from = kept.serial;
+                    kept.serial = ++serial_;
+                    kept.revision = frame.revision;
+                    kept.history.add(from, kept.serial, *patched);
+                    ++kept_patches;
+                    for (const auto& [begin, end] : patched->records) {
+                        patched_records += end - begin;
+                    }
+                    drawable = true;
+                }
+            }
+            if (drawable && preparer_.place(*kept.prepared, view_index, anchors, kept.frame)) {
                 if (!fits(*kept.prepared)) {
                     return false;
                 }
-                draw_pass(slot, *kept.prepared, destination, scale, &kept.frame, kept.serial, clear, textures);
+                draw_pass(slot, *kept.prepared, destination, scale, &kept.frame, kept.serial, clear, textures,
+                          &kept.history);
                 ++passes;
                 ++kept_passes;
                 return true;
             }
-            ++kept_rebuilds;
+            if (drawable) {
+                ++kept_rebuilds;
+            }
         }
         kept = {};
-        std::shared_ptr<const ScenePrepared> prepared = preparer_.prepare(
-            frame, scale, target_width, target_height, crop, view_index, layers, anchors, keep, start.over);
+        std::shared_ptr<ScenePrepared> prepared = preparer_.prepare(frame, scale, target_width, target_height, crop,
+                                                                    view_index, layers, anchors, keep, start.over);
         if (!prepared || !fits(*prepared)) {
             return false;
         }
@@ -790,11 +827,18 @@ namespace weft::render::d3d11 {
             ++passes;
             return true;
         }
-        kept = {frame.revision, scale,  target_width,
-                target_height,  layers, prepared,
-                ++serial_,      {},     scene_texture_flips(*prepared, textures)};
+        kept = {frame.revision,
+                scale,
+                target_width,
+                target_height,
+                layers,
+                prepared,
+                ++serial_,
+                {},
+                scene_texture_flips(*prepared, textures),
+                {}};
         ensure(preparer_.place(*prepared, view_index, anchors, kept.frame), "a pass placed as it was planned");
-        draw_pass(slot, *prepared, destination, scale, &kept.frame, kept.serial, clear, textures);
+        draw_pass(slot, *prepared, destination, scale, &kept.frame, kept.serial, clear, textures, &kept.history);
         ++passes;
         return true;
     }

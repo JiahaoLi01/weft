@@ -227,4 +227,18 @@ namespace weft::render {
                                       std::optional<paint::ClipRect> crop = std::nullopt, Space space = Space::Encoded,
                                       const std::vector<std::uint64_t>* textures = nullptr, std::uint32_t anchors = 0,
                                       bool fold = true);
+
+    // Item i of a list as plan_scene_pass plans it: its record and its mask (ScenePass::masks), for a pass that keeps
+    // its plan and replaces items in place.
+    struct ScenePlannedItem {
+        SceneRecord record;
+        std::array<std::int32_t, 4> mask{};
+    };
+
+    Result<ScenePlannedItem> plan_scene_item(const paint::DisplayList& list, std::size_t i, float scale, unsigned width,
+                                             unsigned height, std::optional<paint::ClipRect> crop = std::nullopt,
+                                             Space space = Space::Encoded, std::uint32_t anchors = 0);
+
+    // A rounded clip of a list as plan_scene_pass plans it (ScenePass::clips).
+    Result<SceneClip> plan_scene_clip(const RoundedClip& clip);
 } // namespace weft::render
