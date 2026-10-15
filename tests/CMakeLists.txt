@@ -397,6 +397,12 @@ if(WIN32)
         target_compile_definitions(weft_render_view_tests PRIVATE WEFT_TEST_VULKAN)
     endif()
     weft_add_test(NAME render_view_contract COMMAND weft_render_view_tests TIMEOUT 180)
+    # View frames through the renderer C ABI on the built-in D3D12 backend (WARP, with the debug layer when it is
+    # installed), against the D3D11 backend drawing the same frames.
+    weft_add_executable(weft_render_d3d12_view_tests SOURCES render_d3d12_view_tests.cpp
+        LINK weft::core weft::view weft::scene_d3d11 weft::scene_d3d12 d3d11 d3d12 dxgi ole32 LARGE_STACK)
+    weft_add_test(NAME render_d3d12_view_contract COMMAND weft_render_d3d12_view_tests TIMEOUT 180)
+    set_tests_properties(render_d3d12_view_contract PROPERTIES SKIP_RETURN_CODE 77)
     # The CRPG UI's smoke as a UI shader effect against the original's tick on the CPU, on both scene passes.
     weft_add_executable(weft_render_crpg_smoke_tests SOURCES render_crpg_smoke_tests.cpp
         LINK ${scene_effect_links} weft_gallery_effects windowscodecs ole32 SOURCE_DIR)

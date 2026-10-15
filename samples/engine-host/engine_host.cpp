@@ -4,10 +4,10 @@
 // under the pointer (a page element with a pointer cursor takes the click, anything else would go to the game) and
 // clicks the end-turn button, then answers the page's call; it draws a minimap texture every frame, which the page shows
 // by name (-weft-texture(minimap)), imported once as a live texture; and the View's frames are drawn over the game's
-// picture, on D3D11 (the device's immediate context) or Vulkan (the engine's command buffer), submitted and completed by
-// the engine. The last frame is written as a BMP.
+// picture, on D3D11 (the device's immediate context), D3D12 (the engine's command list) or Vulkan (the engine's command
+// buffer), submitted and completed by the engine. The last frame is written as a BMP.
 //
-//   weft_engine_host [--d3d11 | --vulkan] [--warp] [--frames N] [--page <dir>] [--out <file.bmp>]
+//   weft_engine_host [--d3d11 | --d3d12 | --vulkan] [--warp] [--frames N] [--page <dir>] [--out <file.bmp>]
 //
 // Exits 0 when the page answered as it should, 77 without the requested device, 1 otherwise.
 #define NOMINMAX
@@ -15,11 +15,14 @@
 #include <windows.h>
 
 #include <d3d11.h>
+#include <d3d12.h>
+#include <dxgi1_4.h>
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
 
 #include <weft/render_backend.h>
 #include <weft/render_backend_d3d11.h>
+#include <weft/render_backend_d3d12.h>
 #include <weft/render_backend_vulkan.h>
 #include <weft/render_external_texture.h>
 #include <weft/weft.h>
@@ -33,6 +36,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <iterator>
 #include <memory>
 #include <stdexcept>
@@ -429,6 +433,194 @@ namespace {
         return 0;
     }
 
+    // D3D12: the engine's device, direct queue, command list and back buffer; each frame records the game's picture, the
+    // minimap's new texels and the View's frame into one command list, executes it, signals a fence and waits for it.
+    int run_d3d12(Engine& engine, unsigned frames, bool warp, const std::string& out) {
+        IDXGIFactory4* factory{};
+        IDXGIAdapter* adapter{};
+        ID3D12Device* device{};
+        if (FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory))) ||
+            (warp && FAILED(factory->EnumWarpAdapter(IID_PPV_ARGS(&adapter)))) ||
+            FAILED(D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device)))) {
+            std::fprintf(stderr, "no D3D12 device\n");
+            return skipped;
+        }
+        ID3D12CommandQueue* queue_object{};
+        ID3D12CommandAllocator* allocator{};
+        ID3D12GraphicsCommandList* list{};
+        ID3D12Fence* fence{};
+        D3D12_COMMAND_QUEUE_DESC queue_desc{};
+        queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+        check(SUCCEEDED(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue_object))) &&
+                  SUCCEEDED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator))) &&
+                  SUCCEEDED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, nullptr,
+                                                      IID_PPV_ARGS(&list))) &&
+                  SUCCEEDED(list->Close()) &&
+                  SUCCEEDED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))),
+              "queue, command list and fence");
+        HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        const auto texture = [&](unsigned w, unsigned h, DXGI_FORMAT format, D3D12_RESOURCE_FLAGS flags,
+                                 D3D12_RESOURCE_STATES state) {
+            D3D12_HEAP_PROPERTIES heap{};
+            heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+            D3D12_RESOURCE_DESC desc{};
+            desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+            desc.Width = w;
+            desc.Height = h;
+            desc.DepthOrArraySize = desc.MipLevels = 1;
+            desc.Format = format;
+            desc.SampleDesc.Count = 1;
+            desc.Flags = flags;
+            ID3D12Resource* r{};
+            check(SUCCEEDED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, state, nullptr,
+                                                            IID_PPV_ARGS(&r))),
+                  "texture");
+            return r;
+        };
+        const auto buffer = [&](UINT64 size, D3D12_HEAP_TYPE type) {
+            D3D12_HEAP_PROPERTIES heap{};
+            heap.Type = type;
+            D3D12_RESOURCE_DESC desc{};
+            desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            desc.Width = size;
+            desc.Height = desc.DepthOrArraySize = desc.MipLevels = 1;
+            desc.SampleDesc.Count = 1;
+            desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            const auto state =
+                type == D3D12_HEAP_TYPE_UPLOAD ? D3D12_RESOURCE_STATE_GENERIC_READ : D3D12_RESOURCE_STATE_COPY_DEST;
+            ID3D12Resource* r{};
+            check(SUCCEEDED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, state, nullptr,
+                                                            IID_PPV_ARGS(&r))),
+                  "buffer");
+            return r;
+        };
+        const auto barrier = [&](ID3D12Resource* r, D3D12_RESOURCE_STATES from, D3D12_RESOURCE_STATES to) {
+            D3D12_RESOURCE_BARRIER b{};
+            b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            b.Transition.pResource = r;
+            b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            b.Transition.StateBefore = from;
+            b.Transition.StateAfter = to;
+            list->ResourceBarrier(1, &b);
+        };
+        // The back buffer and its view, the minimap the engine writes every frame through an upload buffer, and the
+        // readback of the last frame.
+        ID3D12Resource* back = texture(width, height, DXGI_FORMAT_B8G8R8A8_UNORM,
+                                       D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        ID3D12DescriptorHeap* rtvs{};
+        const D3D12_DESCRIPTOR_HEAP_DESC heap_desc{D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1, D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
+                                                   0};
+        check(SUCCEEDED(device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&rtvs))), "view heap");
+        const auto rtv = rtvs->GetCPUDescriptorHandleForHeapStart();
+        device->CreateRenderTargetView(back, nullptr, rtv);
+        ID3D12Resource* map = texture(map_width, map_height, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOURCE_FLAG_NONE,
+                                      D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        const D3D12_RESOURCE_DESC map_desc = map->GetDesc();
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT map_footprint{};
+        UINT64 map_bytes{};
+        device->GetCopyableFootprints(&map_desc, 0, 1, 0, &map_footprint, nullptr, nullptr, &map_bytes);
+        ID3D12Resource* map_upload = buffer(map_bytes, D3D12_HEAP_TYPE_UPLOAD);
+        void* map_mapped{};
+        check(SUCCEEDED(map_upload->Map(0, nullptr, &map_mapped)), "map upload");
+        const D3D12_RESOURCE_DESC back_desc = back->GetDesc();
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT back_footprint{};
+        UINT64 back_bytes{};
+        device->GetCopyableFootprints(&back_desc, 0, 1, 0, &back_footprint, nullptr, nullptr, &back_bytes);
+        ID3D12Resource* readback = buffer(back_bytes, D3D12_HEAP_TYPE_READBACK);
+
+        constexpr std::uint64_t queue = 1;
+        const weft_render_d3d12_desc backend_desc{sizeof(backend_desc), WEFT_RENDER_ABI_VERSION, device, queue, 0};
+        weft_render_d3d12* backend{};
+        weft_render_backend table{};
+        check(weft_render_d3d12_create(&backend_desc, &backend, &table), "the D3D12 backend");
+        weft_renderer* renderer{};
+        check(weft_renderer_create(&table, nullptr, &renderer), "renderer");
+        weft_render_info info{};
+        info.struct_size = sizeof(info);
+        check(weft_renderer_get_info(renderer, &info), "renderer info");
+        weft_render_external_backend external{};
+        check(weft_render_d3d12_external(backend, &external), "the external texture extension");
+        check(weft_renderer_install_external_backend(renderer, &external), "install the extension");
+        const weft_render_d3d12_texture map_native{sizeof(map_native), WEFT_RENDER_EXTERNAL_ABI_VERSION, map, 0};
+        const auto minimap = import_minimap(renderer, &map_native, sizeof(map_native));
+        std::uint64_t value{};
+        std::vector<double> encode_ms;
+        for (unsigned n = 0; n < frames; ++n) {
+            engine.frame(n);
+            check(SUCCEEDED(allocator->Reset()) && SUCCEEDED(list->Reset(allocator, nullptr)), "begin");
+            const auto game = picture(n);
+            list->ClearRenderTargetView(rtv, game.data(), 0, nullptr);
+            // The minimap's new texels, after the last frame's UI read them and before this frame's reads.
+            const auto texels = engine.minimap(n);
+            for (unsigned y = 0; y < map_height; ++y) {
+                std::memcpy(static_cast<std::uint8_t*>(map_mapped) + y * map_footprint.Footprint.RowPitch,
+                            texels.data() + std::size_t(y) * map_width * 4, map_width * 4);
+            }
+            barrier(map, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+            D3D12_TEXTURE_COPY_LOCATION from{map_upload, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT, {}};
+            from.PlacedFootprint = map_footprint;
+            D3D12_TEXTURE_COPY_LOCATION to{map, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, {}};
+            list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+            barrier(map, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            weft_view_frame* frame{};
+            check(weft_view_acquire_frame(engine.runtime, engine.view, &frame), "acquire the View's frame");
+            const auto prepared = prepare(renderer, frame, minimap);
+            weft_view_frame_release(frame);
+            weft_render_d3d12_pass payload{sizeof(payload), WEFT_RENDER_ABI_VERSION, list, back, 0, 0, {}};
+            const weft_render_pass pass{
+                sizeof(pass), WEFT_RENDER_ABI_VERSION, info.identity, width, height, WEFT_RENDER_TARGET_LINEAR_BGRA8, 1,
+                &payload,     sizeof(payload)};
+            weft_render_handle use{};
+            const auto start = std::chrono::steady_clock::now();
+            check(weft_renderer_encode(renderer, prepared, &pass, &use), "encode");
+            encode_ms.push_back(
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+            check(weft_renderer_release_prepared(renderer, prepared), "release");
+            if (n + 1 == frames) {
+                // The last frame back to the CPU.
+                barrier(back, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                D3D12_TEXTURE_COPY_LOCATION source{back, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, {}};
+                D3D12_TEXTURE_COPY_LOCATION copy{readback, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT, {}};
+                copy.PlacedFootprint = back_footprint;
+                list->CopyTextureRegion(&copy, 0, 0, 0, &source, nullptr);
+                barrier(back, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            }
+            check(SUCCEEDED(list->Close()), "close");
+            ID3D12CommandList* lists[]{list};
+            queue_object->ExecuteCommandLists(1, lists);
+            check(SUCCEEDED(queue_object->Signal(fence, ++value)), "signal");
+            check(weft_renderer_notify_submitted(renderer, use, queue, value), "submitted");
+            check(SUCCEEDED(fence->SetEventOnCompletion(value, event)), "fence event");
+            WaitForSingleObject(event, INFINITE);
+            check(weft_renderer_notify_completed(renderer, info.identity.device_epoch, queue, value), "completed");
+        }
+        void* mapped{};
+        check(SUCCEEDED(readback->Map(0, nullptr, &mapped)), "map readback");
+        std::vector<std::uint8_t> pixels(std::size_t(width) * height * 4);
+        for (unsigned y = 0; y < height; ++y) {
+            std::memcpy(pixels.data() + std::size_t(y) * width * 4,
+                        static_cast<const std::uint8_t*>(mapped) + std::size_t(y) * back_footprint.Footprint.RowPitch,
+                        width * 4);
+        }
+        readback->Unmap(0, nullptr);
+        if (!out.empty()) {
+            write_bmp(out, pixels);
+        }
+        check(weft_renderer_release_texture(renderer, minimap), "release the minimap");
+        check(weft_renderer_destroy(renderer), "destroy the renderer");
+        weft_render_d3d12_destroy(backend);
+        for (IUnknown* object : std::initializer_list<IUnknown*>{readback, map_upload, map, rtvs, back, fence, list,
+                                                                 allocator, queue_object, device, factory}) {
+            object->Release();
+        }
+        if (adapter) {
+            adapter->Release();
+        }
+        CloseHandle(event);
+        std::printf("D3D12%s: %u frames, encode %s\n", warp ? " (WARP)" : "", frames, times(encode_ms).c_str());
+        return 0;
+    }
+
     // Vulkan: the engine's instance, device, back buffer and command buffer, through the system loader.
     struct Vulkan {
         HMODULE library{};
@@ -450,8 +642,9 @@ namespace {
     F(vkCreateImage)                                                                                                   \
     F(vkDestroyImage)                                                                                                  \
     F(vkGetImageMemoryRequirements)                                                                                    \
-    F(vkAllocateMemory) F(vkFreeMemory) F(vkBindImageMemory) F(vkCreateImageView) F(vkDestroyImageView)                \
-        F(vkCreateBuffer) F(vkDestroyBuffer) F(vkGetBufferMemoryRequirements) F(vkBindBufferMemory) F(vkMapMemory)     \
+    F(vkAllocateMemory)                                                                                                \
+    F(vkFreeMemory) F(vkBindImageMemory) F(vkCreateImageView) F(vkDestroyImageView) F(vkCreateBuffer)                  \
+        F(vkDestroyBuffer) F(vkGetBufferMemoryRequirements) F(vkBindBufferMemory) F(vkMapMemory)                       \
             F(vkCreateCommandPool) F(vkDestroyCommandPool) F(vkAllocateCommandBuffers) F(vkBeginCommandBuffer)         \
                 F(vkEndCommandBuffer) F(vkResetCommandBuffer) F(vkCmdPipelineBarrier) F(vkCmdClearColorImage)          \
                     F(vkCmdCopyImageToBuffer) F(vkCmdCopyBufferToImage) F(vkQueueSubmit) F(vkCreateFence)              \
@@ -793,6 +986,7 @@ namespace {
 int main(int argc, char** argv) {
     try {
         bool vulkan{};
+        bool d3d12{};
         bool warp{};
         unsigned frames = 120;
         std::string page = WEFT_SAMPLE_PAGE;
@@ -801,8 +995,13 @@ int main(int argc, char** argv) {
             const std::string a = argv[i];
             if (a == "--vulkan") {
                 vulkan = true;
+                d3d12 = false;
             } else if (a == "--d3d11") {
                 vulkan = false;
+                d3d12 = false;
+            } else if (a == "--d3d12") {
+                vulkan = false;
+                d3d12 = true;
             } else if (a == "--warp") {
                 warp = true;
             } else if (a == "--frames" && i + 1 < argc) {
@@ -812,14 +1011,17 @@ int main(int argc, char** argv) {
             } else if (a == "--out" && i + 1 < argc) {
                 out = argv[++i];
             } else {
-                std::fprintf(stderr, "usage: weft_engine_host [--d3d11 | --vulkan] [--warp] [--frames N] [--page dir] "
+                std::fprintf(stderr, "usage: weft_engine_host [--d3d11 | --d3d12 | --vulkan] [--warp] [--frames N] "
+                                     "[--page dir] "
                                      "[--out file.bmp]\n");
                 return 2;
             }
         }
         check(frames > 30, "more than 30 frames (the click is at frame 30)");
         Engine engine(page);
-        const int result = vulkan ? run_vulkan(engine, frames, out) : run_d3d11(engine, frames, warp, out);
+        const int result = vulkan  ? run_vulkan(engine, frames, out)
+                           : d3d12 ? run_d3d12(engine, frames, warp, out)
+                                   : run_d3d11(engine, frames, warp, out);
         if (result != 0) {
             return result;
         }

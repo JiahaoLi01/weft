@@ -120,6 +120,45 @@ namespace weft::constants::render {
 
     } // namespace d3d11
 
+    // The D3D12 backend of View frames (src/render/backends/d3d12).
+    namespace d3d12 {
+        // Root parameters of the scene root signature: the View constants (b0, four 32-bit values: the target's width
+        // and height, the scale and the draw's first record), a table of the pass's buffers (the records t0, rounded
+        // clips t2, record order t7 and anchors t8, through structured buffer views, whose reads past their ends give
+        // zero as on D3D11: the shader reads the anchor of a record without one before it knows), and a table of the
+        // image (t1) and an effect's textures or a particle sprite (t3-t6).
+        inline constexpr int root_view = 0;
+        inline constexpr int root_buffers = 1;
+        inline constexpr int root_images = 2;
+        inline constexpr int view_constant_count = 4;
+        // The index of the draw's first record among the View constants (scene.hlsl, View::baseInstance).
+        inline constexpr int view_base_instance = 3;
+        // The buffer table's descriptors: records, clips, order, anchors.
+        inline constexpr int buffer_descriptors = 4;
+        // An image table's descriptors: the image, then the four effect textures.
+        inline constexpr int table_descriptors = 5;
+        // Root parameters of the backdrop root signature: its constants (b0) as a root constant buffer view, and the
+        // source image (t0) in a table.
+        inline constexpr int backdrop_root_constants = 0;
+        inline constexpr int backdrop_root_source = 1;
+        // Each instance draws two triangles.
+        inline constexpr int quad_vertex_count = 6;
+        // Render targets are at most this many pixels wide and high.
+        inline constexpr int max_surface_dimension = 8192;
+        // A recording's shader-visible descriptor heap has room for at least this many descriptors, doubling past it;
+        // the backend's render target views are allocated from heaps of this many.
+        inline constexpr int descriptor_heap_min = 256;
+        inline constexpr int render_target_heap_size = 256;
+        // Upload buffers: a new one has room for at least spare_buffer_min_bytes, doubling past it.
+        inline constexpr unsigned spare_buffer_min_bytes = 64u * constants::bytes_per_kib;
+        // What a scene slot keeps of its recordings for its next ones: buffers, scratch images (by count and bytes)
+        // and descriptor heaps.
+        inline constexpr int scene_slot_spare_buffers = 64;
+        inline constexpr int scene_slot_spare_images = 256;
+        inline constexpr unsigned scene_slot_spare_image_bytes = 64u * constants::bytes_per_mib;
+        inline constexpr int scene_slot_spare_heaps = 4;
+    } // namespace d3d12
+
     // The Vulkan backend (src/render/backends/vulkan).
     namespace vulkan {
         // Descriptor bindings of the shared scene shader's SPIR-V, after the register shifts of cmake/WeftSpirv.cmake:

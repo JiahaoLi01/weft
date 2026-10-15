@@ -17,6 +17,7 @@ extern "C" {
 #define WEFT_RENDER_API_D3D11 1u
 #define WEFT_RENDER_API_VULKAN 2u
 #define WEFT_RENDER_API_METAL 3u
+#define WEFT_RENDER_API_D3D12 4u
 /* Additional API IDs >= 1024 can be registered without changing the core. */
 #define WEFT_RENDER_API_CUSTOM_BEGIN 1024u
 
