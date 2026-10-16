@@ -5325,6 +5325,43 @@
         "include/vulkan/vulkan_xlib.h": "3c44e97d3f380eb912e01a79e9667457fdf5e18164f0b09b3c61431f421bc551",
         "include/vulkan/vulkan_xlib_xrandr.h": "188233d112d812cca1777cfa6c1585073f1f2b033fa08b2f11c8d0757fcc232e"
       }
+    },
+    {
+      "name": "lodepng",
+      "version": "20261006",
+      "commit": "e584a8490db1b76b81bf298c11c09d3b55d9c270",
+      "upstream": "https://github.com/lvandeve/lodepng",
+      "archive_sha256": "c9cc1dcd143bd1365f0ce50cfc14bacab43d7bee5a2be212d6f4b73eefa8626f",
+      "source_dir": "third_party/lodepng/source",
+      "license_file": "LICENSE",
+      "files": {
+        "examples/example_4bit_palette.cpp": "0ec7a3b78d9f8c546a324237c859335b5a67848059d5814ed8d965eae3fa3d4e",
+        "examples/example_bmp2png.cpp": "3970905f8520b6f1a12f8c80f3ada18db38c74e1c46700ebf84786c98a6f1cbf",
+        "examples/example_decode.c": "ccbe699f171f482a07d1a2949824f2f8a51c0c7e3ea94b003714575901ddf5d5",
+        "examples/example_decode.cpp": "1998d7b0395651f1c2eb82ec81d10a50f461bcdd108ab568e15820beca0aa3d8",
+        "examples/example_encode.c": "52d8b047f073e2c934ce06476058980e5120c208e94ceffbb0c86fcbc30868b0",
+        "examples/example_encode.cpp": "7b71b7d49b41d66d2371dfb49a8a204a772f7f9d051b2b630a60a220768a9abc",
+        "examples/example_encode_type.cpp": "68c0363ffc1e8840740c48a461cdc2420d79fa748de01f25b73333baf9a99f2e",
+        "examples/example_gzip.cpp": "e4b88c10067683dc83970f078177266d52b3a0397a353bc0b21f2573356854d8",
+        "examples/example_opengl.cpp": "a8852298ec8af5644ccd5b0ca41bb4a2fe2e4a6cc0b1d9c425525d121a7976ac",
+        "examples/example_optimize_png.cpp": "67359b86df71ef7ff2e56209749a96883b3efa2b7043f408ead2a6e48926147a",
+        "examples/example_png2bmp.cpp": "a300c38f7282c4fca9d363eea6b7eb825dfc2616cc3f5dd2c97f477c55014ff2",
+        "examples/example_png_info.cpp": "537358aab281d9a3538a2a60b3b7369806987b182f0c7517cd1f9c2103c3fd24",
+        "examples/example_reencode.cpp": "ac9f130ebccd64f691b99c224e661e3f17076ef38c7ad789acd4f1431c6d4427",
+        "examples/example_sdl.c": "09f3d31c07d90d3797a7d65ccf249c021d2618dc3c2331caa8fdf6d0f5ae62d9",
+        "examples/example_sdl.cpp": "03a0388c05aad05b977f385fb9f4b5401213fbbf74d93a51ceea276f6ea43b34",
+        "LICENSE": "bdafa318b8e637d600ca1b60545e894881977a16a16b74809c95e805701621e3",
+        "lodepng.cpp": "6aec876971ec860527859458d3095220fc5ee1258ec37eb59e1e7dd9cf136a81",
+        "lodepng.h": "9a1fca0238c38333bdc8545336961b73fd0b76957bbacf033186991be9d7cf85",
+        "lodepng_benchmark.cpp": "fb99f7f91b141c0a7963912e89f4adc6f861c93145745bcc13b512b2bed09cc1",
+        "lodepng_fuzzer.cpp": "aff9be671bb25c886d2469c0abf5011f9d51b70d73984c362aa02065bb675307",
+        "lodepng_unittest.cpp": "3d2544cd82afacf7b7fae649b4253b7cc46df6aae7d59593550b7bd68bff097f",
+        "lodepng_util.cpp": "a0035169faac5f2b2aa8df511a6e547820975bd7ba48ab6a6f63a6f1f9214714",
+        "lodepng_util.h": "defdd14f8309906218c4959e76acfba49a18424a1cfdc8620ebfd970dd80942e",
+        "Makefile": "9888da0cd04a64be07983416aafd8cdeb3a0eb4aa4ca84d6f038b8ca7d647c84",
+        "pngdetail.cpp": "26777d9930288b245e986db7dd9d7ec7bb7f081f672e0b6a00307f1f7449567a",
+        "README.md": "6d6def2448127b8401dd8b0033d5512c4ce1f6cde1d31db64a9b1cf95e3236a8"
+      }
     }
   ]
 }

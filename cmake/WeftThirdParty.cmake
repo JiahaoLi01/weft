@@ -46,3 +46,13 @@ add_library(weft_unibreak STATIC
     "${WEFT_UNIBREAK_SRC}/graphemebreak.c"
     "${WEFT_UNIBREAK_SRC}/wordbreak.c")
 target_include_directories(weft_unibreak SYSTEM PUBLIC "${WEFT_UNIBREAK_SRC}")
+
+# lodepng: the PNG decoder of CSS url() background images (bytes the host reads); decoder only, no file I/O, no
+# ancillary chunks, the C interface.
+add_library(weft_lodepng STATIC "${PROJECT_SOURCE_DIR}/third_party/lodepng/source/lodepng.cpp")
+target_include_directories(weft_lodepng SYSTEM PUBLIC "${PROJECT_SOURCE_DIR}/third_party/lodepng/source")
+target_compile_definitions(weft_lodepng PUBLIC
+    LODEPNG_NO_COMPILE_ENCODER
+    LODEPNG_NO_COMPILE_DISK
+    LODEPNG_NO_COMPILE_ANCILLARY_CHUNKS
+    LODEPNG_NO_COMPILE_CPP)

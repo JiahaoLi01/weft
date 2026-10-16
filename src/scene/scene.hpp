@@ -322,6 +322,9 @@ namespace weft {
         std::optional<ScenePaintValues> paint; // Derived numeric cache, not DOM/style identity.
         // The -weft-effect() background and its parameters, resolved from the custom properties.
         std::shared_ptr<const SceneEffect> effect;
+        // The url() background's image (SceneImages): straight sRGB RGBA8, one asset for one image, compared by
+        // identity. None for another background, or a URL the images have no image of.
+        std::shared_ptr<const paint::Asset> background_image;
         // The particle emissions the element shows at the frame, drawn after its background and borders, before its
         // content.
         std::vector<SceneEmission> particles;
@@ -334,7 +337,8 @@ namespace weft {
                    a.attributes == b.attributes && a.style == b.style && a.box == b.box && a.lines == b.lines &&
                    a.fragments == b.fragments &&
                    (a.effect == b.effect || (a.effect && b.effect && *a.effect == *b.effect)) &&
-                   a.particles == b.particles && a.anchoring == b.anchoring && a.children == b.children;
+                   a.background_image == b.background_image && a.particles == b.particles &&
+                   a.anchoring == b.anchoring && a.children == b.children;
         }
     };
 
@@ -432,7 +436,7 @@ namespace weft {
                a.attributes == b.attributes && a.style == b.style && a.box == b.box && a.lines == b.lines &&
                a.fragments == b.fragments && bool(a.paint) == bool(b.paint) &&
                (!a.paint || a.paint->values == b.paint->values) && scene_effect_equal(a.effect, b.effect) &&
-               a.particles == b.particles && a.anchoring == b.anchoring;
+               a.background_image == b.background_image && a.particles == b.particles && a.anchoring == b.anchoring;
     }
 
     struct SceneFrame {
@@ -508,7 +512,7 @@ namespace weft {
             a.attributes != b.attributes || a.style != b.style || a.box != b.box || a.lines != b.lines ||
             a.fragments != b.fragments || a.children.size() != b.children.size() || bool(a.paint) != bool(b.paint) ||
             (a.paint && a.paint->values != b.paint->values) || !scene_effect_equal(a.effect, b.effect) ||
-            a.particles != b.particles) {
+            a.background_image != b.background_image || a.particles != b.particles) {
             return false;
         }
         for (std::size_t i = 0; i < a.children.size(); ++i) {
@@ -528,6 +532,16 @@ namespace weft {
     }; // left/top/right/bottom
 
     SceneDamage scene_damage(const SceneFrame&, const SceneFrame&, float scale);
+
+    // The images of a scene's background-image: url() backgrounds, by the URL as the style writes it
+    // (scene_values::image_url). Owner thread.
+    class SceneImages {
+    public:
+        virtual ~SceneImages() = default;
+        // The image url names, straight sRGB RGBA8: the same asset for a URL each time (nodes compare their images by
+        // identity), or none when there is no such image (its background shows none).
+        virtual std::shared_ptr<const paint::Asset> image(std::string_view url) = 0;
+    };
 
     class SceneSolver {
     public:
@@ -550,6 +564,9 @@ namespace weft {
         // The effects background-image: -weft-effect(name) names; the host keeps them alive. Without them such a
         // background is a scene profile diagnostic.
         void set_effects(const SceneEffects* effects);
+        // The images background-image: url() names; the host keeps them alive. Without them such a background is a
+        // scene profile diagnostic.
+        void set_images(SceneImages* images);
         // The particles -weft-particles: name and emit_particles name; the host keeps them alive. Without them such a
         // name is a scene profile diagnostic.
         //

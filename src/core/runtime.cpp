@@ -4,6 +4,7 @@
 #include <bridge/bridge_value.hpp>
 #include <constants/bridge.hpp>
 #include <constants/core.hpp>
+#include <constants/view.hpp>
 #include <scene/scene_text.hpp>
 #include <view/view.hpp>
 #include <view/view_abi.hpp>
@@ -22,6 +23,7 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -45,6 +47,9 @@ namespace {
         std::shared_ptr<weft::ViewShared> shared;
         std::unique_ptr<weft::View> view;
         std::vector<HostFunction> functions;
+        // The host's reader of the files pages name; none until it sets one.
+        weft_resource_fn reader{};
+        void* reader_user{};
         // A host callback (a message drain or a sync function) runs: owner operations on the View wait.
         bool busy{};
     };
@@ -96,6 +101,11 @@ struct weft_runtime {
 
 struct weft_value_writer {
     std::vector<std::uint8_t> value;
+};
+
+struct weft_resource_writer {
+    std::vector<std::uint8_t> bytes;
+    bool written{};
 };
 
 namespace {
@@ -238,6 +248,25 @@ namespace {
                                          weft_result_string(result));
             }
             return std::move(writer.value);
+        };
+    }
+
+    // The View's reader of the files its pages name: the host's, while it has one.
+    weft::ViewResourceReader resource_reader(ViewEntry& entry) {
+        if (!entry.reader) {
+            return {};
+        }
+        return [&entry](std::string_view path) -> std::optional<std::vector<std::uint8_t>> {
+            weft_resource_writer file;
+            weft_result result{};
+            {
+                const Busy busy(entry);
+                result = entry.reader(entry.reader_user, path.data(), path.size(), &file);
+            }
+            if (result != WEFT_OK || !file.written) {
+                return std::nullopt;
+            }
+            return std::move(file.bytes);
         };
     }
 
@@ -479,8 +508,10 @@ extern "C" weft_result weft_view_load(weft_runtime* runtime, weft_view_handle vi
     if (const auto error = find_idle(runtime, view, entry); error != WEFT_OK) {
         return error;
     }
-    if (!page || page->struct_size < sizeof(weft_page_desc) || (page->flags & ~WEFT_PAGE_CRPG_BRIDGE) ||
-        page->reserved || (!page->scripts && page->script_count)) {
+    // A page of an earlier ABI ends before base.
+    const bool based = page && page->struct_size >= sizeof(weft_page_desc);
+    if (!page || (!based && page->struct_size != offsetof(weft_page_desc, base)) ||
+        (page->flags & ~WEFT_PAGE_CRPG_BRIDGE) || page->reserved || (!page->scripts && page->script_count)) {
         return WEFT_INVALID_ARGUMENT;
     }
     weft::ViewPage content;
@@ -495,8 +526,10 @@ extern "C" weft_result weft_view_load(weft_runtime* runtime, weft_view_handle vi
     std::string_view stylesheet;
     std::string_view keyframes;
     std::string_view root;
+    std::string_view base;
     if (!text_arg(page->stylesheet, page->stylesheet_size, stylesheet) ||
-        !text_arg(page->keyframes, page->keyframes_size, keyframes) || !text_arg(page->root, page->root_size, root)) {
+        !text_arg(page->keyframes, page->keyframes_size, keyframes) || !text_arg(page->root, page->root_size, root) ||
+        (based && !text_arg(page->base, page->base_size, base))) {
         return WEFT_INVALID_ARGUMENT;
     }
     return guarded([&] {
@@ -508,6 +541,7 @@ extern "C" weft_result weft_view_load(weft_runtime* runtime, weft_view_handle vi
         content.stylesheet = stylesheet;
         content.keyframes = keyframes;
         content.root = root.empty() ? std::string("#root") : std::string(root);
+        content.base = base;
         content.crpg_bridge = page->flags & WEFT_PAGE_CRPG_BRIDGE;
         if (!entry->view) {
             freeze_fonts(*runtime);
@@ -517,6 +551,7 @@ extern "C" weft_result weft_view_load(weft_runtime* runtime, weft_view_handle vi
             for (auto& function : entry->functions) {
                 entry->view->install_function(function.name, engine_function(*entry, function));
             }
+            entry->view->set_resource_reader(resource_reader(*entry));
         }
         entry->view->load(content);
         return WEFT_OK;
@@ -818,6 +853,37 @@ extern "C" weft_result weft_view_register_function(weft_runtime* runtime, weft_v
         entry->functions.push_back(host);
         if (entry->view) {
             entry->view->install_function(host.name, engine_function(*entry, host));
+        }
+        return WEFT_OK;
+    });
+}
+
+extern "C" weft_result weft_resource_writer_set(weft_resource_writer* writer, const void* bytes, size_t size) {
+    if (!writer || (!bytes && size)) {
+        return WEFT_INVALID_ARGUMENT;
+    }
+    if (size > weft::constants::view::max_resource_bytes) {
+        return WEFT_CAPACITY_EXCEEDED;
+    }
+    return guarded([&] {
+        const auto* first = static_cast<const std::uint8_t*>(bytes);
+        writer->bytes.assign(first, first + size);
+        writer->written = true;
+        return WEFT_OK;
+    });
+}
+
+extern "C" weft_result weft_view_set_resource_reader(weft_runtime* runtime, weft_view_handle view, weft_resource_fn fn,
+                                                     void* user) {
+    ViewEntry* entry{};
+    if (const auto error = find_idle(runtime, view, entry); error != WEFT_OK) {
+        return error;
+    }
+    return guarded([&] {
+        entry->reader = fn;
+        entry->reader_user = fn ? user : nullptr;
+        if (entry->view) {
+            entry->view->set_resource_reader(resource_reader(*entry));
         }
         return WEFT_OK;
     });

@@ -373,7 +373,7 @@ const player = weft.engine.model('player');      // {value, subscribe}
 | --- | --- | --- |
 | `weft_view_write_anchors` | 任意（同一 View 一个写者） | 三缓冲，原子发布 |
 | `weft_view_emit`、`weft_view_complete_call`、`weft_view_set_model` | 任意 | 加锁的有界队列（多写一读） |
-| `weft_view_drain_messages`、`weft_view_register_function` | owner | 无 |
+| `weft_view_drain_messages`、`weft_view_register_function`、`weft_view_set_resource_reader` | owner | 无 |
 | 推进、取帧 | owner | 不变 |
 | 准备、录制 | 渲染线程 | 读锚点的最新槽 |
 
@@ -395,7 +395,7 @@ const player = weft.engine.model('player');      // {value, subscribe}
 渲染沿用现有的渲染器 C ABI（准备、录制、提交、完成）。
 
 实现（13.3a，`src/view` 与 `include/weft/weft.h`）：
-- `weft::View` 把画廊会话收拢成通用的部件。加载（`weft_view_load`）换一个新的文档与 VM 状态，装平台模块 WebHost、AnimationFrame、ScenePlatform、Engine（`WEFT_PAGE_CRPG_BRIDGE` 时再装 CrpgBridge），设好 `innerWidth`、`innerHeight`、`devicePixelRatio`，再按序求值页面的脚本；页面的样式表、关键帧与场景根的选择器（缺省 `#root`）随页面给出。资源（图片、字体以外的文件）不经宿主回调：页面的脚本与样式由宿主读好交进来。
+- `weft::View` 把画廊会话收拢成通用的部件。加载（`weft_view_load`）换一个新的文档与 VM 状态，装平台模块 WebHost、AnimationFrame、ScenePlatform、Engine（`WEFT_PAGE_CRPG_BRIDGE` 时再装 CrpgBridge），设好 `innerWidth`、`innerHeight`、`devicePixelRatio`，再按序求值页面的脚本；页面的样式表、关键帧与场景根的选择器（缺省 `#root`）随页面给出。页面的脚本与样式由宿主读好交进来；样式里 `url()` 指的图片经宿主的资源回调读（2026-10-16，见下文“页面的文件”）。
 - 推进（`weft_view_advance`）：取 owner 的锚点表，把页面的时钟推到这一帧的时间（13.4），交付引擎的输入，跑任务、rAF、任务，把 DOM 的变化同步进场景，交付 ResizeObserver，再同步一次；场景内容变了（版本号变了）或 View 的大小、缩放变了才发布新的帧。页面抛出的异常、处理函数与 rAF 回调的异常、样式做不出场景都记成诊断（`weft_view_drain_diagnostics`），推进照常返回；做不出场景时保留上一帧。VM 资源耗尽使 View 进入 Faulted（`WEFT_FAULTED`），直到重新加载。
 - 输入（`weft_view_pointer`）：移动、按下、抬起、滚轮、离开，按画廊的顺序合成 pointer 与 mouse 事件、over/out、enter/leave（随悬停元素变化）与 click（在按下的同一元素上抬起）；返回主事件的默认动作是否被阻止。键盘、IME 与手柄不在 13.3（手柄照 CRPG 的 `uiInput` 走桥的事件）。
 - 命中（`weft_view_hit_test`，取代草案的 `weft_view_hit_interactive`）：某点下最上层接收指针事件的元素是否是场景根以外的元素，以及它的 `cursor`（它或最近一个声明了 `cursor` 的祖先的值，没有时是 auto）。CRPG 现在按光标是否在可交互元素上把点击交给 UI，否则交给游戏的射线检测（`UUltralightWidget::NativeOnMouseButtonDown`），宿主可以照做。
@@ -418,6 +418,15 @@ const player = weft.engine.model('player');      // {value, subscribe}
 - 别的设备或图形 API 写的纹理（如 UE 的 D3D12 设备上的 render target，经 NT 句柄共享）：宿主在后端的 D3D11 设备上打开它（`OpenSharedResource1`）与共享 fence（`OpenSharedFence`），像同设备的纹理那样以 live 导入；写与读的先后由宿主排：UI 的 pass 画在立即上下文上，宿主在 `weft_renderer_encode` 之前于立即上下文上 `Wait` 生产者写完的值，之后 `Signal` UI 读完的值，生产者写下一帧前等这个值。D3D11 接受带共享标志的纹理（键控互斥由宿主获取与释放）。测试：D3D12 在同一适配器上写、D3D11 画，两帧各是 D3D12 为它写的内容。Vulkan 上宿主可用 `VK_KHR_external_memory_win32` 与外部信号量自己导入，后端不检查图像怎么来的（未测）。
 - Vulkan 的纹理结构末尾可选的 `image`（`weft_render_vulkan_texture::image`）：宿主给出时，画进帧绑定的纹理的 pass 被拒绝（`INVALID_STATE`，同 D3D11）；没有时由宿主保证。
 - UE 插件（M5）里，UE 的 render target 就是同一设备上的 RHI 纹理，由 RHI 后端直接绑定，同样零拷贝。
+
+页面的文件（2026-10-16，用户提出：界面的共享纹理放在页面的文件夹里，不进引擎资产）：scene 页面写 `background-image: url(...)`（也可写在 `background` 简写里），图片是页面文件夹里的 PNG。
+- 页面带一个基准（`weft_page_desc::base`，接在结构末尾；`struct_size` 等于 `offsetof(weft_page_desc, base)` 的旧调用方没有基准）：样式表文件的路径，宿主怎么叫它的文件就怎么写（`UI/City/page.css` 或 `UI/City/`）。weft 按 RFC 3986 把相对 URL 并到基准最后一个 `/` 之后，去掉 `.` 与 `..` 段（`view_resolve_url`）：有根的基准（`/UI/`、`C:/UI/`）`..` 到根为止；相对的基准（如 UE 的 `../../../Game/Content/UI/`）开头没得退的 `..` 保留，宿主从它的当前目录读。带 scheme 的 URL 与以 `/` 开头的原样交给宿主，查询与片段不算路径，反斜杠当斜杠。
+- 宿主给每个 View 设一个资源回调（`weft_view_set_resource_reader`，跨加载保留，NULL 取消）：View 求解场景时在 owner 线程上同步调用它，每次页面加载里每个路径一次；它把文件的字节写进 `weft_resource_writer`（`weft_resource_writer_set` 复制，至多 16 MiB），不写就是没有这个文件；回调里对这个 View 的 owner 操作返回 `WEFT_BUSY`。同步读是有意的：界面的图片是本地小文件，第一帧就有图，不用为异步到达重做场景（那会重启动画）。
+- 解码用 lodepng（固定版本，见 [记录](../third_party/lodepng/README.md)）：任何 PNG 颜色类型与位深转成直通 sRGB RGBA8，颜色按 sRGB（不读 gAMA、iCCP）。限制：一张至多 1024 × 1024 = 1,048,576 像素、边长至多 4096（半透明的图在 pass 里是线性浮点，每像素 16 字节，与 pass 的单图上限 16 MiB 相当）；一次页面加载至多 256 张、解码后共 64 MiB。先读文件头，超界的图不解压。
+- 没有回调、没有文件、回调失败、不是 PNG 或超界：一条 scene 诊断（`WEFT_SCENE_PROFILE: url(<路径>): <原因>`），每个路径一次，那个背景不画图，页面照常。没有图片源（不经 View 的求解器）时 `url()` 本身是 scene 诊断。
+- 每次加载重新读：宿主改了文件，重新加载页面就生效。
+- 绘制：图片像 `-weft-texture()` 那样按 CSS 铺排（`background-size`、`-position`、`-repeat`、`-origin`、`-clip`），自然大小是它的像素；显示列表里是列表自己的资产（`paint::Image::fitted`），pass 把它当作整张纹理（不进图集；不透明的是 sRGB 纹理，半透明的是线性预乘浮点，Vulkan 与 D3D12 上设备不能过滤浮点纹理时整帧回退，同效果纹理），着色器用宿主纹理的铺排代码。显示这种背景的元素在 pass 里画，不做缓存的图层。D2D 参考光栅同样画。
+- 测试：`view_images_contract`（URL 解析、各种 PNG、超界、每个路径一次、诊断、View 的场景）；`c_api_view_contract` 的 `resources`（基准、回调、重入、写入参数、旧的结构大小）；`scene_texture_contract`（`url()` 的语法、诊断、显示列表）；`scene_background_contract`（同样九种铺排的半透明图片，D3D11 原生 pass 与参考光栅逐像素至多差 2 级）；`scene_paint_reference` 把四个纹理用例再用 `url()` 画一遍，与 Chrome 的截图（Chrome 画的就是同样的 PNG）误差与宿主纹理相同，Vulkan 与 D3D11 至多差 2 级。
 
 ## 9. JS API 草案
 

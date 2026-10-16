@@ -274,6 +274,11 @@ if(WIN32)
     weft_add_executable(weft_view_tests SOURCES view_tests.cpp
         LINK weft::view weft::scene_d2d weft::platform_win32 d2d1 windowscodecs ole32 SOURCE_DIR LARGE_STACK)
     weft_add_test(NAME view_contract COMMAND weft_view_tests TIMEOUT 120)
+    # A page's url() images: URLs against the page's base, PNG decoding and its bounds, a path read once, diagnostics,
+    # and the View's scene showing the image its reader gave.
+    weft_add_executable(weft_view_images_tests SOURCES view_images_tests.cpp
+        LINK weft::view weft::platform_win32 LARGE_STACK)
+    weft_add_test(NAME view_images_contract COMMAND weft_view_images_tests)
     weft_add_executable(weft_scene_anchor_tests SOURCES scene_anchor_tests.cpp
         LINK weft::scene_native weft::scene_d2d weft::platform_win32 d2d1 windowscodecs ole32)
     weft_add_test(NAME scene_anchor_contract COMMAND weft_scene_anchor_tests)
@@ -288,7 +293,7 @@ if(WIN32)
     weft_add_test(NAME scene_effect_contract COMMAND weft_scene_effect_tests)
     # Host textures that CSS names in scenes (-weft-texture(name)): names, diagnostics and display lists.
     weft_add_executable(weft_scene_texture_tests SOURCES scene_texture_tests.cpp
-        LINK weft::scene weft::platform_win32)
+        LINK weft::scene weft::render weft::platform_win32)
     weft_add_test(NAME scene_texture_contract COMMAND weft_scene_texture_tests)
     # Their background layouts (background-origin, -clip, -size, -position, -repeat): parsed, laid out, diagnosed, and
     # drawn by the native D3D11 pass (WARP) as the reference raster lays them out on the CPU.

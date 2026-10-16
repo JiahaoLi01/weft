@@ -175,11 +175,12 @@ namespace weft {
             auto name = scene_values::texture_name(scene_values::view(n.style, PropertyId::BackgroundImage, "none"));
             return name ? std::move(*name) : std::string{};
         };
-        // Whether a subtree shows an effect, particles, a backdrop filter or a host texture: such a node draws in the
-        // pass, never as a cached layer image, so that they follow the frame's time, their own values, what lies
-        // behind them and what the host's texture holds at the frame.
+        // Whether a subtree shows an effect, particles, a backdrop filter, a host texture or a url() image: such a
+        // node draws in the pass, never as a cached layer image, so that they follow the frame's time, their own
+        // values, what lies behind them and what the host's texture holds at the frame (an image's texture is the
+        // pass's, as an effect's).
         const auto shows_effect = [&](auto&& self, const SceneNode& n) -> bool {
-            return n.effect || !n.particles.empty() || filters(n) || !texture_of(n).empty() ||
+            return n.effect || !n.particles.empty() || filters(n) || !texture_of(n).empty() || n.background_image ||
                    std::any_of(n.children.begin(), n.children.end(), [&](const SceneNode& child) {
                        return self(self, child);
                    });
@@ -893,9 +894,11 @@ namespace weft {
                     list.items.push_back(item);
                     return;
                 }
+                // A background image laid out as CSS lays one out: a host texture or a url() image.
                 const auto host_texture = texture_of(n);
+                const bool fitted = !host_texture.empty() || n.background_image;
                 const bool painted = box.background[3] > 0 || box.gradient.kind != paint::GradientKind::None ||
-                                     bordered || dashed || n.effect || !host_texture.empty();
+                                     bordered || dashed || n.effect || fitted;
                 // Shadows of the border box with its corners as specified, as the reference raster draws them.
                 const auto shadows = scene_values::box_shadows(
                     n.style, item.width, item.height, scene_values::specified_radii(n.style, item.width, item.height));
@@ -1039,9 +1042,9 @@ namespace weft {
                     }
                 };
                 const bool clipped = clip_box != "border-box" && !clip_box.empty() && box.background[3] > 0;
-                if (painted && !n.effect && host_texture.empty() && !dashed && !inset && !clipped) {
+                if (painted && !n.effect && !fitted && !dashed && !inset && !clipped) {
                     add_box(box);
-                } else if (painted && !n.effect && host_texture.empty()) {
+                } else if (painted && !n.effect && !fitted) {
                     if (box.background[3] > 0 || box.gradient.kind != paint::GradientKind::None) {
                         add_under(box);
                     }
@@ -1053,7 +1056,7 @@ namespace weft {
                         over.gradient = {};
                         add_box(over);
                     }
-                } else if (inset && !n.effect && host_texture.empty()) {
+                } else if (inset && !n.effect && !fitted) {
                     // Nothing else painted: the inset shadows alone.
                     add_shadows(true);
                 } else if (n.effect) {
@@ -1094,9 +1097,9 @@ namespace weft {
                         over.background = {};
                         add_box(over);
                     }
-                } else if (!host_texture.empty()) {
-                    // A host texture, as CSS paints a background image: over the background color and under the
-                    // borders, over background-clip's box inside its corners (a rounded clip), laid out in
+                } else if (fitted) {
+                    // A host texture or an image, as CSS paints a background image: over the background color and
+                    // under the borders, over background-clip's box inside its corners (a rounded clip), laid out in
                     // background-origin's box as the fit says (scene_background.hpp), the box snapped to device
                     // pixels as Chrome draws an image, unless it rotates, skews or mirrors.
                     if (box.background[3] > 0) {
@@ -1105,7 +1108,12 @@ namespace weft {
                     const auto layout = scene_background_layout(n.style);
                     const auto painting = scene_background_box(n.style, layout.clip, item.width, item.height);
                     paint::Image image;
-                    image.texture = index_of(list.textures, host_texture) + 1;
+                    if (n.background_image) {
+                        image.asset = index_of(list.assets, n.background_image);
+                        image.fitted = true;
+                    } else {
+                        image.texture = index_of(list.textures, host_texture) + 1;
+                    }
                     image.fit = scene_texture_fit(
                         layout, painting, scene_background_box(n.style, layout.origin, item.width, item.height));
                     const auto& r = painting.rect;

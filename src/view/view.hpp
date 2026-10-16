@@ -6,6 +6,7 @@
 #include "scene/scene_geometry.hpp"
 #include "script/script_dom.hpp"
 #include "text/font_catalog.hpp"
+#include "view/view_images.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -20,8 +21,8 @@
 // anchors, give the page engine events, call completions and view models, and take the frames it published.
 namespace weft {
     // A page: the scripts evaluated in order after the platform modules (WebHost, AnimationFrame, ScenePlatform,
-    // Engine), the scene's stylesheet and keyframes, and the selector of the scene's root (#id or a tag name). WebHost
-    // gives the document a <div id="root"> in its body.
+    // Engine), the scene's stylesheet and keyframes, the selector of the scene's root (#id or a tag name), and the base
+    // its relative URLs resolve against (view_resolve_url). WebHost gives the document a <div id="root"> in its body.
     struct ViewPage {
         struct Script {
             std::string name;
@@ -32,6 +33,7 @@ namespace weft {
         std::string stylesheet;
         std::string keyframes;
         std::string root = "#root";
+        std::string base;
         // CRPG Framework's window.ue, __ue_dispatch and __vm_update over weft.engine (ScriptPlatformModule::CrpgBridge).
         bool crpg_bridge{};
     };
@@ -151,6 +153,9 @@ namespace weft {
         std::vector<EngineMessage> take_messages();
         // weft.engine.invoke(name) calls function; kept across loads.
         void install_function(std::string name, EngineFunction function);
+        // Reads the files the page names (url() images) by their resolved paths, each once a page load; kept across
+        // loads. Without one, such an image is a diagnostic and shows nothing.
+        void set_resource_reader(ViewResourceReader reader);
 
         const std::shared_ptr<ViewShared>& shared() const {
             return shared_;

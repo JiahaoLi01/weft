@@ -202,7 +202,8 @@ namespace weft {
 
     std::optional<paint::Gradient> scene_gradient(const StyleValues& s, float width, float height) {
         const auto image = css::trim(s.text(PropertyId::BackgroundImage, "none"));
-        if (image == "none" || image.starts_with("-weft-effect(") || image.starts_with("-weft-texture(")) {
+        if (image == "none" || image.starts_with("-weft-effect(") || image.starts_with("-weft-texture(") ||
+            image.starts_with("url(")) {
             return std::nullopt;
         }
         const auto b = image.find('(');

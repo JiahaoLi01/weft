@@ -46,7 +46,7 @@ python tools/verify_dependencies.py
 
 校验会拒绝缺失、增添或内容变化的文件。D3 的 bundle 同时保留所含 37 个模块的许可和来源核对记录。更新依赖时需要重新验证来源和行为后审阅 lock 的变化；校验失败时不能直接刷新 hash。
 
-当前固定文件共 5,106 项，新增未经修改的 libunibreak 6.1 全部 61 文件（私有静态、zlib 风格及 Unicode 条款，来源/开关见 [记录](../third_party/libunibreak/README.md)）；含原始 React 19.3.0/react-dom 19.3.0/scheduler 0.28.0、Zustand 5.0.15 及 MIT notices，另固定 Noto CJK Sans2.004 字体与 SIL OFL 1.1。FreeType 选择 FTL 授权，原文和 notices 保留；HarfBuzz 源码中的独立字体许可也一并保存，探针 Roboto Regular 另在 third_party/probe-font-notices 补齐 Apache-2.0 原文、归属与 hash。Ahem 的公共领域/CC0 fallback 是字体自身许可，不由 FreeType 许可替代。Yoga 补丁的原始/修改后 hash 与删除条件在其 metadata 中。
+2026-10-16 新增未经修改的 lodepng（commit e584a84，`LODEPNG_VERSION_STRING` 20261006）全部 26 文件：scene 页面 `url()` 背景图的 PNG 解码，只编 `lodepng.cpp` 为私有静态库 `weft_lodepng`，关掉编码器、文件读写、辅助块与 C++ 接口，zlib 许可（来源/开关见 [记录](../third_party/lodepng/README.md)）。此前固定文件共 5,106 项，新增未经修改的 libunibreak 6.1 全部 61 文件（私有静态、zlib 风格及 Unicode 条款，来源/开关见 [记录](../third_party/libunibreak/README.md)）；含原始 React 19.3.0/react-dom 19.3.0/scheduler 0.28.0、Zustand 5.0.15 及 MIT notices，另固定 Noto CJK Sans2.004 字体与 SIL OFL 1.1。FreeType 选择 FTL 授权，原文和 notices 保留；HarfBuzz 源码中的独立字体许可也一并保存，探针 Roboto Regular 另在 third_party/probe-font-notices 补齐 Apache-2.0 原文、归属与 hash。Ahem 的公共领域/CC0 fallback 是字体自身许可，不由 FreeType 许可替代。Yoga 补丁的原始/修改后 hash 与删除条件在其 metadata 中。
 
 新增 `flow_layout_contract`、browser diff/fixture integrity、原始 Unicode 数据测试，以及 `--flow-warp/hardware`、`--cheetah-flow-warp/hardware` 的真实滚动/圆角像素探针。输入、离线参考、强制 GC 和本机浏览器步骤见 [flow 复现](flow-layout-probe.md)。正常 CTest 无需联网或重建 React bundle。
 

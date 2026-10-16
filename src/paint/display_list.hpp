@@ -121,7 +121,9 @@ namespace weft::paint {
     // coverage mask paints color where it covers, and signed distances paint color inside the contour and outline up
     // to stroke source texels outside it. An asset index past DisplayList::assets names an external texture. A
     // texture (one past an index of DisplayList::textures) names a host texture instead, which a scene pass binds by
-    // name for each frame, lays out over the item as fit says and draws with its own colors; its asset is then 0.
+    // name for each frame, lays out over the item as fit says and draws with its own colors; its asset is then 0. A
+    // fitted image (a scene's url() background) is an sRGB asset of the list a scene pass lays out as fit says, as it
+    // lays out a host texture, the asset's size its natural size.
     struct Image {
         std::uint32_t asset{};
         std::array<float, 4> uv{0, 0, 1, 1};
@@ -130,6 +132,7 @@ namespace weft::paint {
         Color outline{};
         std::uint32_t texture{};
         TextureFit fit;
+        bool fitted{};
     };
 
     // Content the renderer rasterizes at device scale and draws as an image over the item. Transitional: scene text

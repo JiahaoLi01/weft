@@ -4,7 +4,10 @@
 #include "support/check.hpp"
 #include "support/files.hpp"
 
+#include <algorithm>
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <cmath>
 #include <cstring>
 #include <iostream>
@@ -16,7 +19,8 @@
 
 // The View's C ABI (include/weft/weft.h, docs/engine-communication.md section 8): struct sizes and versions, owner and
 // any-thread calls, stale handles (also against concurrent destruction), pages, engine events, calls, view models,
-// sync functions and their reentry, anchors, hit queries, frames that outlive their View, diagnostics and faults.
+// sync functions and their reentry, anchors, hit queries, frames that outlive their View, diagnostics and faults, and
+// the resource reader of a page's url() images against its base.
 namespace {
     namespace bridge = weft::bridge;
     using weft::testing::require;
@@ -51,6 +55,7 @@ namespace {
         std::vector<weft_script> scripts;
         std::string stylesheet;
         std::string keyframes;
+        std::string base;
         uint32_t flags{};
 
         weft_page_desc desc() {
@@ -68,7 +73,9 @@ namespace {
                     keyframes.data(),
                     keyframes.size(),
                     nullptr,
-                    0};
+                    0,
+                    base.data(),
+                    base.size()};
         }
     };
 
@@ -642,6 +649,109 @@ namespace {
                 "a page again");
         weft_view_destroy(r.runtime, view);
     }
+
+    // A 2 x 2 RGBA8 PNG.
+    const std::vector<std::uint8_t> dot_png{
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00,
+        0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x08, 0x06, 0x00, 0x00, 0x00, 0x72, 0xb6, 0x0d, 0x24, 0x00, 0x00, 0x00,
+        0x17, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0xf0, 0x9f, 0xe1, 0x3f, 0x43, 0x03, 0x23,
+        0x98, 0xfe, 0xcf, 0xe0, 0x00, 0x00, 0x3d, 0x23, 0x06, 0xbc, 0x3a, 0x2b, 0xe2, 0xc0, 0x00, 0x00, 0x00, 0x00,
+        0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
+
+    // What a resource reader was asked and found.
+    struct Reader {
+        weft_runtime* runtime{};
+        weft_view_handle view{};
+        std::vector<std::string> paths;
+        weft_result reentry = WEFT_OK;
+        bool arguments{};
+    };
+
+    // The reader: dot.png's bytes, bytes that are no PNG for bad.png (after checking the writer's arguments), a reader
+    // error for broken.png, nothing for another path; each time it tries to reenter the View.
+    weft_result read(void* user, const char* path, size_t path_size, weft_resource_writer* file) {
+        auto& self = *static_cast<Reader*>(user);
+        self.paths.emplace_back(path, path_size);
+        self.reentry = weft_view_advance(self.runtime, self.view, 1);
+        const auto& name = self.paths.back();
+        if (name.ends_with("dot.png")) {
+            return weft_resource_writer_set(file, dot_png.data(), dot_png.size());
+        }
+        if (name.ends_with("bad.png")) {
+            const std::uint8_t bytes[]{1, 2, 3};
+            self.arguments = weft_resource_writer_set(file, nullptr, 1) == WEFT_INVALID_ARGUMENT &&
+                             weft_resource_writer_set(nullptr, bytes, 3) == WEFT_INVALID_ARGUMENT &&
+                             weft_resource_writer_set(file, bytes, std::size_t(16) * 1024 * 1024 + 1) ==
+                                 WEFT_CAPACITY_EXCEEDED;
+            return weft_resource_writer_set(file, bytes, sizeof bytes);
+        }
+        return name.ends_with("broken.png") ? WEFT_INTERNAL_ERROR : WEFT_OK;
+    }
+
+    void resources() {
+        Runtime r;
+        const auto view = r.view();
+        Reader reader{r.runtime, view};
+        require(weft_view_set_resource_reader(r.runtime, view, read, &reader) == WEFT_OK,
+                "a reader before the View's first page");
+        auto page = inline_page("for (const id of ['a', 'b']) {"
+                                "  const d = document.createElement('div');"
+                                "  d.id = id;"
+                                "  document.getElementById('root').appendChild(d);"
+                                "}",
+                                "#a,#b{position:absolute;width:8px;height:8px}"
+                                "#a{background-image:url(../img/dot.png)}"
+                                "#b{left:10px;background:url('../img/./dot.png') no-repeat}");
+        page.base = "ui/page/page.css";
+        require(load(r, view, page) == WEFT_OK && reader.paths == std::vector<std::string>{"ui/img/dot.png"} &&
+                    diagnostics(r, view).empty(),
+                "the page's image read once by its path against the base, decoded");
+        require(reader.reentry == WEFT_BUSY, "a reader cannot reenter the View");
+        require(weft_view_advance(r.runtime, view, 0.016) == WEFT_OK && reader.paths.size() == 1,
+                "no read again in the page load");
+
+        // A missing file, a reader's error and bytes that are no PNG: scene diagnostics, the page goes on.
+        page.stylesheet += "#a{background-image:url(missing.png)}#b{background-image:url(/broken.png)}";
+        page.stylesheet += "#root{background-image:url(../img/bad.png)}";
+        require(load(r, view, page) == WEFT_OK, "a page of images that fail");
+        auto found = diagnostics(r, view);
+        const auto said = [&](std::string_view text) {
+            return std::any_of(found.begin(), found.end(), [&](const auto& d) {
+                return d.first == WEFT_DIAGNOSTIC_SCENE && d.second.find(text) != std::string::npos;
+            });
+        };
+        require(found.size() == 3 && said("url(ui/page/missing.png): no such file") &&
+                    said("url(/broken.png): no such file") && said("url(ui/img/bad.png): no PNG image"),
+                "each failure a scene diagnostic");
+        require(reader.arguments, "the writer's arguments");
+        weft_view_frame* frame{};
+        require(weft_view_acquire_frame(r.runtime, view, &frame) == WEFT_OK, "a frame despite them");
+        weft_view_frame_release(frame);
+
+        // A page of the earlier ABI, without a base: URLs resolve from "". A size inside base is no page.
+        page = inline_page("const d = document.createElement('div'); d.id = 'a';"
+                           "document.getElementById('root').appendChild(d);",
+                           "#a{width:8px;height:8px;background-image:url(img/dot.png)}");
+        auto d = page.desc();
+        d.struct_size = offsetof(weft_page_desc, base) + 8;
+        require(weft_view_load(r.runtime, view, &d) == WEFT_INVALID_ARGUMENT, "a size inside base");
+        d.struct_size = offsetof(weft_page_desc, base);
+        reader.paths.clear();
+        require(weft_view_load(r.runtime, view, &d) == WEFT_OK &&
+                    reader.paths == std::vector<std::string>{"img/dot.png"} && diagnostics(r, view).empty(),
+                "a page without a base");
+
+        // Without a reader, an image is a diagnostic.
+        require(weft_view_set_resource_reader(r.runtime, view, nullptr, nullptr) == WEFT_OK &&
+                    load(r, view, page) == WEFT_OK,
+                "no reader");
+        found = diagnostics(r, view);
+        require(found.size() == 1 && found[0].second.find("no resource reader") != std::string::npos,
+                "an image without a reader");
+        weft_view_destroy(r.runtime, view);
+        require(weft_view_set_resource_reader(r.runtime, view, read, &reader) == WEFT_STALE_HANDLE,
+                "a destroyed View's reader");
+    }
 } // namespace
 
 int main() {
@@ -652,6 +762,7 @@ int main() {
         anchors_and_hits();
         threads_and_stale_handles();
         errors_and_faults();
+        resources();
         std::cout << "C ABI view tests passed\n";
         return 0;
     } catch (const std::exception& e) {

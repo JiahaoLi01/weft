@@ -18,8 +18,8 @@
 // length through the tile at its angle, a radial gradient's horizontal radius); a position before an earlier one
 // takes that one, and stops without one spread evenly between their neighbours.
 namespace weft {
-    // Nothing for background-image none, -weft-effect() and -weft-texture(), or when the tile is empty (nothing to
-    // paint). std::invalid_argument for a gradient outside this profile.
+    // Nothing for background-image none, -weft-effect(), -weft-texture() and url(), or when the tile is empty
+    // (nothing to paint). std::invalid_argument for a gradient outside this profile.
     std::optional<paint::Gradient> scene_gradient(const StyleValues& style, float width, float height);
 
     // The straight color of a gradient at a point of its item, as the scene shader evaluates it: in the tile the

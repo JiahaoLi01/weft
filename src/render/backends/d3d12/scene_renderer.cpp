@@ -1002,13 +1002,18 @@ namespace weft::render::d3d12 {
         }
         const auto* placed = kept.prepared == prepared ? &kept.frame : nullptr;
         const auto serial = kept.prepared == prepared ? kept.serial : 0;
-        // An effect's translucent color texture is linear floats, which not every device filters.
+        // An effect's or a url() image's translucent color texture is linear floats, which not every device filters.
         const auto linear = [](auto&& self, const ScenePrepared& p) -> bool {
             for (const auto& effect : p.effects) {
                 for (const auto& texture : effect.textures) {
                     if (texture->format == SceneImage::Format::Linear) {
                         return true;
                     }
+                }
+            }
+            for (const auto& image : p.images) {
+                if (image && image->format == SceneImage::Format::Linear) {
+                    return true;
                 }
             }
             for (std::size_t i = 0; i < p.planes.size(); ++i) {

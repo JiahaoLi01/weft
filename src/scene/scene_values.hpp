@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <map>
 #include <optional>
 #include <sstream>
@@ -57,6 +58,43 @@ namespace weft::scene_values {
                                       (ch >= '0' && ch <= '9') || ch == '-' || ch == '_';
                            });
         return valid ? std::move(name) : std::string{};
+    }
+
+    // A background-image of url(...): the URL as written, without the quotes of a string (a backslash in it escapes
+    // the next character) or the spaces an unquoted URL's tokens were joined with, or an empty one for an empty or
+    // unterminated URL; nothing for any other value.
+    inline std::optional<std::string> image_url(std::string_view image) {
+        constexpr std::string_view open = "url(";
+        if (!image.starts_with(open)) {
+            return std::nullopt;
+        }
+        if (!image.ends_with(')')) {
+            return std::string{};
+        }
+        const auto inner = css::trim(image.substr(open.size(), image.size() - open.size() - 1));
+        std::string url;
+        if (!inner.empty() && (inner.front() == '"' || inner.front() == '\'')) {
+            const char quote = inner.front();
+            if (inner.size() < 2 || inner.back() != quote) {
+                return std::string{};
+            }
+            for (std::size_t i = 1; i + 1 < inner.size(); ++i) {
+                if (inner[i] == quote) {
+                    return std::string{};
+                }
+                if (inner[i] == '\\' && i + 2 < inner.size()) {
+                    ++i;
+                }
+                url += inner[i];
+            }
+        } else {
+            for (const char ch : inner) {
+                if (!std::isspace(static_cast<unsigned char>(ch))) {
+                    url += ch;
+                }
+            }
+        }
+        return url;
     }
 
     // Element attributes stay a string map.

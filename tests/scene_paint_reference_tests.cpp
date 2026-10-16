@@ -24,6 +24,7 @@
 #include <iostream>
 #include <map>
 #include <set>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -38,6 +39,8 @@
 // both are averaged over 5 x 5 pixels, where antialiasing evens out and only what is drawn where remains (a character
 // more or less before an ellipsis, a shadow's offset or blur, a gradient's shape). Where Vulkan is built, the native
 // Vulkan pass on this machine's device draws each case within 2 levels of the D3D11 one (skipped without a device).
+// The host texture cases draw again with url() images of the same texels (the scene's images, as a page's files), which
+// Chrome's capture of the same PNG images shows alike.
 namespace {
     using weft::testing::JsonValue;
     using weft::testing::require;
@@ -86,7 +89,29 @@ namespace {
         return tags;
     }
 
-    void build(weft::testing::NativeScene& s, weft::dom::Node& parent, const JsonValue& node) {
+    // The cases' textures as url() images: "<name>.png", straight sRGB RGBA8 as Chrome's PNG holds them.
+    struct CaseImages final : weft::SceneImages {
+        std::map<std::string, std::shared_ptr<const weft::paint::Asset>, std::less<>> images;
+
+        std::shared_ptr<const weft::paint::Asset> image(std::string_view url) override {
+            const auto found = images.find(url);
+            return found == images.end() ? nullptr : found->second;
+        }
+    };
+
+    // A style's -weft-texture(name) as url(name.png).
+    std::string as_url(std::string style) {
+        constexpr std::string_view open = "-weft-texture(";
+        for (auto at = style.find(open); at != style.npos; at = style.find(open, at)) {
+            const auto close = style.find(')', at);
+            require(close != style.npos, "a texture's name");
+            const auto name = style.substr(at + open.size(), close - at - open.size());
+            style.replace(at, close + 1 - at, "url(" + name + ".png)");
+        }
+        return style;
+    }
+
+    void build(weft::testing::NativeScene& s, weft::dom::Node& parent, const JsonValue& node, bool urls) {
         if (node.kind == JsonValue::Kind::String) {
             auto& t = s.tree.create(weft::constants::text_node_type, "#text", "", s.document->identity);
             t.data = node.string;
@@ -96,7 +121,7 @@ namespace {
         const auto& tag = node["tag"].string;
         auto& e = svg_tags().contains(tag) ? s.svg(tag) : s.html(tag);
         if (const auto* style = node.find("style")) {
-            s.set(e, "style", style->string);
+            s.set(e, "style", urls ? as_url(style->string) : style->string);
         }
         if (const auto* attributes = node.find("attributes")) {
             for (const auto& [name, value] : attributes->object) {
@@ -106,7 +131,7 @@ namespace {
         s.tree.insert(parent, e, nullptr);
         if (const auto* children = node.find("children")) {
             for (const auto& c : children->array) {
-                build(s, e, c);
+                build(s, e, c, urls);
             }
         }
     }
@@ -189,17 +214,22 @@ int main(int argc, char** argv) {
         require(manifest["captures"].size() == spec["cases"].size(), "a capture for each case");
         const auto width = unsigned(spec["width"].number);
         const auto height = unsigned(spec["height"].number);
-        // The cases' host textures: straight sRGB RGBA8 as Chrome's PNG holds them, as linear premultiplied texels.
+        // The cases' host textures: straight sRGB RGBA8 as Chrome's PNG holds them, as linear premultiplied texels;
+        // and the same texels as url() images.
         std::map<std::string, weft::SceneRasterTexture> textures;
+        CaseImages images;
         if (const auto* listed = spec.find("textures")) {
             for (const auto& [name, t] : listed->object) {
                 weft::SceneRasterTexture texture{unsigned(t["width"].number), unsigned(t["height"].number), {}};
+                weft::paint::Asset image{texture.width, texture.height, weft::paint::Encoding::SrgbStraight, {}, 0};
                 const auto& hex = t["rgba"].string;
                 require(hex.size() == std::size_t(texture.width) * texture.height * 8, name + ": the texture's texels");
                 for (std::size_t k = 0; k < hex.size(); k += 8) {
                     std::array<float, 4> c{};
                     for (unsigned j = 0; j < 4; ++j) {
-                        c[j] = float(std::stoi(hex.substr(k + 2 * j, 2), nullptr, 16)) / 255;
+                        const auto byte = std::stoi(hex.substr(k + 2 * j, 2), nullptr, 16);
+                        image.bytes.push_back(std::uint8_t(byte));
+                        c[j] = float(byte) / 255;
                     }
                     for (unsigned j = 0; j < 3; ++j) {
                         texture.rgba.push_back(weft::render::srgb_to_linear(c[j]) * c[3]);
@@ -207,6 +237,7 @@ int main(int argc, char** argv) {
                     texture.rgba.push_back(c[3]);
                 }
                 textures.emplace(name, std::move(texture));
+                images.images.emplace(name + ".png", std::make_shared<const weft::paint::Asset>(std::move(image)));
             }
         }
         auto& text = weft::testing::thread_scene_text();
@@ -222,7 +253,7 @@ int main(int argc, char** argv) {
         }
 #endif
         bool failed{};
-        std::cout << "case                native: mean >32 share 5x5 | raster: mean >32 share 5x5 (limits)\n";
+        std::cout << "case                    native: mean >32 share 5x5 | raster: mean >32 share 5x5 (limits)\n";
         for (std::size_t i = 0; i < spec["cases"].size(); ++i) {
             const auto& c = spec["cases"][i];
             const auto name = c["name"].string;
@@ -231,93 +262,105 @@ int main(int argc, char** argv) {
                     name + ": Chrome's capture of the case");
             const auto limit = limits().find(name);
             require(limit != limits().end(), name + ": the case's limits");
-            weft::testing::NativeScene s;
-            const auto* root = c.find("root");
-            s.set(*s.root, "style", spec["root"].string + ";" + (root ? root->string : std::string()));
-            for (const auto& n : c["nodes"].array) {
-                build(s, *s.root, n);
-            }
-            weft::SceneSolver solver("", "", text);
-            const auto frame = solver.frame(s.tree.snapshot(*s.root), float(width), float(height), 0);
-            const auto w = unsigned(width * scale);
-            const auto h = unsigned(height * scale);
-            weft::testing::D3D11Scene d3d11{w, h};
-            // The textures on the device: RGBA16F of their linear premultiplied texels.
-            std::vector<Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>> views;
-            std::vector<weft::SceneTexture> bound;
-            for (const auto& [texture_name, t] : textures) {
-                std::vector<std::uint16_t> halves;
-                for (const float v : t.rgba) {
-                    halves.push_back(DirectX::PackedVector::XMConvertFloatToHalf(v));
+            // A host texture case twice: as -weft-texture() and as url() images of the same texels.
+            for (const bool urls : {false, true}) {
+                if (urls && !name.starts_with("texture-")) {
+                    continue;
                 }
-                D3D11_TEXTURE2D_DESC desc{};
-                desc.Width = t.width;
-                desc.Height = t.height;
-                desc.MipLevels = desc.ArraySize = 1;
-                desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-                desc.SampleDesc.Count = 1;
-                desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-                const D3D11_SUBRESOURCE_DATA data{halves.data(), t.width * 8, 0};
-                Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
-                auto& view = views.emplace_back();
-                require(SUCCEEDED(d3d11.gpu.device->CreateTexture2D(&desc, &data, &texture)) &&
-                            SUCCEEDED(d3d11.gpu.device->CreateShaderResourceView(texture.Get(), nullptr, &view)),
-                        texture_name + ": the host texture");
-                bound.push_back({texture_name, std::uint64_t(reinterpret_cast<std::uintptr_t>(view.Get())), false});
-            }
-            const auto native = d3d11.draw(frame, scale, nullptr, {}, bound);
-            d3d11.gpu.check_debug_messages();
-            require(d3d11.scene.fallbacks == 0, name + ": the native pass drew the case");
+                const auto label = urls ? name + "-url" : name;
+                weft::testing::NativeScene s;
+                const auto* root = c.find("root");
+                s.set(*s.root, "style", spec["root"].string + ";" + (root ? root->string : std::string()));
+                for (const auto& n : c["nodes"].array) {
+                    build(s, *s.root, n, urls);
+                }
+                weft::SceneSolver solver("", "", text);
+                solver.set_images(&images);
+                const auto frame = solver.frame(s.tree.snapshot(*s.root), float(width), float(height), 0);
+                const auto w = unsigned(width * scale);
+                const auto h = unsigned(height * scale);
+                weft::testing::D3D11Scene d3d11{w, h};
+                // The textures on the device: RGBA16F of their linear premultiplied texels.
+                std::vector<Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>> views;
+                std::vector<weft::SceneTexture> bound;
+                for (const auto& [texture_name, t] : textures) {
+                    std::vector<std::uint16_t> halves;
+                    for (const float v : t.rgba) {
+                        halves.push_back(DirectX::PackedVector::XMConvertFloatToHalf(v));
+                    }
+                    D3D11_TEXTURE2D_DESC desc{};
+                    desc.Width = t.width;
+                    desc.Height = t.height;
+                    desc.MipLevels = desc.ArraySize = 1;
+                    desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+                    desc.SampleDesc.Count = 1;
+                    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+                    const D3D11_SUBRESOURCE_DATA data{halves.data(), t.width * 8, 0};
+                    Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
+                    auto& view = views.emplace_back();
+                    require(SUCCEEDED(d3d11.gpu.device->CreateTexture2D(&desc, &data, &texture)) &&
+                                SUCCEEDED(d3d11.gpu.device->CreateShaderResourceView(texture.Get(), nullptr, &view)),
+                            texture_name + ": the host texture");
+                    bound.push_back({texture_name, std::uint64_t(reinterpret_cast<std::uintptr_t>(view.Get())), false});
+                }
+                using Textures = std::span<const weft::SceneTexture>;
+                const auto native = d3d11.draw(frame, scale, nullptr, {}, urls ? Textures{} : Textures(bound));
+                d3d11.gpu.check_debug_messages();
+                require(d3d11.scene.fallbacks == 0, label + ": the native pass drew the case");
 #ifdef WEFT_TEST_VULKAN
-            // Host textures are bound by the View backends on Vulkan (render_view_contract); these cases draw none.
-            if (vulkan && !name.starts_with("texture-")) {
-                const auto drawn = vulkan->draw(frame, scale, w, h, std::nullopt, 0, {});
-                require(drawn.has_value() && drawn->size() == native.size(), name + ": the native Vulkan pass");
-                int worst{};
-                for (std::size_t k = 0; k < native.size(); ++k) {
-                    worst = std::max(worst, std::abs(int((*drawn)[k]) - int(native[k])));
+                // Host textures are bound by the View backends on Vulkan (render_view_contract); these cases draw none.
+                // url() images are the pass's own.
+                if (vulkan && (urls || !name.starts_with("texture-"))) {
+                    const auto drawn = vulkan->draw(frame, scale, w, h, std::nullopt, 0, {});
+                    require(drawn.has_value() && drawn->size() == native.size(), label + ": the native Vulkan pass");
+                    int worst{};
+                    for (std::size_t k = 0; k < native.size(); ++k) {
+                        worst = std::max(worst, std::abs(int((*drawn)[k]) - int(native[k])));
+                    }
+                    std::printf("%-22s Vulkan against D3D11 WARP: worst %d\n", label.c_str(), worst);
+                    require(worst <= 2, label + ": Vulkan within 2 levels of D3D11 WARP");
                 }
-                std::printf("%-18s Vulkan against D3D11 WARP: worst %d\n", name.c_str(), worst);
-                require(worst <= 2, name + ": Vulkan within 2 levels of D3D11 WARP");
-            }
 #endif
-            weft::SceneRaster reference(text);
-            reference.bind_textures(textures);
-            const auto raster = reference.raster(frame, scale);
-            require(raster.width == w && raster.height == h, name + ": the reference raster's size");
-            const auto chrome = weft::testing::read_png(fixtures / (name + ".png"));
-            require(chrome.width == w && chrome.height == h, name + ": Chrome's capture at the case's scale");
-            const auto a = compare({native, true}, {chrome.rgba}, w, h);
-            const auto b = compare({raster.rgba}, {chrome.rgba}, w, h);
-            const auto& [ln, lr] = limit->second;
-            std::printf("%-18s %6.2f %.4f %4d | %6.2f %.4f %4d (%.2f %.3f %d | %.2f %.3f %d)\n", name.c_str(), a.mean,
-                        a.far_share, a.smooth, b.mean, b.far_share, b.smooth, ln.mean, ln.far_share, ln.smooth, lr.mean,
-                        lr.far_share, lr.smooth);
-            // Evidence: the native pass, Chrome and the reference raster side by side.
-            std::vector<std::uint8_t> trio(std::size_t(w) * 3 * h * 4);
-            for (unsigned y = 0; y < h; ++y) {
-                for (unsigned x = 0; x < w; ++x) {
-                    const auto* n = native.data() + (std::size_t(y) * w + x) * 4;
-                    auto* left = trio.data() + (std::size_t(y) * w * 3 + x) * 4;
-                    left[0] = n[2];
-                    left[1] = n[1];
-                    left[2] = n[0];
-                    left[3] = 255;
-                    const auto* cr = chrome.rgba.data() + (std::size_t(y) * w + x) * 4;
-                    std::copy(cr, cr + 4, trio.data() + (std::size_t(y) * w * 3 + w + x) * 4);
-                    const auto* r = raster.rgba.data() + (std::size_t(y) * w + x) * 4;
-                    auto* right = trio.data() + (std::size_t(y) * w * 3 + 2 * w + x) * 4;
-                    std::copy(r, r + 3, right);
-                    right[3] = 255;
+                weft::SceneRaster reference(text);
+                if (!urls) {
+                    reference.bind_textures(textures);
                 }
-            }
-            weft::testing::write_png(folder / (name + ".png"), w * 3, h, trio);
-            const auto within = [](const Stats& s, const Limits& l) {
-                return s.mean <= l.mean && s.far_share <= l.far_share && s.smooth <= l.smooth;
-            };
-            if (!within(a, ln) || !within(b, lr)) {
-                std::cout << "  " << name << ": outside its limits of Chrome's\n";
-                failed = true;
+                const auto raster = reference.raster(frame, scale);
+                require(raster.width == w && raster.height == h, label + ": the reference raster's size");
+                const auto chrome = weft::testing::read_png(fixtures / (name + ".png"));
+                require(chrome.width == w && chrome.height == h, name + ": Chrome's capture at the case's scale");
+                const auto a = compare({native, true}, {chrome.rgba}, w, h);
+                const auto b = compare({raster.rgba}, {chrome.rgba}, w, h);
+                const auto& [ln, lr] = limit->second;
+                std::printf("%-22s %6.2f %.4f %4d | %6.2f %.4f %4d (%.2f %.3f %d | %.2f %.3f %d)\n", label.c_str(),
+                            a.mean, a.far_share, a.smooth, b.mean, b.far_share, b.smooth, ln.mean, ln.far_share,
+                            ln.smooth, lr.mean, lr.far_share, lr.smooth);
+                // Evidence: the native pass, Chrome and the reference raster side by side.
+                std::vector<std::uint8_t> trio(std::size_t(w) * 3 * h * 4);
+                for (unsigned y = 0; y < h; ++y) {
+                    for (unsigned x = 0; x < w; ++x) {
+                        const auto* n = native.data() + (std::size_t(y) * w + x) * 4;
+                        auto* left = trio.data() + (std::size_t(y) * w * 3 + x) * 4;
+                        left[0] = n[2];
+                        left[1] = n[1];
+                        left[2] = n[0];
+                        left[3] = 255;
+                        const auto* cr = chrome.rgba.data() + (std::size_t(y) * w + x) * 4;
+                        std::copy(cr, cr + 4, trio.data() + (std::size_t(y) * w * 3 + w + x) * 4);
+                        const auto* r = raster.rgba.data() + (std::size_t(y) * w + x) * 4;
+                        auto* right = trio.data() + (std::size_t(y) * w * 3 + 2 * w + x) * 4;
+                        std::copy(r, r + 3, right);
+                        right[3] = 255;
+                    }
+                }
+                weft::testing::write_png(folder / (label + ".png"), w * 3, h, trio);
+                const auto within = [](const Stats& s, const Limits& l) {
+                    return s.mean <= l.mean && s.far_share <= l.far_share && s.smooth <= l.smooth;
+                };
+                if (!within(a, ln) || !within(b, lr)) {
+                    std::cout << "  " << label << ": outside its limits of Chrome's\n";
+                    failed = true;
+                }
             }
         }
         require(!failed, "the scene paint cases within their limits of Chrome's");

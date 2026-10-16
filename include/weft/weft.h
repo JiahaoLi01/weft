@@ -123,8 +123,11 @@ typedef struct weft_script {
 #define WEFT_PAGE_CRPG_BRIDGE 1u
 
 /* A page: scripts evaluated in order after the platform modules (DOM host, animation frames, the scene platform,
- * weft.engine), the scene's stylesheet and keyframes, and the selector of the scene's root ("#id" or a tag name; NULL
- * is "#root", the element the document's body starts with). */
+ * weft.engine), the scene's stylesheet and keyframes, the selector of the scene's root ("#id" or a tag name; NULL
+ * is "#root", the element the document's body starts with), and the base the page's relative URLs resolve against:
+ * where its stylesheet lies, as the host's resource reader names files ("UI/City/page.css" or "UI/City/"; what follows
+ * its last '/' is no part of it; NULL is ""). A struct_size of offsetof(weft_page_desc, base) (the earlier ABI) is a
+ * page without one. */
 typedef struct weft_page_desc {
     uint32_t struct_size;
     uint32_t flags; /* WEFT_PAGE_* */
@@ -137,6 +140,8 @@ typedef struct weft_page_desc {
     size_t keyframes_size;
     const char* root;
     size_t root_size;
+    const char* base;
+    size_t base_size;
 } weft_page_desc;
 
 /* Replaces the View's page. WEFT_SCRIPT_ERROR leaves an empty View and the error a diagnostic. The View's engine
@@ -289,6 +294,27 @@ typedef weft_result (*weft_function_fn)(void* user, const void* argument, size_t
 /* Owner thread. Kept across page loads; registering a name again replaces it. */
 weft_result weft_view_register_function(weft_runtime* runtime, weft_view_handle view, const char* name,
                                         size_t name_size, weft_function_fn fn, void* user);
+
+/* ---- Resources. Owner thread. ---- */
+
+/* Where a resource reader writes a file. Valid during the reader's call. */
+typedef struct weft_resource_writer weft_resource_writer;
+
+/* The file's bytes, copied; at most 16 MiB. */
+weft_result weft_resource_writer_set(weft_resource_writer* writer, const void* bytes, size_t size);
+
+/* Reads a file a page names: a scene page's background-image url() (a PNG image), by its path, the URL resolved against
+ * weft_page_desc::base (its "." and ".." segments removed; a URL with a scheme or one that starts with '/' as written,
+ * without a query or fragment). It runs on the owner thread while the View lays its scene out, once for a path each
+ * page load, and must not call into the View (WEFT_BUSY). A file it does not write, a result other than WEFT_OK, or
+ * bytes that are no PNG image within the bounds (docs/engine-communication.md) is a scene diagnostic, and the image
+ * shows nothing. */
+typedef weft_result (*weft_resource_fn)(void* user, const char* path, size_t path_size, weft_resource_writer* file);
+
+/* Owner thread. Kept across page loads, for paths the page has not read yet; fn NULL removes it (url() images are
+ * then diagnostics). */
+weft_result weft_view_set_resource_reader(weft_runtime* runtime, weft_view_handle view, weft_resource_fn fn,
+                                          void* user);
 
 /* ---- Diagnostics. Owner thread. ---- */
 

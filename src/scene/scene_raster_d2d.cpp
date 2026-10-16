@@ -1286,19 +1286,47 @@ namespace weft {
         // background-clip's box inside its corners, laid out in background-origin's box (scene_background.hpp), each
         // device pixel bilinear between the texels around it (wrapping along an axis the tile repeats along, stopping
         // at the edge texels' centers along another), its straight color encoded and premultiplied again. Nothing for
-        // a name the raster was not given.
+        // a name the raster was not given. A url() background's image draws alike, its texels linear premultiplied as
+        // a scene pass samples them.
         void host_texture(const SceneNode& n) {
-            const auto name = scene_values::texture_name(get(n.style, PropertyId::BackgroundImage, "none"));
-            if (!name || name->empty() || !host_textures) {
-                return;
+            SceneRasterTexture image;
+            const SceneRasterTexture* found{};
+            std::string name;
+            if (const auto& asset = n.background_image) {
+                const auto pixels = std::size_t(asset->width) * asset->height;
+                if (asset->encoding != paint::Encoding::SrgbStraight ||
+                    asset->bytes.size() != pixels * constants::rgba8_bytes_per_pixel) {
+                    fail("background image of no sRGB texels or a wrong size");
+                }
+                image.width = asset->width;
+                image.height = asset->height;
+                image.rgba.resize(pixels * 4);
+                for (std::size_t i = 0; i < pixels * 4; i += 4) {
+                    const float a = asset->bytes[i + 3] / constants::render::color_channel_max_float;
+                    for (unsigned c = 0; c < 3; ++c) {
+                        image.rgba[i + c] =
+                            render::srgb_to_linear(asset->bytes[i + c] / constants::render::color_channel_max_float) *
+                            a;
+                    }
+                    image.rgba[i + 3] = a;
+                }
+                found = &image;
+                name = "background image";
+            } else {
+                const auto texture = scene_values::texture_name(get(n.style, PropertyId::BackgroundImage, "none"));
+                if (!texture || texture->empty() || !host_textures) {
+                    return;
+                }
+                const auto bound = host_textures->find(*texture);
+                if (bound == host_textures->end()) {
+                    return;
+                }
+                found = &bound->second;
+                name = "host texture " + *texture;
             }
-            const auto bound = host_textures->find(*name);
-            if (bound == host_textures->end()) {
-                return;
-            }
-            const auto& t = bound->second;
+            const auto& t = *found;
             if (!t.width || !t.height || t.rgba.size() != std::size_t(t.width) * t.height * 4) {
-                fail("host texture " + *name + " of no texels or a wrong size");
+                fail(name + " of no texels or a wrong size");
             }
             BackgroundLayout layout;
             BackgroundRect painting;

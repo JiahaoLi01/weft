@@ -122,8 +122,8 @@ namespace weft {
                         }
                     }
                 }
-                // Effects and particles are not keyed: a node that shows them shares its source with none.
-                if (n.effect || !n.particles.empty()) {
+                // Effects, images and particles are not keyed: a node that shows them shares its source with none.
+                if (n.effect || n.background_image || !n.particles.empty()) {
                     unique();
                 }
                 count(n.children.size());
@@ -1502,9 +1502,10 @@ namespace weft {
     std::unique_ptr<ScenePrepared> ScenePreparer::prepare(const paint::DisplayList& list, float scale, unsigned width,
                                                           unsigned height, std::optional<std::array<float, 4>> crop,
                                                           unsigned view_index, std::uint32_t anchors, bool over) {
-        // Scene passes sample no asset images, only host textures by name.
+        // Scene passes sample no asset images but fitted ones (url() backgrounds), and host textures by name.
         if (std::any_of(list.items.begin(), list.items.end(), [&](const paint::Item& item) {
-                return item.kind == Kind::Image && !list.images[item.payload].texture;
+                return item.kind == Kind::Image && !list.images[item.payload].texture &&
+                       !list.images[item.payload].fitted;
             })) {
             throw std::invalid_argument("scene renderer draws no asset images");
         }
@@ -1541,7 +1542,12 @@ namespace weft {
                 out->images[i] = std::move(built.text);
                 out->layers[i] = std::move(built.layer);
             } else if (item.kind == Kind::Image) {
-                out->textures[i] = list.images[item.payload].texture;
+                // A fitted image samples a texture of its own, whole, as the shader lays out a host texture.
+                const auto& image = list.images[item.payload];
+                out->textures[i] = image.texture;
+                if (image.fitted) {
+                    out->images[i] = effect_texture(list.assets.at(image.asset));
+                }
             } else if (item.kind == Kind::Shadow) {
                 out->images[i] = shadow(item, list.shadows[item.payload], scale);
             } else if (item.kind == Kind::Path) {

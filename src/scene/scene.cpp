@@ -1183,6 +1183,7 @@ namespace weft {
         PaintCache paint_cache;
         SceneText* text{};
         const SceneEffects* effects{};
+        SceneImages* images{};
         const SceneParticles* particles{};
 
         // Bursts emit_particles asked for since the last update, by element, and how many.
@@ -1497,17 +1498,25 @@ namespace weft {
                     work.paint_changed = true;
                 }
             }
-            // A -weft-texture(name) background: a texture the host binds to the name for each frame, laid out as CSS
-            // lays out a background image (scene_background.hpp). A gradient or an effect covers the border box and
-            // repeats: other boxes, repeats and attachments are outside the profile for them.
+            // A -weft-texture(name) background (a texture the host binds to the name for each frame) or a url() one
+            // (an image of the solver's images), laid out as CSS lays out a background image (scene_background.hpp).
+            // A gradient or an effect covers the border box and repeats: other boxes, repeats and attachments are
+            // outside the profile for them.
             if (const auto image = get(out.style, PropertyId::BackgroundImage, "none"); image != "none") {
                 const auto texture = scene_values::texture_name(image);
                 if (texture && texture->empty()) {
                     fail("-weft-texture() takes one texture name of letters, digits, '-' and '_', at most " +
                          std::to_string(constants::scene::max_texture_name_bytes) + " bytes");
                 }
+                const auto url = scene_values::image_url(image);
+                if (url && url->empty()) {
+                    fail("url() takes one URL");
+                }
+                if (url && !images) {
+                    fail("url(" + *url + ") without images");
+                }
                 try {
-                    if (texture) {
+                    if (texture || url) {
                         const auto layout = scene_background_layout(out.style);
                         for (const auto b : {layout.origin, layout.clip}) {
                             if (b == BackgroundBox::Content) {
@@ -1532,6 +1541,9 @@ namespace weft {
                     }
                 } catch (const std::invalid_argument& e) {
                     fail(e.what());
+                }
+                if (url) {
+                    out.background_image = images->image(*url);
                 }
             }
             const bool shown = !hidden && get(out.style, PropertyId::Display) != "none";
@@ -1579,7 +1591,8 @@ namespace weft {
                                   last.text != out.text || last.attributes != out.attributes ||
                                   last.style != out.style || bool(last.paint) != bool(out.paint) ||
                                   (last.paint && out.paint && last.paint->values != out.paint->values) ||
-                                  !scene_effect_equal(last.effect, out.effect) || last.particles != out.particles;
+                                  !scene_effect_equal(last.effect, out.effect) ||
+                                  last.background_image != out.background_image || last.particles != out.particles;
             return {shown, inline_context, mixed};
         }
 
@@ -3158,6 +3171,11 @@ namespace weft {
     void SceneSolver::set_effects(const SceneEffects* effects) {
         impl_->owner.require(Diag::SceneOwner);
         impl_->effects = effects;
+    }
+
+    void SceneSolver::set_images(SceneImages* images) {
+        impl_->owner.require(Diag::SceneOwner);
+        impl_->images = images;
     }
 
     void SceneSolver::set_particles(const SceneParticles* particles) {

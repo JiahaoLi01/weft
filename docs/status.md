@@ -1,6 +1,6 @@
 # Weft 当前状态
 
-更新日期：2026 年 10 月 15 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG、键盘/IME 与移动尚未实现，仍未达到 M0 全部退出条件。
+更新日期：2026 年 10 月 16 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG、键盘/IME 与移动尚未实现，仍未达到 M0 全部退出条件。
 
 ## 待办
 
@@ -15,6 +15,25 @@
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
+
+页面文件里的图片：scene 页面的 `background-image: url()`（2026-10-16，`unreal` 分支，用户提出：UE 里的游戏要在界面上用一张共享的灰度噪声纹理做旧图表，纹理放在页面的文件夹里而不是引擎资产；用户要求把这个能力做进 weft 而不是插件里绕开）。详见 [与引擎通信](engine-communication.md#8-对外-view133)“页面的文件”与 [兼容](compatibility.md)。
+- **接口**：`weft_page_desc` 末尾加 `base`、`base_size`（样式表的路径；`struct_size` 等于 `offsetof(weft_page_desc, base)` 的旧调用方照常加载）；`weft_view_set_resource_reader`、`weft_resource_fn`、`weft_resource_writer_set`：View 求解场景时在 owner 线程上同步读文件，每次页面加载每个路径一次，回调里不能重入 View。
+- **依赖**：lodepng（commit e584a84，`20261006`，zlib 许可），全部 26 个文件未改，固定在 `third_party/manifest.json`（逐文件 SHA256 与 archive SHA256），只编 `lodepng.cpp` 为私有静态库 `weft_lodepng`，关掉编码器、文件读写、辅助块与 C++ 接口（[记录](../third_party/lodepng/README.md)）。选它而不是 stb_image：只做 PNG、读文件头就能先查尺寸、单文件，用户选定。
+- **实现**：
+  - `src/view/view_images.*`：`view_resolve_url`（RFC 3986 的合并与去点段；相对基准开头没得退的 `..` 保留，UE 的页面路径是 `../../../Game/Content/...` 这种相对路径）、`view_decode_png`（先查头再解压，至多 1024 × 1024 像素、边长 4096）、`ViewImages`（每次加载的缓存、诊断与总量上限）；
+  - scene：`scene_values::image_url`（引号、转义与被分词拆开的不带引号的 URL）、`SceneImages` 接口与 `SceneSolver::set_images`，`SceneNode::background_image`（参与相等、来源键与 damage 比较）；
+  - 显示列表：`paint::Image::fitted`，`url()` 的图片是列表自己的资产，像宿主纹理那样带 `TextureFit`；`paint::check` 与线性 pass 拒绝不合规的；
+  - pass：fitted 图片用宿主纹理的铺排模式（`image_mode_texture`）、准备时用效果纹理的路径做成整张纹理（不透明 sRGB、半透明线性预乘浮点）；Vulkan 与 D3D12 设备不能过滤浮点纹理时整帧回退（同效果纹理）；D2D 参考光栅同样画。
+- **验证**（Release，RTX 5090 机器）：
+  - `view_images_contract`（新）：16 种基准与 URL 的解析；RGBA8、2 位调色板加透明、16 位灰度的 PNG 逐字节，超界的头不解压，坏数据与截断；每个路径读一次、同一路径不同写法同一份资产、失败诊断一次；View 里三种写法的 `url()` 得到同一张图、同一次加载不再读、重新加载重读、缺文件是 scene 诊断、没有回调时无图。
+  - `c_api_view_contract` 加 `resources`：基准、回调、回调里重入得 `WEFT_BUSY`、写入的参数检查（空指针、超过 16 MiB 得 `WEFT_CAPACITY_EXCEEDED`）、缺文件/回调失败/非 PNG 各一条诊断、旧的结构大小、落在 `base` 中间的大小被拒、去掉回调、销毁后 `WEFT_STALE_HANDLE`。
+  - `scene_texture_contract`：`url()` 的语法与诊断、节点的图、显示列表（色、图、边框；一张资产；圆角裁剪；不做缓存图层）、`paint::check` 与线性 pass 的拒绝。
+  - `scene_background_contract`：九种铺排的半透明 `url()` 图片，D3D11 WARP 原生 pass 与参考光栅在 1×、2× 下逐像素至多差 2 级（与宿主纹理相同）。
+  - `scene_paint_reference`：四个纹理用例再用 `url()` 画一遍，与 Chrome 的截图（Chrome 画的就是同样的 PNG）误差与 `-weft-texture()` 完全相同（如 texture-size 原生 0.63 / 0.0073 / 13），Vulkan 与 D3D11 WARP 至多差 2 级。
+  - 全量 ctest（168 项）：154 项通过；14 项是与上次相同的夹具与浏览器输入散列校验（这台机器的签出换行，与本次无关）。
+  - UE（CaseKargaroo，weft-unreal 插件经 `FFileHelper` 读文件、传页面基准）：城市面板的环图用 `url(../Textures/pigment.png)`，冒烟 0 失败、无页面诊断，截图上纹理与边缘暗化可见；自动化测试 40/40；两进程联机 0 不同步。
+- **限制**：只有 PNG；没有 `data:` URL、`<img>`、`image-set()`、多层背景、文档页面的背景图；没有 mip（缩得很小时会闪烁）；回调是同步的（本地小文件，第一帧就有图，不为异步到达重做场景）；半透明图在 pass 里每像素 16 字节，所以单图限 1,048,576 像素。
+- **下一步**：随 weft 的 main rebase 时一起合（用户审阅）；需要时加 JPEG/WebP、mip 与 `<img>`。
 
 D3D12 后端（2026-10-15，`unreal` 分支，为 UE 5 的 D3D12 RHI；用户要求同时保留 Metal 等 API 的能力：后端仍是渲染器 C ABI 下的一个适配器，核心与其他后端不变）。详见 [渲染后端 API](render-backend-api.md#view-帧2026-10-14)。
 - **接口**：`include/weft/render_backend_d3d12.h`：`weft_render_d3d12_create`、`_external`、`_destroy`，`weft_render_d3d12_pass`（打开的命令列表与目标资源）、`weft_render_d3d12_texture`；`WEFT_RENDER_API_D3D12`（4）。

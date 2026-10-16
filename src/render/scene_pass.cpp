@@ -250,8 +250,9 @@ namespace weft::render {
                 r.background = in(space, source.color);
                 r.outline = in(space, source.outline);
                 // A host texture's linear colors, in the pass's encoding, laid out as its fit says (scene.hlsl,
-                // fittedTexture); external textures are images with their own colors.
-                if (source.texture) {
+                // fittedTexture), and a fitted image's as a host texture's (its texture is linear: sRGB texels, or
+                // linear premultiplied ones); external textures are images with their own colors.
+                if (source.texture || source.fitted) {
                     const auto& f = source.fit;
                     r.mode[0] = scene_limits::image_mode_texture;
                     r.stops[0] = f.area;
@@ -259,8 +260,9 @@ namespace weft::render {
                     r.stops[2] = {f.fraction[0], f.fraction[1], f.offset[0], f.offset[1]};
                     r.stops[3] = {float(static_cast<int>(f.repeat[0])), float(static_cast<int>(f.repeat[1])), 0, 0};
                 }
-                const auto* asset =
-                    !source.texture && source.asset < list.assets.size() ? list.assets[source.asset].get() : nullptr;
+                const auto* asset = !source.texture && !source.fitted && source.asset < list.assets.size()
+                                        ? list.assets[source.asset].get()
+                                        : nullptr;
                 if (asset && asset->encoding == paint::Encoding::Coverage) {
                     r.mode[0] = scene_limits::image_mode_coverage;
                 } else if (asset && asset->encoding == paint::Encoding::SignedDistance) {
@@ -473,9 +475,14 @@ namespace weft::render {
     Result<ScenePass> plan_scene_pass(const paint::DisplayList& list, float scale, unsigned width, unsigned height,
                                       std::optional<paint::ClipRect> crop, Space space,
                                       const std::vector<std::uint64_t>* textures, std::uint32_t anchors, bool fold) {
-        // A linear pass (a display list's) binds no textures by name.
+        // A linear pass (a display list's) binds no textures by name and lays out no fitted images.
         if (space == Space::Linear && !list.textures.empty()) {
             return make_diagnostic(Diag::PaintList, "named textures in a linear pass");
+        }
+        if (space == Space::Linear && std::any_of(list.images.begin(), list.images.end(), [](const paint::Image& i) {
+                return i.fitted;
+            })) {
+            return make_diagnostic(Diag::PaintList, "fitted images in a linear pass");
         }
         ScenePass pass;
         pass.space = space;

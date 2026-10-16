@@ -159,8 +159,18 @@ namespace weft::paint {
                             return make_diagnostic(Diag::PaintList, "image payload or asset out of range" + at);
                         }
                         const auto& image = list.images[item.payload];
-                        if (image.texture) {
-                            if (image.texture > list.textures.size() || image.asset || image.stroke != 0) {
+                        if (image.texture && image.fitted) {
+                            return make_diagnostic(Diag::PaintList, "a named texture fitted as an asset" + at);
+                        }
+                        if (image.fitted && (image.asset >= list.assets.size() || !list.assets[image.asset] ||
+                                             list.assets[image.asset]->encoding != Encoding::SrgbStraight ||
+                                             image.stroke != 0)) {
+                            return make_diagnostic(Diag::PaintList,
+                                                   "fitted image of no sRGB asset of the list, or with a stroke" + at);
+                        }
+                        if (image.texture || image.fitted) {
+                            if (image.texture > list.textures.size() || (image.texture && image.asset) ||
+                                image.stroke != 0) {
                                 return make_diagnostic(Diag::PaintList,
                                                        "named texture out of range, with an asset or a stroke" + at);
                             }
@@ -175,7 +185,7 @@ namespace weft::paint {
                             if (!finite(f.area) || f.area[2] < 0 || f.area[3] < 0 || f.scale > Fit::Scale::Contain ||
                                 !finite(f.size) || !finite(f.fraction) || !finite(f.offset) ||
                                 !std::all_of(f.repeat.begin(), f.repeat.end(), repeat)) {
-                                return make_diagnostic(Diag::PaintList, "named texture fit" + at);
+                                return make_diagnostic(Diag::PaintList, "texture fit" + at);
                             }
                             break;
                         }

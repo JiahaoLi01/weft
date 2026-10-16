@@ -16,6 +16,8 @@
 #include <cstdio>
 #include <filesystem>
 #include <iostream>
+#include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -23,7 +25,8 @@
 // scene_background.hpp): background-origin, -clip, -size, -position, -repeat and -attachment parsed as CSS does, the
 // background shorthand's one layer, the tiles laid out (sizes, positions, repeat, space and round), the diagnostics of
 // what stays outside the profile, the display list's fit, and the native D3D11 pass (WARP) drawing the tiles as the
-// reference raster lays them out on the CPU.
+// reference raster lays them out on the CPU; the same layouts of a url() image (its translucent texels linear floats
+// in the pass), which lays out as a host texture.
 namespace {
     using weft::testing::require;
     using Fit = weft::paint::TextureFit;
@@ -320,9 +323,19 @@ namespace {
                     " items");
     }
 
+    // A url() image of the scene: "t.png".
+    struct OneImage final : weft::SceneImages {
+        std::shared_ptr<const weft::paint::Asset> asset;
+
+        std::shared_ptr<const weft::paint::Asset> image(std::string_view url) override {
+            return url == "t.png" ? asset : nullptr;
+        }
+    };
+
     // The display list's fit and item, and the native pass (D3D11 WARP) against the reference raster: the same
-    // texture (linear premultiplied RGBA8, some texels translucent) behind elements of each layout.
-    void drawn(const std::filesystem::path& folder) {
+    // texture (linear premultiplied RGBA8, some texels translucent) behind elements of each layout; or, with urls, a
+    // url() image of as many texels (straight sRGB, the same columns translucent).
+    void drawn(const std::filesystem::path& folder, bool urls) {
         weft::testing::NativeScene s;
         s.set(*s.root, "style", "position:relative;width:240px;height:160px;background-color:#d8d0c0");
         const char* layouts[] = {
@@ -352,10 +365,26 @@ namespace {
         };
         for (const auto* l : layouts) {
             auto& e = s.html("div");
-            s.set(e, "style", std::string("position:absolute;background-image:-weft-texture(t);") + l);
+            s.set(e, "style",
+                  std::string(urls ? "position:absolute;background-image:url(t.png);"
+                                   : "position:absolute;background-image:-weft-texture(t);") +
+                      l);
             s.tree.insert(*s.root, e, nullptr);
         }
+        // An image of 6 x 4 texels, each its own color, two columns translucent.
+        weft::paint::Asset asset{6, 4, weft::paint::Encoding::SrgbStraight, {}, 0};
+        for (unsigned y = 0; y < 4; ++y) {
+            for (unsigned x = 0; x < 6; ++x) {
+                const unsigned a = x >= 4 ? 128 : 255;
+                for (const unsigned c : {40 * x + 30 * y, 200 - 30 * x, 60 + 45 * y, a}) {
+                    asset.bytes.push_back(std::uint8_t(c));
+                }
+            }
+        }
+        OneImage images_of;
+        images_of.asset = std::make_shared<const weft::paint::Asset>(std::move(asset));
         weft::SceneSolver solver("", "", weft::testing::thread_scene_text());
+        solver.set_images(&images_of);
         const auto frame = solver.frame(s.tree.snapshot(*s.root), 240, 160, 0);
         // The display list: each element's item over its painting area with the fit of its layout.
         const auto listed = weft::scene_display_list(frame, {}, &weft::testing::thread_scene_text());
@@ -367,6 +396,14 @@ namespace {
             }
         }
         require(images.size() == std::size(layouts), "an image item for each element");
+        require(std::all_of(images.begin(), images.end(),
+                            [&](const weft::paint::Item* item) {
+                                const auto& image = listed.list.images[item->payload];
+                                return urls ? image.fitted && !image.texture && listed.list.assets.size() == 1 &&
+                                                  listed.list.assets[image.asset] == images_of.asset
+                                            : image.texture && !image.fitted;
+                            }),
+                urls ? "the image an asset of the list, fitted" : "the texture by name");
         const auto& first = listed.list.images[images[0]->payload].fit;
         require(images[0]->width == 70 && images[0]->height == 46 && first.area == std::array<float, 4>{3, 3, 64, 40},
                 "the border box painted, the padding box positioning");
@@ -411,10 +448,14 @@ namespace {
                     "the host texture");
             const std::vector<weft::SceneTexture> bound{
                 {"t", std::uint64_t(reinterpret_cast<std::uintptr_t>(view.Get())), false}};
-            const auto native = d3d11.draw(frame, scale, nullptr, {}, bound);
+            using Textures = std::span<const weft::SceneTexture>;
+            const auto native = d3d11.draw(frame, scale, nullptr, {}, urls ? Textures{} : Textures(bound));
             d3d11.gpu.check_debug_messages();
+            require(d3d11.scene.fallbacks == 0, "the native pass drew the frame");
             weft::SceneRaster reference(weft::testing::thread_scene_text());
-            reference.bind_textures({{"t", texture}});
+            if (!urls) {
+                reference.bind_textures({{"t", texture}});
+            }
             const auto raster = reference.raster(frame, scale);
             require(raster.width == w && raster.height == h, "the reference raster's size");
             // Inside each axis-aligned painting area (2 device px in from its edges, its borders (at most 4 px here)
@@ -472,7 +513,8 @@ namespace {
                     right[3] = 255;
                 }
             }
-            weft::testing::write_png(folder / ("textures-" + std::to_string(int(scale)) + ".png"), w * 2, h, trio);
+            weft::testing::write_png(
+                folder / ((urls ? "images-" : "textures-") + std::to_string(int(scale)) + ".png"), w * 2, h, trio);
             std::printf("scale %.0f: %zu of %zu pixels inside the painting areas more than 2 levels apart, worst %d\n",
                         scale, apart, compared, worst);
             require(compared > w * h / 4 && apart == 0, "the native pass lays the texture out as the reference raster");
@@ -489,8 +531,9 @@ int main(int argc, char** argv) {
         parses();
         tiles();
         solver();
-        drawn(folder);
-        std::cout << "PASS scene background layouts of host textures\n";
+        drawn(folder, false);
+        drawn(folder, true);
+        std::cout << "PASS scene background layouts of host textures and url() images\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

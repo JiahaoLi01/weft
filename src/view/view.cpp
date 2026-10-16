@@ -72,6 +72,9 @@ namespace weft {
         SceneText& text;
         ScriptDom vm{{constants::view::vm_stack_bytes, constants::view::execution_budget_ms}};
         std::unique_ptr<SceneSolver> scene;
+        // The host's reader of the files the page names, and the page load's images it read.
+        ViewResourceReader reader;
+        std::unique_ptr<ViewImages> images;
         SceneGeometry geometry;
         SceneFrame current;
         float width{};
@@ -406,6 +409,11 @@ namespace weft {
         i.scene = std::make_unique<SceneSolver>(page.stylesheet, page.keyframes, i.text);
         // Geometry reads take the View's own (ensure_geometry).
         i.scene->set_element_geometry(false);
+        // A page's images anew each load: the files may have changed.
+        i.images = std::make_unique<ViewImages>(page.base, i.reader, [&i](std::string message) {
+            i.diagnose(ViewDiagnostic::Kind::Scene, std::move(message));
+        });
+        i.scene->set_images(i.images.get());
         try {
             i.install_hosts();
             install_script_platform(i.vm, ScriptPlatformModule::WebHost);
@@ -645,6 +653,10 @@ namespace weft {
 
     void View::install_function(std::string name, EngineFunction function) {
         impl_->vm.install_engine_function(std::move(name), std::move(function));
+    }
+
+    void View::set_resource_reader(ViewResourceReader reader) {
+        impl_->reader = std::move(reader);
     }
 
     bool View::faulted() const {

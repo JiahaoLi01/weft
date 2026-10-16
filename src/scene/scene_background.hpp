@@ -8,7 +8,7 @@
 #include <optional>
 
 // The background of a scene element whose image has a natural size only the renderer knows, a host texture
-// (-weft-texture()), as CSS Backgrounds 3 lays out a background image: background-origin's box is the positioning
+// (-weft-texture()) or an image (url(), its size the texture's the renderer makes of it), as CSS Backgrounds 3 lays out a background image: background-origin's box is the positioning
 // area, background-clip's box the painting area, background-size, -position and -repeat as paint::TextureFit says. One
 // layer, background-attachment scroll.
 namespace weft {

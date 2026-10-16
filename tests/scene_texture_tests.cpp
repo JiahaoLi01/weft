@@ -2,19 +2,24 @@
 #include "scene/scene.hpp"
 #include "scene/scene_display_list.hpp"
 #include "scene/scene_values.hpp"
+#include "render/scene_pass.hpp"
 #include "support/check.hpp"
 #include "support/native_scene.hpp"
 #include "support/scene_fonts.hpp"
 
 #include <algorithm>
 #include <iostream>
+#include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
 // Host textures in scenes (background-image: -weft-texture(name), a Weft extension): the names a page can give, the
 // scene diagnostic for any other, and the display list: the background color under the texture, the texture as an
 // image item naming it (each name once in the list's names), the borders over it, its rounded corners as a clip, its
-// rect snapped to device pixels, and an element that shows one drawn in the pass, never as a cached layer image.
+// rect snapped to device pixels, and an element that shows one drawn in the pass, never as a cached layer image. And
+// background-image: url() of the solver's images: the URL as written, the diagnostics without images or a URL, the
+// node's image, and the display list's fitted asset image laid out as a texture.
 namespace {
     using weft::testing::require;
     using Kind = weft::paint::Item::Kind;
@@ -36,6 +41,109 @@ namespace {
             out.push_back(item.kind);
         }
         return out;
+    }
+    // url() images by URL: those of the map, none for another.
+    struct Images final : weft::SceneImages {
+        std::map<std::string, std::shared_ptr<const weft::paint::Asset>, std::less<>> images;
+        std::vector<std::string> asked;
+
+        std::shared_ptr<const weft::paint::Asset> image(std::string_view url) override {
+            asked.emplace_back(url);
+            const auto found = images.find(url);
+            return found == images.end() ? nullptr : found->second;
+        }
+    };
+
+    // background-image: url(): the URL, the solver's images, the node and the display list.
+    void urls() {
+        using weft::scene_values::image_url;
+        require(image_url("url(a.png)") == "a.png" && image_url("url( ../T/p.png )") == "../T/p.png" &&
+                    image_url("url('a b.png')") == "a b.png" && image_url("url(\"q\\\"x.png\")") == "q\"x.png" &&
+                    image_url("url(a / b.png)") == "a/b.png",
+                "URLs as written");
+        require(image_url("url()") == "" && image_url("url('')") == "" && image_url("url('a.png)") == "" &&
+                    image_url("url(a.png") == "" && image_url("url('a'b')") == "",
+                "empty or unterminated URLs");
+        require(!image_url("none") && !image_url("-weft-texture(a)") && !image_url("linear-gradient(red, blue)"),
+                "other backgrounds");
+
+        weft::testing::NativeScene s;
+        s.set(*s.root, "style", "position:relative;width:200px;height:100px");
+        auto& card = s.html("div");
+        s.set(card, "style",
+              "position:absolute;left:10px;top:10px;width:60px;height:40px;background-color:#202020;border:2px solid "
+              "#ffffff;border-radius:6px;background-image:url(../img/a.png);background-size:100% 100%");
+        s.tree.insert(*s.root, card, nullptr);
+        auto& twin = s.html("div");
+        s.set(twin, "style", "position:absolute;left:80px;top:10px;width:20px;height:20px;background:url('../img/a.png')");
+        s.tree.insert(*s.root, twin, nullptr);
+        auto& missing = s.html("div");
+        s.set(missing, "style",
+              "position:absolute;left:110px;top:10px;width:20px;height:20px;background:#305070 url(none.png)");
+        s.tree.insert(*s.root, missing, nullptr);
+
+        // Without images, a url() is the scene profile's diagnostic.
+        weft::SceneSolver bare("", "", weft::testing::thread_scene_text());
+        const auto refused = diagnostic([&] {
+            bare.frame(s.tree.snapshot(*s.root), 200, 100, 0);
+        });
+        require(refused.first == weft::Diag::SceneProfile &&
+                    refused.second.find("url(../img/a.png) without images") != std::string::npos,
+                "url() without images");
+
+        Images images;
+        auto asset = std::make_shared<weft::paint::Asset>();
+        asset->width = 2;
+        asset->height = 2;
+        asset->encoding = weft::paint::Encoding::SrgbStraight;
+        asset->bytes.assign(16, 200);
+        images.images.emplace("../img/a.png", asset);
+        weft::SceneSolver solver("", "", weft::testing::thread_scene_text());
+        solver.set_images(&images);
+        const auto frame = solver.frame(s.tree.snapshot(*s.root), 200, 100, 0);
+        const auto& nodes = frame.root.children;
+        require(nodes[0].background_image == asset && nodes[1].background_image == asset &&
+                    !nodes[2].background_image,
+                "each node's image, by its URL");
+        const auto listed = weft::scene_display_list(frame, {}, &weft::testing::thread_scene_text());
+        require(listed.fallback.empty() && bool(weft::paint::check(listed.list, 4)), "a well-formed list");
+        const auto& list = listed.list;
+        // The card's color, image and borders; the twin's image; the missing image's color alone.
+        require(kinds(list) == std::vector<Kind>{Kind::Box, Kind::Image, Kind::Box, Kind::Image, Kind::Box},
+                "background color, image, borders");
+        require(list.assets.size() == 1 && list.assets[0] == asset && list.textures.empty(), "the image once");
+        const auto& card_image = list.images[list.items[1].payload];
+        const auto& twin_image = list.images[list.items[3].payload];
+        require(card_image.fitted && card_image.asset == 0 && !card_image.texture && twin_image.fitted &&
+                    list.items[1].clips_count == 1,
+                "fitted as a texture, inside the corners");
+
+        // An explicit layer that shows an image draws in the pass, never as a cached image.
+        const auto layered = weft::scene_display_list(frame, {nodes[0].identity}, &weft::testing::thread_scene_text());
+        require(std::none_of(layered.list.items.begin(), layered.list.items.end(),
+                             [](const weft::paint::Item& item) {
+                                 return item.kind == Kind::Layer;
+                             }),
+                "a layer with an image draws in the pass");
+
+        // A fitted image is an sRGB asset of the list; a linear pass lays none out.
+        auto broken = list;
+        broken.images[list.items[1].payload].asset = 5;
+        require(!weft::paint::check(broken, 4), "a fitted image of no asset");
+        broken = list;
+        broken.images[list.items[1].payload].texture = 1;
+        require(!weft::paint::check(broken, 4), "a fitted image naming a texture");
+        require(!weft::render::plan_scene_pass(list, 1, 200, 100, std::nullopt, weft::render::Space::Linear, nullptr,
+                                               0, false),
+                "a linear pass lays out no fitted image");
+
+        // An empty URL is the scene profile's diagnostic.
+        s.set(twin, "style", "position:absolute;left:80px;top:10px;width:20px;height:20px;background-image:url()");
+        const auto empty = diagnostic([&] {
+            solver.frame(s.tree.snapshot(*s.root), 200, 100, 16);
+        });
+        require(empty.first == weft::Diag::SceneProfile && empty.second.find("url() takes one URL") != std::string::npos,
+                "an empty URL");
     }
 } // namespace
 
@@ -178,7 +286,9 @@ int main() {
                         kinds(keyed.list) == std::vector<Kind>{Kind::Image},
                     "a texture a keyframe names");
         }
-        std::cout << "PASS scene textures: names, diagnostics, display lists, corners, snapping, layers, keyframes\n";
+        urls();
+        std::cout << "PASS scene textures: names, diagnostics, display lists, corners, snapping, layers, keyframes, "
+                     "url() images\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "scene texture tests failed: " << e.what() << '\n';
