@@ -16,6 +16,11 @@
 
 ## 本次已实现
 
+大面板的阴影（2026-10-16，`unreal` 分支）：UE 里的经济面板（900 × 640，`box-shadow: 0 4px 14px`）在 150% 缩放下整帧不画，D3D12 后端报 `WEFT_RENDER_UNSUPPORTED_FEATURE`；原因是 `shadow bitmap bound`：阴影图像在设备缩放下要 1,418 × 1,028 像素，超过 1,048,576 的上限。
+- **实现**：`render/shadow_image.cpp` 的 `bitmap_scale`：超过上限时按 √(上限 ÷ 像素数) × 0.98 降低做图像的缩放（至多 8 次，内阴影连同模糊读取的外圈一起算），`shadow_geometry` 与 `shadow_image` 用同一个缩放，矩形仍是同一块，pass 线性采样拉伸；放得下的阴影不变。常量 `shadow_scale_tries`、`shadow_scale_margin`。
+- **验证**（Release）：`paint_contract`：4000 × 4000、模糊 64 的阴影在 2× 下做成上限以内的图像且覆盖模糊的范围（此前是拒绝的反例）；700 × 500 的窗口阴影在 2× 下做成 1× 与 2× 之间的图像，6 个采样点与 1× 的差 ≤ 10 级；内阴影同样。`scene_native_contract`：900 × 640 的面板在 1.5× 下准备成功、不回退、阴影图像在上限以内。去掉降缩放后两项都失败（变异检查）。全量 ctest 168 项：154 项通过，14 项与上次相同（夹具与浏览器输入散列，签出换行）。UE 的经济页面（D3 横条、散点、坐标轴、22 个 `url()` 图标、150 座城）在 D3D11 WARP 原生 pass 上 1×、1.25×、1.5×、2× 都画出（此前 1.5×、2× 回退）。
+- **限制**：渲染 C ABI 不报回退原因（`SceneNativeWork.reasons` 只在内部），宿主只看到 `WEFT_RENDER_UNSUPPORTED_FEATURE`；这次靠一个临时的诊断程序找到原因。
+
 页面文件里的图片：scene 页面的 `background-image: url()`（2026-10-16，`unreal` 分支，用户提出：UE 里的游戏要在界面上用一张共享的灰度噪声纹理做旧图表，纹理放在页面的文件夹里而不是引擎资产；用户要求把这个能力做进 weft 而不是插件里绕开）。详见 [与引擎通信](engine-communication.md#8-对外-view133)“页面的文件”与 [兼容](compatibility.md)。
 - **接口**：`weft_page_desc` 末尾加 `base`、`base_size`（样式表的路径；`struct_size` 等于 `offsetof(weft_page_desc, base)` 的旧调用方照常加载）；`weft_view_set_resource_reader`、`weft_resource_fn`、`weft_resource_writer_set`：View 求解场景时在 owner 线程上同步读文件，每次页面加载每个路径一次，回调里不能重入 View。
 - **依赖**：lodepng（commit e584a84，`20261006`，zlib 许可），全部 26 个文件未改，固定在 `third_party/manifest.json`（逐文件 SHA256 与 archive SHA256），只编 `lodepng.cpp` 为私有静态库 `weft_lodepng`，关掉编码器、文件读写、辅助块与 C++ 接口（[记录](../third_party/lodepng/README.md)）。选它而不是 stb_image：只做 PNG、读文件头就能先查尺寸、单文件，用户选定。

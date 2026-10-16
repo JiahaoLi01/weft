@@ -173,6 +173,10 @@ namespace weft::constants::scene {
     // Extra device pixels around a blurred shadow bitmap.
     inline constexpr int shadow_guard_px = 2;
     inline constexpr int max_shadow_bitmap_pixels = 1024 * 1024;
+    // A shadow whose pixels at the device scale pass that bound is made at a lower scale: at most this many tries,
+    // each this much under the scale that would just fit.
+    inline constexpr int shadow_scale_tries = 8;
+    inline constexpr double shadow_scale_margin = .98;
     inline constexpr int shadow_cache_max_entries = 32;
     inline constexpr int shadow_cache_max_bytes = 16 * constants::bytes_per_mib;
     // A linear gradient tile within this of the box still uses the native brush.

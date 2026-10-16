@@ -76,11 +76,30 @@ namespace weft::render {
                                            static_cast<float>(constants::color_channel_max)));
         }
 
+        // Where a shadow's pixels lie when they are made at a scale.
+        ShadowGeometry geometry_at(const paint::Shadow& s, float width, float height, float scale) {
+            ShadowGeometry g;
+            if (s.inset) {
+                // The box, and a guard for its antialiased edge.
+                const float guard = constants::scene::shadow_guard_px;
+                g.width = std::uint32_t(std::ceil(width * scale + 2 * guard));
+                g.height = std::uint32_t(std::ceil(height * scale + 2 * guard));
+                g.rect = {-guard / scale, -guard / scale, g.width / scale, g.height / scale};
+                return g;
+            }
+            const auto [sigma, guard] = padding(s, scale);
+            g.width = std::uint32_t(std::ceil((width + 2 * s.spread) * scale + 2 * guard));
+            g.height = std::uint32_t(std::ceil((height + 2 * s.spread) * scale + 2 * guard));
+            g.rect = {s.x - s.spread - guard / scale, s.y - s.spread - guard / scale, g.width / scale,
+                      g.height / scale};
+            return g;
+        }
+
         // An inset shadow: inside the box, less what the blurred hole (the box shrunk by spread, offset) leaves clear.
         // Its blur reads the hole on a grid a kernel radius beyond the image on each side.
         Result<ShadowImage> inset_image(const paint::Shadow& s, float w, float h, float scale) {
             ShadowImage out;
-            out.geometry = shadow_geometry(s, w, h, scale);
+            out.geometry = geometry_at(s, w, h, scale);
             const auto iw = out.geometry.width;
             const auto ih = out.geometry.height;
             const float left = out.geometry.rect[0];
@@ -128,32 +147,50 @@ namespace weft::render {
             }
             return out;
         }
+
+        // How many pixels making a shadow at a scale takes: its image, and for an inset shadow the grid its blur
+        // reads, a kernel radius wider on each side.
+        double cells(const paint::Shadow& s, float width, float height, float scale) {
+            if (s.inset) {
+                const double guard = constants::scene::shadow_guard_px;
+                const auto sigma = s.blur * scale / 2;
+                const double reach = sigma > 0 ? std::ceil(constants::scene::shadow_kernel_sigmas * sigma) : 0;
+                return (std::ceil(width * scale + 2 * guard) + 2 * reach) *
+                       (std::ceil(height * scale + 2 * guard) + 2 * reach);
+            }
+            const double guard = padding(s, scale).guard;
+            return std::ceil((width + 2 * s.spread) * scale + 2 * guard) *
+                   std::ceil((height + 2 * s.spread) * scale + 2 * guard);
+        }
+
+        // The scale a shadow's pixels are made at: the device scale, or a lower one where that would take more pixels
+        // than the bitmap bound (a large panel at a high device scale). A shadow is a blur, and the pass stretches
+        // the smaller image over the same rectangle.
+        float bitmap_scale(const paint::Shadow& s, float width, float height, float scale) {
+            constexpr double bound = constants::scene::max_shadow_bitmap_pixels;
+            for (int i = 0; i < constants::scene::shadow_scale_tries; ++i) {
+                const auto n = cells(s, width, height, scale);
+                if (!(n > bound)) {
+                    break;
+                }
+                scale = float(scale * std::sqrt(bound / n) * constants::scene::shadow_scale_margin);
+            }
+            return scale;
+        }
     } // namespace
 
     ShadowGeometry shadow_geometry(const paint::Shadow& s, float width, float height, float scale) {
-        ShadowGeometry g;
-        if (s.inset) {
-            // The box, and a guard for its antialiased edge.
-            const float guard = constants::scene::shadow_guard_px;
-            g.width = std::uint32_t(std::ceil(width * scale + 2 * guard));
-            g.height = std::uint32_t(std::ceil(height * scale + 2 * guard));
-            g.rect = {-guard / scale, -guard / scale, g.width / scale, g.height / scale};
-            return g;
-        }
-        const auto [sigma, guard] = padding(s, scale);
-        g.width = std::uint32_t(std::ceil((width + 2 * s.spread) * scale + 2 * guard));
-        g.height = std::uint32_t(std::ceil((height + 2 * s.spread) * scale + 2 * guard));
-        g.rect = {s.x - s.spread - guard / scale, s.y - s.spread - guard / scale, g.width / scale, g.height / scale};
-        return g;
+        return geometry_at(s, width, height, bitmap_scale(s, width, height, scale));
     }
 
     Result<ShadowImage> shadow_image(const paint::Shadow& s, float w, float h, float scale) {
+        scale = bitmap_scale(s, w, h, scale);
         if (s.inset) {
             return inset_image(s, w, h, scale);
         }
         const auto [sigma, guard] = padding(s, scale);
         ShadowImage out;
-        out.geometry = shadow_geometry(s, w, h, scale);
+        out.geometry = geometry_at(s, w, h, scale);
         const auto iw = out.geometry.width;
         const auto ih = out.geometry.height;
         const float left = out.geometry.rect[0];

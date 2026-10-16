@@ -155,10 +155,36 @@ namespace {
         wider.spread = 6;
         require(alpha(render::shadow_image(wider, 20, 10, 1).value(), -6.5f, 5.5f) > alpha(blurred, -6.5f, 5.5f),
                 "spread widens a shadow");
+        // Past the bitmap bound at the device scale, a shadow is made at a lower one over the same shape: its
+        // geometry is the one the pass places, its pixels within the bound, and it is the shadow a scale that fits
+        // makes, sampled at the same points.
+        const auto bound = std::size_t(weft::constants::scene::max_shadow_bitmap_pixels);
         auto huge = soft;
         huge.blur = 64;
-        const auto refused = render::shadow_image(huge, 4000, 4000, 2);
-        require(!refused && refused.error().code == weft::Diag::PaintList, "shadow bitmap bound");
+        const auto coarse = render::shadow_image(huge, 4000, 4000, 2).value();
+        const auto& cg = coarse.geometry;
+        require(cg.rect == render::shadow_geometry(huge, 4000, 4000, 2).rect &&
+                    std::size_t(cg.width) * cg.height <= bound && cg.width < 4000 &&
+                    coarse.rgba.size() == std::size_t(cg.width) * cg.height * 4 && cg.rect[0] <= -2 - 96 &&
+                    cg.rect[0] + cg.rect[2] >= 4000 + 2 + 96,
+                "a shadow past the bitmap bound is made at a lower scale");
+        const paint::Shadow window{{0, 0, 0, .55f}, 0, 4, 14, 0, {3, 3, 3, 3}};
+        const auto fine = render::shadow_image(window, 700, 500, 1).value();
+        const auto scaled = render::shadow_image(window, 700, 500, 2).value();
+        require(fine.geometry.width == 700 + 2 * (21 + 2) && alpha(fine, -2, 250) > 40 &&
+                    std::size_t(scaled.geometry.width) * scaled.geometry.height <= bound &&
+                    scaled.geometry.width > fine.geometry.width,
+                "a window's shadow at 2x is made between 1x and 2x");
+        for (const auto [x, y] : std::array<std::array<float, 2>, 6>{
+                 {{-2, 250}, {-6, 250}, {350, 506}, {350, 512}, {702, 100}, {-1, -1}}}) {
+            require(std::abs(alpha(fine, x, y) - alpha(scaled, x, y)) <= 10,
+                    "a coarser shadow is the same shadow at (" + std::to_string(x) + ", " + std::to_string(y) + ")");
+        }
+        auto inner = huge;
+        inner.inset = true;
+        const auto inset = render::shadow_image(inner, 4000, 4000, 2).value();
+        require(std::size_t(inset.geometry.width) * inset.geometry.height <= bound && inset.geometry.width < 4000,
+                "an inset shadow past the bound is made at a lower scale too");
         // Planned as an image with its own colors over the shadow's rectangle, under the item's transform.
         paint::DisplayList list;
         list.shadows.push_back(hard);

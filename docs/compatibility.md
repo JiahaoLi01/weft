@@ -144,6 +144,7 @@ CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后�
 - `background` 简写（一层）按 CSS Backgrounds 3 拆成全部分量：颜色、图像、位置 `/` 尺寸、重复、`attachment`、一到两个盒子（一个时同时是 origin 与 clip），没写的分量取初始值；多层（逗号）与重复的分量是诊断。关键帧里的简写同样展开。此前简写只分颜色与图像，多出的分量随图像一起报错。
 - `-weft-texture()` 按 CSS 画背景图的方式铺排（自然大小是纹理的像素，1 个 CSS px 一个纹素）：渲染线程知道纹理的大小，着色器按它算瓦片的大小、位置与重复（`round` 一轴、另一轴 `auto` 时保持纹理的比例；`space` 放不下两块时按位置放一块）；重复的轴跨瓦片接缝过滤，不重复的轴止于边缘纹素的中心。13.3c 时纹理总是拉伸铺满边框盒，现在要铺满写 `background-size: 100% 100%`（或 `cover`）。
 - `background-clip` 也裁剪背景色（任何元素）：`padding-box`、`content-box` 时背景色是内边距盒或内容盒的一个盒子，带内圆角。
+- 2026-10-16：外阴影与内阴影的图像在设备缩放下超过 1,048,576 像素时（如 900 × 640 的面板在 150% 缩放下），按更低的缩放做成图像、由 pass 拉伸到同一个矩形，不再整帧回退（`shadow bitmap bound`）；阴影本来是模糊的，只有盒子边上的抗锯齿略宽。
 - 2026-10-16：`url()` 的图片同样铺排，自然大小是图片的像素；它是显示列表自己的资产，pass 把它当整张纹理采样（不进图集），用宿主纹理的铺排代码。
 - 渐变与 `-weft-effect()` 仍铺满边框盒并重复：它们的 `background-repeat` 不是 `repeat`、`background-origin` 与 `background-clip` 不是初始值、`background-attachment` 不是 `scroll` 时诊断。内容盒带百分比内边距时的 `content-box` 诊断。
 - 与 Chrome 155 截图对照 4 个用例（尺寸、位置、重复、盒子），原生 D3D11 WARP 与 D2D 参考光栅：平均差 0.2–0.6 级、差 32 级以上的像素 ≤ 0.8%、5 × 5 平均后最大差 13 级（Chrome 在 PNG 的编码值上过滤，scene 在线性值上过滤，放大的核也不同）。

@@ -192,6 +192,25 @@ int main() {
         require(!preparer.prepare(behind, 2, 400, 200, std::nullopt, 0, {}) && work.fallbacks == 1 &&
                     work.reasons.at("plane behind the viewer") == 1,
                 "fallback reason");
+        // A window's shadow whose pixels at the device scale pass the bitmap bound (900 x 640 at 1.5, a panel of a
+        // game at 150%) is an image made at a lower scale, over the same rectangle: the frame still draws.
+        {
+            weft::SceneFrame window;
+            window.root = node(20, {0, 0, 1280, 720}, {});
+            window.root.children = {node(
+                21, {190, 40, 900, 640},
+                {{"background-color", "rgba(24, 17, 12, 0.9)"}, {"box-shadow", "0 4px 14px rgba(0, 0, 0, 0.55)"}})};
+            const auto drawn = preparer.prepare(window, 1.5f, 1920, 1080, std::nullopt, 0, {});
+            const weft::SceneImage* shadow{};
+            for (const auto& image : drawn ? drawn->images : decltype(drawn->images){}) {
+                shadow = image ? image.get() : shadow;
+            }
+            require(drawn && work.fallbacks == 1 && shadow &&
+                        std::size_t(shadow->width) * shadow->height <=
+                            std::size_t(weft::constants::scene::max_shadow_bitmap_pixels) &&
+                        shadow->width < 1350,
+                    "a large shadow at a high scale is made coarser, not a fallback");
+        }
         // An effect's textures: an image of each asset in the format the effect samples (coverage as data, an opaque
         // sRGB image as sRGB, a translucent one as linear premultiplied floats), built once while the asset lives.
         {
