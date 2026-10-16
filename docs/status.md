@@ -16,6 +16,11 @@
 
 ## 本次已实现
 
+D3 的桑基图：d3-sankey 0.12.3（2026-10-16，`unreal` 分支，用户提出：游戏的经济面板要用桑基图画资源的流向）。详见 [前端库](frontend-libraries.md#d3-sankey2026-10-16)。
+- **依赖**：`third_party/d3-sankey`（npm 发布包原样，tarball 与 UMD 的 SHA256、npm 的 SHA512 integrity 与 shasum 已核对，BSD-3-Clause），`third_party/manifest.json` 加一项；只是测试与样例依赖。
+- **验证**（Release）：`d3_sankey_browser_contract`（新）：同一个脚本在 weft 与 headless Chrome 155 里的布局与 svg 逐值相同（12 个节点、12 条连线、7 项检查；改参考里一个坐标即失败）。`scene_paint_reference` 加 `sankey` 用例：原生 0.98 / 1.6% / 32，参考光栅 1.01 / 1.8% / 47（限 1.5 / 3% / 44、56）。重录截图时 Chrome 从 155.0.8059.40 升到 .80，旧用例只有 `repeating` 变了（2.7% 的像素差 1 级）。全量 ctest 169 项：155 项通过，14 项与上次相同（夹具与浏览器输入散列，签出换行）。UE 的经济面板用它画流向图：游戏的冒烟视角 `EconomyFlowsHan` 0 失败。
+- **工具**：`tools/browser_d3_sankey_reference.mjs` 记录 Chrome 的报告并把 svg 写成绘制用例，再用 `tools/browser_scene_paint_reference.mjs` 录截图。
+
 大面板的阴影（2026-10-16，`unreal` 分支）：UE 里的经济面板（900 × 640，`box-shadow: 0 4px 14px`）在 150% 缩放下整帧不画，D3D12 后端报 `WEFT_RENDER_UNSUPPORTED_FEATURE`；原因是 `shadow bitmap bound`：阴影图像在设备缩放下要 1,418 × 1,028 像素，超过 1,048,576 的上限。
 - **实现**：`render/shadow_image.cpp` 的 `bitmap_scale`：超过上限时按 √(上限 ÷ 像素数) × 0.98 降低做图像的缩放（至多 8 次，内阴影连同模糊读取的外圈一起算），`shadow_geometry` 与 `shadow_image` 用同一个缩放，矩形仍是同一块，pass 线性采样拉伸；放得下的阴影不变。常量 `shadow_scale_tries`、`shadow_scale_margin`。
 - **验证**（Release）：`paint_contract`：4000 × 4000、模糊 64 的阴影在 2× 下做成上限以内的图像且覆盖模糊的范围（此前是拒绝的反例）；700 × 500 的窗口阴影在 2× 下做成 1× 与 2× 之间的图像，6 个采样点与 1× 的差 ≤ 10 级；内阴影同样。`scene_native_contract`：900 × 640 的面板在 1.5× 下准备成功、不回退、阴影图像在上限以内。去掉降缩放后两项都失败（变异检查）。全量 ctest 168 项：154 项通过，14 项与上次相同（夹具与浏览器输入散列，签出换行）。UE 的经济页面（D3 横条、散点、坐标轴、22 个 `url()` 图标、150 座城）在 D3D11 WARP 原生 pass 上 1×、1.25×、1.5×、2× 都画出（此前 1.5×、2× 回退）。

@@ -259,6 +259,21 @@
       "archive_sha256": "7e36605710a2ba54846797c8c6d888911341b215ae53257dc32a49a0b824355e"
     },
     {
+      "name": "d3-sankey",
+      "version": "0.12.3",
+      "upstream": "https://github.com/d3/d3-sankey",
+      "source_dir": "third_party/d3-sankey",
+      "license_file": "LICENSE",
+      "files": {
+        "LICENSE": "2bf785e778d67a4f5266cffcd4f2cc5bb98cde73791666e7efeb8002ba32dfa5",
+        "d3-sankey.js": "cd92c492d3696b990e0de84e0aacb7fd5176c6c8d0ce2c52822f730993b7bd81",
+        "metadata.json": "000391862ae8dcefad662c0248092ff0e0c6166955cf4e7c94286785e0ddf740",
+        "upstream-package.json": "aa6b0219ffc5d7c957d3a47b063cea5e40dd1cb6427d04308e15634dcf2b22a2"
+      },
+      "commit": "bb7233ea0004669878d922e55fe83084ef3cb555",
+      "archive_sha256": "6bd8cdb143d4088ff38179def70954419868d4b95f136c168ffef2dad004ff22"
+    },
+    {
       "name": "yoga",
       "version": "3.2.1",
       "commit": "042f5013152eb81c1552dec945b88f7b95ca350f",

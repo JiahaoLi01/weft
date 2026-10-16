@@ -1,6 +1,6 @@
 {
  "format": "weft-scene-paint-reference-v1",
- "browser": "Chrome/155.0.8059.40",
+ "browser": "Chrome/155.0.8059.80",
  "gpu": {
   "devices": [
    {
@@ -13,7 +13,7 @@
    },
    {
     "name": "Microsoft Basic Render Driver",
-    "driver": "10.0.26100.9278"
+    "driver": "10.0.26100.9711"
    }
   ],
   "features": {
@@ -33,7 +33,7 @@
    "webnn": "disabled_off"
   }
  },
- "cases_sha256": "3fd88fc96408cb3600efe993d8805670ef4a1da2651444bfd1979e46536105a0",
+ "cases_sha256": "e5baf7d2844a06babd37b17a6bae6f636721d9daeae73cadf89aced24284eeb0",
  "captures": [
   {
    "name": "ellipsis",
@@ -83,7 +83,7 @@
   {
    "name": "repeating",
    "scale": 2,
-   "sha256": "61e57efa4bd299935538178de9e795590e1d239766bf621fbf1cca6a211aacde"
+   "sha256": "140a3ba2d8a3fe6f632defdffeba276a5d284e4de9a875c2bb9e2fea4ac15d6f"
   },
   {
    "name": "layout",
@@ -109,6 +109,11 @@
    "name": "texture-boxes",
    "scale": 2,
    "sha256": "4dc2fcc0fae9325d48052dd71f104346f6074769223dd7538f0f51a748ec58eb"
+  },
+  {
+   "name": "sankey",
+   "scale": 2,
+   "sha256": "21c014f792e585b003e2801ed6d215a7c99d30cb8fc9327f53e40c8b306f9dc6"
   }
  ]
 }

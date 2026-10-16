@@ -132,6 +132,16 @@ weft_add_test(NAME render_backend_c_abi COMMAND weft_render_backend_c_smoke)
 # Script runtime, owner executor and animation frames.
 weft_add_executable(weft_script_dom_tests SOURCES script/script_dom_tests.cpp LINK weft::script SOURCE_DIR)
 weft_add_test(NAME script_dom_lifecycle COMMAND weft_script_dom_tests TIMEOUT 30)
+# d3-sankey over D3 in the native DOM against Chrome's run of the same scripts (tools/browser_d3_sankey_reference.mjs),
+# whose reference must name the scripts as they are now.
+set(d3_sankey_hashes "")
+foreach(script third_party/d3/d3.js third_party/d3-sankey/d3-sankey.js tests/fixtures/d3_sankey_probe.js)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/${script}")
+    file(SHA256 "${PROJECT_SOURCE_DIR}/${script}" script_sha256)
+    list(APPEND d3_sankey_hashes "${script_sha256}")
+endforeach()
+weft_add_executable(weft_d3_sankey_tests SOURCES d3_sankey_tests.cpp LINK weft::script SOURCE_DIR)
+weft_add_test(NAME d3_sankey_browser_contract COMMAND weft_d3_sankey_tests ${d3_sankey_hashes} TIMEOUT 60)
 
 # The engine bridge: values, the channel, and weft.engine over a ScriptDom.
 weft_add_executable(weft_bridge_tests SOURCES bridge_tests.cpp LINK weft::bridge)

@@ -28,7 +28,7 @@
 #include <string>
 #include <vector>
 
-// The CSS the CRPG floating UI needs of scene pages (13.4a) against Chrome: each case of
+// The CSS the CRPG floating UI needs of scene pages (13.4a), and the svg d3-sankey draws, against Chrome: each case of
 // tests/fixtures/scene-paint-reference/cases.json (text-overflow: ellipsis, text-shadow, filter: drop-shadow() on svg
 // icons, inset box-shadow, radial gradients of every shape, size and position, repeating gradients, calc() insets,
 // transform-origin keywords, translate3d() and em lengths) built as the same nodes, laid out by the scene solver and
@@ -79,6 +79,9 @@ namespace {
             {"texture-position", {{{1, .01, 24}, {1, .01, 24}}}},
             {"texture-repeat", {{{1, .01, 24}, {1, .01, 24}}}},
             {"texture-boxes", {{{1, .01, 24}, {1, .01, 24}}}},
+            // d3-sankey's svg (tests/fixtures/d3_sankey_probe.js): wide translucent strokes of cubic curves over each
+            // other and rects (their edges' antialiasing), and small labels (glyph edges).
+            {"sankey", {{{1.5, .03, 44}, {1.5, .03, 56}}}},
         };
         return cases;
     }

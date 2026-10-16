@@ -35,6 +35,25 @@ L1 通过可以声明“D3 7.9.0 固定 DOM 探针通过”。只有 L2 在目�
 
 升级 D3 时同时换固定 bundle/许可/hash，先让浏览器和 native 重跑同一脚本；不允许改 D3 源码来绕过缺失 DOM 行为。
 
+### d3-sankey（2026-10-16）
+
+`third_party/d3-sankey/d3-sankey.js` 来自 npm 官方发布的 `d3-sankey@0.12.3` 包 `package/dist/d3-sankey.js`（11,993 字节，未改）。它是 UMD，在 `d3.js` 之后加载，挂到同一个 `d3` 全局上，调用 d3 的 `min`、`max`、`sum` 与 `linkHorizontal`（它的包声明 d3-array 1–2、d3-shape 1；d3 7.9.0 内含 d3-array 3、d3-shape 3，这几个函数的行为相同）。用户（游戏的经济面板要画资源流向的桑基图）提出。
+
+| 项目 | 固定值 |
+| --- | --- |
+| 发布版本 | 0.12.3 |
+| 发布元数据的 gitHead | `bb7233ea0004669878d922e55fe83084ef3cb555` |
+| 发布 tarball SHA256 | `6bd8cdb143d4088ff38179def70954419868d4b95f136c168ffef2dad004ff22`（npm 的 SHA512 integrity 与 shasum 均已核对） |
+| 原始 UMD SHA256 | `cd92c492d3696b990e0de84e0aacb7fd5176c6c8d0ce2c52822f730993b7bd81` |
+| 修改与构建 | 无；直接使用上游发布字节 |
+| 许可 | BSD-3-Clause；原始 LICENSE 保留 |
+
+验收（L0–L2，这一份固定 workload）：
+- 共享脚本 [d3_sankey_probe.js](../tests/fixtures/d3_sankey_probe.js)：12 个节点、12 条连线的一个月资源流向，`d3.sankey()`（`nodeId`、`sankeyLeft`、`nodeWidth`、`nodePadding`、`extent`）布局，画成连线（`sankeyLinkHorizontal` 的 path，按值宽的半透明描边）、节点（rect）与标签（svg text，`dy`、`text-anchor`）；7 项检查。
+- [tools/browser_d3_sankey_reference.mjs](../tools/browser_d3_sankey_reference.mjs) 在 headless Chrome 里跑同样三个脚本，记下报告（每个节点的 x0/x1/y0/y1/value/depth、每条连线的宽与两端、svg 节点树）与三个脚本的 SHA256：[d3-sankey-reference.json](../tests/fixtures/d3-sankey-reference.json)。
+- `d3_sankey_browser_contract`（`weft_d3_sankey_tests`）：weft 的 QuickJS 与原生 DOM 跑同样三个脚本，报告与 Chrome 的逐值相同（数字按 double 相等，字符串逐字节：每条 path 的 `d` 与 `stroke-width`）；脚本的散列由构建给出，与参考记录的不同时失败。
+- 绘制：同一棵 svg 是 `scene_paint_reference` 的 `sankey` 用例（2×），原生 D3D11 WARP 对 Chrome 155 的截图均差 0.98 级、差 32 级以上 1.6%、5 × 5 平均后最大差 32 级（都在小字的字形与曲线边缘的抗锯齿），D2D 参考光栅相近，Vulkan 与 D3D11 至多差 2 级。
+
 ## 共享 fixture 与反例
 
 [d3_probe.js](../tests/fixtures/d3_probe.js) 是浏览器和 native QuickJS 共用的完整测试脚本。依次加载 `d3.js` 和该脚本即可执行；脚本完成值是 `JSON.stringify(report)`，另留下 `globalThis.caseElephantD3Report`。任何断言失败都会抛带检查名的 Error。C++ runner 需要把失败视为测试失败，不能只检查 bundle 加载无异常。

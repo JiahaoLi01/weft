@@ -1,0 +1,38 @@
+{
+  "name": "d3-sankey",
+  "version": "0.12.3",
+  "purpose": "Unmodified upstream UMD of the D3 Sankey layout, over the d3 bundle (d3.min, d3.max, d3.sum, d3.linkHorizontal), for the native DOM and paint differential fixtures; test dependency only",
+  "metadata_url": "https://registry.npmjs.org/d3-sankey/0.12.3",
+  "archive_url": "https://registry.npmjs.org/d3-sankey/-/d3-sankey-0.12.3.tgz",
+  "archive_sha256": "6bd8cdb143d4088ff38179def70954419868d4b95f136c168ffef2dad004ff22",
+  "registry_integrity": "sha512-nQhsBRmM19Ax5xEIPLMY9ZmJ/cDvd1BG3UVvt5h3WRxKg5zGRbvnteTyWAbzeSvlh3tW7ZEmq4VwR5mB3tutmQ==",
+  "registry_shasum": "b3c268627bd72e5d80336e8de6acbfec9d15d01d",
+  "upstream_git_commit": "bb7233ea0004669878d922e55fe83084ef3cb555",
+  "upstream_repository": {
+    "url": "git+https://github.com/d3/d3-sankey.git",
+    "type": "git"
+  },
+  "license": "BSD-3-Clause",
+  "files": {
+    "d3-sankey.js": {
+      "sha256": "cd92c492d3696b990e0de84e0aacb7fd5176c6c8d0ce2c52822f730993b7bd81",
+      "bytes": 11993,
+      "archive_path": "package/dist/d3-sankey.js"
+    },
+    "LICENSE": {
+      "sha256": "2bf785e778d67a4f5266cffcd4f2cc5bb98cde73791666e7efeb8002ba32dfa5",
+      "bytes": 1471,
+      "archive_path": "package/LICENSE"
+    },
+    "upstream-package.json": {
+      "sha256": "aa6b0219ffc5d7c957d3a47b063cea5e40dd1cb6427d04308e15634dcf2b22a2",
+      "bytes": 1109,
+      "archive_path": "package/package.json"
+    }
+  },
+  "retrieved_date": "2026-10-16",
+  "modifications": "None: copied original bytes from package tarball",
+  "build_options": "No build. Load the checked-in d3-sankey.js UMD directly as a source script after third_party/d3/d3.js, whose d3-array and d3-shape it uses (its package names d3-array 1 - 2 and d3-shape ^1.2.0; d3 7.9.0 bundles d3-array 3 and d3-shape 3, whose min, max, sum and linkHorizontal it calls alike); normal builds require no network.",
+  "registry_integrity_verified": true,
+  "registry_shasum_verified": true
+}
