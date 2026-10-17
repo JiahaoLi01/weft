@@ -6,7 +6,7 @@
 
 当前又增加独立 Windows HWND/swapchain 主鼠标宿主：WindowProc 只排队值，owner 命中前 flush 布局，以弱节点身份派发真实 MouseEvent；GPU completion 覆盖 UI 与宿主合成，resize/close 在安全点处理。单击、取消、隐藏节点、共同祖先与实际提交通过；完整 PointerEvent/focus/IME、CSS/HTML 加载尚未实现，见 [窗口合同](native-window-probe.md)。
 
-现已增加独立实验 C ABI renderer facade，D3D11 reference adapter 与窗口经过 function table。通用层校验能力/owner/instance/epoch，并跟踪 prepared/use 的提交与退休；各 adapter 解释自己的 native pass，宿主提交/显示/提供完成。Vulkan adapter 已接入（2026-10-12），原生 Metal adapter 尚未实现，见 [后端 API 合同](render-backend-api.md)。
+现已增加独立实验 C ABI renderer facade，D3D11 reference adapter 与窗口经过 function table。通用层校验能力/owner/instance/epoch，并跟踪 prepared/use 的提交与退休；各 adapter 解释自己的 native pass，宿主提交/显示/提供完成。Vulkan adapter 已接入（2026-10-12），原生 Metal adapter 尚未实现（2026-10-17 起定了它的 payload、着色器的 MSL 与绑定，见 [后端 API 合同](render-backend-api.md#metal2026-10-17未实现)）。
 
 2026-10-08 增加 flow 值接口：自己的 inline 行盒/Unicode 断点与 Yoga block/Flex 约束组合；owner 按 identity 保存 scroll，同步 geometry host 每读全量重算且禁止 JS 重入，snapshot 复制偏移/几何。圆角 clip chain 为不可变值，reference 准备阶段合并 coverage/image，renderer C ABI v1 不变。libunibreak 6.1 的有界 UAX14/29 数据已固定；scroll job 当前微任务时序、跨源 shaped cluster 与实体输入限制见 [实际合同](flow-layout-probe.md)，不提升后文完整设计的实现状态。
 
@@ -219,7 +219,7 @@ SVG 作为 DOM 的 namespace 和独立图形格式上下文，不能把 rect/pat
 
 第三方库按执行、DOM、绘制、调度与交互分级验收。D3 数据绑定能运行只是 DOM 证据，不代表绘制支持；最终必须在自己的渲染后端画出更新图表。前端库无需维护项目专用分叉，测试采用固定版本原包。
 
-图形 API 通过 adapter 注册，DOM/layout 与绘制快照不绑定某种 GPU API。第一实际 reference adapter 为 Windows D3D11；下一候选为 Vulkan，原生 Metal 可独立注册，GLES 或宿主自定义 adapter 也沿用同一生命周期合同。API enum 不代替真实后端实现，各自 native context、target、shader 和同步分别适配；不要求所有平台经过 Vulkan/MoltenVK。窗口/surface 与 device/queue submission 保持在宿主壳。
+图形 API 通过 adapter 注册，DOM/layout 与绘制快照不绑定某种 GPU API。第一实际 reference adapter 为 Windows D3D11；下一候选为 Vulkan，原生 Metal 可独立注册，GLES 或宿主自定义 adapter 也沿用同一生命周期合同。API enum 不代替真实后端实现，各自 native context、target、shader 和同步分别适配；不要求所有平台经过 Vulkan/MoltenVK。原生 Metal 用同一份 HLSL：构建时经 SPIR-V 翻译成 MSL 内嵌，不在运行时翻译，裁剪空间同 D3D、不翻转 y；Metal 换目标要结束编码器，所以它的 payload 是宿主的命令缓冲，不是打开着的编码器（2026-10-17）。窗口/surface 与 device/queue submission 保持在宿主壳。
 
 固定 CRPG gallery 新增 Canvas2D workload 目标；WebGL2/Three.js 于 2026-10-12 移出需求，3D 内容由宿主引擎渲染、经外部纹理合成，见 [决策](decisions.md)。计划将 canvas backing 与宿主 viewport 的输出统一为带设备/资源代际、颜色/alpha 与 producer/consumer 同步的外部纹理 lease，仍按真实提交完成退休。宿主 viewport 是引擎内容进入 UI 的入口。可选原生 Canvas2D context 已实现，公共 external texture lease 的首版 linear 输入已实现，见 [合同](external-texture-lease.md)。当前 owner 通过图形 API 无关的 raster factory 调用 Windows D2D SOFTWARE/WIC，发布独立完整的不可变 sRGB straight RGBA8；encoded premultiplied WIC 数据先解除预乘，再经 renderer 的 sRGB decode/linear-premultiply。Canvas 状态与 context 包装放在按 NodeId 索引的旁表（`dom::NodeTable`），不在节点上；canvas 元素与 context 的互持边由 QuickJS tracing 显式标记，detached context 保活 canvas，reset 撤销身份但不改已发布像素。renderer 只接收拥有像素资产，不解析 Node/JSValue；真实 query 完成后退休。软件路径是正确性基线，移动与 GPU 共享纹理仍未实现，见 [Canvas 证据](gallery-canvas.md)。
 

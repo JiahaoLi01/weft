@@ -215,6 +215,32 @@ namespace weft::constants::render {
         inline constexpr int swapchain_extra_images = 1;
     } // namespace vulkan
 
+    // The Metal backend (docs/render-backend-api.md, "Metal"): argument table indices of the shared shaders' MSL,
+    // after the register shifts of cmake/WeftMetal.cmake (constant buffer b<n> at buffer n, structured buffer or
+    // texture t<n> at 1 + n of its table, sampler s<n> at sampler n). render_metal_shader_contract checks every one.
+    namespace metal {
+        // scene.hlsl: the View constants b0, the records t0, the image t1, the rounded clips t2, a scene pass's record
+        // order t7 and anchors t8.
+        inline constexpr int buffer_view = 0;
+        inline constexpr int buffer_records = 1;
+        inline constexpr int texture_image = 2;
+        inline constexpr int buffer_clips = 3;
+        inline constexpr int buffer_order = 8;
+        inline constexpr int buffer_anchors = 9;
+        // An effect's textures (effectTexture0-3, t3-t6: one index each from this one), where the particles' sprite
+        // (particleSprite, t3) goes too.
+        inline constexpr int texture_effects = 4;
+        // linearClamp s0, and linearRepeat or an effect's effectRepeat s1.
+        inline constexpr int sampler_clamp = 0;
+        inline constexpr int sampler_repeat = 1;
+        // backdrop.hlsl: a pass's constants b0, its source t0 and the mirroring sampler s0.
+        inline constexpr int backdrop_buffer_constants = 0;
+        inline constexpr int backdrop_texture_source = 1;
+        inline constexpr int backdrop_sampler_mirror = 0;
+        // The MSL version of the translation (major * 10000 + minor * 100): 2.1, macOS 10.14 and iOS 12 or later.
+        inline constexpr int msl_version = 20100;
+    } // namespace metal
+
     // Scene passes (scene_pass.hpp and its backends). The shader-mirrored values match the static consts at the
     // top of scene.hlsl.
     namespace scene {
