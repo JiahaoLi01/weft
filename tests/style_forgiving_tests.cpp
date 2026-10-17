@@ -111,8 +111,9 @@ namespace {
                                   "@layer a { .imp { height: 1px !important } }"
                                   ".imp { height: 2px !important }"
                                   "@layer outer { @layer inner { .n { width: 3px } } .n { width: 4px } }";
-        const auto r = cascade(sheet, el("html", "root", "", {el("button", "btn", "b u"), el("div", "x", "plain"),
-                                                         el("div", "i", "imp"), el("div", "nested", "n")}));
+        const auto r = cascade(sheet, el("html", "root", "",
+                                         {el("button", "btn", "b u"), el("div", "x", "plain"), el("div", "i", "imp"),
+                                          el("div", "nested", "n")}));
         same(r.value("btn", PropertyId::Color), "#00ff00", "a later layer beats a more specific earlier one");
         same(r.value("x", PropertyId::Width), "2px", "an unlayered rule beats a layered #id");
         same(r.value("i", PropertyId::Height), "1px", "important declarations reverse the layer order");
@@ -137,10 +138,9 @@ namespace {
         const auto hover = cascade("@media (hover: hover) { .h { width: 1px } } @media print { .h { width: 9px } }",
                                    el("html", "root", "", {el("div", "a", "h")}));
         same(hover.value("a", PropertyId::Width), "1px", "the device hovers and is no printer");
-        const auto supports =
-            cascade("@supports (color: color-mix(in lab, red, red)) { .s { width: 3px } }"
-                    "@supports (-webkit-hyphens: none) { .s { width: 4px } }",
-                    el("html", "root", "", {el("div", "a", "s")}));
+        const auto supports = cascade("@supports (color: color-mix(in lab, red, red)) { .s { width: 3px } }"
+                                      "@supports (-webkit-hyphens: none) { .s { width: 4px } }",
+                                      el("html", "root", "", {el("div", "a", "s")}));
         same(supports.value("a", PropertyId::Width), "3px", "color-mix() is supported, -webkit-hyphens is not");
 
         // A compiled sheet tells its owner when the viewport changes which rules match.
@@ -157,8 +157,9 @@ namespace {
                                   "@property --y { syntax: \"*\"; inherits: true; initial-value: 7px }"
                                   ".p { --x: 9px; --y: 8px } .c { width: var(--x); height: var(--y) }"
                                   ".d { width: var(--x); height: var(--y) }";
-        const auto r = cascade(sheet, el("html", "root", "", {el("div", "parent", "p", {el("div", "child", "c")}),
-                                                         el("div", "alone", "d")}));
+        const auto r =
+            cascade(sheet, el("html", "root", "",
+                              {el("div", "parent", "p", {el("div", "child", "c")}), el("div", "alone", "d")}));
         same(r.value("child", PropertyId::Width), "3px", "a non-inherited registered property does not inherit");
         same(r.value("child", PropertyId::Height), "8px", "an inherited registered property inherits");
         same(r.value("alone", PropertyId::Width), "3px", "a registered property's initial value");
@@ -201,8 +202,9 @@ namespace {
                                   ".b { width: calc(infinity * 1px); height: max(10px, 2rem) }"
                                   ".c { padding-inline: 4px 8px; margin-block: 2px; inset-inline: 0 }"
                                   ".d { border-start-start-radius: 3px; inline-size: 5px; min-block-size: 6px }";
-        const auto r = cascade(sheet, el("html", "root", "", {el("div", "a", "a"), el("div", "b", "b"),
-                                                         el("div", "c", "c"), el("div", "d", "d")}));
+        const auto r =
+            cascade(sheet, el("html", "root", "",
+                              {el("div", "a", "a"), el("div", "b", "b"), el("div", "c", "c"), el("div", "d", "d")}));
         same(r.value("a", PropertyId::Width), "16px", "calc() of a rem variable times a number");
         same(r.value("a", PropertyId::Height), "calc(100% - 32px)", "a percentage minus rem");
         same(r.value("b", PropertyId::Width), "1e+07px", "infinity clamps to a large finite length");
@@ -220,18 +222,19 @@ namespace {
     // Selectors 4: :is(), :where(), :not(), structural pseudo-classes and sibling combinators; pseudo-element rules
     // do not style their originating element.
     void selectors() {
-        const std::string sheet = "li:first-child { width: 1px } li:last-child { height: 1px }"
-                                  "li:nth-child(2n) { color: #00ff00 } .a + .b { width: 7px } .a ~ .c { height: 8px }"
-                                  ":is(.x, .y) .z { width: 9px } :where(.q) .r { width: 1px } .r { width: 2px }"
-                                  "div:not(.n) { opacity: 0.5 } .e::before { width: 3px } .e::placeholder { width: 4px }"
-                                  ".v:empty { height: 2px } .w:only-child { height: 3px }";
-        const auto r = cascade(
-            sheet, el("html", "root", "",
-                      {el("ul", "list", "", {el("li", "one"), el("li", "two"), el("li", "three")}),
-                       el("p", "s", "", {el("i", "a", "a"), el("i", "b", "b"), el("i", "c", "c")}),
-                       el("section", "y", "y", {el("span", "z", "z")}), el("section", "q", "q", {el("span", "r", "r")}),
-                       el("div", "n", "n"), el("div", "e", "e"), el("div", "v", "v"),
-                       el("p", "only", "", {el("b", "w", "w")})}));
+        const std::string sheet =
+            "li:first-child { width: 1px } li:last-child { height: 1px }"
+            "li:nth-child(2n) { color: #00ff00 } .a + .b { width: 7px } .a ~ .c { height: 8px }"
+            ":is(.x, .y) .z { width: 9px } :where(.q) .r { width: 1px } .r { width: 2px }"
+            "div:not(.n) { opacity: 0.5 } .e::before { width: 3px } .e::placeholder { width: 4px }"
+            ".v:empty { height: 2px } .w:only-child { height: 3px }";
+        const auto r =
+            cascade(sheet, el("html", "root", "",
+                              {el("ul", "list", "", {el("li", "one"), el("li", "two"), el("li", "three")}),
+                               el("p", "s", "", {el("i", "a", "a"), el("i", "b", "b"), el("i", "c", "c")}),
+                               el("section", "y", "y", {el("span", "z", "z")}),
+                               el("section", "q", "q", {el("span", "r", "r")}), el("div", "n", "n"),
+                               el("div", "e", "e"), el("div", "v", "v"), el("p", "only", "", {el("b", "w", "w")})}));
         same(r.value("one", PropertyId::Width), "1px", ":first-child");
         same(r.value("three", PropertyId::Height), "1px", ":last-child");
         same(r.value("two", PropertyId::Color), "#00ff00", ":nth-child(2n)");
@@ -251,8 +254,9 @@ namespace {
     void nesting() {
         const std::string sheet = ".p { width: 1px; & .q { width: 2px } > .r { width: 3px } &.s { width: 4px }"
                                   " @media (hover: hover) { height: 5px } }";
-        const auto r = cascade(sheet, el("html", "root", "", {el("div", "p", "p", {el("i", "q", "q"), el("i", "r", "r")}),
-                                                         el("div", "ps", "p s")}));
+        const auto r =
+            cascade(sheet, el("html", "root", "",
+                              {el("div", "p", "p", {el("i", "q", "q"), el("i", "r", "r")}), el("div", "ps", "p s")}));
         same(r.value("p", PropertyId::Width), "1px", "the parent rule");
         same(r.value("q", PropertyId::Width), "2px", "& and a descendant");
         same(r.value("r", PropertyId::Width), "3px", "a relative selector");

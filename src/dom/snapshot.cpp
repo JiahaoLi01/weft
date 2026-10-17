@@ -76,9 +76,8 @@ namespace weft::dom {
         }
         if (a.type != b.type || a.local_name != b.local_name || a.namespace_uri != b.namespace_uri ||
             a.data != b.data || a.attributes != b.attributes || a.scroll_left != b.scroll_left ||
-            a.scroll_top != b.scroll_top || a.hovered != b.hovered || a.active != b.active ||
-            a.focused != b.focused || a.focus_within != b.focus_within ||
-            a.children.size() != b.children.size()) {
+            a.scroll_top != b.scroll_top || a.hovered != b.hovered || a.active != b.active || a.focused != b.focused ||
+            a.focus_within != b.focus_within || a.children.size() != b.children.size()) {
             return false;
         }
         for (std::size_t i = 0; i < a.children.size(); ++i) {

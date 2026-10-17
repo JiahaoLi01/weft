@@ -650,7 +650,7 @@ namespace weft {
         // read and left out (the scene draws neither).
         void font_shorthand(const Tokens& tokens, bool important, std::vector<Declaration>& out) {
             static constexpr const char* longhands[]{"font-style", "font-weight", "font-size", "line-height",
-                                                      "font-family"};
+                                                     "font-family"};
             if (wide(keyword(tokens))) {
                 for (const auto* name : longhands) {
                     out.push_back({name, tokens, important});
@@ -667,8 +667,8 @@ namespace weft {
             for (; i < tokens.size(); ++i) {
                 const auto& t = tokens[i];
                 const auto w = lower(t.text);
-                if (t.kind == Kind::Ident && (w == "normal" || w == "small-caps" || w.ends_with("condensed") ||
-                                              w.ends_with("expanded"))) {
+                if (t.kind == Kind::Ident &&
+                    (w == "normal" || w == "small-caps" || w.ends_with("condensed") || w.ends_with("expanded"))) {
                     continue;
                 }
                 if (t.kind == Kind::Ident && (w == "italic" || w == "oblique")) {
@@ -705,7 +705,8 @@ namespace weft {
 
         std::vector<Declaration> declarations(std::string text, const StyleProfile& profile,
                                               Warnings* warnings = nullptr) {
-            if (text.size() > (profile.forgiving ? constants::max_text_bytes : constants::style::max_declaration_bytes)) {
+            if (text.size() >
+                (profile.forgiving ? constants::max_text_bytes : constants::style::max_declaration_bytes)) {
                 fail("declaration byte bound");
             }
             std::vector<Declaration> result;
@@ -938,7 +939,8 @@ namespace weft {
         // Whether a snapshot node has children that are content (:empty does not match it): an element, or text.
         bool has_content(const DomSnapshot& n) {
             for (const auto& c : n.children) {
-                if (c.type == constants::element_node_type || (c.type == constants::text_node_type && !c.data.empty())) {
+                if (c.type == constants::element_node_type ||
+                    (c.type == constants::text_node_type && !c.data.empty())) {
                     return true;
                 }
             }
@@ -1811,9 +1813,8 @@ namespace weft {
                     }
                     const bool sized = condition.sized();
                     out.sized_media |= sized;
-                    const auto inner = condition.kind == MediaCondition::Kind::Constant
-                                           ? media
-                                           : both(media, std::move(condition));
+                    const auto inner =
+                        condition.kind == MediaCondition::Kind::Constant ? media : both(media, std::move(condition));
                     block(body, layer, inner, depth + 1, parent);
                 } else if (name == "supports") {
                     bool holds{};
@@ -2078,7 +2079,8 @@ namespace weft {
                                               {"rad", 180 / 3.14159265358979323846},
                                               {"turn", 360.0}}) {
                 if (text.ends_with(unit)) {
-                    const auto n = css::parse_number<double>(text.substr(0, text.size() - std::string_view(unit).size()));
+                    const auto n =
+                        css::parse_number<double>(text.substr(0, text.size() - std::string_view(unit).size()));
                     return n ? std::optional(*n * scale) : std::nullopt;
                 }
             }
@@ -2334,8 +2336,8 @@ namespace weft {
         }
 
         bool color_function_name(std::string_view name) {
-            for (const auto* n : {"rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch", "color",
-                                  "color-mix"}) {
+            for (const auto* n :
+                 {"rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch", "color", "color-mix"}) {
                 if (name == n) {
                     return true;
                 }
@@ -3858,8 +3860,7 @@ namespace weft {
                 if (profile.scene_syntax && dom.namespace_uri == constants::svg_namespace_uri) {
                     for (const auto k : presentation_attributes) {
                         if (const auto it = dom.attributes.find(k); it != dom.attributes.end()) {
-                            for (const auto& d :
-                                 declarations(std::string(k) + ":" + it->second, profile, warnings())) {
+                            for (const auto& d : declarations(std::string(k) + ":" + it->second, profile, warnings())) {
                                 auto rank = Rank{0, 1, 0, 0, 0, 0, 0, 0};
                                 if (!ranks.contains(d.key) || ranks[d.key] < rank) {
                                     ranks[d.key] = rank;
@@ -4274,8 +4275,8 @@ namespace weft {
         const ProfileIndex index(profile);
         const ForgivingContext context{compiled.index.get(), &compiled.registered, &compiled.warnings, viewport_width,
                                        viewport_height};
-        Engine engine{profile, index, compiled.ua, compiled.author, false, nullptr, nullptr,
-                      profile.forgiving ? &context : nullptr};
+        Engine engine{profile, index,   compiled.ua, compiled.author,
+                      false,   nullptr, nullptr,     profile.forgiving ? &context : nullptr};
         return engine.compute(root, nullptr, {});
     }
 
@@ -4396,8 +4397,8 @@ namespace weft {
     }
 
     ComputedStyle CompiledStyle::compute(const DomSnapshot& dom) const {
-        Engine engine{impl_->profile, impl_->index, impl_->ua, impl_->author, true, nullptr, nullptr,
-                      impl_->profile.forgiving ? &impl_->context : nullptr};
+        Engine engine{impl_->profile, impl_->index, impl_->ua, impl_->author,
+                      true,           nullptr,      nullptr,   impl_->profile.forgiving ? &impl_->context : nullptr};
         return engine.compute(dom, nullptr, {});
     }
 
@@ -4408,8 +4409,8 @@ namespace weft {
             cache.values = {};
             cache.binding = impl_->identity;
         }
-        Engine engine{impl_->profile, impl_->index, impl_->ua, impl_->author, true, &cache.values, nullptr,
-                      impl_->profile.forgiving ? &impl_->context : nullptr};
+        Engine engine{impl_->profile, impl_->index,  impl_->ua, impl_->author,
+                      true,           &cache.values, nullptr,   impl_->profile.forgiving ? &impl_->context : nullptr};
         return engine.compute(dom, nullptr, {});
     }
 
@@ -4424,8 +4425,8 @@ namespace weft {
         if (changed) {
             changed->clear();
         }
-        Engine engine{impl_->profile, impl_->index, impl_->ua, impl_->author, true, &cache.values, changed,
-                      impl_->profile.forgiving ? &impl_->context : nullptr};
+        Engine engine{impl_->profile, impl_->index,  impl_->ua, impl_->author,
+                      true,           &cache.values, changed,   impl_->profile.forgiving ? &impl_->context : nullptr};
         engine.compute_into(dom, output, nullptr, {});
     }
 
@@ -4440,8 +4441,8 @@ namespace weft {
         if (changed) {
             changed->clear();
         }
-        Engine engine{impl_->profile, impl_->index, impl_->ua, impl_->author, true, &cache.values, changed,
-                      impl_->profile.forgiving ? &impl_->context : nullptr};
+        Engine engine{impl_->profile, impl_->index,  impl_->ua, impl_->author,
+                      true,           &cache.values, changed,   impl_->profile.forgiving ? &impl_->context : nullptr};
         engine.stamp = stamp;
         // The root's context is the document's: it changes only with the root itself.
         engine.compute_into(dom, output, nullptr, {},

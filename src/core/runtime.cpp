@@ -511,7 +511,8 @@ extern "C" weft_result weft_view_load(weft_runtime* runtime, weft_view_handle vi
     // A page of an earlier ABI ends before base.
     const bool based = page && page->struct_size >= sizeof(weft_page_desc);
     if (!page || (!based && page->struct_size != offsetof(weft_page_desc, base)) ||
-        (page->flags & ~(WEFT_PAGE_CRPG_BRIDGE | WEFT_PAGE_FORGIVING_CSS)) || page->reserved || (!page->scripts && page->script_count)) {
+        (page->flags & ~(WEFT_PAGE_CRPG_BRIDGE | WEFT_PAGE_FORGIVING_CSS)) || page->reserved ||
+        (!page->scripts && page->script_count)) {
         return WEFT_INVALID_ARGUMENT;
     }
     weft::ViewPage content;

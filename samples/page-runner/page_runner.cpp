@@ -88,7 +88,14 @@ namespace {
     // which the engine hands weft as it is (WEFT_VALUE_JSON). ----
 
     struct Json {
-        enum class Kind { Null, Bool, Number, String, Array, Object } kind = Kind::Null;
+        enum class Kind {
+            Null,
+            Bool,
+            Number,
+            String,
+            Array,
+            Object
+        } kind = Kind::Null;
         bool boolean{};
         double number{};
         std::string string;
@@ -141,8 +148,8 @@ namespace {
         }
 
         void skip() {
-            while (at_ < text_.size() && (text_[at_] == ' ' || text_[at_] == '\n' || text_[at_] == '\r' ||
-                                          text_[at_] == '\t')) {
+            while (at_ < text_.size() &&
+                   (text_[at_] == ' ' || text_[at_] == '\n' || text_[at_] == '\r' || text_[at_] == '\t')) {
                 ++at_;
             }
         }
@@ -342,8 +349,7 @@ namespace {
 
     class MessagePack {
     public:
-        MessagePack(const void* data, std::size_t size)
-            : data_(static_cast<const std::uint8_t*>(data)), size_(size) {
+        MessagePack(const void* data, std::size_t size) : data_(static_cast<const std::uint8_t*>(data)), size_(size) {
         }
 
         std::string json() {
@@ -608,8 +614,8 @@ namespace {
             header[std::size_t(i)] = std::uint8_t(width >> (24 - 8 * i));
             header[std::size_t(4 + i)] = std::uint8_t(height >> (24 - 8 * i));
         }
-        header[8] = 8;  // bit depth
-        header[9] = 6;  // RGBA
+        header[8] = 8; // bit depth
+        header[9] = 6; // RGBA
         chunk("IHDR", header);
         chunk("IDAT", z);
         chunk("IEND", {});
@@ -665,10 +671,21 @@ namespace {
     }
 
     const char* render_result(weft_render_result r) {
-        static const char* names[]{"OK",          "INVALID_ARGUMENT", "UNSUPPORTED_ABI", "UNSUPPORTED_FEATURE",
-                                   "WRONG_THREAD", "STALE_HANDLE",     "WRONG_BACKEND",   "WRONG_EPOCH",
-                                   "BUSY",         "INVALID_STATE",    "INVALID_SERIAL",  "BACKEND_ERROR",
-                                   "OUT_OF_MEMORY", "SHUTTING_DOWN",   "DEVICE_UNAVAILABLE",
+        static const char* names[]{"OK",
+                                   "INVALID_ARGUMENT",
+                                   "UNSUPPORTED_ABI",
+                                   "UNSUPPORTED_FEATURE",
+                                   "WRONG_THREAD",
+                                   "STALE_HANDLE",
+                                   "WRONG_BACKEND",
+                                   "WRONG_EPOCH",
+                                   "BUSY",
+                                   "INVALID_STATE",
+                                   "INVALID_SERIAL",
+                                   "BACKEND_ERROR",
+                                   "OUT_OF_MEMORY",
+                                   "SHUTTING_DOWN",
+                                   "DEVICE_UNAVAILABLE",
                                    "HOST_CONFIRMATION_REQUIRED"};
         return unsigned(r) < std::size(names) ? names[r] : "?";
     }
@@ -735,8 +752,8 @@ namespace {
         }
 
         // Draws the frame; the pixels (BGRA rows) when asked. False, printed, when it did not draw.
-        bool draw(weft_runtime* runtime, weft_view_handle view, unsigned frame_index,
-                  std::vector<std::uint8_t>* pixels, unsigned* out_width, unsigned* out_height) {
+        bool draw(weft_runtime* runtime, weft_view_handle view, unsigned frame_index, std::vector<std::uint8_t>* pixels,
+                  unsigned* out_width, unsigned* out_height) {
             weft_view_frame* frame{};
             if (const weft_result r = weft_view_acquire_frame(runtime, view, &frame); r != WEFT_OK) {
                 std::printf("[render] frame %u: no frame yet (%s)\n", frame_index, weft_result_string(r));
@@ -759,8 +776,15 @@ namespace {
                 return false;
             }
             weft_render_d3d11_pass payload{sizeof(payload), WEFT_RENDER_ABI_VERSION, nullptr, rtv_, nullptr, 0, 0, {}};
-            const weft_render_pass pass{sizeof(pass), WEFT_RENDER_ABI_VERSION, info_.identity, width, height,
-                                        WEFT_RENDER_TARGET_LINEAR_BGRA8, 1, &payload, sizeof(payload)};
+            const weft_render_pass pass{sizeof(pass),
+                                        WEFT_RENDER_ABI_VERSION,
+                                        info_.identity,
+                                        width,
+                                        height,
+                                        WEFT_RENDER_TARGET_LINEAR_BGRA8,
+                                        1,
+                                        &payload,
+                                        sizeof(payload)};
             weft_render_handle use{};
             r = weft_renderer_encode(renderer_, prepared, &pass, &use);
             weft_renderer_release_prepared(renderer_, prepared);
@@ -793,8 +817,8 @@ namespace {
         static constexpr std::uint64_t queue = 1;
 
         void release_target() {
-            for (IUnknown* object : {static_cast<IUnknown*>(staging_), static_cast<IUnknown*>(rtv_),
-                                     static_cast<IUnknown*>(target_)}) {
+            for (IUnknown* object :
+                 {static_cast<IUnknown*>(staging_), static_cast<IUnknown*>(rtv_), static_cast<IUnknown*>(target_)}) {
                 if (object) {
                     object->Release();
                 }
@@ -946,7 +970,9 @@ namespace {
         if (text.size() != 7 || text[0] != '#') {
             throw Failure("--background wants #rrggbb");
         }
-        const auto channel = [&](std::size_t at) { return float(std::stoul(text.substr(at, 2), nullptr, 16)) / 255; };
+        const auto channel = [&](std::size_t at) {
+            return float(std::stoul(text.substr(at, 2), nullptr, 16)) / 255;
+        };
         return {channel(1), channel(3), channel(5), 1};
     }
 
@@ -1032,7 +1058,8 @@ namespace {
             scripts.push_back({name.data(), name.size(), source.data(), source.size()});
         }
         weft_page_desc desc{sizeof(desc)};
-        desc.flags = (page.crpg_bridge ? WEFT_PAGE_CRPG_BRIDGE : 0u) | (page.forgiving_css ? WEFT_PAGE_FORGIVING_CSS : 0u);
+        desc.flags =
+            (page.crpg_bridge ? WEFT_PAGE_CRPG_BRIDGE : 0u) | (page.forgiving_css ? WEFT_PAGE_FORGIVING_CSS : 0u);
         desc.scripts = scripts.data();
         desc.script_count = std::uint32_t(scripts.size());
         desc.stylesheet = page.stylesheet.data();
@@ -1105,9 +1132,9 @@ namespace {
                     if (const Json* emit = step.find("emit")) {
                         const Json* value = step.find("value");
                         const std::string text = value ? value->text : "{}";
-                        const weft_result r = weft_view_emit(run.runtime, run.view, emit->string.data(),
-                                                             emit->string.size(), WEFT_VALUE_JSON, text.data(),
-                                                             text.size(), step.get_bool("latest") ? WEFT_EMIT_LATEST : 0);
+                        const weft_result r = weft_view_emit(
+                            run.runtime, run.view, emit->string.data(), emit->string.size(), WEFT_VALUE_JSON,
+                            text.data(), text.size(), step.get_bool("latest") ? WEFT_EMIT_LATEST : 0);
                         if (r != WEFT_OK) {
                             std::printf("[emit] %s: %s\n", emit->string.c_str(), weft_result_string(r));
                         }
@@ -1115,9 +1142,9 @@ namespace {
                     if (const Json* model = step.find("model")) {
                         const Json* fields = step.find("fields");
                         const std::string text = fields ? fields->text : "{}";
-                        const weft_result r = weft_view_set_model(run.runtime, run.view, model->string.data(),
-                                                                  model->string.size(), WEFT_VALUE_JSON, text.data(),
-                                                                  text.size());
+                        const weft_result r =
+                            weft_view_set_model(run.runtime, run.view, model->string.data(), model->string.size(),
+                                                WEFT_VALUE_JSON, text.data(), text.size());
                         if (r != WEFT_OK) {
                             std::printf("[model] %s: %s\n", model->string.c_str(), weft_result_string(r));
                         }
@@ -1137,23 +1164,33 @@ namespace {
                     }
                     if (const Json* pointer = step.find("pointer")) {
                         static const std::map<std::string, weft_pointer_kind> kinds{{"move", WEFT_POINTER_MOVE},
-                                                                                     {"down", WEFT_POINTER_DOWN},
-                                                                                     {"up", WEFT_POINTER_UP},
-                                                                                     {"leave", WEFT_POINTER_LEAVE}};
+                                                                                    {"down", WEFT_POINTER_DOWN},
+                                                                                    {"up", WEFT_POINTER_UP},
+                                                                                    {"leave", WEFT_POINTER_LEAVE}};
                         const auto kind = kinds.find(pointer->string);
                         if (kind == kinds.end()) {
                             throw Failure("pointer wants move, down, up or leave");
                         }
-                        const weft_pointer_event e{sizeof(e), std::uint32_t(kind->second),
-                                                   float(step.get_number("x")), float(step.get_number("y")),
-                                                   std::uint32_t(step.get_number("buttons")), 0, 0, 0};
+                        const weft_pointer_event e{sizeof(e),
+                                                   std::uint32_t(kind->second),
+                                                   float(step.get_number("x")),
+                                                   float(step.get_number("y")),
+                                                   std::uint32_t(step.get_number("buttons")),
+                                                   0,
+                                                   0,
+                                                   0};
                         uint32_t prevented{};
                         weft_view_pointer(run.runtime, run.view, &e, &prevented);
                     }
                     if (const Json* wheel = step.find("wheel"); wheel && wheel->items.size() == 2) {
-                        const weft_pointer_event e{sizeof(e), WEFT_POINTER_WHEEL, float(step.get_number("x")),
-                                                   float(step.get_number("y")), 0, 0,
-                                                   float(wheel->items[0].number), float(wheel->items[1].number)};
+                        const weft_pointer_event e{sizeof(e),
+                                                   WEFT_POINTER_WHEEL,
+                                                   float(step.get_number("x")),
+                                                   float(step.get_number("y")),
+                                                   0,
+                                                   0,
+                                                   float(wheel->items[0].number),
+                                                   float(wheel->items[1].number)};
                         uint32_t prevented{};
                         weft_view_pointer(run.runtime, run.view, &e, &prevented);
                     }
@@ -1162,8 +1199,8 @@ namespace {
                         h.struct_size = sizeof(h);
                         weft_view_hit_test(run.runtime, run.view, float(hit->items[0].number),
                                            float(hit->items[1].number), &h);
-                        std::printf("[hit] %g,%g -> element=%u cursor=%s\n", hit->items[0].number,
-                                    hit->items[1].number, h.element, h.cursor);
+                        std::printf("[hit] %g,%g -> element=%u cursor=%s\n", hit->items[0].number, hit->items[1].number,
+                                    h.element, h.cursor);
                     }
                     if (const Json* eval = step.find("eval")) {
                         const weft_result r = weft_view_evaluate(
@@ -1215,8 +1252,8 @@ namespace {
                 std::printf("[shot] frame %ld -> %s (%ux%u)\n", n, utf8(path).c_str(), width, height);
             }
         }
-        std::printf("[done] %ld frames, %u diagnostics, %u messages; advance %s", frames, run.diagnostics,
-                    run.messages, times(advance_ms).c_str());
+        std::printf("[done] %ld frames, %u diagnostics, %u messages; advance %s", frames, run.diagnostics, run.messages,
+                    times(advance_ms).c_str());
         if (drawer && drawer->available()) {
             std::printf("; render CPU %s", times(drawer->render_ms()).c_str());
         }

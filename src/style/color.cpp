@@ -116,15 +116,14 @@ namespace weft::color {
 
         double rec2020_to_linear(double c) {
             const double a = std::abs(c);
-            return std::copysign(a < rec2020_beta * 4.5 ? a / 4.5 : std::pow((a + rec2020_alpha - 1) / rec2020_alpha,
-                                                                             1 / 0.45),
-                                 c);
+            return std::copysign(
+                a < rec2020_beta * 4.5 ? a / 4.5 : std::pow((a + rec2020_alpha - 1) / rec2020_alpha, 1 / 0.45), c);
         }
 
         double linear_to_rec2020(double c) {
             const double a = std::abs(c);
-            return std::copysign(
-                a > rec2020_beta ? rec2020_alpha * std::pow(a, 0.45) - (rec2020_alpha - 1) : 4.5 * a, c);
+            return std::copysign(a > rec2020_beta ? rec2020_alpha * std::pow(a, 0.45) - (rec2020_alpha - 1) : 4.5 * a,
+                                 c);
         }
 
         template <class F>
@@ -274,12 +273,21 @@ namespace weft::color {
     }
 
     std::optional<Space> space(std::string_view name) {
-        constexpr std::pair<std::string_view, Space> spaces[]{
-            {"srgb", Space::Srgb},       {"srgb-linear", Space::SrgbLinear}, {"display-p3", Space::DisplayP3},
-            {"a98-rgb", Space::A98Rgb},  {"prophoto-rgb", Space::ProphotoRgb}, {"rec2020", Space::Rec2020},
-            {"xyz", Space::XyzD65},      {"xyz-d65", Space::XyzD65},         {"xyz-d50", Space::XyzD50},
-            {"lab", Space::Lab},         {"lch", Space::Lch},                {"oklab", Space::Oklab},
-            {"oklch", Space::Oklch},     {"hsl", Space::Hsl},                {"hwb", Space::Hwb}};
+        constexpr std::pair<std::string_view, Space> spaces[]{{"srgb", Space::Srgb},
+                                                              {"srgb-linear", Space::SrgbLinear},
+                                                              {"display-p3", Space::DisplayP3},
+                                                              {"a98-rgb", Space::A98Rgb},
+                                                              {"prophoto-rgb", Space::ProphotoRgb},
+                                                              {"rec2020", Space::Rec2020},
+                                                              {"xyz", Space::XyzD65},
+                                                              {"xyz-d65", Space::XyzD65},
+                                                              {"xyz-d50", Space::XyzD50},
+                                                              {"lab", Space::Lab},
+                                                              {"lch", Space::Lch},
+                                                              {"oklab", Space::Oklab},
+                                                              {"oklch", Space::Oklch},
+                                                              {"hsl", Space::Hsl},
+                                                              {"hwb", Space::Hwb}};
         for (const auto& [n, s] : spaces) {
             if (n == name) {
                 return s;
@@ -342,7 +350,8 @@ namespace weft::color {
             case Space::A98Rgb:
                 return xyz_to_srgb(multiply(linear_a98_to_xyz, each(c, a98_to_linear)));
             case Space::ProphotoRgb:
-                return xyz_to_srgb(multiply(d50_to_d65, multiply(linear_prophoto_to_xyz_d50, each(c, prophoto_to_linear))));
+                return xyz_to_srgb(
+                    multiply(d50_to_d65, multiply(linear_prophoto_to_xyz_d50, each(c, prophoto_to_linear))));
             case Space::Rec2020:
                 return xyz_to_srgb(multiply(linear_rec2020_to_xyz, each(c, rec2020_to_linear)));
             case Space::XyzD65:
@@ -420,8 +429,7 @@ namespace weft::color {
                     out[std::size_t(i)] += 360;
                 }
             } else {
-                const double premultiplied =
-                    x[std::size_t(i)] * a[3] * weight_a + y[std::size_t(i)] * b[3] * weight_b;
+                const double premultiplied = x[std::size_t(i)] * a[3] * weight_a + y[std::size_t(i)] * b[3] * weight_b;
                 out[std::size_t(i)] = alpha == 0 ? 0 : premultiplied / alpha;
             }
         }

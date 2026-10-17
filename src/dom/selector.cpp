@@ -28,13 +28,40 @@ namespace weft::dom {
         // Pseudo-classes of states and parts a weft document does not have: valid in the modern grammar, matching
         // nothing.
         bool absent_pseudo_class(std::string_view name) {
-            for (const auto* k :
-                 {"link",           "visited",        "any-link",      "local-link",   "target",     "target-within",
-                  "placeholder-shown", "autofill",    "invalid",       "valid",        "user-invalid", "user-valid",
-                  "required",       "optional",       "default",       "indeterminate", "in-range",  "out-of-range",
-                  "read-write",     "popover-open",   "modal",         "fullscreen",   "picture-in-picture", "host",
-                  "open",           "closed",         "playing",       "paused",       "current",    "past",
-                  "future",         "blank",          "user-error",    "focus-ring"}) {
+            for (const auto* k : {"link",
+                                  "visited",
+                                  "any-link",
+                                  "local-link",
+                                  "target",
+                                  "target-within",
+                                  "placeholder-shown",
+                                  "autofill",
+                                  "invalid",
+                                  "valid",
+                                  "user-invalid",
+                                  "user-valid",
+                                  "required",
+                                  "optional",
+                                  "default",
+                                  "indeterminate",
+                                  "in-range",
+                                  "out-of-range",
+                                  "read-write",
+                                  "popover-open",
+                                  "modal",
+                                  "fullscreen",
+                                  "picture-in-picture",
+                                  "host",
+                                  "open",
+                                  "closed",
+                                  "playing",
+                                  "paused",
+                                  "current",
+                                  "past",
+                                  "future",
+                                  "blank",
+                                  "user-error",
+                                  "focus-ring"}) {
                 if (name == k) {
                     return true;
                 }
@@ -45,8 +72,8 @@ namespace weft::dom {
         // Pseudo-elements a weft document does not have: valid in the modern grammar, matching nothing.
         bool absent_pseudo_element(std::string_view name) {
             for (const auto* k : {"placeholder", "selection", "backdrop", "marker", "file-selector-button",
-                                  "first-line", "first-letter", "cue", "grammar-error", "spelling-error",
-                                  "target-text", "highlight", "part", "slotted", "view-transition"}) {
+                                  "first-line", "first-letter", "cue", "grammar-error", "spelling-error", "target-text",
+                                  "highlight", "part", "slotted", "view-transition"}) {
                 if (name == k) {
                     return true;
                 }
@@ -260,8 +287,7 @@ namespace weft::dom {
                     return true;
                 }
                 const auto integer = [](std::string_view digits, int& out) {
-                    if (digits.empty() || digits.size() > 9 ||
-                        !std::all_of(digits.begin(), digits.end(), [](char c) {
+                    if (digits.empty() || digits.size() > 9 || !std::all_of(digits.begin(), digits.end(), [](char c) {
                             return std::isdigit(static_cast<unsigned char>(c)) != 0;
                         })) {
                         return false;
@@ -431,7 +457,9 @@ namespace weft::dom {
                                         pseudo_name == "matches" || pseudo_name == "-webkit-any")) {
                     using Kind = SelectorAlternatives::Kind;
                     SelectorAlternatives alternatives;
-                    alternatives.kind = pseudo_name == "where" ? Kind::Where : pseudo_name == "not" ? Kind::Not : Kind::Is;
+                    alternatives.kind = pseudo_name == "where" ? Kind::Where
+                                        : pseudo_name == "not" ? Kind::Not
+                                                               : Kind::Is;
                     if (!nested_list(arg, alternatives.kind != Kind::Not, alternatives.list)) {
                         return false;
                     }
