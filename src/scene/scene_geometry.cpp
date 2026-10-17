@@ -805,8 +805,9 @@ namespace weft {
         return target ? targets[*target] : NodeIdentity{};
     }
 
-    // Areas in the order the scene paints: children by z-index, SVG content after its svg box. A box clips its
-    // descendants when its overflow is hidden or auto, as an svg element does; a clip-path clips its element too.
+    // Areas in the order the scene paints: children in order-modified document order by z-index, SVG content after
+    // its svg box. A box clips its descendants when its overflow is hidden or auto, as an svg element does; a
+    // clip-path clips its element too.
     SceneGeometry::HitMap SceneGeometry::hit_map(const SceneFrame& f, const SceneAnchorTable* anchors) {
         impl_->require_owner();
         HitMap out;
@@ -951,10 +952,11 @@ namespace weft {
                 }
                 return;
             }
-            // Stacking order among siblings, as painted; auto stacks at 0, anchored siblings of equal z-index far to
-            // near. A single child is not ordered, so its z-index is not read.
+            // Stacking order among siblings, as painted: order-modified document order (scene_child_order), stably by
+            // z-index; auto stacks at 0, anchored siblings of equal z-index far to near. A single child is not ordered,
+            // so its z-index is not read.
             std::vector<float> z(n.children.size());
-            std::vector<std::size_t> order(n.children.size());
+            auto order = scene_child_order(n);
             bool anchored_children{};
             for (std::size_t i = 0; i < n.children.size(); ++i) {
                 const auto& c = n.children[i];
@@ -962,7 +964,6 @@ namespace weft {
                     const auto v = view(c.style, PropertyId::ZIndex, "0");
                     z[i] = v == "auto" ? 0.f : len(v);
                 }
-                order[i] = i;
                 anchored_children = anchored_children || c.anchoring;
             }
             std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {

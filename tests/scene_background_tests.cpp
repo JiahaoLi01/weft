@@ -9,7 +9,9 @@
 #include "support/png.hpp"
 #include "support/scene_fonts.hpp"
 
+#include <d2d1.h>
 #include <d3d11.h>
+#include <wincodec.h>
 #include <wrl/client.h>
 
 #include <algorithm>
@@ -28,7 +30,7 @@
 // what stays outside the profile, the display list's fit, and the native D3D11 pass (WARP) drawing the tiles as the
 // reference raster lays them out on the CPU; the same layouts of a url() image (its translucent texels linear floats
 // in the pass), which lays out as a host texture. Border images; and what else paints about a box: visibility,
-// outlines and the ::before and ::after boxes.
+// outlines, the ::before and ::after boxes, and the order its items stack in.
 namespace {
     using weft::testing::require;
     using Fit = weft::paint::TextureFit;
@@ -37,6 +39,38 @@ namespace {
     bool about(float a, float b) {
         return std::abs(a - b) <= 1e-4f * std::max(1.f, std::abs(b));
     }
+
+    // The reference painter's GPU-target mode, which paints through the paint programs it keeps while its target's
+    // factory stays, on a width x height CPU bitmap: straight RGBA, valid for opaque pixels.
+    struct PaintTarget {
+        unsigned width{};
+        unsigned height{};
+        Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
+        Microsoft::WRL::ComPtr<ID2D1Factory> factory;
+        Microsoft::WRL::ComPtr<ID2D1RenderTarget> target;
+
+        PaintTarget(unsigned w, unsigned h) : width(w), height(h) {
+            Microsoft::WRL::ComPtr<IWICImagingFactory> wic;
+            require(SUCCEEDED(
+                        CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic))) &&
+                        SUCCEEDED(wic->CreateBitmap(width, height, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad,
+                                                    &bitmap)) &&
+                        SUCCEEDED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, factory.GetAddressOf())) &&
+                        SUCCEEDED(factory->CreateWicBitmapRenderTarget(bitmap.Get(), D2D1::RenderTargetProperties(),
+                                                                       &target)),
+                    "WIC render target");
+        }
+
+        std::vector<std::uint8_t> paint(weft::SceneRaster& raster, const weft::SceneFrame& frame) {
+            raster.paint_d2d(frame, target.Get(), 1);
+            std::vector<std::uint8_t> out(std::size_t(width) * height * 4);
+            require(SUCCEEDED(bitmap->CopyPixels(nullptr, width * 4, UINT(out.size()), out.data())), "WIC readback");
+            for (std::size_t i = 0; i < out.size(); i += 4) {
+                std::swap(out[i], out[i + 2]);
+            }
+            return out;
+        }
+    };
 
     template <class F>
     std::pair<weft::Diag, std::string> diagnostic(F&& f) {
@@ -847,6 +881,131 @@ namespace {
             weft::testing::write_png(folder / ("generated-" + std::to_string(int(scale)) + ".png"), w, h, raster.rgba);
         }
     }
+
+    // order (CSS Display 3 §3.1, CSS Flexbox 1 §5.4): flex and grid items laid out in order-modified document order, and
+    // painted and hit in it, stably by z-index after, an absolutely positioned child at order 0; a column stacks by order
+    // as the CRPG subtitles' pooled slots do. The native pass, the reference raster and the reference painter's
+    // retained paint programs draw the stacking the orders give, also when a kept pass and kept programs take a frame
+    // whose orders changed.
+    void flex_order(const std::filesystem::path& folder) {
+        weft::testing::NativeScene s;
+        s.set(*s.root, "style", "position:relative;width:240px;height:120px;background-color:#202020");
+        const auto child = [&](weft::dom::Node& parent, const std::string& style) -> weft::dom::Node& {
+            auto& e = s.html("div");
+            s.set(e, "style", style);
+            s.tree.insert(parent, e, nullptr);
+            return e;
+        };
+        // A row of a, b and c (orders 2, -1 and none), each 10px under the next, and d, absolutely positioned over b
+        // (order -5, which an absolutely positioned child does not take).
+        auto& row = child(*s.root, "position:absolute;left:10px;top:10px;display:flex");
+        const std::string cell = "width:40px;height:30px;margin-right:-10px;";
+        auto& a = child(row, cell + "background-color:#ff0000;order:2");
+        auto& b = child(row, cell + "background-color:#00ff00;order:-1");
+        auto& c = child(row, cell + "background-color:#0000ff");
+        auto& d = child(row, "position:absolute;left:5px;top:0;width:20px;height:30px;background-color:#ffff00;"
+                             "order:-5");
+        // x before y by order, y over x by z-index.
+        auto& stacked = child(*s.root, "position:absolute;left:130px;top:10px;display:flex");
+        auto& x = child(stacked, cell + "background-color:#ff00ff;order:1");
+        auto& y = child(stacked, cell + "background-color:#00ffff;z-index:1");
+        // A column of three slots of orders 3, 1 and 2, and a grid of two cells of orders 1 and 0.
+        auto& column = child(*s.root, "position:absolute;left:10px;top:50px;display:flex;flex-direction:column");
+        auto& third = child(column, "width:30px;height:20px;background-color:#804000;order:3");
+        auto& first = child(column, "width:30px;height:20px;background-color:#408000;order:1");
+        auto& second = child(column, "width:30px;height:20px;background-color:#004080;order:2");
+        auto& grid = child(*s.root, "position:absolute;left:130px;top:50px;width:80px;display:grid;"
+                                    "grid-template-columns:1fr 1fr");
+        auto& late = child(grid, "height:20px;background-color:#808000;order:1");
+        auto& early = child(grid, "height:20px;background-color:#008080");
+        weft::SceneSolver solver("", "", weft::testing::thread_scene_text());
+        auto frame = solver.frame(s.tree.snapshot(*s.root), 240, 120, 0);
+        const auto find = [](auto&& self, const weft::SceneNode& n, weft::NodeIdentity id) -> const weft::SceneNode* {
+            if (n.identity == id) {
+                return &n;
+            }
+            for (const auto& k : n.children) {
+                if (const auto* found = self(self, k, id)) {
+                    return found;
+                }
+            }
+            return nullptr;
+        };
+        const auto box = [&](const weft::SceneFrame& f, const weft::dom::Node& e) {
+            const auto* n = find(find, f.root, e.identity);
+            require(n != nullptr, "a laid out item");
+            return n->box;
+        };
+        require(box(frame, b)[0] == 0 && box(frame, c)[0] == 30 && box(frame, a)[0] == 60,
+                "the row lays its items out by order: b, c, a at " + std::to_string(box(frame, b)[0]) + ", " +
+                    std::to_string(box(frame, c)[0]) + ", " + std::to_string(box(frame, a)[0]));
+        require(box(frame, first)[1] == 0 && box(frame, second)[1] == 20 && box(frame, third)[1] == 40,
+                "the column stacks its slots by order");
+        require(box(frame, early)[0] == 0 && box(frame, late)[0] == 40, "the grid places its cells by order");
+        require(box(frame, x)[0] == 40 - 10 && box(frame, y)[0] == 0, "y before x by order");
+
+        // The color each point shows, and the element it hits.
+        struct Point {
+            float x;
+            float y;
+            std::array<int, 3> color;
+            const weft::dom::Node* hit;
+            std::string what;
+        };
+
+        // The native pass, the reference raster, and the reference painter's retained paint programs (on a target).
+        const auto check = [&](const weft::SceneFrame& f, weft::testing::D3D11Scene& d3d11,
+                               weft::SceneRaster& reference, PaintTarget& target, weft::SceneRaster& retained,
+                               const std::vector<Point>& points, const std::string& when) {
+            const auto native = d3d11.draw(f);
+            d3d11.gpu.check_debug_messages();
+            const auto raster = reference.raster(f, 1);
+            const auto painted = target.paint(retained, f);
+            weft::SceneGeometry geometry(weft::testing::thread_scene_text());
+            const auto rgb = [](const std::array<int, 3>& c) {
+                return std::to_string(c[0]) + "," + std::to_string(c[1]) + "," + std::to_string(c[2]);
+            };
+            for (const auto& p : points) {
+                const auto i = (std::size_t(p.y) * 240 + std::size_t(p.x)) * 4;
+                const std::array<int, 3> n{native[i + 2], native[i + 1], native[i]};
+                const std::array<int, 3> r{raster.rgba[i], raster.rgba[i + 1], raster.rgba[i + 2]};
+                const std::array<int, 3> t{painted[i], painted[i + 1], painted[i + 2]};
+                require(n == p.color && r == p.color && t == p.color,
+                        when + ": " + p.what + " at " + std::to_string(int(p.x)) + "," + std::to_string(int(p.y)) +
+                            ": native " + rgb(n) + ", raster " + rgb(r) + ", painted on a target " + rgb(t));
+                require(geometry.hit_test(f, p.x, p.y) == p.hit->identity &&
+                            reference.hit_test(f, p.x, p.y) == p.hit->identity,
+                        when + ": " + p.what + " takes the hit");
+            }
+            return raster;
+        };
+        weft::testing::D3D11Scene d3d11{240, 120};
+        weft::SceneRaster reference(weft::testing::thread_scene_text());
+        PaintTarget target{240, 120};
+        weft::SceneRaster retained(weft::testing::thread_scene_text());
+        const auto raster = check(frame, d3d11, reference, target, retained,
+                                  {{45, 25, {0x00, 0x00, 0xff}, &c, "c over b"},
+                                   {75, 25, {0xff, 0x00, 0x00}, &a, "a over c"},
+                                   {25, 25, {0xff, 0xff, 0x00}, &d, "d, at order 0, over b"},
+                                   {165, 25, {0x00, 0xff, 0xff}, &y, "y, of the greater z-index, over x"},
+                                   {25, 55, {0x40, 0x80, 0x00}, &first, "the first slot"},
+                                   {25, 95, {0x80, 0x40, 0x00}, &third, "the third slot"},
+                                   {150, 60, {0x00, 0x80, 0x80}, &early, "the grid's first cell"}},
+                                  "first frame");
+        weft::testing::write_png(folder / "order.png", 240, 120, raster.rgba);
+        // a's order goes before b's: a, b, c. The same pass (kept, patched for the frame) and the same painter (its
+        // paint programs kept) draw the new stacking.
+        s.set(a, "style", cell + "background-color:#ff0000;order:-2");
+        frame = solver.frame(s.tree.snapshot(*s.root), 240, 120, 16);
+        require(box(frame, a)[0] == 0 && box(frame, b)[0] == 30 && box(frame, c)[0] == 60,
+                "the row lays its items out by their new orders: a, b, c");
+        check(frame, d3d11, reference, target, retained,
+              {{45, 25, {0x00, 0xff, 0x00}, &b, "b over a"},
+               {75, 25, {0x00, 0x00, 0xff}, &c, "c over b"},
+               {15, 25, {0xff, 0xff, 0x00}, &d, "d over a"}},
+              "after the order changed");
+        require(d3d11.scene.fallbacks == 0, "the native pass drew both frames");
+    }
 } // namespace
 
 int main(int argc, char** argv) {
@@ -864,8 +1023,9 @@ int main(int argc, char** argv) {
         border_images_drawn(folder);
         visibility_and_outlines(folder);
         generated_boxes(folder);
+        flex_order(folder);
         std::cout << "PASS scene background layouts of host textures and url() images, border images, visibility, "
-                     "outlines, generated boxes\n";
+                     "outlines, generated boxes, order\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

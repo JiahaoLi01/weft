@@ -262,6 +262,7 @@ namespace weft {
                                   P::MaxWidth,
                                   P::MinHeight,
                                   P::MinWidth,
+                                  P::Order,
                                   P::Overflow,
                                   P::Padding,
                                   P::PaddingBottom,
@@ -317,6 +318,8 @@ namespace weft {
             std::size_t next_sibling{none};
             std::size_t last_child{none};
             std::size_t children{};
+            // Its order as a flex or grid item (CSS Display 3 §3.1); 0 out of flow.
+            int order{};
             bool definite_height{};
             unsigned columns{};
             // Grid cell origins of the children, in child order.
@@ -371,6 +374,19 @@ namespace weft {
                 for (auto c = n.first_child; c != none; c = nodes[c].next_sibling) {
                     f(nodes[c]);
                 }
+            }
+
+            // A grid's children in order-modified document order (CSS Display 3 §3.1), stably by their order, each
+            // with its index among the children in document order.
+            std::vector<std::pair<std::size_t, Node*>> ordered_children(const Node& n) {
+                std::vector<std::pair<std::size_t, Node*>> out;
+                for (auto c = n.first_child; c != none; c = nodes[c].next_sibling) {
+                    out.emplace_back(out.size(), &nodes[c]);
+                }
+                std::stable_sort(out.begin(), out.end(), [](const auto& a, const auto& b) {
+                    return a.second->order < b.second->order;
+                });
+                return out;
             }
 
             void link() {
@@ -705,8 +721,8 @@ namespace weft {
                             YGNodeStyleSetGap(y, gutter, l.value);
                         }
                     } else if (id == P::Transform || id == P::GridTemplateColumns || id == P::JustifyItems ||
-                               id == P::PlaceItems) {
-                        // Read by the containing block and grid rules.
+                               id == P::PlaceItems || id == P::Order) {
+                        // Read by the containing block, grid and order rules.
                     } else {
                         // Padding, margin, border widths and insets.
                         YGEdge edge = YGEdgeAll;
@@ -853,7 +869,29 @@ namespace weft {
                                                      (!height.ends_with('%') || nodes[n.box->parent].definite_height));
                     if (n.index) {
                         const auto& parent = nodes[n.box->parent];
-                        if (parent.formatting != Formatting::Grid) {
+                        // An absolutely positioned child is no flex item: its order is 0 (CSS Flexbox 1 §5.4).
+                        if (const auto* order = n.style->find(P::Order);
+                            order && n.style->text(P::Position) != "absolute" &&
+                            (parent.formatting == Formatting::Flex || parent.formatting == Formatting::Grid)) {
+                            const auto value = css::parse_integer(css::trim(order->text()));
+                            if (!value) {
+                                throw std::invalid_argument("WEFT_CSS_VALUE: order " + order->text());
+                            }
+                            n.order = *value;
+                        }
+                        if (parent.formatting == Formatting::Flex) {
+                            // Flex items in order-modified document order (CSS Flexbox 1 §5.4): after the items
+                            // before them of no greater order.
+                            const auto order_at = [&](std::size_t k) {
+                                return static_cast<const Node*>(YGNodeGetContext(YGNodeGetChild(parent.yoga, k)))
+                                    ->order;
+                            };
+                            auto at = YGNodeGetChildCount(parent.yoga);
+                            while (at > 0 && order_at(at - 1) > n.order) {
+                                --at;
+                            }
+                            YGNodeInsertChild(parent.yoga, n.yoga, at);
+                        } else if (parent.formatting != Formatting::Grid) {
                             YGNodeInsertChild(parent.yoga, n.yoga, YGNodeGetChildCount(parent.yoga));
                         }
                         // Block and inline layout do not flex their children.
@@ -919,9 +957,10 @@ namespace weft {
                     std::vector<float> rows;
                     float widest{};
                     std::size_t placed{};
-                    each_child(n, [&](const Node& c) {
+                    for (const auto& [k, item] : ordered_children(n)) {
+                        const auto& c = *item;
                         if (c.formatting == Formatting::None) {
-                            return;
+                            continue;
                         }
                         const auto row = placed++ / n.columns;
                         rows.resize(row + 1);
@@ -933,7 +972,7 @@ namespace weft {
                         if (unknown_h.empty()) {
                             unknown_h = c.unknown_height;
                         }
-                    });
+                    }
                     const float gaps = column_gap * float(n.columns - 1);
                     n.min_width = gaps + edges;
                     n.max_width = widest * float(n.columns) + gaps + edges;
@@ -1116,12 +1155,14 @@ namespace weft {
                 }
                 const float cell =
                     std::max(0.f, (width - left - right - column_gap * float(g.columns - 1)) / float(g.columns));
+                // Placed in order-modified document order.
+                const auto ordered = ordered_children(g);
                 std::vector<Node*> placed;
-                each_child(g, [&](Node& c) {
-                    if (c.formatting != Formatting::None) {
-                        placed.push_back(&c);
+                for (const auto& [k, c] : ordered) {
+                    if (c->formatting != Formatting::None) {
+                        placed.push_back(c);
                     }
-                });
+                }
                 const auto rows = (placed.size() + g.columns - 1) / g.columns;
                 std::vector<float> heights(rows);
                 for (std::size_t i = 0; i < placed.size(); ++i) {
@@ -1161,11 +1202,10 @@ namespace weft {
                 }
                 std::fill(g.positions.begin(), g.positions.end(), std::array<float, 2>{});
                 std::size_t cell_index{};
-                std::size_t ordinal{};
-                each_child(g, [&](Node& c) {
-                    const auto k = ordinal++;
+                for (const auto& [k, item] : ordered) {
+                    auto& c = *item;
                     if (c.formatting == Formatting::None) {
-                        return;
+                        continue;
                     }
                     const auto row = cell_index / g.columns;
                     const auto column = cell_index % g.columns;
@@ -1179,7 +1219,7 @@ namespace weft {
                         dy = (heights[row] - YGNodeLayoutGetHeight(c.yoga)) / 2;
                     }
                     g.positions[k] = {x, row_tops[row] + dy};
-                });
+                }
                 return content + top + bottom;
             }
 

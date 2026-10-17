@@ -90,7 +90,9 @@ namespace weft {
                                                     PropertyId::TextDecorationLine,
                                                     PropertyId::TextDecorationColor,
                                                     PropertyId::TextDecorationStyle,
-                                                    PropertyId::TextDecorationThickness};
+                                                    PropertyId::TextDecorationThickness,
+                                                    PropertyId::OverflowWrap,
+                                                    PropertyId::WordBreak};
 
         // The text a computed content value gives a generated box (CSS Generated Content 3 §1): its strings (with their
         // escapes) and attr(name), the element's attribute, in order; quotes, counters and images give nothing.
@@ -1263,6 +1265,38 @@ namespace weft {
         bool same_layout_style(const Style& a, const Style& b);
     } // namespace
 
+    std::vector<std::size_t> scene_child_order(const SceneNode& n) {
+        std::vector<std::size_t> out(n.children.size());
+        for (std::size_t i = 0; i < out.size(); ++i) {
+            out[i] = i;
+        }
+        if (!scene_orders_children(n)) {
+            return out;
+        }
+        std::vector<int> order(out.size());
+        bool reordered{};
+        for (std::size_t i = 0; i < out.size(); ++i) {
+            const auto& c = n.children[i];
+            const auto* v = c.style.find(PropertyId::Order);
+            const auto position = c.style.text(PropertyId::Position, "static");
+            if (!v || position == "absolute" || position == "fixed") {
+                continue;
+            }
+            const auto value = css::parse_integer(trim(v->text()));
+            if (!value) {
+                fail("order " + v->text() + " outside scene profile");
+            }
+            order[i] = *value;
+            reordered = reordered || *value != 0;
+        }
+        if (reordered) {
+            std::stable_sort(out.begin(), out.end(), [&](std::size_t a, std::size_t b) {
+                return order[a] < order[b];
+            });
+        }
+        return out;
+    }
+
     StyleProfile scene_style_profile(bool forgiving) {
         StyleProfile p;
         p.scene_syntax = true;
@@ -1349,7 +1383,8 @@ namespace weft {
                               "text-overflow",
                               "filter",
                               "vertical-align",
-                              "will-change"}) {
+                              "will-change",
+                              "order"}) {
             p.properties[k] = {"", false, CssGrammar::Tokens, {}};
         }
         // Inherited. The text-decoration longhands too: the scene propagates an element's decorations to its
@@ -1384,7 +1419,9 @@ namespace weft {
                               "text-decoration-line",
                               "text-decoration-color",
                               "text-decoration-style",
-                              "text-decoration-thickness"}) {
+                              "text-decoration-thickness",
+                              "overflow-wrap",
+                              "word-break"}) {
             p.properties[k] = {"", true, CssGrammar::Tokens, {}};
         }
         p.properties["visibility"].initial = "visible";
@@ -2825,6 +2862,7 @@ namespace weft {
                 std::unique_ptr<SceneInlineContent> content;
                 // Layouts by available width, the most recent last.
                 std::vector<std::pair<float, SceneInlineLayout>> memo;
+                std::optional<float> min_content;
             };
 
             std::vector<LayoutBox> boxes;
@@ -3153,7 +3191,9 @@ namespace weft {
                 return c.style.text(PropertyId::Display) != "none" && !out_of_flow(c);
             };
             if (d == "flex" || d == "inline-flex") {
-                for (const auto& c : n.children) {
+                // The first item in order-modified document order.
+                for (const auto i : scene_child_order(n)) {
+                    const auto& c = n.children[i];
                     if (in_flow(c)) {
                         const auto b = baseline_of(c);
                         return b ? std::optional<float>(box_of(c)[1] + *b) : std::nullopt;
@@ -3424,7 +3464,11 @@ namespace weft {
                 return TextMetrics{l.width, l.height, l.baseline, l.lines};
             };
             const auto min_content = [&](std::size_t i) {
-                return at(i, 0).width;
+                auto& c = content(i);
+                if (!c.min_content) {
+                    c.min_content = c.content->min_content(atomic);
+                }
+                return *c.min_content;
             };
             const auto wraps = [&](std::size_t i) {
                 return content(i).content->breakable();

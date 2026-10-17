@@ -1682,6 +1682,8 @@ namespace weft {
             std::array<float, 2> size{};
             std::array<float, 2> pivot{};
             std::vector<std::pair<NodeIdentity, std::string>> children;
+            // The children in order-modified document order (scene_child_order), and in paint order.
+            std::vector<std::size_t> document;
             std::vector<std::size_t> order;
             std::array<float, 4> radii{};
             std::array<float, 4> widths{};
@@ -1735,7 +1737,7 @@ namespace weft {
                     return false;
                 }
             }
-            return true;
+            return !scene_orders_children(n) || scene_child_order(n) == p.document;
         }
 
         std::shared_ptr<const PaintProgram> program(const SceneNode& n) {
@@ -1782,9 +1784,10 @@ namespace weft {
                 auto v = get(c.style, PropertyId::ZIndex, "0");
                 p->children.emplace_back(c.identity, v);
                 z.push_back(v == "auto" ? 0 : num(v));
-                p->order.push_back(p->order.size());
-                p->bytes += sizeof(NodeIdentity) + v.size() + sizeof(std::size_t);
+                p->bytes += sizeof(NodeIdentity) + v.size() + 2 * sizeof(std::size_t);
             }
+            p->document = scene_child_order(n);
+            p->order = p->document;
             std::stable_sort(p->order.begin(), p->order.end(), [&](auto a, auto b) {
                 return z[a] < z[b];
             });
@@ -2208,8 +2211,8 @@ namespace weft {
                     }
                 } else {
                     std::vector<const SceneNode*> ordered;
-                    for (const auto& c : n.children) {
-                        ordered.push_back(&c);
+                    for (const auto i : scene_child_order(n)) {
+                        ordered.push_back(&n.children[i]);
                     }
                     std::stable_sort(ordered.begin(), ordered.end(), [](auto a, auto b) {
                         auto z = [](auto n) {
@@ -2554,8 +2557,8 @@ namespace weft {
                 return;
             }
             std::vector<const SceneNode*> order;
-            for (const auto& c : n.children) {
-                order.push_back(&c);
+            for (const auto i : scene_child_order(n)) {
+                order.push_back(&n.children[i]);
             }
             std::stable_sort(order.begin(), order.end(), [](auto a, auto b) {
                 return len(get(a->style, PropertyId::ZIndex, "0")) < len(get(b->style, PropertyId::ZIndex, "0"));

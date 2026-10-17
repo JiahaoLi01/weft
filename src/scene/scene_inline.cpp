@@ -91,6 +91,21 @@ namespace weft {
             return scene_values::len(trimmed, size);
         }
 
+        // word-break (CSS Text 3 §5.2) of a text: its legacy break-word is normal, with overflow-wrap: anywhere.
+        enum class WordBreak : std::uint8_t {
+            Normal,
+            BreakAll,
+            KeepAll,
+        };
+
+        // An opportunity overflow-wrap gives inside a word (CSS Text 3 §5.5), taken only where the word overflows the
+        // line it starts: break-word's leave the min-content width as it is, anywhere's narrow it.
+        enum class Emergency : std::uint8_t {
+            None,
+            BreakWord,
+            Anywhere,
+        };
+
         // The inline-direction edges and the vertical padding and borders of an inline element.
         struct Box {
             const SceneNode* node{};
@@ -125,6 +140,9 @@ namespace weft {
             std::vector<float> prefix;
             // Text: the bytes a glyph cluster starts at, and its end: where text-overflow may cut it.
             std::vector<bool> starts;
+            // Text: its owner's word-break, and the opportunities its owner's overflow-wrap gives inside its words.
+            WordBreak word_break{};
+            Emergency emergency{};
             // The item's first byte in the paragraph text.
             std::size_t begin{};
             // Open and Close: the box; text and atomic: the innermost inline box around it, none at the root.
@@ -138,6 +156,8 @@ namespace weft {
             std::size_t end{};
             // A soft or forced wrap opportunity lies before this unit.
             bool break_before{};
+            // Or one that overflow-wrap gives (no soft one): the unit starts a grapheme cluster inside a word.
+            Emergency emergency{};
         };
     } // namespace
 
@@ -286,6 +306,8 @@ namespace weft {
         std::vector<Box> boxes;
         std::vector<Chunk> chunks;
         bool breakable{};
+        // A chunk starts at an opportunity overflow-wrap gives.
+        bool emergencies{};
         // A collapsible space was the last character collected: the next one collapses. True at the start and after
         // a forced break, where a line drops its leading spaces.
         bool space_before{true};
@@ -342,6 +364,36 @@ namespace weft {
             const auto ws = s.text(PropertyId::WhiteSpace, "normal");
             white_space(s);
             return ws == "normal" || ws == "pre-wrap" || ws == "pre-line" || ws == "break-spaces";
+        }
+
+        static WordBreak word_break(const SceneStyle& s) {
+            const auto v = s.text(PropertyId::WordBreak, "normal");
+            if (v == "normal" || v == "break-word") {
+                return WordBreak::Normal;
+            }
+            if (v == "break-all") {
+                return WordBreak::BreakAll;
+            }
+            if (v == "keep-all") {
+                return WordBreak::KeepAll;
+            }
+            fail("word-break " + std::string(v) + " outside scene profile");
+        }
+
+        // The opportunities a text's overflow-wrap gives (word-break: break-word gives anywhere's); none where its lines
+        // do not wrap.
+        static Emergency emergency(const SceneStyle& s) {
+            const auto v = s.text(PropertyId::OverflowWrap, "normal");
+            if (v != "normal" && v != "break-word" && v != "anywhere") {
+                fail("overflow-wrap " + std::string(v) + " outside scene profile");
+            }
+            if (!wraps(s)) {
+                return Emergency::None;
+            }
+            if (v == "anywhere" || s.text(PropertyId::WordBreak, "normal") == "break-word") {
+                return Emergency::Anywhere;
+            }
+            return v == "break-word" ? Emergency::BreakWord : Emergency::None;
         }
 
         // A text node's text: its runs between preserved newlines as text items, each such newline a forced break.
@@ -413,6 +465,8 @@ namespace weft {
                 item.starts[std::min<std::size_t>(g.utf8_cluster, item.text.size())] = true;
             }
             item.starts.back() = true;
+            item.word_break = word_break(owner.style);
+            item.emergency = emergency(owner.style);
             item.begin = paragraph.size();
             paragraph += item.text;
             items.push_back(std::move(item));
@@ -501,10 +555,46 @@ namespace weft {
             return a;
         }
 
-        // The chunks and their wrap opportunities: UAX 14 over the whole paragraph, a soft opportunity where the
-        // nearest common ancestor of the characters on either side allows wrapping (CSS Text 3, 5.1), a forced one
-        // after <br>. An opportunity at an inline box's edge
-        // lies after the end edges there and before the start edges.
+        // word-break (CSS Text 3 §5.2) over the UAX 14 opportunities between grapheme clusters, a letter unit by its
+        // first character (probe_letter_units): break-all treats letter units as ideographs, so that a break may fall
+        // between two of them where either side's text is break-all; keep-all suppresses the opportunities between two
+        // letter units of keep-all texts.
+        void tailor(std::vector<bool>& allowed, const std::vector<bool>& cluster,
+                    const std::vector<std::size_t>& owner) const {
+            if (std::none_of(items.begin(), items.end(), [](const Item& item) {
+                    return item.kind == Item::Kind::Text && item.word_break != WordBreak::Normal;
+                })) {
+                return;
+            }
+            const auto mode = [&](std::size_t byte) {
+                const auto& item = items[owner[byte]];
+                return item.kind == Item::Kind::Text ? item.word_break : WordBreak::Normal;
+            };
+            const auto letters = probe_letter_units(paragraph);
+            // The first byte of the cluster before p.
+            std::size_t base = 0;
+            for (std::size_t p = 1; p < paragraph.size(); ++p) {
+                if (!cluster[p]) {
+                    continue;
+                }
+                if (letters[base] && letters[p]) {
+                    const auto a = mode(p - 1);
+                    const auto b = mode(p);
+                    if (a == WordBreak::BreakAll || b == WordBreak::BreakAll) {
+                        allowed[p] = true;
+                    } else if (a == WordBreak::KeepAll && b == WordBreak::KeepAll) {
+                        allowed[p] = false;
+                    }
+                }
+                base = p;
+            }
+        }
+
+        // The chunks and their wrap opportunities: UAX 14 over the whole paragraph as word-break tailors it, a soft
+        // opportunity where the nearest common ancestor of the characters on either side allows wrapping (CSS Text 3,
+        // 5.1), a forced one after <br>. An opportunity at an inline box's edge lies after the end edges there and
+        // before the start edges. A text whose overflow-wrap breaks words splits them into its grapheme clusters too,
+        // each after the first starting at an emergency opportunity.
         void split() {
             std::vector<std::size_t> owner(paragraph.size(), none);
             for (std::size_t i = 0; i < items.size(); ++i) {
@@ -517,9 +607,21 @@ namespace weft {
                           i);
             }
             std::vector<bool> opportunity(paragraph.size() + 1);
+            // The bytes a grapheme cluster starts at.
+            std::vector<bool> cluster(paragraph.size() + 1);
             if (!paragraph.empty()) {
-                for (const auto p : probe_unicode_breaks(paragraph).line) {
-                    if (p == 0 || p >= paragraph.size()) {
+                const auto breaks = probe_unicode_breaks(paragraph);
+                std::vector<bool> allowed(paragraph.size() + 1);
+                for (const auto p : breaks.line) {
+                    allowed[p] = true;
+                }
+                cluster[0] = true;
+                for (const auto p : breaks.grapheme) {
+                    cluster[p] = true;
+                }
+                tailor(allowed, cluster, owner);
+                for (std::size_t p = 1; p < paragraph.size(); ++p) {
+                    if (!allowed[p]) {
                         continue;
                     }
                     const auto& before = items[owner[p - 1]];
@@ -528,13 +630,18 @@ namespace weft {
                 }
             }
             std::size_t placed = std::numeric_limits<std::size_t>::max();
-            const auto add = [&](std::size_t item, std::size_t begin, std::size_t end, std::size_t at, bool closing) {
+            const auto add = [&](std::size_t item, std::size_t begin, std::size_t end, std::size_t at, bool closing,
+                                 Emergency emergency) {
                 Chunk u{item, begin, end};
                 // The first unit at an opportunity that is not an end edge takes it.
                 if (!closing && at != placed && opportunity[at]) {
                     u.break_before = true;
                     placed = at;
                     breakable |= !chunks.empty() && items[chunks.back().item].kind != Item::Kind::Break;
+                } else if (emergency != Emergency::None) {
+                    u.emergency = emergency;
+                    emergencies = true;
+                    breakable = true;
                 }
                 chunks.push_back(u);
             };
@@ -543,20 +650,27 @@ namespace weft {
                 switch (item.kind) {
                     case Item::Kind::Text: {
                         std::size_t start = 0;
+                        auto at_start = Emergency::None;
                         for (std::size_t k = 1; k < item.text.size(); ++k) {
-                            if (opportunity[item.begin + k]) {
-                                add(i, start, k, item.begin + start, false);
+                            const auto p = item.begin + k;
+                            // overflow-wrap breaks a word between grapheme clusters, not inside a glyph cluster (a
+                            // ligature) nor after a space, where a soft opportunity lies.
+                            const bool emergency = item.emergency != Emergency::None && cluster[p] && item.starts[k] &&
+                                                   item.text[k - 1] != ' ';
+                            if (opportunity[p] || emergency) {
+                                add(i, start, k, item.begin + start, false, at_start);
+                                at_start = opportunity[p] ? Emergency::None : item.emergency;
                                 start = k;
                             }
                         }
-                        add(i, start, item.text.size(), item.begin + start, false);
+                        add(i, start, item.text.size(), item.begin + start, false, at_start);
                         break;
                     }
                     case Item::Kind::Close:
-                        add(i, 0, 0, item.begin, true);
+                        add(i, 0, 0, item.begin, true, Emergency::None);
                         break;
                     default:
-                        add(i, 0, 0, item.begin, false);
+                        add(i, 0, 0, item.begin, false, Emergency::None);
                         break;
                 }
             }
@@ -628,41 +742,112 @@ namespace weft {
             return {};
         }
 
+        // A line's width as its chunks are added in order: whole LayoutUnits, and the raw advances of the text fragment
+        // being added (an item's chunks side by side are one fragment).
+        struct Advance {
+            Units total{};
+            float raw{};
+            std::size_t fragment{none};
+        };
+
+        // Adds chunk u to a line's width, a text chunk's bytes up to stop.
+        void advance(Advance& a, std::size_t u, std::size_t stop, const std::vector<SceneAtomicExtent>& extents) const {
+            const auto& unit = chunks[u];
+            const auto& item = items[unit.item];
+            if (item.kind == Item::Kind::Text) {
+                if (unit.item != a.fragment) {
+                    a.total += snapped(a.raw);
+                    a.raw = 0;
+                    a.fragment = unit.item;
+                }
+                if (stop > unit.begin) {
+                    a.raw += item.prefix[stop] - item.prefix[unit.begin];
+                }
+                return;
+            }
+            a.total += snapped(a.raw);
+            a.raw = 0;
+            a.fragment = none;
+            if (item.kind == Item::Kind::Open) {
+                a.total += to_units(boxes[item.box].margin_start) + to_units(boxes[item.box].inner_start);
+            } else if (item.kind == Item::Kind::Close) {
+                a.total += to_units(boxes[item.box].inner_end) + to_units(boxes[item.box].margin_end);
+            } else if (item.kind == Item::Kind::Atomic) {
+                const auto& e = extents[unit.item];
+                a.total += to_units(e.margin[3]) + exact(e.width) + to_units(e.margin[1]);
+            }
+        }
+
+        static Units measured(const Advance& a) {
+            return a.total + snapped(a.raw);
+        }
+
         // The width of chunks [first, last) on one line, without the line's trailing spaces when `hang`.
         Units width(std::size_t first, std::size_t last, bool hang,
                     const std::vector<SceneAtomicExtent>& extents) const {
             const auto end = hang ? trim(first, last) : Trim{};
-            Units total{};
-            float raw{};
-            std::size_t fragment = none;
+            Advance a;
             for (auto u = first; u < last; ++u) {
-                const auto& unit = chunks[u];
-                const auto& item = items[unit.item];
-                if (item.kind == Item::Kind::Text) {
-                    if (unit.item != fragment) {
-                        total += snapped(raw);
-                        raw = 0;
-                        fragment = unit.item;
-                    }
-                    const auto stop = u == end.unit ? end.end : unit.end;
-                    if (stop > unit.begin) {
-                        raw += item.prefix[stop] - item.prefix[unit.begin];
-                    }
-                    continue;
-                }
-                total += snapped(raw);
-                raw = 0;
-                fragment = none;
-                if (item.kind == Item::Kind::Open) {
-                    total += to_units(boxes[item.box].margin_start) + to_units(boxes[item.box].inner_start);
-                } else if (item.kind == Item::Kind::Close) {
-                    total += to_units(boxes[item.box].inner_end) + to_units(boxes[item.box].margin_end);
-                } else if (item.kind == Item::Kind::Atomic) {
-                    const auto& e = extents[unit.item];
-                    total += to_units(e.margin[3]) + exact(e.width) + to_units(e.margin[1]);
-                }
+                advance(a, u, u == end.unit ? end.end : chunks[u].end, extents);
             }
-            return total + snapped(raw);
+            return measured(a);
+        }
+
+        // overflow-wrap (CSS Text 3 §5.5): the word of chunks [i, j) starts the line that begins at chunk `start` (no
+        // content before it there) and overflows it, so the line ends at the word's last emergency opportunity that
+        // fits, or at its first when none does (a grapheme cluster wider than the line overflows it alone), and the
+        // lines after take the rest alike. For the min-content width (`intrinsic`) only anywhere's opportunities count.
+        // Returns the first chunk of the line the word ends on.
+        std::size_t rescue(std::size_t start, std::size_t i, std::size_t j, Units limit,
+                           const std::vector<SceneAtomicExtent>& extents, bool intrinsic,
+                           std::vector<std::pair<std::size_t, std::size_t>>& lines) const {
+            if (width(start, j, true, extents) <= limit) {
+                return start;
+            }
+            const auto usable = [&](std::size_t u) {
+                return chunks[u].emergency == Emergency::Anywhere ||
+                       (chunks[u].emergency == Emergency::BreakWord && !intrinsic);
+            };
+            // The line so far, without hanging spaces: none lie before an emergency opportunity.
+            Advance a;
+            for (auto u = start; u < i; ++u) {
+                advance(a, u, chunks[u].end, extents);
+            }
+            // The last opportunity on the line that fits.
+            std::size_t fit = none;
+            for (auto v = i; v < j; ++v) {
+                if (v > start && usable(v)) {
+                    if (measured(a) <= limit) {
+                        fit = v;
+                    } else {
+                        const auto end = fit == none ? v : fit;
+                        lines.emplace_back(start, end);
+                        start = end;
+                        fit = none;
+                        a = {};
+                        for (auto u = end; u < v; ++u) {
+                            advance(a, u, chunks[u].end, extents);
+                        }
+                        // No opportunity lies between the line's start and v, the next line's first.
+                        if (end < v) {
+                            if (measured(a) <= limit) {
+                                fit = v;
+                            } else {
+                                lines.emplace_back(start, v);
+                                start = v;
+                                a = {};
+                            }
+                        }
+                    }
+                }
+                advance(a, v, chunks[v].end, extents);
+            }
+            // The rest, its trailing spaces hanging, still past the limit: the line ends at its last opportunity.
+            if (fit != none && width(start, j, true, extents) > limit) {
+                lines.emplace_back(start, fit);
+                start = fit;
+            }
+            return start;
         }
 
         // A piece and its extents on a line: above and below the baseline (with margins), and its rect's top above the
@@ -755,7 +940,8 @@ namespace weft {
             return std::nullopt;
         }
 
-        SceneInlineLayout layout(float available, SceneAtomicLayout atomic) {
+        // intrinsic: the lines that give the min-content width, which overflow-wrap: break-word does not narrow.
+        SceneInlineLayout layout(float available, SceneAtomicLayout atomic, bool intrinsic) {
             if (std::isnan(available) || available < 0) {
                 fail("inline available width");
             }
@@ -785,6 +971,9 @@ namespace weft {
                     lines.emplace_back(start, i);
                     start = i;
                     filled = false;
+                }
+                if (!filled && emergencies && bounded) {
+                    start = rescue(start, i, j, limit, extents, intrinsic, lines);
                 }
                 for (auto u = i; u < j; ++u) {
                     filled |= content(chunks[u]);
@@ -1002,7 +1191,11 @@ namespace weft {
     SceneInlineContent::~SceneInlineContent() = default;
 
     SceneInlineLayout SceneInlineContent::layout(float available, SceneAtomicLayout atomic) {
-        return impl_->layout(available, atomic);
+        return impl_->layout(available, atomic, false);
+    }
+
+    float SceneInlineContent::min_content(SceneAtomicLayout atomic) {
+        return impl_->layout(0, atomic, true).width;
     }
 
     bool SceneInlineContent::breakable() const {

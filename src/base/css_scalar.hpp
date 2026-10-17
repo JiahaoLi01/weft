@@ -2,6 +2,7 @@
 
 #include "base/result.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <exception>
 #include <limits>
@@ -297,6 +298,20 @@ namespace weft::css {
             }
         }
         return i == text.size();
+    }
+
+    // An <integer> (CSS Values 4 §5.2): the whole text a decimal number, rounded to the nearest integer as a calc() of
+    // one rounds and clamped to the int range (where calc(infinity) goes); nothing for any other text.
+    inline std::optional<int> parse_integer(std::string_view text) {
+        if (!decimal_syntax(text)) {
+            return std::nullopt;
+        }
+        const auto value = parse_number<double>(std::string(text));
+        if (!value) {
+            return std::nullopt;
+        }
+        return int(std::clamp(std::round(*value), double(std::numeric_limits<int>::min()),
+                              double(std::numeric_limits<int>::max())));
     }
 
     // Rewrites the color forms parse_css_color does not accept: the black and white keywords

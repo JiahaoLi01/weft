@@ -1,5 +1,6 @@
 #pragma once
 #include "style/style.hpp"
+#include "constants/common.hpp"
 #include "dom/geometry.hpp"
 #include "scene/scene_anchor.hpp"
 #include "scene/scene_effects.hpp"
@@ -471,6 +472,21 @@ namespace weft {
                a.particles == b.particles && a.anchoring == b.anchoring && a.scroll == b.scroll &&
                a.scrolled == b.scrolled && a.scroll_shift == b.scroll_shift;
     }
+
+    // Whether a node's children may stand in another order than the document's (scene_child_order): an HTML flex or
+    // grid container of two children or more, as the layout adapter takes them (flex, inline-flex and grid; inline-grid
+    // is outside its profile).
+    inline bool scene_orders_children(const SceneNode& n) {
+        const auto display = n.style.text(PropertyId::Display, "inline");
+        return n.children.size() > 1 && (n.space.empty() || n.space == constants::xhtml_namespace_uri) &&
+               (display == "flex" || display == "inline-flex" || display == "grid");
+    }
+
+    // The order-modified document order of a node's children (CSS Display 3 §3.1): those of an HTML flex or grid
+    // container stably by their order property (an absolutely positioned or fixed child at 0, CSS Flexbox 1 §5.4), any
+    // other node's as they are. Layout places a container's items in this order, and painting and hit testing stack
+    // the children in it, stably by z-index after.
+    std::vector<std::size_t> scene_child_order(const SceneNode& n);
 
     struct SceneFrame {
         SceneNode root;

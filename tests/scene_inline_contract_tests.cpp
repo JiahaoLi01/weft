@@ -18,8 +18,9 @@
 // Scene inline formatting contexts beyond Chrome's geometry (scene_inline_browser_contract): a layout reused while
 // the content stays and redone when a text changes; hits and client rects by fragment, so the empty part of an inline
 // element's bounding box hits its parent; a fragmented box painted with its start edge on the first fragment and its
-// end edge on the last; text painted a line at a time; ruby; text decorations; the profile's diagnostics; and the
-// native D3D11 pass drawing the lines and their decorations where the reference raster does.
+// end edge on the last; text painted a line at a time; ruby; text decorations; overflow-wrap and word-break; the
+// profile's diagnostics; and the native D3D11 pass drawing the lines and their decorations where the reference raster
+// does.
 namespace {
     using weft::testing::require;
     using Kind = weft::paint::Item::Kind;
@@ -494,6 +495,158 @@ int main() {
                                                     "," + std::to_string(r[1]) + "," + std::to_string(r[2]));
             }
         }
+        // overflow-wrap and word-break (CSS Text 3 §5.5, §5.2): overflow-wrap: break-word and anywhere (and word-break:
+        // break-word, and the legacy word-wrap) break a word that overflows the line it starts between its grapheme
+        // clusters, each line taking the most that fit; a word that fits on the next line goes there first. break-all
+        // breaks between letters wherever a line fills; keep-all keeps CJK letters together. anywhere narrows the
+        // min-content width and break-word does not: a flex item shrinks past its long word with the one only.
+        {
+            const std::string word = "Supercalifragilisticexpialidocious";
+            weft::StyleValues font;
+            font.set(weft::PropertyId::FontFamily, "system-ui");
+            font.set(weft::PropertyId::FontSize, "14px");
+
+            struct Laid {
+                std::vector<std::string> texts;
+                float widest{};
+            };
+
+            const auto lay = [&](const std::string& style, const std::string& content, int width = 80) {
+                weft::testing::NativeScene t;
+                auto& b =
+                    element(t, *t.root, "div",
+                            "width:" + std::to_string(width) + "px;font-family:system-ui;font-size:14px;" + style);
+                text(t, b, content);
+                weft::SceneSolver wrapping("", "", scene_text);
+                Laid out;
+                for (const auto& line : wrapping.frame(t.tree.snapshot(*t.root), 300, 300, 0).root.children[0].lines) {
+                    out.texts.push_back(line.text);
+                    out.widest = std::max(out.widest, line.rect[2]);
+                }
+                return out;
+            };
+            const auto joined = [](const Laid& l) {
+                std::string out;
+                for (const auto& t : l.texts) {
+                    out += t;
+                }
+                return out;
+            };
+            const auto listed_lines = [](const Laid& l) {
+                std::string out;
+                for (const auto& t : l.texts) {
+                    out += " [" + t + "]";
+                }
+                return out;
+            };
+            const auto normal = lay("", word);
+            require(normal.texts.size() == 1 && normal.widest > 80,
+                    "a long word overflows its line without overflow-wrap:" + listed_lines(normal));
+            for (const std::string style :
+                 {"overflow-wrap:break-word", "overflow-wrap:anywhere", "word-break:break-word", "word-wrap:break-word",
+                  "white-space:pre-wrap;word-break:break-word"}) {
+                const auto broken = lay(style, word);
+                require(broken.texts.size() > 2 && broken.widest <= 80 && joined(broken) == word,
+                        style + " breaks the word between its letters:" + listed_lines(broken));
+                for (std::size_t k = 0; k + 1 < broken.texts.size(); ++k) {
+                    const auto more = broken.texts[k] + broken.texts[k + 1].substr(0, 1);
+                    require(scene_text.measure(more, font).width > 80,
+                            style + ": the line [" + broken.texts[k] + "] takes the most letters that fit");
+                }
+            }
+            require(lay("white-space:nowrap;overflow-wrap:anywhere", word).texts.size() == 1,
+                    "overflow-wrap breaks no word of a text that does not wrap");
+            const auto after_short = lay("overflow-wrap:break-word", "aa " + word);
+            const auto break_all = lay("word-break:break-all", "aa " + word);
+            require(after_short.texts.at(0) == "aa" && joined(after_short) == "aa" + word,
+                    "break-word moves a long word to a line of its own first:" + listed_lines(after_short));
+            require(break_all.texts.at(0).starts_with("aa S") && break_all.widest <= 80 &&
+                        scene_text.measure(break_all.texts[0] + break_all.texts[1].substr(0, 1), font).width > 80,
+                    "break-all fills the first line with the start of the long word:" + listed_lines(break_all));
+            const std::string ideographs = "漢字漢字漢字漢字漢字漢字";
+            require(lay("", ideographs).texts.size() > 1, "CJK text breaks between its ideographs");
+            require(lay("word-break:keep-all", ideographs).texts.size() == 1, "keep-all keeps the ideographs together");
+            const auto spaced = lay("word-break:keep-all", "漢字漢字 漢字漢字 漢字漢字");
+            require(spaced.texts == std::vector<std::string>{"漢字漢字", "漢字漢字", "漢字漢字"},
+                    "keep-all breaks at spaces only:" + listed_lines(spaced));
+            std::string accented;
+            for (int k = 0; k < 16; ++k) {
+                accented += "e\xCC\x81";
+            }
+            const auto clusters = lay("overflow-wrap:anywhere", accented, 30);
+            require(clusters.texts.size() > 1 && joined(clusters) == accented &&
+                        std::none_of(clusters.texts.begin(), clusters.texts.end(),
+                                     [](const std::string& t) {
+                                         return t.starts_with("\xCC\x81");
+                                     }),
+                    "a grapheme cluster stays together:" + listed_lines(clusters));
+            // A flex item of the long word in a row 80px wide: its automatic minimum width is its min-content width.
+            const auto item = [&](const std::string& style) {
+                weft::testing::NativeScene t;
+                auto& row = element(t, *t.root, "div", "display:flex;width:80px");
+                auto& i = element(t, row, "div", "font-family:system-ui;font-size:14px;" + style);
+                text(t, i, word);
+                weft::SceneSolver flexing("", "", scene_text);
+                const auto f = flexing.frame(t.tree.snapshot(*t.root), 300, 300, 0);
+                const auto& n = f.root.children[0].children[0];
+                return std::pair{n.box[2], n.lines.size()};
+            };
+            const auto [plain_width, plain_lines] = item("");
+            const auto [word_width, word_lines] = item("overflow-wrap:break-word");
+            const auto [anywhere_width, anywhere_lines] = item("overflow-wrap:anywhere");
+            const auto [legacy_width, legacy_lines] = item("word-break:break-word");
+            require(plain_lines == 1 && plain_width > 80, "a flex item keeps its long word");
+            require(word_lines == 1 && word_width == plain_width,
+                    "break-word leaves the min-content width: the item keeps its word on one line, " +
+                        std::to_string(word_width) + "px");
+            require(
+                anywhere_lines > 2 && anywhere_width == 80 && legacy_lines == anywhere_lines && legacy_width == 80,
+                "anywhere (and word-break: break-word) narrows it: the item shrinks to its row and breaks the word, " +
+                    std::to_string(anywhere_width) + "px in " + std::to_string(anywhere_lines) + " lines");
+            // The native pass draws the broken lines where the reference raster does.
+            weft::testing::NativeScene t;
+            t.set(*t.root, "style", "position:relative;background-color:#101010");
+            auto& b = element(t, *t.root, "div",
+                              "width:80px;font-family:system-ui;font-size:14px;color:#e0e0e0;overflow-wrap:anywhere");
+            text(t, b, "aa " + word);
+            weft::SceneSolver drawing("", "", scene_text);
+            const auto f = drawing.frame(t.tree.snapshot(*t.root), 120, 120, 0);
+            weft::SceneRaster painter(scene_text);
+            const auto broken_reference = painter.raster(f, 1);
+            weft::testing::D3D11Scene broken_d3d11(120, 120);
+            const auto broken_native = broken_d3d11.draw(f);
+            broken_d3d11.gpu.check_debug_messages();
+            const auto broken_ink = [&](bool from_native, const std::array<float, 4>& r) {
+                std::array<double, 3> out{};
+                for (int y = std::max(0, int(r[1]) - 2); y < std::min(120, int(r[1] + r[3]) + 2); ++y) {
+                    for (int x = std::max(0, int(r[0])); x < std::min(120, int(r[0] + r[2]) + 1); ++x) {
+                        const auto i = (std::size_t(y) * 120 + x) * 4;
+                        const double v =
+                            std::max(0, int(from_native ? broken_native[i + 1] : broken_reference.rgba[i + 1]) - 0x30);
+                        out[0] += v;
+                        out[1] += v * x;
+                        out[2] += v * y;
+                    }
+                }
+                return out;
+            };
+            const auto& paragraph = f.root.children[0];
+            require(paragraph.lines.size() > 3, "the paragraph's lines");
+            for (const auto& line : paragraph.lines) {
+                const std::array<float, 4> r{paragraph.box[0] + line.rect[0], paragraph.box[1] + line.rect[1],
+                                             line.rect[2], line.rect[3]};
+                const auto x = broken_ink(false, r);
+                const auto y = broken_ink(true, r);
+                const double dx = std::abs(x[1] / x[0] - y[1] / y[0]);
+                const double dy = std::abs(x[2] / x[0] - y[2] / y[0]);
+                std::cout << "broken line [" << line.text << "]: centroid difference " << dx << ", " << dy << ", ink "
+                          << y[0] / x[0] << '\n';
+                require(x[0] > 0 && dx < 1 && dy < 1 && std::abs(y[0] / x[0] - 1) < .25,
+                        "native pass draws the broken line [" + line.text + "] of the reference raster");
+            }
+        }
+        refused("overflow-wrap:wobble", "", "overflow-wrap wobble outside scene profile");
+        refused("word-break:auto-phrase", "", "word-break auto-phrase outside scene profile");
         refused("text-align:justify", "", "text-align justify outside scene profile");
         refused("", "vertical-align:middle", "vertical-align middle outside scene profile");
         {
@@ -512,7 +665,7 @@ int main() {
         }
         std::cout
             << "PASS scene inline contract: reuse and relayout, fragment hits and rects, sliced boxes, lines, ruby, "
-               "text decorations, "
+               "text decorations, overflow-wrap and word-break, "
                "native lines, diagnostics\n";
         return 0;
     } catch (const std::exception& e) {

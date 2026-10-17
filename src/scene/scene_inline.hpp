@@ -17,6 +17,9 @@
 //   spaces it starts and ends with, and <br> ends a line;
 // - soft wrap opportunities from UAX 14 (libunibreak) over the whole context, none inside nowrap text; an inline
 //   box's start edge goes with the content after it and its end edge with the content before it;
+// - word-break: break-all adds opportunities between letter units, keep-all suppresses them; overflow-wrap:
+//   break-word and anywhere (and word-break: break-word) break a word that overflows the line it starts between its
+//   grapheme clusters, anywhere's breaks narrowing the min-content width too;
 // - greedy line filling in LayoutUnits (1/64 px): each item's part of a line is snapped up to a LayoutUnit, and a
 //   line's trailing spaces do not count;
 // - line boxes from the root's strut, the strut of each inline box on the line, each text's line box and each atomic
@@ -117,7 +120,11 @@ namespace weft {
         // The lines at most `available` wide; infinity lays out unconstrained lines, zero the narrowest. Atomic
         // inlines are laid out by `atomic` at the available width.
         SceneInlineLayout layout(float available, SceneAtomicLayout atomic);
-        // Whether the content has a soft wrap opportunity, so that a narrower width can add lines.
+        // The min-content width: the widest line at zero width, where overflow-wrap: anywhere breaks words and
+        // break-word does not (CSS Text 3 §5.5 leaves its opportunities out of min-content sizes).
+        float min_content(SceneAtomicLayout atomic);
+        // Whether the content has a soft wrap opportunity, or one overflow-wrap gives, so that a narrower width can add
+        // lines.
         bool breakable() const;
 
     private:

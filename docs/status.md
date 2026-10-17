@@ -1,6 +1,6 @@
 # Weft 当前状态
 
-更新日期：2026 年 10 月 17 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG、键盘/IME 与移动尚未实现，仍未达到 M0 全部退出条件。
+更新日期：2026 年 10 月 18 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG、键盘/IME 与移动尚未实现，仍未达到 M0 全部退出条件。
 
 ## 待办
 
@@ -15,6 +15,17 @@
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
+
+`overflow-wrap`、`word-break` 与 `order`（2026-10-18，`weft-dev` 分支；CRPG 的 UI 移到 weft 之后宽松样式还在丢弃的几项，`object-fit` 与 HTML 元素的 `filter: blur()` 之外）。
+- **起因**：CRPG 的页面在宽松模式下丢弃这三个属性并诊断（`WEFT_STYLE_DROPPED: … unsupported property overflow-wrap`、`word-break`、`order`）。战斗单位面板、状态面板、Pick 17 构筑页与 Buff 实验页的说明文字用 Tailwind 的 `break-words`（`overflow-wrap: break-word`），字幕文字是 `white-space: pre-wrap` 加 `word-break: break-word`：没有空格的长串撑出行宽而不断开。字幕叠层的 `.subtitle-item` 是池化的槽位，靠 `style={{order: seq}}` 让新字幕排在下面而不移动 DOM；没有 `order` 时按槽位下标排列，一个槽位空出来又被新字幕占用之后，新字幕排到了旧字幕上面。
+- **实现**：
+  - 样式：`overflow-wrap`、`word-break` 是继承属性，`order` 不继承，三者加进 scene profile（严格与宽松页面都接受，`src/scene/scene.cpp`）；`word-wrap` 是 `overflow-wrap` 的旧名，层叠时换成它（`src/style/style.cpp`）。`src/base/css_scalar.hpp` 加 `parse_integer`：整数值像 `calc()` 那样取整并夹到 int 范围（`calc(-infinity)` 层叠化简为 `-1e+07`）。
+  - `word-break`（CSS Text 3 §5.2，`src/scene/scene_inline.cpp` 的 `tailor`）：在 UAX 14 的换行机会上按字形簇定制。簇边界两侧都是字母单位（簇首字符的 UAX 14 类是 AL、HL、NU、AI、ID，或 SA、CJ 与韩文各类，`probe_letter_units`，`src/layout/inline_layout.cpp`）时，任一侧的文字是 `break-all` 就加一个机会，两侧都是 `keep-all` 就去掉；仍然只在两字符的最近共同祖先允许换行时才是软换行机会。
+  - `overflow-wrap`（CSS Text 3 §5.5）：`break-word`、`anywhere` 与 `word-break: break-word`（等于 `anywhere`）在会换行的文字里，把词在字形簇边界切成小块（也要是字形簇的开头，不拆连字；空格之后不切），作为紧急机会：贪心排行时只在一个词独占一行仍然放不下时才用（`rescue`），每行放下尽量多的簇，至少一个；放得进下一行的词先整个换到下一行，这一点与 `break-all` 在当前行填满不同。行宽逐块累加（`Advance`，`width` 也改用它），一个词的紧急断行是线性的。最小内容宽度改由 `SceneInlineContent::min_content` 给出，只用 `anywhere` 的紧急机会、不用 `break-word` 的：flex 项目的自动最小宽度因此随 `anywhere` 收缩、不随 `break-word` 收缩；有紧急机会的文字也算会换行（`breakable`，列方向的自动最小高度要用）。其他值（如 `word-break: auto-phrase`）是 scene 诊断。
+  - `order`（CSS Display 3 §3.1、CSS Flexbox 1 §5.4）：Yoga 适配器（`src/layout/flex.cpp`）把 flex 项目按（`order`，文档顺序）插入 Yoga，网格（等列子集）按同样的顺序放格子、算各行高；绝对定位（含 fixed）的子项算 0；不是数的值是 `WEFT_CSS_VALUE`。scene 的 `scene_child_order`（`src/scene/scene.hpp`）给出 HTML flex、grid 容器子项的这个顺序，显示列表、D2D 参考光栅（逐帧绘制与它保留的绘制程序）、命中图与参考命中都按它排子项，再按 `z-index` 稳定排序；flex 容器的基线取这个顺序里的第一个项目。原生 pass 给保留的 pass 打补丁时，子项的顺序变了就整块重列这个容器（`changed_parts`）；参考光栅保留的绘制程序也比较顺序。不这样做时两者都会沿用旧的层叠。
+- **验证**（Release）：`scene_inline_contract` 加换行用例：80px 宽的块里一个长词在 `overflow-wrap: break-word`、`anywhere`、`word-break: break-word`、`word-wrap: break-word` 与 `pre-wrap` 加 `break-word` 下断成多行，拼起来是原词，每行不超过 80px，再放一个字母就超；`nowrap` 不断；前面有短词时 `break-word` 先把长词换到下一行，`break-all` 用长词的开头填满第一行；CJK 默认在字间断，`keep-all` 只在空格处断；带组合附加符号的字母不拆开；80px 宽的 flex 行里，`anywhere` 与 `word-break: break-word` 的项目收缩到 80px 并断词，`break-word` 的项目保持词宽、一行（最小内容宽度不降）；原生 D3D11 pass 与参考光栅逐行对照断开的行（质心差 < 1px，墨量差 < 25%）；两个值的诊断。`style_forgiving_contract` 加 `wrapping_and_order`（不丢弃、继承、`word-wrap`、`order` 不继承、负值、`calc(-infinity)`、style 属性里的写法）。`scene_background_contract` 加 `flex_order`：一行三个互相压住 10px 的项目按 `order` 排成 b、c、a 并依次盖住前一个，绝对定位的子项按 0 排，`z-index` 仍压过 `order`，列方向按 `order` 叠放（字幕槽位的写法），网格按 `order` 放格子；每一点的颜色在原生 pass、参考光栅与参考光栅的保留程序里都对，命中两套都对；改一个项目的 `order` 之后，同一个原生 pass（打补丁）与同一个保留程序的参考光栅画出新的层叠。核对过去掉修复时失败：不在补丁里比较顺序时原生 pass 把 a 画在 b 上；参考光栅保留的程序不比较顺序时同样画错；最小内容宽度用 `break-word` 的机会时 `break-word` 的 flex 项目缩到 80px。全量 ctest 174 项：除既有的 14 项（签出换行的散列校验）外通过。
+- **CRPG**：`BuildWeft.ps1` 重建插件的 weft.dll，`npm run build:weft`，`weft_page_runner` 跑 UI/dist-weft（963×541，缩放 1.66）：加载时不再有 `overflow-wrap`、`word-break`、`order` 的丢弃诊断，只剩 `object-fit` 与 `filter: blur(10px)`。字幕的时间线：显示 s1、s2，隐藏 s1 让它的槽位空出来，再显示 s3（占用槽位 0，DOM 里排在 s2 之前，`order` 是 3）：s2 的顶在 261px、s3 在 374px，新字幕排在下面；s2 里 105 个字母的长串（`word-break: break-word`）在 698px 宽的文字框里排成三行，`Second line:` 独占第一行，长串换到下一行再断开（行里有别的换行机会时先用它，CSS Text 3 §5.5）。
+- **限制**：紧急断开只在一个文字节点之内，一个词跨元素边界（如 `aa<b>bb</b>`）时不在边界处断；不在连字内部断开；字母单位按簇首字符的 UAX 14 类判断，不按 General Category，`break-all` 下标点前后的规则照旧；`keep-all` 没有词典断词，`word-break: auto-phrase`、`line-break`、`hyphens` 没有；`order` 只排 flex 与网格容器的子项，非整数的值取整，不像浏览器那样丢弃整条声明；`object-fit`（等 `<img>`）与 HTML 元素的 `filter: blur()` 仍丢弃。
 
 生成内容（`::before`/`::after`）、`outline`、`visibility`、ruby 与 `text-decoration`（2026-10-17，`weft-dev` 分支；CRPG 的 UI 移到 weft 之后宽松样式还在丢弃的几项）。
 - **起因**：这几项在宽松页面上丢弃并诊断，CRPG 的页面因此画错：设置页分类标签的下划线与按钮的角标是 `::after`/`::before`；焦点环与选中框是 `outline`；`invisible`（悬停才出现的按钮、工具提示）照常显示，也挡住下面的命中；字幕的振假名 `<ruby>`/`<rt>` 排成一行，读音跟在汉字后面；`underline`、`line-through` 没有线。

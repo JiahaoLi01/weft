@@ -342,6 +342,32 @@ namespace {
         require(after.stamp == 2 && before.stamp == 1, "the restyled box takes the update's stamp");
     }
 
+    // overflow-wrap and word-break (CSS Text 3 §5.2, §5.5) inherit and word-wrap is overflow-wrap's legacy name; order
+    // (CSS Display 3 §3.1) does not inherit. None is dropped, in a sheet or an element's style attribute.
+    void wrapping_and_order() {
+        const std::string sheet = ".p { word-break: break-all; word-wrap: break-word; order: 3 }"
+                                  ".q { overflow-wrap: anywhere; word-break: break-word; order: -1 }"
+                                  ".r { order: calc(-infinity) }";
+        CompiledStyle compiled(sheet, scene_style_profile(true));
+        const auto warnings = compiled.take_warnings();
+        require(warnings.empty(), "overflow-wrap, word-wrap, word-break and order are not dropped" +
+                                      (warnings.empty() ? std::string() : ": " + warnings.front()));
+        auto styled = el("div", "s");
+        styled.attributes["style"] = "order: 7; overflow-wrap: break-word";
+        const auto r = cascade(
+            sheet, el("html", "root", "",
+                      {el("div", "p", "p", {el("span", "c")}), el("div", "q", "q"), el("div", "r", "r"), styled}));
+        same(r.value("p", PropertyId::OverflowWrap), "break-word", "word-wrap sets overflow-wrap");
+        same(r.value("c", PropertyId::WordBreak), "break-all", "word-break inherits");
+        same(r.value("c", PropertyId::OverflowWrap), "break-word", "overflow-wrap inherits");
+        same(r.value("c", PropertyId::Order), "<none>", "order does not inherit");
+        same(r.value("q", PropertyId::Order), "-1", "a negative order");
+        same(r.value("q", PropertyId::WordBreak), "break-word", "word-break's legacy break-word");
+        same(r.value("r", PropertyId::Order), "-1e+07", "calc(-infinity) as an order, a large finite number");
+        same(r.value("s", PropertyId::Order), "7", "an order in a style attribute");
+        same(r.value("s", PropertyId::OverflowWrap), "break-word", "overflow-wrap in a style attribute");
+    }
+
     // What the profile cannot take is dropped with a warning; the rest of the sheet and of the rule stays. A strict
     // profile still fails the sheet.
     void drops() {
@@ -387,9 +413,11 @@ int main() {
         nesting();
         borders();
         generated();
+        wrapping_and_order();
         drops();
         std::cout << "PASS forgiving CSS: cascade layers, @media/@supports, @property, colors, calc, logical "
-                     "properties, Selectors 4, nesting, border-color per side and drops with warnings\n";
+                     "properties, Selectors 4, nesting, border-color per side, overflow-wrap, word-break and order, "
+                     "and drops with warnings\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

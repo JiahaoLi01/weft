@@ -489,9 +489,11 @@ namespace weft {
 
         // Adds the nodes below now (whose own values are old's) whose storage differs from old's to changed, each with
         // the node it replaces: subtrees to list again, and the nodes on the way to them; false when now's children are
-        // not old's in their order and z-index, so that now is to be listed whole.
+        // not old's in their order (as children, and in order-modified document order) and z-index, so that now is to be
+        // listed whole.
         bool changed_parts(const SceneNode& old, const SceneNode& now, std::vector<Changed>& changed) {
-            if (old.children.size() != now.children.size()) {
+            if (old.children.size() != now.children.size() ||
+                (scene_orders_children(now) && scene_child_order(old) != scene_child_order(now))) {
                 return false;
             }
             for (std::size_t k = 0; k < now.children.size(); ++k) {

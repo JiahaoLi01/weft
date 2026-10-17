@@ -65,5 +65,8 @@ namespace weft {
     };
 
     UnicodeBreaks probe_unicode_breaks(std::string_view text);
+    // The code points of text that word-break treats as typographic letter units (CSS Text 3 §5.2), marked at their
+    // first byte: those of the UAX 14 classes AL, HL, NU, AI and ID, and the letters of SA, CJ and the Hangul classes.
+    std::vector<bool> probe_letter_units(std::string_view text);
     InlineLayout layout_inline(const InlineInput&, float available, FontSet& fonts);
 } // namespace weft

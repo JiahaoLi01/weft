@@ -6,6 +6,7 @@
 #include <graphemebreak.h>
 extern "C" {
 #include <eastasianwidthdef.h>
+#include <linebreakdef.h>
 }
 #include <algorithm>
 #include <cmath>
@@ -41,6 +42,14 @@ namespace weft {
             std::uint32_t cp;
             bool wrap;
         };
+
+        void init_unibreak() {
+            static std::once_flag init;
+            std::call_once(init, [] {
+                init_linebreak();
+                init_graphemebreak();
+            });
+        }
     } // namespace
 
     std::vector<UnicodePoint> probe_unicode_points(std::string_view text) {
@@ -75,11 +84,7 @@ namespace weft {
 
     UnicodeBreaks probe_unicode_breaks(std::string_view text) {
         const auto points = probe_unicode_points(text);
-        static std::once_flag init;
-        std::call_once(init, [] {
-            init_linebreak();
-            init_graphemebreak();
-        });
+        init_unibreak();
         std::vector<char> line(text.size());
         std::vector<char> grapheme(text.size());
         set_linebreaks_utf8(reinterpret_cast<const utf8_t*>(text.data()), text.size(), nullptr, line.data());
@@ -100,6 +105,35 @@ namespace weft {
         }
         if (!text.empty() && (out.line.empty() || out.line.back() != text.size())) {
             out.line.push_back(text.size());
+        }
+        return out;
+    }
+
+    std::vector<bool> probe_letter_units(std::string_view text) {
+        const auto points = probe_unicode_points(text);
+        init_unibreak();
+        // No language: the default classes, AI unresolved.
+        const LineBreakContext context{};
+        std::vector<bool> out(text.size());
+        for (const auto& p : points) {
+            switch (lb_get_char_class(&context, p.value)) {
+                case LBP_AL:
+                case LBP_HL:
+                case LBP_NU:
+                case LBP_AI:
+                case LBP_ID:
+                case LBP_SA:
+                case LBP_CJ:
+                case LBP_H2:
+                case LBP_H3:
+                case LBP_JL:
+                case LBP_JV:
+                case LBP_JT:
+                    out[p.begin] = true;
+                    break;
+                default:
+                    break;
+            }
         }
         return out;
     }

@@ -1453,10 +1453,8 @@ namespace weft {
                         }
                     }
                 }
-                std::vector<std::size_t> order;
-                for (std::size_t i = 0; !svg_root && i < n.children.size(); ++i) {
-                    order.push_back(i);
-                }
+                // In order-modified document order, stably by z-index.
+                auto order = svg_root ? std::vector<std::size_t>{} : scene_child_order(n);
                 const auto z = [&](std::size_t i) {
                     auto v = get(n.children[i].style, PropertyId::ZIndex, "0");
                     return v == "auto" ? 0 : number(v);

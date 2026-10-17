@@ -762,6 +762,10 @@ namespace weft {
                 if (!custom(key)) {
                     key = lower(key);
                 }
+                // word-wrap is a legacy name of overflow-wrap (CSS Text 3 §5.5).
+                if (key == "word-wrap" && profile.properties.contains("overflow-wrap")) {
+                    key = "overflow-wrap";
+                }
                 if (profile.forgiving && !custom(key)) {
                     if (std::find(profile.ignored.begin(), profile.ignored.end(), key) != profile.ignored.end()) {
                         return;
