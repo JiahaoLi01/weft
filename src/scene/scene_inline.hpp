@@ -92,6 +92,10 @@ namespace weft {
     std::vector<SceneNode> scene_fragment_boxes(const SceneNode& n);
     // The element without its box (background, borders, shadow, effect): its text and children.
     SceneNode scene_without_box(const SceneNode& n);
+    // Whether a box of no area (a 0 width or height) shows what overflows it: it paints nothing of its own, but its
+    // children and text paint where they lie unless it clips them (overflow other than visible, an svg viewport, a
+    // perspective plane) — the absolutely positioned children of a body of no height, a tooltip on an empty wrapper.
+    bool scene_shows_overflow(const SceneNode& n);
     // A single-line text node for line i of a node's text: the line's text over its line box (box in the node's
     // coordinates), with the node's text properties and nothing that would move the text inside that box.
     SceneNode scene_text_line(const SceneNode& n, std::size_t i);

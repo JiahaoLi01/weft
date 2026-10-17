@@ -224,6 +224,15 @@ namespace weft {
         return out;
     }
 
+    bool scene_shows_overflow(const SceneNode& n) {
+        if (n.children.empty() && n.text.empty() && n.lines.empty()) {
+            return false;
+        }
+        const auto overflow = n.style.text(PropertyId::Overflow, "visible");
+        return (overflow == "visible" || overflow.empty()) && n.tag != "svg" &&
+               n.style.text(PropertyId::Transform, "none").find("perspective(") == std::string_view::npos;
+    }
+
     SceneNode scene_text_line(const SceneNode& n, std::size_t i) {
         const auto& line = n.lines.at(i);
         SceneNode out;
@@ -749,7 +758,10 @@ namespace weft {
                 }
             }
             const bool bounded = std::isfinite(available);
-            const Units limit = bounded ? to_units(available) : std::numeric_limits<Units>::max();
+            // A laid-out content width (the box less its borders and padding, in floats): to the nearest LayoutUnit,
+            // or float error takes a unit off the max-content width a shrink-to-fit box was sized to and its last
+            // word wraps (Blink keeps the content box in LayoutUnits throughout).
+            const Units limit = bounded ? exact(available) : std::numeric_limits<Units>::max();
             // Greedy filling: lines as ranges of chunks.
             std::vector<std::pair<std::size_t, std::size_t>> lines;
             std::size_t start = 0;

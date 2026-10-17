@@ -276,6 +276,46 @@ int main() {
                     "pre-line collapses spaces and keeps newlines");
             require(lines("", "a  b\nc") == std::vector<std::string>{"a b c"}, "normal collapses both");
         }
+        // A shrink-to-fit box (absolutely positioned, auto width) is its text's max-content width plus its padding and
+        // borders, and the text fits on one line in it: its content width is the box less those edges in floats,
+        // which float error must not take a LayoutUnit below the max-content width it was sized to.
+        for (const std::string padding : {"0 1.3em", "0 20.8px", "0 13.3px", "0 7.7px", "0 .35em", "0 3.1px"}) {
+            for (const std::string words : {"Wrap", "End turn", "one two three"}) {
+                weft::testing::NativeScene t;
+                auto& b = element(t, *t.root, "div",
+                                  "position:absolute;top:10px;right:10px;font-family:system-ui;font-size:16px;"
+                                  "border:1px solid #aa8800;padding:" +
+                                      padding);
+                text(t, b, words);
+                weft::SceneSolver fitting("", "", scene_text);
+                const auto laid_out = fitting.frame(t.tree.snapshot(*t.root), 400, 200, 0);
+                require(laid_out.root.children[0].lines.size() == 1,
+                        "one line of '" + words + "' in a shrink-to-fit box with padding " + padding);
+            }
+        }
+        // A box of no area paints nothing of its own, but what overflows it shows, as in a browser: the absolutely
+        // positioned child of a wrapper of no height paints, in the display list and the reference raster; a wrapper
+        // that clips its overflow hides it.
+        for (const bool clipped : {false, true}) {
+            weft::testing::NativeScene t;
+            auto& wrapper =
+                element(t, *t.root, "div", clipped ? "position:relative;overflow:hidden" : "position:relative");
+            element(t, wrapper, "div",
+                    "position:absolute;left:10px;top:10px;width:20px;height:20px;background-color:#ff0000");
+            weft::SceneSolver hollow("", "", scene_text);
+            const auto f = hollow.frame(t.tree.snapshot(*t.root), 100, 100, 0);
+            require(f.root.children[0].box[3] == 0, "a wrapper of no height");
+            const auto hollow_list = weft::scene_display_list(f, {}, &scene_text);
+            const auto boxes =
+                std::count_if(hollow_list.list.items.begin(), hollow_list.list.items.end(), [](const auto& item) {
+                    return item.kind == Kind::Box;
+                });
+            weft::SceneRaster painter(scene_text);
+            const auto red = painter.raster(f, 1).rgba[(std::size_t(20) * 100 + 20) * 4];
+            require(clipped ? boxes == 0 && red == 0 : boxes == 1 && red == 255,
+                    std::string(clipped ? "a clipping" : "an unclipped") +
+                        " wrapper of no height: " + std::to_string(boxes) + " boxes, red " + std::to_string(red));
+        }
         refused("text-align:justify", "", "text-align justify outside scene profile");
         refused("", "vertical-align:middle", "vertical-align middle outside scene profile");
         {

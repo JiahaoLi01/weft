@@ -1837,7 +1837,9 @@ namespace weft {
 
         void paint(const SceneNode& n) {
             // The reference raster has no anchors: an anchored element draws nothing, as without a table.
-            if (get(n.style, PropertyId::Display) == "none" || n.box[2] <= 0 || n.box[3] <= 0 || n.anchoring) {
+            // A box of no area paints nothing of its own; what overflows it still shows (scene_shows_overflow).
+            const bool empty = n.box[2] <= 0 || n.box[3] <= 0;
+            if (get(n.style, PropertyId::Display) == "none" || n.anchoring || (empty && !scene_shows_overflow(n))) {
                 return;
             }
             // The reference raster draws no UI particles and no backdrop filters; the native passes do.
@@ -1901,159 +1903,164 @@ namespace weft {
                 }
             }
             auto shape = commands ? commands->shape : round_box(n.box[2], n.box[3], radii);
-            shadow(n, radii, false);
-            auto background = paint_color(n, constants::scene::paint_slot_background_color,
-                                          get(n.style, PropertyId::BackgroundColor, "transparent"));
-            if (!gpu_target || background.a > 0) {
-                solid(background);
-                // In background-clip's box: the border box's shape, or a padding or content box inside its inner
-                // corners.
-                const auto clip = get(n.style, PropertyId::BackgroundClip, "border-box");
-                if (clip == "padding-box" || clip == "content-box") {
-                    BackgroundRect area;
-                    try {
-                        area = scene_background_box(
-                            n.style, clip == "padding-box" ? BackgroundBox::Padding : BackgroundBox::Content, n.box[2],
-                            n.box[3]);
-                    } catch (const std::invalid_argument& e) {
-                        fail(e.what());
-                    }
-                    RoundedClip painted;
-                    painted.rect = area.rect;
-                    painted.radius_x = area.radius_x;
-                    painted.radius_y = area.radius_y;
-                    if (area.rect[2] > 0 && area.rect[3] > 0) {
-                        target->FillGeometry(rounded_rect(painted).Get(), brush.Get());
-                    }
-                } else {
-                    target->FillGeometry(shape.Get(), brush.Get());
-                }
-            }
-            gradient(n, shape.Get());
-            host_texture(n);
-            shadow(n, radii, true);
-            // Dotted and dashed sides as Chrome draws them, laid out on the target's pixels, before the solid sides.
-            {
-                const auto placed = matrix();
-                const bool aligned = std::abs(placed._12) < 1e-6f && std::abs(placed._21) < 1e-6f;
-                const std::array<double, 4> device =
-                    aligned ? std::array<double, 4>{placed._11, placed._22, placed._31, placed._32}
-                            : std::array<double, 4>{std::hypot(placed._11, placed._12),
-                                                    std::hypot(placed._21, placed._22), 0, 0};
-                unsigned side{};
-                for (const auto* edge : {"top", "right", "bottom", "left"}) {
-                    const auto key = std::string("border-") + edge;
-                    SceneBorderStyle style{};
-                    if (scene_border_style(get(n.style, key + "-style", "solid"), style) &&
-                        (style == SceneBorderStyle::Dotted || style == SceneBorderStyle::Dashed)) {
-                        const auto dashes = scene_dashed_side({n.box[2], n.box[3]}, side,
-                                                              len(get(n.style, key + "-width", "0")), style, device);
-                        if (!dashes.empty()) {
-                            solid(paint_color(n, constants::scene::paint_slot_border_color + side,
-                                              get(n.style, key + "-color", "currentcolor")));
+            if (!empty) {
+                shadow(n, radii, false);
+                auto background = paint_color(n, constants::scene::paint_slot_background_color,
+                                              get(n.style, PropertyId::BackgroundColor, "transparent"));
+                if (!gpu_target || background.a > 0) {
+                    solid(background);
+                    // In background-clip's box: the border box's shape, or a padding or content box inside its inner
+                    // corners.
+                    const auto clip = get(n.style, PropertyId::BackgroundClip, "border-box");
+                    if (clip == "padding-box" || clip == "content-box") {
+                        BackgroundRect area;
+                        try {
+                            area = scene_background_box(
+                                n.style, clip == "padding-box" ? BackgroundBox::Padding : BackgroundBox::Content,
+                                n.box[2], n.box[3]);
+                        } catch (const std::invalid_argument& e) {
+                            fail(e.what());
                         }
-                        for (const auto& d : dashes) {
-                            if (d.round) {
-                                // Flattened finely, so a small dot covers its whole area as Chrome's does.
-                                ComPtr<ID2D1EllipseGeometry> ellipse;
-                                check(factory->CreateEllipseGeometry(
-                                    D2D1::Ellipse({d.rect[0] + d.rect[2] / 2, d.rect[1] + d.rect[3] / 2}, d.rect[2] / 2,
-                                                  d.rect[3] / 2),
-                                    &ellipse));
-                                ComPtr<ID2D1PathGeometry> flat;
-                                check(factory->CreatePathGeometry(&flat));
-                                ComPtr<ID2D1GeometrySink> sink;
-                                check(flat->Open(&sink));
-                                check(ellipse->Simplify(D2D1_GEOMETRY_SIMPLIFICATION_OPTION_LINES, nullptr,
-                                                        constants::scene::round_dot_flattening_px /
-                                                            float(std::max(std::abs(device[0]), std::abs(device[1]))),
-                                                        sink.Get()));
-                                check(sink->Close());
-                                target->FillGeometry(flat.Get(), brush.Get());
-                            } else {
-                                target->FillRectangle(
-                                    D2D1::RectF(d.rect[0], d.rect[1], d.rect[0] + d.rect[2], d.rect[1] + d.rect[3]),
-                                    brush.Get());
+                        RoundedClip painted;
+                        painted.rect = area.rect;
+                        painted.radius_x = area.radius_x;
+                        painted.radius_y = area.radius_y;
+                        if (area.rect[2] > 0 && area.rect[3] > 0) {
+                            target->FillGeometry(rounded_rect(painted).Get(), brush.Get());
+                        }
+                    } else {
+                        target->FillGeometry(shape.Get(), brush.Get());
+                    }
+                }
+                gradient(n, shape.Get());
+                host_texture(n);
+                shadow(n, radii, true);
+                // Dotted and dashed sides as Chrome draws them, laid out on the target's pixels, before the solid sides.
+                {
+                    const auto placed = matrix();
+                    const bool aligned = std::abs(placed._12) < 1e-6f && std::abs(placed._21) < 1e-6f;
+                    const std::array<double, 4> device =
+                        aligned ? std::array<double, 4>{placed._11, placed._22, placed._31, placed._32}
+                                : std::array<double, 4>{std::hypot(placed._11, placed._12),
+                                                        std::hypot(placed._21, placed._22), 0, 0};
+                    unsigned side{};
+                    for (const auto* edge : {"top", "right", "bottom", "left"}) {
+                        const auto key = std::string("border-") + edge;
+                        SceneBorderStyle style{};
+                        if (scene_border_style(get(n.style, key + "-style", "solid"), style) &&
+                            (style == SceneBorderStyle::Dotted || style == SceneBorderStyle::Dashed)) {
+                            const auto dashes = scene_dashed_side(
+                                {n.box[2], n.box[3]}, side, len(get(n.style, key + "-width", "0")), style, device);
+                            if (!dashes.empty()) {
+                                solid(paint_color(n, constants::scene::paint_slot_border_color + side,
+                                                  get(n.style, key + "-color", "currentcolor")));
+                            }
+                            for (const auto& d : dashes) {
+                                if (d.round) {
+                                    // Flattened finely, so a small dot covers its whole area as Chrome's does.
+                                    ComPtr<ID2D1EllipseGeometry> ellipse;
+                                    check(factory->CreateEllipseGeometry(
+                                        D2D1::Ellipse({d.rect[0] + d.rect[2] / 2, d.rect[1] + d.rect[3] / 2},
+                                                      d.rect[2] / 2, d.rect[3] / 2),
+                                        &ellipse));
+                                    ComPtr<ID2D1PathGeometry> flat;
+                                    check(factory->CreatePathGeometry(&flat));
+                                    ComPtr<ID2D1GeometrySink> sink;
+                                    check(flat->Open(&sink));
+                                    check(
+                                        ellipse->Simplify(D2D1_GEOMETRY_SIMPLIFICATION_OPTION_LINES, nullptr,
+                                                          constants::scene::round_dot_flattening_px /
+                                                              float(std::max(std::abs(device[0]), std::abs(device[1]))),
+                                                          sink.Get()));
+                                    check(sink->Close());
+                                    target->FillGeometry(flat.Get(), brush.Get());
+                                } else {
+                                    target->FillRectangle(
+                                        D2D1::RectF(d.rect[0], d.rect[1], d.rect[0] + d.rect[2], d.rect[1] + d.rect[3]),
+                                        brush.Get());
+                                }
                             }
                         }
+                        ++side;
                     }
-                    ++side;
                 }
-            }
-            bool has_border = commands ? commands->has_border : false;
-            if (!commands) {
-                for (const auto* edge : {"top", "right", "bottom", "left"}) {
-                    has_border = has_border || len(get(n.style, std::string("border-") + edge + "-width", "0")) > 0;
-                }
-            }
-            const auto current = matrix();
-            const bool geometry_border =
-                gpu_target && std::hypot(current._11, current._12) + std::hypot(current._21, current._22) <=
-                                  constants::scene::max_geometry_transform_scale;
-            if (has_border) {
-                ComPtr<ID2D1Layer> border_clip;
-                if (!geometry_border) {
-                    border_clip = layer();
-                    target->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), shape.Get()), border_clip.Get());
-                }
-                bool uniform = gpu_target;
-                const auto border_width =
-                    commands ? commands->widths[0] : len(get(n.style, PropertyId::BorderTopWidth, "0"));
-                const auto border_color = get(n.style, PropertyId::BorderTopColor, "currentcolor");
-                for (const auto* edge : {"top", "right", "bottom", "left"}) {
-                    uniform = uniform &&
-                              len(get(n.style, std::string("border-") + edge + "-width", "0")) == border_width &&
-                              get(n.style, std::string("border-") + edge + "-color", "currentcolor") == border_color &&
-                              get(n.style, std::string("border-") + edge + "-style", "solid") == "solid";
-                }
-                if (uniform) {
-                    ++work.uniform_border_draws;
-                    solid(paint_color(n, constants::scene::paint_slot_border_color, border_color));
-                    if (geometry_border) {
-                        auto fill = border_fill(n, radii, shape.Get(), border_width, constants::scene::border_side_all);
-                        target->FillGeometry(fill.Get(), brush.Get());
-                    } else {
-                        target->DrawGeometry(shape.Get(), brush.Get(), border_width * 2);
+                bool has_border = commands ? commands->has_border : false;
+                if (!commands) {
+                    for (const auto* edge : {"top", "right", "bottom", "left"}) {
+                        has_border = has_border || len(get(n.style, std::string("border-") + edge + "-width", "0")) > 0;
                     }
-                } else {
-                    ++work.fallback_border_draws;
-                    unsigned index{};
-                    for (const auto* side : {"top", "right", "bottom", "left"}) {
-                        auto key = std::string("border-") + side;
-                        float width = commands ? commands->widths[index] : len(get(n.style, key + "-width", "0"));
-                        if (width <= 0 || (commands ? !commands->solid_edges[index]
-                                                    : get(n.style, key + "-style", "solid") != "solid")) {
-                            ++index;
-                            continue;
-                        }
-                        solid(paint_color(n, constants::scene::paint_slot_border_color + index,
-                                          get(n.style, key + "-color", "currentcolor")));
-                        // Side wedges clip a ring so joins and circular borders retain
-                        // corner coverage without extending into the content.
+                }
+                const auto current = matrix();
+                const bool geometry_border =
+                    gpu_target && std::hypot(current._11, current._12) + std::hypot(current._21, current._22) <=
+                                      constants::scene::max_geometry_transform_scale;
+                if (has_border) {
+                    ComPtr<ID2D1Layer> border_clip;
+                    if (!geometry_border) {
+                        border_clip = layer();
+                        target->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), shape.Get()), border_clip.Get());
+                    }
+                    bool uniform = gpu_target;
+                    const auto border_width =
+                        commands ? commands->widths[0] : len(get(n.style, PropertyId::BorderTopWidth, "0"));
+                    const auto border_color = get(n.style, PropertyId::BorderTopColor, "currentcolor");
+                    for (const auto* edge : {"top", "right", "bottom", "left"}) {
+                        uniform =
+                            uniform &&
+                            len(get(n.style, std::string("border-") + edge + "-width", "0")) == border_width &&
+                            get(n.style, std::string("border-") + edge + "-color", "currentcolor") == border_color &&
+                            get(n.style, std::string("border-") + edge + "-style", "solid") == "solid";
+                    }
+                    if (uniform) {
+                        ++work.uniform_border_draws;
+                        solid(paint_color(n, constants::scene::paint_slot_border_color, border_color));
                         if (geometry_border) {
-                            auto fill = border_fill(n, radii, shape.Get(), width, index);
+                            auto fill =
+                                border_fill(n, radii, shape.Get(), border_width, constants::scene::border_side_all);
                             target->FillGeometry(fill.Get(), brush.Get());
                         } else {
-                            auto wedge = border_wedge(n, index);
-                            ComPtr<ID2D1Layer> side_clip;
-                            side_clip = layer();
-                            target->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), wedge.Get()),
-                                              side_clip.Get());
-                            target->DrawGeometry(shape.Get(), brush.Get(), width * 2);
-                            target->PopLayer();
+                            target->DrawGeometry(shape.Get(), brush.Get(), border_width * 2);
                         }
-                        ++index;
+                    } else {
+                        ++work.fallback_border_draws;
+                        unsigned index{};
+                        for (const auto* side : {"top", "right", "bottom", "left"}) {
+                            auto key = std::string("border-") + side;
+                            float width = commands ? commands->widths[index] : len(get(n.style, key + "-width", "0"));
+                            if (width <= 0 || (commands ? !commands->solid_edges[index]
+                                                        : get(n.style, key + "-style", "solid") != "solid")) {
+                                ++index;
+                                continue;
+                            }
+                            solid(paint_color(n, constants::scene::paint_slot_border_color + index,
+                                              get(n.style, key + "-color", "currentcolor")));
+                            // Side wedges clip a ring so joins and circular borders retain
+                            // corner coverage without extending into the content.
+                            if (geometry_border) {
+                                auto fill = border_fill(n, radii, shape.Get(), width, index);
+                                target->FillGeometry(fill.Get(), brush.Get());
+                            } else {
+                                auto wedge = border_wedge(n, index);
+                                ComPtr<ID2D1Layer> side_clip;
+                                side_clip = layer();
+                                target->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), wedge.Get()),
+                                                  side_clip.Get());
+                                target->DrawGeometry(shape.Get(), brush.Get(), width * 2);
+                                target->PopLayer();
+                            }
+                            ++index;
+                        }
+                    }
+                    if (border_clip) {
+                        target->PopLayer();
                     }
                 }
-                if (border_clip) {
-                    target->PopLayer();
+                if (scene_values::drop_shadow(n.style)) {
+                    if (n.space != constants::svg_namespace_uri || n.tag != "svg") {
+                        fail("filter outside svg elements outside scene profile");
+                    }
+                    drop_shadow(n);
                 }
-            }
-            if (scene_values::drop_shadow(n.style)) {
-                if (n.space != constants::svg_namespace_uri || n.tag != "svg") {
-                    fail("filter outside svg elements outside scene profile");
-                }
-                drop_shadow(n);
             }
             bool clipped = commands ? commands->clipped
                                     : (get(n.style, PropertyId::Overflow) == "hidden" ||
