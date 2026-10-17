@@ -530,7 +530,12 @@ SamplerState effectRepeat : register(s1);
 
 // One pixel as an effect sees it: its uv across the item's box, the box's size and the pixel's position in the box in
 // CSS px, the pixel's position in the target in device px, device px per CSS px, the effect's time in seconds and its
-// parameters (absent ones zero).
+// parameters (absent ones zero). An effect whose manifest says it reads the backdrop (docs/effects.md) also gets what
+// lay behind its element: a copy of the target taken before the element drew, over its box and the manifest's margin
+// past it (render::ScenePass::Copy). backdrop is the pixel's uv in the copy; backdropAcross and backdropDown are how
+// that uv changes per unit of uv across and down the box (through the box's transform and the device scale), so that
+// effectBackdropUV maps any uv of the box into the copy. backdropCopied is 1 when the copy is bound; another effect
+// (one whose manifest says nothing of the backdrop) reads a transparent backdrop.
 struct EffectInput {
     float2 uv;
     float2 size;
@@ -539,14 +544,40 @@ struct EffectInput {
     float scale;
     float time;
     float4 parameters[EffectParameters];
+    float2 backdrop;
+    float2 backdropAcross;
+    float2 backdropDown;
+    float backdropCopied;
 };
+
+// The uv in the backdrop's copy of the point at uv of the box (EffectInput::uv's space).
+float2 effectBackdropUV(EffectInput input, float2 uv) {
+    float2 d = uv - input.uv;
+    return input.backdrop + input.backdropAcross * d.x + input.backdropDown * d.y;
+}
+
+// What lay behind the element at uv of the backdrop's copy, filtered linearly, as linear premultiplied color; a uv
+// outside the copy (past the margin, or past the target's edge) reads the copy's nearest texel.
+float4 effectBackdrop(EffectInput input, float2 backdropUV) {
+    float4 c = image.SampleLevel(linearClamp, backdropUV, 0) * input.backdropCopied;
+#if !SPACE_LINEAR
+    c = c.a > 0 ? float4(effectLinear(saturate(c.rgb / c.a)) * c.a, c.a) : float4(0, 0, 0, 0);
+#endif
+    return c;
+}
+
+// What lay behind the pixel itself.
+float4 effectBackdrop(EffectInput input) {
+    return effectBackdrop(input, input.backdrop);
+}
 
 // The effect's linear premultiplied color at one pixel, defined by the effect's source.
 float4 effect(EffectInput input);
 
 // An effect record (scene_pass.cpp) is an image record whose texels the effect computes: clipped as an image, shaped
 // by the box's corners as a box, with the time in extra.x and the parameters in the fields effects leave unused
-// (render::effect_parameter).
+// (render::effect_parameter); an effect that reads its backdrop has its copy bound as image, over the device px uv
+// covers (origin and extent), as a backdrop's, and mode.x ImageModeBackdrop.
 float4 ps_main(Vertex v) : SV_Target {
     Paint p = paints[v.index];
     float2 world = v.position.xy / scale;
@@ -580,6 +611,14 @@ float4 ps_main(Vertex v) : SV_Target {
     input.parameters[13] = p.offsets[1];
     input.parameters[14] = p.tile;
     input.parameters[15] = p.background;
+    // A uv of the box moves through the box's px, the inverse of the record's map from target px to them (invX, invY),
+    // the scale to device px, and the copy's extent to its uv.
+    float determinant = p.invX.x * p.invY.y - p.invX.y * p.invY.x;
+    float2 perPixel = scale / p.uv.zw;
+    input.backdrop = (v.position.xy - p.uv.xy) / p.uv.zw;
+    input.backdropAcross = float2(p.invY.y, -p.invY.x) / determinant * p.size.x * perPixel;
+    input.backdropDown = float2(-p.invX.y, p.invX.x) / determinant * p.size.y * perPixel;
+    input.backdropCopied = p.mode.x == ImageModeBackdrop ? 1 : 0;
     float4 color = effect(input);
     float sd = distanceRound(position, p.size.xy, p.radii);
     float aa = max(pixelWidth(sd), MinimumAntialiasWidth);

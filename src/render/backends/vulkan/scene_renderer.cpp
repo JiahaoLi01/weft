@@ -849,6 +849,8 @@ namespace weft::render::vulkan {
             draw_sets.push_back(at->second);
         };
         std::vector<VkPipeline> effects;
+        // The copy each Copy step takes, which an effect that reads its backdrop samples as its image.
+        std::vector<Image> copies(pass.copies.size());
         std::size_t open{};
         for (const auto& batch : pass.batches) {
             switch (batch.step) {
@@ -879,8 +881,14 @@ namespace weft::render::vulkan {
                         textures[t] = textures_.at(effect.textures[t]->id).image.view;
                         slot_->leases.push_back(effect.textures[t]);
                     }
-                    use(blank_image_.view, textures);
+                    use(batch.copy ? copies.at(batch.copy - 1).view : blank_image_.view, textures);
                     effects.push_back(effect_pipeline(effect.program));
+                    break;
+                }
+                case ScenePass::Step::Copy: {
+                    const auto& region = pass.copies.at(batch.source).region;
+                    copies.at(batch.source) =
+                        target(std::uint32_t(region[2] - region[0]), std::uint32_t(region[3] - region[1]));
                     break;
                 }
                 case ScenePass::Step::Backdrop: {
@@ -1144,6 +1152,45 @@ namespace weft::render::vulkan {
                     instances(batch.first, batch.count);
                     d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, passes_.pipeline);
                     break;
+                case ScenePass::Step::Copy: {
+                    // What the current target holds over the copy's region, for the effect that reads it later; a
+                    // transparent copy of a target the pass may not read.
+                    const auto& region = pass.copies.at(batch.source).region;
+                    const auto& copy = copies.at(batch.source);
+                    d.vkd.vkCmdEndRenderPass(command);
+                    if (const VkImage from = depth ? groups[depth - 1].image : image) {
+                        transition(d, command, from, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                                   VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                   VK_PIPELINE_STAGE_TRANSFER_BIT);
+                        transition(d, command, copy.image, VK_IMAGE_LAYOUT_UNDEFINED,
+                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, VK_ACCESS_TRANSFER_WRITE_BIT,
+                                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+                        VkImageCopy part{};
+                        part.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+                        part.srcOffset = {region[0], region[1], 0};
+                        part.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+                        part.extent = {copy.width, copy.height, 1};
+                        d.vkd.vkCmdCopyImage(command, from, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, copy.image,
+                                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &part);
+                        transition(d, command, from, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT,
+                                   VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                                   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+                        transition(d, command, copy.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT,
+                                   VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+                    } else {
+                        ++reasons["backdrop of an unreadable target"];
+                        begin_over(copy);
+                        d.vkd.vkCmdEndRenderPass(command);
+                        readable(copy);
+                    }
+                    ++backdrop_copies;
+                    begin(depth ? groups[depth - 1].framebuffer : out, false, paint::Color{});
+                    break;
+                }
                 case ScenePass::Step::Backdrop: {
                     // Copy the region of the target the backdrop reads (the current one, or the one enclosing the
                     // current group), run its passes, and draw it over the current target or beneath its content.

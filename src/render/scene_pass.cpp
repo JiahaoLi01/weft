@@ -186,16 +186,20 @@ namespace weft::render {
             return r;
         }
 
-        // The device pixels a backdrop reads: its box's bounds under the item's map at scale, rounded out, within the
-        // target.
-        std::array<std::int32_t, 4> backdrop_region(const paint::Item& item, float scale, unsigned w, unsigned h) {
+        // The device pixels a backdrop reads: its box's bounds, grown by margin item px on each side (an effect's),
+        // under the item's map at scale, rounded out, within the target.
+        std::array<std::int32_t, 4> backdrop_region(const paint::Item& item, float scale, unsigned w, unsigned h,
+                                                    double margin = 0) {
             const auto& m = item.transform;
             double left = scene_limits::record_bounds_sentinel;
             double top = scene_limits::record_bounds_sentinel;
             double right = -left;
             double bottom = -top;
-            for (const auto& [x, y] : std::array<std::array<double, 2>, 4>{
-                     {{0, 0}, {item.width, 0}, {0, item.height}, {item.width, item.height}}}) {
+            const double x0 = -margin;
+            const double y0 = -margin;
+            const double x1 = item.width + margin;
+            const double y1 = item.height + margin;
+            for (const auto& [x, y] : std::array<std::array<double, 2>, 4>{{{x0, y0}, {x1, y0}, {x0, y1}, {x1, y1}}}) {
                 const double px = (m[0] * x + m[2] * y + m[4]) * scale;
                 const double py = (m[1] * x + m[3] * y + m[5]) * scale;
                 left = std::min(left, px);
@@ -279,12 +283,19 @@ namespace weft::render {
                 r.extra[3] = scene_limits::flag_enabled;
             } else if (item.kind == Kind::Effect) {
                 // The time and the parameters as the program's function reads them, unconverted; the corners shape the
-                // box as a box's.
+                // box as a box's. An effect that reads its backdrop takes the device px of its copy and the mode as a
+                // backdrop does (scene.hlsl, EffectInput::backdrop); another reads a transparent one.
                 const auto& effect = list.effects[item.payload];
                 r.radii = effect.radii;
                 r.extra[0] = effect.time;
                 for (unsigned p = 0; p < effect.parameters.size(); ++p) {
                     effect_parameter(r, p) = effect.parameters[p];
+                }
+                if (const auto& program = *list.programs[effect.program]; program.backdrop) {
+                    const auto region = backdrop_region(item, scale, w, h, program.backdrop_margin);
+                    r.uv = {float(region[0]), float(region[1]), float(region[2] - region[0]),
+                            float(region[3] - region[1])};
+                    r.mode[0] = scene_limits::image_mode_backdrop;
                 }
             } else if (item.kind == Kind::Particles) {
                 // The emission as the particle shaders read it (particle_field), its timing from the shared model; the
@@ -506,14 +517,60 @@ namespace weft::render {
             pass.records.push_back(planned->record);
         }
         pass.group_depth = paint::group_depth(list);
+
+        // The copies of what lies behind effects that read their backdrop, by the item they are taken before (in item
+        // order of the effects among equals): an effect whose region lies outside the target draws nothing and takes
+        // none. reads[i]: 1 + the copy effect item i samples; cut[i]: a copy is taken before item i, which no run of
+        // items drawn together crosses.
+        struct Reader {
+            std::uint32_t at{};
+            std::uint32_t item{};
+            std::array<std::int32_t, 4> region{};
+        };
+
+        std::vector<Reader> readers;
+        for (std::uint32_t k = 0; k < list.items.size(); ++k) {
+            const auto& item = list.items[k];
+            if (item.kind != Kind::Effect) {
+                continue;
+            }
+            const auto& effect = list.effects[item.payload];
+            const auto& program = *list.programs[effect.program];
+            if (!program.backdrop) {
+                continue;
+            }
+            const auto region = backdrop_region(item, scale, width, height, program.backdrop_margin);
+            if (region[2] > region[0] && region[3] > region[1]) {
+                readers.push_back({effect.backdrop_at, k, region});
+            }
+        }
+        std::stable_sort(readers.begin(), readers.end(), [](const Reader& a, const Reader& b) {
+            return a.at < b.at;
+        });
+        std::vector<std::uint32_t> reads(list.items.size());
+        std::vector<bool> cut(list.items.size() + 1);
+        for (std::size_t k = 0; k < readers.size(); ++k) {
+            reads[readers[k].item] = std::uint32_t(k + 1);
+            cut[readers[k].at] = true;
+            pass.copies.push_back({readers[k].region});
+        }
+        const auto backdrop_effect = [&](std::uint32_t k) {
+            const auto& item = list.items[k];
+            return item.kind == Kind::Effect && list.programs[list.effects[item.payload].program]->backdrop;
+        };
         std::uint32_t i{};
-        if (fold && !pass.records.empty() && !list.items.front().clips_count &&
+        // A copy before the first item reads the target before it: the item stays an item.
+        if (fold && !pass.records.empty() && !list.items.front().clips_count && !cut[0] &&
             clears(list, pass.records.front().clip, scale, width, height)) {
             pass.clear = in(space, list.boxes[list.items.front().payload].background);
             i = 1;
         }
         using Step = ScenePass::Step;
+        std::size_t next_copy{};
         while (i < list.items.size()) {
+            for (; next_copy < readers.size() && readers[next_copy].at <= i; ++next_copy) {
+                pass.batches.push_back({Step::Copy, i, 0, std::uint32_t(next_copy)});
+            }
             switch (list.items[i].kind) {
                 case Kind::BeginGroup:
                     pass.batches.push_back({Step::BeginGroup, i++, 0});
@@ -531,10 +588,20 @@ namespace weft::render {
                     pass.batches.push_back({Step::Image, i++, 1});
                     break;
                 case Kind::Effect: {
-                    // A run of effects of one program and the same textures.
+                    // A run of effects of one program and the same textures; an effect that reads its backdrop alone,
+                    // with its copy, or nothing outside the target.
                     const auto first = i;
+                    if (backdrop_effect(i)) {
+                        if (reads[i]) {
+                            pass.batches.push_back({Step::Effect, i, 1, list.items[i].payload, reads[i]});
+                        }
+                        ++i;
+                        break;
+                    }
                     const auto& head = list.effects[list.items[i].payload];
-                    for (++i; i < list.items.size() && list.items[i].kind == Kind::Effect; ++i) {
+                    for (++i;
+                         i < list.items.size() && list.items[i].kind == Kind::Effect && !cut[i] && !backdrop_effect(i);
+                         ++i) {
                         const auto& next = list.effects[list.items[i].payload];
                         if (next.program != head.program || next.textures != head.textures) {
                             break;
@@ -596,6 +663,9 @@ namespace weft::render {
                     std::uint32_t source{};
                     for (; i < list.items.size(); ++i) {
                         const auto& next = list.items[i];
+                        if (i != first && cut[i]) {
+                            break;
+                        }
                         if (next.kind == Kind::Box) {
                             continue;
                         }

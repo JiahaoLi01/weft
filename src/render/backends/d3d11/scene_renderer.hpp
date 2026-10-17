@@ -167,6 +167,9 @@ namespace weft::render::d3d11 {
         };
 
         std::map<std::array<unsigned, 4>, BackdropTarget> backdrop_targets_;
+        // The copies of what lies behind effects that read their backdrop, by format, width, height and place among a
+        // pass's copies, kept as the backdrop passes' targets are.
+        std::map<std::array<unsigned, 4>, BackdropTarget> copies_;
         std::uint64_t backdrop_frame_{};
         ComPtr<ID3D11RasterizerState> raster_;
         SceneRaster reference_;
@@ -215,6 +218,9 @@ namespace weft::render::d3d11 {
         // Copies a backdrop's region of from's texture and filters it as it says; the result's view. The context's
         // state is the passes' afterwards.
         ID3D11ShaderResourceView* backdrop(const ScenePass::Backdrop& backdrop, ID3D11RenderTargetView* from);
+        // Copies a region of from's texture for an effect that reads its backdrop, into the copy at place among the
+        // pass's copies; the copy's view.
+        ID3D11ShaderResourceView* copy(const ScenePass::Copy& copy, unsigned place, ID3D11RenderTargetView* from);
         // Draws a prepared pass into destination: its planes' contents first, each into the image of its slot. anchors
         // are the frame's (none for a pass whose anchors are not deferred); serial names a kept pass, whose records the
         // slot may hold already (0 for one drawn once).

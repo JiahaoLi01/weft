@@ -62,8 +62,9 @@ namespace weft {
         std::size_t filter_builds{};
         std::size_t filter_reuses{};
         std::size_t filter_passes{};
-        // Backdrops copied from a target and filtered.
+        // Backdrops copied from a target and filtered; and copies of what lies behind effects that read their backdrop.
         std::size_t backdrop_passes{};
+        std::size_t backdrop_copies{};
         // Cached images evicted for the caches' bounds (SceneCacheBounds).
         std::size_t image_evictions{};
         // Text, shadow and path images placed on atlas pages, and those small enough for one that found no page with

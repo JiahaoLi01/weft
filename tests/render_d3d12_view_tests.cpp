@@ -6,6 +6,7 @@
 #include <weft/render_external_texture.h>
 #include <weft/weft.h>
 
+#include "effects/effect_backdrop_shift.hpp"
 #include "render/srgb.hpp"
 #include "support/check.hpp"
 
@@ -23,7 +24,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -34,8 +37,9 @@
 // and replacing it with the host's clear; anchored elements where the View's latest anchors are, the kept pass drawn
 // again; backdrops that read the target and a group; filters (anchored plates' drop shadows, a wide blur, a panel's
 // color functions); host textures by name; BGRA8, RGBA8, typeless and 10-bit targets; a
-// recording the host discards; and what the backend refuses. Every frame's commands pass the debug layer without
-// errors.
+// recording the host discards; and what the backend refuses; UI shader effects that read their backdrop, registered
+// through weft_runtime_add_effect (the earlier ABI's struct an effect that reads none), over the target, under an
+// opacity group of their own and inside another. Every frame's commands pass the debug layer without errors.
 namespace {
     using Microsoft::WRL::ComPtr;
     using weft::testing::require;
@@ -68,8 +72,12 @@ namespace {
         weft_runtime* runtime{};
         weft_view_handle view{};
 
-        Page(std::string_view script, const std::string& css) {
+        // setup: what the runtime gets before the page loads (its effects).
+        Page(std::string_view script, const std::string& css, const std::function<void(weft_runtime*)>& setup = {}) {
             ok(weft_runtime_create(nullptr, &runtime), "runtime");
+            if (setup) {
+                setup(runtime);
+            }
             const weft_view_desc desc{sizeof(desc), 0, float(width), float(height), 1, 0};
             ok(weft_view_create(runtime, &desc, &view), "view");
             const weft_script s{"page.js", 7, script.data(), script.size()};
@@ -925,6 +933,166 @@ namespace {
         }
         std::cout << "PASS D3D12 host textures as D3D11 draws them\n";
     }
+
+    // Stripes and bars over the game's picture; with effects, the shift effect (tests/effects/backdrop_shift.hlsl),
+    // registered as shift, reading its backdrop 3 px across and 2 down: over the target, faded in a group of its own,
+    // and inside a translucent group with a box; the same bytecode registered with the earlier ABI's struct as
+    // earlier, which reads a transparent backdrop.
+    std::string_view effects_script(bool effects) {
+        return effects ? R"JS(
+      const root = document.getElementById('root');
+      for (let i = 0; i < 40; ++i) {
+        const stripe = document.createElement('div');
+        stripe.className = i % 2 ? 'stripe odd' : 'stripe';
+        stripe.style.left = (6 + i * 7) + 'px';
+        root.appendChild(stripe);
+      }
+      for (let j = 0; j < 8; ++j) {
+        const bar = document.createElement('div');
+        bar.className = 'bar';
+        bar.style.top = (8 + j * 23) + 'px';
+        root.appendChild(bar);
+      }
+      for (const name of ['shift', 'earlier', 'faded']) {
+        const e = document.createElement('div');
+        e.className = name;
+        root.appendChild(e);
+      }
+      document.querySelector('.faded').appendChild(document.createElement('div'));
+      const group = document.createElement('div');
+      group.className = 'group';
+      group.appendChild(document.createElement('div'));
+      const inner = document.createElement('div');
+      inner.className = 'inner';
+      group.appendChild(inner);
+      root.appendChild(group);
+    )JS"
+                       : R"JS(
+      const root = document.getElementById('root');
+      for (let i = 0; i < 40; ++i) {
+        const stripe = document.createElement('div');
+        stripe.className = i % 2 ? 'stripe odd' : 'stripe';
+        stripe.style.left = (6 + i * 7) + 'px';
+        root.appendChild(stripe);
+      }
+      for (let j = 0; j < 8; ++j) {
+        const bar = document.createElement('div');
+        bar.className = 'bar';
+        bar.style.top = (8 + j * 23) + 'px';
+        root.appendChild(bar);
+      }
+    )JS";
+    }
+
+    const std::string effects_css =
+        "#root{position:relative;width:100%;height:100%}"
+        ".stripe{position:absolute;top:4px;width:4px;height:190px;background-color:#c03030}"
+        ".stripe.odd{background-color:#30a0e0}"
+        ".bar{position:absolute;left:0;width:300px;height:6px;background-color:rgba(240,220,60,0.8)}"
+        ".shift{position:absolute;left:30px;top:20px;width:90px;height:60px;background-image:-weft-effect(shift);"
+        "--shift:3 2}"
+        ".earlier{position:absolute;left:140px;top:20px;width:50px;height:40px;"
+        "background-image:-weft-effect(earlier);--shift:3 2}"
+        ".faded{position:absolute;left:30px;top:110px;width:90px;height:60px;opacity:0.5;"
+        "background-image:-weft-effect(shift);--shift:-3 -2}"
+        ".faded div{position:absolute;left:10px;top:10px;width:20px;height:20px;background-color:#ffffff}"
+        ".group{position:absolute;left:150px;top:90px;width:140px;height:100px;opacity:0.7}"
+        ".group div{position:absolute;left:10px;top:10px;width:40px;height:40px;background-color:#20c040}"
+        ".group .inner{left:30px;top:30px;width:80px;height:50px;background-color:transparent;"
+        "background-image:-weft-effect(shift);--shift:3 2}";
+
+    // Registers the shift effect as shift (reading its backdrop) and as earlier (the earlier ABI's struct); and checks
+    // the values weft_runtime_add_effect refuses.
+    void register_effects(weft_runtime* runtime) {
+        const auto& program = *weft::effects::effect_backdrop_shift();
+        static constexpr std::string_view parameter = "shift";
+        static constexpr std::string_view initial = "0 0";
+        static const weft_effect_parameter shift{parameter.data(), parameter.size(), initial.data(),
+                                                 initial.size(),   WEFT_EFFECT_VEC2, 0};
+        const auto describe = [&](const char* name) {
+            weft_effect_desc d{sizeof(d)};
+            d.name = name;
+            d.name_size = std::strlen(name);
+            d.parameters = &shift;
+            d.parameter_count = 1;
+            d.dxbc_encoded = program.d3d11_encoded.data();
+            d.dxbc_encoded_size = program.d3d11_encoded.size();
+            d.dxbc_linear = program.d3d11_linear.data();
+            d.dxbc_linear_size = program.d3d11_linear.size();
+            d.backdrop = 1;
+            d.backdrop_margin = 8;
+            return d;
+        };
+        const auto refused = [&](weft_effect_desc d, const char* what) {
+            require(weft_runtime_add_effect(runtime, &d) == WEFT_INVALID_ARGUMENT, what);
+        };
+        auto bad = describe("bad");
+        bad.backdrop = 2;
+        refused(bad, "backdrop past 1");
+        bad = describe("bad");
+        for (const float margin : {-1.f, 257.f, std::numeric_limits<float>::quiet_NaN()}) {
+            bad.backdrop_margin = margin;
+            refused(bad, "a margin past its bounds");
+        }
+        bad = describe("bad");
+        bad.backdrop = 0;
+        refused(bad, "a margin without a backdrop");
+        bad = describe("bad");
+        bad.struct_size = std::uint32_t(offsetof(weft_effect_desc, backdrop) + 4);
+        refused(bad, "a struct that ends inside the backdrop fields");
+        auto earlier = describe("earlier");
+        earlier.struct_size = std::uint32_t(offsetof(weft_effect_desc, backdrop));
+        ok(weft_runtime_add_effect(runtime, &earlier), "an effect of the earlier ABI");
+        const auto now = describe("shift");
+        ok(weft_runtime_add_effect(runtime, &now), "an effect that reads its backdrop");
+    }
+
+    // The effects page on both backends, and against the same page without its effects: each effect's box shows what
+    // lies behind it moved by its shift, the earlier ABI's effect shows nothing.
+    void effects(D3D12& gpu) {
+        // The page without its effects, drawn by a renderer of its own.
+        Pixels under;
+        {
+            D3D11 reference;
+            Page plain(effects_script(false), effects_css);
+            auto* bare = plain.frame(0.016);
+            const auto behind = prepare(reference.renderer, bare);
+            weft_view_frame_release(bare);
+            under = reference.draw(behind);
+            ok(weft_renderer_release_prepared(reference.renderer, behind), "release");
+        }
+        D3D11 reference;
+        Backend d3d12(gpu);
+        Page page(effects_script(true), effects_css, register_effects);
+        auto* frame = page.frame(0.016);
+        const auto ours = prepare(d3d12.renderer, frame);
+        const auto theirs = prepare(reference.renderer, frame);
+        weft_view_frame_release(frame);
+        auto target = gpu.target();
+        const auto drawn = d3d12.draw(ours, target.Get());
+        same(drawn, reference.draw(theirs), "effects that read their backdrop");
+        // Inside each box, away from its edges: the shift box's pixels are those 3 across and 2 down of what lies
+        // behind it (within a level: the effect reads linear light); the earlier ABI's box shows what lies behind it.
+        const auto close = [](const std::array<std::uint8_t, 4>& a, const std::array<std::uint8_t, 4>& b) {
+            return std::equal(a.begin(), a.end(), b.begin(), [](std::uint8_t p, std::uint8_t q) {
+                return std::abs(int(p) - int(q)) <= 1;
+            });
+        };
+        for (unsigned y = 21; y < 79; ++y) {
+            for (unsigned x = 31; x < 119; ++x) {
+                require(close(pixel(drawn, x, y), pixel(under, x + 3, y + 2)),
+                        "the shift effect's box: the backdrop moved");
+            }
+        }
+        for (unsigned y = 21; y < 59; ++y) {
+            for (unsigned x = 141; x < 189; ++x) {
+                require(pixel(drawn, x, y) == pixel(under, x, y), "the earlier ABI's effect reads no backdrop");
+            }
+        }
+        ok(weft_renderer_release_prepared(d3d12.renderer, ours), "release");
+        ok(weft_renderer_release_prepared(reference.renderer, theirs), "release");
+        std::cout << "PASS D3D12 effects that read their backdrop as D3D11 draws them\n";
+    }
 } // namespace
 
 int main() {
@@ -936,6 +1104,7 @@ int main() {
         }
         frames(gpu);
         textures(gpu);
+        effects(gpu);
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL " << e.what() << "\n";

@@ -378,6 +378,9 @@ namespace weft::render::d3d11 {
                        item.kind != paint::Item::Kind::Backdrop && item.kind != paint::Item::Kind::Filter,
                    "the display list pass draws no scene rasters, shadows, paths, planes, particles, backdrops or "
                    "filters");
+            ensure(item.kind != paint::Item::Kind::Effect ||
+                       !list->programs[list->effects[item.payload].program]->backdrop,
+                   "the display list pass draws no effects that read their backdrop");
             if (item.kind == paint::Item::Kind::Image) {
                 const auto& image = list->images[item.payload];
                 ensure(image.stroke >= 0 && (image.asset >= list->assets.size() ||

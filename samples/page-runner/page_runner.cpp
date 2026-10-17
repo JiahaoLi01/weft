@@ -38,7 +38,9 @@
 //   {"effects": [{"name": "crpg-smoke", "bytecode": "fx/crpg-smoke", "animated": true,
 //                 "parameters": [{"name": "smoke-scales", "type": "vec4", "initial": "7.2 2.8 0.1 0.3"}],
 //                 "textures": [{"name": "cloud", "path": "cloud.png", "format": "data"}]}]}
-// (type number, vec2, vec3, vec4 or color; a texture's format data, its PNG's red channel, or srgb).
+// (type number, vec2, vec3, vec4 or color; a texture's format data, its PNG's red channel, or srgb). An effect that
+// reads what lies behind its element says "backdrop": true, and "backdropMargin": the CSS px past its box it reads
+// (docs/effects.md).
 //
 // Prints [load], [diag:<kind>], [send], [call], [hit], [shot] and [render] lines, then the advance times. Exits 0 when
 // the page loaded, 1 when it did not (or an argument was wrong), 77 without a D3D11 device for a shot.
@@ -1178,6 +1180,8 @@ namespace {
             const auto& spirv_linear = code(".linear.spv");
             weft_effect_desc desc{sizeof(desc)};
             desc.animated = e.get_bool("animated") ? 1 : 0;
+            desc.backdrop = e.get_bool("backdrop") ? 1 : 0;
+            desc.backdrop_margin = float(e.get_number("backdropMargin"));
             desc.name = name.data();
             desc.name_size = name.size();
             desc.parameters = parameters.data();
@@ -1193,8 +1197,8 @@ namespace {
             desc.spirv_linear = spirv_linear.data();
             desc.spirv_linear_size = spirv_linear.size();
             const weft_result r = weft_runtime_add_effect(runtime, &desc);
-            std::printf("[effect] %s (%zu parameters, %zu textures): %s\n", name.c_str(), parameters.size(),
-                        textures.size(), weft_result_string(r));
+            std::printf("[effect] %s (%zu parameters, %zu textures%s): %s\n", name.c_str(), parameters.size(),
+                        textures.size(), desc.backdrop ? ", backdrop" : "", weft_result_string(r));
         }
     }
 

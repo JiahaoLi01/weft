@@ -81,7 +81,8 @@ namespace weft::render {
             // Return to the enclosing target, where record first composites the group's target.
             EndGroup,
             // Records [first, first + count) in one instanced draw of an effect: consecutive Effect items of one
-            // program and the same textures, the program and textures of DisplayList::effects[source].
+            // program and the same textures, the program and textures of DisplayList::effects[source]. An effect that
+            // reads its backdrop draws alone, sampling the copy Batch::copy names as the record's image.
             Effect,
             // Record first's count particles in one draw of the particle shaders: 6 x count vertices of one instance,
             // vertex v drawing particle v / 6. source is the emission's DisplayList::particles index.
@@ -89,7 +90,11 @@ namespace weft::render {
             // Record first's backdrop, ScenePass::backdrops[source]: copy its region of the target it reads, filter
             // the copy as the backdrop says, and draw record first sampling the result (image_mode_backdrop): over the
             // current target, or with under beneath what the current group holds (destination over).
-            Backdrop
+            Backdrop,
+            // Copy ScenePass::copies[source]'s region of the current target into an image of its own, which the Effect
+            // step whose Batch::copy names it samples later in the pass (before item first draws, an effect's backdrop:
+            // paint::Effect::backdrop_at).
+            Copy
         };
 
         struct Batch {
@@ -97,8 +102,11 @@ namespace weft::render {
             std::uint32_t first{};
             std::uint32_t count{};
             // The image source (DisplayList asset index, past the assets an external texture) an Image step binds, the
-            // page an Atlas step binds, or the effect (DisplayList::effects index) of an Effect step's first item.
+            // page an Atlas step binds, the effect (DisplayList::effects index) of an Effect step's first item, or the
+            // copy (ScenePass::copies index) a Copy step takes.
             std::uint32_t source{};
+            // An Effect step that reads its backdrop: 1 + the copy it samples (ScenePass::copies index); else 0.
+            std::uint32_t copy{};
         };
 
         // What a Backdrop step reads and how it filters it: the device pixels (left, top, right, bottom) of the
@@ -114,6 +122,14 @@ namespace weft::render {
             bool under{};
         };
 
+        // What a Copy step copies: the device pixels (left, top, right, bottom) of the current target, within the
+        // target and not empty: the box of the effect that reads it, grown by its program's margin
+        // (paint::EffectProgram::backdrop_margin), under the effect's map at the pass's scale, rounded out. The
+        // effect's record holds the same pixels as its uv (origin and extent), as a backdrop's does.
+        struct Copy {
+            std::array<std::int32_t, 4> region{};
+        };
+
         // One record per item, in item order: record i belongs to item i.
         std::vector<SceneRecord> records;
         // Per item, the device pixels (left, top, right, bottom) a path or path shadow item's coverage mask covers: what
@@ -122,6 +138,7 @@ namespace weft::render {
         std::vector<SceneClip> clips;
         std::vector<Batch> batches;
         std::vector<Backdrop> backdrops;
+        std::vector<Copy> copies;
         // The target's initial color, premultiplied in the pass's space: an opaque first box covering the whole target
         // becomes the clear.
         paint::Color clear{};

@@ -732,6 +732,9 @@ namespace weft::render::d3d12 {
         const auto group_view = [&](std::size_t depth) {
             return View{groups[depth]->resource.Get(), groups[depth]->format};
         };
+        // The copy each Copy step takes, of the format of the target it copies (the pass's own at its level, or a
+        // group's), which an effect that reads its backdrop samples as its image.
+        std::vector<Image*> copies(pass.copies.size());
         std::size_t open{};
         for (const auto& batch : pass.batches) {
             switch (batch.step) {
@@ -765,8 +768,16 @@ namespace weft::render::d3d12 {
                         textures[t] = {image.resource.Get(), image.format};
                         slot_->leases.push_back(effect.textures[t]);
                     }
-                    use(blank, textures);
+                    const auto* copy = batch.copy ? copies.at(batch.copy - 1) : nullptr;
+                    use(copy ? View{copy->resource.Get(), copy->format} : blank, textures);
                     effects.push_back(effect.program);
+                    break;
+                }
+                case ScenePass::Step::Copy: {
+                    const auto& region = pass.copies.at(batch.source).region;
+                    copies.at(batch.source) =
+                        &scratch(std::uint32_t(region[2] - region[0]), std::uint32_t(region[3] - region[1]),
+                                 open == 0 ? out.format : target_format);
                     break;
                 }
                 case ScenePass::Step::Backdrop: {
@@ -935,6 +946,27 @@ namespace weft::render::d3d12 {
                     instances(batch.first, batch.count);
                     command->SetPipelineState(pipelines(format).scene.Get());
                     break;
+                case ScenePass::Step::Copy: {
+                    // What the current target holds over the copy's region, for the effect that reads it later.
+                    const auto& region = pass.copies.at(batch.source).region;
+                    Image& from = depth ? *groups[depth - 1] : *out.image;
+                    auto& copy = *copies.at(batch.source);
+                    const auto was = from.state;
+                    transition(command, from, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                    transition(command, copy, D3D12_RESOURCE_STATE_COPY_DEST);
+                    D3D12_TEXTURE_COPY_LOCATION source{};
+                    source.pResource = from.resource.Get();
+                    source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                    D3D12_TEXTURE_COPY_LOCATION destination{};
+                    destination.pResource = copy.resource.Get();
+                    destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                    const D3D12_BOX box{UINT(region[0]), UINT(region[1]), 0, UINT(region[2]), UINT(region[3]), 1};
+                    command->CopyTextureRegion(&destination, 0, 0, 0, &source, &box);
+                    transition(command, from, was);
+                    transition(command, copy, readable);
+                    ++backdrop_copies;
+                    break;
+                }
                 case ScenePass::Step::Backdrop: {
                     // Copy the region of the target the backdrop reads (the current one, or the one enclosing the
                     // current group), run its passes, and draw it over the current target or beneath its content.

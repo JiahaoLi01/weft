@@ -9,16 +9,18 @@
 # weft_add_effect(<target> <name> <source.hlsl>
 #                 PARAMETERS <count> | PARAMETERS <parameter>:<type>[=<initial>]...
 #                 TEXTURES <count> | TEXTURES <texture>...
-#                 [ANIMATED])
+#                 [ANIMATED] [BACKDROP <margin>])
 # Adds the program to <target>, declared in the generated header "effects/<name>.hpp":
 #   const std::shared_ptr<const weft::paint::EffectProgram>& weft::effects::<name>();
 # <name> is a C++ identifier. PARAMETERS (float4 each, at most 16) and TEXTURES (at most 4) are what the function reads,
 # by count for a program that only display lists draw, or by name for CSS (paint::EffectParameter): CSS sets parameter
 # <parameter> with the custom property --<parameter>, a value of <type> (number, vec2, vec3, vec4 or color), or
 # <initial> when none is set, CSS text with commas for spaces (7.2,2.8; quote one with a #: "tint:color=#9ca3af"). A
-# host registers the named textures with the program. ANIMATED: the function reads the time.
+# host registers the named textures with the program. ANIMATED: the function reads the time. BACKDROP: the function
+# reads what lies behind its element (docs/effects.md), from a copy that reaches <margin> CSS px (0 to 256) past its
+# box.
 function(weft_add_effect target name source)
-    cmake_parse_arguments(PARSE_ARGV 3 arg "ANIMATED" "" "PARAMETERS;TEXTURES")
+    cmake_parse_arguments(PARSE_ARGV 3 arg "ANIMATED" "BACKDROP" "PARAMETERS;TEXTURES")
     if(NOT name MATCHES "^[A-Za-z_][A-Za-z0-9_]*$")
         message(FATAL_ERROR "weft_add_effect: ${name} is not an identifier")
     endif()
@@ -70,6 +72,13 @@ function(weft_add_effect target name source)
     endif()
     if(arg_ANIMATED)
         string(APPEND manifest "            p->animated = true;\n")
+    endif()
+    if(DEFINED arg_BACKDROP)
+        if(NOT arg_BACKDROP MATCHES "^[0-9]+(\\.[0-9]+)?$" OR arg_BACKDROP GREATER 256)
+            message(FATAL_ERROR "weft_add_effect: ${name} BACKDROP takes a margin from 0 to 256 CSS px")
+        endif()
+        string(APPEND manifest "            p->backdrop = true;\n"
+            "            p->backdrop_margin = float(${arg_BACKDROP});\n")
     endif()
     get_filename_component(source "${source}" ABSOLUTE)
     set(scene "${PROJECT_SOURCE_DIR}/src/render/shaders/scene.hlsl")

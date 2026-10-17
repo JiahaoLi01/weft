@@ -53,6 +53,8 @@ namespace weft::constants {
     // The parameters fill the shared shader record's fields that effects leave unused.
     inline constexpr unsigned max_effect_parameters = 16;
     inline constexpr unsigned max_effect_textures = 4;
+    // How far past its box, in item px, the copy of what lies behind an effect that reads its backdrop may reach.
+    inline constexpr float max_effect_backdrop_margin = 256;
     // UI particles of the paint IR (paint::Particles): the particles one emission draws, and the frames of a sprite's
     // grid. A particle's random values hash its index modulo particle_index_period, which floats hold exactly.
     inline constexpr unsigned max_particles_per_emission = 65536;

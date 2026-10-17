@@ -357,6 +357,25 @@ namespace weft::paint {
                             })) {
                             return make_diagnostic(Diag::PaintList, "effect value" + at);
                         }
+                        if (program.backdrop) {
+                            // The backdrop's copy is taken before an item up to the effect's own, of a target that
+                            // is still the effect's or encloses it: no group open there ends before the effect.
+                            bool closed = !(program.backdrop_margin >= 0) ||
+                                          !(program.backdrop_margin <= constants::max_effect_backdrop_margin) ||
+                                          e.backdrop_at > i;
+                            std::size_t open{};
+                            for (auto k = std::size_t(e.backdrop_at); !closed && k < i; ++k) {
+                                if (list.items[k].kind == Item::Kind::BeginGroup) {
+                                    ++open;
+                                } else if (list.items[k].kind == Item::Kind::EndGroup) {
+                                    closed = !open;
+                                    open -= open ? 1 : 0;
+                                }
+                            }
+                            if (closed) {
+                                return make_diagnostic(Diag::PaintList, "effect backdrop" + at);
+                            }
+                        }
                         break;
                     }
                     case Item::Kind::Particles: {
@@ -464,6 +483,7 @@ namespace weft::paint {
             for (auto& texture : effect.textures) {
                 texture += assets;
             }
+            effect.backdrop_at += items;
             into.effects.push_back(std::move(effect));
         }
         for (auto p : from.particles) {

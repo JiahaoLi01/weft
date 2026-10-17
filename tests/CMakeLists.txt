@@ -68,6 +68,17 @@ weft_add_effect(weft_test_effects effect_repeat effects/repeat.hlsl PARAMETERS 0
 # An effect that CSS attaches: named parameters, a named texture, and the time.
 weft_add_effect(weft_test_effects effect_css effects/css.hlsl
     PARAMETERS "tint:color=#336699" amount:number=0.5 offset:vec2=0,0 TEXTURES mask ANIMATED)
+# Effects that read what lies behind their element: the backdrop read shift CSS px away, its copy 8 px past the box or
+# none past it; and the samples (samples/effects), with the manifests of samples/effects/effects.json.
+weft_add_effect(weft_test_effects effect_backdrop_shift effects/backdrop_shift.hlsl
+    PARAMETERS shift:vec2=0,0 TEXTURES 0 BACKDROP 8)
+weft_add_effect(weft_test_effects effect_backdrop_tight effects/backdrop_shift.hlsl
+    PARAMETERS shift:vec2=0,0 TEXTURES 0 BACKDROP 0)
+weft_add_effect(weft_test_effects effect_refraction ../samples/effects/refraction.hlsl
+    PARAMETERS strength:number=10 bevel:number=18 ripple:number=0.2 cell:number=40 tint:color=transparent TEXTURES 0
+    BACKDROP 24)
+weft_add_effect(weft_test_effects effect_heat_haze ../samples/effects/heat-haze.hlsl
+    PARAMETERS amplitude:number=3 wavelength:number=28 speed:number=36 fade:number=0.6 TEXTURES 0 ANIMATED BACKDROP 8)
 
 # The effect check (cmake/check_effect.cmake) on tests/effects/check/<sample>.hlsl: it accepts the sample, or with a
 # reason refuses it with a message that names the reason. CMake wraps messages: the reason's spaces match any space.
@@ -407,6 +418,14 @@ if(WIN32)
         target_compile_definitions(weft_render_scene_backdrop_tests PRIVATE WEFT_TEST_VULKAN)
     endif()
     weft_add_test(NAME render_scene_backdrop_contract COMMAND weft_render_scene_backdrop_tests TIMEOUT 120)
+    # UI shader effects that read what lies behind their element: lists, plans, checks and damage; both passes against
+    # the backdrop moved by known shifts, at scale 1 and 2; the samples.
+    weft_add_executable(weft_scene_backdrop_effects_tests SOURCES scene_backdrop_effects_tests.cpp
+        LINK ${scene_effect_links})
+    if(WEFT_RENDER_VULKAN)
+        target_compile_definitions(weft_scene_backdrop_effects_tests PRIVATE WEFT_TEST_VULKAN)
+    endif()
+    weft_add_test(NAME scene_backdrop_effects_contract COMMAND weft_scene_backdrop_effects_tests TIMEOUT 180)
     # SVG rects, circles and lines drawn as boxes, against the same outlines drawn as path coverage, on both passes.
     weft_add_executable(weft_render_scene_shape_boxes_tests SOURCES render_scene_shape_boxes_tests.cpp
         LINK ${scene_effect_links})
@@ -442,7 +461,8 @@ if(WIN32)
     # View frames through the renderer C ABI on the built-in D3D12 backend (WARP, with the debug layer when it is
     # installed), against the D3D11 backend drawing the same frames.
     weft_add_executable(weft_render_d3d12_view_tests SOURCES render_d3d12_view_tests.cpp
-        LINK weft::core weft::view weft::scene_d3d11 weft::scene_d3d12 d3d11 d3d12 dxgi ole32 LARGE_STACK)
+        LINK weft::core weft::view weft::scene_d3d11 weft::scene_d3d12 weft_test_effects d3d11 d3d12 dxgi ole32
+            LARGE_STACK)
     weft_add_test(NAME render_d3d12_view_contract COMMAND weft_render_d3d12_view_tests TIMEOUT 180)
     set_tests_properties(render_d3d12_view_contract PROPERTIES SKIP_RETURN_CODE 77)
     # The CRPG UI's smoke as a UI shader effect against the original's tick on the CPU, on both scene passes.

@@ -159,7 +159,10 @@ typedef struct weft_effect_texture {
  * weft's shell (cmake/compile_effect.cmake) to DXBC for D3D11 and D3D12 and to SPIR-V for Vulkan, each for the scene's
  * encoded and the document's linear composition space (a backend without its bytecode cannot draw frames that show the
  * effect); its parameters and textures in the order the function reads them (at most 16 and 4); and whether it reads
- * the time, so that frames keep coming while it shows. */
+ * the time, so that frames keep coming while it shows. With backdrop 1 the function also reads what lies behind its
+ * element (docs/effects.md): the scene copies what its target holds before the element draws, over the element's box
+ * and backdrop_margin CSS px past it on each side (0 to 256), for reads that leave the box. A struct_size of
+ * offsetof(weft_effect_desc, backdrop) (the earlier ABI) is an effect that reads no backdrop. */
 typedef struct weft_effect_desc {
     uint32_t struct_size;
     uint32_t animated; /* 0 or 1 */
@@ -177,6 +180,8 @@ typedef struct weft_effect_desc {
     size_t spirv_encoded_size;
     const void* spirv_linear;
     size_t spirv_linear_size;
+    uint32_t backdrop; /* 0 or 1 */
+    float backdrop_margin;
 } weft_effect_desc;
 
 /* Registers an effect for every View's pages, its bytes copied. WEFT_INVALID_ARGUMENT for a name registered already, a

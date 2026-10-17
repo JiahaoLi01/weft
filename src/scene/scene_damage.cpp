@@ -113,11 +113,12 @@ namespace weft {
                 }
             }
         };
-        // A backdrop filter shows what lies behind its element, wherever that changes: a frame with one repaints whole
-        // when anything changed.
+        // A backdrop filter, or an effect that reads its backdrop, shows what lies behind its element, wherever that
+        // changes: a frame with one repaints whole when anything changed.
         const auto filters = [](auto&& self, const SceneNode& n) -> bool {
             const auto* v = n.style.find(PropertyId::BackdropFilter);
-            if (v && !css::trim(v->text()).empty() && css::trim(v->text()) != "none") {
+            if ((v && !css::trim(v->text()).empty() && css::trim(v->text()) != "none") ||
+                (n.effect && n.effect->program->backdrop)) {
                 return true;
             }
             return std::any_of(n.children.begin(), n.children.end(), [&](const SceneNode& c) {

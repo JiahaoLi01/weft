@@ -281,6 +281,11 @@ namespace weft::paint {
         std::vector<EffectParameter> named_parameters;
         std::vector<std::string> named_textures;
         bool animated{};
+        // Whether the function reads what lies behind its item (Effect::backdrop_at), and how far past the item's box
+        // (item px, at most constants::max_effect_backdrop_margin) the copy of it reaches, for reads that leave the
+        // box.
+        bool backdrop{};
+        float backdrop_margin{};
         // Pixel shader bytecode, empty where not built: D3D11 DXBC and Vulkan SPIR-V, for an encoded and a linear
         // pass.
         std::vector<std::uint8_t> d3d11_encoded;
@@ -292,7 +297,10 @@ namespace weft::paint {
     // A UI shader effect over the item's box [0, width] x [0, height], inside its corner radii (top-left first, then
     // clockwise, as a box's): the program's function at time (seconds) with parameters (absent ones zero), sampling
     // textures, assets of the list read as data (coverage) or as linear premultiplied color (sRGB images). The
-    // function returns linear premultiplied color.
+    // function returns linear premultiplied color. A program that reads the backdrop reads what the target held before
+    // item backdrop_at drew (the first item of the effect's element, its group's BeginGroup when it opens one), over
+    // the item's box and the program's margin past it: a copy a renderer takes there, of the target current then (the
+    // effect's own, or one that encloses it).
     struct Effect {
         // In DisplayList::programs.
         std::uint32_t program{};
@@ -300,6 +308,7 @@ namespace weft::paint {
         std::vector<std::array<float, 4>> parameters;
         std::vector<std::uint32_t> textures;
         std::array<float, 4> radii{};
+        std::uint32_t backdrop_at{};
     };
 
     // How the particles of an emitter start, move and look (docs/architecture.md, "粒子"): each particle a disc or a
@@ -511,8 +520,10 @@ namespace weft::paint {
     // non-negative lengths, planes of a well-formed content list (nested at most constants::max_plane_depth deep), a
     // positive size and a finite, invertible homography in front of the viewer, effects of a leased program with at
     // most its parameters and exactly its textures (coverage or sRGB assets of the list), finite values and
-    // non-negative radii, particles with finite values, ordered ranges, positive lifetimes, non-negative rates, speeds,
-    // drag, sizes and colors, a softness up to 1, a sprite of a coverage or sRGB asset of the list in at most
+    // non-negative radii, and for a program that reads the backdrop a margin from 0 to
+    // constants::max_effect_backdrop_margin and a backdrop_at up to the effect's own item that no group open there
+    // closes before the effect, particles with finite values, ordered ranges, positive lifetimes, non-negative rates,
+    // speeds, drag, sizes and colors, a softness up to 1, a sprite of a coverage or sRGB asset of the list in at most
     // constants::max_particle_sprite_frames frames, and an emission of at most constants::max_particles_per_emission
     // particles that stopped no later than its elapsed time, backdrops with finite matrices and radii that are not
     // negative, a blur from 0 to constants::max_backdrop_blur, and under only inside a group, path shadows over the
@@ -529,7 +540,8 @@ namespace weft::paint {
     // Appends from's items after into's under transform, which maps from's target px into into's and must scale by
     // positive factors and translate (Diag::PaintList otherwise). Item transforms compose with it, clip rects and
     // rounded clips map through it, and payloads, assets, programs, rounded clips, external and named textures and the
-    // items path shadows name are renumbered: from's assets follow into's, every external texture follows every asset,
-    // and from's texture names follow into's. Filters keep their contents, which lie in their items' px.
+    // items path shadows and effects' backdrops name are renumbered: from's assets follow into's, every external
+    // texture follows every asset, and from's texture names follow into's. Filters keep their contents, which lie in
+    // their items' px.
     Status append(DisplayList& into, const DisplayList& from, const Affine& transform = identity);
 } // namespace weft::paint

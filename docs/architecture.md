@@ -298,6 +298,13 @@ CSS 与普通 PNG 输入按 sRGB 来源解释，先 transfer decode 到线性，
   - 不可读时，最外层的背景是透明的，并给出诊断。
 - 代价：每个读背景的效果打断一次批次并拷贝一块区域。移动端的分块 GPU 代价更高，数量与面积有预算。
 - 同一机制随后用来实现标准的 `backdrop-filter: blur()`。
+- 实现（读背景的效果，2026-10-18；写法见 [效果的写法](effects.md)）：
+  - 清单的 `backdrop` 与 `backdropMargin`：`weft_effect_desc` 末尾的 `backdrop`、`backdrop_margin`，`paint::EffectProgram::backdrop`、`backdrop_margin`，`weft_add_effect` 的 `BACKDROP <margin>`；
+  - 拷贝点：显示列表的效果项记下 `paint::Effect::backdrop_at`，即元素的第一个绘制项（元素开组时是组的开始）。背景因此不含元素自己的背景色、阴影与 `backdrop-filter`；元素自己的组外的目标，就是组开始时的当前目标，不需要 `backdrop-filter` 的 `under` 那样另选目标。`paint::check` 要求拷贝点不晚于效果，且其间没有结束拷贝点所在组的 `EndGroup`；
+  - 计划：`plan_scene_pass` 在拷贝点之前插入 `Copy` 步骤（`ScenePass::copies`：盒子在自身坐标里加边距，经变换与缩放后的外接矩形，取整并限制在目标内；为空时既不拷贝也不画），合批不跨过拷贝点，第一项也不折成清屏色；读背景的效果单独一个批次，`Batch::copy` 指向它的拷贝；效果记录的 `uv` 是拷贝的设备像素，`mode.x` 为 `image_mode_backdrop`；
+  - 外壳：`EffectInput::backdrop`（本像素在拷贝里的 uv）、`backdropAcross`、`backdropDown`（盒子 uv 每单位对应的拷贝 uv，由记录的逆变换求逆得到）、`backdropCopied`；`effectBackdropUV` 映射盒子的 uv，`effectBackdrop` 以线性过滤、边缘夹取采样并转成线性预乘，没有拷贝时读到透明；
+  - 后端：拷贝在步骤到来时进行，效果绘制时绑定在 `image`（t1）。D3D11 `CopySubresourceRegion` 到按（目标视图的格式、尺寸、在 pass 中的序号）保留的纹理，两帧未用即释放；D3D12 计划时为每个拷贝分配格式与所读目标相同的临时图像，录制时转换状态后 `CopyTextureRegion`；Vulkan 结束渲染过程、`vkCmdCopyImage`、再以 load 开始，目标不可读时拷贝是透明的并计入原因。文档页面的线性 pass 拒绝读背景的效果；
+  - 损伤与保留的 pass：帧里有读背景的效果时任何变化都整幅损伤；有效果的列表本来就不打补丁。
 - 实现（11.5a–b，scene 页面的 `backdrop-filter`，读背景的效果尚未做）：
   - paint IR 的 Backdrop 项：模糊的标准差（元素 px）、模糊前后的两个 4×5 颜色矩阵（非预乘颜色上，结果钳到 0–1）、圆角，以及 `under`；
   - 一般情况下，Backdrop 项画在元素的一切内容之前，读当前目标；元素的透明度小于 1，或子孙也有 `backdrop-filter` 时，元素成为隔离组，Backdrop 项放在组尾，读包住这个组的目标，以“目标之上”（destination-over）画在组内容之下，再随组按透明度合成。这样与 Chrome 的结果一致：元素的内容在过滤后的背景之上，整体按透明度合成；子孙的背景只看到这个组里已画的内容（它是 Backdrop Root）；

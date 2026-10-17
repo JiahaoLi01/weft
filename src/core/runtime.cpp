@@ -395,9 +395,14 @@ extern "C" weft_result weft_runtime_add_effect(weft_runtime* runtime, const weft
         return error;
     }
     std::string_view name;
-    if (!effect || effect->struct_size < sizeof(weft_effect_desc) || effect->animated > 1 ||
-        !text_arg(effect->name, effect->name_size, name) || name.empty() || !weft::bridge::utf8(name) ||
-        effect->parameter_count > weft::constants::max_effect_parameters ||
+    // An effect of the earlier ABI ends before backdrop: it reads no backdrop.
+    const bool backdrop_field = effect && effect->struct_size >= sizeof(weft_effect_desc);
+    if (!effect || (!backdrop_field && effect->struct_size != offsetof(weft_effect_desc, backdrop)) ||
+        (backdrop_field && (effect->backdrop > 1 || !(effect->backdrop_margin >= 0) ||
+                            !(effect->backdrop_margin <= weft::constants::max_effect_backdrop_margin) ||
+                            (!effect->backdrop && effect->backdrop_margin != 0))) ||
+        effect->animated > 1 || !text_arg(effect->name, effect->name_size, name) || name.empty() ||
+        !weft::bridge::utf8(name) || effect->parameter_count > weft::constants::max_effect_parameters ||
         effect->texture_count > weft::constants::max_effect_textures ||
         (effect->parameter_count && !effect->parameters) || (effect->texture_count && !effect->textures) ||
         (!effect->dxbc_encoded && effect->dxbc_encoded_size) || (!effect->dxbc_linear && effect->dxbc_linear_size) ||
@@ -411,6 +416,10 @@ extern "C" weft_result weft_runtime_add_effect(weft_runtime* runtime, const weft
         program->parameters = effect->parameter_count;
         program->textures = effect->texture_count;
         program->animated = effect->animated != 0;
+        if (backdrop_field) {
+            program->backdrop = effect->backdrop != 0;
+            program->backdrop_margin = effect->backdrop_margin;
+        }
         for (uint32_t i = 0; i < effect->parameter_count; ++i) {
             const auto& p = effect->parameters[i];
             std::string_view parameter;

@@ -991,6 +991,8 @@ namespace weft {
                     list.items.push_back(item);
                     return;
                 }
+                // The element's first item: an effect that reads its backdrop reads what the target held before it.
+                const auto first_item = std::uint32_t(list.items.size());
                 // A background image laid out as CSS lays one out: a host texture or a url() image.
                 const auto host_texture = texture_of(n);
                 const bool fitted = !bare && (!host_texture.empty() || n.background_image);
@@ -1173,6 +1175,9 @@ namespace weft {
                         effect.textures.push_back(index_of(list.assets, texture));
                     }
                     effect.radii = box.radii;
+                    if (n.effect->program->backdrop) {
+                        effect.backdrop_at = first_item;
+                    }
                     auto shape = item;
                     shape.kind = paint::Item::Kind::Effect;
                     // As Chrome draws an image (or a canvas's content): into the rect snapped to device pixels, each

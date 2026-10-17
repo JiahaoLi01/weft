@@ -383,6 +383,36 @@ namespace weft::render::d3d11 {
         return current->srv.Get();
     }
 
+    ID3D11ShaderResourceView* SceneRenderer::copy(const ScenePass::Copy& c, unsigned place,
+                                                  ID3D11RenderTargetView* from) {
+        ComPtr<ID3D11Resource> resource;
+        from->GetResource(&resource);
+        // The format the pass draws in, which a typeless target's view names.
+        D3D11_RENDER_TARGET_VIEW_DESC view{};
+        from->GetDesc(&view);
+        const auto w = unsigned(c.region[2] - c.region[0]);
+        const auto h = unsigned(c.region[3] - c.region[1]);
+        auto& kept = copies_[{unsigned(view.Format), w, h, place}];
+        kept.used = backdrop_frame_;
+        auto& s = kept.surface;
+        if (!s.texture) {
+            D3D11_TEXTURE2D_DESC d{};
+            d.Width = w;
+            d.Height = h;
+            d.MipLevels = d.ArraySize = 1;
+            d.Format = view.Format;
+            d.SampleDesc.Count = 1;
+            d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            throw_if_failed(device_->CreateTexture2D(&d, nullptr, &s.texture), "native backdrop copy");
+            throw_if_failed(device_->CreateShaderResourceView(s.texture.Get(), nullptr, &s.srv),
+                            "native backdrop copy SRV");
+        }
+        const D3D11_BOX box{UINT(c.region[0]), UINT(c.region[1]), 0, UINT(c.region[2]), UINT(c.region[3]), 1};
+        immediate_->CopySubresourceRegion(s.texture.Get(), 0, 0, 0, 0, resource.Get(), 0, &box);
+        ++backdrop_copies;
+        return s.srv.Get();
+    }
+
     ID3D11PixelShader* SceneRenderer::effect_shader(const std::shared_ptr<const paint::EffectProgram>& program) {
         if (const auto found = effect_shaders_.find(program.get()); found != effect_shaders_.end()) {
             return found->second.shader.Get();
@@ -734,6 +764,8 @@ namespace weft::render::d3d11 {
             ctx->PSSetShaderResources(1, 1, &empty);
             ctx->OMSetRenderTargets(1, &rtv, nullptr);
         };
+        // The copies effects read as their backdrops, taken as their steps come.
+        std::vector<ID3D11ShaderResourceView*> copies(pass.copies.size());
         for (const auto& batch : pass.batches) {
             switch (batch.step) {
                 case Step::BeginGroup: {
@@ -766,15 +798,22 @@ namespace weft::render::d3d11 {
                     instances(batch.first, batch.count, page(prepared.pages.at(batch.source)).view.Get());
                     break;
                 case Step::Effect: {
-                    // The effect's encoded pass over its records, its textures at t3 on, repeated by s1.
+                    // The effect's encoded pass over its records, its textures at t3 on, repeated by s1; the copy of
+                    // its backdrop as the image of an effect that reads it.
                     const auto& effect = prepared.effects.at(batch.source);
                     ctx->PSSetShader(effect_shader(effect.program), nullptr, 0);
                     ctx->PSSetShaderResources(effect_texture_slot, UINT(effect_views[batch.source].size()),
                                               effect_views[batch.source].data());
                     auto* repeat = effect_sampler_.Get();
                     ctx->PSSetSamplers(1, 1, &repeat);
-                    instances(batch.first, batch.count, nullptr);
+                    instances(batch.first, batch.count, batch.copy ? copies.at(batch.copy - 1) : nullptr);
                     ctx->PSSetShader(ps_.Get(), nullptr, 0);
+                    break;
+                }
+                case Step::Copy: {
+                    // What the current target holds over the copy's region, for the effect that reads it later; a
+                    // copy reads no target bound for output, so the copy needs none unbound.
+                    copies.at(batch.source) = copy(pass.copies.at(batch.source), batch.source, stack.back());
                     break;
                 }
                 case Step::Backdrop: {
@@ -823,6 +862,9 @@ namespace weft::render::d3d11 {
         });
         ++backdrop_frame_;
         std::erase_if(backdrop_targets_, [&](const auto& target) {
+            return target.second.used + 1 < backdrop_frame_;
+        });
+        std::erase_if(copies_, [&](const auto& target) {
             return target.second.used + 1 < backdrop_frame_;
         });
         // The caller has confirmed this slot's prior real submission complete. Immutable image leases survive cache

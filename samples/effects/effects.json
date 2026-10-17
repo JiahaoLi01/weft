@@ -1,0 +1,30 @@
+{
+  "effects": [
+    {
+      "name": "refraction",
+      "bytecode": "refraction",
+      "backdrop": true,
+      "backdropMargin": 24,
+      "parameters": [
+        {"name": "strength", "type": "number", "initial": "10"},
+        {"name": "bevel", "type": "number", "initial": "18"},
+        {"name": "ripple", "type": "number", "initial": "0.2"},
+        {"name": "cell", "type": "number", "initial": "40"},
+        {"name": "tint", "type": "color", "initial": "transparent"}
+      ]
+    },
+    {
+      "name": "heat-haze",
+      "bytecode": "heat-haze",
+      "animated": true,
+      "backdrop": true,
+      "backdropMargin": 8,
+      "parameters": [
+        {"name": "amplitude", "type": "number", "initial": "3"},
+        {"name": "wavelength", "type": "number", "initial": "28"},
+        {"name": "speed", "type": "number", "initial": "36"},
+        {"name": "fade", "type": "number", "initial": "0.6"}
+      ]
+    }
+  ]
+}
