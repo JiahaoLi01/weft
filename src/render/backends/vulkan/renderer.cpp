@@ -326,8 +326,9 @@ namespace weft::render::vulkan {
             ensure(item.kind != paint::Item::Kind::Text && item.kind != paint::Item::Kind::Layer &&
                        item.kind != paint::Item::Kind::Shadow && item.kind != paint::Item::Kind::Path &&
                        item.kind != paint::Item::Kind::Plane && item.kind != paint::Item::Kind::Particles &&
-                       item.kind != paint::Item::Kind::Backdrop,
-                   "the display list pass draws no scene rasters, shadows, paths, planes, particles or backdrops");
+                       item.kind != paint::Item::Kind::Backdrop && item.kind != paint::Item::Kind::Filter,
+                   "the display list pass draws no scene rasters, shadows, paths, planes, particles, backdrops or "
+                   "filters");
             if (item.kind == paint::Item::Kind::Image) {
                 const auto& image = list->images[item.payload];
                 ensure(image.stroke >= 0 && (image.asset >= list->assets.size() ||

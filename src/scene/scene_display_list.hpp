@@ -2,6 +2,7 @@
 
 #include "paint/display_list.hpp"
 #include "scene/scene.hpp"
+#include "scene/scene_filter.hpp"
 #include "scene/scene_image_cache.hpp"
 #include "scene/scene_path.hpp"
 
@@ -65,6 +66,7 @@ namespace weft {
             Particles,
             Backdrops,
             PathShadows,
+            Filters,
             Anchors,
             Runs,
             Parts
@@ -90,12 +92,17 @@ namespace weft {
     // its items' anchors, which are whole's: those of the part's anchored elements count from span's first anchor, and
     // the part's other items take `enclosing` (0 for none), the anchor of the anchored element of whole the part lies
     // in.
+    //
+    // unclipped: the root is visited without the clip of its box (a filtered element's content, scene_filter_content).
+    // filters: what url() filters name; the frame's own elements when null.
     struct SceneListBuild {
         SceneListSpans* spans{};
         const SceneNode* part{};
         const SceneListSpan* span{};
         const paint::DisplayList* whole{};
         std::uint32_t enclosing{};
+        bool unclipped{};
+        const SceneFilterResolve* filters{};
     };
 
     // A scene frame as a display list, or why it has none.
@@ -198,4 +205,29 @@ namespace weft {
 
     // The sizes of each part of a list (SceneListSpan::Part): its items, rounded clips, payload lists, anchors and runs.
     std::array<std::uint32_t, SceneListSpan::Parts> scene_list_sizes(const SceneDisplayList& list);
+
+    // A filtered element's content (paint::Filter): the element alone at its origin, without its own transform,
+    // opacity, filter, position and anchoring, as its list keys it (source, which keeps the element's identity), and
+    // that element's list with an unclipped root, in its own px. filters resolves the url() filters of its descendants.
+    // The list's fallback says why it has none; one with anchored descendants or particles has none.
+    struct SceneFilterContent {
+        std::shared_ptr<SceneNode> source;
+        SceneDisplayList listed;
+    };
+
+    SceneFilterContent scene_filter_content(const SceneNode& element, double time_ms, SceneText* text, float scale,
+                                            SceneDisplayCache* cache, const SceneFilterResolve* filters);
+
+    // The image of a filtered element's content: the device pixels it covers at resolution device px per element px
+    // (left, top, right, bottom; whole pixels, empty when the content draws nothing): where the content's items draw
+    // within their clips, grown by what its functions spread and offset (blurs constants::scene::filter_kernel_sigmas
+    // deviations, drop shadows that and their offset on every side) and a guard of constants::scene::filter_guard_px.
+    // resolution is scale, or lower where the image would pass constants::scene::filter_image_max_pixels.
+    struct SceneFilterRegion {
+        std::array<std::int32_t, 4> pixels{};
+        float resolution{};
+    };
+
+    SceneFilterRegion scene_filter_region(const paint::DisplayList& content, const std::vector<paint::FilterOp>& ops,
+                                          float scale);
 } // namespace weft

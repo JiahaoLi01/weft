@@ -3,6 +3,7 @@
 // logical properties; colors and calc() computed to the forms the scene draws; and what is outside the profile dropped
 // with a warning instead of failing the sheet. Each check is the browser's answer for the same sheet and document.
 #include "scene/scene.hpp"
+#include "scene/scene_filter.hpp"
 #include "style/style.hpp"
 #include "support/check.hpp"
 #include "constants/common.hpp"
@@ -368,6 +369,53 @@ namespace {
         same(r.value("s", PropertyId::OverflowWrap), "break-word", "overflow-wrap in a style attribute");
     }
 
+    // filter (Filter Effects 1): Tailwind's utilities compute to the functions the scene draws (scene_filter), their
+    // colors to the forms it reads; the filter utility alone, every function's variable empty, computes to nothing.
+    void filters() {
+        const std::string chain =
+            "filter: var(--tw-blur, ) var(--tw-brightness, ) var(--tw-contrast, ) "
+            "var(--tw-grayscale, ) var(--tw-hue-rotate, ) var(--tw-invert, ) var(--tw-saturate, ) "
+            "var(--tw-sepia, ) var(--tw-drop-shadow, )";
+        const std::string sheet =
+            ".blur { --tw-blur: blur(8px); " + chain + " }" +
+            ".drop-shadow { --tw-drop-shadow: drop-shadow(0 1px 2px #0000001a) drop-shadow(0 1px 1px #0000000f); " +
+            chain + " }" + ".grayscale { --tw-grayscale: grayscale(100%); " + chain + " }" + ".filter { " + chain +
+            " }" + ".named { color: blue; filter: drop-shadow(2px 2px 2px red) drop-shadow(1px 1px currentcolor) }" +
+            ".cb { filter: url(#cb-deuteranope) }";
+        CompiledStyle compiled(sheet, scene_style_profile(true));
+        const auto warnings = compiled.take_warnings();
+        require(warnings.empty(), "filters are not dropped" + (warnings.empty() ? std::string() : ": " + warnings[0]));
+        const auto r =
+            cascade(sheet, el("html", "root", "",
+                              {el("div", "b", "blur"), el("div", "d", "drop-shadow"), el("div", "g", "grayscale"),
+                               el("div", "f", "filter"), el("div", "n", "named"), el("div", "cb", "cb")}));
+        const auto functions = [&](const char* id) {
+            // A value of nothing but space is none: no value.
+            auto value = r.value(id, PropertyId::Filter);
+            if (value == "<none>") {
+                value = "none";
+            }
+            // currentcolor is the element's color.
+            const auto parsed = scene_filter(value, by_id(r.dom, r.style, id)->values, {});
+            require(bool(parsed), std::string("#") + id + "'s filter '" + value +
+                                      "' parses: " + (parsed ? "" : parsed.error().message));
+            return *parsed;
+        };
+        const auto b = functions("b");
+        require(b.size() == 1 && b[0].kind == paint::FilterOp::Kind::Blur && b[0].blur == 8, "Tailwind's blur");
+        const auto d = functions("d");
+        require(d.size() == 2 && d[0].kind == paint::FilterOp::Kind::DropShadow && d[0].y == 1 && d[0].blur == 2 &&
+                    std::abs(d[0].color[3] - 26.f / 255) < .001f && std::abs(d[1].color[3] - 15.f / 255) < .001f,
+                "Tailwind's drop-shadow: two of them, their #rrggbbaa colors computed");
+        require(functions("g").size() == 1, "Tailwind's grayscale");
+        require(functions("f").empty(), "the filter utility alone: nothing");
+        const auto n = functions("n");
+        require(n.size() == 2 && n[0].color == paint::Color{1, 0, 0, 1} && n[1].color == paint::Color{0, 0, 1, 1},
+                "a named color, and currentcolor computed");
+        // The colour-blind preview's url(#id): no color in it (#cb-deuteranope is no hex color).
+        same(r.value("cb", PropertyId::Filter), "url(#cb-deuteranope)", "a url() filter");
+    }
+
     // What the profile cannot take is dropped with a warning; the rest of the sheet and of the rule stays. A strict
     // profile still fails the sheet.
     void drops() {
@@ -414,10 +462,11 @@ int main() {
         borders();
         generated();
         wrapping_and_order();
+        filters();
         drops();
         std::cout << "PASS forgiving CSS: cascade layers, @media/@supports, @property, colors, calc, logical "
                      "properties, Selectors 4, nesting, border-color per side, overflow-wrap, word-break and order, "
-                     "and drops with warnings\n";
+                     "filters, and drops with warnings\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

@@ -39,8 +39,9 @@ namespace weft::render {
         return c;
     }
 
-    BackdropConstants backdrop_matrix_constants(const paint::ColorMatrix& m) {
+    BackdropConstants backdrop_matrix_constants(const paint::ColorMatrix& m, bool linear, std::array<float, 2> offset) {
         BackdropConstants c;
+        c.texel = {linear ? 1.f : 0.f, 0, offset[0], offset[1]};
         for (unsigned k = 0; k < 4; ++k) {
             c.rows[k] = {m[k * 5], m[k * 5 + 1], m[k * 5 + 2], m[k * 5 + 3]};
         }
@@ -213,7 +214,7 @@ namespace weft::render {
             auto m = item.transform;
             const bool image = item.kind == Kind::Text || item.kind == Kind::Layer || item.kind == Kind::Image ||
                                item.kind == Kind::Shadow || item.kind == Kind::Path || item.kind == Kind::Effect ||
-                               item.kind == Kind::PathShadow;
+                               item.kind == Kind::PathShadow || item.kind == Kind::Filter;
             SceneRecord r{};
             r.uv = {0, 0, 1, 1};
             r.clips = {float(item.clips_begin), float(item.clips_count), float(item.anchor), 0};
@@ -526,6 +527,7 @@ namespace weft::render {
                 case Kind::Path:
                 case Kind::PathShadow:
                 case Kind::Plane:
+                case Kind::Filter:
                     pass.batches.push_back({Step::Image, i++, 1});
                     break;
                 case Kind::Effect: {

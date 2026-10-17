@@ -1553,6 +1553,8 @@ namespace weft {
         bool incremental = true;
         // A forgiving page (StyleProfile::forgiving), and what the solver itself dropped since the last take.
         bool forgiving{};
+        // The document an update reads, while it builds (url() filters name its elements).
+        const DomSnapshot* document{};
         std::vector<std::string> warnings;
         std::set<std::string> warned;
         bool profiling = true;
@@ -1722,21 +1724,30 @@ namespace weft {
             }
         }
 
-        // A forgiving page's filter the scene cannot draw (any but one drop-shadow() of an svg element) is dropped
-        // with a warning, as CSS drops what it does not take, instead of failing every frame that shows it.
+        // A forgiving page's filter the scene cannot draw is dropped with a warning, as CSS drops what it does not
+        // take, instead of failing every frame that shows it: one on an SVG element inside svg, and one of functions
+        // the scene does not take (scene_filter), its url() filters looked up in the document the update reads.
         void drop_filter(SceneNode& out) {
             const auto filter = std::string(get(out.style, PropertyId::Filter, "none"));
-            if (filter == "none") {
+            if (css::trim(filter).empty() || css::trim(filter) == "none") {
                 return;
             }
-            if (out.space == constants::svg_namespace_uri && out.tag == "svg") {
-                try {
-                    (void)scene_values::drop_shadow(out.style);
-                    return;
-                } catch (const DiagnosticError&) {
+            std::string why;
+            if (!out.space.empty() && out.space != constants::xhtml_namespace_uri && out.tag != "svg") {
+                why = "the scene draws no filter of an SVG element inside svg";
+            } else if (const auto parsed = scene_filter(
+                           filter, out.style, document ? scene_filter_resolver(*document) : SceneFilterResolve{});
+                       !parsed) {
+                // The diagnostic's message says "<code>: filter <value>: <why>".
+                why = parsed.error().message;
+                const auto said = "filter " + std::string(css::trim(filter)) + ": ";
+                if (const auto at = why.find(said); at != std::string::npos) {
+                    why = why.substr(at + said.size());
                 }
+            } else {
+                return;
             }
-            warn("filter " + filter + " on <" + out.tag + "> (the scene draws one drop-shadow() of an svg element)");
+            warn("filter " + filter + " on <" + out.tag + "> (" + why + ")");
             out.style.erase(PropertyId::Filter);
         }
 
@@ -2875,14 +2886,15 @@ namespace weft {
             std::vector<std::pair<std::size_t, std::size_t>> fixed;
         };
 
-        // A box that contains its fixed descendants (and absolute ones): one with a transform or a backdrop filter, or
-        // one about to have either.
+        // A box that contains its fixed descendants (and absolute ones): one with a transform, a backdrop filter or a
+        // filter, or one about to have one.
         static bool contains_fixed(const SceneStyle& s) {
-            const auto filter = css::trim(s.text(PropertyId::BackdropFilter, "none"));
+            const auto backdrop = css::trim(s.text(PropertyId::BackdropFilter, "none"));
+            const auto filter = css::trim(s.text(PropertyId::Filter, "none"));
             const auto will = s.text(PropertyId::WillChange, "auto");
-            return s.text(PropertyId::Transform, "none") != "none" || (!filter.empty() && filter != "none") ||
-                   will.find("transform") != std::string_view::npos ||
-                   will.find("backdrop-filter") != std::string_view::npos;
+            return s.text(PropertyId::Transform, "none") != "none" || (!backdrop.empty() && backdrop != "none") ||
+                   (!filter.empty() && filter != "none") || will.find("transform") != std::string_view::npos ||
+                   will.find("filter") != std::string_view::npos;
         }
 
         // The anonymous block box that holds an element's inline children.
@@ -4058,6 +4070,16 @@ namespace weft {
     void SceneSolver::update(const DomSnapshot& d, SceneFrame& f, float w, float h, double time) {
         auto& i = *impl_;
         i.owner.require(Diag::SceneOwner);
+
+        struct Reading {
+            const DomSnapshot*& document;
+
+            ~Reading() {
+                document = nullptr;
+            }
+        } reading{i.document};
+
+        i.document = &d;
         if (!std::isfinite(time) || time < i.now || !std::isfinite(w) || !std::isfinite(h) || w <= 0 || h <= 0 ||
             w > constants::scene::max_viewport_dimension || h > constants::scene::max_viewport_dimension) {
             fail("monotonic clock/viewport");

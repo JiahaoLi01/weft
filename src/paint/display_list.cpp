@@ -54,11 +54,11 @@ namespace weft::paint {
     } // namespace
 
     namespace {
-        Status check_at(const DisplayList& list, std::size_t max_group_depth, unsigned planes);
+        Status check_at(const DisplayList& list, std::size_t max_group_depth, unsigned planes, unsigned filters);
     } // namespace
 
     Status check(const DisplayList& list, std::size_t max_group_depth) {
-        return check_at(list, max_group_depth, 0);
+        return check_at(list, max_group_depth, 0, 0);
     }
 
     namespace {
@@ -133,8 +133,24 @@ namespace weft::paint {
             return {};
         }
 
-        // planes counts the plane contents around list: planes inside a plane's content and so on.
-        Status check_at(const DisplayList& list, std::size_t max_group_depth, unsigned planes) {
+        // A filter's functions: one to max_filter_functions of them, of finite values, blurs from 0 to max_filter_blur
+        // and offsets within max_filter_offset.
+        bool filter_functions(const std::vector<FilterOp>& ops) {
+            const auto finite = [](const auto& values) {
+                return std::all_of(values.begin(), values.end(), finite_value);
+            };
+            return !ops.empty() && ops.size() <= constants::max_filter_functions &&
+                   std::all_of(ops.begin(), ops.end(), [&](const FilterOp& op) {
+                       return op.kind <= FilterOp::Kind::DropShadow && op.blur >= 0 &&
+                              op.blur <= constants::max_filter_blur && finite(op.matrix) && finite(op.color) &&
+                              std::abs(op.x) <= constants::max_filter_offset &&
+                              std::abs(op.y) <= constants::max_filter_offset;
+                   });
+        }
+
+        // planes counts the plane contents around list: planes inside a plane's content and so on; filters the filter
+        // contents.
+        Status check_at(const DisplayList& list, std::size_t max_group_depth, unsigned planes, unsigned filters) {
             std::size_t depth{};
             for (std::size_t i = 0; i < list.items.size(); ++i) {
                 const auto& item = list.items[i];
@@ -162,9 +178,9 @@ namespace weft::paint {
                         if (image.texture && image.fitted) {
                             return make_diagnostic(Diag::PaintList, "a named texture fitted as an asset" + at);
                         }
-                        if (image.fitted && (image.asset >= list.assets.size() || !list.assets[image.asset] ||
-                                             list.assets[image.asset]->encoding != Encoding::SrgbStraight ||
-                                             image.stroke != 0)) {
+                        if (image.fitted &&
+                            (image.asset >= list.assets.size() || !list.assets[image.asset] ||
+                             list.assets[image.asset]->encoding != Encoding::SrgbStraight || image.stroke != 0)) {
                             return make_diagnostic(Diag::PaintList,
                                                    "fitted image of no sRGB asset of the list, or with a stroke" + at);
                         }
@@ -285,7 +301,25 @@ namespace weft::paint {
                         if (planes >= constants::max_plane_depth) {
                             return make_diagnostic(Diag::PaintList, "plane depth bound" + at);
                         }
-                        if (auto nested = check_at(*p.content, max_group_depth, planes + 1); !nested) {
+                        if (auto nested = check_at(*p.content, max_group_depth, planes + 1, filters); !nested) {
+                            return nested.error();
+                        }
+                        break;
+                    }
+                    case Item::Kind::Filter: {
+                        if (item.payload >= list.filters.size()) {
+                            return make_diagnostic(Diag::PaintList, "filter payload out of range" + at);
+                        }
+                        const auto& f = list.filters[item.payload];
+                        if (!f.content || !f.pixels[0] || !f.pixels[1] || !(item.width > 0) || !(item.height > 0) ||
+                            !std::isfinite(item.width) || !std::isfinite(item.height) || !(f.resolution > 0) ||
+                            !std::isfinite(f.resolution) || !filter_functions(f.ops)) {
+                            return make_diagnostic(Diag::PaintList, "filter value" + at);
+                        }
+                        if (filters >= constants::max_filter_depth) {
+                            return make_diagnostic(Diag::PaintList, "filter depth bound" + at);
+                        }
+                        if (auto nested = check_at(*f.content, max_group_depth, planes, filters + 1); !nested) {
                             return nested.error();
                         }
                         break;
@@ -398,6 +432,7 @@ namespace weft::paint {
         const auto effects = std::uint32_t(into.effects.size());
         const auto particles = std::uint32_t(into.particles.size());
         const auto backdrops = std::uint32_t(into.backdrops.size());
+        const auto filters = std::uint32_t(into.filters.size());
         const auto programs = std::uint32_t(into.programs.size());
         const auto clips = std::uint32_t(into.clips.size());
         into.boxes.insert(into.boxes.end(), from.boxes.begin(), from.boxes.end());
@@ -439,6 +474,7 @@ namespace weft::paint {
             into.particles.push_back(std::move(p));
         }
         into.backdrops.insert(into.backdrops.end(), from.backdrops.begin(), from.backdrops.end());
+        into.filters.insert(into.filters.end(), from.filters.begin(), from.filters.end());
         for (auto s : from.path_shadows) {
             s.first += items;
             into.path_shadows.push_back(s);
@@ -507,6 +543,9 @@ namespace weft::paint {
                     break;
                 case Item::Kind::PathShadow:
                     item.payload += path_shadows;
+                    break;
+                case Item::Kind::Filter:
+                    item.payload += filters;
                     break;
                 default:
                     break;

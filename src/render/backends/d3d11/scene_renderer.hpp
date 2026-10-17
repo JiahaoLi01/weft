@@ -17,13 +17,14 @@
 #include <vector>
 
 // Native D3D11 pass of a scene: the passes a ScenePreparer prepares (scene/scene_native.hpp), drawn by scene.hlsl as
-// instanced box records, transparent groups in scratch targets, perspective planes and explicit layers whose content a
-// nested pass draws into an image of its own, the text, shadow and path images the preparer builds, uploaded once
+// instanced box records, transparent groups in scratch targets, perspective planes, explicit layers and filtered images
+// whose content a nested pass draws into an image of its own (a filter's then through its chain of backdrop passes,
+// kept until the preparer and the slots drop it), the text, shadow and path images the preparer builds, uploaded once
 // each (small ones into the region the preparer gives them on an atlas page), and UI shader effects in their encoded
-// pass with their textures. Only text whose color glyphs are images (PNG or SVG) comes from the D2D reference raster. The destination
-// holds encoded premultiplied BGRA, like the D2D scene targets. A view's pass is kept while its frames keep their
-// revision (SceneFrame::revision): such a frame draws the kept pass again, its records already on the GPU, with only
-// the frame's anchors (ScenePreparer::place) and their record order uploaded.
+// pass with their textures. Only text whose color glyphs are images (PNG or SVG) comes from the D2D reference raster.
+// The destination holds encoded premultiplied BGRA, like the D2D scene targets. A view's pass is kept while its frames
+// keep their revision (SceneFrame::revision): such a frame draws the kept pass again, its records already on the GPU,
+// with only the frame's anchors (ScenePreparer::place) and their record order uploaded.
 //
 // Owner thread of the SceneText. A frame the pass cannot draw returns false with a counted reason, and the caller
 // draws the frame another way.
@@ -209,6 +210,8 @@ namespace weft::render::d3d11 {
         ID3D11PixelShader* effect_shader(const std::shared_ptr<const paint::EffectProgram>& program);
         // A layer's texture, its content drawn the first time.
         ID3D11ShaderResourceView* texture(const std::shared_ptr<const SceneLayerImage>& layer, float scale);
+        // A filtered image's texture, its content drawn and filtered the first time.
+        ID3D11ShaderResourceView* texture(const std::shared_ptr<const SceneFilterImage>& filter);
         // Copies a backdrop's region of from's texture and filters it as it says; the result's view. The context's
         // state is the passes' afterwards.
         ID3D11ShaderResourceView* backdrop(const ScenePass::Backdrop& backdrop, ID3D11RenderTargetView* from);

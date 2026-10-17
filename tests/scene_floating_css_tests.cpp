@@ -22,7 +22,8 @@
 // The CSS the CRPG floating UI needs of scene pages (13.4a), value by value: gradients of every radial shape, size and
 // position and repeating ones, text-shadow, filter: drop-shadow(), inset box-shadow and its pixels, transform-origin
 // keywords, translate3d(), em and rem lengths, calc() insets, text-overflow: ellipsis lines, the path shadows of svg
-// elements and the lists that carry them; and what each leaves outside the profile, diagnosed.
+// icons and the lists that carry them (other filters are filtered images, tests/scene_filter_tests.cpp); and what each
+// leaves outside the profile, diagnosed.
 // tests/scene_paint_reference_tests.cpp holds the same features against Chrome's pixels.
 namespace {
     using weft::testing::require;
@@ -447,15 +448,16 @@ namespace {
                     about(items[at].transform[4], 10 + 1 - e) && about(items[at].transform[5], 20 + 2 - e),
                 "its box: the element's, offset and grown by the blur");
         require(bool(weft::paint::check(plan.list, 8)), "a well formed list");
-        // What the profile leaves out falls back, saying why.
-        const auto why = [](const weft::SceneFrame& f) {
-            return weft::scene_display_list(f, {}, &weft::testing::thread_scene_text(), 2).fallback;
+        // A drop shadow of an svg element that paints a box, and one of an HTML element, are filtered images
+        // (tests/scene_filter_tests.cpp); a filter on svg content falls back, saying why.
+        const auto listed = [](const weft::SceneFrame& f) {
+            return weft::scene_display_list(f, {}, &weft::testing::thread_scene_text(), 2);
         };
-        require(
-            why(icon("position:absolute;background-color:#ff0000;filter:drop-shadow(1px 2px)")).find("with a box") !=
-                std::string::npos,
-            "a drop shadow of an svg element that paints a box");
-        require(why(icon("position:absolute", "filter:drop-shadow(1px 2px)")).find("svg content") != std::string::npos,
+        const auto boxed = listed(icon("position:absolute;background-color:#ff0000;filter:drop-shadow(1px 2px)"));
+        require(boxed.fallback.empty() && boxed.list.filters.size() == 1 && boxed.list.path_shadows.empty(),
+                "a drop shadow of an svg element that paints a box: a filtered image");
+        require(listed(icon("position:absolute", "filter:drop-shadow(1px 2px)")).fallback.find("svg content") !=
+                    std::string::npos,
                 "a filter on svg content");
         {
             weft::testing::NativeScene page;
@@ -464,9 +466,10 @@ namespace {
             page.set(div, "style", "width:10px;height:10px;background-color:#ff0000;filter:drop-shadow(1px 2px)");
             page.tree.insert(*page.root, div, nullptr);
             weft::SceneSolver solver("", "", weft::testing::thread_scene_text());
-            require(why(solver.frame(page.tree.snapshot(*page.root), 100, 100, 0)).find("outside svg elements") !=
-                        std::string::npos,
-                    "a filter on an HTML element");
+            const auto html = listed(solver.frame(page.tree.snapshot(*page.root), 100, 100, 0));
+            require(html.fallback.empty() && html.list.filters.size() == 1 &&
+                        html.list.filters[0].ops.at(0).kind == weft::paint::FilterOp::Kind::DropShadow,
+                    "a filter on an HTML element: a filtered image");
         }
         // A list's path shadow covers the paths that follow it, no other items; values are finite.
         auto list = plan.list;

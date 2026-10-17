@@ -391,6 +391,15 @@ if(WIN32)
         target_compile_definitions(weft_render_scene_particles_tests PRIVATE WEFT_TEST_VULKAN)
     endif()
     weft_add_test(NAME render_scene_particles_contract COMMAND weft_render_scene_particles_tests TIMEOUT 120)
+    # CSS filter in scenes: functions, url() filters, display lists, the chains on the CPU, the native D3D11 pass (WARP)
+    # against the reference raster at scale 1 and 2, the cache; Vulkan against D3D11 when built.
+    weft_add_executable(weft_scene_filter_tests SOURCES scene_filter_tests.cpp
+        LINK ${scene_effect_links} weft::scene_d2d windowscodecs ole32)
+    if(WEFT_RENDER_VULKAN)
+        target_compile_definitions(weft_scene_filter_tests PRIVATE WEFT_TEST_VULKAN)
+    endif()
+    weft_add_test(NAME scene_filter_contract COMMAND weft_scene_filter_tests "${artifacts}/scene-filter-$<CONFIG>"
+        TIMEOUT 180)
     # backdrop-filter in the native scene passes against the same algorithm on the CPU, on both passes.
     weft_add_executable(weft_render_scene_backdrop_tests SOURCES render_scene_backdrop_tests.cpp
         LINK ${scene_effect_links})

@@ -2477,6 +2477,10 @@ namespace weft {
                     }
                 } else if (t.kind == Kind::Function) {
                     const auto name = lower(t.text);
+                    // A URL holds no colors: url(#id) names an element (a filter's SVG filter).
+                    if (name == "url") {
+                        continue;
+                    }
                     if (color_function_name(name)) {
                         const auto c = color_value(t, current);
                         if (!c) {

@@ -62,6 +62,12 @@ namespace weft::constants {
     inline constexpr float particle_drag_epsilon = 1e-4f;
     // Largest standard deviation of a backdrop filter's blur (paint::Backdrop), in item px.
     inline constexpr float max_backdrop_blur = 256;
+    // Filters of the paint IR (paint::Filter): how deep filter contents may nest, the functions one filter may chain,
+    // and the largest standard deviation of a blur or drop shadow and offset of a drop shadow, in item px.
+    inline constexpr unsigned max_filter_depth = 4;
+    inline constexpr unsigned max_filter_functions = 16;
+    inline constexpr float max_filter_blur = 256;
+    inline constexpr float max_filter_offset = 1024;
     // Largest viewport edge accepted by the layout and scene profiles.
     inline constexpr int max_viewport_dimension_px = 4096;
     inline constexpr int rgba8_bytes_per_pixel = 4;

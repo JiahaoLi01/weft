@@ -32,7 +32,8 @@
 // View frames through the renderer C ABI on the built-in D3D12 backend (WARP, with the debug layer when it is
 // installed), against the D3D11 backend (WARP) drawing the same frames, byte for byte: over the game's picture in the host's target
 // and replacing it with the host's clear; anchored elements where the View's latest anchors are, the kept pass drawn
-// again; backdrops that read the target and a group; host textures by name; BGRA8, RGBA8, typeless and 10-bit targets; a
+// again; backdrops that read the target and a group; filters (anchored plates' drop shadows, a wide blur, a panel's
+// color functions); host textures by name; BGRA8, RGBA8, typeless and 10-bit targets; a
 // recording the host discards; and what the backend refuses. Every frame's commands pass the debug layer without
 // errors.
 namespace {
@@ -117,13 +118,19 @@ namespace {
       inner.className = 'inner';
       group.appendChild(inner);
       root.appendChild(group);
+      const glow = document.createElement('div');
+      glow.className = 'glow';
+      root.appendChild(glow);
     )JS";
     const std::string plates_css =
         "#root{position:relative;width:100%;height:100%;font-family:sans-serif}"
         ".plate{position:absolute;left:0;top:0;width:60px;height:20px;background-color:rgba(200,40,40,0.8);"
-        "border-radius:4px;color:#fff;font-size:12px;line-height:20px;text-align:center}"
+        "border-radius:4px;color:#fff;font-size:12px;line-height:20px;text-align:center;"
+        "filter:drop-shadow(0 2px 1px rgba(0,0,0,0.8))}"
         ".panel{position:absolute;right:10px;bottom:10px;width:80px;height:30px;background-color:#334;"
-        "border:1px solid #aab;color:#eee;font-size:14px;line-height:28px}"
+        "border:1px solid #aab;color:#eee;font-size:14px;line-height:28px;filter:sepia(0.6) brightness(1.4)}"
+        ".glow{position:absolute;left:170px;top:120px;width:60px;height:40px;background-color:rgba(255,220,120,0.6);"
+        "filter:blur(8px)}"
         ".glass{position:absolute;left:250px;top:10px;width:60px;height:40px;"
         "backdrop-filter:blur(2px) brightness(0.5)}"
         ".group{position:absolute;left:20px;top:120px;width:120px;height:60px;opacity:0.6;"
@@ -735,6 +742,8 @@ namespace {
         require(pixel(drawn, 2, 2) == game && pixel(drawn, width - 2, 2) == game, "the game shows around the UI");
         require(pixel(drawn, 15, 22) != game, "a plate over the game");
         require(darker(pixel(drawn, 280, 30)), "the glass darkens the game beneath it");
+        require(darker(pixel(drawn, 40, 41)), "a plate's drop shadow darkens the game beneath it");
+        require(pixel(drawn, 168, 140) != game && pixel(drawn, 166, 140) != game, "the glow blurs past its box");
 
         // The same prepared frame again (the kept pass), then cleared to the host's color first.
         target = gpu.target();

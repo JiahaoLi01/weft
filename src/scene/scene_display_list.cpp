@@ -11,6 +11,7 @@
 #include "scene/scene_transform.hpp"
 #include "scene/scene_values.hpp"
 #include "base/css_scalar.hpp"
+#include "constants/render.hpp"
 #include "constants/scene.hpp"
 #include <algorithm>
 #include <cmath>
@@ -23,8 +24,17 @@ namespace weft {
     namespace {
         using Matrix = std::array<float, 6>;
 
-        // How many plane contents are being listed on this thread: a plane's content may hold planes, to a bound.
+        // How many plane contents are being listed on this thread: a plane's content may hold planes, to a bound. And
+        // how many filter contents.
         thread_local unsigned plane_nesting = 0;
+        thread_local unsigned filter_nesting = 0;
+
+        // Whether a node has a filter.
+        bool filtered(const SceneNode& n) {
+            const auto* v = n.style.find(PropertyId::Filter);
+            return v && !css::trim(v->text()).empty() && css::trim(v->text()) != "none";
+        }
+
         using Style = SceneStyle;
 
         using css::trim;
@@ -146,7 +156,7 @@ namespace weft {
             std::uint32_t(l.images.size()),    std::uint32_t(l.rasters.size()),   std::uint32_t(l.shadows.size()),
             std::uint32_t(l.paths.size()),     std::uint32_t(l.planes.size()),    std::uint32_t(l.effects.size()),
             std::uint32_t(l.particles.size()), std::uint32_t(l.backdrops.size()), std::uint32_t(l.path_shadows.size()),
-            std::uint32_t(out.anchors.size()), std::uint32_t(out.runs.size())};
+            std::uint32_t(l.filters.size()),   std::uint32_t(out.anchors.size()), std::uint32_t(out.runs.size())};
     }
 
     SceneDisplayList scene_display_list(const SceneFrame& f, const std::vector<NodeIdentity>& layers, SceneText* text,
@@ -175,6 +185,20 @@ namespace weft {
         const auto texture_of = [](const SceneNode& n) {
             auto name = scene_values::texture_name(scene_values::view(n.style, PropertyId::BackgroundImage, "none"));
             return name ? std::move(*name) : std::string{};
+        };
+        // What url() filters name: the given resolver, or the frame's own elements.
+        std::optional<SceneFilterResolve> own_filters;
+        if (!build.filters) {
+            own_filters = scene_filter_resolver(f.root);
+        }
+        const SceneFilterResolve& resolve = build.filters ? *build.filters : *own_filters;
+        // Whether what a subtree draws follows the frame's time or a host's texture beyond its own values: an effect
+        // that reads the time, or a host texture.
+        const auto follows_frame = [&](auto&& self, const SceneNode& n) -> bool {
+            return (n.effect && n.effect->program->animated) || !texture_of(n).empty() ||
+                   std::any_of(n.children.begin(), n.children.end(), [&](const SceneNode& child) {
+                       return self(self, child);
+                   });
         };
         // Whether a subtree shows an effect, particles, a backdrop filter, a host texture or a url() image: such a
         // node draws in the pass, never as a cached layer image, so that they follow the frame's time, their own
@@ -311,7 +335,7 @@ namespace weft {
                 if (list.items.size() > constants::scene::max_display_list_items) {
                     throw std::invalid_argument("native command bound");
                 }
-                if (scene_values::drop_shadow(c.style)) {
+                if (filtered(c)) {
                     throw std::invalid_argument("filter on svg content");
                 }
                 static constexpr std::array<std::string_view, 11> drawn{
@@ -728,8 +752,20 @@ namespace weft {
                     }
                     chain = {};
                 }
+                // filter: an svg element's one drop shadow of the shapes it paints is a path shadow (below); any other
+                // filter draws the element and its subtree as a filtered image (below), an inline element whole.
+                const bool path_shadow =
+                    n.space == constants::svg_namespace_uri && n.tag == "svg" && scene_path_shadowed(n);
+                std::vector<paint::FilterOp> filter_ops;
+                if (!path_shadow && filtered(n)) {
+                    auto parsed = scene_filter(get(n.style, PropertyId::Filter, "none"), n.style, resolve);
+                    if (!parsed) {
+                        throw std::invalid_argument(parsed.error().message);
+                    }
+                    filter_ops = std::move(*parsed);
+                }
                 // An inline element in lines: its box a fragment at a time, then its text and children.
-                if (!n.fragments.empty()) {
+                if (!n.fragments.empty() && filter_ops.empty()) {
                     for (const auto& box : scene_fragment_boxes(n)) {
                         self(self, box, parent, clip, chain, false);
                     }
@@ -807,11 +843,7 @@ namespace weft {
                 if (!n.space.empty() && n.space != constants::xhtml_namespace_uri && !svg_root) {
                     throw std::invalid_argument("SVG reference");
                 }
-                // filter: drop-shadow() of the paths an svg element paints.
-                const auto dropped = scene_values::drop_shadow(n.style);
-                if (dropped && !svg_root) {
-                    throw std::invalid_argument("filter outside svg elements");
-                }
+                const auto dropped = path_shadow ? scene_values::drop_shadow(n.style) : std::nullopt;
                 paint::Item item;
                 item.transform = multiply(parent, matrix(n, bool(n.anchoring)));
                 item.clip = clip;
@@ -896,6 +928,50 @@ namespace weft {
                     opacity = std::clamp(float(n.paint->values[constants::scene::paint_slot_opacity]->scalar.absolute +
                                                n.paint->values[constants::scene::paint_slot_opacity]->scalar.relative),
                                          0.f, 1.f);
+                }
+                // filter (Filter Effects 1): the element and its subtree drawn alone into an image, through the
+                // filter's functions in order, then drawn with the element's transform, opacity and clips. The image
+                // covers the content's ink and what the functions spread, on the device pixels of the element's own
+                // space; it is keyed by the element without its transform and opacity, so that they change without
+                // drawing it again (paint::Filter).
+                if (!filter_ops.empty()) {
+                    if (filters(n)) {
+                        throw std::invalid_argument("backdrop-filter and filter on one element");
+                    }
+                    auto content = scene_filter_content(n, f.time_ms, text, scale, cache, &resolve);
+                    if (!content.listed.fallback.empty()) {
+                        throw std::invalid_argument(content.listed.fallback);
+                    }
+                    const auto region = scene_filter_region(content.listed.list, filter_ops, scale);
+                    const auto& px = region.pixels;
+                    if (px[2] <= px[0] || px[3] <= px[1]) {
+                        return;
+                    }
+                    const float left = float(px[0]) / region.resolution;
+                    const float top = float(px[1]) / region.resolution;
+                    auto moved = std::make_shared<paint::DisplayList>();
+                    if (const auto appended = paint::append(*moved, content.listed.list, {1, 0, 0, 1, -left, -top});
+                        !appended) {
+                        throw std::invalid_argument(appended.error().message);
+                    }
+                    paint::Filter value;
+                    value.content = std::move(moved);
+                    value.ops = std::move(filter_ops);
+                    value.pixels = {std::uint32_t(px[2] - px[0]), std::uint32_t(px[3] - px[1])};
+                    value.resolution = region.resolution;
+                    if (!follows_frame(follows_frame, n)) {
+                        value.source = std::move(content.source);
+                    }
+                    auto shape = item;
+                    shape.kind = paint::Item::Kind::Filter;
+                    shape.transform = multiply(item.transform, {1, 0, 0, 1, left, top});
+                    shape.width = float(px[2] - px[0]) / region.resolution;
+                    shape.height = float(px[3] - px[1]) / region.resolution;
+                    shape.opacity = opacity;
+                    shape.payload = std::uint32_t(list.filters.size());
+                    list.filters.push_back(std::move(value));
+                    list.items.push_back(shape);
+                    return;
                 }
                 // A layer image holds its subtree in place: an anchored descendant moves on its own, so such a node
                 // draws in the pass.
@@ -1538,7 +1614,9 @@ namespace weft {
                 groups = span.groups;
                 visit(visit, *build.part, span.parent, span.clip, Chain{0, span.chain_count}, true);
             } else {
-                visit(visit, f.root, {1, 0, 0, 1, 0, 0}, {0, 0, f.root.box[2], f.root.box[3]}, Chain{}, true);
+                visit(visit, f.root, {1, 0, 0, 1, 0, 0},
+                      build.unclipped ? unclipped : std::array<float, 4>{0, 0, f.root.box[2], f.root.box[3]}, Chain{},
+                      true);
             }
             if (list.items.size() > constants::scene::max_display_list_items) {
                 throw std::invalid_argument("native command bound");
@@ -1599,6 +1677,207 @@ namespace weft {
             out.placed.clear();
             out.fallback = e.what();
         }
+        return out;
+    }
+
+    SceneFilterContent scene_filter_content(const SceneNode& element, double time_ms, SceneText* text, float scale,
+                                            SceneDisplayCache* cache, const SceneFilterResolve* filters) {
+        SceneFilterContent out;
+        // Anchored descendants move on their own and particles fly past any bounds: neither lies in an image.
+        const auto refused = [](auto&& self, const SceneNode& n, bool root) -> const char* {
+            if (!root && n.anchoring) {
+                return "anchored element in a filtered element";
+            }
+            if (!n.particles.empty()) {
+                return "particles in a filtered element";
+            }
+            for (const auto& child : n.children) {
+                if (const auto* why = self(self, child, false)) {
+                    return why;
+                }
+            }
+            return nullptr;
+        };
+        if (const auto* why = refused(refused, element, true)) {
+            out.listed.fallback = why;
+            return out;
+        }
+        if (filter_nesting >= constants::max_filter_depth) {
+            out.listed.fallback = "filter nesting bound";
+            return out;
+        }
+        auto source = std::make_shared<SceneNode>(element);
+        source->box[0] = source->box[1] = 0;
+        source->anchoring.reset();
+        for (const auto id : {PropertyId::Transform, PropertyId::Opacity, PropertyId::Filter}) {
+            source->style.erase(id);
+        }
+        // Its computed values are authoritative: the authored style holds the transform and opacity too.
+        source->attributes.erase("style");
+        if (source->paint) {
+            source->paint->values[constants::scene::paint_slot_transform].reset();
+            source->paint->values[constants::scene::paint_slot_opacity].reset();
+        }
+        SceneFrame frame;
+        frame.root = *source;
+        frame.time_ms = time_ms;
+
+        struct Nesting {
+            Nesting() {
+                ++filter_nesting;
+            }
+
+            ~Nesting() {
+                --filter_nesting;
+            }
+        } guard;
+
+        SceneListBuild build;
+        build.unclipped = true;
+        build.filters = filters;
+        out.listed = scene_display_list(frame, {}, text, scale, cache, {}, build);
+        out.source = std::move(source);
+        return out;
+    }
+
+    namespace {
+        // Where an item draws in its list's target px: the bounding box of its drawn rectangle (a text image's margins,
+        // a shadow's blur and offset, a path's stroke, a plane's projected image) under its map; none for groups.
+        std::optional<std::array<double, 4>> drawn(const paint::DisplayList& list, const paint::Item& item) {
+            using Kind = paint::Item::Kind;
+            std::array<double, 4> local{0, 0, item.width, item.height};
+            std::vector<std::array<double, 2>> corners;
+            switch (item.kind) {
+                case Kind::BeginGroup:
+                case Kind::EndGroup:
+                    return std::nullopt;
+                case Kind::Text:
+                case Kind::Layer: {
+                    const double m = constants::render::scene::image_margin + list.rasters[item.payload].overhang;
+                    local = {-m, -m, item.width + m, item.height + m};
+                    break;
+                }
+                case Kind::Shadow: {
+                    const auto& s = list.shadows[item.payload];
+                    if (!s.inset) {
+                        const double e = constants::scene::shadow_kernel_sigmas * double(s.blur) / 2 +
+                                         std::abs(double(s.spread)) + constants::scene::shadow_guard_px;
+                        local = {s.x - e, s.y - e, item.width + s.x + e, item.height + s.y + e};
+                    }
+                    break;
+                }
+                case Kind::Path: {
+                    const auto& p = list.paths[item.payload];
+                    if (p.path->points.empty()) {
+                        return std::nullopt;
+                    }
+                    local = {std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity(),
+                             -std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity()};
+                    for (const auto& [x, y] : p.path->points) {
+                        local = {std::min(local[0], double(x)), std::min(local[1], double(y)),
+                                 std::max(local[2], double(x)), std::max(local[3], double(y))};
+                    }
+                    // A stroke reaches half its width past the path, a miter join its limit times that, a square cap
+                    // the half diagonal.
+                    if (p.stroke) {
+                        const double e = p.stroke->width / 2 * std::max<double>(p.stroke->miter_limit, 2);
+                        local = {local[0] - e, local[1] - e, local[2] + e, local[3] + e};
+                    }
+                    break;
+                }
+                case Kind::Plane: {
+                    // The content's image, image_margin px past the plane, through its homography.
+                    const auto& plane = list.planes[item.payload];
+                    const auto& h = plane.transform;
+                    const double m = constants::render::scene::image_margin;
+                    std::array<double, 4> out{
+                        std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity(),
+                        -std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity()};
+                    for (const auto& [x, y] :
+                         std::array<std::array<double, 2>, 4>{{{-m, -m},
+                                                               {plane.width + m, -m},
+                                                               {-m, plane.height + m},
+                                                               {plane.width + m, plane.height + m}}}) {
+                        const double w = h[6] * x + h[7] * y + h[8];
+                        if (!(w > constants::plane_min_depth)) {
+                            return std::array<double, 4>{
+                                -constants::scene::max_numeric_magnitude, -constants::scene::max_numeric_magnitude,
+                                constants::scene::max_numeric_magnitude, constants::scene::max_numeric_magnitude};
+                        }
+                        const double px = (h[0] * x + h[1] * y + h[2]) / w;
+                        const double py = (h[3] * x + h[4] * y + h[5]) / w;
+                        out = {std::min(out[0], px), std::min(out[1], py), std::max(out[2], px), std::max(out[3], py)};
+                    }
+                    return out;
+                }
+                default:
+                    break;
+            }
+            const auto& m = item.transform;
+            std::array<double, 4> out{std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity(),
+                                      -std::numeric_limits<double>::infinity(),
+                                      -std::numeric_limits<double>::infinity()};
+            for (const auto& [x, y] : std::array<std::array<double, 2>, 4>{
+                     {{local[0], local[1]}, {local[2], local[1]}, {local[0], local[3]}, {local[2], local[3]}}}) {
+                const double px = m[0] * x + m[2] * y + m[4];
+                const double py = m[1] * x + m[3] * y + m[5];
+                out = {std::min(out[0], px), std::min(out[1], py), std::max(out[2], px), std::max(out[3], py)};
+            }
+            return out;
+        }
+    } // namespace
+
+    SceneFilterRegion scene_filter_region(const paint::DisplayList& content, const std::vector<paint::FilterOp>& ops,
+                                          float scale) {
+        constexpr double inf = std::numeric_limits<double>::infinity();
+        std::array<double, 4> ink{inf, inf, -inf, -inf};
+        for (const auto& item : content.items) {
+            const auto rect = drawn(content, item);
+            if (!rect) {
+                continue;
+            }
+            const std::array<double, 4> clipped{
+                std::max((*rect)[0], double(item.clip[0])), std::max((*rect)[1], double(item.clip[1])),
+                std::min((*rect)[2], double(item.clip[2])), std::min((*rect)[3], double(item.clip[3]))};
+            if (clipped[2] <= clipped[0] || clipped[3] <= clipped[1]) {
+                continue;
+            }
+            ink = {std::min(ink[0], clipped[0]), std::min(ink[1], clipped[1]), std::max(ink[2], clipped[2]),
+                   std::max(ink[3], clipped[3])};
+        }
+        SceneFilterRegion out{{}, scale};
+        if (!(ink[2] > ink[0]) || !(ink[3] > ink[1])) {
+            return out;
+        }
+        // What each function spreads and offsets, in order: a drop shadow on every side, so that its offset copy reads
+        // nothing past the image (its passes mirror addresses there).
+        for (const auto& op : ops) {
+            const double spread = constants::scene::filter_kernel_sigmas * double(op.blur);
+            const double x = op.kind == paint::FilterOp::Kind::DropShadow ? std::abs(double(op.x)) : 0;
+            const double y = op.kind == paint::FilterOp::Kind::DropShadow ? std::abs(double(op.y)) : 0;
+            if (op.kind != paint::FilterOp::Kind::Matrix) {
+                ink = {ink[0] - spread - x, ink[1] - spread - y, ink[2] + spread + x, ink[3] + spread + y};
+            }
+        }
+        // At most filter_image_max_pixels device pixels, the guard included.
+        constexpr double guard = constants::scene::filter_guard_px;
+        double resolution = scale;
+        for (int tries = 0; tries < constants::scene::shadow_scale_tries; ++tries) {
+            const double w = std::ceil((ink[2] - ink[0]) * resolution) + 2 * guard + 1;
+            const double h = std::ceil((ink[3] - ink[1]) * resolution) + 2 * guard + 1;
+            if (w * h <= constants::scene::filter_image_max_pixels) {
+                break;
+            }
+            resolution *=
+                std::sqrt(constants::scene::filter_image_max_pixels / (w * h)) * constants::scene::filter_scale_margin;
+        }
+        const auto edge = [](double v, bool up) {
+            const double d = up ? std::ceil(v) : std::floor(v);
+            return std::int32_t(std::clamp(d, -double(1 << 30), double(1 << 30)));
+        };
+        out.resolution = float(resolution);
+        out.pixels = {edge(ink[0] * resolution - guard, false), edge(ink[1] * resolution - guard, false),
+                      edge(ink[2] * resolution + guard, true), edge(ink[3] * resolution + guard, true)};
         return out;
     }
 } // namespace weft

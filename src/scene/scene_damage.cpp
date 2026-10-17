@@ -42,13 +42,18 @@ namespace weft {
             const auto* t = n.style.find(PropertyId::Transform);
             return t && t->text().find("perspective(") != std::string::npos;
         };
+        // A filter spreads and moves what its element's subtree paints.
+        const auto filtered = [](const SceneNode& n) {
+            const auto* v = n.style.find(PropertyId::Filter);
+            return v && !css::trim(v->text()).empty() && css::trim(v->text()) != "none";
+        };
         // projected: an ancestor of n is a perspective plane.
         auto add = [&](auto&& self, const SceneNode& n, const auto& boxes, bool projected) -> void {
-            // Text may overhang its layout box; SVG/projective paint can have nonlocal extents. The independent full
-            // path owns those cases.
+            // Text may overhang its layout box; SVG/projective paint and filters can have nonlocal extents. The
+            // independent full path owns those cases.
             const auto* shadow = n.style.find(PropertyId::BoxShadow);
             if ((shadow && !shadow->text().empty() && shadow->text() != "none") || !n.text.empty() ||
-                (!n.space.empty() && n.space != constants::xhtml_namespace_uri) || projects(n)) {
+                (!n.space.empty() && n.space != constants::xhtml_namespace_uri) || projects(n) || filtered(n)) {
                 full();
                 return;
             }
@@ -145,6 +150,11 @@ namespace weft {
                 if (!out.full) {
                     add(add, y, new_boxes, projected_y);
                 }
+                return;
+            }
+            // A change inside a filtered element.
+            if ((filtered(x) || filtered(y)) && !(x.children == y.children)) {
+                full();
                 return;
             }
             for (std::size_t i = 0; i < x.children.size(); ++i) {

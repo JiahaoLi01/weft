@@ -232,7 +232,8 @@ namespace {
         require(f.eval("seen.join(',')") == "out:true:1", "an element that came into view");
     }
 
-    // A forgiving page's filter the scene cannot draw is dropped with a note; the frame still comes.
+    // A forgiving page keeps the filters the scene draws (the CRPG subtitles' glow) and drops one it cannot with a
+    // note; the frame still comes.
     void filters() {
         Fixture f;
         f.load(R"JS(
@@ -240,19 +241,25 @@ namespace {
             glow.id = 'glow';
             glow.setAttribute('style', 'width:40px;height:20px;background:#335577;filter:blur(10px)');
             document.getElementById('root').appendChild(glow);
+            const wide = document.createElement('div');
+            wide.id = 'wide';
+            wide.setAttribute('style', 'width:40px;height:20px;background:#335577;filter:blur(1em)');
+            document.getElementById('root').appendChild(wide);
           )JS");
         f.view.advance(16);
         const auto d = f.diagnostics();
         require(std::any_of(d.begin(), d.end(),
                             [](const ViewDiagnostic& x) {
                                 return x.kind == ViewDiagnostic::Kind::Scene &&
-                                       x.message == "WEFT_STYLE_DROPPED: filter blur(10px) on <div> (the scene draws "
-                                                    "one drop-shadow() of an svg element)";
+                                       x.message == "WEFT_STYLE_DROPPED: filter blur(1em) on <div> (blur() takes a "
+                                                    "length of 0 to 256px)";
                             }),
-                "the filter dropped with a note");
+                "the filter the scene cannot draw dropped with a note");
         const auto* glow = find(f.view.scene().root, "glow");
-        require(glow && !glow->style.contains(weft::PropertyId::Filter) && f.view.shared()->frame(),
-                "the element without it, in a frame");
+        const auto* wide = find(f.view.scene().root, "wide");
+        require(glow && glow->style.text(weft::PropertyId::Filter, "none") == "blur(10px)" && wide &&
+                    !wide->style.contains(weft::PropertyId::Filter) && f.view.shared()->frame(),
+                "the glow keeps its blur, the other element loses its filter, in a frame");
     }
 
     // translate, rotate and scale apply before transform, in that order (CSS Transforms 2).

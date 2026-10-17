@@ -17,8 +17,9 @@
 
 // Native D3D12 pass of a scene: the passes a ScenePreparer prepares (scene/scene_native.hpp), drawn by the shared
 // scene shader's encoded pass (src/render/shaders/scene.hlsl without SPACE_LINEAR, the DXBC the D3D11 pass runs) as
-// instanced box records, transparent groups in scratch textures, perspective planes and explicit layers whose content
-// a nested pass draws into a texture of its own, the text, shadow and path images the preparer builds, uploaded once
+// instanced box records, transparent groups in scratch textures, perspective planes, explicit layers and filtered
+// images whose content a nested pass draws into a texture of its own (a filter's then through its chain of backdrop
+// passes into the texture the cache keeps), the text, shadow and path images the preparer builds, uploaded once
 // each (small ones into the region the preparer gives them on an atlas page), and UI shader effects in their encoded
 // pass with their textures. Its own targets hold encoded premultiplied BGRA (B8G8R8A8_UNORM), as the D3D11 and Vulkan
 // scene targets do; the host's target is BGRA8 or RGBA8.
@@ -240,6 +241,8 @@ namespace weft::render::d3d12 {
         Image& page(const SceneAtlasPage& page);
         // The texture of a layer, its content recorded the first time.
         View layer(const std::shared_ptr<const SceneLayerImage>& layer, float scale);
+        // The texture of a filtered image, its content and chain recorded the first time.
+        View filter(const std::shared_ptr<const SceneFilterImage>& filter);
         // A target texture of the slot's (a spare of that size and format, or new), shader-readable.
         Image& scratch(std::uint32_t width, std::uint32_t height, DXGI_FORMAT format = DXGI_FORMAT_B8G8R8A8_UNORM);
         // An upload buffer of the slot's of at least size bytes: a spare, or new with room.

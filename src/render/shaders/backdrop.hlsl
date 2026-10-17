@@ -4,11 +4,13 @@
 // to the size that brings it to four, here by area across and then down (BACKDROP_AREA: each texel the mean of the
 // source texels its span covers); then a horizontal and a vertical pass of a Gaussian kernel three sigmas wide
 // (BACKDROP_BLUR); the scene pass's composite upsamples the result bilinearly. A color matrix the filter list applies
-// before its blur runs first (BACKDROP_MATRIX), on straight colors.
+// before its blur runs first (BACKDROP_MATRIX), on straight colors. A filter's chain (src/render/filter_chain.hpp) runs
+// the same passes, its matrices also on linear-light colors and reading their source offset (a drop shadow).
 
 cbuffer BackdropPass : register(b0) {
     // A blur's: xy the source's texel size, in uv; zw the step between taps, in uv (its direction). An area
-    // downsample's: x source texels per target texel, y 1 across (0 down), z the source's texels on the axis.
+    // downsample's: x source texels per target texel, y 1 across (0 down), z the source's texels on the axis. A color
+    // matrix's: x 1 when it maps linear-light values, zw the offset the source is read at, in uv.
     float4 texel;
     // The kernel's weights: weights[i / 4][i % 4] for tap i from the centre, normalized over both sides.
     float4 weights[4];
@@ -61,13 +63,30 @@ float4 ps_main(Fullscreen v) : SV_Target {
     return sum;
 }
 #elif BACKDROP_MATRIX
+// The sRGB transfer of one encoded channel to linear light, and back. Scalar conditions: FXC has no select() and DXC
+// takes no vector condition in ?:; pow's base is positive past the conditions, which FXC does not see.
+float toLinear(float c) {
+    return c <= .04045 ? c / 12.92 : pow(max((c + .055) / 1.055, 0), 2.4);
+}
+
+float toEncoded(float c) {
+    return c <= .0031308 ? c * 12.92 : 1.055 * pow(max(c, 0), 1 / 2.4) - .055;
+}
+
 float4 ps_main(Fullscreen v) : SV_Target {
-    const float4 c = source.SampleLevel(mirror, v.uv, 0);
-    // Premultiplied in, straight through the matrix, premultiplied out.
-    const float4 straight = c.a > 0 ? float4(c.rgb / c.a, c.a) : float4(0, 0, 0, 0);
-    const float4 m = saturate(float4(dot(rows[0], straight), dot(rows[1], straight), dot(rows[2], straight),
-                                     dot(rows[3], straight)) +
-                              offsets);
+    const float4 c = source.SampleLevel(mirror, v.uv - texel.zw, 0);
+    // Premultiplied in, straight through the matrix (on linear light when asked), premultiplied out.
+    float4 straight = c.a > 0 ? float4(c.rgb / c.a, c.a) : float4(0, 0, 0, 0);
+    const bool lightLinear = texel.x > .5;
+    if (lightLinear) {
+        straight.rgb = float3(toLinear(straight.r), toLinear(straight.g), toLinear(straight.b));
+    }
+    float4 m = saturate(float4(dot(rows[0], straight), dot(rows[1], straight), dot(rows[2], straight),
+                               dot(rows[3], straight)) +
+                        offsets);
+    if (lightLinear) {
+        m.rgb = float3(toEncoded(m.r), toEncoded(m.g), toEncoded(m.b));
+    }
     return float4(m.rgb * m.a, m.a);
 }
 #endif

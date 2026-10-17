@@ -252,6 +252,59 @@ namespace weft::render::d3d11 {
         return textures_.emplace(layer->id, Texture{layer, pass.target.srv}).first->second.view.Get();
     }
 
+    ID3D11ShaderResourceView* SceneRenderer::texture(const std::shared_ptr<const SceneFilterImage>& filter) {
+        if (const auto it = textures_.find(filter->id); it != textures_.end()) {
+            return it->second.view.Get();
+        }
+        // The content into the chain's first image, by a pass whose buffers and targets serve it alone (D3D11 keeps
+        // them until the GPU is done with them); then each pass of the chain into its image.
+        const auto& chain = filter->chain;
+        std::vector<Surface> images(chain.images.size());
+        images[0] = group_target(device_.Get(), chain.images[0][0], chain.images[0][1]);
+        {
+            Slot pass;
+            shape(pass, *filter->content, true);
+            draw_pass(pass, *filter->content, images[0].rtv.Get(), filter->scale);
+        }
+        auto* ctx = immediate_.Get();
+        const Color transparent{};
+        float blend[4]{};
+        for (const auto& step : chain.steps) {
+            auto& out = images.at(step.target);
+            if (!out.texture) {
+                out = group_target(device_.Get(), chain.images[step.target][0], chain.images[step.target][1]);
+            }
+            ctx->ClearState();
+            ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            ctx->VSSetShader(backdrop_vs_.Get(), nullptr, 0);
+            ctx->PSSetShader(step.shader == render::FilterStep::Shader::Area   ? area_ps_.Get()
+                             : step.shader == render::FilterStep::Shader::Blur ? blur_ps_.Get()
+                                                                               : matrix_ps_.Get(),
+                             nullptr, 0);
+            auto* sampler = mirror_.Get();
+            ctx->PSSetSamplers(0, 1, &sampler);
+            auto* constants = backdrop_constants_.Get();
+            ctx->UpdateSubresource(constants, 0, nullptr, &step.constants, 0, 0);
+            ctx->PSSetConstantBuffers(0, 1, &constants);
+            if (!step.over) {
+                ctx->ClearRenderTargetView(out.rtv.Get(), transparent.data());
+            } else {
+                // Source-over what the image holds.
+                ctx->OMSetBlendState(blend_.Get(), blend, UINT_MAX);
+            }
+            ctx->OMSetRenderTargets(1, out.rtv.GetAddressOf(), nullptr);
+            const D3D11_VIEWPORT viewport{
+                0, 0, float(chain.images[step.target][0]), float(chain.images[step.target][1]), 0, 1};
+            ctx->RSSetViewports(1, &viewport);
+            auto* source = images.at(step.source).srv.Get();
+            ctx->PSSetShaderResources(0, 1, &source);
+            ctx->Draw(3, 0);
+        }
+        ctx->ClearState();
+        ++filter_passes;
+        return textures_.emplace(filter->id, Texture{filter, images[chain.result].srv}).first->second.view.Get();
+    }
+
     ID3D11ShaderResourceView* SceneRenderer::backdrop(const ScenePass::Backdrop& b, ID3D11RenderTargetView* from) {
         auto* ctx = immediate_.Get();
         ComPtr<ID3D11Resource> resource;
@@ -400,12 +453,17 @@ namespace weft::render::d3d11 {
             } else if (again) {
                 if (prepared.layers[i]) {
                     views[i] = texture(prepared.layers[i], scale);
+                } else if (prepared.filters[i]) {
+                    views[i] = texture(prepared.filters[i]);
                 } else if (prepared.images[i] && !prepared.images[i]->atlas) {
                     views[i] = texture(prepared.images[i]);
                 }
             } else if (prepared.layers[i]) {
                 views[i] = texture(prepared.layers[i], scale);
                 slot.leases.push_back(prepared.layers[i]);
+            } else if (prepared.filters[i]) {
+                views[i] = texture(prepared.filters[i]);
+                slot.leases.push_back(prepared.filters[i]);
             } else if (prepared.images[i]) {
                 views[i] = texture(prepared.images[i]);
                 slot.leases.push_back(prepared.images[i]);

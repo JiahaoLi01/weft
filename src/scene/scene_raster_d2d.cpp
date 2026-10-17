@@ -3,12 +3,15 @@
 #include "scene/scene_background.hpp"
 #include "scene/scene_border_image.hpp"
 #include "scene/scene_border.hpp"
+#include "scene/scene_display_list.hpp"
+#include "scene/scene_filter.hpp"
 #include "scene/scene_inline.hpp"
 #include "scene/scene_geometry.hpp"
 #include "scene/scene_gradient.hpp"
 #include "scene/scene_text_image.hpp"
 #include "scene/scene_values.hpp"
 #include "base/css_scalar.hpp"
+#include "render/filter_chain.hpp"
 #include "render/shadow_image.hpp"
 #include "render/srgb.hpp"
 #include "base/owner_thread.hpp"
@@ -146,8 +149,28 @@ namespace weft {
         const OwnerThread owner;
         // Measurement and shaping; the raster only draws the runs.
         SceneText& text;
-        // The host textures by name, which nested rasters (planes, drop shadows) share.
+        // The host textures by name, which nested rasters (planes, drop shadows, filters) share.
         std::shared_ptr<const std::map<std::string, SceneRasterTexture>> host_textures;
+        // The frame being drawn, and what its url() filters name: a filter's nested raster takes its frame's.
+        const SceneFrame* drawn_frame{};
+        std::shared_ptr<const SceneFilterResolve> outer_filters;
+        std::optional<SceneFilterResolve> own_filters;
+
+        const SceneFilterResolve& filters() {
+            if (outer_filters) {
+                return *outer_filters;
+            }
+            if (!own_filters) {
+                own_filters = drawn_frame ? scene_filter_resolver(drawn_frame->root) : SceneFilterResolve{};
+            }
+            return *own_filters;
+        }
+
+        // Whether a node has a filter.
+        static bool filtered(const SceneNode& n) {
+            const auto v = trim(get(n.style, PropertyId::Filter, "none"));
+            return !v.empty() && v != "none";
+        }
 
         void require_owner() const {
             owner.require(Diag::SceneRasterOwner);
@@ -831,7 +854,7 @@ namespace weft {
             if (get(n.style, PropertyId::Display) == "none" || n.tag == "defs" || n.tag == "clipPath") {
                 return;
             }
-            if (scene_values::drop_shadow(n.style)) {
+            if (filtered(n)) {
                 fail("filter on svg content outside scene profile");
             }
             const auto old = matrix();
@@ -1019,6 +1042,74 @@ namespace weft {
             const float top = dropped->y - pad / scale;
             target->DrawBitmap(bitmap.Get(), {left, top, left + w / scale, top + h / scale}, 1,
                                D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        }
+
+        // A filtered element (CSS filter), as the native passes draw it: its content alone (scene_filter_content)
+        // drawn by a raster of its own over the image its region gives (scene_filter_region), at that region's
+        // resolution, through the passes of its functions on the CPU (render::run_filter_chain), drawn over the region
+        // in the element's own px with its opacity.
+        void filter_image(const SceneNode& n, const std::vector<paint::FilterOp>& ops, float opacity) {
+            const auto content =
+                scene_filter_content(n, drawn_frame ? drawn_frame->time_ms : 0, &text, scale, nullptr, &filters());
+            if (!content.listed.fallback.empty()) {
+                fail(content.listed.fallback);
+            }
+            const auto region = scene_filter_region(content.listed.list, ops, scale);
+            const auto& px = region.pixels;
+            if (px[2] <= px[0] || px[3] <= px[1]) {
+                return;
+            }
+            const auto w = std::uint32_t(px[2] - px[0]);
+            const auto h = std::uint32_t(px[3] - px[1]);
+            const float resolution = region.resolution;
+            // The content in a transparent frame of the image's size, placed where the region puts its origin.
+            SceneFrame alone;
+            alone.time_ms = drawn_frame ? drawn_frame->time_ms : 0;
+            alone.root.tag = "div";
+            alone.root.identity = {UINT32_MAX, 1, n.identity.view_epoch};
+            alone.root.box = {0, 0, float(w) / resolution, float(h) / resolution};
+            alone.root.style = {{"background-color", "transparent"}};
+            auto child = *content.source;
+            child.box[0] = -float(px[0]) / resolution;
+            child.box[1] = -float(px[1]) / resolution;
+            alone.root.children.push_back(std::move(child));
+            SceneRaster nested(text);
+            nested.impl_->host_textures = host_textures;
+            nested.impl_->outer_filters = std::make_shared<const SceneFilterResolve>(filters());
+            const auto drawn = nested.raster(alone, resolution);
+            // Premultiplied again, as a target holds it; the raster may be a pixel larger (its size rounds up).
+            render::FilterPixels pixels{w, h, std::vector<std::array<float, 4>>(std::size_t(w) * h)};
+            for (std::uint32_t y = 0; y < std::min(h, drawn.height); ++y) {
+                for (std::uint32_t x = 0; x < std::min(w, drawn.width); ++x) {
+                    const auto* q = drawn.rgba.data() + (std::size_t(y) * drawn.width + x) * 4;
+                    auto& out = pixels.rgba[std::size_t(y) * w + x];
+                    const unsigned a = q[3];
+                    for (unsigned c = 0; c < 3; ++c) {
+                        out[c] = float((q[c] * a + constants::color_channel_max / 2) / constants::color_channel_max) /
+                                 constants::color_channel_max;
+                    }
+                    out[3] = float(a) / constants::color_channel_max;
+                }
+            }
+            const auto chain = render::plan_filter_chain(ops, w, h, resolution);
+            const auto result = render::run_filter_chain(chain, std::move(pixels));
+            std::vector<std::uint8_t> bgra(std::size_t(result.width) * result.height * 4);
+            for (std::size_t i = 0; i < result.rgba.size(); ++i) {
+                const auto& c = result.rgba[i];
+                for (unsigned k = 0; k < 4; ++k) {
+                    bgra[i * 4 + (k == 3 ? 3 : 2 - k)] =
+                        std::uint8_t(std::lround(std::clamp(c[k], 0.f, 1.f) * constants::color_channel_max));
+                }
+            }
+            ComPtr<ID2D1Bitmap> bitmap;
+            check(target->CreateBitmap(
+                {result.width, result.height}, bgra.data(), result.width * 4,
+                D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)),
+                &bitmap));
+            target->DrawBitmap(bitmap.Get(),
+                               {float(px[0]) / resolution, float(px[1]) / resolution, float(px[2]) / resolution,
+                                float(px[3]) / resolution},
+                               std::clamp(opacity, 0.f, 1.f), D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
         }
 
         // A line's text shadows under it, bottom first, as the native passes draw them: the portable image of its
@@ -1963,8 +2054,18 @@ namespace weft {
                 !css::trim(filter).empty() && css::trim(filter) != "none") {
                 fail("backdrop-filter");
             }
+            // filter: the element and its subtree as a filtered image (filter_image), an inline element whole; an svg
+            // element's one drop shadow of its shapes draws as a path shadow instead (drop_shadow, below).
+            std::vector<paint::FilterOp> ops;
+            if (filtered(n) && !scene_path_shadowed(n)) {
+                auto parsed = scene_filter(get(n.style, PropertyId::Filter, "none"), n.style, filters());
+                if (!parsed) {
+                    fail(parsed.error().message);
+                }
+                ops = std::move(*parsed);
+            }
             // An inline element in lines: its box a fragment at a time, then its text and children.
-            if (!n.fragments.empty()) {
+            if (!n.fragments.empty() && ops.empty()) {
                 for (const auto& box : scene_fragment_boxes(n)) {
                     paint(box);
                 }
@@ -1993,6 +2094,11 @@ namespace weft {
             }
             float opacity = alpha ? float(alpha->scalar.absolute + alpha->scalar.relative)
                                   : len(get(n.style, PropertyId::Opacity, "1"));
+            if (!ops.empty()) {
+                filter_image(n, ops, opacity);
+                target->SetTransform(old);
+                return;
+            }
             if (retained(n, opacity)) {
                 target->SetTransform(old);
                 return;
@@ -2179,10 +2285,7 @@ namespace weft {
                         target->PopLayer();
                     }
                 }
-                if (scene_values::drop_shadow(n.style)) {
-                    if (n.space != constants::svg_namespace_uri || n.tag != "svg") {
-                        fail("filter outside svg elements outside scene profile");
-                    }
+                if (scene_path_shadowed(n)) {
                     drop_shadow(n);
                 }
             }
@@ -2286,15 +2389,21 @@ namespace weft {
                 target->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
             }
             layer_cursor = 0;
+            drawn_frame = &f;
+            own_filters.reset();
             target->BeginDraw();
             target->Clear(D2D1::ColorF(0, 0, 0, 0));
             target->SetTransform(D2D1::Matrix3x2F::Scale(scale, scale));
             try {
                 paint(f.root);
             } catch (...) {
+                drawn_frame = nullptr;
+                own_filters.reset();
                 target->EndDraw();
                 throw;
             }
+            drawn_frame = nullptr;
+            own_filters.reset();
             check(target->EndDraw());
             SceneBitmap out{w, h, std::vector<std::uint8_t>(std::size_t(w) * h * 4)};
             WICRect rect{0, 0, int(w), int(h)};
@@ -2380,6 +2489,18 @@ namespace weft {
         i.frame_layer_leases.clear();
         i.layer_cursor = 0;
         i.scale = scale;
+        i.drawn_frame = &f;
+        i.own_filters.reset();
+
+        struct Drawing {
+            Impl& i;
+
+            ~Drawing() {
+                i.drawn_frame = nullptr;
+                i.own_filters.reset();
+            }
+        } drawing{i};
+
         target->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
         target->BeginDraw();
         target->SetTransform(D2D1::Matrix3x2F::Scale(scale, scale));

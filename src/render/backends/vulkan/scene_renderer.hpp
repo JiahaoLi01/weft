@@ -19,11 +19,12 @@
 
 // Native Vulkan pass of a scene: the passes a ScenePreparer prepares (scene/scene_native.hpp), drawn by the shared
 // scene shader's encoded pass (src/render/shaders/scene.hlsl without SPACE_LINEAR, as SPIR-V) as instanced box records,
-// transparent groups in scratch images, perspective planes and explicit layers whose content a nested pass draws into
-// an image of its own, the text, shadow and path images the preparer builds, uploaded once each (small ones into the
-// region the preparer gives them on an atlas page), and UI shader effects in their encoded pass with their textures. Every target holds encoded premultiplied BGRA (B8G8R8A8_UNORM), as the
-// D3D11 scene targets do. A device that cannot filter linear float images draws no effect with a translucent color
-// texture: the frame falls back.
+// transparent groups in scratch images, perspective planes, explicit layers and filtered images whose content a nested
+// pass draws into an image of its own (a filter's then through its chain of backdrop passes), the text, shadow and path
+// images the preparer builds, uploaded once each (small ones into the region the preparer gives them on an atlas page),
+// and UI shader effects in their encoded pass with their textures. Every target holds encoded premultiplied BGRA
+// (B8G8R8A8_UNORM), as the D3D11 scene targets do. A device that cannot filter linear float images draws no effect with
+// a translucent color texture: the frame falls back.
 //
 // encode() records a frame into the host's command buffer with what it uses in a slot: the host submits the commands,
 // reports the submission (submitted()), and retires the slot once they completed, or discards a slot whose commands it
@@ -239,8 +240,8 @@ namespace weft::render::vulkan {
 
         // Throws Busy when prepared samples, from the cache, what another unsubmitted recording uploads or draws.
         void check_pending(const ScenePrepared& prepared) const;
-        // Records the uploads of the images that prepared samples and that have no image yet, its layers' contents
-        // included when those are drawn here.
+        // Records the uploads of the images that prepared samples and that have no image yet, its layers' and filtered
+        // images' contents included when those are drawn here.
         void upload(const ScenePrepared& prepared);
         // Records prepared's pass into the framebuffer of an image of prepared's size (image, when the pass may read
         // it): its planes' and new layers' contents first, each into an image of its own. anchors are the frame's
@@ -257,6 +258,8 @@ namespace weft::render::vulkan {
         const Image& page(const SceneAtlasPage& page);
         // The image of a layer, its content recorded the first time.
         VkImageView layer(const std::shared_ptr<const SceneLayerImage>& layer, float scale);
+        // The image of a filtered image, its content and chain recorded the first time.
+        VkImageView filter(const std::shared_ptr<const SceneFilterImage>& filter);
         // The pipeline of an effect program's encoded pass (its spirv_encoded), created on first use.
         VkPipeline effect_pipeline(const std::shared_ptr<const paint::EffectProgram>& program);
         // A color target image of the targets' format, sampled once drawn, with a framebuffer: the slot's (a spare of

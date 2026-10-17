@@ -392,6 +392,43 @@ namespace weft::paint {
         ParticleEmission emission;
     };
 
+    // A filter function as a filter's chain applies it (Filter Effects 1): a Gaussian blur of standard deviation blur
+    // (item px); a color matrix on straight values, clamped, on linear-light values encoded again after when linear (an
+    // SVG feColorMatrix in linearRGB); or a drop shadow: the image's alpha blurred by blur, offset by (x, y) (item px),
+    // tinted with color (straight sRGB) and drawn under the image.
+    struct FilterOp {
+        enum class Kind : std::uint8_t {
+            Blur,
+            Matrix,
+            DropShadow
+        };
+
+        Kind kind{};
+        float blur{};
+        ColorMatrix matrix = identity_color_matrix;
+        bool linear{};
+        Color color{};
+        float x{};
+        float y{};
+
+        friend bool operator==(const FilterOp&, const FilterOp&) = default;
+    };
+
+    // A filtered element (CSS filter): content, its subtree drawn without its filter, opacity and transform, as a list
+    // of its own over the item's box [0, width] x [0, height] (its target px are item px), drawn into an image of
+    // pixels[0] x pixels[1] texels over that box (resolution of them per item px), then through the functions of ops in
+    // order; the item draws the result with its opacity, clip and rounded clips. Images of equal sources
+    // (scene_paint_source_equal), ops, pixels and resolutions are alike, whatever the item's transform and opacity;
+    // source is null for content that follows the frame's time or a host's texture, whose image is drawn anew for each
+    // pass.
+    struct Filter {
+        std::shared_ptr<const DisplayList> content;
+        std::vector<FilterOp> ops;
+        std::array<std::uint32_t, 2> pixels{};
+        float resolution{};
+        std::shared_ptr<const SceneNode> source;
+    };
+
     struct Item {
         enum class Kind : std::uint8_t {
             Box,
@@ -417,7 +454,9 @@ namespace weft::paint {
             // A Backdrop, which a renderer draws from a copy of its target.
             Backdrop,
             // A PathShadow, which a renderer prepares as coverage at device scale.
-            PathShadow
+            PathShadow,
+            // A Filter, whose content a renderer draws into an image, filters and draws over the item's box.
+            Filter
         };
 
         Kind kind{};
@@ -428,8 +467,8 @@ namespace weft::paint {
         float height{};
         float opacity{1};
         // Index in DisplayList::boxes (Box), images (Image), rasters (Text, Layer), shadows (Shadow), paths (Path),
-        // planes (Plane), effects (Effect), particles (Particles), backdrops (Backdrop) or path_shadows (PathShadow);
-        // unused by groups.
+        // planes (Plane), effects (Effect), particles (Particles), backdrops (Backdrop), path_shadows (PathShadow) or
+        // filters (Filter); unused by groups.
         std::uint32_t payload{};
         // The item's rounded clips, outermost first: DisplayList::clips[clips_begin, clips_begin + clips_count).
         std::uint32_t clips_begin{};
@@ -452,6 +491,7 @@ namespace weft::paint {
         std::vector<Particles> particles;
         std::vector<Backdrop> backdrops;
         std::vector<PathShadow> path_shadows;
+        std::vector<Filter> filters;
         // Leases of the assets images, effects and particle sprites draw.
         std::vector<std::shared_ptr<const Asset>> assets;
         // Leases of the programs effects run.
@@ -466,19 +506,21 @@ namespace weft::paint {
     };
 
     // Whether a list is well formed: payloads in range and of the item's kind, images of a leased asset, an external
-    // texture without a stroke or a named texture without an asset or a stroke, rasters with a source, shadows with finite values and no negative blur, paths with a
-    // path of whole verbs and finite points and a stroke of finite, non-negative lengths, planes of a well-formed
-    // content list (nested at most constants::max_plane_depth deep), a positive size and a finite, invertible
-    // homography in front of the viewer, effects of a leased program with at most its parameters and exactly its
-    // textures (coverage or sRGB assets of the list), finite values and non-negative radii, particles with finite
-    // values, ordered ranges, positive lifetimes, non-negative rates, speeds, drag, sizes and colors, a softness up to
-    // 1, a sprite of a coverage or sRGB asset of the list in at most constants::max_particle_sprite_frames frames, and
-    // an emission of at most constants::max_particles_per_emission particles that stopped no later than its elapsed
-    // time, backdrops with finite matrices and radii that are not negative, a blur from 0 to
-    // constants::max_backdrop_blur, and under only inside a group, path shadows over the Path items that follow them
-    // with finite values and no negative blur or content size, rounded clip ranges inside the clips, groups balanced
-    // and nested at most max_group_depth deep.
-    // Diag::PaintList otherwise.
+    // texture without a stroke or a named texture without an asset or a stroke, rasters with a source, shadows with
+    // finite values and no negative blur, paths with a path of whole verbs and finite points and a stroke of finite,
+    // non-negative lengths, planes of a well-formed content list (nested at most constants::max_plane_depth deep), a
+    // positive size and a finite, invertible homography in front of the viewer, effects of a leased program with at
+    // most its parameters and exactly its textures (coverage or sRGB assets of the list), finite values and
+    // non-negative radii, particles with finite values, ordered ranges, positive lifetimes, non-negative rates, speeds,
+    // drag, sizes and colors, a softness up to 1, a sprite of a coverage or sRGB asset of the list in at most
+    // constants::max_particle_sprite_frames frames, and an emission of at most constants::max_particles_per_emission
+    // particles that stopped no later than its elapsed time, backdrops with finite matrices and radii that are not
+    // negative, a blur from 0 to constants::max_backdrop_blur, and under only inside a group, path shadows over the
+    // Path items that follow them with finite values and no negative blur or content size, filters of a well-formed
+    // content list (nested at most constants::max_filter_depth deep), pixels and a positive size, one to
+    // constants::max_filter_functions functions of finite values, blurs from 0 to constants::max_filter_blur and drop
+    // shadow offsets within constants::max_filter_offset, rounded clip ranges inside the clips, groups balanced and
+    // nested at most max_group_depth deep. Diag::PaintList otherwise.
     Status check(const DisplayList& list, std::size_t max_group_depth);
 
     // The deepest group nesting of a well-formed list.
@@ -488,6 +530,6 @@ namespace weft::paint {
     // positive factors and translate (Diag::PaintList otherwise). Item transforms compose with it, clip rects and
     // rounded clips map through it, and payloads, assets, programs, rounded clips, external and named textures and the
     // items path shadows name are renumbered: from's assets follow into's, every external texture follows every asset,
-    // and from's texture names follow into's.
+    // and from's texture names follow into's. Filters keep their contents, which lie in their items' px.
     Status append(DisplayList& into, const DisplayList& from, const Affine& transform = identity);
 } // namespace weft::paint

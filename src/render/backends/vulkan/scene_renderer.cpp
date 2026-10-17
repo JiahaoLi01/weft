@@ -400,7 +400,8 @@ namespace weft::render::vulkan {
         };
         for (std::size_t i = 0; i < prepared.images.size(); ++i) {
             if ((prepared.images[i] && pending(prepared.images[i]->id)) ||
-                (prepared.layers[i] && pending(prepared.layers[i]->id))) {
+                (prepared.layers[i] && pending(prepared.layers[i]->id)) ||
+                (prepared.filters[i] && pending(prepared.filters[i]->id))) {
                 throw Busy("a scene samples what another recording that is not submitted uploads or draws");
             }
             if (prepared.planes[i]) {
@@ -408,6 +409,9 @@ namespace weft::render::vulkan {
             }
             if (prepared.layers[i] && !textures_.contains(prepared.layers[i]->id)) {
                 check_pending(*prepared.layers[i]->content);
+            }
+            if (prepared.filters[i] && !textures_.contains(prepared.filters[i]->id)) {
+                check_pending(*prepared.filters[i]->content);
             }
         }
         for (const auto& effect : prepared.effects) {
@@ -435,6 +439,9 @@ namespace weft::render::vulkan {
                 }
                 if (p.layers[i] && !textures_.contains(p.layers[i]->id)) {
                     self(self, *p.layers[i]->content);
+                }
+                if (p.filters[i] && !textures_.contains(p.filters[i]->id)) {
+                    self(self, *p.filters[i]->content);
                 }
             }
             for (const auto& effect : p.effects) {
@@ -574,6 +581,106 @@ namespace weft::render::vulkan {
         return image.view;
     }
 
+    VkImageView SceneRenderer::filter(const std::shared_ptr<const SceneFilterImage>& filter) {
+        if (const auto it = textures_.find(filter->id); it != textures_.end()) {
+            return it->second.image.view;
+        }
+        const auto& d = gpu;
+        const auto command = command_buffer_;
+        // The chain's images: its result an image that the cache then keeps, the others the slot's.
+        const auto& chain = filter->chain;
+        std::vector<Image> images(chain.images.size());
+        for (std::size_t k = 0; k < images.size(); ++k) {
+            images[k] = target(chain.images[k][0], chain.images[k][1], k == chain.result);
+        }
+        textures_.emplace(filter->id, Texture{filter, images[chain.result], slot_->recording});
+        slot_->created.push_back(filter->id);
+        const auto readable = [&](const Image& done) {
+            transition(d, command, done.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                       VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        };
+        // The content into the first, then each pass into its image.
+        record(*filter->content, images[0].framebuffer, images[0].image, filter->scale);
+        readable(images[0]);
+        if (!chain.steps.empty()) {
+            // Each pass's set: its constants, the image it reads and the mirroring sampler.
+            std::vector<VkDescriptorSet> sets(chain.steps.size());
+            const auto descriptors = pool(std::uint32_t(sets.size()));
+            const std::vector<VkDescriptorSetLayout> layouts(sets.size(), backdrop_set_layout_);
+            VkDescriptorSetAllocateInfo allocate{};
+            allocate.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            allocate.descriptorPool = descriptors;
+            allocate.descriptorSetCount = std::uint32_t(sets.size());
+            allocate.pSetLayouts = layouts.data();
+            check(d.vkd.vkAllocateDescriptorSets(d.device, &allocate, sets.data()), "vkAllocateDescriptorSets filter");
+            const auto& values = buffer(backdrop_stride_ * sets.size());
+            for (std::size_t k = 0; k < sets.size(); ++k) {
+                std::memcpy(static_cast<std::byte*>(values.mapped) + backdrop_stride_ * k, &chain.steps[k].constants,
+                            sizeof(BackdropConstants));
+                const VkDescriptorBufferInfo constants_info{values.buffer, backdrop_stride_ * k,
+                                                            sizeof(BackdropConstants)};
+                const VkDescriptorImageInfo source_info{VK_NULL_HANDLE, images[chain.steps[k].source].view,
+                                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+                const VkDescriptorImageInfo mirror_info{mirror_sampler_, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
+                VkWriteDescriptorSet writes[3]{};
+                const std::uint32_t bindings[]{std::uint32_t(limits::binding_view),
+                                               std::uint32_t(limits::binding_records),
+                                               std::uint32_t(limits::binding_sampler)};
+                const VkDescriptorType types[]{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                                               VK_DESCRIPTOR_TYPE_SAMPLER};
+                for (unsigned i = 0; i < std::size(writes); ++i) {
+                    writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    writes[i].dstSet = sets[k];
+                    writes[i].dstBinding = bindings[i];
+                    writes[i].descriptorCount = 1;
+                    writes[i].descriptorType = types[i];
+                }
+                writes[0].pBufferInfo = &constants_info;
+                writes[1].pImageInfo = &source_info;
+                writes[2].pImageInfo = &mirror_info;
+                d.vkd.vkUpdateDescriptorSets(d.device, std::uint32_t(std::size(writes)), writes, 0, nullptr);
+            }
+            for (std::size_t k = 0; k < chain.steps.size(); ++k) {
+                const auto& step = chain.steps[k];
+                const auto& over = images[step.target];
+                if (step.over) {
+                    // Drawn over what it holds: an attachment again.
+                    transition(d, command, over.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                               VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_SHADER_READ_BIT,
+                               VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                               VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+                }
+                VkClearValue value{};
+                VkRenderPassBeginInfo info{};
+                info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+                info.renderPass = step.over ? passes_.load : passes_.clear;
+                info.framebuffer = over.framebuffer;
+                info.renderArea = {{0, 0}, {over.width, over.height}};
+                info.clearValueCount = step.over ? 0u : 1u;
+                info.pClearValues = &value;
+                d.vkd.vkCmdBeginRenderPass(command, &info, VK_SUBPASS_CONTENTS_INLINE);
+                const VkViewport viewport{0, 0, float(over.width), float(over.height), 0, 1};
+                d.vkd.vkCmdSetViewport(command, 0, 1, &viewport);
+                const VkRect2D scissor{{0, 0}, {over.width, over.height}};
+                d.vkd.vkCmdSetScissor(command, 0, 1, &scissor);
+                // The backdrop pipelines draw source-over: over a cleared image, the pass's color.
+                d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                        backdrop_pipelines_.at(step.shader == render::FilterStep::Shader::Area   ? 0
+                                                               : step.shader == render::FilterStep::Shader::Blur ? 1
+                                                                                                                 : 2));
+                d.vkd.vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, backdrop_layout_, 0, 1,
+                                              &sets[k], 0, nullptr);
+                d.vkd.vkCmdDraw(command, 3, 1, 0, 0);
+                d.vkd.vkCmdEndRenderPass(command);
+                readable(over);
+            }
+        }
+        ++filter_passes;
+        return images[chain.result].view;
+    }
+
     void SceneRenderer::record(const ScenePrepared& prepared, VkFramebuffer out, VkImage image, float scale,
                                const SceneAnchorFrame* anchors, std::uint64_t serial, const paint::Color* clear,
                                std::span<const SceneTexture> host_textures, const ScenePatchHistory* history) {
@@ -596,6 +703,9 @@ namespace weft::render::vulkan {
             } else if (prepared.layers[i]) {
                 views[i] = layer(prepared.layers[i], scale);
                 slot_->leases.push_back(prepared.layers[i]);
+            } else if (prepared.filters[i]) {
+                views[i] = filter(prepared.filters[i]);
+                slot_->leases.push_back(prepared.filters[i]);
             } else if (const auto& drawn = prepared.images[i]) {
                 views[i] =
                     drawn->atlas ? page({drawn->format, drawn->atlas->page}).view : textures_.at(drawn->id).image.view;
@@ -1199,7 +1309,8 @@ namespace weft::render::vulkan {
                 }
             }
             for (std::size_t i = 0; i < p.planes.size(); ++i) {
-                if ((p.planes[i] && self(self, *p.planes[i])) || (p.layers[i] && self(self, *p.layers[i]->content))) {
+                if ((p.planes[i] && self(self, *p.planes[i])) || (p.layers[i] && self(self, *p.layers[i]->content)) ||
+                    (p.filters[i] && self(self, *p.filters[i]->content))) {
                     return true;
                 }
             }

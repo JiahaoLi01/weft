@@ -311,7 +311,8 @@ namespace weft::render::d3d12 {
         };
         for (std::size_t i = 0; i < prepared.images.size(); ++i) {
             if ((prepared.images[i] && pending(prepared.images[i]->id)) ||
-                (prepared.layers[i] && pending(prepared.layers[i]->id))) {
+                (prepared.layers[i] && pending(prepared.layers[i]->id)) ||
+                (prepared.filters[i] && pending(prepared.filters[i]->id))) {
                 throw Busy("a scene samples what another recording that is not submitted uploads or draws");
             }
             if (prepared.planes[i]) {
@@ -319,6 +320,9 @@ namespace weft::render::d3d12 {
             }
             if (prepared.layers[i] && !textures_.contains(prepared.layers[i]->id)) {
                 check_pending(*prepared.layers[i]->content);
+            }
+            if (prepared.filters[i] && !textures_.contains(prepared.filters[i]->id)) {
+                check_pending(*prepared.filters[i]->content);
             }
         }
         for (const auto& effect : prepared.effects) {
@@ -337,7 +341,7 @@ namespace weft::render::d3d12 {
 
     void SceneRenderer::upload(const ScenePrepared& prepared) {
         // The images not on the device yet, each once: in this pass, its planes' passes, and the contents of the
-        // layers that are drawn in this recording.
+        // layers and filtered images that are drawn in this recording.
         std::vector<std::shared_ptr<const SceneImage>> pending;
         std::unordered_set<std::uint64_t> seen;
         const auto walk = [&](auto&& self, const ScenePrepared& p) -> void {
@@ -350,6 +354,9 @@ namespace weft::render::d3d12 {
                 }
                 if (p.layers[i] && !textures_.contains(p.layers[i]->id)) {
                     self(self, *p.layers[i]->content);
+                }
+                if (p.filters[i] && !textures_.contains(p.filters[i]->id)) {
+                    self(self, *p.filters[i]->content);
                 }
             }
             for (const auto& effect : p.effects) {
@@ -484,6 +491,70 @@ namespace weft::render::d3d12 {
         return {texture.image.resource.Get(), texture.image.format};
     }
 
+    View SceneRenderer::filter(const std::shared_ptr<const SceneFilterImage>& filter) {
+        if (const auto it = textures_.find(filter->id); it != textures_.end()) {
+            return {it->second.image.resource.Get(), it->second.image.format};
+        }
+        // The chain's images: its result a texture that the cache then keeps, the others the slot's.
+        const auto& chain = filter->chain;
+        const auto size = chain.images[chain.result];
+        auto& texture =
+            textures_
+                .emplace(filter->id,
+                         Texture{filter, gpu.image(target_format, size[0], size[1], true, readable), slot_->recording})
+                .first->second;
+        slot_->created.push_back(filter->id);
+        std::vector<Image*> images(chain.images.size());
+        for (std::size_t k = 0; k < images.size(); ++k) {
+            images[k] = k == chain.result ? &texture.image : &scratch(chain.images[k][0], chain.images[k][1]);
+        }
+        // The content into the first, then each pass into its image.
+        auto& content = *images[0];
+        record(*filter->content, {&content, content.rtv, content.format, content.width, content.height}, filter->scale);
+        transition(command_, content, readable);
+        if (!chain.steps.empty()) {
+            const auto stride = align(sizeof(BackdropConstants), constants_alignment);
+            auto& values = buffer(stride * chain.steps.size());
+            const auto first = descriptors(std::uint32_t(chain.steps.size()));
+            for (std::size_t k = 0; k < chain.steps.size(); ++k) {
+                std::memcpy(static_cast<std::uint8_t*>(values.mapped) + stride * k, &chain.steps[k].constants,
+                            sizeof(BackdropConstants));
+                const auto& source = *images[chain.steps[k].source];
+                write_view(first + std::uint32_t(k), {source.resource.Get(), source.format});
+            }
+            command_->SetGraphicsRootSignature(backdrop_root_.Get());
+            command_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            for (std::size_t k = 0; k < chain.steps.size(); ++k) {
+                const auto& step = chain.steps[k];
+                auto& over = *images[step.target];
+                transition(command_, over, D3D12_RESOURCE_STATE_RENDER_TARGET);
+                command_->OMSetRenderTargets(1, &over.rtv, FALSE, nullptr);
+                if (!step.over) {
+                    const float none[4]{};
+                    command_->ClearRenderTargetView(over.rtv, none, 0, nullptr);
+                }
+                const D3D12_VIEWPORT viewport{0, 0, float(over.width), float(over.height), 0, 1};
+                command_->RSSetViewports(1, &viewport);
+                const D3D12_RECT scissor{0, 0, LONG(over.width), LONG(over.height)};
+                command_->RSSetScissorRects(1, &scissor);
+                // The backdrop pipelines draw source-over: over a cleared image, the pass's color.
+                command_->SetPipelineState(backdrop_pipelines_
+                                               .at(step.shader == render::FilterStep::Shader::Area   ? 0
+                                                   : step.shader == render::FilterStep::Shader::Blur ? 1
+                                                                                                     : 2)
+                                               .Get());
+                command_->SetGraphicsRootConstantBufferView(limits::backdrop_root_constants,
+                                                            values.address + stride * k);
+                command_->SetGraphicsRootDescriptorTable(limits::backdrop_root_source,
+                                                         gpu_descriptor(first + std::uint32_t(k)));
+                command_->DrawInstanced(3, 1, 0, 0);
+                transition(command_, over, readable);
+            }
+        }
+        ++filter_passes;
+        return {texture.image.resource.Get(), texture.image.format};
+    }
+
     void SceneRenderer::record(const ScenePrepared& prepared, const Surface& out, float scale,
                                const SceneAnchorFrame* anchors, std::uint64_t serial, const paint::Color* clear,
                                std::span<const SceneTexture> host_textures, const ScenePatchHistory* history) {
@@ -503,6 +574,9 @@ namespace weft::render::d3d12 {
             } else if (prepared.layers[i]) {
                 views[i] = layer(prepared.layers[i], scale);
                 slot_->leases.push_back(prepared.layers[i]);
+            } else if (prepared.filters[i]) {
+                views[i] = filter(prepared.filters[i]);
+                slot_->leases.push_back(prepared.filters[i]);
             } else if (const auto& drawn = prepared.images[i]) {
                 const auto& image =
                     drawn->atlas ? page({drawn->format, drawn->atlas->page}) : textures_.at(drawn->id).image;
@@ -1018,7 +1092,8 @@ namespace weft::render::d3d12 {
                 }
             }
             for (std::size_t i = 0; i < p.planes.size(); ++i) {
-                if ((p.planes[i] && self(self, *p.planes[i])) || (p.layers[i] && self(self, *p.layers[i]->content))) {
+                if ((p.planes[i] && self(self, *p.planes[i])) || (p.layers[i] && self(self, *p.layers[i]->content)) ||
+                    (p.filters[i] && self(self, *p.filters[i]->content))) {
                     return true;
                 }
             }

@@ -186,7 +186,7 @@ namespace weft {
             };
             for (const auto& batch : pass.batches) {
                 const bool image = batch.step == Step::Image && !p.planes[batch.first] && !p.layers[batch.first] &&
-                                   !p.textures[batch.first];
+                                   !p.filters[batch.first] && !p.textures[batch.first];
                 const auto* drawn = image ? p.images[batch.first].get() : nullptr;
                 if (!(batch.step == Step::Boxes || (image && (!drawn || drawn->atlas)))) {
                     close();
@@ -251,13 +251,20 @@ namespace weft {
     }
 
     bool scene_planes_draw_textures(const ScenePrepared& prepared) {
-        return std::any_of(prepared.planes.begin(), prepared.planes.end(), [](const auto& plane) {
-            return plane && (std::any_of(plane->textures.begin(), plane->textures.end(),
-                                         [](std::uint32_t t) {
-                                             return t != 0;
-                                         }) ||
-                             scene_planes_draw_textures(*plane));
-        });
+        const auto draws = [](const ScenePrepared& nested) {
+            return std::any_of(nested.textures.begin(), nested.textures.end(),
+                               [](std::uint32_t t) {
+                                   return t != 0;
+                               }) ||
+                   scene_planes_draw_textures(nested);
+        };
+        return std::any_of(prepared.planes.begin(), prepared.planes.end(),
+                           [&](const auto& plane) {
+                               return plane && draws(*plane);
+                           }) ||
+               std::any_of(prepared.filters.begin(), prepared.filters.end(), [&](const auto& filter) {
+                   return filter && draws(*filter->content);
+               });
     }
 
     std::uint32_t scene_atlas_page_size(SceneImage::Format format) {
@@ -312,6 +319,7 @@ namespace weft {
           layers_(bounds.entries, bounds.bytes),
           shadows_(bounds.entries, bounds.bytes),
           paths_(bounds.entries, bounds.bytes),
+          filters_(bounds.entries, bounds.bytes),
           path_shadows_(bounds.entries, bounds.bytes),
           effect_textures_(bounds.entries, bounds.bytes),
           coverage_atlas_(std::uint32_t(limits::atlas_page_size), bounds.atlas_pages),
@@ -363,6 +371,7 @@ namespace weft {
         shadows_.begin_pass();
         paths_.begin_pass();
         path_shadows_.begin_pass();
+        filters_.begin_pass();
         effect_textures_.begin_pass();
         // The digests of paths that are gone, once there are as many again as after the last sweep.
         if (digests_.size() > 2 * digests_swept_ + std::size_t(limits::image_cache_max_entries)) {
@@ -440,6 +449,11 @@ namespace weft {
                 for (const auto& layer : p.layers) {
                     if (layer && layer->content) {
                         self(self, *layer->content);
+                    }
+                }
+                for (const auto& filter : p.filters) {
+                    if (filter && filter->content) {
+                        self(self, *filter->content);
                     }
                 }
             };
@@ -543,11 +557,13 @@ namespace weft {
         }
 
         // Whether a patch can replace an item of this kind in place: what it draws needs no effect program, asset,
-        // texture name, plane, backdrop or particles, whose items a pass batches or places by more than their kind.
+        // texture name, plane, backdrop or particles, whose items a pass batches or places by more than their kind. A
+        // filtered image is drawn in a step of its own, whatever image it is.
         bool patchable(paint::Item::Kind kind) {
             using Kind = paint::Item::Kind;
             return kind == Kind::Box || kind == Kind::Text || kind == Kind::Shadow || kind == Kind::Path ||
-                   kind == Kind::PathShadow || kind == Kind::BeginGroup || kind == Kind::EndGroup;
+                   kind == Kind::PathShadow || kind == Kind::Filter || kind == Kind::BeginGroup ||
+                   kind == Kind::EndGroup;
         }
 
         // The payload list of an item's kind (SceneListSpan::Part); Parts for groups.
@@ -575,6 +591,8 @@ namespace weft {
                     return Part::Backdrops;
                 case Kind::PathShadow:
                     return Part::PathShadows;
+                case Kind::Filter:
+                    return Part::Filters;
                 case Kind::BeginGroup:
                 case Kind::EndGroup:
                     break;
@@ -632,6 +650,7 @@ namespace weft {
             render::SceneRecord record;
             std::array<std::int32_t, 4> mask{};
             std::shared_ptr<const SceneImage> image;
+            std::shared_ptr<const SceneFilterImage> filter;
         };
 
         struct Listing {
@@ -736,6 +755,8 @@ namespace weft {
                     if (item.kind == Kind::Text) {
                         auto made = image(item, built.list.rasters[item.payload], scale, view_index);
                         out.image = std::move(made.text);
+                    } else if (item.kind == Kind::Filter) {
+                        out.filter = filter(built.list.filters[item.payload], view_index);
                     } else if (item.kind == Kind::Shadow) {
                         out.image = shadow(item, built.list.shadows[item.payload], scale);
                     } else if (item.kind == Kind::Path && out.mask[2] > out.mask[0] && out.mask[3] > out.mask[1]) {
@@ -790,6 +811,7 @@ namespace weft {
                 prepared.pass.records[first + i] = planned.record;
                 prepared.pass.masks[first + i] = planned.mask;
                 prepared.images[first + i] = std::move(planned.image);
+                prepared.filters[first + i] = std::move(planned.filter);
             }
             const auto copy = [&](auto& to, const auto& from, Part p) {
                 std::copy(from.begin(), from.end(), to.begin() + std::ptrdiff_t(base(p)));
@@ -802,6 +824,7 @@ namespace weft {
                 shadowed.first += first;
             }
             copy(whole.list.path_shadows, built.list.path_shadows, Part::PathShadows);
+            copy(whole.list.filters, built.list.filters, Part::Filters);
             for (std::size_t c = chain; c < built.list.clips.size(); ++c) {
                 const auto at = base(Part::Clips) + std::uint32_t(c - chain);
                 whole.list.clips[at] = built.list.clips[c];
@@ -1502,6 +1525,44 @@ namespace weft {
         return result;
     }
 
+    std::shared_ptr<const SceneFilterImage> ScenePreparer::filter(const paint::Filter& f, unsigned view_index) {
+        // By its element, while it shows the same source through the same functions on the same pixels.
+        std::array<std::uint64_t, 4> id{};
+        if (f.source) {
+            const auto& n = f.source->identity;
+            id = {view_index, n.view_epoch, n.slot, n.generation};
+            if (const auto* cached = filters_.find(id);
+                cached && cached->ops == f.ops && cached->pixels == f.pixels && cached->resolution == f.resolution &&
+                (cached->source == f.source || scene_paint_source_equal(*cached->source, *f.source))) {
+                ++work_.filter_reuses;
+                return cached->image;
+            }
+        }
+        const auto w = f.pixels[0];
+        const auto h = f.pixels[1];
+        if (w > max_image_dimension_ || h > max_image_dimension_ ||
+            std::size_t(w) * h * constants::rgba8_bytes_per_pixel > limits::image_max_bytes) {
+            throw std::invalid_argument("filter image byte bound");
+        }
+        auto image = std::make_shared<SceneFilterImage>();
+        image->id = ++next_id_;
+        image->scale = f.resolution;
+        image->content = prepare(*f.content, f.resolution, w, h, std::nullopt, view_index);
+        image->chain = render::plan_filter_chain(f.ops, w, h, f.resolution);
+        ++work_.filter_builds;
+        if (f.source) {
+            // Its images: the content's and each pass's.
+            std::size_t bytes{};
+            for (const auto& [iw, ih] : image->chain.images) {
+                bytes += std::size_t(iw) * ih * constants::rgba8_bytes_per_pixel;
+            }
+            const auto evictions = filters_.evictions();
+            filters_.put(id, Filtered{f.source, f.ops, f.pixels, f.resolution, image}, bytes);
+            work_.image_evictions += filters_.evictions() - evictions;
+        }
+        return image;
+    }
+
     std::unique_ptr<ScenePrepared> ScenePreparer::prepare(const paint::DisplayList& list, float scale, unsigned width,
                                                           unsigned height, std::optional<std::array<float, 4>> crop,
                                                           unsigned view_index, std::uint32_t anchors, bool over) {
@@ -1525,6 +1586,7 @@ namespace weft {
         out->images.resize(list.items.size());
         out->planes.resize(list.items.size());
         out->layers.resize(list.items.size());
+        out->filters.resize(list.items.size());
         out->textures.resize(list.items.size());
         out->texture_names = list.textures;
         for (const auto& effect : list.effects) {
@@ -1563,6 +1625,8 @@ namespace weft {
                 if (mask[2] > mask[0] && mask[3] > mask[1]) {
                     out->images[i] = path_shadow(list, item, scale, mask);
                 }
+            } else if (item.kind == Kind::Filter) {
+                out->filters[i] = filter(list.filters[item.payload], view_index);
             } else if (item.kind == Kind::Plane) {
                 // The content flat in its own image, image_margin px in, texel per device pixel.
                 const auto& plane = list.planes[item.payload];

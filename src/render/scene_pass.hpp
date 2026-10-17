@@ -69,7 +69,8 @@ namespace weft::render {
             // Records [first, first + count) in one instanced draw without an image.
             Boxes,
             // Records [first, first + count) in one instanced draw of the image of source: one Text, Layer, Shadow,
-            // Path, Plane or Image item, or with texture names a run of boxes and images that sample one texture.
+            // Path, Plane, Filter or Image item, or with texture names a run of boxes and images that sample one
+            // texture.
             Image,
             // Records [first, first + count) in one instanced draw of an atlas page: a run of boxes, and of Text, Shadow
             // and Path items whose images lie on the page, which source names among the pass's pages (a scene pass's
@@ -143,10 +144,12 @@ namespace weft::render {
     // The constants of a backdrop's area downsample across (or down) from a source of from texels to to texels on that
     // axis, each output texel the mean of the source texels its span covers, in part at its ends (BACKDROP_AREA); of a
     // Gaussian pass of standard deviation sigma (texels, above 0) across a w x h source or down it (BACKDROP_BLUR); and
-    // of a color matrix (BACKDROP_MATRIX).
+    // of a color matrix (BACKDROP_MATRIX), on linear-light values when linear, reading the source offset by offset (uv:
+    // the output at uv takes the source at uv - offset).
     BackdropConstants backdrop_area_constants(unsigned from, unsigned to, bool across);
     BackdropConstants backdrop_blur_constants(float sigma, bool across, unsigned w, unsigned h);
-    BackdropConstants backdrop_matrix_constants(const paint::ColorMatrix& m);
+    BackdropConstants backdrop_matrix_constants(const paint::ColorMatrix& m, bool linear = false,
+                                                std::array<float, 2> offset = {});
 
     // The device pixels of a plane's content image: the plane with image_margin transparent px on each side, at scale,
     // rounded up. A renderer draws the content image_margin px in, texel per device pixel, and binds the image to the

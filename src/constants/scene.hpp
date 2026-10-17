@@ -82,6 +82,14 @@ namespace weft::constants::scene {
     inline constexpr int max_display_list_items = 2 * constants::max_document_nodes;
     // Deepest nesting of isolated opacity groups.
     inline constexpr int max_opacity_group_depth = 4;
+    // A filtered element's image (paint::Filter): its blurs reach this many standard deviations past what they blur
+    // (three, and the area downsample and bilinear upsample of a wide blur), and a guard of device px more; past
+    // filter_image_max_pixels device pixels the image is made at a lower resolution, filter_scale_margin under the one
+    // that would just fit.
+    inline constexpr double filter_kernel_sigmas = 3.5;
+    inline constexpr int filter_guard_px = 2;
+    inline constexpr int filter_image_max_pixels = 2048 * 2048;
+    inline constexpr double filter_scale_margin = .98;
     // UI particles a scene frame may draw at once, across its emissions (each at most
     // constants::max_particles_per_emission); past it the frame is a scene profile diagnostic.
     inline constexpr unsigned max_particles_per_frame = 262144;
