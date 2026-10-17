@@ -96,6 +96,21 @@ namespace {
                 "an empty flex item did not shrink by default");
     }
 
+    // A wrapping row in a column shorter than its content: its automatic minimum height is its lines at its width (two
+    // here), not one line at its max-content width, so it does not shrink below them and what follows comes after.
+    void wrapping_row_keeps_its_lines() {
+        Tree t;
+        const auto root =
+            t.add(none, {{"display", "flex"}, {"flex-direction", "column"}, {"width", "100px"}, {"height", "40px"}});
+        const auto row = t.add(root, {{"display", "flex"}, {"flex-wrap", "wrap"}});
+        t.add(row, {{"display", "block"}, {"width", "60px"}, {"height", "30px"}});
+        const auto second = t.add(row, {{"display", "block"}, {"width", "60px"}, {"height", "30px"}});
+        const auto after = t.add(root, {{"display", "block"}, {"height", "10px"}, {"flex-shrink", "0"}});
+        const auto g = t.layout();
+        require(g[row].height == 60 && g[second].top == 30 && g[after].top == 60,
+                "a wrapping row shrank below its lines in a short column");
+    }
+
     // A text box is as tall as its lines even where less height is available.
     void text_overflows_available_height() {
         Tree t;
@@ -226,6 +241,7 @@ int main() {
     try {
         block_children_do_not_flex();
         flex_items_shrink_to_their_content();
+        wrapping_row_keeps_its_lines();
         text_overflows_available_height();
         grid_places_visible_children();
         inline_children_share_a_line();

@@ -1033,6 +1033,14 @@ namespace weft {
                 const bool content_box = s.text(P::BoxSizing, "content-box") == "content-box";
                 const auto specified = length(s.find(P::Width));
                 const auto specified_height = length(s.find(P::Height));
+                // In a column, an automatic basis and height make the basis the content height at the item's width,
+                // and that is the automatic minimum too (a box's min-content height is its height at its width): the
+                // item does not shrink. The height at the max-content width would undercount a wrapping row, whose
+                // lines at the item's width are more than at its max-content width.
+                if (!main_row && automatic_basis(s) && specified_height.automatic) {
+                    YGNodeStyleSetFlexShrink(n.yoga, 0);
+                    return;
+                }
                 float minimum = main_row ? n.min_width : n.auto_min_height;
                 // A nowrap line has width-independent intrinsic height. Only wrapping text requires a definite
                 // cross-axis constraint.
