@@ -1165,6 +1165,7 @@ namespace weft::render::vulkan {
             prepared = preparer_.prepare(frame, scale, target.width, target.height, crop, view_index, layers, anchors,
                                          keep, start.over);
             if (!prepared) {
+                last_failure_ = preparer_.last_fallback();
                 return false;
             }
             if (prepared->keepable) {
@@ -1207,6 +1208,7 @@ namespace weft::render::vulkan {
         if (!d.filters(VK_FORMAT_R32G32B32A32_SFLOAT) && linear(linear, *prepared)) {
             ++fallbacks;
             ++reasons["effect float texture filtering"];
+            last_failure_ = "effect float texture filtering";
             return false;
         }
         slot_ = &slot;

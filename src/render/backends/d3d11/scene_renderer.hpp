@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <string>
 #include <optional>
 #include <unordered_map>
 #include <span>
@@ -29,6 +30,11 @@
 namespace weft::render::d3d11 {
     class SceneRenderer : public SceneNativeWork {
     public:
+        // Why the last pass drew nothing (a fallback's reason); empty before the first.
+        const std::string& last_failure() const {
+            return last_failure_;
+        }
+
         // Per-destination state. Reuse a slot only after the GPU completed its previous pass.
         struct Slot {
             ComPtr<ID3D11Buffer> records;
@@ -164,6 +170,7 @@ namespace weft::render::d3d11 {
         ComPtr<ID3D11RasterizerState> raster_;
         SceneRaster reference_;
         ScenePreparer preparer_;
+        std::string last_failure_;
         std::unordered_map<std::uint64_t, Texture> textures_;
         // By format and page number.
         std::map<std::array<std::uint32_t, 2>, Page> pages_;

@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <string>
 #include <optional>
 #include <unordered_map>
 #include <span>
@@ -39,6 +40,11 @@
 namespace weft::render::vulkan {
     class SceneRenderer : public SceneNativeWork {
     public:
+        // Why the last pass drew nothing (a fallback's reason); empty before the first.
+        const std::string& last_failure() const {
+            return last_failure_;
+        }
+
         // A host color target: a view of a single-sample B8G8R8A8_UNORM image of width x height device px with one
         // mip level and layer, a color attachment. The pass replaces its contents and leaves it in
         // VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL. image is the view's image when the pass may read it (its usage
@@ -161,6 +167,7 @@ namespace weft::render::vulkan {
         };
 
         ScenePreparer preparer_;
+        std::string last_failure_;
         VkCommandPool pool_{};
         VkCommandBuffer command_{};
         VkFence fence_{};

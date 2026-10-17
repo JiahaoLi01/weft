@@ -16,6 +16,17 @@
 
 ## 本次已实现
 
+Web 平台模块、localStorage 的宿主接口、渲染回退的原因（2026-10-17，`weft-dev` 分支；CRPG 的 UI 移到 weft 的第二步）。
+- **起因**：CRPG 的页面在宽松样式下能加载，但脚本要的浏览器对象不在：`localStorage`（语言、字体、字幕与 UI 缩放的设置）、`element.dataset`、`document.head`（字体模块插 `<style>`）、手柄输入合成的 `KeyboardEvent` 与 `document.activeElement`、`console.log`（此前什么也不做，`console.error` 让页面出错）。帧画不出时渲染 C ABI 只返回 `WEFT_RENDER_UNSUPPORTED_FEATURE`，看不到原因。
+- **实现**：
+  - 页面标志 `WEFT_PAGE_WEB_PLATFORM`（新平台模块 `src/script/js/web_platform_bootstrap.js`，装在 ScenePlatform 与 Engine 之后）：console 的各个方法成为诊断（`WEFT_DIAGNOSTIC_CONSOLE`、`_WARNING`、`_ERROR`，`%s %d %i %f %o %O %c` 代换，对象、数组、Map、Set、Error、节点与环的描述，8 KiB 截断）；`localStorage` 与 `sessionStorage`（Storage 接口与属性访问，超过 5 MiB 抛 `QuotaExceededError`）；`dataset`、`toggleAttribute`、`append`/`prepend`/`before`/`after`/`replaceWith`/`replaceChildren`；`document.head`（第一次用时建在 body 之前，隐藏）与 `document.title`；`KeyboardEvent`、`FocusEvent`；`focus()`、`blur()`、`document.activeElement`、`tabIndex`（可聚焦按 HTML：tabindex、表单控件、带 href 的 a，不禁用），focus、blur、focusin、focusout 的顺序同浏览器，`:focus` 与 `:focus-within` 随之匹配，焦点元素离开文档后回到 body；`matchMedia` 按样式表的 `@media` 求值、随视口变；`IntersectionObserver`（对视口或 root 的盒子，每个动画帧检查，边相接算相交）；`requestIdleCallback`、`navigator`、`location`、伪元素的 `getComputedStyle`；带选项的 `toLocaleString`（千分位、最少与最多小数位、百分比，无 Intl）。没有这个标志时一切照旧。
+  - ScriptDom：`install_console_host`、`install_storage`、`install_media_host`、`focused()`，原生方法 `__ceConsole`、`__ceStorage`、`__ceFocus`、`__ceFocused`、`__ceMatchMedia`；焦点状态写进 DOM 节点的 `focused`/`focus_within` 标志（变化的节点进重算）。`src/script/web_storage.*`：一个存储区（按键排序、配额、修订号）。`media_matches()`（`style.hpp`）给 matchMedia 用宽松样式的 `@media` 求值。
+  - View：`ViewPage::web_platform`、三种 console 诊断、`set_local_storage`/`local_storage`（View 的 localStorage 跨页面加载保留，sessionStorage 也是）。
+  - C ABI：`weft_view_set_storage_item`（NULL 值删除；不是 UTF-8 的键值无效；超过配额 `WEFT_CAPACITY_EXCEEDED`）、`weft_view_clear_storage`、`weft_view_get_storage`（修订号变了才逐项交给回调，宿主据此保存）；存储区在第一次加载页面之前就有。渲染：`weft_renderer_last_failure` 与后端表的可选 `last_failure`，D3D11、D3D12、Vulkan 的 View 后端说明目标不合要求或原生 pass 回退的原因（预备器记下最后一次回退的原因）。
+  - `weft_page_runner`：`"webPlatform"`、`--storage <file.json>`（加载前恢复、变了写回）、时间线的 `"storage": true`、渲染失败时打印原因。
+- **验证**（Release）：`web_platform_contract`（新，`tests/web_platform_tests.cpp`）：console 的级别与格式、没有标志时的旧行为；存储的写入、宿主恢复的项、长度与枚举、跨加载保留、配额、删除与清空；dataset、head、title 与子节点的便捷方法；焦点的事件顺序、`:focus`/`:focus-within` 的布局、键盘事件冒泡到 window、blur、移除焦点元素；matchMedia 与改变视口后、IntersectionObserver 进出视口；toLocaleString。`c_api_view_contract` 加 `web_storage`（加载前的项、修订号、参数、配额、页面写入、NULL 删除、清空、失效句柄），未知页面标志改为 8。全量 ctest 174 项：160 项通过，14 项与此前相同（签出换行的散列校验）。CRPG 的页面去掉临时垫片后加载，`[boot]` 日志成为 console 诊断，设置写回存储文件；字幕帧的回退原因是 `filter blur(10px) outside scene profile`。
+- **限制**：没有宿主的键盘输入（`KeyboardEvent` 只能由页面派发）、Tab 键导航与 IME；`MutationObserver`、`structuredClone`、`Intl` 没有；matchMedia 的 `change` 事件不派发；IntersectionObserver 不看 `rootMargin` 与中间的裁剪。
+
 宽松样式表、white-space 的 pre 系列、无头页面运行器（2026-10-17，`weft-dev` 分支；用户提出：用 weft 替换 CRPG 框架里 Ultralight 上的 React UI，需要时可以改 weft 本身）。详见 [兼容](compatibility.md)“2026-10-17：宽松样式”。
 - **起因**：CRPG 的 UI（React 19、Vite 6、Tailwind v4.2 生成的 90 KB 样式表、framer-motion）在 weft 里第一步就停：严格的 scene profile 拒绝整张样式表（`@layer`、`@property`、`@supports`、嵌套、`oklch()`、`color-mix()`、profile 外的属性），页面不加载。逐条兼容一张 Tailwind 表不现实；浏览器的做法是丢掉看不懂的声明，照常加载。
 - **实现**：

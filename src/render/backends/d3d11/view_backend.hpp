@@ -12,6 +12,8 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -55,6 +57,12 @@ namespace weft::render::d3d11 {
         weft_render_result prepare(const weft_render_frame& frame, std::uint64_t& out);
         void release_prepared(std::uint64_t native);
         weft_render_result encode(std::uint64_t native, const weft_render_pass& pass, std::uint64_t& out);
+
+        // FailureBackend: why the last prepare or encode failed.
+        std::string_view last_failure() const {
+            return failure_;
+        }
+
         void discard_encoded(std::uint64_t native);
         void submitted(std::uint64_t native, std::uint64_t serial);
         void completed(std::uint64_t serial);
@@ -71,6 +79,9 @@ namespace weft::render::d3d11 {
                                             std::uint32_t count, std::uint64_t& out);
 
     private:
+        // Why the last prepare or encode failed.
+        std::string failure_;
+
         // A View's frame at a scale, with the host textures it binds by name and the resources they view (no pass
         // draws into one of them).
         struct Prepared {

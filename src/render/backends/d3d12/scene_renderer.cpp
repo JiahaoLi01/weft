@@ -985,6 +985,7 @@ namespace weft::render::d3d12 {
             prepared = preparer_.prepare(frame, scale, target.width, target.height, std::nullopt, view_index, {},
                                          anchors, keep, start.over);
             if (!prepared) {
+                last_failure_ = preparer_.last_fallback();
                 return false;
             }
             if (prepared->keepable) {
@@ -1026,6 +1027,7 @@ namespace weft::render::d3d12 {
         if (!gpu.filters(DXGI_FORMAT_R32G32B32A32_FLOAT) && linear(linear, *prepared)) {
             ++fallbacks;
             ++reasons["effect float texture filtering"];
+            last_failure_ = "effect float texture filtering";
             return false;
         }
         slot_ = &slot;

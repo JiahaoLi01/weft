@@ -20,6 +20,10 @@ namespace weft {
         Engine,
         // CRPG Framework's window.ue.sendEvent, __ue_dispatch and __vm_update over weft.engine; after Engine.
         CrpgBridge,
+        // The web platform pages written for browsers expect (console, localStorage, dataset, focus, KeyboardEvent,
+        // matchMedia as @media, IntersectionObserver); after ScenePlatform and Engine, with ScriptDom's web platform
+        // hosts installed.
+        WebPlatform,
     };
 
     std::string_view script_platform_source(ScriptPlatformModule module) noexcept;

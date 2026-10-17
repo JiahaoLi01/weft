@@ -10,6 +10,7 @@
 #include <deque>
 #include <map>
 #include <memory>
+#include <string>
 #include <span>
 #include <unordered_map>
 #include <vector>
@@ -46,6 +47,11 @@ namespace weft::render::d3d12 {
 
     class SceneRenderer : public SceneNativeWork {
     public:
+        // Why the last pass drew nothing (a fallback's reason); empty before the first.
+        const std::string& last_failure() const {
+            return last_failure_;
+        }
+
         // A host color target: a single-sample texture of at least width x height device px, of format (its view
         // format: B8G8R8A8_UNORM, R8G8B8A8_UNORM or R10G10B10A2_UNORM), in D3D12_RESOURCE_STATE_RENDER_TARGET when the
         // commands execute,
@@ -164,6 +170,7 @@ namespace weft::render::d3d12 {
 
         SceneRaster reference_;
         ScenePreparer preparer_;
+        std::string last_failure_;
         ComPtr<ID3D12RootSignature> root_;
         ComPtr<ID3D12RootSignature> backdrop_root_;
         std::map<DXGI_FORMAT, Pipelines> pipelines_;

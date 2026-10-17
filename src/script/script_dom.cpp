@@ -11,6 +11,7 @@
 #include "dom/node_table.hpp"
 #include "dom/selector.hpp"
 #include "dom/tree.hpp"
+#include "script/web_storage.hpp"
 
 #include <quickjs.h>
 
@@ -157,6 +158,13 @@ namespace weft {
         std::map<std::array<std::uint64_t, 3>, std::map<std::string, std::string>> read_styles;
         std::size_t read_style_bytes{};
         IntegerFormatHost integer_format_host;
+        // The web platform module's hosts and storage areas (local, session), and the element that has the focus with
+        // the elements :focus-within matches (it and its ancestors when it took the focus).
+        ConsoleHost console_host;
+        MediaHost media_host;
+        std::array<std::shared_ptr<WebStorage>, 2> storage;
+        NodeIdentity focus;
+        std::vector<NodeIdentity> focus_chain;
         bool layout_running{};
 
         // The native DOM. Each tree edge owns one reference on the neighbor's wrapper, which mark() reports, so the
@@ -1657,7 +1665,12 @@ namespace weft {
             EngineSend,
             EngineCall,
             EngineInvoke,
-            EngineClose
+            EngineClose,
+            Console,
+            Storage,
+            Focus,
+            Focused,
+            MatchMedia
         };
 
         static JSValue arg(int argc, JSValueConst* argv, int index) {
@@ -1975,6 +1988,51 @@ namespace weft {
                             throw std::runtime_error("WEFT_NUMBER_FORMAT_LIMIT");
                         }
                         return JS_NewStringLen(c, result.data(), result.size());
+                    }
+                    case Console: {
+                        // The web platform's console: a message at a level (0 log, 1 warning, 2 error), cut to a
+                        // bound; nothing without a host.
+                        double level{};
+                        if (JS_ToFloat64(c, &level, arg(argc, argv, 0)) < 0) {
+                            throw PendingJsException{};
+                        }
+                        auto text = string_value(c, arg(argc, argv, 1));
+                        if (text.size() > std::size_t(constants::script::max_console_message_bytes)) {
+                            text.resize(std::size_t(constants::script::max_console_message_bytes));
+                            text += "...";
+                        }
+                        if (owner.console_host) {
+                            owner.console_host(level >= 2   ? ConsoleLevel::Error
+                                               : level >= 1 ? ConsoleLevel::Warning
+                                                            : ConsoleLevel::Log,
+                                               text);
+                        }
+                        return JS_UNDEFINED;
+                    }
+                    case Storage:
+                        return owner.storage_call(argc, argv);
+                    case Focus: {
+                        // focus() (on) and blur() of the web platform: the element takes or gives up the focus.
+                        const int on = JS_ToBool(c, arg(argc, argv, 0));
+                        if (on < 0) {
+                            throw PendingJsException{};
+                        }
+                        if (on) {
+                            owner.set_focus(&n);
+                        } else if (owner.focus == n.identity) {
+                            owner.set_focus(nullptr);
+                        }
+                        return JS_UNDEFINED;
+                    }
+                    case Focused: {
+                        auto* f = owner.focused_node();
+                        return f ? JS_DupValue(c, owner.wrapper(*f)) : JS_NULL;
+                    }
+                    case MatchMedia: {
+                        if (!owner.media_host) {
+                            throw std::runtime_error("WEFT_MEDIA: no media host");
+                        }
+                        return JS_NewBool(c, owner.media_host(string_value(c, arg(argc, argv, 0))));
                     }
                     case BoundingRect:
                     case ClientRects: {
@@ -2421,6 +2479,11 @@ namespace weft {
                 method(prototype.value, "__ceEngineCall", EngineCall, 2);
                 method(prototype.value, "__ceEngineInvoke", EngineInvoke, 2);
                 method(prototype.value, "__ceEngineClose", EngineClose, 1);
+                method(prototype.value, "__ceConsole", Console, 2);
+                method(prototype.value, "__ceStorage", Storage, 4);
+                method(prototype.value, "__ceFocus", Focus, 1);
+                method(prototype.value, "__ceFocused", Focused, 0);
+                method(prototype.value, "__ceMatchMedia", MatchMedia, 1);
                 JS_SetClassProto(context, node_class, JS_DupValue(context, prototype.value));
 
                 document_root = make_node(constants::document_node_type, "#document", "", {});
@@ -2510,6 +2573,11 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             computed_style_host = {};
             particle_host = {};
             layout_epoch_host = {};
+            console_host = {};
+            media_host = {};
+            storage = {};
+            focus = {};
+            focus_chain.clear();
             clear_host_reads();
             read_snapshot.reset();
             JS_FreeValue(context, canvas_prototype);
@@ -2966,6 +3034,96 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             return {};
         }
 
+        // Gives target the focus (none: no element has it): :focus matches it, :focus-within it and its ancestors.
+        void set_focus(Node* target) {
+            for (const auto id : focus_chain) {
+                if (auto* n = resolve(id)) {
+                    n->focused = false;
+                    n->focus_within = false;
+                    changed(*n);
+                }
+            }
+            focus_chain.clear();
+            focus = {};
+            if (!target) {
+                return;
+            }
+            focus = target->identity;
+            target->focused = true;
+            for (Node* p = target; p; p = parent_of(*p)) {
+                p->focus_within = true;
+                changed(*p);
+                focus_chain.push_back(p->identity);
+            }
+        }
+
+        // The element that has the focus; one that left the document loses it (the focus fixup rule).
+        Node* focused_node() {
+            auto* n = resolve(focus);
+            if (n && !connected(*n)) {
+                set_focus(nullptr);
+                return nullptr;
+            }
+            return n;
+        }
+
+        // document.__ceStorage(area, op, key, value) of the web platform: area 0 is localStorage, 1 sessionStorage;
+        // op 0 getItem, 1 setItem (false past the quota), 2 removeItem, 3 clear, 4 key(index), 5 length, 6 the keys.
+        JSValue storage_call(int argc, JSValueConst* argv) {
+            double area{};
+            double op{};
+            if (JS_ToFloat64(context, &area, arg(argc, argv, 0)) < 0 ||
+                JS_ToFloat64(context, &op, arg(argc, argv, 1)) < 0) {
+                throw PendingJsException{};
+            }
+            if (area != 0 && area != 1) {
+                throw std::runtime_error("WEFT_STORAGE: an area");
+            }
+            auto& s = storage[std::size_t(area)];
+            if (!s) {
+                throw std::runtime_error("WEFT_STORAGE: storage is not available");
+            }
+            const auto text = [&](std::optional<std::string_view> v) {
+                return v ? JS_NewStringLen(context, v->data(), v->size()) : JS_NULL;
+            };
+            switch (int(op)) {
+                case 0:
+                    return text(s->get(string_value(context, arg(argc, argv, 2))));
+                case 1:
+                    return JS_NewBool(context, s->set(string_value(context, arg(argc, argv, 2)),
+                                                      string_value(context, arg(argc, argv, 3))));
+                case 2:
+                    s->remove(string_value(context, arg(argc, argv, 2)));
+                    return JS_UNDEFINED;
+                case 3:
+                    s->clear();
+                    return JS_UNDEFINED;
+                case 4: {
+                    double index{};
+                    if (JS_ToFloat64(context, &index, arg(argc, argv, 2)) < 0) {
+                        throw PendingJsException{};
+                    }
+                    if (!(index >= 0) || index != std::floor(index)) {
+                        return JS_NULL;
+                    }
+                    return text(s->key(std::size_t(std::min(index, double(s->size())))));
+                }
+                case 5:
+                    return JS_NewFloat64(context, double(s->size()));
+                case 6: {
+                    Value keys(context, JS_NewArray(context));
+                    std::uint32_t i{};
+                    for (const auto& item : s->items()) {
+                        JS_SetPropertyUint32(context, keys.value, i++,
+                                             JS_NewStringLen(context, item.first.data(), item.first.size()));
+                    }
+                    return JS_DupValue(context, keys.value);
+                }
+                default:
+                    throw std::runtime_error("WEFT_STORAGE: an operation");
+            }
+        }
+
         bool connected(const Node& target) const {
             return tree.connected(target);
         }
@@ -3035,6 +3193,30 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
     void ScriptDom::install_integer_format_host(IntegerFormatHost host) {
         impl_->require_runtime();
         impl_->integer_format_host = std::move(host);
+    }
+
+    void ScriptDom::install_console_host(ConsoleHost host) {
+        impl_->require_runtime();
+        impl_->console_host = std::move(host);
+    }
+
+    void ScriptDom::install_storage(std::shared_ptr<WebStorage> local, std::shared_ptr<WebStorage> session) {
+        impl_->require_runtime();
+        impl_->storage = {std::move(local), std::move(session)};
+    }
+
+    void ScriptDom::install_media_host(MediaHost host) {
+        impl_->require_runtime();
+        impl_->media_host = std::move(host);
+    }
+
+    std::optional<NodeIdentity> ScriptDom::focused() const {
+        impl_->check_owner();
+        auto* n = impl_->resolve(impl_->focus);
+        if (!n || !impl_->connected(*n)) {
+            return std::nullopt;
+        }
+        return n->identity;
     }
 
     DispatchResult ScriptDom::dispatch_wheel(NodeIdentity identity, double dx, double dy) {

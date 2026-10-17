@@ -182,7 +182,7 @@ namespace {
         d.struct_size = sizeof(d) - 8;
         require(weft_view_load(r.runtime, view, &d) == WEFT_INVALID_ARGUMENT, "a short page descriptor");
         d = page.desc();
-        d.flags = 4;
+        d.flags = 8;
         require(weft_view_load(r.runtime, view, &d) == WEFT_INVALID_ARGUMENT, "unknown page flags");
         d = page.desc();
         d.reserved = 1;
@@ -794,6 +794,60 @@ namespace {
         require(weft_view_set_resource_reader(r.runtime, view, read, &reader) == WEFT_STALE_HANDLE,
                 "a destroyed View's reader");
     }
+
+    // The web platform's localStorage through the ABI: items a host restores before the first page, what pages write,
+    // the revision a host saves by, the quota; console messages as their own diagnostic kinds.
+    void web_storage() {
+        Runtime r;
+        const auto view = r.view();
+        using Items = std::vector<std::pair<std::string, std::string>>;
+        const auto items = [&](uint64_t revision, uint64_t* out_revision) {
+            Items out;
+            const auto result = weft_view_get_storage(
+                r.runtime, view, revision,
+                [](void* user, const char* key, size_t key_size, const char* value, size_t value_size) {
+                    static_cast<Items*>(user)->emplace_back(std::string(key, key_size), std::string(value, value_size));
+                },
+                &out, out_revision);
+            require(result == WEFT_OK, "the storage's items");
+            return out;
+        };
+        require(weft_view_set_storage_item(r.runtime, view, "saved", 5, "1", 1) == WEFT_OK,
+                "an item before the View's first page");
+        uint64_t revision{};
+        require(items(0, &revision) == Items{{"saved", "1"}} && revision, "the item and its revision");
+        require(items(revision, nullptr).empty(), "nothing when the revision did not move");
+        require(weft_view_set_storage_item(r.runtime, view, "bad", 3, "\xff", 1) == WEFT_INVALID_ARGUMENT &&
+                    weft_view_set_storage_item(r.runtime, view, nullptr, 1, "x", 1) == WEFT_INVALID_ARGUMENT &&
+                    weft_view_set_storage_item(r.runtime, view, "k", 1, nullptr, 1) == WEFT_INVALID_ARGUMENT &&
+                    weft_view_get_storage(r.runtime, view, 0, nullptr, nullptr, nullptr) == WEFT_INVALID_ARGUMENT,
+                "arguments");
+        const std::string big(6u << 20, 'x');
+        require(weft_view_set_storage_item(r.runtime, view, "big", 3, big.data(), big.size()) == WEFT_CAPACITY_EXCEEDED,
+                "past the quota");
+
+        auto page = inline_page("console.log('read', localStorage.getItem('saved'));"
+                                "localStorage.setItem('page', 'wrote');"
+                                "console.warn('w'); console.error('e');");
+        page.flags = WEFT_PAGE_WEB_PLATFORM;
+        require(load(r, view, page) == WEFT_OK, "a page with the web platform");
+        const auto found = diagnostics(r, view);
+        require(found.size() == 3 && found[0] == std::pair<uint32_t, std::string>{WEFT_DIAGNOSTIC_CONSOLE, "read 1"} &&
+                    found[1] == std::pair<uint32_t, std::string>{WEFT_DIAGNOSTIC_CONSOLE_WARNING, "w"} &&
+                    found[2] == std::pair<uint32_t, std::string>{WEFT_DIAGNOSTIC_CONSOLE_ERROR, "e"},
+                "console messages by level");
+        uint64_t after{};
+        require(items(revision, &after) == Items{{"page", "wrote"}, {"saved", "1"}} && after != revision,
+                "what the page wrote, at a new revision");
+        require(weft_view_set_storage_item(r.runtime, view, "saved", 5, nullptr, 0) == WEFT_OK &&
+                    items(0, nullptr) == Items{{"page", "wrote"}},
+                "a NULL value removes the item");
+        require(load(r, view, page) == WEFT_OK && diagnostics(r, view).front().second == "read null",
+                "the next page sees the removal");
+        require(weft_view_clear_storage(r.runtime, view) == WEFT_OK && items(0, nullptr).empty(), "cleared");
+        weft_view_destroy(r.runtime, view);
+        require(weft_view_clear_storage(r.runtime, view) == WEFT_STALE_HANDLE, "a destroyed View's storage");
+    }
 } // namespace
 
 int main() {
@@ -806,6 +860,7 @@ int main() {
         errors_and_faults();
         stylesheets();
         resources();
+        web_storage();
         std::cout << "C ABI view tests passed\n";
         return 0;
     } catch (const std::exception& e) {

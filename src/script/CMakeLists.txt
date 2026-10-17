@@ -2,7 +2,7 @@
 # source tree.
 set(embedded_js)
 foreach(module web_host_bootstrap animation_frame_bootstrap scene_platform_bootstrap engine_bootstrap
-        crpg_bridge_bootstrap)
+        crpg_bridge_bootstrap web_platform_bootstrap)
     set(input "${CMAKE_CURRENT_SOURCE_DIR}/js/${module}.js")
     set(output "${CMAKE_BINARY_DIR}/generated/script/js/${module}.js.inc")
     add_custom_command(OUTPUT "${output}"
@@ -14,7 +14,7 @@ foreach(module web_host_bootstrap animation_frame_bootstrap scene_platform_boots
 endforeach()
 
 weft_add_library(script
-    SOURCES script_dom.cpp script_platform.cpp ${embedded_js}
+    SOURCES script_dom.cpp script_platform.cpp web_storage.cpp ${embedded_js}
     PUBLIC weft::bridge weft::canvas weft::dom
     PRIVATE qjs)
 target_include_directories(weft_script PRIVATE "${CMAKE_BINARY_DIR}/generated")

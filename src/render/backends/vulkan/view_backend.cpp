@@ -96,11 +96,13 @@ namespace weft::render::vulkan {
     weft_render_result ViewBackend::prepare_external(const weft_render_frame&, const weft_render_external_asset*,
                                                      std::uint32_t, std::uint64_t& out) {
         out = 0;
+        failure_ = "quad frames are not a View backend's";
         return WEFT_RENDER_UNSUPPORTED_FEATURE;
     }
 
     weft_render_result ViewBackend::prepare(const weft_render_frame&, std::uint64_t& out) {
         out = 0;
+        failure_ = "quad frames are not a View backend's";
         return WEFT_RENDER_UNSUPPORTED_FEATURE;
     }
 
@@ -174,7 +176,9 @@ namespace weft::render::vulkan {
         if (native_handle<VkDevice>(p.device) != device_->device) {
             return WEFT_RENDER_WRONG_BACKEND;
         }
+        failure_.clear();
         if (pass.target_format != WEFT_RENDER_TARGET_LINEAR_BGRA8) {
+            failure_ = "a target format other than linear BGRA8";
             return WEFT_RENDER_UNSUPPORTED_FEATURE;
         }
         if (!pass.width || !pass.height) {
@@ -221,6 +225,7 @@ namespace weft::render::vulkan {
         }
         if (!drawn) {
             idle_.push_back(std::move(slot));
+            failure_ = "the native pass cannot draw the frame: " + renderer_->last_failure();
             return WEFT_RENDER_UNSUPPORTED_FEATURE;
         }
         out = next_++;

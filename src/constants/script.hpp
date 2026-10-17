@@ -65,6 +65,10 @@ namespace weft::constants::script {
     // Number.MAX_SAFE_INTEGER; the integer format host only receives exact integers.
     inline constexpr double max_safe_integer = 9007199254740991.;
     inline constexpr int max_formatted_integer_bytes = 128;
+    // The web platform: the keys and values (UTF-8 bytes) one storage area holds, as browsers allow about 5 MiB an
+    // origin; a console message is cut to this many bytes.
+    inline constexpr int max_storage_bytes = 5 * constants::bytes_per_mib;
+    inline constexpr int max_console_message_bytes = 8192;
 
     // Contract with probes/web_host_bootstrap.js and probes/animation_frame_bootstrap.js.
     // Ready callbacks in one timer or animation-frame batch.

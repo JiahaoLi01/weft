@@ -100,6 +100,9 @@ namespace weft {
         NodeIdentity pressed{};
         std::deque<ViewDiagnostic> diagnostics;
         std::size_t dropped{};
+        // The web platform's localStorage and sessionStorage.
+        std::shared_ptr<WebStorage> local_storage = std::make_shared<WebStorage>();
+        std::shared_ptr<WebStorage> session_storage = std::make_shared<WebStorage>();
         // What the frame published last showed: its revision and the View's size and scale then.
         std::uint64_t published_revision{};
         std::array<float, 3> published_size{};
@@ -301,6 +304,16 @@ namespace weft {
 
         void install_hosts() {
             vm.install_integer_format_host(group_digits);
+            vm.install_console_host([this](ConsoleLevel level, std::string_view message) {
+                diagnose(level == ConsoleLevel::Error     ? ViewDiagnostic::Kind::ConsoleError
+                         : level == ConsoleLevel::Warning ? ViewDiagnostic::Kind::ConsoleWarning
+                                                          : ViewDiagnostic::Kind::Console,
+                         std::string(message));
+            });
+            vm.install_storage(local_storage, session_storage);
+            vm.install_media_host([this](std::string_view query) {
+                return media_matches(query, width, height);
+            });
             vm.install_layout_cache_host([this] {
                 if (cache_time != time || cache_width != width || cache_height != height) {
                     if (layout_epoch == std::numeric_limits<std::uint64_t>::max()) {
@@ -444,6 +457,9 @@ namespace weft {
             install_script_platform(i.vm, ScriptPlatformModule::AnimationFrame);
             install_script_platform(i.vm, ScriptPlatformModule::ScenePlatform);
             install_script_platform(i.vm, ScriptPlatformModule::Engine);
+            if (page.web_platform) {
+                install_script_platform(i.vm, ScriptPlatformModule::WebPlatform);
+            }
             if (page.crpg_bridge) {
                 install_script_platform(i.vm, ScriptPlatformModule::CrpgBridge);
             }
@@ -698,6 +714,20 @@ namespace weft {
 
     void View::set_resource_reader(ViewResourceReader reader) {
         impl_->reader = std::move(reader);
+    }
+
+    void View::set_local_storage(std::shared_ptr<WebStorage> storage) {
+        if (!storage) {
+            throw std::invalid_argument("WEFT_STORAGE: a storage area");
+        }
+        impl_->local_storage = std::move(storage);
+        if (impl_->loaded) {
+            impl_->vm.install_storage(impl_->local_storage, impl_->session_storage);
+        }
+    }
+
+    const std::shared_ptr<WebStorage>& View::local_storage() const {
+        return impl_->local_storage;
     }
 
     bool View::faulted() const {

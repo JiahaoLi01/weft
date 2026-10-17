@@ -21,6 +21,9 @@ namespace weft {
         constexpr unsigned char crpg_bridge[] = {
 #include "script/js/crpg_bridge_bootstrap.js.inc"
         };
+        constexpr unsigned char web_platform[] = {
+#include "script/js/web_platform_bootstrap.js.inc"
+        };
 
         // UTF-8 bytes above 0x7f cannot initialize a signed char, so the tables are unsigned.
         template <std::size_t N>
@@ -41,6 +44,8 @@ namespace weft {
                 return text(engine);
             case ScriptPlatformModule::CrpgBridge:
                 return text(crpg_bridge);
+            case ScriptPlatformModule::WebPlatform:
+                return text(web_platform);
         }
         return {};
     }
@@ -57,6 +62,8 @@ namespace weft {
                 return "engine_bootstrap.js";
             case ScriptPlatformModule::CrpgBridge:
                 return "crpg_bridge_bootstrap.js";
+            case ScriptPlatformModule::WebPlatform:
+                return "web_platform_bootstrap.js";
         }
         return {};
     }

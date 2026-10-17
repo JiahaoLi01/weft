@@ -345,6 +345,7 @@ namespace weft {
         const auto fallback = [&](const std::string& reason) {
             ++work_.fallbacks;
             ++work_.reasons[reason];
+            last_fallback_ = reason;
             return nullptr;
         };
         // The atlas regions of images that are gone.

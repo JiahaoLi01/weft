@@ -160,11 +160,13 @@ namespace weft::render::d3d12 {
     weft_render_result ViewBackend::prepare_external(const weft_render_frame&, const weft_render_external_asset*,
                                                      std::uint32_t, std::uint64_t& out) {
         out = 0;
+        failure_ = "quad frames are not a View backend's";
         return WEFT_RENDER_UNSUPPORTED_FEATURE;
     }
 
     weft_render_result ViewBackend::prepare(const weft_render_frame&, std::uint64_t& out) {
         out = 0;
+        failure_ = "quad frames are not a View backend's";
         return WEFT_RENDER_UNSUPPORTED_FEATURE;
     }
 
@@ -247,7 +249,9 @@ namespace weft::render::d3d12 {
                             : pass.target_format == WEFT_RENDER_TARGET_LINEAR_RGBA8   ? DXGI_FORMAT_R8G8B8A8_UNORM
                             : pass.target_format == WEFT_RENDER_TARGET_LINEAR_RGB10A2 ? DXGI_FORMAT_R10G10B10A2_UNORM
                                                                                       : DXGI_FORMAT_UNKNOWN;
+        failure_.clear();
         if (format == DXGI_FORMAT_UNKNOWN) {
+            failure_ = "a target format other than linear BGRA8, RGBA8 or RGB10A2";
             return WEFT_RENDER_UNSUPPORTED_FEATURE;
         }
         if (!pass.width || !pass.height || pass.width > unsigned(constants::render::d3d12::max_surface_dimension) ||
@@ -259,6 +263,7 @@ namespace weft::render::d3d12 {
             actual.MipLevels != 1 || actual.SampleDesc.Count != 1 ||
             !(actual.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) ||
             (actual.Format != format && actual.Format != typeless(format))) {
+            failure_ = "a target that is no single-sample render target 2D texture of the pass's format";
             return WEFT_RENDER_UNSUPPORTED_FEATURE;
         }
         if (actual.Width < pass.width || actual.Height < pass.height) {
@@ -302,6 +307,7 @@ namespace weft::render::d3d12 {
         }
         if (!drawn) {
             idle_.push_back(std::move(slot));
+            failure_ = "the native pass cannot draw the frame: " + renderer_->last_failure();
             return WEFT_RENDER_UNSUPPORTED_FEATURE;
         }
         // The host textures the recording samples live until it completes.

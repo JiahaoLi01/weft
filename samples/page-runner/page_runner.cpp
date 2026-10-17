@@ -5,11 +5,13 @@
 //
 //   weft_page_runner --page <dir> [--timeline <file.json>] [--fonts <file.json>] [--size 1920x1080] [--scale 1]
 //                    [--fps 60] [--frames N] [--out <dir>] [--warp] [--background #rrggbb] [--render-every N]
+//                    [--storage <file.json>]
 //
 // The page is a folder as hosts load it: page.json ({"scripts": [...], "stylesheet": "...", "keyframes": "...", "root":
-// "...", "crpgBridge": false, "forgivingCss": false}, paths relative to the folder), or page.js with page.css and
-// keyframes.css. Its base (for
-// url() images) is the stylesheet's path; the runner reads those files from disk.
+// "...", "crpgBridge": false, "forgivingCss": false, "webPlatform": false}, paths relative to the folder), or page.js
+// with page.css and keyframes.css. Its base (for url() images) is the stylesheet's path; the runner reads those files
+// from disk. --storage names a JSON object of strings: the View's localStorage before the page loads, written back
+// when the page changed it.
 //
 // The timeline ({"frames": N, "replies": {...}, "steps": [...]}) says what happens at which frame (frames are 1/fps s):
 //   {"frame": 0, "emit": "name", "value": <json>, "latest": false}     an engine event
@@ -22,6 +24,7 @@
 //   {"frame": 0, "shot": "name.png"}                                    draws the frame into <out>/name.png
 //   {"frame": 0, "reload": true}                                        loads the page again
 //   {"frame": 0, "eval": "document.title"}                               prints String() of a script's value
+//   {"frame": 0, "storage": true}                                       prints the View's localStorage
 // "replies" answers the page's weft.engine.call by name: {"name": {"ok": true, "value": <json>}}; an unanswered call
 // is printed and left open.
 //
@@ -631,6 +634,7 @@ namespace {
         std::string base;
         bool crpg_bridge{};
         bool forgiving_css{};
+        bool web_platform{};
     };
 
     Page read_page(const std::filesystem::path& dir) {
@@ -654,6 +658,7 @@ namespace {
             page.root = json.get_string("root");
             page.crpg_bridge = json.get_bool("crpgBridge");
             page.forgiving_css = json.get_bool("forgivingCss");
+            page.web_platform = json.get_bool("webPlatform");
         } else {
             page.scripts.emplace_back("page.js", read(dir / "page.js"));
             if (std::filesystem::exists(dir / "page.css")) {
@@ -700,6 +705,12 @@ namespace {
                 return "frame";
             case WEFT_DIAGNOSTIC_SCENE:
                 return "scene";
+            case WEFT_DIAGNOSTIC_CONSOLE:
+                return "console";
+            case WEFT_DIAGNOSTIC_CONSOLE_WARNING:
+                return "console.warn";
+            case WEFT_DIAGNOSTIC_CONSOLE_ERROR:
+                return "console.error";
             default:
                 return "other";
         }
@@ -790,6 +801,12 @@ namespace {
             weft_renderer_release_prepared(renderer_, prepared);
             if (r != WEFT_RENDER_OK) {
                 std::printf("[render] frame %u: encode failed (%s)\n", frame_index, render_result(r));
+                weft_renderer_last_failure(
+                    renderer_,
+                    [](void*, const char* text, size_t size) {
+                        std::printf("[render] because: %.*s\n", int(size), text);
+                    },
+                    nullptr);
                 return false;
             }
             render_ms_.push_back(
@@ -912,6 +929,7 @@ namespace {
         bool warp{};
         unsigned render_every{};
         std::array<float, 4> background{0.10f, 0.12f, 0.16f, 1};
+        std::filesystem::path storage;
     };
 
     // The engine of the run: the runtime, the View and what the page sent.
@@ -1014,6 +1032,8 @@ namespace {
                 o.render_every = unsigned(std::stoul(next()));
             } else if (a == "--background") {
                 o.background = parse_color(next());
+            } else if (a == "--storage") {
+                o.storage = utf8_path(next());
             } else {
                 throw Failure("unknown argument " + a);
             }
@@ -1052,14 +1072,47 @@ namespace {
         }
     }
 
+    // A JSON string literal of s.
+    std::string json_quote(std::string_view s) {
+        std::string out = "\"";
+        for (const char ch : s) {
+            const auto c = static_cast<unsigned char>(ch);
+            if (c == '"' || c == '\\') {
+                out += '\\';
+                out += ch;
+            } else if (c < 0x20) {
+                char buffer[8];
+                std::snprintf(buffer, sizeof buffer, "\\u%04x", c);
+                out += buffer;
+            } else {
+                out += ch;
+            }
+        }
+        return out + "\"";
+    }
+
+    // The View's localStorage items in key order.
+    std::vector<std::pair<std::string, std::string>> storage_items(const Run& run, std::uint64_t* revision) {
+        std::vector<std::pair<std::string, std::string>> items;
+        weft_view_get_storage(
+            run.runtime, run.view, 0,
+            [](void* user, const char* key, size_t key_size, const char* value, size_t value_size) {
+                static_cast<std::vector<std::pair<std::string, std::string>>*>(user)->emplace_back(
+                    std::string(key, key_size), std::string(value, value_size));
+            },
+            &items, revision);
+        return items;
+    }
+
     bool load(Run& run, const Page& page) {
         std::vector<weft_script> scripts;
         for (const auto& [name, source] : page.scripts) {
             scripts.push_back({name.data(), name.size(), source.data(), source.size()});
         }
         weft_page_desc desc{sizeof(desc)};
-        desc.flags =
-            (page.crpg_bridge ? WEFT_PAGE_CRPG_BRIDGE : 0u) | (page.forgiving_css ? WEFT_PAGE_FORGIVING_CSS : 0u);
+        desc.flags = (page.crpg_bridge ? WEFT_PAGE_CRPG_BRIDGE : 0u) |
+                     (page.forgiving_css ? WEFT_PAGE_FORGIVING_CSS : 0u) |
+                     (page.web_platform ? WEFT_PAGE_WEB_PLATFORM : 0u);
         desc.scripts = scripts.data();
         desc.script_count = std::uint32_t(scripts.size());
         desc.stylesheet = page.stylesheet.data();
@@ -1110,6 +1163,19 @@ namespace {
             throw Failure(std::string("view: ") + weft_result_string(r));
         }
         weft_view_set_resource_reader(run.runtime, run.view, &read_resource, nullptr);
+        std::uint64_t restored{};
+        if (!o.storage.empty() && std::filesystem::exists(o.storage)) {
+            const Json items = parse_json(read(o.storage));
+            for (const auto& [key, value] : items.members) {
+                const weft_result r = weft_view_set_storage_item(run.runtime, run.view, key.data(), key.size(),
+                                                                 value.string.data(), value.string.size());
+                if (r != WEFT_OK) {
+                    std::printf("[storage] %s: %s\n", key.c_str(), weft_result_string(r));
+                }
+            }
+            storage_items(run, &restored);
+            std::printf("[storage] %zu items from %s\n", items.members.size(), utf8(o.storage).c_str());
+        }
         bool loaded = load(run, page);
 
         std::unique_ptr<Drawer> drawer;
@@ -1213,6 +1279,11 @@ namespace {
                             std::printf("[eval] %s\n", weft_result_string(r));
                         }
                     }
+                    if (step.get_bool("storage")) {
+                        for (const auto& [key, value] : storage_items(run, nullptr)) {
+                            std::printf("[storage] %s = %s\n", key.c_str(), value.c_str());
+                        }
+                    }
                     if (step.get_bool("reload")) {
                         loaded = load(run, page);
                         status = loaded ? status : 1;
@@ -1250,6 +1321,19 @@ namespace {
                 const auto path = o.out / utf8_path(shot);
                 write_png(path, width, height, pixels);
                 std::printf("[shot] frame %ld -> %s (%ux%u)\n", n, utf8(path).c_str(), width, height);
+            }
+        }
+        if (!o.storage.empty()) {
+            std::uint64_t revision{};
+            const auto items = storage_items(run, &revision);
+            if (revision != restored) {
+                std::string text = "{";
+                for (std::size_t i = 0; i < items.size(); ++i) {
+                    text += (i ? ",\n  " : "\n  ") + json_quote(items[i].first) + ": " + json_quote(items[i].second);
+                }
+                text += items.empty() ? "}\n" : "\n}\n";
+                std::ofstream(o.storage, std::ios::binary) << text;
+                std::printf("[storage] %zu items to %s\n", items.size(), utf8(o.storage).c_str());
             }
         }
         std::printf("[done] %ld frames, %u diagnostics, %u messages; advance %s", frames, run.diagnostics, run.messages,

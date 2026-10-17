@@ -188,6 +188,9 @@ typedef struct weft_render_pass {
     uint64_t native_pass_size;
 } weft_render_pass;
 
+/* Text a renderer hands its host, valid during the call. */
+typedef void (*weft_render_text_fn)(void* user, const char* text, size_t size);
+
 typedef struct weft_render_backend {
     uint32_t struct_size;
     uint32_t abi_version;
@@ -225,6 +228,9 @@ typedef struct weft_render_backend {
      * call-scoped, success keeps its own reference to the frame and the metadata it needs. */
     weft_render_result (*prepare_scene)(void*, const weft_render_scene_frame*, const struct weft_render_external_asset*,
                                         uint32_t, uint64_t* native_frame) WEFT_RENDER_NOEXCEPT;
+    /* Optional (null, or a struct_size that ends before it): why the backend's last prepare or encode failed, for a
+     * host's log; fn gets the text during the call, or is not called when the backend knows no reason. */
+    void (*last_failure)(void*, weft_render_text_fn fn, void* user) WEFT_RENDER_NOEXCEPT;
 } weft_render_backend;
 
 typedef struct weft_renderer_desc {
@@ -268,6 +274,10 @@ weft_render_result weft_renderer_prepare_list(weft_renderer*, const weft_render_
 weft_render_result weft_renderer_prepare_scene(weft_renderer*, const weft_render_scene_frame*,
                                                weft_render_handle*) WEFT_RENDER_NOEXCEPT;
 weft_render_result weft_renderer_release_prepared(weft_renderer*, weft_render_handle) WEFT_RENDER_NOEXCEPT;
+/* Why the last prepare or encode failed, as the backend tells it (for WEFT_RENDER_UNSUPPORTED_FEATURE, what the frame
+ * needs that the backend cannot draw), for a host's log: fn gets the text during the call, and is not called when the
+ * backend says nothing. The renderer's thread; fn must not call into the renderer. */
+weft_render_result weft_renderer_last_failure(weft_renderer*, weft_render_text_fn fn, void* user) WEFT_RENDER_NOEXCEPT;
 weft_render_result weft_renderer_encode(weft_renderer*, weft_render_handle, const weft_render_pass*,
                                         weft_render_handle*) WEFT_RENDER_NOEXCEPT;
 /* Host must first destroy/cancel ALL native commands using this token. */

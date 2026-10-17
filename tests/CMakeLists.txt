@@ -296,6 +296,12 @@ if(WIN32)
     weft_add_executable(weft_view_tests SOURCES view_tests.cpp
         LINK weft::view weft::scene_d2d weft::platform_win32 d2d1 windowscodecs ole32 SOURCE_DIR LARGE_STACK)
     weft_add_test(NAME view_contract COMMAND weft_view_tests TIMEOUT 120)
+    # The web platform (WEFT_PAGE_WEB_PLATFORM): console diagnostics, storage across loads and its quota, dataset and
+    # document.head, keyboard events, focus with :focus and :focus-within, matchMedia, IntersectionObserver and
+    # toLocaleString; pages without it as before.
+    weft_add_executable(weft_web_platform_tests SOURCES web_platform_tests.cpp
+        LINK weft::view weft::platform_win32 SOURCE_DIR LARGE_STACK)
+    weft_add_test(NAME web_platform_contract COMMAND weft_web_platform_tests TIMEOUT 120)
     # A page's url() images: URLs against the page's base, PNG decoding and its bounds, a path read once, diagnostics,
     # and the View's scene showing the image its reader gave.
     weft_add_executable(weft_view_images_tests SOURCES view_images_tests.cpp

@@ -6,6 +6,7 @@
 
 #include <concepts>
 #include <cstdint>
+#include <string_view>
 
 // Static polymorphism inside, one function table at the C ABI. A backend is a concrete C++ type that
 // satisfies RenderBackend; make_c_backend generates the noexcept thunks the renderer core
@@ -84,6 +85,14 @@ namespace weft::render {
         {
             backend.prepare_scene(frame, textures, count, out)
         } -> std::same_as<weft_render_result>;
+    };
+
+    // Optional: why the backend's last prepare or encode failed (empty when it knows no reason).
+    template <class B>
+    concept FailureBackend = RenderBackend<B> && requires(const B& backend) {
+        {
+            backend.last_failure()
+        } -> std::convertible_to<std::string_view>;
     };
 
     // What a backend reports about its device: weft_render_backend's api, device_epoch, queue and capabilities.
@@ -189,6 +198,16 @@ namespace weft::render {
             }
         };
 
+        template <FailureBackend B>
+        struct FailureThunks {
+            static void last_failure(void* user_data, weft_render_text_fn fn, void* user) noexcept {
+                const std::string_view text = BackendThunks<B>::self(user_data).last_failure();
+                if (!text.empty()) {
+                    fn(user, text.data(), text.size());
+                }
+            }
+        };
+
         template <ExternalTextureBackend B>
         struct ExternalThunks {
             static weft_render_result import_texture(void* user_data, const weft_render_external_texture* texture,
@@ -243,6 +262,7 @@ namespace weft::render {
                                   Thunks::abandon,
                                   Thunks::shutdown,
                                   nullptr,
+                                  nullptr,
                                   nullptr};
         if constexpr (DisplayListBackend<B>) {
             if (description.capabilities.features & WEFT_RENDER_FEATURE_DISPLAY_LIST) {
@@ -253,6 +273,9 @@ namespace weft::render {
             if (description.capabilities.features & WEFT_RENDER_FEATURE_SCENE) {
                 table.prepare_scene = detail::SceneThunks<B>::prepare_scene;
             }
+        }
+        if constexpr (FailureBackend<B>) {
+            table.last_failure = detail::FailureThunks<B>::last_failure;
         }
         return table;
     }

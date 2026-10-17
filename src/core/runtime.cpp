@@ -49,6 +49,8 @@ namespace {
         std::vector<HostFunction> functions;
         // The host's reader of the files pages name; none until it sets one.
         weft_resource_fn reader{};
+        // The web platform's localStorage of the View's pages.
+        std::shared_ptr<weft::WebStorage> storage = std::make_shared<weft::WebStorage>();
         void* reader_user{};
         // A host callback (a message drain or a sync function) runs: owner operations on the View wait.
         bool busy{};
@@ -511,7 +513,7 @@ extern "C" weft_result weft_view_load(weft_runtime* runtime, weft_view_handle vi
     // A page of an earlier ABI ends before base.
     const bool based = page && page->struct_size >= sizeof(weft_page_desc);
     if (!page || (!based && page->struct_size != offsetof(weft_page_desc, base)) ||
-        (page->flags & ~(WEFT_PAGE_CRPG_BRIDGE | WEFT_PAGE_FORGIVING_CSS)) || page->reserved ||
+        (page->flags & ~(WEFT_PAGE_CRPG_BRIDGE | WEFT_PAGE_FORGIVING_CSS | WEFT_PAGE_WEB_PLATFORM)) || page->reserved ||
         (!page->scripts && page->script_count)) {
         return WEFT_INVALID_ARGUMENT;
     }
@@ -545,6 +547,7 @@ extern "C" weft_result weft_view_load(weft_runtime* runtime, weft_view_handle vi
         content.base = base;
         content.crpg_bridge = page->flags & WEFT_PAGE_CRPG_BRIDGE;
         content.forgiving_css = page->flags & WEFT_PAGE_FORGIVING_CSS;
+        content.web_platform = page->flags & WEFT_PAGE_WEB_PLATFORM;
         if (!entry->view) {
             freeze_fonts(*runtime);
             entry->view =
@@ -554,6 +557,7 @@ extern "C" weft_result weft_view_load(weft_runtime* runtime, weft_view_handle vi
                 entry->view->install_function(function.name, engine_function(*entry, function));
             }
             entry->view->set_resource_reader(resource_reader(*entry));
+            entry->view->set_local_storage(entry->storage);
         }
         entry->view->load(content);
         return WEFT_OK;
@@ -905,6 +909,63 @@ extern "C" weft_result weft_view_set_resource_reader(weft_runtime* runtime, weft
         entry->reader_user = fn ? user : nullptr;
         if (entry->view) {
             entry->view->set_resource_reader(resource_reader(*entry));
+        }
+        return WEFT_OK;
+    });
+}
+
+extern "C" weft_result weft_view_set_storage_item(weft_runtime* runtime, weft_view_handle view, const char* key,
+                                                  size_t key_size, const char* value, size_t value_size) {
+    ViewEntry* entry{};
+    if (const auto error = find_idle(runtime, view, entry); error != WEFT_OK) {
+        return error;
+    }
+    std::string_view k;
+    std::string_view v;
+    if (!text_arg(key, key_size, k) || (value && !text_arg(value, value_size, v)) || (!value && value_size) ||
+        !weft::bridge::utf8(k) || !weft::bridge::utf8(v)) {
+        return WEFT_INVALID_ARGUMENT;
+    }
+    return guarded([&] {
+        if (!value) {
+            entry->storage->remove(k);
+            return WEFT_OK;
+        }
+        return entry->storage->set(k, v) ? WEFT_OK : WEFT_CAPACITY_EXCEEDED;
+    });
+}
+
+extern "C" weft_result weft_view_clear_storage(weft_runtime* runtime, weft_view_handle view) {
+    ViewEntry* entry{};
+    if (const auto error = find_idle(runtime, view, entry); error != WEFT_OK) {
+        return error;
+    }
+    return guarded([&] {
+        entry->storage->clear();
+        return WEFT_OK;
+    });
+}
+
+extern "C" weft_result weft_view_get_storage(weft_runtime* runtime, weft_view_handle view, uint64_t revision,
+                                             weft_storage_item_fn fn, void* user, uint64_t* out_revision) {
+    ViewEntry* entry{};
+    if (const auto error = find_idle(runtime, view, entry); error != WEFT_OK) {
+        return error;
+    }
+    if (!fn) {
+        return WEFT_INVALID_ARGUMENT;
+    }
+    return guarded([&] {
+        const auto& storage = *entry->storage;
+        if (out_revision) {
+            *out_revision = storage.revision();
+        }
+        if (revision && revision == storage.revision()) {
+            return WEFT_OK;
+        }
+        const Busy busy(*entry);
+        for (const auto& [k, v] : storage.items()) {
+            fn(user, k.data(), k.size(), v.data(), v.size());
         }
         return WEFT_OK;
     });

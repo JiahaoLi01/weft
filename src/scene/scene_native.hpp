@@ -299,6 +299,11 @@ namespace weft {
                                                const SceneAnchorTable* anchors = nullptr, bool defer = false,
                                                bool over = false);
 
+        // The reason of the last fallback prepare counted (empty before the first).
+        const std::string& last_fallback() const {
+            return last_fallback_;
+        }
+
         // Brings prepared, the keepable pass the last prepare gave view_index, to frame in place where it can: the
         // subtrees of frame whose storage differs from the last listed frame's (SceneChildren) are listed again in
         // their elements' context (scene_display_list's part), and their items, rounded clips, records, masks and
@@ -365,6 +370,7 @@ namespace weft {
 
         SceneText& text_;
         SceneNativeWork& work_;
+        std::string last_fallback_;
         std::uint32_t max_image_dimension_{};
         Reference reference_;
         SceneGeometry geometry_;

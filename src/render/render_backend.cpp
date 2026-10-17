@@ -794,6 +794,20 @@ weft_render_result weft_renderer_release_prepared(weft_renderer* r, weft_render_
     return WEFT_RENDER_OK;
 }
 
+weft_render_result weft_renderer_last_failure(weft_renderer* r, weft_render_text_fn fn, void* user) noexcept {
+    if (const auto v = owner(r); v != WEFT_RENDER_OK) {
+        return v;
+    }
+    if (!fn) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    if (r->backend.last_failure) {
+        Callback guard(*r);
+        r->backend.last_failure(r->backend.user_data, fn, user);
+    }
+    return WEFT_RENDER_OK;
+}
+
 weft_render_result weft_renderer_encode(weft_renderer* r, weft_render_handle h, const weft_render_pass* pass,
                                         weft_render_handle* out) noexcept {
     if (!out) {

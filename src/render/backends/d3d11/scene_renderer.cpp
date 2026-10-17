@@ -774,6 +774,7 @@ namespace weft::render::d3d11 {
             if (scratch_bytes_ - held + scene_scratch_bytes(prepared) > limits::scratch_budget_bytes) {
                 ++fallbacks;
                 ++reasons["native scratch budget reference"];
+                last_failure_ = "native scratch budget reference";
                 return false;
             }
             shape(slot, prepared, false);
@@ -819,7 +820,11 @@ namespace weft::render::d3d11 {
         kept = {};
         std::shared_ptr<ScenePrepared> prepared = preparer_.prepare(frame, scale, target_width, target_height, crop,
                                                                     view_index, layers, anchors, keep, start.over);
-        if (!prepared || !fits(*prepared)) {
+        if (!prepared) {
+            last_failure_ = preparer_.last_fallback();
+            return false;
+        }
+        if (!fits(*prepared)) {
             return false;
         }
         if (!prepared->keepable) {

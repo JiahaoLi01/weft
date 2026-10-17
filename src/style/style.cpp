@@ -2779,6 +2779,19 @@ namespace weft {
         using Variables = std::map<std::string, std::optional<Tokens>>;
     } // namespace
 
+    bool media_matches(std::string_view query, float width, float height) {
+        if (trim(query).empty()) {
+            return true;
+        }
+        Warnings warnings;
+        try {
+            return media_query_list(query, warnings).holds(width, height);
+        } catch (const DiagnosticError&) {
+            // A query that does not parse is "not all".
+            return false;
+        }
+    }
+
     struct StyleEnvironment {
         Variables variables;
     };

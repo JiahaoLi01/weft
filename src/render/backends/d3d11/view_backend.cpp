@@ -91,11 +91,13 @@ namespace weft::render::d3d11 {
     weft_render_result ViewBackend::prepare_external(const weft_render_frame&, const weft_render_external_asset*,
                                                      std::uint32_t, std::uint64_t& out) {
         out = 0;
+        failure_ = "quad frames are not a View backend's";
         return WEFT_RENDER_UNSUPPORTED_FEATURE;
     }
 
     weft_render_result ViewBackend::prepare(const weft_render_frame&, std::uint64_t& out) {
         out = 0;
+        failure_ = "quad frames are not a View backend's";
         return WEFT_RENDER_UNSUPPORTED_FEATURE;
     }
 
@@ -161,8 +163,10 @@ namespace weft::render::d3d11 {
         if (p.out_command_list) {
             *p.out_command_list = nullptr;
         }
+        failure_.clear();
         // The immediate context draws; a deferred one is the display list backend's.
         if (p.deferred_context || !p.render_target_view) {
+            failure_ = "a deferred context or no render target view";
             return WEFT_RENDER_UNSUPPORTED_FEATURE;
         }
         if (p.clear_target) {
@@ -186,12 +190,14 @@ namespace weft::render::d3d11 {
                                                                                     : DXGI_FORMAT_UNKNOWN;
         if (format == DXGI_FORMAT_UNKNOWN || view.Format != format ||
             view.ViewDimension != D3D11_RTV_DIMENSION_TEXTURE2D || view.Texture2D.MipSlice) {
+            failure_ = "a target that is no first mip of a 2D texture of the pass's format";
             return WEFT_RENDER_UNSUPPORTED_FEATURE;
         }
         ComPtr<ID3D11Resource> resource;
         target->GetResource(&resource);
         ComPtr<ID3D11Texture2D> texture;
         if (FAILED(resource.As(&texture))) {
+            failure_ = "a target that is no 2D texture";
             return WEFT_RENDER_UNSUPPORTED_FEATURE;
         }
         D3D11_TEXTURE2D_DESC description{};
@@ -218,6 +224,7 @@ namespace weft::render::d3d11 {
         }
         if (!renderer_->paint(state.slot, *frame.scene, target, prepared.scale, pass.width, pass.height, std::nullopt,
                               state.index, {}, anchors, start, prepared.textures)) {
+            failure_ = "the native pass cannot draw the frame: " + renderer_->last_failure();
             return WEFT_RENDER_UNSUPPORTED_FEATURE;
         }
         out = next_++;

@@ -21,6 +21,8 @@ namespace weft {
         class EngineChannel;
     } // namespace bridge
 
+    class WebStorage;
+
     // M0 evidence API, not a stable public runtime or C ABI. The DOM value types are in dom/node.hpp and
     // dom/geometry.hpp.
     struct ScriptStats {
@@ -60,6 +62,18 @@ namespace weft {
     };
 
     using ParticleHost = std::function<void(NodeIdentity element, const ParticleRequest&)>;
+
+    // The web platform module (ScriptPlatformModule::WebPlatform): what the page's console writes, at its level, and
+    // whether a media query holds (matchMedia). Neither can enter JS; what the media host throws becomes the call's
+    // exception.
+    enum class ConsoleLevel : std::uint8_t {
+        Log,
+        Warning,
+        Error
+    };
+
+    using ConsoleHost = std::function<void(ConsoleLevel, std::string_view text)>;
+    using MediaHost = std::function<bool(std::string_view query)>;
 
     // A message weft.engine sent the engine (docs/engine-communication.md, 6.3): a send (call 0) or a call (its id),
     // with its name and its value as a bridge value (bridge/bridge_value.hpp).
@@ -228,6 +242,13 @@ namespace weft {
         // Without this opt-in each read continues through the full host path.
         void install_layout_cache_host(LayoutEpochHost);
         void install_integer_format_host(IntegerFormatHost);
+        // The web platform module's hosts: the console, the storage areas of localStorage and sessionStorage (null:
+        // their methods throw), and matchMedia.
+        void install_console_host(ConsoleHost);
+        void install_storage(std::shared_ptr<WebStorage> local, std::shared_ptr<WebStorage> session);
+        void install_media_host(MediaHost);
+        // The element that has the focus (the web platform's focus()); none when it has none or left the document.
+        std::optional<NodeIdentity> focused() const;
         // The owner's particles: weft.emitParticles (the scene platform) hands each burst to the host, which records it
         // for the next frame and cannot enter JS; what it throws becomes the call's exception.
         void install_particle_host(ParticleHost);

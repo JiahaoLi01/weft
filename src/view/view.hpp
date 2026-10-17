@@ -5,6 +5,7 @@
 #include "scene/scene_anchor.hpp"
 #include "scene/scene_geometry.hpp"
 #include "script/script_dom.hpp"
+#include "script/web_storage.hpp"
 #include "text/font_catalog.hpp"
 #include "view/view_images.hpp"
 
@@ -38,6 +39,9 @@ namespace weft {
         bool crpg_bridge{};
         // CSS as browsers take it (WEFT_PAGE_FORGIVING_CSS): what the scene cannot take is a diagnostic, not a failure.
         bool forgiving_css{};
+        // The web platform pages written for browsers expect (WEFT_PAGE_WEB_PLATFORM, ScriptPlatformModule::WebPlatform):
+        // the console as diagnostics, the View's storage areas as localStorage and sessionStorage, focus, matchMedia.
+        bool web_platform{};
     };
 
     // A frame a View published: its scene (never changed again), the View's size in CSS px and its device scale, the
@@ -108,13 +112,17 @@ namespace weft {
     };
 
     // Something that went wrong in the page: an exception thrown by its scripts (Script), by an engine handler
-    // (Handler) or by an animation frame callback (Frame), or a scene the page's styles cannot make (Scene).
+    // (Handler) or by an animation frame callback (Frame), or a scene the page's styles cannot make (Scene); or what the
+    // page wrote to its console (the web platform's), by level.
     struct ViewDiagnostic {
         enum class Kind : std::uint8_t {
             Script,
             Handler,
             Frame,
-            Scene
+            Scene,
+            Console,
+            ConsoleWarning,
+            ConsoleError
         };
 
         Kind kind{};
@@ -160,6 +168,10 @@ namespace weft {
         // Reads the files the page names (url() images) by their resolved paths, each once a page load; kept across
         // loads. Without one, such an image is a diagnostic and shows nothing.
         void set_resource_reader(ViewResourceReader reader);
+        // The storage area behind the web platform's localStorage; kept across loads (a host may share one between
+        // Views and save it). sessionStorage is the View's own, kept across loads too.
+        void set_local_storage(std::shared_ptr<WebStorage> storage);
+        const std::shared_ptr<WebStorage>& local_storage() const;
 
         const std::shared_ptr<ViewShared>& shared() const {
             return shared_;

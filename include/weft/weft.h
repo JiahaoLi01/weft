@@ -128,6 +128,12 @@ typedef struct weft_script {
  * (a declaration, a selector, an at-rule) dropped with a scene diagnostic, as CSS drops what it does not parse, instead
  * of failing the page or its frame. Pages a build tool generates (Tailwind and the like) need it. */
 #define WEFT_PAGE_FORGIVING_CSS 2u
+/* The web platform pages written for browsers expect: the console as diagnostics (WEFT_DIAGNOSTIC_CONSOLE*),
+ * localStorage (the View's, kept across loads for the host to save: weft_view_get_storage) and sessionStorage,
+ * element.dataset, document.head and title, KeyboardEvent and FocusEvent, focus() and blur() with
+ * document.activeElement and :focus, matchMedia answered as the stylesheet's @media, IntersectionObserver,
+ * requestIdleCallback, navigator and location, toLocaleString with options. */
+#define WEFT_PAGE_WEB_PLATFORM 4u
 
 /* A page: scripts evaluated in order after the platform modules (DOM host, animation frames, the scene platform,
  * weft.engine), the scene's stylesheet and keyframes, the selector of the scene's root ("#id" or a tag name; NULL
@@ -335,13 +341,37 @@ typedef weft_result (*weft_resource_fn)(void* user, const char* path, size_t pat
 weft_result weft_view_set_resource_reader(weft_runtime* runtime, weft_view_handle view, weft_resource_fn fn,
                                           void* user);
 
+/* ---- Storage: the web platform's localStorage (WEFT_PAGE_WEB_PLATFORM). Owner thread. ---- */
+
+/* Sets an item of the View's localStorage, whose items its pages share across loads (value NULL removes it): a host
+ * restores what it saved, before it loads the page. Keys and values are UTF-8. WEFT_CAPACITY_EXCEEDED past the quota
+ * (5 MiB of keys and values), and nothing changes. */
+weft_result weft_view_set_storage_item(weft_runtime* runtime, weft_view_handle view, const char* key, size_t key_size,
+                                       const char* value, size_t value_size);
+/* Removes every item of the View's localStorage. */
+weft_result weft_view_clear_storage(weft_runtime* runtime, weft_view_handle view);
+
+/* An item of the View's localStorage, valid during the call. */
+typedef void (*weft_storage_item_fn)(void* user, const char* key, size_t key_size, const char* value,
+                                     size_t value_size);
+
+/* When the View's localStorage changed since revision (0: in any case), hands fn its items in key order; out_revision,
+ * when given, receives the revision of what the View holds. A host saves the items when the revision moved since it
+ * saved them last. fn must not call into the View (WEFT_BUSY). */
+weft_result weft_view_get_storage(weft_runtime* runtime, weft_view_handle view, uint64_t revision,
+                                  weft_storage_item_fn fn, void* user, uint64_t* out_revision);
+
 /* ---- Diagnostics. Owner thread. ---- */
 
 typedef enum weft_diagnostic_kind {
     WEFT_DIAGNOSTIC_SCRIPT = 1,  /* a script or task threw */
     WEFT_DIAGNOSTIC_HANDLER = 2, /* a weft.engine handler or subscriber threw */
     WEFT_DIAGNOSTIC_FRAME = 3,   /* an animation frame callback threw */
-    WEFT_DIAGNOSTIC_SCENE = 4    /* the page's styles make no scene (the last frame stays) */
+    WEFT_DIAGNOSTIC_SCENE = 4,   /* the page's styles make no scene (the last frame stays) */
+    /* what a page with the web platform wrote to its console: log, info and debug; warn; error and failed asserts */
+    WEFT_DIAGNOSTIC_CONSOLE = 5,
+    WEFT_DIAGNOSTIC_CONSOLE_WARNING = 6,
+    WEFT_DIAGNOSTIC_CONSOLE_ERROR = 7
 } weft_diagnostic_kind;
 
 typedef struct weft_diagnostic {

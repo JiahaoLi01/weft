@@ -206,6 +206,10 @@ namespace weft {
     // simplifies them, rem at the default font size: a function that reduces to one term is that term, one with terms of
     // several units a canonical calc(). The text as it was when it has none, or one that does not parse.
     std::string simplify_math_text(std::string_view value);
+    // Whether a media query list (matchMedia's) holds in a viewport of width × height CSS px, as the forgiving profile
+    // evaluates @media: a screen with a fine pointer that hovers, no preference for reduced motion or contrast, a light
+    // color scheme. An unknown media type or feature is false, as in @media.
+    bool media_matches(std::string_view query, float width, float height);
 
     // The shared color subset is #rrggbb, transparent, and legacy comma rgb/rgba
     // numbers. Components/alpha clamp as CSS requires. No color spaces/named colors.
