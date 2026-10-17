@@ -406,7 +406,15 @@ namespace weft {
         i.loaded = false;
         i.faulted = false;
         i.root_selector = page.root.empty() ? "#root" : page.root;
-        i.scene = std::make_unique<SceneSolver>(page.stylesheet, page.keyframes, i.text);
+        try {
+            i.scene = std::make_unique<SceneSolver>(page.stylesheet, page.keyframes, i.text);
+        } catch (const DiagnosticError& e) {
+            // A stylesheet or keyframes outside the scene profile: the page does not load, as when its script
+            // throws, and the diagnostic says why.
+            i.scene.reset();
+            i.diagnose(ViewDiagnostic::Kind::Scene, e.what());
+            throw ViewError(e.what());
+        }
         // Geometry reads take the View's own (ensure_geometry).
         i.scene->set_element_geometry(false);
         // A page's images anew each load: the files may have changed.

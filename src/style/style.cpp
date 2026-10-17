@@ -14,6 +14,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <unordered_map>
@@ -326,6 +327,150 @@ namespace weft {
             {"background-clip", BackgroundPart::Clip, "border-box"},
         }};
 
+        // The longhands of the scene's transition shorthand, in the order of the parts of a transition
+        // (TransitionParts), with the initial values they take for a transition that leaves its part out.
+        struct TransitionLonghand {
+            const char* name;
+            const char* initial;
+        };
+
+        constexpr std::array<TransitionLonghand, 4> transition_longhands{{
+            {"transition-property", "all"},
+            {"transition-duration", "0s"},
+            {"transition-timing-function", "ease"},
+            {"transition-delay", "0s"},
+        }};
+
+        // Each longhand's list of a transition shorthand's value, its items in the order of the transitions; or why
+        // the value is not one.
+        struct TransitionParts {
+            std::array<Tokens, transition_longhands.size()> lists;
+            std::string error;
+        };
+
+        // A <time>: a dimension in s or ms (no unitless zero).
+        bool time_token(const Token& t) {
+            if (t.kind != Kind::Dimension) {
+                return false;
+            }
+            auto unit = t.text.size();
+            while (unit && std::isalpha(static_cast<unsigned char>(t.text[unit - 1]))) {
+                --unit;
+            }
+            const auto name = lower(t.text.substr(unit));
+            return name == "s" || name == "ms";
+        }
+
+        bool easing_token(const Token& t) {
+            const auto name = lower(t.text);
+            if (t.kind == Kind::Function) {
+                return name == "cubic-bezier" || name == "steps" || name == "linear";
+            }
+            return t.kind == Kind::Ident &&
+                   (name == "linear" || name == "ease" || name == "ease-in" || name == "ease-out" ||
+                    name == "ease-in-out" || name == "step-start" || name == "step-end");
+        }
+
+        // A token with its names, units and keywords in lowercase (they are ASCII case-insensitive), strings as
+        // they are.
+        Token lowered(const Token& t) {
+            Token out{t.kind, t.kind == Kind::String ? t.text : lower(t.text), {}};
+            for (const auto& a : t.args) {
+                out.args.push_back(lowered(a));
+            }
+            return out;
+        }
+
+        // The transition shorthand (CSS Transitions 1 §2.6): transitions separated by commas, each a property name
+        // (or none, alone), a duration and then a delay, a timing function and a transition behavior in any order;
+        // a part left out takes its longhand's initial value, and the lists have the parts in lowercase. The scene
+        // interpolates every property it transitions, so of the behaviors only normal (the initial one) is in its
+        // profile.
+        TransitionParts transition_parts(const Tokens& tokens) {
+            TransitionParts out;
+            std::vector<Tokens> transitions(1);
+            for (const auto& t : tokens) {
+                if (t.kind == Kind::Delim && t.text == ",") {
+                    transitions.emplace_back();
+                } else {
+                    transitions.back().push_back(t);
+                }
+            }
+            for (std::size_t i = 0; i < transitions.size(); ++i) {
+                const auto& transition = transitions[i];
+                if (transition.empty()) {
+                    out.error = "transition shorthand: an empty transition in the list";
+                    return out;
+                }
+                std::optional<Token> property;
+                std::optional<Token> easing;
+                std::vector<Token> times;
+                bool behavior{};
+                for (const auto& t : transition) {
+                    const auto word = t.kind == Kind::Ident ? lower(t.text) : std::string();
+                    if (time_token(t)) {
+                        if (times.size() == 2) {
+                            out.error =
+                                "transition shorthand: more than a duration and a delay in " + serialize(transition);
+                            return out;
+                        }
+                        if (times.empty() && t.text.starts_with('-')) {
+                            out.error = "transition shorthand: a negative duration in " + serialize(transition);
+                            return out;
+                        }
+                        times.push_back(lowered(t));
+                    } else if (easing_token(t)) {
+                        if (easing) {
+                            out.error = "transition shorthand: two timing functions in " + serialize(transition);
+                            return out;
+                        }
+                        easing = lowered(t);
+                    } else if (word == "normal" || word == "allow-discrete") {
+                        if (word == "allow-discrete") {
+                            out.error = "transition-behavior: allow-discrete outside the scene profile";
+                            return out;
+                        }
+                        if (behavior) {
+                            out.error = "transition shorthand: two transition behaviors in " + serialize(transition);
+                            return out;
+                        }
+                        behavior = true;
+                    } else if (t.kind == Kind::Ident && !wide(word) && word != "default") {
+                        if (property) {
+                            out.error = "transition shorthand: two properties in " + serialize(transition);
+                            return out;
+                        }
+                        if (word == "none" && transitions.size() > 1) {
+                            out.error = "transition shorthand: none in a list of transitions";
+                            return out;
+                        }
+                        property = Token{Kind::Ident, word, {}};
+                    } else {
+                        out.error = "transition shorthand: " + serialize({t}) +
+                                    " is no property name, time, timing function or transition behavior";
+                        return out;
+                    }
+                }
+                const std::array<std::optional<Token>, transition_longhands.size()> parts{
+                    property, times.empty() ? std::nullopt : std::optional(times[0]), easing,
+                    times.size() < 2 ? std::nullopt : std::optional(times[1])};
+                for (std::size_t part = 0; part < parts.size(); ++part) {
+                    auto& list = out.lists[part];
+                    if (i) {
+                        list.push_back({Kind::Delim, ",", {}});
+                    }
+                    if (parts[part]) {
+                        list.push_back(*parts[part]);
+                    } else {
+                        const std::string initial = transition_longhands[part].initial;
+                        const bool time = std::isdigit(static_cast<unsigned char>(initial[0]));
+                        list.push_back({time ? Kind::Dimension : Kind::Ident, initial, {}});
+                    }
+                }
+            }
+            return out;
+        }
+
         struct Declaration {
             std::string key;
             Tokens tokens;
@@ -338,6 +483,8 @@ namespace weft {
             // A longhand of a scene background shorthand (background_longhands), which takes its part of the value
             // or its initial value.
             int background_layer{-1};
+            // A longhand of a scene transition shorthand (transition_longhands), which takes its list of the value.
+            int transition_part{-1};
             // The registered property of a non-custom key.
             PropertyId id{};
         };
@@ -376,7 +523,8 @@ namespace weft {
                 const bool border_side =
                     key == "border-top" || key == "border-right" || key == "border-bottom" || key == "border-left";
                 if (!custom(key) && !profile.properties.contains(key) &&
-                    !(profile.scene_syntax && (key == "border" || border_side || key == "flex")) &&
+                    !(profile.scene_syntax &&
+                      (key == "border" || border_side || key == "flex" || key == "transition")) &&
                     !(key == "inset" && profile.single_value_inset) &&
                     !(key == "background" && profile.properties.contains("background-color"))) {
                     fail("unsupported property " + key);
@@ -454,6 +602,18 @@ namespace weft {
                     for (std::size_t layer = 0; layer < background_longhands.size(); ++layer) {
                         result.push_back({background_longhands[layer].name, tokens, important});
                         result.back().background_layer = int(layer);
+                    }
+                } else if (key == "transition" && profile.scene_syntax) {
+                    // Every longhand, each taking its list once var() is substituted; a value without var() that is
+                    // no transition list is the stylesheet's error.
+                    if (!references(tokens) && !wide(keyword(tokens))) {
+                        if (const auto parts = transition_parts(tokens); !parts.error.empty()) {
+                            fail(parts.error);
+                        }
+                    }
+                    for (std::size_t longhand = 0; longhand < transition_longhands.size(); ++longhand) {
+                        result.push_back({transition_longhands[longhand].name, tokens, important});
+                        result.back().transition_part = int(longhand);
                     }
                 } else if (key == "background" && !profile.scene_syntax) {
                     result.push_back({"background-color", std::move(tokens), important});
@@ -1739,6 +1899,16 @@ namespace weft {
                                 }
                             }
                             tokens = std::move(taken);
+                        }
+                        if (tokens && d.transition_part >= 0 && !wide(keyword(*tokens))) {
+                            // A var() that substituted no transition list makes the longhands invalid at computed
+                            // value time.
+                            auto parts = transition_parts(*tokens);
+                            if (parts.error.empty()) {
+                                tokens = std::move(parts.lists[std::size_t(d.transition_part)]);
+                            } else {
+                                tokens = std::nullopt;
+                            }
                         }
                         std::string word = tokens ? keyword(*tokens) : "";
                         bool invalid = !tokens;

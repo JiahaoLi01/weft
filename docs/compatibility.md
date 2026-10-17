@@ -149,6 +149,14 @@ CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后�
 - 渐变与 `-weft-effect()` 仍铺满边框盒并重复：它们的 `background-repeat` 不是 `repeat`、`background-origin` 与 `background-clip` 不是初始值、`background-attachment` 不是 `scroll` 时诊断。内容盒带百分比内边距时的 `content-box` 诊断。
 - 与 Chrome 155 截图对照 4 个用例（尺寸、位置、重复、盒子），原生 D3D11 WARP 与 D2D 参考光栅：平均差 0.2–0.6 级、差 32 级以上的像素 ≤ 0.8%、5 × 5 平均后最大差 13 级（Chrome 在 PNG 的编码值上过滤，scene 在线性值上过滤，放大的核也不同）。
 
+2026-10-17：scene 的 transition（Unity 插件的示例页面发现的两个问题）。
+- `transition` 简写：逗号分隔的若干过渡，每个是属性名（或单独的 `none`）、时长与其后的延迟、缓动函数与 `transition-behavior`，顺序任意，没写的部分取初始值（`all`、`0s`、`ease`、`0s`）；在层叠中展开为四个分量（同 `background` 简写），名字、单位与关键字转成小写；含 `var()` 时在代换后拆分，代换出的不是过渡列表时四个分量在计算值时无效。scene profile 的四个分量有了初始值（`initial`、`unset` 与无效值取它们）。JS 的 `'transition' in element.style` 为真。此前简写不在 profile 里，整个样式表被拒：`weft_view_load` 返回 `WEFT_INVALID_ARGUMENT`，没有诊断。
+- 列表的配对按 CSS Transitions 1：`transition-property` 的每一项取同一序号的时长、延迟与缓动函数，较短的列表循环、较长的截去；一个属性取最后一个点到它（或 `all`）的项；组合时长（max(时长, 0) + 延迟）大于 0 才开始过渡，所以 `0s` 加延迟在延迟之后跳变；过渡用改变之后的样式的列表。元素样式改变时，进行中的过渡若属性不再被点到、再次改变而不开始新过渡、或离开了目标样式，即结束（显示目标值）。此前每个列表只取整串文字：时长列表（`0.15s, 0.1s`）一开始过渡就是 scene 诊断，整帧被拒；延迟与缓动列表同样。
+- 诊断（`WEFT_STYLE_PROFILE`，加载时）：简写里多于两个时间、两个缓动函数或属性、列表里的 `none`、无单位的 0 与其他不是过渡部分的值、负时长、`allow-discrete`（scene 插值它过渡的每个属性，`normal` 之外的行为不在 profile 里），以及 `transition-behavior` 分量。（`WEFT_SCENE_PROFILE`，元素样式改变时，包括第一次）：分量列表里的负时长、列表里的 `none`、scene 不支持的缓动函数（`step-start`、`linear()`、`steps()` 的起始位置）。
+- 加载：样式表或关键帧超出 profile 时页面不加载，像脚本抛出一样：`weft_view_load` 返回 `WEFT_SCRIPT_ERROR`，View 为空，一条 scene 诊断说明原因（如 `WEFT_STYLE_PROFILE: unsupported property outline`）。没有样式表会让 `weft_view_load` 因 CSS 返回 `WEFT_INVALID_ARGUMENT`。
+- 验证：与 Chrome 155 暂停的过渡对照 15 个用例、各 9 个时刻（改变之后的分量列表，不透明度、平移与背景色；最大差 4.5e-7、4.8e-5 px、0.46 级），300 组随机列表写成分量与简写各一份，与按 CSS 配对的模型逐帧对照。
+- 尚未实现：从没有声明的值（初始值）开始或到它结束的过渡（改变前后有一侧没有该属性时不过渡）；`transition-property` 里的简写名（如 `border-color`、`margin`）；反向过渡的缩短（reversing shortening factor）；不能插值的属性在一半处切换（如同 `allow-discrete`，CSS 的 `normal` 不过渡它们）；`transitionrun`、`transitionstart`、`transitionend`、`transitioncancel` 事件；文档页面的 transition。
+
 2026-10-15 第 13.4a 步：CRPG 浮动 UI（血条、伤害数字、异常状态飘字）原样组件所需的 CSS（scene 页面）。此前这些组件在 scene 中整页诊断。
 - `text-overflow: clip | ellipsis`：`overflow` 不是 `visible` 的块容器里，宽过内容盒的行按 Blink 的 LineTruncator 截断：从行尾起，完全落在内容盒之外的文字不画；伸进内容盒的最后一段保留省略号前放得下的字符（字形簇边界），省略号紧随其后，用块容器的字体与颜色，在行的基线上，不改变行高；行首的第一个字符放不下也保留（被裁掉而不是被省略）。省略号是 U+2026，主字体没有这个字形时是三个句点（同 Blink）。几何不变：被隐藏的文字仍占原位，行宽、元素盒与命中不变。flex、grid 容器直接包含的文字不截断（Chrome 中它是与文字同宽的匿名项，不会溢出它）。其他值是诊断；截断要隐藏行内原子盒（inline-block 等）时是诊断。
 - `text-shadow`（继承）：至多 8 层，`x y [blur]`，颜色可写在长度前或后（省略为 `currentcolor`），后列的画在下面；负模糊、超过 64px、长度个数不对是诊断，SVG 文字带 `text-shadow` 是诊断。每行文字的覆盖率（彩色字形取透明度）按 σ = blur/2 高斯模糊、着色、偏移，画在该行之下、元素背景之上；与文字图像一样按内容缓存。截断的行与省略号一样带阴影。

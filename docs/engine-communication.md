@@ -395,7 +395,7 @@ const player = weft.engine.model('player');      // {value, subscribe}
 渲染沿用现有的渲染器 C ABI（准备、录制、提交、完成）。
 
 实现（13.3a，`src/view` 与 `include/weft/weft.h`）：
-- `weft::View` 把画廊会话收拢成通用的部件。加载（`weft_view_load`）换一个新的文档与 VM 状态，装平台模块 WebHost、AnimationFrame、ScenePlatform、Engine（`WEFT_PAGE_CRPG_BRIDGE` 时再装 CrpgBridge），设好 `innerWidth`、`innerHeight`、`devicePixelRatio`，再按序求值页面的脚本；页面的样式表、关键帧与场景根的选择器（缺省 `#root`）随页面给出。页面的脚本与样式由宿主读好交进来；样式里 `url()` 指的图片经宿主的资源回调读（2026-10-16，见下文“页面的文件”）。
+- `weft::View` 把画廊会话收拢成通用的部件。加载（`weft_view_load`）换一个新的文档与 VM 状态，装平台模块 WebHost、AnimationFrame、ScenePlatform、Engine（`WEFT_PAGE_CRPG_BRIDGE` 时再装 CrpgBridge），设好 `innerWidth`、`innerHeight`、`devicePixelRatio`，再按序求值页面的脚本；页面的样式表、关键帧与场景根的选择器（缺省 `#root`）随页面给出。页面的脚本与样式由宿主读好交进来；样式里 `url()` 指的图片经宿主的资源回调读（2026-10-16，见下文“页面的文件”）。脚本抛出，或样式表、关键帧超出 scene 的 profile（2026-10-17 起，此前是 `WEFT_INVALID_ARGUMENT` 且没有诊断）时页面不加载：`WEFT_SCRIPT_ERROR`，View 为空，原因是一条诊断（脚本的，或样式的 scene 诊断）。
 - 推进（`weft_view_advance`）：取 owner 的锚点表，把页面的时钟推到这一帧的时间（13.4），交付引擎的输入，跑任务、rAF、任务，把 DOM 的变化同步进场景，交付 ResizeObserver，再同步一次；场景内容变了（版本号变了）或 View 的大小、缩放变了才发布新的帧。页面抛出的异常、处理函数与 rAF 回调的异常、样式做不出场景都记成诊断（`weft_view_drain_diagnostics`），推进照常返回；做不出场景时保留上一帧。VM 资源耗尽使 View 进入 Faulted（`WEFT_FAULTED`），直到重新加载。
 - 输入（`weft_view_pointer`）：移动、按下、抬起、滚轮、离开，按画廊的顺序合成 pointer 与 mouse 事件、over/out、enter/leave（随悬停元素变化）与 click（在按下的同一元素上抬起）；返回主事件的默认动作是否被阻止。键盘、IME 与手柄不在 13.3（手柄照 CRPG 的 `uiInput` 走桥的事件）。
 - 命中（`weft_view_hit_test`，取代草案的 `weft_view_hit_interactive`）：某点下最上层接收指针事件的元素是否是场景根以外的元素，以及它的 `cursor`（它或最近一个声明了 `cursor` 的祖先的值，没有时是 auto）。CRPG 现在按光标是否在可交互元素上把点击交给 UI，否则交给游戏的射线检测（`UUltralightWidget::NativeOnMouseButtonDown`），宿主可以照做。

@@ -26,7 +26,8 @@ typedef enum weft_result {
     WEFT_CAPACITY_EXCEEDED = 7,
     WEFT_TIME_REGRESSION = 8,
     WEFT_INTERNAL_ERROR = 9,
-    /* The page threw; its diagnostics say what. */
+    /* The page failed: a script threw, or its stylesheet or keyframes are outside the scene profile; its diagnostics
+     * say what. */
     WEFT_SCRIPT_ERROR = 10,
     /* A resource limit ended the View's page: load a page again or destroy the View. */
     WEFT_FAULTED = 11
@@ -144,8 +145,9 @@ typedef struct weft_page_desc {
     size_t base_size;
 } weft_page_desc;
 
-/* Replaces the View's page. WEFT_SCRIPT_ERROR leaves an empty View and the error a diagnostic. The View's engine
- * functions stay; its pending engine inputs and the page's messages are dropped, its open calls closed. */
+/* Replaces the View's page. WEFT_SCRIPT_ERROR leaves an empty View and the error a diagnostic: a script's, or a scene
+ * diagnostic for a stylesheet or keyframes outside the profile (no stylesheet is an invalid argument). The View's
+ * engine functions stay; its pending engine inputs and the page's messages are dropped, its open calls closed. */
 weft_result weft_view_load(weft_runtime* runtime, weft_view_handle view, const weft_page_desc* page);
 /* Runs the page up to time_seconds (monotonic with weft_view_record_tick): engine events, completions and view
  * models, tasks, animation frames, observers and the scene; publishes a frame when what it shows changed. Exceptions

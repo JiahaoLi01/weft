@@ -750,6 +750,72 @@ namespace weft {
             return curve((lo + hi) / 2, y1, y2);
         }
 
+        // One item of an element's transition lists: what it transitions (a property name or all) with its
+        // duration and delay (ms) and timing function.
+        struct TransitionItem {
+            std::string property;
+            double duration{};
+            double delay{};
+            std::string timing;
+        };
+
+        // The transitions of a style's transition longhands (CSS Transitions 1 §2): one for each item of
+        // transition-property, with the duration, delay and timing function of its index, each of those lists
+        // repeated as often as it takes to be as long (excess items are not used); none for transition-property: none.
+        std::vector<TransitionItem> transition_items(const Style& s) {
+            const auto* property = s.find(PropertyId::TransitionProperty);
+            const auto* durations = s.find(PropertyId::TransitionDuration);
+            const auto* delays = s.find(PropertyId::TransitionDelay);
+            if (!durations && !delays) {
+                // Every transition takes 0s and starts at once: none starts.
+                return {};
+            }
+            const auto list = [](const CssValue* value, const char* initial) {
+                auto items = value ? split(value->text(), ',') : std::vector<std::string>{};
+                if (items.empty()) {
+                    items.emplace_back(initial);
+                }
+                return items;
+            };
+            const auto names = list(property, "all");
+            const auto duration_list = list(durations, "0s");
+            const auto delay_list = list(delays, "0s");
+            const auto timing_list = list(s.find(PropertyId::TransitionTimingFunction), "ease");
+            std::vector<TransitionItem> items;
+            for (std::size_t i = 0; i < names.size(); ++i) {
+                auto name = names[i];
+                std::transform(name.begin(), name.end(), name.begin(), [](unsigned char ch) {
+                    return char(std::tolower(ch));
+                });
+                if (name == "none") {
+                    if (names.size() > 1) {
+                        fail("transition-property: none in a list of properties");
+                    }
+                    return {};
+                }
+                TransitionItem item{std::move(name), duration(duration_list[i % duration_list.size()]),
+                                    duration(delay_list[i % delay_list.size()]), timing_list[i % timing_list.size()]};
+                if (item.duration < 0) {
+                    fail("transition-duration: a negative duration " + duration_list[i % duration_list.size()]);
+                }
+                // An unsupported timing function is the element's error when its transitions start, not when one
+                // runs.
+                (void)easing(item.timing, 0);
+                items.push_back(std::move(item));
+            }
+            return items;
+        }
+
+        // The item that transitions a property: the last that names it or all.
+        const TransitionItem* transition_item(const std::vector<TransitionItem>& items, std::string_view property) {
+            for (auto i = items.rbegin(); i != items.rend(); ++i) {
+                if (i->property == "all" || i->property == property) {
+                    return &*i;
+                }
+            }
+            return nullptr;
+        }
+
         struct Animation {
             std::string name;
             std::string timing = "ease";
@@ -1105,6 +1171,10 @@ namespace weft {
         p.properties["color"].initial = constants::default_color;
         p.properties["fill"].initial = constants::default_color;
         p.properties["stroke"].initial = "none";
+        p.properties["transition-property"].initial = "all";
+        p.properties["transition-duration"].initial = "0s";
+        p.properties["transition-delay"].initial = "0s";
+        p.properties["transition-timing-function"].initial = "ease";
         for (const auto* s : {"top", "right", "bottom", "left"}) {
             for (const auto* name : {"margin-", "padding-", "border-"}) {
                 const auto key = std::string(name) + s;
@@ -1342,28 +1412,32 @@ namespace weft {
             live.insert(id);
             auto& st = states[id];
             const bool target_changed = out.style != st.target;
-            if (!st.target.empty()) {
+            // CSS Transitions 1 §3, with the after-change style's transition lists (read, and so checked, whenever
+            // the style changes): a changed property starts a transition when the item that names it has a combined
+            // duration above 0s; a running transition ends (its property shows the target) when its property changes
+            // without starting one, leaves the target or is no longer named.
+            const auto items = target_changed ? transition_items(out.style) : std::vector<TransitionItem>{};
+            if (!st.target.empty() && target_changed) {
                 const auto& target = out.style;
-                const auto prop = get(target, PropertyId::TransitionProperty, "none");
-                const auto timing = get(target, PropertyId::TransitionTimingFunction, "ease");
-                const auto dur = get(target, PropertyId::TransitionDuration, "0s");
-                if (prop != "none" && duration(dur) > 0) {
-                    for (const auto& [property, v] : target) {
-                        const auto k = property_name(property);
-                        const auto* before = st.target.find(property);
-                        if (!before || *before == v || k.starts_with("transition-") || k.starts_with("animation") ||
-                            k.starts_with("--")) {
-                            continue;
-                        }
-                        const auto props = split(prop, ',');
-                        if (prop != "all" && std::find(props.begin(), props.end(), k) == props.end()) {
-                            continue;
-                        }
-                        const auto* current = st.current.find(property);
-                        st.transitions[std::string(k)] = {
-                            current ? current->text() : before->text(), v.text(), timing,
-                            now + duration(get(target, PropertyId::TransitionDelay, "0s")), duration(dur)};
+                std::erase_if(st.transitions, [&](const auto& running) {
+                    const auto id = find_property(running.first);
+                    return !id || !target.find(*id) || !transition_item(items, running.first);
+                });
+                for (const auto& [property, v] : target) {
+                    const auto k = property_name(property);
+                    const auto* before = st.target.find(property);
+                    if (!before || *before == v || k.starts_with("transition-") || k.starts_with("animation") ||
+                        k.starts_with("--")) {
+                        continue;
                     }
+                    const auto* item = transition_item(items, k);
+                    if (!item || std::max(item->duration, 0.) + item->delay <= 0) {
+                        st.transitions.erase(std::string(k));
+                        continue;
+                    }
+                    const auto* current = st.current.find(property);
+                    st.transitions[std::string(k)] = {current ? current->text() : before->text(), v.text(),
+                                                      item->timing, now + item->delay, item->duration};
                 }
             }
             if (target_changed) {
@@ -1393,7 +1467,8 @@ namespace weft {
             const auto& target = st.target;
             for (auto i = st.transitions.begin(); i != st.transitions.end();) {
                 const auto& tr = i->second;
-                double t = (now - tr.start) / tr.duration;
+                // A transition of 0s shows its start value through its delay, then its end value.
+                const double t = tr.duration > 0 ? (now - tr.start) / tr.duration : now >= tr.start ? 1 : 0;
                 if (t >= 1) {
                     i = st.transitions.erase(i);
                     continue;

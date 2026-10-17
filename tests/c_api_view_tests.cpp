@@ -650,13 +650,55 @@ namespace {
         weft_view_destroy(r.runtime, view);
     }
 
+    // A stylesheet or keyframes outside the scene profile fail the page as a script that throws does: an empty View,
+    // a scene diagnostic that says why, never WEFT_INVALID_ARGUMENT; the transition shorthand is in the profile.
+    void stylesheets() {
+        Runtime r;
+        const auto view = r.view();
+        require(load(r, view,
+                     inline_page("weft.engine.send('loaded')",
+                                 ".b{transition:background-color 0.15s, transform 0.1s}")) == WEFT_OK &&
+                    drain(r, view).size() == 1 && diagnostics(r, view).empty(),
+                "a page with the transition shorthand");
+
+        struct Rejected {
+            Page page;
+            const char* why;
+        };
+
+        Page frames = inline_page("weft.engine.send('loaded')");
+        frames.keyframes = "@keyframes k{from{outline-width:0}to{outline-width:2px}}";
+        const Rejected rejected[]{
+            {inline_page("weft.engine.send('loaded')", ".b{outline:1px solid #ffffff}"),
+             "unsupported property outline"},
+            {inline_page("weft.engine.send('loaded')", ".b{transition:opacity 1s 2s 3s}"),
+             "more than a duration and a delay"},
+            {inline_page("weft.engine.send('loaded')", ".b{transition:opacity 1s allow-discrete}"), "allow-discrete"},
+            {inline_page("weft.engine.send('loaded')", "@media (min-width:1px){.b{opacity:1}}"), "at-rule"},
+            {frames, "unsupported keyframe property outline-width"},
+        };
+        for (const auto& [page, why] : rejected) {
+            require(load(r, view, page) == WEFT_SCRIPT_ERROR, std::string("a page rejected for ") + why);
+            const auto found = diagnostics(r, view);
+            require(found.size() == 1 && found[0].first == WEFT_DIAGNOSTIC_SCENE &&
+                        found[0].second.find(why) != std::string::npos,
+                    std::string("the diagnostic of a page rejected for ") + why);
+            require(drain(r, view).empty() && weft_view_advance(r.runtime, view, 0.016) == WEFT_OK &&
+                        !hit(r, view, 10, 10).element,
+                    std::string("a page rejected for ") + why + " ran no script and has no elements");
+        }
+        require(load(r, view, inline_page("weft.engine.send('again')")) == WEFT_OK && drain(r, view).size() == 1,
+                "a page after a rejected stylesheet");
+        weft_view_destroy(r.runtime, view);
+    }
+
     // A 2 x 2 RGBA8 PNG.
     const std::vector<std::uint8_t> dot_png{
-        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00,
-        0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x08, 0x06, 0x00, 0x00, 0x00, 0x72, 0xb6, 0x0d, 0x24, 0x00, 0x00, 0x00,
-        0x17, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0xf0, 0x9f, 0xe1, 0x3f, 0x43, 0x03, 0x23,
-        0x98, 0xfe, 0xcf, 0xe0, 0x00, 0x00, 0x3d, 0x23, 0x06, 0xbc, 0x3a, 0x2b, 0xe2, 0xc0, 0x00, 0x00, 0x00, 0x00,
-        0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x08, 0x06, 0x00, 0x00, 0x00, 0x72, 0xb6, 0x0d,
+        0x24, 0x00, 0x00, 0x00, 0x17, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0xf0,
+        0x9f, 0xe1, 0x3f, 0x43, 0x03, 0x23, 0x98, 0xfe, 0xcf, 0xe0, 0x00, 0x00, 0x3d, 0x23, 0x06, 0xbc,
+        0x3a, 0x2b, 0xe2, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
 
     // What a resource reader was asked and found.
     struct Reader {
@@ -679,10 +721,10 @@ namespace {
         }
         if (name.ends_with("bad.png")) {
             const std::uint8_t bytes[]{1, 2, 3};
-            self.arguments = weft_resource_writer_set(file, nullptr, 1) == WEFT_INVALID_ARGUMENT &&
-                             weft_resource_writer_set(nullptr, bytes, 3) == WEFT_INVALID_ARGUMENT &&
-                             weft_resource_writer_set(file, bytes, std::size_t(16) * 1024 * 1024 + 1) ==
-                                 WEFT_CAPACITY_EXCEEDED;
+            self.arguments =
+                weft_resource_writer_set(file, nullptr, 1) == WEFT_INVALID_ARGUMENT &&
+                weft_resource_writer_set(nullptr, bytes, 3) == WEFT_INVALID_ARGUMENT &&
+                weft_resource_writer_set(file, bytes, std::size_t(16) * 1024 * 1024 + 1) == WEFT_CAPACITY_EXCEEDED;
             return weft_resource_writer_set(file, bytes, sizeof bytes);
         }
         return name.ends_with("broken.png") ? WEFT_INTERNAL_ERROR : WEFT_OK;
@@ -762,6 +804,7 @@ int main() {
         anchors_and_hits();
         threads_and_stale_handles();
         errors_and_faults();
+        stylesheets();
         resources();
         std::cout << "C ABI view tests passed\n";
         return 0;

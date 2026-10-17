@@ -1,6 +1,6 @@
 # Weft 当前状态
 
-更新日期：2026 年 10 月 16 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG、键盘/IME 与移动尚未实现，仍未达到 M0 全部退出条件。
+更新日期：2026 年 10 月 17 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG、键盘/IME 与移动尚未实现，仍未达到 M0 全部退出条件。
 
 ## 待办
 
@@ -15,6 +15,26 @@
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
+
+scene 的 transition 简写与列表配对；样式表的加载错误（2026-10-17，main；Unity 插件写示例页面时发现：样式表里的 `transition` 简写让 `weft_view_load` 返回 `WEFT_INVALID_ARGUMENT`，没有任何诊断；时长列表 `transition-duration: 0.15s, 0.1s` 能加载，但一开始过渡就是 scene 诊断 `finite numeric value 0.15s, 0.1`，整帧被拒）。详见 [兼容](compatibility.md)“2026-10-17：scene 的 transition”。
+- **原因**：scene 的 profile 没有 `transition` 简写，`CompiledStyle` 在 `SceneSolver` 的构造里抛出 `WEFT_STYLE_PROFILE: unsupported property transition`；它在 `View::load` 捕获脚本错误的 try 之外，`failure()` 把它当作 `std::invalid_argument` 映射成 `WEFT_INVALID_ARGUMENT`，消息丢失。scene 的过渡对每个列表只取整串文字：`duration("0.15s, 0.1s")` 不是一个时间。
+- **实现**：
+  - `src/style/style.cpp`：`transition_parts` 按 CSS Transitions 1 拆简写（属性名或单独的 `none`、时长与其后的延迟、缓动函数、`transition-behavior`，顺序任意，缺的取初始值，转小写）；简写在层叠中展开为四个分量（同 `background`），没有 `var()` 的值加载时检查，有 `var()` 的在代换后拆，拆不出时分量在计算值时无效。
+  - `src/scene/scene.cpp`：`transition_items` 按 `transition-property` 配对各列表（短的循环、长的截去），`transition_item` 取最后一个点到属性（或 `all`）的项；组合时长 max(时长, 0) + 延迟大于 0 才开始，`0s` 加延迟在延迟后跳变；元素样式改变时（包括第一次）读列表，不支持的缓动、负时长、列表里的 `none` 在此诊断；进行中的过渡在属性不再被点到、再变而不开始新过渡、离开目标样式时结束。scene profile 的四个分量有了初始值（`all`、`0s`、`ease`、`0s`）。
+  - `src/view/view.cpp`：样式表与关键帧超出 profile 时页面不加载，一条 scene 诊断说明原因，`weft_view_load` 返回 `WEFT_SCRIPT_ERROR`（同脚本抛出）；`include/weft/weft.h` 的说明随之改，C ABI 不变。
+  - JS：`'transition' in element.style` 为真。
+- **验证**（Release，RTX 5090 机器）：
+  - `scene_transition_browser_contract`（新，`tests/scene_transition_tests.cpp`）：
+    - 与 Chrome 155.0.8059.80 暂停、定位到各时刻的过渡对照（`tools/browser_scene_transition_reference.mjs` 写 `tests/fixtures/scene_transition_reference.json`）：15 个用例（单个、Unity 按钮的两项列表、时间顺序与负延迟、短列表循环、长列表截去、`all` 后再点名、同一属性两项取后者、带逗号的缓动函数、`var()`、`var()` 代换出的不是列表、`none`、只有时间、`0s` 加延迟、改变之后的列表、大小写）× 9 个时刻：改变之后的分量列表逐项相同，不透明度、平移、背景色最大差 4.5e-7、4.8e-5 px、0.46 级（限 1e-4、0.01 px、0.75 级）；重新录制两次数据相同。
+    - 300 组随机列表（各列表长 1–4，属性含 `all` 与重复，时长含 0s，延迟含负值），写成长度各异的分量与配对后的简写（各部分顺序随机）各一份，与按 CSS 配对的线性模型逐帧对照（2,440 个过渡中的采样）。
+    - 简写的分量（样式表与 style 属性、后写的分量、`!important`、`inherit`、`initial`），12 种加载时的诊断、`normal` 与含 `var()` 的值能加载，4 种样式改变时的诊断；过渡的四种结束（不再被点到、再变而不开始、属性离开目标、到达终点后反向）。
+  - `c_api_view_contract` 加 `stylesheets`：带简写的页面 `WEFT_OK`、无诊断；不支持的属性、简写的两种错误、at-rule、关键帧里不支持的属性都是 `WEFT_SCRIPT_ERROR` 与一条说明原因的 `WEFT_DIAGNOSTIC_SCENE`，没有脚本运行、没有元素，之后的页面照常加载。
+  - 变异检查（改回一处、重建、两个测试至少一个失败）：7 处都失败：每项都取第一个时长、延迟、缓动（`unity-list` 30ms 平移 29.5 vs Chrome 51.3）；取第一个点名的项（`all-then-override`）；`0s` 不开始过渡的旧规则（`zero-duration-delay`）；进行中的过渡从不提前结束；没有简写（两个测试都失败）；不在计算值时拆简写；样式表错误越过 `View::load`（`c_api_view_contract`）。
+  - 全量 ctest（170 项，Release）：156 项通过；14 项与上次相同（夹具与浏览器输入的散列校验，这台机器的签出换行）。
+  - Debug：`scene_transition_browser_contract`、`c_api_view_contract`、`scene_contract`、`incremental_contract` 通过。
+  - Unity 插件（weft-unity 的 `Native~` 用这个签出重建在临时目录，`weft_unity_tests --page`）：简写 `transition: background-color 0.15s, transform 0.1s` 的页面 `load: ok`，悬停与按下无诊断；时长列表的页面按下时不再有 `finite numeric value` 诊断；写了 `outline` 的页面 `load: page script error` 与 `diagnostic: WEFT_STYLE_PROFILE: unsupported property outline`；示例页面改回简写与时长列表后加载、点击、消息照常。
+- **限制**：从没有声明的值（初始值）开始或到它结束的过渡（改变前后有一侧没有该属性时不过渡，如 `:active` 才写 `transform`）；`transition-property` 里的简写名；反向过渡的缩短；不能插值的属性在一半处切换；没有 transition 事件；加载失败沿用 `WEFT_SCRIPT_ERROR` 这个名字（字符串仍是 "page script error"）。
+- **插件**：Unity 与 UE 插件用这个提交重建 weft 即可，ABI 不变；Unity 示例页面可以改回 `transition` 简写与时长列表。
 
 `unreal` 分支合入 main（2026-10-17，用户检查后同意）：D3D12 后端、10 位渲染目标、不持有宿主目标（交换链可改大小）、页面文件里的图片（`url()`）、大面板的阴影、d3-sankey，共 6 个提交，main 是它的祖先，快进合并。合并前在分支上重跑全量 ctest（169 项）：155 项通过，14 项与此前相同（夹具与浏览器输入的散列校验，这台机器签出的换行）。之后在 main 上开发；下面各条标的 `unreal` 分支是它们做的时候的位置。
 

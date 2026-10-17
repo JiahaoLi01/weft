@@ -79,4 +79,20 @@ namespace weft::test_constants::scene {
     inline constexpr double transform_tolerance = 1e-9;
     // A unitless CSS angle converts through the float degrees-per-radian factor of the transform grammar.
     inline constexpr double unitless_angle_tolerance = 1e-6;
+    // Scene transitions (tests/scene_transition_tests.cpp): the scene's size, and when its element changes (ms).
+    inline constexpr float transition_view_size = 200.f;
+    inline constexpr double transition_change_ms = 1000;
+    // Against Chrome's paused transitions, whose values are written to 6 significant digits and whose colors are
+    // rounded to whole channels; the scene's bezier curves are bisected (bezier_bisection_steps). Opacity, translation
+    // in px over a 100px change, and channels in 0-255 levels. Measured 2026-10-17 (Chrome 155.0.8059.80): 4.5e-7,
+    // 4.8e-5px and 0.46.
+    inline constexpr double transition_opacity_tolerance = 1e-4;
+    inline constexpr double transition_translate_tolerance_px = .01;
+    inline constexpr double transition_channel_tolerance = .75;
+    // Random transition lists, written as longhands and as the shorthand, against a model of CSS Transitions 1 with
+    // linear timing: cases, seed and the difference accepted (of the whole change; the scene writes 6 significant
+    // digits).
+    inline constexpr int transition_list_cases = 300;
+    inline constexpr std::uint32_t transition_list_seed = 0xce7a2610u;
+    inline constexpr double transition_model_tolerance = 1e-4;
 } // namespace weft::test_constants::scene
