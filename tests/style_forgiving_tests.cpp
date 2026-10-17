@@ -200,7 +200,8 @@ namespace {
     void math_and_logical() {
         const std::string sheet = ":root { --spacing: .25rem }"
                                   ".a { width: calc(var(--spacing) * 4); height: calc(100% - 2rem) }"
-                                  ".b { width: calc(infinity * 1px); height: max(10px, 2rem) }"
+                                  ".b { width: calc(infinity * 1px); height: max(10px, 2rem); border-radius: "
+                                  "3.40282e38px }"
                                   ".c { padding-inline: 4px 8px; margin-block: 2px; inset-inline: 0 }"
                                   ".d { border-start-start-radius: 3px; inline-size: 5px; min-block-size: 6px }";
         const auto r =
@@ -209,6 +210,8 @@ namespace {
         same(r.value("a", PropertyId::Width), "16px", "calc() of a rem variable times a number");
         same(r.value("a", PropertyId::Height), "calc(100% - 32px)", "a percentage minus rem");
         same(r.value("b", PropertyId::Width), "1e+07px", "infinity clamps to a large finite length");
+        same(r.value("b", PropertyId::BorderTopLeftRadius), "1e+07px",
+             "a number beyond the range clamps to it (Tailwind's rounded-full)");
         same(r.value("b", PropertyId::Height), "32px", "max() of px and rem");
         same(r.value("c", PropertyId::PaddingLeft), "4px", "padding-inline's start");
         same(r.value("c", PropertyId::PaddingRight), "8px", "padding-inline's end");
@@ -416,6 +419,64 @@ namespace {
         same(r.value("cb", PropertyId::Filter), "url(#cb-deuteranope)", "a url() filter");
     }
 
+    // The grid properties (CSS Grid 1) as Tailwind and the CRPG pages write them: track lists as written; the placement
+    // shorthands grid-row, grid-column and grid-area expand to their longhands (an omitted line is the custom name
+    // before it in its axis, else auto); place-items to align-items and justify-items, place-self to align-self and
+    // justify-self. None is dropped by the cascade; a value the layout does not take is the scene's to drop
+    // (drop_grid).
+    void grids() {
+        const std::string sheet =
+            ".cols { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)) }"
+            ".market { grid-template-columns: auto auto 1fr auto; grid-template-rows: "
+            "repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(30px, auto); grid-auto-flow: "
+            "row dense; grid-auto-columns: 40px }"
+            ".span { grid-column: span 2 / span 2; grid-row: 2 }"
+            ".full { grid-column: 1 / -1 }"
+            ".area { grid-area: 1 / 2 / 3 }"
+            ".named { grid-area: header }"
+            ".place { place-items: center end; place-self: start }";
+        CompiledStyle compiled(sheet, scene_style_profile(true));
+        const auto warnings = compiled.take_warnings();
+        require(warnings.empty(),
+                "grid properties are not dropped" + (warnings.empty() ? std::string() : ": " + warnings[0]));
+        const auto r =
+            cascade(sheet, el("html", "root", "",
+                              {el("div", "cols", "cols"), el("div", "market", "market"), el("div", "span", "span"),
+                               el("div", "full", "full"), el("div", "area", "area"), el("div", "named", "named"),
+                               el("div", "place", "place")}));
+        same(r.value("cols", PropertyId::GridTemplateColumns), "repeat(auto-fill, minmax(320px, 1fr))",
+             "an automatic repetition");
+        same(r.value("market", PropertyId::GridTemplateColumns), "auto auto 1fr auto", "Market's columns");
+        same(r.value("market", PropertyId::GridTemplateRows), "repeat(2, minmax(0, 1fr))", "rows");
+        same(r.value("market", PropertyId::GridAutoRows), "minmax(30px, auto)", "implicit rows");
+        same(r.value("market", PropertyId::GridAutoColumns), "40px", "implicit columns");
+        same(r.value("market", PropertyId::GridAutoFlow), "row dense", "the flow");
+        same(r.value("span", PropertyId::GridColumnStart), "span 2", "col-span-2's start");
+        same(r.value("span", PropertyId::GridColumnEnd), "span 2", "col-span-2's end");
+        same(r.value("span", PropertyId::GridRowStart), "2", "a row line");
+        same(r.value("span", PropertyId::GridRowEnd), "auto", "an omitted end line that is no name");
+        same(r.value("full", PropertyId::GridColumnStart), "1", "col-span-full's start");
+        same(r.value("full", PropertyId::GridColumnEnd), "-1", "col-span-full's end");
+        same(r.value("area", PropertyId::GridRowStart), "1", "grid-area's row start");
+        same(r.value("area", PropertyId::GridColumnStart), "2", "grid-area's column start");
+        same(r.value("area", PropertyId::GridRowEnd), "3", "grid-area's row end");
+        same(r.value("area", PropertyId::GridColumnEnd), "auto", "grid-area's omitted column end");
+        for (const auto id : {PropertyId::GridRowStart, PropertyId::GridColumnStart, PropertyId::GridRowEnd,
+                              PropertyId::GridColumnEnd}) {
+            same(r.value("named", id), "header", "a named area's every line");
+        }
+        same(r.value("place", PropertyId::AlignItems), "center", "place-items' first value");
+        same(r.value("place", PropertyId::JustifyItems), "end", "place-items' second value");
+        same(r.value("place", PropertyId::PlaceItems), "<none>", "place-items expanded");
+        same(r.value("place", PropertyId::AlignSelf), "start", "place-self");
+        same(r.value("place", PropertyId::JustifySelf), "start", "place-self's justify-self");
+        // var() in a placement shorthand is outside the profile: dropped with a note.
+        CompiledStyle variable(".v { --s: 2; grid-column: span var(--s) }", scene_style_profile(true));
+        const auto noted = variable.take_warnings();
+        require(!noted.empty() && noted[0].find("grid-column") != std::string::npos,
+                "a placement shorthand with var() is dropped with a note");
+    }
+
     // What the profile cannot take is dropped with a warning; the rest of the sheet and of the rule stays. A strict
     // profile still fails the sheet.
     void drops() {
@@ -463,10 +524,11 @@ int main() {
         generated();
         wrapping_and_order();
         filters();
+        grids();
         drops();
         std::cout << "PASS forgiving CSS: cascade layers, @media/@supports, @property, colors, calc, logical "
                      "properties, Selectors 4, nesting, border-color per side, overflow-wrap, word-break and order, "
-                     "filters, and drops with warnings\n";
+                     "filters, grid properties and shorthands, and drops with warnings\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

@@ -41,6 +41,9 @@ namespace weft::constants {
     inline constexpr int max_selector_compounds = 16;
     // Bound on any logical CSS pixel magnitude: coordinates, lengths, extents and wheel deltas.
     inline constexpr int max_logical_px_magnitude = 100000;
+    // Largest magnitude of a number in a computed style value: a forgiving cascade clamps calc(infinity) and larger
+    // numbers to it (CSS Values 4 §4.2, §10.9), and the scene parses numbers up to it.
+    inline constexpr double max_style_number_magnitude = 1e7;
     // Projective planes: homogeneous w and determinants below this are singular; a point that projects to infinity
     // maps this far away.
     inline constexpr double plane_singular_epsilon = 1e-10;

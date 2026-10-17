@@ -145,6 +145,60 @@ namespace {
         require(g[grid].height == 70, "grid height is not its rows and gap");
     }
 
+    // Grid values outside the adapter's profile are diagnostics, which a forgiving page's scene drops before layout:
+    // line names, named lines, an automatic repetition of flexible tracks, units other than px, % and fr, repeat() in
+    // an implicit track list, line 0 and a self-alignment the grid does not take. An absolutely positioned child with
+    // insets needs the grid as its containing block. Geometry is the Chrome fixture's (flex_browser_diff).
+    void grid_diagnostics() {
+        const auto refused = [](weft::StyleValues grid, weft::StyleValues item, const char* expected,
+                                const char* message) {
+            Tree t;
+            grid["display"] = "grid";
+            grid["width"] = "200px";
+            const auto g = t.add(none, std::move(grid));
+            t.add(g, std::move(item));
+            rejected(t, expected, message);
+        };
+        refused({{"grid-template-columns", "[full] 1fr"}}, {}, "WEFT_UNSUPPORTED_FORMAT", "line names accepted");
+        refused({{"grid-template-columns", "repeat(auto-fill, 1fr)"}}, {}, "WEFT_UNSUPPORTED_FORMAT",
+                "an automatic repetition of a flexible track accepted");
+        refused({{"grid-template-columns", "10em 1fr"}}, {}, "WEFT_UNSUPPORTED_FORMAT", "an em track accepted");
+        refused({{"grid-auto-rows", "repeat(2, 10px)"}}, {}, "WEFT_UNSUPPORTED_FORMAT",
+                "repeat() in grid-auto-rows accepted");
+        refused({}, {{"grid-column-start", "header"}}, "WEFT_UNSUPPORTED_FORMAT", "a named line accepted");
+        refused({}, {{"grid-row-start", "0"}}, "WEFT_UNSUPPORTED_FORMAT", "line 0 accepted");
+        refused({}, {{"justify-self", "anchor-center"}}, "WEFT_UNSUPPORTED_ALIGN", "an unknown justify-self accepted");
+        refused({}, {{"position", "absolute"}, {"left", "0px"}}, "WEFT_UNSUPPORTED_FORMAT",
+                "an absolute child placed against a box outside the grid");
+        // The same child in a positioned grid is placed in its padding box.
+        Tree positioned;
+        const auto g = positioned.add(
+            none, {{"display", "grid"}, {"position", "relative"}, {"width", "200px"}, {"padding-left", "10px"}});
+        const auto child =
+            positioned.add(g, {{"position", "absolute"}, {"right", "0px"}, {"width", "20px"}, {"height", "10px"}});
+        require(positioned.layout()[child].left == 190, "absolute grid child against the grid's padding box");
+    }
+
+    // A box of px size contributes that size to its ancestors' intrinsic sizes, whatever is unknown inside it (an svg
+    // of percentage size, as the CRPG ability icons in their 34px frames): a column flex item of percentage height
+    // above it takes its automatic minimum, no diagnostic. With the unknown size not inside a px box, the specified
+    // size suggestion (a percentage of a height known before layout) bounds the minimum instead.
+    void unknown_sizes_stop_at_px_boxes() {
+        for (const bool framed : {true, false}) {
+            Tree t;
+            const auto root = t.add(
+                none, {{"display", "flex"}, {"flex-direction", "column"}, {"width", "200px"}, {"height", "100px"}});
+            const auto item = t.add(root, {{"display", "flex"}, {"flex-direction", "column"}, {"height", "100%"}});
+            const auto parent =
+                framed ? t.add(item, {{"display", "block"}, {"width", "34px"}, {"height", "34px"}}) : item;
+            t.svg(parent, {{"display", "block"}, {"width", "100%"}, {"height", "100%"}}, {}, 1);
+            t.add(item, {{"display", "block"}, {"height", "300px"}, {"flex-shrink", "0"}});
+            const auto g = t.layout();
+            require(g[item].height == 100, framed ? "the svg's unknown height passed its 34px frame"
+                                                  : "the specified size did not bound an unknown content minimum");
+        }
+    }
+
     // A block whose children are all inline-level places them on one top-aligned line.
     void inline_children_share_a_line() {
         Tree t;
@@ -244,14 +298,17 @@ int main() {
         wrapping_row_keeps_its_lines();
         text_overflows_available_height();
         grid_places_visible_children();
+        grid_diagnostics();
+        unknown_sizes_stop_at_px_boxes();
         inline_children_share_a_line();
         svg_sizes_from_attributes_and_ratio();
         transform_forms_containing_block();
         hidden_subtrees_are_empty();
         viewport_sizes_root();
         input_contract();
-        std::cout << "PASS shared Yoga adapter: block, flex minimums, grid, inline row, svg, containing block, hidden "
-                     "boxes, viewport and input diagnostics\n";
+        std::cout
+            << "PASS shared Yoga adapter: block, flex minimums, grid and its diagnostics, unknown sizes in px boxes, "
+               "inline row, svg, containing block, hidden boxes, viewport and input diagnostics\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

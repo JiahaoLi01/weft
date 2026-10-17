@@ -474,12 +474,11 @@ namespace weft {
     }
 
     // Whether a node's children may stand in another order than the document's (scene_child_order): an HTML flex or
-    // grid container of two children or more, as the layout adapter takes them (flex, inline-flex and grid; inline-grid
-    // is outside its profile).
+    // grid container of two children or more (flex, inline-flex, grid and inline-grid).
     inline bool scene_orders_children(const SceneNode& n) {
         const auto display = n.style.text(PropertyId::Display, "inline");
         return n.children.size() > 1 && (n.space.empty() || n.space == constants::xhtml_namespace_uri) &&
-               (display == "flex" || display == "inline-flex" || display == "grid");
+               (display == "flex" || display == "inline-flex" || display == "grid" || display == "inline-grid");
     }
 
     // The order-modified document order of a node's children (CSS Display 3 §3.1): those of an HTML flex or grid

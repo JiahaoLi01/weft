@@ -1,5 +1,6 @@
 #include "layout/flex.hpp"
 #include "../tests/fixtures/flex_layout_cases.hpp"
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -14,6 +15,17 @@ namespace {
         return stream.str();
     }
 
+    // Whether raw Yoga lays a box tree out: its root and every box with children explicitly flex (FlexMode::RawYoga).
+    bool raw_profile(const weft::FlexNode& n, bool root = true) {
+        const auto display = n.style.text(weft::PropertyId::Display);
+        if ((root || !n.children.empty()) && display != "flex" && display != "inline-flex") {
+            return false;
+        }
+        return std::all_of(n.children.begin(), n.children.end(), [](const weft::FlexNode& c) {
+            return raw_profile(c, false);
+        });
+    }
+
     std::string report(weft::Font& font, weft::FlexMode mode) {
         std::ostringstream out;
         out << std::setprecision(std::numeric_limits<float>::max_digits10); // Round-trips every float box value.
@@ -22,6 +34,9 @@ namespace {
             << (mode == weft::FlexMode::RawYoga ? "raw-yoga" : "css-adapter") << "\",\"cases\":[";
         bool comma{};
         for (const auto& test : weft::fixtures::flex_cases()) {
+            if (mode == weft::FlexMode::RawYoga && !raw_profile(test.root)) {
+                continue;
+            }
             if (comma) {
                 out << ',';
             }
@@ -62,7 +77,8 @@ int main(int argc, char** argv) {
         }
         std::cout
             << weft::fixtures::flex_cases().size()
-            << " shared Flex cases written (Yoga + ce1, with/without CSS adapter). No DOM or renderer integration.\n";
+            << " shared Flex and grid cases written (Yoga + ce1, with/without CSS adapter; raw Yoga only where every container is flex). No "
+               "DOM or renderer integration.\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

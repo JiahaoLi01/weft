@@ -7,6 +7,7 @@
 #include "base/owner_thread.hpp"
 #include "constants/scene.hpp"
 #include "layout/flex.hpp"
+#include "layout/grid.hpp"
 #include "paint/particles.hpp"
 #include "scene/scene_filter.hpp"
 #include "scene/scene_inline.hpp"
@@ -1345,7 +1346,16 @@ namespace weft {
                               "align-content",
                               "justify-content",
                               "justify-items",
+                              "justify-self",
                               "grid-template-columns",
+                              "grid-template-rows",
+                              "grid-auto-columns",
+                              "grid-auto-rows",
+                              "grid-auto-flow",
+                              "grid-row-start",
+                              "grid-row-end",
+                              "grid-column-start",
+                              "grid-column-end",
                               "place-items",
                               "overflow",
                               "opacity",
@@ -1751,6 +1761,42 @@ namespace weft {
             out.style.erase(PropertyId::Filter);
         }
 
+        // A forgiving page's grid value the layout does not take (layout/grid.hpp: named lines and areas, units other
+        // than px, % and fr, values out of the grammar) is dropped with a warning, as CSS drops a value it does not
+        // take, instead of failing every frame that lays it out. The property takes its initial value: no explicit
+        // tracks, auto tracks, row flow, automatic placement, the container's item alignment.
+        void drop_grid(SceneNode& out) {
+            using P = PropertyId;
+            for (const auto id : {P::GridTemplateColumns, P::GridTemplateRows, P::GridAutoColumns, P::GridAutoRows,
+                                  P::GridAutoFlow, P::GridRowStart, P::GridRowEnd, P::GridColumnStart, P::GridColumnEnd,
+                                  P::JustifyItems, P::JustifySelf}) {
+                const auto* value = out.style.find(id);
+                if (!value) {
+                    continue;
+                }
+                const auto name = property_name(id);
+                try {
+                    if (id == P::GridTemplateColumns || id == P::GridTemplateRows) {
+                        (void)grid::template_tracks(name, value->text());
+                    } else if (id == P::GridAutoColumns || id == P::GridAutoRows) {
+                        (void)grid::auto_tracks(name, value->text());
+                    } else if (id == P::GridAutoFlow) {
+                        (void)grid::auto_flow(value->text());
+                    } else if (id == P::JustifyItems || id == P::JustifySelf) {
+                        (void)grid::self_alignment(name, value->text());
+                    } else {
+                        (void)grid::line(name, value->text());
+                    }
+                } catch (const std::invalid_argument& e) {
+                    // The diagnostic says "<code>: <property> <value>: <why>".
+                    std::string why = e.what();
+                    why = why.substr(why.rfind(": ") + 2);
+                    warn(std::string(name) + " " + css::trim(value->text()) + " on <" + out.tag + "> (" + why + ")");
+                    out.style.erase(id);
+                }
+            }
+        }
+
         Built build_own(SceneNode& out, const SceneNode& last, const DomSnapshot& d, const ComputedStyle& c,
                         const Style* parent) {
             // Layout outputs stay until layout runs again.
@@ -1774,6 +1820,7 @@ namespace weft {
             out.style = incremental ? c.values : expand(c.values, viewport);
             if (forgiving) {
                 drop_filter(out);
+                drop_grid(out);
             }
             if (const auto overflow = get(out.style, PropertyId::Overflow, "visible");
                 overflow != "visible" && overflow != "clip") {

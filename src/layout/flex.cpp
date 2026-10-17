@@ -1,6 +1,7 @@
 #include "layout/flex.hpp"
 #include "base/css_scalar.hpp"
 #include "constants/layout.hpp"
+#include "layout/grid.hpp"
 #include <yoga/Yoga.h>
 #include <algorithm>
 #include <array>
@@ -8,6 +9,7 @@
 #include <cstdint>
 #include <exception>
 #include <limits>
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
@@ -183,8 +185,29 @@ namespace weft {
             return style.text(P::FlexDirection, "row").starts_with("row");
         }
 
+        // An alignment keyword as Yoga takes it: without the overflow keywords safe and unsafe, first baseline as
+        // baseline, and the start and end of the writing mode (horizontal, left to right) as flex-start and flex-end.
+        std::string_view yoga_alignment(std::string_view v) {
+            for (const std::string_view prefix : {"safe ", "unsafe "}) {
+                if (v.starts_with(prefix)) {
+                    v.remove_prefix(prefix.size());
+                }
+            }
+            if (v == "first baseline") {
+                return "baseline";
+            }
+            if (v == "start" || v == "self-start" || v == "left") {
+                return "flex-start";
+            }
+            if (v == "end" || v == "self-end" || v == "right") {
+                return "flex-end";
+            }
+            return v;
+        }
+
         // normal is the initial value: stretch for the align properties of flex boxes.
         YGAlign align(std::string_view v) {
+            v = yoga_alignment(v);
             if (v == "auto") {
                 return YGAlignAuto;
             }
@@ -248,10 +271,19 @@ namespace weft {
                                   P::FlexShrink,
                                   P::FlexWrap,
                                   P::Gap,
+                                  P::GridAutoColumns,
+                                  P::GridAutoFlow,
+                                  P::GridAutoRows,
+                                  P::GridColumnEnd,
+                                  P::GridColumnStart,
+                                  P::GridRowEnd,
+                                  P::GridRowStart,
                                   P::GridTemplateColumns,
+                                  P::GridTemplateRows,
                                   P::Height,
                                   P::JustifyContent,
                                   P::JustifyItems,
+                                  P::JustifySelf,
                                   P::Left,
                                   P::Margin,
                                   P::MarginBottom,
@@ -295,7 +327,7 @@ namespace weft {
             Block,
             // A block whose children are all inline-level, approximated as one top-aligned line without breaks.
             InlineRow,
-            // Equal minmax(0, 1fr) columns, rows sized to content.
+            // CSS Grid (layout/grid.hpp): its items placed in tracks, each laid out by Yoga in a box of its grid area.
             Grid,
             None,
         };
@@ -304,7 +336,39 @@ namespace weft {
             return display == "inline" || display == "inline-block";
         }
 
+        // A box that contains its absolutely positioned descendants: a positioned or transformed one (apply).
+        bool contains_absolute(const Style& s) {
+            const auto position = s.text(P::Position, "static");
+            return position == "relative" || position == "absolute" || s.text(P::Transform, "none") != "none" ||
+                   s.text(P::WillChange, "auto").find("transform") != std::string_view::npos;
+        }
+
         struct Engine;
+        struct Node;
+
+        // A grid container's values and children, and the placement of its items.
+        struct GridState {
+            struct Child {
+                // Its index among the grid's children in document order (Node::positions).
+                std::size_t ordinal{};
+                Node* node{};
+                grid::Placement placement;
+            };
+
+            grid::TrackList columns;
+            grid::TrackList rows;
+            std::vector<grid::TrackSize> auto_columns;
+            std::vector<grid::TrackSize> auto_rows;
+            grid::Flow flow;
+            // In-flow items in order-modified document order, their placement properties apart for grid::place, and
+            // the absolutely positioned children.
+            std::vector<Child> items;
+            std::vector<grid::Placement> placements;
+            std::vector<Child> absolute;
+            // The last placement, for an explicit grid of these rows and columns.
+            std::optional<std::array<std::size_t, 2>> placed_for;
+            grid::Placed placed;
+        };
 
         struct Node {
             Engine* engine{};
@@ -321,8 +385,14 @@ namespace weft {
             // Its order as a flex or grid item (CSS Display 3 §3.1); 0 out of flow.
             int order{};
             bool definite_height{};
-            unsigned columns{};
-            // Grid cell origins of the children, in child order.
+            // Its border-box height where it is known before layout (known_heights).
+            std::optional<float> known_height;
+            // A grid's values, children and placement (prepare_grids).
+            std::unique_ptr<GridState> grid;
+            // A grid child's own Yoga root, a column flex box that holds it: as large as its grid area (or the grid's
+            // padding box, for an absolutely positioned child), so that Yoga sizes, stretches and aligns it there.
+            YGNodeRef area{};
+            // Border-box origins of a grid's children in its border box, in child order.
             std::vector<std::array<float, 2>> positions;
             // Intrinsic border-box sizes for automatic minimum sizes, and why one is unknown.
             float min_width{};
@@ -356,10 +426,13 @@ namespace weft {
             Engine& operator=(const Engine&) = delete;
 
             ~Engine() {
-                // Children before parents, so that no freed node is still attached.
+                // Children before parents, so that no freed node is still attached; a grid child before its area.
                 for (auto i = nodes.size(); i-- > 0;) {
                     if (nodes[i].yoga) {
                         YGNodeFree(nodes[i].yoga);
+                    }
+                    if (nodes[i].area) {
+                        YGNodeFree(nodes[i].area);
                     }
                 }
                 YGConfigFree(config);
@@ -441,7 +514,7 @@ namespace weft {
                         n.formatting = Formatting::None;
                     } else if (display == "flex" || display == "inline-flex") {
                         n.formatting = Formatting::Flex;
-                    } else if (display == "grid" && !n.box->replaced && !n.box->text) {
+                    } else if ((display == "grid" || display == "inline-grid") && !n.box->replaced && !n.box->text) {
                         n.formatting = Formatting::Grid;
                     } else {
                         n.formatting = Formatting::Block;
@@ -458,27 +531,50 @@ namespace weft {
                         }
                     }
                     if (n.formatting == Formatting::Grid) {
-                        const auto columns = n.style->text(P::GridTemplateColumns);
-                        if (const auto repeat = css::grid_repeat(columns)) {
-                            n.columns = *repeat;
-                        } else {
-                            const auto tracks = css::split(columns, ' ').parts;
-                            if (tracks.empty() || tracks.size() > std::size_t(constants::layout::max_grid_columns) ||
-                                !std::all_of(tracks.begin(), tracks.end(), [](const auto& t) {
-                                    return t == "1fr";
-                                })) {
-                                throw std::invalid_argument(
-                                    "WEFT_UNSUPPORTED_FORMAT: grid supports 1-8 equal minmax(0,1fr) tracks");
-                            }
-                            n.columns = unsigned(tracks.size());
-                        }
-                        each_child(n, [&](const Node& c) {
-                            if (c.style->text(P::Position) == "absolute") {
-                                throw std::invalid_argument("WEFT_UNSUPPORTED_FORMAT: absolute grid child");
-                            }
-                        });
                         n.positions.resize(n.children);
                     }
+                }
+            }
+
+            // Each grid's track lists and flow, its in-flow items in order-modified document order with their
+            // placement properties, and its absolutely positioned children (orders are known once boxes are created).
+            void prepare_grids() {
+                for (auto& n : nodes) {
+                    if (n.formatting != Formatting::Grid) {
+                        continue;
+                    }
+                    const auto& s = *n.style;
+                    auto state = std::make_unique<GridState>();
+                    state->columns = grid::template_tracks("grid-template-columns", s.text(P::GridTemplateColumns));
+                    state->rows = grid::template_tracks("grid-template-rows", s.text(P::GridTemplateRows));
+                    state->auto_columns = s.contains(P::GridAutoColumns)
+                                              ? grid::auto_tracks("grid-auto-columns", s.text(P::GridAutoColumns))
+                                              : std::vector<grid::TrackSize>(1);
+                    state->auto_rows = s.contains(P::GridAutoRows)
+                                           ? grid::auto_tracks("grid-auto-rows", s.text(P::GridAutoRows))
+                                           : std::vector<grid::TrackSize>(1);
+                    if (s.contains(P::GridAutoFlow)) {
+                        state->flow = grid::auto_flow(s.text(P::GridAutoFlow));
+                    }
+                    for (const auto& [k, c] : ordered_children(n)) {
+                        if (c->formatting == Formatting::None) {
+                            continue;
+                        }
+                        const auto& cs = *c->style;
+                        GridState::Child child{k,
+                                               c,
+                                               {grid::line("grid-row-start", cs.text(P::GridRowStart)),
+                                                grid::line("grid-row-end", cs.text(P::GridRowEnd)),
+                                                grid::line("grid-column-start", cs.text(P::GridColumnStart)),
+                                                grid::line("grid-column-end", cs.text(P::GridColumnEnd))}};
+                        if (cs.text(P::Position) == "absolute") {
+                            state->absolute.push_back(child);
+                        } else {
+                            state->placements.push_back(child.placement);
+                            state->items.push_back(child);
+                        }
+                    }
+                    n.grid = std::move(state);
                 }
             }
 
@@ -513,7 +609,10 @@ namespace weft {
                     if (role != Role::Box || id == P::Transform) {
                         continue;
                     }
-                    if (v.text().size() > constants::layout::max_style_value_bytes) {
+                    // Track lists have the grid's own bound (layout/grid.hpp).
+                    const bool tracks = id == P::GridTemplateColumns || id == P::GridTemplateRows ||
+                                        id == P::GridAutoColumns || id == P::GridAutoRows;
+                    if (!tracks && v.text().size() > constants::layout::max_style_value_bytes) {
                         throw std::invalid_argument("WEFT_LAYOUT_LIMIT: excessive style value");
                     }
                     if (id == P::FlexGrow || id == P::FlexShrink) {
@@ -562,7 +661,8 @@ namespace weft {
                     };
                     if (id == P::Display) {
                         const bool flex = v == "flex" || v == "inline-flex" || v == "none";
-                        if (!flex && (!css() || (v != "block" && !inline_level(v) && v != "grid"))) {
+                        if (!flex &&
+                            (!css() || (v != "block" && !inline_level(v) && v != "grid" && v != "inline-grid"))) {
                             throw std::invalid_argument("WEFT_UNSUPPORTED_FORMAT: " + v);
                         }
                         YGNodeStyleSetDisplay(y, v == "none" ? YGDisplayNone : YGDisplayFlex);
@@ -666,18 +766,20 @@ namespace weft {
                         }
                         YGNodeStyleSetAlignSelf(y, align(v));
                     } else if (id == P::JustifyContent) {
+                        // stretch distributes nothing among flex items (CSS Box Alignment 3 §5.3).
+                        const auto j_value = yoga_alignment(v);
                         YGJustify j;
-                        if (v == "flex-start" || v == "normal") {
+                        if (j_value == "flex-start" || j_value == "normal" || j_value == "stretch") {
                             j = YGJustifyFlexStart;
-                        } else if (v == "flex-end") {
+                        } else if (j_value == "flex-end") {
                             j = YGJustifyFlexEnd;
-                        } else if (v == "center") {
+                        } else if (j_value == "center") {
                             j = YGJustifyCenter;
-                        } else if (v == "space-between") {
+                        } else if (j_value == "space-between") {
                             j = YGJustifySpaceBetween;
-                        } else if (v == "space-around") {
+                        } else if (j_value == "space-around") {
                             j = YGJustifySpaceAround;
-                        } else if (v == "space-evenly") {
+                        } else if (j_value == "space-evenly") {
                             j = YGJustifySpaceEvenly;
                         } else {
                             throw std::invalid_argument("WEFT_UNSUPPORTED_JUSTIFY: " + v);
@@ -720,7 +822,10 @@ namespace weft {
                         } else {
                             YGNodeStyleSetGap(y, gutter, l.value);
                         }
-                    } else if (id == P::Transform || id == P::GridTemplateColumns || id == P::JustifyItems ||
+                    } else if (id == P::Transform || id == P::GridTemplateColumns || id == P::GridTemplateRows ||
+                               id == P::GridAutoColumns || id == P::GridAutoRows || id == P::GridAutoFlow ||
+                               id == P::GridRowStart || id == P::GridRowEnd || id == P::GridColumnStart ||
+                               id == P::GridColumnEnd || id == P::JustifyItems || id == P::JustifySelf ||
                                id == P::PlaceItems || id == P::Order) {
                         // Read by the containing block, grid and order rules.
                     } else {
@@ -893,6 +998,15 @@ namespace weft {
                             YGNodeInsertChild(parent.yoga, n.yoga, at);
                         } else if (parent.formatting != Formatting::Grid) {
                             YGNodeInsertChild(parent.yoga, n.yoga, YGNodeGetChildCount(parent.yoga));
+                        } else if (n.formatting != Formatting::None) {
+                            // A grid child is laid out in a box of its own (lay_out_item), not in the grid's node,
+                            // which Yoga measures.
+                            n.area = YGNodeNewWithConfig(config);
+                            if (!n.area) {
+                                throw std::bad_alloc();
+                            }
+                            YGNodeStyleSetFlexDirection(n.area, YGFlexDirectionColumn);
+                            YGNodeInsertChild(n.area, n.yoga, 0);
                         }
                         // Block and inline layout do not flex their children.
                         if (css() &&
@@ -912,6 +1026,97 @@ namespace weft {
                         YGNodeSetBaselineFunc(n.yoga, baseline);
                     } else if (n.formatting == Formatting::Grid) {
                         YGNodeSetMeasureFunc(n.yoga, grid_measured);
+                    }
+                }
+            }
+
+            // What a child leaves unknown of its parent's intrinsic sizes, into `width` and `height` while they are
+            // empty: nothing in an axis where its own size is px, which is all it contributes there; else what it does
+            // not know of its own.
+            static void pass_unknowns(const Node& c, std::string& width, std::string& height) {
+                const auto fixed = [&](PropertyId key) {
+                    const auto l = length(c.style->find(key));
+                    return !l.automatic && !l.percent;
+                };
+                if (width.empty() && !fixed(P::Width)) {
+                    width = c.unknown_width;
+                }
+                if (height.empty() && !fixed(P::Height)) {
+                    height = c.unknown_height;
+                }
+            }
+
+            // A px length a property states (a unitless 0 too), or nothing: absent, auto, a percentage or calc().
+            static std::optional<float> stated_px(const CssValue* v) {
+                const auto* d = v ? v->dimension() : nullptr;
+                if (!d || !(d->unit == Unit::Px || (d->unit == Unit::None && d->value == 0))) {
+                    return std::nullopt;
+                }
+                return bounded(*d);
+            }
+
+            // Each box's border-box height where it is known before layout, parents first, for the specified size
+            // suggestion of a column flex item (CSS Flexbox 1 §4.5): the viewport's at the root; a px height; a
+            // percentage of its containing block's known height (its parent's content box, or for an absolutely
+            // positioned box the padding box of the nearest box that contains it); for an absolutely positioned box of
+            // auto height with px top and bottom, that padding box less them and its margins. Percentages in edges,
+            // and every other box, leave it unknown.
+            void known_heights() {
+                for (auto& n : nodes) {
+                    const auto& s = *n.style;
+                    std::string unknown;
+                    const float edges = intrinsic_vertical(s, unknown);
+                    const bool content_box = s.text(P::BoxSizing, "content-box") == "content-box";
+                    const auto height = length(s.find(P::Height));
+                    if (!n.index && options.viewport) {
+                        n.known_height = (*options.viewport)[1];
+                        continue;
+                    }
+                    if (!unknown.empty()) {
+                        continue;
+                    }
+                    if (!height.automatic && !height.percent) {
+                        n.known_height = height.value + (content_box ? edges : 0);
+                        continue;
+                    }
+                    if (!n.index) {
+                        continue;
+                    }
+                    const bool absolute = s.text(P::Position) == "absolute";
+                    const Node* block = &nodes[n.box->parent];
+                    while (absolute && block->index && !contains_absolute(*block->style)) {
+                        block = &nodes[block->box->parent];
+                    }
+                    if (!block->known_height) {
+                        continue;
+                    }
+                    const auto& b = *block->style;
+                    std::string inner_unknown;
+                    const auto border = [&](PropertyId side) {
+                        return intrinsic_px(b, side, intrinsic_px(b, P::BorderWidth, 0, inner_unknown), inner_unknown);
+                    };
+                    const float inner = absolute ? border(P::BorderTopWidth) + border(P::BorderBottomWidth)
+                                                 : intrinsic_vertical(b, inner_unknown);
+                    if (!inner_unknown.empty()) {
+                        continue;
+                    }
+                    const float basis = std::max(0.f, *block->known_height - inner);
+                    if (height.percent) {
+                        n.known_height =
+                            basis * height.value / float(constants::percent_scale) + (content_box ? edges : 0);
+                        continue;
+                    }
+                    // An auto margin is 0 here (CSS 2 §10.6.4).
+                    const auto margin = [&](PropertyId side) -> std::optional<float> {
+                        const auto* v = s.find(side) ? s.find(side) : s.find(P::Margin);
+                        return !v || v->text() == "auto" ? std::optional<float>(0.f) : stated_px(v);
+                    };
+                    const auto top = stated_px(s.find(P::Top));
+                    const auto bottom = stated_px(s.find(P::Bottom));
+                    const auto margin_top = margin(P::MarginTop);
+                    const auto margin_bottom = margin(P::MarginBottom);
+                    if (absolute && top && bottom && margin_top && margin_bottom) {
+                        n.known_height = std::max(0.f, basis - *top - *bottom - *margin_top - *margin_bottom);
                     }
                 }
             }
@@ -949,40 +1154,61 @@ namespace weft {
                         unknown_h = "WEFT_UNSUPPORTED_INTRINSIC: replaced box without a px height";
                     }
                     n.min_width = n.max_width = w.value + (content_box ? edges : 0);
+                    if (w.percent) {
+                        // A percentage width resolves against nothing in intrinsic sizes: the box contributes no
+                        // min-content width and its natural width (its attribute's, or the default object width) as
+                        // max-content (CSS Sizing 3 §5.2.2), which a grid's tracks read; flex keeps the diagnostic.
+                        const auto natural = n.box->replaced_width.empty()
+                                                 ? Length{constants::layout::default_object_width_px}
+                                                 : presentation(n.box->replaced_width);
+                        n.min_width = edges;
+                        n.max_width =
+                            (natural.automatic || natural.percent ? float(constants::layout::default_object_width_px)
+                                                                  : natural.value) +
+                            (content_box ? edges : 0);
+                    }
                     n.intrinsic_height = h.value + (content_box ? edges_v : 0);
                 } else if (n.formatting == Formatting::Grid) {
+                    // The columns under min-content and max-content constraints (§11.1), from the items' intrinsic
+                    // widths; the rows of items at their heights at their max-content widths.
+                    auto& state = *n.grid;
                     const float column_gap =
                         intrinsic_px(s, P::ColumnGap, intrinsic_px(s, P::Gap, 0, unknown_w), unknown_w);
                     const float row_gap = intrinsic_px(s, P::RowGap, intrinsic_px(s, P::Gap, 0, unknown_h), unknown_h);
-                    std::vector<float> rows;
-                    float widest{};
-                    std::size_t placed{};
-                    for (const auto& [k, item] : ordered_children(n)) {
-                        const auto& c = *item;
-                        if (c.formatting == Formatting::None) {
-                            continue;
-                        }
-                        const auto row = placed++ / n.columns;
-                        rows.resize(row + 1);
-                        rows[row] = std::max(rows[row], c.intrinsic_height);
-                        widest = std::max(widest, c.max_width);
-                        if (unknown_w.empty()) {
-                            unknown_w = c.unknown_width;
-                        }
-                        if (unknown_h.empty()) {
-                            unknown_h = c.unknown_height;
-                        }
+                    const auto definite = [&](PropertyId key, float box_edges) {
+                        const auto l = length(s.find(key));
+                        return l.automatic || l.percent ? std::numeric_limits<float>::quiet_NaN()
+                                                        : std::max(0.f, l.value - (content_box ? 0 : box_edges));
+                    };
+                    const auto column_repeats =
+                        repeat_count(state.columns, s, true, definite(P::Width, edges), column_gap);
+                    const auto row_repeats = repeat_count(state.rows, s, false, definite(P::Height, edges_v), row_gap);
+                    const auto explicit_columns = grid::expand(state.columns, column_repeats);
+                    const auto explicit_rows = grid::expand(state.rows, row_repeats);
+                    const auto& placed = placement(state, explicit_rows.size(), explicit_columns.size());
+                    const float indefinite = std::numeric_limits<float>::quiet_NaN();
+                    const auto columns = axis_tracks(state.columns, column_repeats, explicit_columns,
+                                                     state.auto_columns, placed, true, indefinite);
+                    auto rows =
+                        axis_tracks(state.rows, row_repeats, explicit_rows, state.auto_rows, placed, false, indefinite);
+                    std::vector<grid::Contribution> across;
+                    std::vector<grid::Contribution> down;
+                    for (std::size_t i = 0; i < state.items.size(); ++i) {
+                        const auto& c = *state.items[i].node;
+                        const auto& area = placed.areas[i];
+                        across.push_back(column_contribution(c, area, columns, column_gap));
+                        const float height = c.intrinsic_height + intrinsic_margins(*c.style, false);
+                        down.push_back({area.row, area.row_span, height, height, height});
+                        pass_unknowns(c, unknown_w, unknown_h);
                     }
-                    const float gaps = column_gap * float(n.columns - 1);
-                    n.min_width = gaps + edges;
-                    n.max_width = widest * float(n.columns) + gaps + edges;
-                    for (const auto r : rows) {
-                        n.intrinsic_height += r;
-                    }
-                    if (!rows.empty()) {
-                        n.intrinsic_height += row_gap * float(rows.size() - 1);
-                    }
-                    n.intrinsic_height += edges_v;
+                    auto narrowest = columns;
+                    grid::size_tracks(narrowest, across, grid::Space::MinContent, 0, column_gap, false);
+                    auto widest = columns;
+                    grid::size_tracks(widest, across, grid::Space::MaxContent, 0, column_gap, false);
+                    grid::size_tracks(rows, down, grid::Space::MaxContent, 0, row_gap, false);
+                    n.min_width = grid::extent(narrowest, column_gap) + edges;
+                    n.max_width = grid::extent(widest, column_gap) + edges;
+                    n.intrinsic_height = grid::extent(rows, row_gap) + edges_v;
                 } else {
                     const bool line = n.formatting == Formatting::InlineRow;
                     const bool row = line || ((n.formatting == Formatting::Flex || n.formatting == Formatting::None) &&
@@ -1006,12 +1232,7 @@ namespace weft {
                             n.max_width = std::max(n.max_width, c.max_width);
                             n.intrinsic_height += c.intrinsic_height;
                         }
-                        if (unknown_w.empty()) {
-                            unknown_w = c.unknown_width;
-                        }
-                        if (unknown_h.empty()) {
-                            unknown_h = c.unknown_height;
-                        }
+                        pass_unknowns(c, unknown_w, unknown_h);
                     });
                     if (flow_count > 1) {
                         auto& unknown = row ? unknown_w : unknown_h;
@@ -1081,6 +1302,15 @@ namespace weft {
                     return;
                 }
                 float minimum = main_row ? n.min_width : n.auto_min_height;
+                // The specified size suggestion (CSS Flexbox 1 §4.5), the most the content-based minimum can be: a px
+                // size, or a percentage of a height known before layout.
+                const auto& main_size = main_row ? specified : specified_height;
+                std::optional<float> suggestion;
+                if (!main_size.automatic && !main_size.percent) {
+                    suggestion = main_row ? n.max_width : n.intrinsic_height;
+                } else if (!main_row && main_size.percent && n.known_height) {
+                    suggestion = *n.known_height;
+                }
                 // A nowrap line has width-independent intrinsic height. Only wrapping text requires a definite
                 // cross-axis constraint.
                 if (!main_row && n.box->text && text.wraps(n.index)) {
@@ -1113,10 +1343,14 @@ namespace weft {
                     }
                     minimum = text.layout(n.index, std::max(0.0f, content_width)).height + vertical(s);
                 } else if (!unknown.empty()) {
-                    throw std::invalid_argument(unknown);
+                    // Content of an unknown size needs no more than the specified size allows.
+                    if (!suggestion) {
+                        throw std::invalid_argument(unknown);
+                    }
+                    minimum = *suggestion;
                 }
-                if (!main_row && !specified_height.automatic && !specified_height.percent) {
-                    minimum = std::min(minimum, n.intrinsic_height);
+                if (suggestion) {
+                    minimum = std::min(minimum, *suggestion);
                 }
                 const auto maximum = length(s.find(main_row ? P::MaxWidth : P::MaxHeight));
                 if (!maximum.automatic && !maximum.percent) {
@@ -1136,91 +1370,529 @@ namespace weft {
                 }
             }
 
-            // Places a grid's children in rows of equal columns at the given border-box width (and final height, when
-            // known), and returns the border-box height.
-            float grid(Node& g, float width, float height = -1) {
-                const auto& s = *g.style;
-                const float left =
-                    px(s, P::PaddingLeft, px(s, P::Padding)) + px(s, P::BorderLeftWidth, px(s, P::BorderWidth));
-                const float right =
-                    px(s, P::PaddingRight, px(s, P::Padding)) + px(s, P::BorderRightWidth, px(s, P::BorderWidth));
-                const float top =
-                    px(s, P::PaddingTop, px(s, P::Padding)) + px(s, P::BorderTopWidth, px(s, P::BorderWidth));
-                const float bottom =
-                    px(s, P::PaddingBottom, px(s, P::Padding)) + px(s, P::BorderBottomWidth, px(s, P::BorderWidth));
-                const float column_gap = px(s, P::ColumnGap, px(s, P::Gap));
-                const float row_gap = px(s, P::RowGap, px(s, P::Gap));
-                if (!std::isfinite(width) || width < left + right) {
-                    throw std::invalid_argument("WEFT_UNSUPPORTED_FORMAT: grid needs a definite width");
-                }
-                const float cell =
-                    std::max(0.f, (width - left - right - column_gap * float(g.columns - 1)) / float(g.columns));
-                // Placed in order-modified document order.
-                const auto ordered = ordered_children(g);
-                std::vector<Node*> placed;
-                for (const auto& [k, c] : ordered) {
-                    if (c->formatting != Formatting::None) {
-                        placed.push_back(c);
+            // Px margins of a box across (left and right) or down (top and bottom); percentages and auto resolve
+            // against nothing in intrinsic sizes.
+            static float intrinsic_margins(const Style& s, bool across) {
+                float total{};
+                for (const auto side :
+                     across ? std::array{P::MarginLeft, P::MarginRight} : std::array{P::MarginTop, P::MarginBottom}) {
+                    const auto* v = s.find(side);
+                    if (!v) {
+                        v = s.find(P::Margin);
+                    }
+                    if (v) {
+                        const auto l = length(v);
+                        total += l.automatic || l.percent ? 0 : l.value;
                     }
                 }
-                const auto rows = (placed.size() + g.columns - 1) / g.columns;
-                std::vector<float> heights(rows);
-                for (std::size_t i = 0; i < placed.size(); ++i) {
-                    auto& c = *placed[i];
-                    if (length(c.style->find(P::Width)).automatic) {
-                        YGNodeStyleSetWidth(c.yoga, cell);
+                return total;
+            }
+
+            // A scroll container has no automatic minimum size in a grid (CSS Grid 1 §6.6).
+            static bool scroll_container(const Style& s) {
+                const auto overflow = s.text(P::Overflow, "visible");
+                return overflow != "visible" && overflow != "clip";
+            }
+
+            // A grid gap in px (CSS Box Alignment 3 §8): its length, or its percentage of a definite content size; of
+            // an indefinite one, nothing.
+            static float gap(const Style& s, PropertyId axis, float basis) {
+                const auto* v = s.find(axis);
+                if (!v) {
+                    v = s.find(P::Gap);
+                }
+                if (!v || v->text() == "normal") {
+                    return 0;
+                }
+                const auto l = length(v);
+                if (l.automatic) {
+                    return 0;
+                }
+                if (l.percent) {
+                    return std::isfinite(basis) ? basis * l.value / float(constants::percent_scale) : 0.f;
+                }
+                return l.value;
+            }
+
+            // How many times a track list's automatic repetition repeats (§7.2.3.2): as many as fit the definite
+            // content size, else the px maximum (max-width or max-height), else as few as reach the px minimum; once
+            // otherwise.
+            static std::size_t repeat_count(const grid::TrackList& list, const Style& s, bool columns, float definite,
+                                            float gap) {
+                if (list.repeat == grid::TrackList::Repeat::None) {
+                    return 0;
+                }
+                if (std::isfinite(definite)) {
+                    return grid::repetitions(list, definite, definite, gap, false);
+                }
+                std::string ignored;
+                const float edges = columns ? intrinsic_horizontal(s, ignored) : intrinsic_vertical(s, ignored);
+                const bool border_box = s.text(P::BoxSizing, "content-box") == "border-box";
+                const auto content = [&](const Length& l) {
+                    return std::max(0.f, l.value - (border_box ? edges : 0));
+                };
+                const auto max = length(s.find(columns ? P::MaxWidth : P::MaxHeight));
+                if (!max.automatic && !max.percent) {
+                    return grid::repetitions(list, content(max), content(max), gap, false);
+                }
+                const auto min = length(s.find(columns ? P::MinWidth : P::MinHeight));
+                if (!min.automatic && !min.percent) {
+                    return grid::repetitions(list, content(min), content(min), gap, true);
+                }
+                return 1;
+            }
+
+            // The placement of a grid's items (§8.5), kept for the explicit grid's size.
+            static const grid::Placed& placement(GridState& state, std::size_t rows, std::size_t columns) {
+                const std::array<std::size_t, 2> key{rows, columns};
+                if (state.placed_for != key) {
+                    state.placed = grid::place(state.placements, rows, columns, state.flow);
+                    state.placed_for = key;
+                }
+                return state.placed;
+            }
+
+            // The tracks of one axis of the implicit grid (§7.1): the explicit ones, auto-fit repetitions that no item
+            // occupies collapsed, and implicit tracks of the auto track list, cycled (backwards before the explicit
+            // grid, §7.6); percentages of `basis`.
+            static std::vector<grid::Track> axis_tracks(const grid::TrackList& list, std::size_t repeats,
+                                                        const std::vector<grid::TrackSize>& explicit_tracks,
+                                                        const std::vector<grid::TrackSize>& automatic,
+                                                        const grid::Placed& placed, bool columns, float basis) {
+                const auto total = columns ? placed.columns : placed.rows;
+                const auto before = columns ? placed.columns_before : placed.rows_before;
+                std::vector<bool> occupied(total);
+                for (const auto& a : placed.areas) {
+                    const auto first = columns ? a.column : a.row;
+                    const auto span = columns ? a.column_span : a.row_span;
+                    for (auto t = first; t < first + span && t < total; ++t) {
+                        occupied[t] = true;
                     }
-                    YGNodeCalculateLayout(c.yoga, cell, YGUndefined, YGDirectionLTR);
-                    heights[i / g.columns] = std::max(heights[i / g.columns], YGNodeLayoutGetHeight(c.yoga));
                 }
-                float content{};
-                for (const auto h : heights) {
-                    content += h;
+                const auto fit = before + list.repeat_at;
+                const auto fit_end = fit + repeats * list.repeated.size();
+                const auto count = automatic.size();
+                std::vector<grid::Track> out(total);
+                for (std::size_t i = 0; i < total; ++i) {
+                    const auto& size = i < before ? automatic[count - 1 - (before - 1 - i) % count]
+                                       : i - before < explicit_tracks.size()
+                                           ? explicit_tracks[i - before]
+                                           : automatic[(i - before - explicit_tracks.size()) % count];
+                    out[i] = grid::resolve(size, basis);
+                    out[i].collapsed =
+                        list.repeat == grid::TrackList::Repeat::Fit && i >= fit && i < fit_end && !occupied[i];
                 }
-                if (rows) {
-                    content += row_gap * float(rows - 1);
+                return out;
+            }
+
+            // Whether a content distribution value stretches auto tracks (normal and stretch, §11.8).
+            static bool stretches(std::string_view value) {
+                const auto text = css::trim(value);
+                return text.empty() || text == "normal" || text == "stretch";
+            }
+
+            static std::size_t visible(const std::vector<grid::Track>& tracks) {
+                return std::size_t(std::count_if(tracks.begin(), tracks.end(), [](const grid::Track& t) {
+                    return !t.collapsed;
+                }));
+            }
+
+            // The start of each track from `origin`, and the end of the last: each track not collapsed that another
+            // follows has the gutter and the distributed space after it (§10.1, §7.2.3.2).
+            static std::vector<float> track_lines(const std::vector<grid::Track>& tracks, float gap,
+                                                  grid::Distribution distribution, float origin) {
+                std::size_t last = tracks.size();
+                for (std::size_t t = 0; t < tracks.size(); ++t) {
+                    last = tracks[t].collapsed ? last : t;
                 }
-                const auto align_content = s.text(P::AlignContent);
-                float y = top;
-                if (height >= 0 && align_content == "center") {
-                    y += std::max(0.f, (height - top - bottom - content) / 2);
-                }
-                if (height >= 0 && rows &&
-                    (align_content.empty() || align_content == "normal" || align_content == "stretch")) {
-                    const float extra = std::max(0.f, (height - top - bottom - content) / float(rows));
-                    for (auto& h : heights) {
-                        h += extra;
+                std::vector<float> lines(tracks.size() + 1);
+                float at = origin + distribution.offset;
+                for (std::size_t t = 0; t < tracks.size(); ++t) {
+                    lines[t] = at;
+                    at += tracks[t].base;
+                    if (!tracks[t].collapsed && last != tracks.size() && t < last) {
+                        at += gap + distribution.between;
                     }
-                    content += extra * float(rows);
                 }
-                const bool center_x = s.text(P::PlaceItems) == "center" || s.text(P::JustifyItems) == "center";
-                const bool center_y = s.text(P::PlaceItems) == "center" || s.text(P::AlignItems) == "center";
-                std::vector<float> row_tops(rows);
-                for (std::size_t row = 0; row < rows; ++row) {
-                    row_tops[row] = y;
-                    y += heights[row] + row_gap;
+                lines[tracks.size()] = at;
+                return lines;
+            }
+
+            // The size of the tracks [first, first + span) with what lies between them.
+            static float span_size(const std::vector<float>& lines, const std::vector<grid::Track>& tracks,
+                                   std::size_t first, std::size_t span) {
+                const auto last = first + span - 1;
+                return lines[last] + tracks[last].base - lines[first];
+            }
+
+            // A laid-out box's padding and border as Yoga resolved them: left, top, right, bottom.
+            static std::array<float, 4> layout_edges(YGNodeConstRef y) {
+                std::array<float, 4> out{};
+                const std::array edges{YGEdgeLeft, YGEdgeTop, YGEdgeRight, YGEdgeBottom};
+                for (std::size_t i = 0; i < edges.size(); ++i) {
+                    out[i] = YGNodeLayoutGetPadding(y, edges[i]) + YGNodeLayoutGetBorder(y, edges[i]);
                 }
-                std::fill(g.positions.begin(), g.positions.end(), std::array<float, 2>{});
-                std::size_t cell_index{};
-                for (const auto& [k, item] : ordered) {
-                    auto& c = *item;
-                    if (c.formatting == Formatting::None) {
+                return out;
+            }
+
+            // An item's outer contributions to the columns it spans (§11.5) from its intrinsic widths: a px width is
+            // all three; otherwise its content's, as intrinsic sizes take it (percentages in it resolve against
+            // nothing), within px min-width and max-width. The minimum contribution is its automatic minimum width
+            // (§6.6) when it spans an auto minimum and is no scroll container: its min-content width, capped by the
+            // area when all its tracks have a fixed maximum; else its min-width, or nothing.
+            grid::Contribution column_contribution(const Node& c, const grid::Area& area,
+                                                   const std::vector<grid::Track>& columns, float gap) const {
+                const auto& s = *c.style;
+                std::string ignored;
+                const float edges = intrinsic_horizontal(s, ignored);
+                const bool content_box = s.text(P::BoxSizing, "content-box") == "content-box";
+                const auto border = [&](const Length& l) {
+                    return l.value + (content_box ? edges : 0);
+                };
+                const auto definite = [](const Length& l) {
+                    return !l.automatic && !l.percent;
+                };
+                const auto width = length(s.find(P::Width));
+                const auto min_width = length(s.find(P::MinWidth));
+                const auto max_width = length(s.find(P::MaxWidth));
+                const float margins = intrinsic_margins(s, true);
+                float min_content = definite(width) ? border(width) : c.min_width;
+                float max_content = definite(width) ? border(width) : c.max_width;
+                if (definite(max_width)) {
+                    min_content = std::min(min_content, border(max_width));
+                    max_content = std::min(max_content, border(max_width));
+                }
+                if (definite(min_width)) {
+                    min_content = std::max(min_content, border(min_width));
+                    max_content = std::max(max_content, border(min_width));
+                }
+                max_content = std::max(max_content, min_content);
+                float minimum = min_content;
+                if (!definite(width)) {
+                    if (definite(min_width)) {
+                        minimum = border(min_width);
+                    } else {
+                        bool automatic_track{};
+                        bool fixed_maximum = true;
+                        float cap = gap * float(area.column_span - 1);
+                        for (auto t = area.column; t < area.column + area.column_span; ++t) {
+                            automatic_track |= columns[t].min.kind == grid::Breadth::Kind::Auto;
+                            fixed_maximum &= columns[t].max.kind == grid::Breadth::Kind::Length;
+                            cap += columns[t].max.value;
+                        }
+                        minimum = !automatic_track || scroll_container(s) ? 0
+                                  : fixed_maximum ? std::max(0.f, std::min(min_content, cap - margins))
+                                                  : min_content;
+                    }
+                }
+                return {area.column, area.column_span, min_content + margins, max_content + margins, minimum + margins};
+            }
+
+            // An item's minimum contribution to the rows it spans (§6.6), laid out at its content height (`outer`,
+            // margins included): that height, or with an auto or percentage height its px min-height, or nothing when
+            // it is a scroll container or spans no auto minimum.
+            static float row_minimum(const Node& c, const grid::Area& area, const std::vector<grid::Track>& rows,
+                                     float outer) {
+                const auto& s = *c.style;
+                const auto height = length(s.find(P::Height));
+                if (!height.automatic && !height.percent) {
+                    return outer;
+                }
+                const auto y = c.yoga;
+                const float margins = YGNodeLayoutGetMargin(y, YGEdgeTop) + YGNodeLayoutGetMargin(y, YGEdgeBottom);
+                const auto min_height = length(s.find(P::MinHeight));
+                if (!min_height.automatic && !min_height.percent) {
+                    const float edges =
+                        s.text(P::BoxSizing, "content-box") == "content-box"
+                            ? YGNodeLayoutGetPadding(y, YGEdgeTop) + YGNodeLayoutGetPadding(y, YGEdgeBottom) +
+                                  YGNodeLayoutGetBorder(y, YGEdgeTop) + YGNodeLayoutGetBorder(y, YGEdgeBottom)
+                            : 0;
+                    return std::min(outer, min_height.value + edges + margins);
+                }
+                bool automatic_track{};
+                for (auto t = area.row; t < area.row + area.row_span; ++t) {
+                    automatic_track |= rows[t].min.kind == grid::Breadth::Kind::Auto;
+                }
+                return automatic_track && !scroll_container(s) ? outer : margins;
+            }
+
+            // place-items as a strict page keeps it (a forgiving page's cascade expands it): align-items, then
+            // justify-items; one value is both.
+            static std::string place_items(const Style& s, bool down) {
+                const auto value = css::trim(s.text(P::PlaceItems, ""));
+                const auto words = css::split(value, ' ').parts;
+                if (words.size() == 2 && words[0] != "safe" && words[0] != "unsafe" && words[0] != "first" &&
+                    words[0] != "last" && words[0] != "legacy") {
+                    return down ? words[0] : words[1];
+                }
+                return value;
+            }
+
+            // An item's alignment in its grid area, across (its justify-self, else the grid's justify-items) or down
+            // (its align-self, else align-items, else place-items): normal stretches a box but places a replaced one
+            // at the start; baseline alignment across is the start (horizontal text).
+            static grid::Align item_alignment(const Node& c, const Style& g, bool down) {
+                std::string chosen(c.style->text(down ? P::AlignSelf : P::JustifySelf, "auto"));
+                auto value = grid::self_alignment(down ? "align-self" : "justify-self", chosen);
+                if (value == grid::Align::Auto) {
+                    chosen = std::string(g.text(down ? P::AlignItems : P::JustifyItems, ""));
+                    if (chosen.empty()) {
+                        chosen = place_items(g, down);
+                    }
+                    value = grid::self_alignment(down ? "align-items" : "justify-items", chosen);
+                }
+                if (value == grid::Align::Auto ||
+                    (value == grid::Align::Stretch && c.box->replaced && css::trim(chosen) != "stretch")) {
+                    value = c.box->replaced ? grid::Align::Start : grid::Align::Stretch;
+                }
+                return !down && value == grid::Align::Baseline ? grid::Align::Start : value;
+            }
+
+            // Lays out a grid item in its area box (Node::area), a column flex box `width` wide: across, stretched or
+            // placed as it justifies itself; down, at its content height when `height` is indefinite (NaN), else in
+            // that height, stretched (with an auto height and no auto margin) or placed as it aligns itself.
+            static void lay_out_item(Node& c, float width, float height, grid::Align justify, grid::Align align) {
+                const auto a = c.area;
+                const auto y = c.yoga;
+                const auto& s = *c.style;
+                const bool definite = std::isfinite(height);
+                width = std::max(0.f, width);
+                YGNodeStyleSetWidth(a, width);
+                if (definite) {
+                    YGNodeStyleSetHeight(a, std::max(0.f, height));
+                } else {
+                    YGNodeStyleSetHeightAuto(a);
+                }
+                const auto automatic_margin = [&](PropertyId side) {
+                    return s.text(side, s.text(P::Margin, "0")) == "auto";
+                };
+                const bool stretch = definite && align == grid::Align::Stretch && length(s.find(P::Height)).automatic &&
+                                     !automatic_margin(P::MarginTop) && !automatic_margin(P::MarginBottom);
+                YGNodeStyleSetFlexGrow(y, stretch ? 1.f : 0.f);
+                YGNodeStyleSetFlexShrink(y, stretch ? 1.f : 0.f);
+                YGNodeStyleSetFlexBasisAuto(y);
+                YGNodeStyleSetJustifyContent(a, align == grid::Align::Center ? YGJustifyCenter
+                                                : align == grid::Align::End  ? YGJustifyFlexEnd
+                                                                             : YGJustifyFlexStart);
+                YGNodeStyleSetAlignItems(a, YGAlignFlexStart);
+                YGNodeStyleSetAlignSelf(y, justify == grid::Align::Stretch  ? YGAlignStretch
+                                           : justify == grid::Align::Center ? YGAlignCenter
+                                           : justify == grid::Align::End    ? YGAlignFlexEnd
+                                                                            : YGAlignFlexStart);
+                YGNodeCalculateLayout(a, width, definite ? std::max(0.f, height) : YGUndefined, YGDirectionLTR);
+            }
+
+            // The distance from a laid-out box's border-box top to its first baseline (CSS Box Alignment 3 §9): its
+            // first line's for text, else that of its first in-flow child that has one; none for a replaced box, a
+            // grid, or a box without such a child.
+            std::optional<float> first_baseline(const Node& n) const {
+                const auto y = n.yoga;
+                if (n.box->text) {
+                    const auto edges = layout_edges(y);
+                    const float content = std::max(0.f, YGNodeLayoutGetWidth(y) - edges[0] - edges[2]);
+                    return edges[1] + text.layout(n.index, content).baseline;
+                }
+                if (n.box->replaced || n.formatting == Formatting::Grid || n.formatting == Formatting::None) {
+                    return std::nullopt;
+                }
+                for (std::size_t i = 0, count = YGNodeGetChildCount(y); i < count; ++i) {
+                    const auto child = YGNodeGetChild(y, i);
+                    const auto* c = static_cast<const Node*>(YGNodeGetContext(child));
+                    if (!c || c->formatting == Formatting::None ||
+                        YGNodeStyleGetPositionType(child) == YGPositionTypeAbsolute) {
                         continue;
                     }
-                    const auto row = cell_index / g.columns;
-                    const auto column = cell_index % g.columns;
-                    ++cell_index;
-                    float x = left + float(column) * (cell + column_gap);
-                    float dy{};
-                    if (center_x) {
-                        x += (cell - YGNodeLayoutGetWidth(c.yoga)) / 2;
+                    if (const auto b = first_baseline(*c)) {
+                        return YGNodeLayoutGetTop(child) + *b;
                     }
-                    if (center_y) {
-                        dy = (heights[row] - YGNodeLayoutGetHeight(c.yoga)) / 2;
-                    }
-                    g.positions[k] = {x, row_tops[row] + dy};
                 }
-                return content + top + bottom;
+                return std::nullopt;
+            }
+
+            // A grid's layout at a content width and height, each definite (Exactly) or a constraint (AtMost a
+            // maximum, Undefined none), as Yoga measures it (§11.1): sizes its columns, lays its items out in them
+            // to size its rows, and returns its content size. `final` places the children (Node::positions) at a
+            // definite size; `edges` are the grid's padding and border, left, top, right, bottom.
+            std::array<float, 2> lay_out_grid(Node& g, float width, YGMeasureMode wm, float height, YGMeasureMode hm,
+                                              bool final, const std::array<float, 4>& edges) {
+                auto& state = *g.grid;
+                const auto& s = *g.style;
+                const float indefinite = std::numeric_limits<float>::quiet_NaN();
+                const bool definite_width = wm == YGMeasureModeExactly;
+                const bool definite_height = hm == YGMeasureModeExactly;
+                const float width_basis = definite_width ? width : indefinite;
+                const float height_basis = definite_height ? height : indefinite;
+                const float column_gap = gap(s, P::ColumnGap, width_basis);
+                const float row_gap = gap(s, P::RowGap, height_basis);
+                const auto column_repeats = repeat_count(state.columns, s, true, width_basis, column_gap);
+                const auto row_repeats = repeat_count(state.rows, s, false, height_basis, row_gap);
+                const auto explicit_columns = grid::expand(state.columns, column_repeats);
+                const auto explicit_rows = grid::expand(state.rows, row_repeats);
+                const auto& placed = placement(state, explicit_rows.size(), explicit_columns.size());
+                // The columns: in the definite width, or at the max-content width, or shrunk to fit a maximum.
+                auto columns = axis_tracks(state.columns, column_repeats, explicit_columns, state.auto_columns, placed,
+                                           true, width_basis);
+                std::vector<grid::Contribution> across;
+                across.reserve(state.items.size());
+                for (std::size_t i = 0; i < state.items.size(); ++i) {
+                    across.push_back(column_contribution(*state.items[i].node, placed.areas[i], columns, column_gap));
+                }
+                const auto justify_content = s.text(P::JustifyContent, "normal");
+                if (definite_width) {
+                    grid::size_tracks(columns, across, grid::Space::Definite, width, column_gap,
+                                      stretches(justify_content));
+                } else {
+                    auto widest = columns;
+                    grid::size_tracks(widest, across, grid::Space::MaxContent, 0, column_gap, false);
+                    if (wm == YGMeasureModeAtMost && width < grid::extent(widest, column_gap)) {
+                        auto narrowest = columns;
+                        grid::size_tracks(narrowest, across, grid::Space::MinContent, 0, column_gap, false);
+                        if (width <= grid::extent(narrowest, column_gap)) {
+                            columns = std::move(narrowest);
+                        } else {
+                            grid::size_tracks(columns, across, grid::Space::Definite, width, column_gap,
+                                              stretches(justify_content));
+                        }
+                    } else {
+                        columns = std::move(widest);
+                    }
+                }
+                const float content_width = definite_width ? width : grid::extent(columns, column_gap);
+                const auto column_lines =
+                    track_lines(columns, column_gap,
+                                grid::distribute(justify_content, content_width - grid::extent(columns, column_gap),
+                                                 visible(columns)),
+                                edges[0]);
+                // The rows: each item laid out across its columns at its content height (§11.5), one aligned to its
+                // row's baseline shimmed down to it (§11.5 step 1).
+                auto rows =
+                    axis_tracks(state.rows, row_repeats, explicit_rows, state.auto_rows, placed, false, height_basis);
+                const auto count = state.items.size();
+                std::vector<grid::Contribution> down;
+                down.reserve(count);
+                std::vector<grid::Align> justify(count);
+                std::vector<grid::Align> align(count);
+                std::vector<float> baselines(count, indefinite);
+                for (std::size_t i = 0; i < count; ++i) {
+                    auto& c = *state.items[i].node;
+                    const auto& area = placed.areas[i];
+                    justify[i] = item_alignment(c, s, false);
+                    align[i] = item_alignment(c, s, true);
+                    lay_out_item(c, span_size(column_lines, columns, area.column, area.column_span), indefinite,
+                                 justify[i], align[i]);
+                    const float outer = YGNodeLayoutGetHeight(c.area);
+                    down.push_back({area.row, area.row_span, outer, outer, row_minimum(c, area, rows, outer)});
+                    if (align[i] == grid::Align::Baseline && area.row_span == 1) {
+                        baselines[i] = YGNodeLayoutGetMargin(c.yoga, YGEdgeTop) +
+                                       first_baseline(c).value_or(YGNodeLayoutGetHeight(c.yoga));
+                    }
+                }
+                std::map<std::size_t, float> row_baselines;
+                for (std::size_t i = 0; i < count; ++i) {
+                    if (!std::isnan(baselines[i])) {
+                        auto& b = row_baselines[placed.areas[i].row];
+                        b = std::max(b, baselines[i]);
+                    }
+                }
+                std::vector<float> shims(count);
+                for (std::size_t i = 0; i < count; ++i) {
+                    if (!std::isnan(baselines[i])) {
+                        shims[i] = row_baselines[placed.areas[i].row] - baselines[i];
+                        down[i].min_content += shims[i];
+                        down[i].max_content += shims[i];
+                        down[i].minimum += shims[i];
+                    }
+                }
+                const auto align_content = s.text(P::AlignContent, "normal");
+                if (definite_height) {
+                    grid::size_tracks(rows, down, grid::Space::Definite, height, row_gap, stretches(align_content));
+                } else {
+                    grid::size_tracks(rows, down, grid::Space::MaxContent, 0, row_gap, false);
+                }
+                const float content_height = definite_height ? height : grid::extent(rows, row_gap);
+                if (final) {
+                    const auto row_lines = track_lines(
+                        rows, row_gap,
+                        grid::distribute(align_content, content_height - grid::extent(rows, row_gap), visible(rows)),
+                        edges[1]);
+                    for (std::size_t i = 0; i < count; ++i) {
+                        auto& c = *state.items[i].node;
+                        const auto& area = placed.areas[i];
+                        lay_out_item(c, span_size(column_lines, columns, area.column, area.column_span),
+                                     span_size(row_lines, rows, area.row, area.row_span), justify[i], align[i]);
+                        g.positions[state.items[i].ordinal] = {column_lines[area.column] + YGNodeLayoutGetLeft(c.yoga),
+                                                               row_lines[area.row] + YGNodeLayoutGetTop(c.yoga) +
+                                                                   shims[i]};
+                    }
+                    place_absolute(g, {column_lines, columns, placed.columns_before, explicit_columns.size()},
+                                   {row_lines, rows, placed.rows_before, explicit_rows.size()});
+                }
+                return {content_width, content_height};
+            }
+
+            // One axis of a laid-out grid: its track lines and tracks, the implicit tracks before the explicit grid
+            // and the explicit ones.
+            struct GridAxis {
+                const std::vector<float>& lines;
+                const std::vector<grid::Track>& tracks;
+                std::size_t before{};
+                std::size_t explicit_tracks{};
+
+                // Where a line number puts an edge of a containing block (§9.1): the start of its track, or the end of
+                // the track before it for an end edge; `fallback` (a padding edge) for auto, a span or a line outside
+                // the implicit grid.
+                float edge(const grid::Line& line, bool end, float fallback) const {
+                    if (line.kind != grid::Line::Kind::Number) {
+                        return fallback;
+                    }
+                    const auto index =
+                        (line.value > 0 ? line.value - 1 : int(explicit_tracks) + 1 + line.value) + int(before);
+                    if (index < 0 || index > int(tracks.size())) {
+                        return fallback;
+                    }
+                    const auto i = std::size_t(index);
+                    return end && i > 0 ? lines[i - 1] + tracks[i - 1].base : lines[i];
+                }
+            };
+
+            // Places a grid's absolutely positioned children (§9.1): each in its containing block, the grid's padding
+            // box or, when the grid is their containing block, the area between the line numbers it names (auto at
+            // the padding edges). Insets against a containing block outside the grid are outside the profile.
+            void place_absolute(Node& g, const GridAxis& across, const GridAxis& down) {
+                auto& state = *g.grid;
+                if (state.absolute.empty()) {
+                    return;
+                }
+                const auto y = g.yoga;
+                const float left = YGNodeLayoutGetBorder(y, YGEdgeLeft);
+                const float top = YGNodeLayoutGetBorder(y, YGEdgeTop);
+                const float right = YGNodeLayoutGetWidth(y) - YGNodeLayoutGetBorder(y, YGEdgeRight);
+                const float bottom = YGNodeLayoutGetHeight(y) - YGNodeLayoutGetBorder(y, YGEdgeBottom);
+                const bool contains = contains_absolute(*g.style);
+                for (const auto& child : state.absolute) {
+                    auto& c = *child.node;
+                    const auto& cs = *c.style;
+                    if (!contains) {
+                        for (const auto side : {P::Left, P::Right, P::Top, P::Bottom}) {
+                            if (cs.text(side, "auto") != "auto") {
+                                throw std::invalid_argument("WEFT_UNSUPPORTED_FORMAT: an absolutely positioned grid "
+                                                            "child with insets against a box outside the grid");
+                            }
+                        }
+                    }
+                    const auto& p = child.placement;
+                    const float x0 = contains ? across.edge(p.column_start, false, left) : left;
+                    const float x1 = contains ? across.edge(p.column_end, true, right) : right;
+                    const float y0 = contains ? down.edge(p.row_start, false, top) : top;
+                    const float y1 = contains ? down.edge(p.row_end, true, bottom) : bottom;
+                    const auto a = c.area;
+                    YGNodeStyleSetWidth(a, std::max(0.f, x1 - x0));
+                    YGNodeStyleSetHeight(a, std::max(0.f, y1 - y0));
+                    YGNodeStyleSetJustifyContent(a, YGJustifyFlexStart);
+                    YGNodeStyleSetAlignItems(a, YGAlignFlexStart);
+                    YGNodeCalculateLayout(a, std::max(0.f, x1 - x0), std::max(0.f, y1 - y0), YGDirectionLTR);
+                    g.positions[child.ordinal] = {x0 + YGNodeLayoutGetLeft(c.yoga), y0 + YGNodeLayoutGetTop(c.yoga)};
+                }
             }
 
             static YGSize measure(YGNodeConstRef y, float width, YGMeasureMode wm, float height,
@@ -1254,10 +1926,12 @@ namespace weft {
                 }
             }
 
-            static YGSize grid_measured(YGNodeConstRef y, float width, YGMeasureMode, float, YGMeasureMode) noexcept {
+            static YGSize grid_measured(YGNodeConstRef y, float width, YGMeasureMode wm, float height,
+                                        YGMeasureMode hm) noexcept {
                 auto& n = *static_cast<Node*>(YGNodeGetContext(y));
                 try {
-                    return {width, n.engine->grid(n, width + horizontal(*n.style)) - vertical(*n.style)};
+                    const auto size = n.engine->lay_out_grid(n, width, wm, height, hm, false, layout_edges(y));
+                    return {size[0], size[1]};
                 } catch (...) {
                     n.engine->callback_error = std::current_exception();
                     return {};
@@ -1301,7 +1975,9 @@ namespace weft {
                 link();
                 classify();
                 create();
+                prepare_grids();
                 if (css()) {
+                    known_heights();
                     for (auto i = nodes.size(); i-- > 0;) {
                         intrinsic(nodes[i]);
                     }
@@ -1340,7 +2016,11 @@ namespace weft {
                     origin[n.index] = {g.x, g.y};
                     g.measure_calls = n.measure_calls;
                     if (n.formatting == Formatting::Grid) {
-                        grid(n, g.width, g.height);
+                        // The grid at its final size places its children.
+                        const auto edges = layout_edges(y);
+                        (void)lay_out_grid(n, std::max(0.f, g.width - edges[0] - edges[2]), YGMeasureModeExactly,
+                                           std::max(0.f, g.height - edges[1] - edges[3]), YGMeasureModeExactly, true,
+                                           edges);
                         if (callback_error) {
                             std::rethrow_exception(callback_error);
                         }

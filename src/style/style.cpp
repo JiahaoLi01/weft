@@ -701,6 +701,58 @@ namespace weft {
             out.push_back({"font-family", family, important});
         }
 
+        bool grid_placement_shorthand(std::string_view key) {
+            return key == "grid-row" || key == "grid-column" || key == "grid-area";
+        }
+
+        // The longhands of grid-row, grid-column or grid-area (CSS Grid 1 §8.4): lines separated by "/", grid-area's
+        // the row start, column start, row end and column end. An omitted line is the line before it in the same axis
+        // when that is a custom name, else auto.
+        void grid_placement(const std::string& key, const Tokens& tokens, bool important,
+                            std::vector<Declaration>& out) {
+            if (references(tokens)) {
+                fail(key + " shorthand with var() outside profile");
+            }
+            const std::vector<std::string> names =
+                key == "grid-row"      ? std::vector<std::string>{"grid-row-start", "grid-row-end"}
+                : key == "grid-column" ? std::vector<std::string>{"grid-column-start", "grid-column-end"}
+                                       : std::vector<std::string>{"grid-row-start", "grid-column-start", "grid-row-end",
+                                                                  "grid-column-end"};
+            if (wide(keyword(tokens))) {
+                for (const auto& name : names) {
+                    out.push_back({name, tokens, important});
+                }
+                return;
+            }
+            std::vector<Tokens> lines(1);
+            for (const auto& t : tokens) {
+                if (t.kind == Kind::Delim && t.text == "/") {
+                    lines.emplace_back();
+                } else {
+                    lines.back().push_back(t);
+                }
+            }
+            if (lines.size() > names.size() || std::any_of(lines.begin(), lines.end(), [](const Tokens& l) {
+                    return l.empty();
+                })) {
+                fail(key + " shorthand");
+            }
+            const auto named = [](const Tokens& l) {
+                const auto word = keyword(l);
+                return !word.empty() && word != "auto" && word != "span";
+            };
+            while (lines.size() < names.size()) {
+                // Two lines: the end takes the start's name. grid-area: the column start and row end take the row
+                // start's, the column end the column start's.
+                const auto from = names.size() == 4 && lines.size() == 3 ? 1 : 0;
+                const auto line = lines[std::size_t(from)];
+                lines.push_back(named(line) ? line : Tokens{{Kind::Ident, "auto", {}}});
+            }
+            for (std::size_t i = 0; i < names.size(); ++i) {
+                out.push_back({names[i], lines[i], important});
+            }
+        }
+
         void declaration(std::string_view part, const StyleProfile& profile, std::vector<Declaration>& result);
 
         std::vector<Declaration> declarations(std::string text, const StyleProfile& profile,
@@ -791,6 +843,7 @@ namespace weft {
                        (key == "outline" && profile.properties.contains("outline-style")) ||
                        (key == "text-decoration" && profile.properties.contains("text-decoration-line")))) &&
                     !(profile.forgiving && (key == "font" || key == "place-content" || key == "place-self")) &&
+                    !(grid_placement_shorthand(key) && profile.properties.contains("grid-row-start")) &&
                     !(key == "inset" && profile.single_value_inset) &&
                     !(key == "background" && profile.properties.contains("background-color"))) {
                     fail("unsupported property " + key);
@@ -838,7 +891,10 @@ namespace weft {
                     // takes one form).
                     result.push_back({"row-gap", tokens, important, false, -1, -1, 0});
                     result.push_back({"column-gap", tokens, important, false, -1, -1, 1});
-                } else if (profile.forgiving && (key == "place-content" || key == "place-self")) {
+                } else if (grid_placement_shorthand(key) && profile.properties.contains("grid-row-start")) {
+                    grid_placement(key, tokens, important, result);
+                } else if (profile.forgiving &&
+                           (key == "place-content" || key == "place-self" || key == "place-items")) {
                     const auto suffix = key.substr(std::string("place").size());
                     result.push_back({"align" + suffix, tokens, important, false, -1, -1, 0});
                     if (profile.properties.contains("justify" + suffix)) {
@@ -2541,7 +2597,7 @@ namespace weft {
         std::optional<Sum> single(std::string unit, double v) {
             if (!std::isfinite(v)) {
                 // infinity clamps to a large finite value (CSS Values 4 §10.9).
-                v = v > 0 ? 1e7 : -1e7;
+                v = v > 0 ? constants::max_style_number_magnitude : -constants::max_style_number_magnitude;
             }
             return Sum{{std::move(unit), v}};
         }
@@ -2777,6 +2833,34 @@ namespace weft {
                     }
                 } else {
                     simplify_math(t.args);
+                }
+            }
+        }
+
+        // Numbers beyond the range the profiles take clamp to it, as calc(infinity) does (CSS Values 4 §4.2): Tailwind's
+        // rounded-full is border-radius: 3.40282e38px.
+        void clamp_numbers(Tokens& tokens) {
+            for (auto& t : tokens) {
+                if (t.kind == Kind::Function) {
+                    clamp_numbers(t.args);
+                    continue;
+                }
+                if (t.kind != Kind::Number && t.kind != Kind::Dimension && t.kind != Kind::Percentage) {
+                    continue;
+                }
+                std::size_t unit = t.text.size();
+                if (t.kind == Kind::Percentage) {
+                    --unit;
+                }
+                while (t.kind == Kind::Dimension && unit &&
+                       std::isalpha(static_cast<unsigned char>(t.text[unit - 1]))) {
+                    --unit;
+                }
+                const auto n = css::parse_number<double>(t.text.substr(0, unit));
+                if (n && std::abs(*n) > constants::max_style_number_magnitude) {
+                    t.text = number_text(*n > 0 ? constants::max_style_number_magnitude
+                                                : -constants::max_style_number_magnitude) +
+                             t.text.substr(unit);
                 }
             }
         }
@@ -4404,6 +4488,7 @@ namespace weft {
             // color-mix()); parent: its parent's (the color property's own currentcolor).
             void normalize(const std::string& key, Tokens& tokens, const StyleValues& own, const StyleValues* parent) {
                 simplify_math(tokens);
+                clamp_numbers(tokens);
                 if (!color_bearing(key)) {
                     return;
                 }

@@ -14,8 +14,8 @@
 #include <vector>
 
 // The Yoga adapter, shared by the document formatter and the scene: one mapping from computed CSS to boxes.
-// Block, flex, absolute and an equal-column grid subset go through Yoga; text is measured by the formatter's
-// text system. Pure input and output: no DOM, script values or Yoga nodes cross this boundary. Unsupported
+// Block, flex and absolute boxes go through Yoga, grid containers through CSS Grid track sizing (layout/grid.hpp)
+// with each item laid out by Yoga in its area; text is measured by the formatter's text system. Pure input and output: no DOM, script values or Yoga nodes cross this boundary. Unsupported
 // formatting contexts, properties and units fail explicitly.
 namespace weft {
     // A text leaf as the formatter's text system lays it out.

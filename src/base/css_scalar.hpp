@@ -333,37 +333,4 @@ namespace weft::css {
     constexpr bool ecma_space(char c) noexcept {
         return c == ' ' || c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r';
     }
-
-    // repeat(<1-8>, minmax(0, 1fr)) as the whole text, with \s* around every token: the column count.
-    inline std::optional<unsigned> grid_repeat(std::string_view text) {
-        std::size_t i{};
-        const auto spaces = [&] {
-            while (i < text.size() && ecma_space(text[i])) {
-                ++i;
-            }
-        };
-        const auto token = [&](std::string_view s) {
-            spaces();
-            if (!text.substr(i).starts_with(s)) {
-                return false;
-            }
-            i += s.size();
-            return true;
-        };
-        constexpr std::string_view repeat = "repeat(";
-        if (!text.starts_with(repeat)) {
-            return {};
-        }
-        i = repeat.size();
-        spaces();
-        if (i >= text.size() || text[i] < '1' || text[i] > '8') {
-            return {};
-        }
-        const auto count = unsigned(text[i++] - '0');
-        if (!token(",") || !token("minmax(") || !token("0") || !token(",") || !token("1fr") || !token(")") ||
-            !token(")")) {
-            return {};
-        }
-        return i == text.size() ? std::optional(count) : std::nullopt;
-    }
 } // namespace weft::css

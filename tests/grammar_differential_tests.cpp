@@ -141,38 +141,6 @@ namespace {
         }
         require(matched > std::size_t(limits::perspective_min_matched), "perspective coverage");
     }
-
-    void grid_repeats() {
-        static const std::regex repeat(R"(repeat\(\s*([1-8])\s*,\s*minmax\(\s*0\s*,\s*1fr\s*\)\s*\))");
-        std::mt19937 random(limits::grid_repeat_seed);
-        const std::vector<std::string> pieces{"repeat(",
-                                              "minmax(",
-                                              "0",
-                                              "1fr",
-                                              ",",
-                                              ")",
-                                              " ",
-                                              "\n",
-                                              "3",
-                                              "9",
-                                              "8",
-                                              "repeat(4, minmax(0, 1fr))",
-                                              "repeat(2,minmax(0,1fr))",
-                                              "x"};
-        std::size_t matched{};
-        for (int i = 0; i < limits::grid_repeat_texts; ++i) {
-            const auto text = random_text(random, pieces, limits::grid_repeat_max_pieces);
-            std::smatch m;
-            const bool expected = std::regex_match(text, m, repeat);
-            const auto actual = weft::css::grid_repeat(text);
-            require(expected == actual.has_value(), "grid repeat of '" + text + "'");
-            if (expected) {
-                require(*actual == unsigned(std::stoul(m[1].str())), "grid repeat count of '" + text + "'");
-                ++matched;
-            }
-        }
-        require(matched > std::size_t(limits::grid_repeat_min_matched), "grid repeat coverage");
-    }
 } // namespace
 
 int main() {
@@ -181,10 +149,8 @@ int main() {
         replacements();
         decimals();
         perspectives();
-        grid_repeats();
         std::cout << "PASS regex-free grammars equal their regexes: " << spans
-                  << " number spans, whitespace and comment replacement, decimal, perspective plane, grid "
-                     "repeat\n";
+                  << " number spans, whitespace and comment replacement, decimal and perspective plane\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "FAIL: " << error.what() << '\n';

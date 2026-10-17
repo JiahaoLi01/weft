@@ -262,6 +262,97 @@ namespace {
                 "the glow keeps its blur, the other element loses its filter, in a frame");
     }
 
+    // CSS Grid on a forgiving page: the CRPG Pick 17 draft's automatic repetition (inline styles, as React sets them),
+    // whose cards stretch to their row, and the Market's auto and fr columns (Tailwind classes). A grid value the
+    // layout does not take is dropped with a note and the frame still comes; a strict page keeps its diagnostic and its
+    // last frame.
+    void grids() {
+        const std::string script = R"JS(
+            const root = document.getElementById('root');
+            const draft = document.createElement('div');
+            draft.id = 'draft';
+            Object.assign(draft.style, {display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+                                        gap: '8px', width: '1000px'});
+            for (let i = 0; i < 4; ++i) {
+              const card = document.createElement('div');
+              card.id = 'card' + i;
+              if (i == 1) card.style.height = '50px';
+              draft.appendChild(card);
+            }
+            root.appendChild(draft);
+            const market = document.createElement('div');
+            market.id = 'market';
+            market.className = 'market';
+            for (const [id, width] of [['day', 30], ['side', 12], ['shares', 0], ['price', 56]]) {
+              const cell = document.createElement('div');
+              cell.id = id;
+              if (width) cell.style.width = width + 'px';
+              cell.style.height = '10px';
+              market.appendChild(cell);
+            }
+            root.appendChild(market);
+            const named = document.createElement('div');
+            named.id = 'named';
+            named.setAttribute('style', 'display:grid;grid-template-columns:100px 100px;width:200px');
+            named.innerHTML = '<div id="first" style="height:10px"></div>' +
+                              '<div id="header" style="grid-column:header;height:10px"></div>';
+            root.appendChild(named);
+            globalThis.box = id => {
+              const r = document.getElementById(id).getBoundingClientRect();
+              return JSON.stringify([r.x, r.y, r.width, r.height]);
+            };
+          )JS";
+        const std::string sheet = ".market{display:grid;grid-template-columns:auto auto 1fr auto;column-gap:8px;"
+                                  "width:400px}";
+        Fixture f;
+        f.load(script, sheet);
+        f.view.advance(16);
+        const auto d = f.diagnostics();
+        const auto noted = [&](const std::string& message) {
+            return std::any_of(d.begin(), d.end(), [&](const ViewDiagnostic& x) {
+                return x.kind == ViewDiagnostic::Kind::Scene && x.message == message;
+            });
+        };
+        require(noted("WEFT_STYLE_DROPPED: grid-column-start header on <div> (named lines and areas are outside the "
+                      "profile)") &&
+                    noted("WEFT_STYLE_DROPPED: grid-column-end header on <div> (named lines and areas are outside the "
+                          "profile)"),
+                "a named line dropped with a note");
+        require(f.view.shared()->frame() != nullptr, "the frame comes");
+        // Three 328px columns fit 1000px with 8px gaps; the cards of auto height stretch to the 50px row.
+        const auto top = f.eval("document.getElementById('draft').getBoundingClientRect().y");
+        require(f.eval("box('card0')") == "[0," + top + ",328,50]" &&
+                    f.eval("box('card1')") == "[336," + top + ",328,50]" &&
+                    f.eval("box('card2')") == "[672," + top + ",328,50]",
+                "the draft's first row: " + f.eval("box('card0')") + f.eval("box('card1')") + f.eval("box('card2')"));
+        require(f.eval("box('card3').split(',')[2]") == "328" &&
+                    f.eval("document.getElementById('card3').getBoundingClientRect().y - " + top) == "58",
+                "the fourth card on the second row");
+        // The Market: two auto columns (30px, 12px), a fr column taking the rest, an auto column of 56px.
+        require(f.eval("['day','side','shares','price'].map(id => document.getElementById(id).getBoundingClientRect())"
+                       ".map(r => r.x + ':' + r.width).join(' ')") == "0:30 38:12 58:278 344:56",
+                "the Market's columns");
+        // The named line is gone: the item is placed automatically, after the first.
+        require(f.eval("document.getElementById('header').getBoundingClientRect().x") == "100", "automatic placement");
+        // A strict page keeps the diagnostic.
+        Fixture strict;
+        strict.load(R"JS(
+            const named = document.createElement('div');
+            named.setAttribute('style', 'display:grid;grid-template-columns:100px 100px;width:200px');
+            const item = document.createElement('div');
+            item.setAttribute('style', 'grid-column:header;height:10px');
+            named.appendChild(item);
+            document.getElementById('root').appendChild(named);
+          )JS",
+                    {}, false);
+        strict.view.advance(16);
+        bool failed{};
+        for (const auto& x : strict.diagnostics()) {
+            failed |= x.message.find("WEFT_UNSUPPORTED_FORMAT: grid-column-start header") != std::string::npos;
+        }
+        require(failed, "a strict page's grid value outside the profile is a diagnostic");
+    }
+
     // translate, rotate and scale apply before transform, in that order (CSS Transforms 2).
     void transforms() {
         Fixture f;
@@ -301,6 +392,7 @@ int main() {
         keys_and_focus();
         media_and_observers();
         filters();
+        grids();
         transforms();
         numbers();
         std::cout << "web platform tests passed\n";

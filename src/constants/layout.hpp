@@ -25,8 +25,17 @@ namespace weft::constants::layout {
     inline constexpr int max_flex_number_magnitude = 1000000;
     // Largest single style value, in bytes, accepted by the flex adapter.
     inline constexpr int max_style_value_bytes = 128;
-    // Most equal 1fr tracks in grid-template-columns.
-    inline constexpr int max_grid_columns = 8;
+    // Grid line numbers and spans are clamped to this magnitude, and an explicit grid holds at most this many tracks
+    // in an axis (CSS Grid 1 §8.3 lets an implementation clamp them).
+    inline constexpr int max_grid_lines = 1000;
+    // Most cells of an implicit grid that item placement tracks.
+    inline constexpr int max_grid_cells = 1 << 22;
+    // Most occupancy checks of one grid item placement (dense packing searches from the start for every item).
+    inline constexpr int max_grid_placement_work = 1 << 26;
+    // Largest grid track list, in bytes.
+    inline constexpr int max_grid_value_bytes = 1024;
+    // Float tolerance when distributing space among grid tracks.
+    inline constexpr float grid_size_epsilon = 0.0001f;
     // CSS default object size of a replaced element without a width or height (an svg root).
     inline constexpr float default_object_width_px = 300;
     inline constexpr float default_object_height_px = 150;

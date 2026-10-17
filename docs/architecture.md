@@ -403,6 +403,8 @@ JS 源码或 bundle 为基础资产格式，VM bytecode 仅作为绑定引擎版
 
 2026-10-11 重构第 8 步：page、positioned、auto 三个页面 profile 已退役，页面只有一个文档格式化器 `layout_document`（block、flex 与 absolute 经 Yoga，inline 文本按 Blink 行盒，canvas/img 替换元素，视口大小的初始包含块）。第 8.2 步起 scene 与文档共用一个 Yoga 适配器 `layout_boxes`（[flex.hpp](../src/layout/flex.hpp)）：同一套 CSS 到 Yoga 的映射、自动最小尺寸、grid 子集、svg 替换盒与 transform 包含块，文字由各自的文字系统测量。第 8.3b 步起两者也共用一条命中路径（[hit_test.hpp](../src/layout/hit_test.hpp)）：绘制顺序的命中区域、逆平面与裁剪链；paint IR 在第 8 步后续部分合并。
 
+2026-10-18 起 grid 不再是等列子集：`layout_boxes` 对网格容器按 CSS Grid 1 放置项目（§8.5）并跑轨道尺寸算法（§11），值的解析、放置与轨道尺寸在 [grid.hpp](../src/layout/grid.hpp)，只处理数值，与 Yoga 无关。网格节点在 Yoga 里仍是带测量函数的叶子（Yoga 不许测量节点有子节点）：测量时按 Yoga 给的确定宽度、最大内容或收缩适配算列，再算行。每个网格项有自己的 Yoga 根（`Node::area`），是与它的网格区域同大的列方向 flex 盒，由 Yoga 在其中拉伸或对齐项目，解析百分比尺寸与 auto 外边距；绝对定位的子项在同样的盒里按网格的内边距盒或行号围出的区域定位。列的贡献取适配器的内在宽度，行的贡献取项目在其列宽下的布局。宽松页面构建 scene 时丢弃适配器不接受的网格值（`drop_grid`，`WEFT_STYLE_DROPPED`），严格页面仍是诊断。
+
 先提供可序列化的 DOM、计算样式、布局盒、paint order、clip、资源账目和失效原因。trace 串联输入、JS task、同步 flush、style、layout、paint、upload、submit 与完成 serial。通过 CLI 或简单检查器使用，之后再决定是否实现 Chrome DevTools Protocol 子集。
 
 每份 FramePacket 可捕获元数据、必要资源和确定性时钟输入，以便离线 replay。初期捕获只覆盖测试资产，不能默认认为可以重放任意宿主纹理或回调。
