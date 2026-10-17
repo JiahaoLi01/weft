@@ -203,6 +203,8 @@ namespace weft::dom {
         result.scroll_top = n.scroll_top;
         result.hovered = n.hovered;
         result.active = n.active;
+        result.focused = n.focused;
+        result.focus_within = n.focus_within;
         result.revision = n.subtree_revision;
         result.attributes = snapshot_attributes(n);
         result.children.reserve(n.children.size());
@@ -232,11 +234,13 @@ namespace weft::dom {
             changed = true;
         }
         if (copy.scroll_left != n.scroll_left || copy.scroll_top != n.scroll_top || copy.hovered != n.hovered ||
-            copy.active != n.active) {
+            copy.active != n.active || copy.focused != n.focused || copy.focus_within != n.focus_within) {
             copy.scroll_left = n.scroll_left;
             copy.scroll_top = n.scroll_top;
             copy.hovered = n.hovered;
             copy.active = n.active;
+            copy.focused = n.focused;
+            copy.focus_within = n.focus_within;
             changed = true;
         }
         const bool same_children = copy.children.size() == n.children.size() &&
@@ -369,5 +373,49 @@ namespace weft::dom {
             return std::nullopt;
         }
         return TreeElement{tree, p};
+    }
+
+    std::optional<TreeElement> TreeElement::previous() const {
+        const Node* p = tree->parent_of(*n);
+        if (!p) {
+            return std::nullopt;
+        }
+        const auto at = std::find(p->children.begin(), p->children.end(), n->identity);
+        for (auto it = at; it != p->children.begin();) {
+            const Node& sibling = tree->at(*--it);
+            if (sibling.type == constants::element_node_type) {
+                return TreeElement{tree, &sibling};
+            }
+        }
+        return std::nullopt;
+    }
+
+    std::optional<TreeElement> TreeElement::next() const {
+        const Node* p = tree->parent_of(*n);
+        if (!p) {
+            return std::nullopt;
+        }
+        auto it = std::find(p->children.begin(), p->children.end(), n->identity);
+        if (it == p->children.end()) {
+            return std::nullopt;
+        }
+        for (++it; it != p->children.end(); ++it) {
+            const Node& sibling = tree->at(*it);
+            if (sibling.type == constants::element_node_type) {
+                return TreeElement{tree, &sibling};
+            }
+        }
+        return std::nullopt;
+    }
+
+    bool TreeElement::has_content() const {
+        for (const auto& id : n->children) {
+            const Node& child = tree->at(id);
+            if (child.type == constants::element_node_type ||
+                (child.type == constants::text_node_type && !child.data.empty())) {
+                return true;
+            }
+        }
+        return false;
     }
 } // namespace weft::dom

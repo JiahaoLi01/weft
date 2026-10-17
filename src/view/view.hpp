@@ -36,6 +36,8 @@ namespace weft {
         std::string base;
         // CRPG Framework's window.ue, __ue_dispatch and __vm_update over weft.engine (ScriptPlatformModule::CrpgBridge).
         bool crpg_bridge{};
+        // CSS as browsers take it (WEFT_PAGE_FORGIVING_CSS): what the scene cannot take is a diagnostic, not a failure.
+        bool forgiving_css{};
     };
 
     // A frame a View published: its scene (never changed again), the View's size in CSS px and its device scale, the
@@ -146,6 +148,8 @@ namespace weft {
         // on. Whether a listener prevented the default action of the main event.
         bool pointer(const PointerInput& input);
         ViewHit hit(float x, float y);
+        // A tool's script in the page: whether it completed, and String() of its value or of what it threw.
+        std::pair<bool, std::string> evaluate(std::string_view source);
 
         // The diagnostics since the last take, and how many were dropped past constants::view::max_diagnostics.
         std::vector<ViewDiagnostic> take_diagnostics(std::size_t* dropped = nullptr);

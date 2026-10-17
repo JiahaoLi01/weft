@@ -547,6 +547,9 @@ namespace weft {
     public:
         // Text is shaped and laid out in lines by `text`, which outlives the solver.
         SceneSolver(std::string stylesheet, std::string keyframes, SceneText& text, bool incremental = true);
+        // forgiving: the stylesheet and keyframes taken as browsers take CSS (StyleProfile::forgiving), what they
+        // cannot take dropped with a warning (take_warnings).
+        SceneSolver(std::string stylesheet, std::string keyframes, SceneText& text, bool incremental, bool forgiving);
         ~SceneSolver();
         SceneSolver(const SceneSolver&) = delete;
         SceneSolver& operator=(const SceneSolver&) = delete;
@@ -556,6 +559,8 @@ namespace weft {
         // discard the output and reset this solver before using it again.
         void update(const DomSnapshot&, SceneFrame&, float width, float height, double time_ms);
         void reset();
+        // A forgiving solver's warnings since the last take: what its sheet, keyframes and cascades dropped.
+        std::vector<std::string> take_warnings();
         void set_profiling(bool);
         // Whether frames carry the element geometry layout gives (SceneFrame::elements: border boxes without
         // transforms, in tree order); on at first. A host that computes geometry itself (SceneGeometry, as View does)
@@ -612,7 +617,8 @@ namespace weft {
         std::unique_ptr<Impl> impl_;
     };
 
-    StyleProfile scene_style_profile();
+    // The scene's style profile; forgiving: CSS as browsers take it (StyleProfile::forgiving).
+    StyleProfile scene_style_profile(bool forgiving = false);
 
     // Windows software raster adapter, separate from the owner formatting core.
     // RGBA is straight encoded sRGB, ready for the existing image upload contract.

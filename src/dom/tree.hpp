@@ -35,6 +35,9 @@ namespace weft::dom {
         std::string data;
         bool hovered{};
         bool active{};
+        // The element has the focus, or it or a descendant has.
+        bool focused{};
+        bool focus_within{};
         std::vector<Attribute> attributes;
         // Tree edges by identity; a null identity (generation 0) is no node.
         NodeIdentity parent;
@@ -200,8 +203,21 @@ namespace weft::dom {
             return n->active;
         }
 
+        bool focused() const {
+            return n->focused;
+        }
+
+        bool focus_within() const {
+            return n->focus_within;
+        }
+
         // The element is the Document's child.
         bool document_root() const;
         std::optional<TreeElement> parent() const;
+        // The element siblings before and after it.
+        std::optional<TreeElement> previous() const;
+        std::optional<TreeElement> next() const;
+        // It has an element or text child (:empty does not match).
+        bool has_content() const;
     };
 } // namespace weft::dom

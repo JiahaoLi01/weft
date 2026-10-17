@@ -33,6 +33,17 @@ namespace weft {
         bool four_value_edges{}; // Expand margin/padding/border-width before cascade.
         bool flow_shorthands{};  // Corner radii and overflow axes, before cascade.
         bool scene_syntax{};     // Explicit scene profile: escaped selectors, SVG, raw shorthands.
+        // CSS as browsers take it (a page loaded with WEFT_PAGE_FORGIVING_CSS): style sheets parsed as CSS Syntax
+        // parses them, with @layer (cascade layers), @media and @supports (evaluated: a screen with a fine pointer
+        // that hovers, sizes by the viewport), @property (registered custom properties), @keyframes (kept for the
+        // scene) and CSS nesting; the selectors of Selectors 4 (SelectorGrammar::modern); logical properties and
+        // their shorthands; every <color> and calc() computed to the forms the scene draws. What is outside the
+        // profile (a property, a value, a selector, an at-rule) is dropped with a warning (CompiledStyle::
+        // take_warnings), as CSS drops what it cannot parse, instead of failing the sheet or the cascade.
+        bool forgiving{};
+        // Properties a forgiving sheet drops without a warning: hints that have no effect in a scene (font
+        // smoothing, tab size...).
+        std::vector<std::string> ignored;
     };
 
     // The custom properties an element's children inherit, as the cascade resolved them (opaque).
@@ -77,6 +88,9 @@ namespace weft {
 
     ComputedStyle compute_style(const DomSnapshot& root, std::string_view author_stylesheet,
                                 const StyleProfile& profile);
+    // The same, for a forgiving profile with @media conditions on the viewport (CSS px).
+    ComputedStyle compute_style(const DomSnapshot& root, std::string_view author_stylesheet,
+                                const StyleProfile& profile, float viewport_width, float viewport_height);
 
     // Immutable, bounded parsed stylesheet. Each evaluation has independent work
     // counters; results own all values and never retain the input DOM.
@@ -108,6 +122,10 @@ namespace weft {
             AttributeMap attributes;
             bool hovered{};
             bool active{};
+            // Focus, and whether the element has content (:empty), where a selector reads them.
+            bool focused{};
+            bool focus_within{};
+            bool content{};
             std::vector<Node> children; // Element children, DOM order.
             // The subtree's nodes, which count against the document's node bound.
             std::uint32_t nodes{};
@@ -117,7 +135,8 @@ namespace weft {
             friend bool operator==(const Node& a, const Node& b) {
                 return a.identity == b.identity && a.type == b.type && a.local_name == b.local_name &&
                        a.namespace_uri == b.namespace_uri && a.attributes == b.attributes && a.hovered == b.hovered &&
-                       a.active == b.active && a.children == b.children && a.nodes == b.nodes;
+                       a.active == b.active && a.focused == b.focused && a.focus_within == b.focus_within &&
+                       a.content == b.content && a.children == b.children && a.nodes == b.nodes;
             }
         };
 
@@ -164,6 +183,15 @@ namespace weft {
         // match a supported selector. Text, scroll, attributes and identities stay.
         void normalize_selector_state(DomSnapshot&) const;
 
+        // A forgiving sheet's warnings since the last take: what it dropped as it was parsed and what cascades dropped
+        // since (each text once). Owner thread.
+        std::vector<std::string> take_warnings() const;
+        // The @keyframes rules of a forgiving sheet, as their text.
+        const std::string& keyframes() const;
+        // The viewport @media conditions read (CSS px). True when a condition of the sheet changed its outcome: the
+        // next cascade is to start over (without a previous document), as the rules that match changed.
+        bool set_viewport(float width, float height);
+
     private:
         struct Impl;
         std::unique_ptr<Impl> impl_;
@@ -174,6 +202,11 @@ namespace weft {
     void validate_style_pair(const DomSnapshot& dom, const ComputedStyle& style);
     // The document formatter's property registry and UA sheet.
     StyleProfile document_style_profile();
+    // A value with its math functions (calc(), min(), max(), clamp(), parenthesized sums) simplified as CSS Values 4
+    // simplifies them, rem at the default font size: a function that reduces to one term is that term, one with terms of
+    // several units a canonical calc(). The text as it was when it has none, or one that does not parse.
+    std::string simplify_math_text(std::string_view value);
+
     // The shared color subset is #rrggbb, transparent, and legacy comma rgb/rgba
     // numbers. Components/alpha clamp as CSS requires. No color spaces/named colors.
     std::array<float, 4> parse_css_color(std::string_view value);

@@ -96,12 +96,25 @@ namespace weft {
     SceneFont scene_font(const SceneStyle& style) {
         SceneFont font;
         font.families = std::string(style.text(PropertyId::FontFamily, constants::scene::default_text_families));
-        font.size = length(std::string(style.text(PropertyId::FontSize, constants::default_font_size)),
-                           constants::default_font_size_px);
+        // A value that does not parse names its property.
+        const auto named = [](const char* property, std::string_view value, auto parse) {
+            try {
+                return parse();
+            } catch (const std::invalid_argument&) {
+                throw_diagnostic(Diag::SceneRaster,
+                                 std::string(property) + ": the font value '" + std::string(value) + "'");
+            }
+        };
+        const auto size_text = std::string(style.text(PropertyId::FontSize, constants::default_font_size));
+        font.size = named("font-size", size_text, [&] {
+            return length(size_text, constants::default_font_size_px);
+        });
         const auto weight = std::string(style.text(PropertyId::FontWeight, constants::default_font_weight));
         font.weight = weight == "bold"     ? constants::scene::bold_font_weight_value
                       : weight == "normal" ? constants::scene::normal_font_weight_value
-                                           : int(number(weight));
+                                           : named("font-weight", weight, [&] {
+                                                 return int(number(weight));
+                                             });
         const auto italic = std::string(style.text(PropertyId::FontStyle, "normal"));
         font.italic = italic == "italic" || italic.starts_with("oblique");
         // font-variant-numeric: normal, or at most one value of each group (figures, spacing, fractions) with ordinal
@@ -139,13 +152,17 @@ namespace weft {
             }
         }
         const auto spacing = std::string(style.text(PropertyId::LetterSpacing, "0"));
-        font.letter_spacing = spacing == "normal" ? 0 : length(spacing, font.size);
+        font.letter_spacing = spacing == "normal" ? 0 : named("letter-spacing", spacing, [&] {
+            return length(spacing, font.size);
+        });
         const auto line = std::string(style.text(PropertyId::LineHeight, "normal"));
         if (line != "normal") {
             // split_unit returns views: keep the trimmed string alive.
             const auto trimmed = css::trim(line);
             const auto [digits, unit] = css::split_unit(trimmed, {.px = true, .percent = true, .em = true});
-            font.line_height = unit == css::Unit::None ? number(digits) * font.size : length(line, font.size);
+            font.line_height = named("line-height", line, [&] {
+                return unit == css::Unit::None ? number(digits) * font.size : length(line, font.size);
+            });
         }
         if (!std::isfinite(font.size) || font.size <= 0 || font.size > constants::text::max_font_pixels) {
             throw_diagnostic(Diag::SceneRaster, "font-size out of range");

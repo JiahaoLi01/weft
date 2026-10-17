@@ -1,6 +1,7 @@
 #include "style/style.hpp"
 #include "base/css_scalar.hpp"
 #include "style/background_layer.hpp"
+#include "style/color.hpp"
 #include "base/owner_thread.hpp"
 #include "constants/common.hpp"
 #include "constants/style.hpp"
@@ -11,6 +12,8 @@
 #include <cctype>
 #include <charconv>
 #include <cmath>
+#include <cstdio>
+#include <map>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -114,6 +117,9 @@ namespace weft {
             std::string_view text;
             std::size_t p{};
             std::size_t count{};
+            // A forgiving profile's values: a parenthesized simple block is a function token without a name
+            // (calc((a + b) / 2)), and strings may escape their quotes.
+            bool forgiving{};
 
             Tokens scan(unsigned depth = 0) {
                 if (depth > constants::style::max_function_depth) {
@@ -140,6 +146,9 @@ namespace weft {
                     if (c == '\'' || c == '"') {
                         ++p;
                         while (p < text.size() && text[p] != c) {
+                            if (forgiving && text[p] == '\\' && p + 1 < text.size()) {
+                                ++p;
+                            }
                             ++p;
                         }
                         if (p == text.size()) {
@@ -216,6 +225,11 @@ namespace weft {
                             fail("hash token");
                         }
                         out.push_back({Kind::Hash, std::string(text.substr(begin, p - begin)), {}});
+                        continue;
+                    }
+                    if (forgiving && c == '(') {
+                        ++p;
+                        out.push_back({Kind::Function, std::string(), scan(depth + 1)});
                         continue;
                     }
                     if (c == '(' || c == '{' || c == '}' || c == '[' || c == ']' || c == ';' || c == '!' || c == '\\') {
@@ -502,8 +516,196 @@ namespace weft {
             return std::move(result.parts);
         }
 
-        std::vector<Declaration> declarations(std::string text, const StyleProfile& profile) {
-            if (text.size() > constants::style::max_declaration_bytes) {
+        // What a forgiving sheet and its cascades dropped: each text once, at most max_style_warnings.
+        struct Warnings {
+            std::vector<std::string> list;
+            std::set<std::string> seen;
+
+            void add(std::string text) {
+                if (list.size() >= std::size_t(constants::style::max_style_warnings) || seen.contains(text)) {
+                    return;
+                }
+                seen.insert(text);
+                list.push_back(std::move(text));
+            }
+        };
+
+        // Text cut to a length for a warning.
+        std::string excerpt(std::string_view text, std::size_t length = 96) {
+            auto t = trim(text);
+            if (t.size() > length) {
+                t = t.substr(0, length) + "...";
+            }
+            return t;
+        }
+
+        // A logical property's physical longhands in a horizontal, left-to-right writing mode (CSS Logical
+        // Properties 1): their names and which value of a two-value shorthand each takes (-1: the whole value).
+        const std::vector<std::pair<std::string, int>>* logical_longhands(const std::string& key) {
+            static const auto table = [] {
+                std::map<std::string, std::vector<std::pair<std::string, int>>> t;
+                for (const std::string box : {"margin", "padding"}) {
+                    t[box + "-inline"] = {{box + "-left", 0}, {box + "-right", 1}};
+                    t[box + "-block"] = {{box + "-top", 0}, {box + "-bottom", 1}};
+                    t[box + "-inline-start"] = {{box + "-left", -1}};
+                    t[box + "-inline-end"] = {{box + "-right", -1}};
+                    t[box + "-block-start"] = {{box + "-top", -1}};
+                    t[box + "-block-end"] = {{box + "-bottom", -1}};
+                }
+                t["inset-inline"] = {{"left", 0}, {"right", 1}};
+                t["inset-block"] = {{"top", 0}, {"bottom", 1}};
+                t["inset-inline-start"] = {{"left", -1}};
+                t["inset-inline-end"] = {{"right", -1}};
+                t["inset-block-start"] = {{"top", -1}};
+                t["inset-block-end"] = {{"bottom", -1}};
+                for (const std::string part : {"width", "style", "color"}) {
+                    t["border-inline-" + part] = {{"border-left-" + part, 0}, {"border-right-" + part, 1}};
+                    t["border-block-" + part] = {{"border-top-" + part, 0}, {"border-bottom-" + part, 1}};
+                    t["border-inline-start-" + part] = {{"border-left-" + part, -1}};
+                    t["border-inline-end-" + part] = {{"border-right-" + part, -1}};
+                    t["border-block-start-" + part] = {{"border-top-" + part, -1}};
+                    t["border-block-end-" + part] = {{"border-bottom-" + part, -1}};
+                }
+                t["border-inline"] = {{"border-left", -1}, {"border-right", -1}};
+                t["border-block"] = {{"border-top", -1}, {"border-bottom", -1}};
+                t["border-inline-start"] = {{"border-left", -1}};
+                t["border-inline-end"] = {{"border-right", -1}};
+                t["border-block-start"] = {{"border-top", -1}};
+                t["border-block-end"] = {{"border-bottom", -1}};
+                t["border-start-start-radius"] = {{"border-top-left-radius", -1}};
+                t["border-start-end-radius"] = {{"border-top-right-radius", -1}};
+                t["border-end-start-radius"] = {{"border-bottom-left-radius", -1}};
+                t["border-end-end-radius"] = {{"border-bottom-right-radius", -1}};
+                t["inline-size"] = {{"width", -1}};
+                t["block-size"] = {{"height", -1}};
+                t["min-inline-size"] = {{"min-width", -1}};
+                t["min-block-size"] = {{"min-height", -1}};
+                t["max-inline-size"] = {{"max-width", -1}};
+                t["max-block-size"] = {{"max-height", -1}};
+                t["overflow-inline"] = {{"overflow-x", -1}};
+                t["overflow-block"] = {{"overflow-y", -1}};
+                return t;
+            }();
+            const auto it = table.find(key);
+            return it == table.end() ? nullptr : &it->second;
+        }
+
+        // The flex shorthand (CSS Flexbox 1 §7.2) as its longhands: none, auto, initial, a CSS-wide keyword, or
+        // <grow> [<shrink>]? || <basis>.
+        void flex_shorthand(const Tokens& tokens, bool important, std::vector<Declaration>& out) {
+            Tokens grow{{Kind::Number, "1", {}}};
+            Tokens shrink{{Kind::Number, "1", {}}};
+            Tokens basis{{Kind::Percentage, "0%", {}}};
+            const auto word = keyword(tokens);
+            if (references(tokens)) {
+                fail("flex shorthand with var()");
+            }
+            if (wide(word)) {
+                grow = shrink = basis = tokens;
+            } else if (word == "none") {
+                grow = shrink = {{Kind::Number, "0", {}}};
+                basis = {{Kind::Ident, "auto", {}}};
+            } else if (word == "auto") {
+                basis = {{Kind::Ident, "auto", {}}};
+            } else if (word == "initial") {
+                grow = {{Kind::Number, "0", {}}};
+                basis = {{Kind::Ident, "auto", {}}};
+            } else {
+                std::vector<Token> numbers;
+                std::optional<Token> length;
+                for (const auto& t : tokens) {
+                    if (t.kind == Kind::Number && numbers.size() < 2 && !length) {
+                        numbers.push_back(t);
+                    } else if (!length &&
+                               (t.kind == Kind::Dimension || t.kind == Kind::Percentage || t.kind == Kind::Number ||
+                                t.kind == Kind::Function ||
+                                (t.kind == Kind::Ident && (lower(t.text) == "auto" || lower(t.text) == "content")))) {
+                        length = t;
+                    } else if (t.kind == Kind::Number && length && numbers.size() < 2 && numbers.size() >= 1) {
+                        numbers.push_back(t);
+                    } else {
+                        fail("flex shorthand: " + serialize(tokens));
+                    }
+                }
+                if (numbers.empty() && !length) {
+                    fail("flex shorthand: " + serialize(tokens));
+                }
+                if (!numbers.empty()) {
+                    grow = {numbers[0]};
+                }
+                if (numbers.size() > 1) {
+                    shrink = {numbers[1]};
+                }
+                if (length) {
+                    basis = {*length};
+                }
+            }
+            out.push_back({"flex-grow", grow, important});
+            out.push_back({"flex-shrink", shrink, important});
+            out.push_back({"flex-basis", basis, important});
+        }
+
+        // The font shorthand (CSS Fonts 4 §2.7) as the longhands a scene draws: [<style> || <variant> || <weight> ||
+        // <stretch>]? <size> [/ <line-height>]? <family>; a CSS-wide keyword sets them all. Variant and stretch are
+        // read and left out (the scene draws neither).
+        void font_shorthand(const Tokens& tokens, bool important, std::vector<Declaration>& out) {
+            static constexpr const char* longhands[]{"font-style", "font-weight", "font-size", "line-height",
+                                                      "font-family"};
+            if (wide(keyword(tokens))) {
+                for (const auto* name : longhands) {
+                    out.push_back({name, tokens, important});
+                }
+                return;
+            }
+            if (references(tokens)) {
+                fail("font shorthand with var()");
+            }
+            Tokens style{{Kind::Ident, "normal", {}}};
+            Tokens weight{{Kind::Ident, "normal", {}}};
+            Tokens line{{Kind::Ident, "normal", {}}};
+            std::size_t i{};
+            for (; i < tokens.size(); ++i) {
+                const auto& t = tokens[i];
+                const auto w = lower(t.text);
+                if (t.kind == Kind::Ident && (w == "normal" || w == "small-caps" || w.ends_with("condensed") ||
+                                              w.ends_with("expanded"))) {
+                    continue;
+                }
+                if (t.kind == Kind::Ident && (w == "italic" || w == "oblique")) {
+                    style = {t};
+                } else if ((t.kind == Kind::Ident && (w == "bold" || w == "bolder" || w == "lighter")) ||
+                           t.kind == Kind::Number) {
+                    weight = {t};
+                } else {
+                    break;
+                }
+            }
+            if (i >= tokens.size()) {
+                fail("font shorthand without a size");
+            }
+            Tokens size{tokens[i++]};
+            if (i < tokens.size() && tokens[i].kind == Kind::Delim && tokens[i].text == "/") {
+                if (++i >= tokens.size()) {
+                    fail("font shorthand line height");
+                }
+                line = {tokens[i++]};
+            }
+            Tokens family(tokens.begin() + std::ptrdiff_t(i), tokens.end());
+            if (family.empty()) {
+                fail("font shorthand without a family");
+            }
+            out.push_back({"font-style", style, important});
+            out.push_back({"font-weight", weight, important});
+            out.push_back({"font-size", size, important});
+            out.push_back({"line-height", line, important});
+            out.push_back({"font-family", family, important});
+        }
+
+        void declaration(std::string_view part, const StyleProfile& profile, std::vector<Declaration>& result);
+
+        std::vector<Declaration> declarations(std::string text, const StyleProfile& profile,
+                                              Warnings* warnings = nullptr) {
+            if (text.size() > (profile.forgiving ? constants::max_text_bytes : constants::style::max_declaration_bytes)) {
                 fail("declaration byte bound");
             }
             std::vector<Declaration> result;
@@ -511,6 +713,45 @@ namespace weft {
                 if (trim(part).empty()) {
                     continue;
                 }
+                if (!profile.forgiving) {
+                    declaration(part, profile, result);
+                    continue;
+                }
+                // CSS drops a declaration it cannot parse, and keeps the others (CSS Syntax 3 §5.4.6).
+                std::vector<Declaration> one;
+                try {
+                    declaration(part, profile, one);
+                    for (auto& d : one) {
+                        if (!custom(d.key)) {
+                            const auto id = find_property(d.key);
+                            if (!id) {
+                                fail("unregistered property " + d.key);
+                            }
+                            d.id = *id;
+                        }
+                    }
+                } catch (const std::invalid_argument& e) {
+                    if (warnings) {
+                        warnings->add(std::string(e.what()) + " (" + excerpt(part) + ")");
+                    }
+                    continue;
+                }
+                result.insert(result.end(), std::make_move_iterator(one.begin()), std::make_move_iterator(one.end()));
+            }
+            for (auto& d : result) {
+                if (!custom(d.key)) {
+                    const auto id = find_property(d.key);
+                    if (!id) {
+                        fail("unregistered property " + d.key);
+                    }
+                    d.id = *id;
+                }
+            }
+            return result;
+        }
+
+        void declaration(std::string_view part, const StyleProfile& profile, std::vector<Declaration>& result) {
+            {
                 const auto colon = part.find(':');
                 if (colon == std::string::npos) {
                     fail("declaration colon");
@@ -520,11 +761,29 @@ namespace weft {
                 if (!custom(key)) {
                     key = lower(key);
                 }
+                if (profile.forgiving && !custom(key)) {
+                    if (std::find(profile.ignored.begin(), profile.ignored.end(), key) != profile.ignored.end()) {
+                        return;
+                    }
+                    if (const auto* physical = logical_longhands(key)) {
+                        for (const auto& [name, index] : *physical) {
+                            const auto before = result.size();
+                            declaration(name + ":" + v, profile, result);
+                            if (index >= 0) {
+                                for (auto i = before; i < result.size(); ++i) {
+                                    result[i].axis = index;
+                                }
+                            }
+                        }
+                        return;
+                    }
+                }
                 const bool border_side =
                     key == "border-top" || key == "border-right" || key == "border-bottom" || key == "border-left";
                 if (!custom(key) && !profile.properties.contains(key) &&
                     !(profile.scene_syntax &&
                       (key == "border" || border_side || key == "flex" || key == "transition")) &&
+                    !(profile.forgiving && (key == "font" || key == "place-content" || key == "place-self")) &&
                     !(key == "inset" && profile.single_value_inset) &&
                     !(key == "background" && profile.properties.contains("background-color"))) {
                     fail("unsupported property " + key);
@@ -557,12 +816,34 @@ namespace weft {
                     v = trim(v.substr(0, bang));
                 }
                 Lexer lexer{v};
+                lexer.forgiving = profile.forgiving;
                 auto tokens = lexer.scan();
                 references(tokens);
                 if (tokens.empty() && !custom(key)) {
                     fail("empty declaration " + key);
                 }
-                if (profile.scene_syntax && (key == "border" || border_side)) {
+                if (profile.forgiving && key == "flex") {
+                    flex_shorthand(tokens, important, result);
+                } else if (profile.forgiving && key == "font") {
+                    font_shorthand(tokens, important, result);
+                } else if (profile.forgiving && key == "gap") {
+                    // Rows, then columns; one value is both. Never `gap` beside its longhands (the layout adapter
+                    // takes one form).
+                    result.push_back({"row-gap", tokens, important, false, -1, -1, 0});
+                    result.push_back({"column-gap", tokens, important, false, -1, -1, 1});
+                } else if (profile.forgiving && (key == "place-content" || key == "place-self")) {
+                    const auto suffix = key.substr(std::string("place").size());
+                    result.push_back({"align" + suffix, tokens, important, false, -1, -1, 0});
+                    if (profile.properties.contains("justify" + suffix)) {
+                        result.push_back({"justify" + suffix, tokens, important, false, -1, -1, 1});
+                    }
+                } else if (profile.forgiving && key == "border-radius") {
+                    int corner{};
+                    for (const auto* name : {"border-top-left-radius", "border-top-right-radius",
+                                             "border-bottom-right-radius", "border-bottom-left-radius"}) {
+                        result.push_back({name, tokens, important, false, -1, corner++});
+                    }
+                } else if (profile.scene_syntax && (key == "border" || border_side)) {
                     // Width, style and color in any order; what is left out takes its initial value. A style the
                     // scene does not draw stays a style, so the scene diagnoses it.
                     Tokens width{{Kind::Dimension, "0px", {}}};
@@ -652,25 +933,74 @@ namespace weft {
                     result.push_back({std::move(key), std::move(tokens), important});
                 }
             }
-            for (auto& d : result) {
-                if (!custom(d.key)) {
-                    const auto id = find_property(d.key);
-                    if (!id) {
-                        fail("unregistered property " + d.key);
-                    }
-                    d.id = *id;
-                }
-            }
-            return result;
         }
 
-        // A cascade path element: the snapshot root has no parent, and :root is its html element.
+        // Whether a snapshot node has children that are content (:empty does not match it): an element, or text.
+        bool has_content(const DomSnapshot& n) {
+            for (const auto& c : n.children) {
+                if (c.type == constants::element_node_type || (c.type == constants::text_node_type && !c.data.empty())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // A cascade path element: the snapshot root has no parent, and :root is its html element. A sibling of the
+        // path's element at `index` stands in for it where sibling combinators and structural pseudo-classes look.
         struct PathElement {
             const std::vector<const DomSnapshot*>* path{};
             std::size_t index{};
+            const DomSnapshot* sibling{};
 
             const DomSnapshot& node() const {
-                return *(*path)[index];
+                return sibling ? *sibling : *(*path)[index];
+            }
+
+            bool focused() const {
+                return node().focused;
+            }
+
+            bool focus_within() const {
+                return node().focus_within;
+            }
+
+            bool has_content() const {
+                return weft::has_content(node());
+            }
+
+            // The element sibling before (step -1) or after (step 1) this one; none for the scope root, whose
+            // siblings are outside the snapshot.
+            std::optional<PathElement> step(int direction) const {
+                if (!index) {
+                    return std::nullopt;
+                }
+                const auto& siblings = (*path)[index - 1]->children;
+                const DomSnapshot* self = &node();
+                std::size_t at = siblings.size();
+                for (std::size_t i = 0; i < siblings.size(); ++i) {
+                    if (&siblings[i] == self) {
+                        at = i;
+                        break;
+                    }
+                }
+                if (at == siblings.size()) {
+                    return std::nullopt;
+                }
+                for (auto i = std::ptrdiff_t(at) + direction; i >= 0 && i < std::ptrdiff_t(siblings.size());
+                     i += direction) {
+                    if (siblings[std::size_t(i)].type == constants::element_node_type) {
+                        return PathElement{path, index, &siblings[std::size_t(i)]};
+                    }
+                }
+                return std::nullopt;
+            }
+
+            std::optional<PathElement> previous() const {
+                return step(-1);
+            }
+
+            std::optional<PathElement> next() const {
+                return step(1);
             }
 
             std::string_view local_name() const {
@@ -695,7 +1025,7 @@ namespace weft {
             }
 
             bool document_root() const {
-                return index == 0 && node().local_name == "html";
+                return !sibling && index == 0 && node().local_name == "html";
             }
 
             std::optional<PathElement> parent() const {
@@ -736,16 +1066,835 @@ namespace weft {
             std::optional<LoneElement> parent() const {
                 return std::nullopt;
             }
+
+            std::optional<LoneElement> previous() const {
+                return std::nullopt;
+            }
+
+            std::optional<LoneElement> next() const {
+                return std::nullopt;
+            }
+
+            bool has_content() const {
+                return weft::has_content(*n);
+            }
+
+            bool focused() const {
+                return n->focused;
+            }
+
+            bool focus_within() const {
+                return n->focus_within;
+            }
+        };
+
+        // A @media condition (Media Queries 4) as a forgiving profile evaluates it: the device is a screen with a fine
+        // pointer that hovers, color, no preference for reduced motion or contrast and a light color scheme; width,
+        // height, aspect ratio and orientation are the viewport's, which the cascade is given.
+        struct MediaCondition {
+            enum class Kind : std::uint8_t {
+                Constant,
+                All,
+                Any,
+                Not,
+                Size
+            };
+            enum class Feature : std::uint8_t {
+                Width,
+                Height,
+                Aspect
+            };
+
+            Kind kind{};
+            bool value{};
+            std::vector<MediaCondition> parts;
+            Feature feature{};
+            // '<', '>', '=', 'l' (<=) or 'g' (>=): the feature's value compared with the amount.
+            char op{};
+            double amount{};
+
+            bool holds(float width, float height) const {
+                switch (kind) {
+                    case Kind::Constant:
+                        return value;
+                    case Kind::All:
+                        return std::all_of(parts.begin(), parts.end(), [&](const MediaCondition& c) {
+                            return c.holds(width, height);
+                        });
+                    case Kind::Any:
+                        return std::any_of(parts.begin(), parts.end(), [&](const MediaCondition& c) {
+                            return c.holds(width, height);
+                        });
+                    case Kind::Not:
+                        return !parts[0].holds(width, height);
+                    case Kind::Size: {
+                        const double v = feature == Feature::Width    ? width
+                                         : feature == Feature::Height ? height
+                                         : height > 0                 ? double(width) / height
+                                                                      : 0;
+                        switch (op) {
+                            case '<':
+                                return v < amount;
+                            case '>':
+                                return v > amount;
+                            case 'l':
+                                return v <= amount;
+                            case 'g':
+                                return v >= amount;
+                            default:
+                                return v == amount;
+                        }
+                    }
+                }
+                return false;
+            }
+
+            // Whether the outcome depends on the viewport.
+            bool sized() const {
+                return kind == Kind::Size || std::any_of(parts.begin(), parts.end(), [](const MediaCondition& c) {
+                           return c.sized();
+                       });
+            }
+
+            static MediaCondition constant(bool v) {
+                MediaCondition c;
+                c.value = v;
+                return c;
+            }
         };
 
         struct Rule {
             dom::Selector selector;
             std::vector<Declaration> declarations;
+            // The rule's cascade layer (CSS Cascade 5): its rank among the sheet's layers, earlier lower; rules in no
+            // layer rank above every layer.
+            unsigned layer = std::numeric_limits<unsigned>::max();
+            // The @media conditions the rule holds under; none: always.
+            std::shared_ptr<const MediaCondition> media;
 
             bool matches(const std::vector<const DomSnapshot*>& path) const {
                 return dom::matches(selector, PathElement{&path, path.size() - 1});
             }
         };
+
+        // A registered custom property (@property, CSS Properties and Values API 1): whether it inherits, and its
+        // initial value (none: the guaranteed-invalid value).
+        struct Registered {
+            bool inherits = true;
+            std::optional<Tokens> initial;
+        };
+
+        // A sheet as a forgiving profile parses it.
+        struct Sheet {
+            std::vector<Rule> rules;
+            std::string keyframes;
+            std::map<std::string, Registered> registered;
+            // Some rule holds under a @media condition on the viewport.
+            bool sized_media{};
+            Warnings warnings;
+        };
+
+        // The index of [begin, end) of a top-level token: skips a string or a balanced (), [] or {} group.
+        std::size_t skip_group(std::string_view text, std::size_t p) {
+            const char open = text[p];
+            if (open == '"' || open == '\'') {
+                for (++p; p < text.size(); ++p) {
+                    if (text[p] == '\\') {
+                        ++p;
+                    } else if (text[p] == open) {
+                        return p + 1;
+                    }
+                }
+                return std::string_view::npos;
+            }
+            const char close = open == '(' ? ')' : open == '[' ? ']' : '}';
+            int depth = 1;
+            char quote{};
+            for (++p; p < text.size(); ++p) {
+                const char c = text[p];
+                if (quote) {
+                    if (c == '\\') {
+                        ++p;
+                    } else if (c == quote) {
+                        quote = 0;
+                    }
+                } else if (c == '"' || c == '\'') {
+                    quote = c;
+                } else if (c == '\\') {
+                    ++p;
+                } else if (c == open) {
+                    ++depth;
+                } else if (c == close && --depth == 0) {
+                    return p + 1;
+                }
+            }
+            return std::string_view::npos;
+        }
+
+        // Where a prelude ends: the first '{' or ';' outside strings and groups (npos: neither).
+        std::size_t prelude_end(std::string_view text, std::size_t p) {
+            while (p < text.size()) {
+                const char c = text[p];
+                if (c == '{' || c == ';') {
+                    return p;
+                }
+                if (c == '"' || c == '\'' || c == '(' || c == '[') {
+                    p = skip_group(text, p);
+                    if (p == std::string_view::npos) {
+                        return p;
+                    }
+                    continue;
+                }
+                if (c == '\\') {
+                    ++p;
+                }
+                ++p;
+            }
+            return std::string_view::npos;
+        }
+
+        // The words and parenthesized groups of a condition (@media, @supports), lowercase words, groups as written.
+        std::vector<std::string> condition_parts(std::string_view text) {
+            std::vector<std::string> out;
+            std::size_t p{};
+            while (p < text.size()) {
+                const char c = text[p];
+                if (std::isspace(static_cast<unsigned char>(c))) {
+                    ++p;
+                } else if (c == '(') {
+                    const auto end = skip_group(text, p);
+                    if (end == std::string_view::npos) {
+                        fail("unclosed condition group");
+                    }
+                    out.emplace_back(text.substr(p, end - p));
+                    p = end;
+                } else if (c == ',') {
+                    out.emplace_back(",");
+                    ++p;
+                } else {
+                    const auto start = p;
+                    while (p < text.size() && !std::isspace(static_cast<unsigned char>(text[p])) && text[p] != '(' &&
+                           text[p] != ',') {
+                        ++p;
+                    }
+                    if (p < text.size() && text[p] == '(') {
+                        // A function (selector(), font-tech()...): the name with its group.
+                        const auto end = skip_group(text, p);
+                        if (end == std::string_view::npos) {
+                            fail("unclosed condition function");
+                        }
+                        p = end;
+                    }
+                    out.push_back(lower(std::string(text.substr(start, p - start))));
+                }
+            }
+            return out;
+        }
+
+        // A length of a media feature in CSS px (px, em and rem of the default 16px font size), or a plain number.
+        std::optional<double> media_amount(std::string_view text) {
+            const auto t = lower(trim(text));
+            if (const auto slash = t.find('/'); slash != std::string::npos) {
+                const auto a = css::parse_number<double>(trim(t.substr(0, slash)));
+                const auto b = css::parse_number<double>(trim(t.substr(slash + 1)));
+                return a && b && *b != 0 ? std::optional(*a / *b) : std::nullopt;
+            }
+            for (const auto& [unit, scale] : {std::pair<const char*, double>{"rem", constants::default_font_size_px},
+                                              {"em", constants::default_font_size_px},
+                                              {"px", 1.0}}) {
+                if (t.ends_with(unit)) {
+                    const auto n = css::parse_number<double>(t.substr(0, t.size() - std::string_view(unit).size()));
+                    return n ? std::optional(*n * scale) : std::nullopt;
+                }
+            }
+            const auto n = css::parse_number<double>(t);
+            return n ? std::optional(*n) : std::nullopt;
+        }
+
+        // A media feature in its parentheses' inside: plain (name: value), boolean (name) or a range (width >= 40rem,
+        // 400px < width < 700px).
+        MediaCondition media_feature(std::string_view inside, Warnings& warnings) {
+            using M = MediaCondition;
+            const auto text = trim(inside);
+            const auto sized = [](std::string_view name) -> std::optional<M::Feature> {
+                if (name == "width" || name == "device-width") {
+                    return M::Feature::Width;
+                }
+                if (name == "height" || name == "device-height") {
+                    return M::Feature::Height;
+                }
+                if (name == "aspect-ratio" || name == "device-aspect-ratio") {
+                    return M::Feature::Aspect;
+                }
+                return std::nullopt;
+            };
+            const auto size = [](M::Feature feature, char op, double amount) {
+                M c;
+                c.kind = M::Kind::Size;
+                c.feature = feature;
+                c.op = op;
+                c.amount = amount;
+                return c;
+            };
+            // Range syntax: split at the comparison operators.
+            const auto op_at = text.find_first_of("<>=");
+            if (op_at != std::string::npos && text.find(':') == std::string::npos) {
+                std::vector<std::string> pieces;
+                std::vector<char> ops;
+                std::size_t start{};
+                for (std::size_t i = 0; i < text.size(); ++i) {
+                    if (text[i] == '<' || text[i] == '>' || text[i] == '=') {
+                        pieces.push_back(lower(trim(text.substr(start, i - start))));
+                        char op = text[i];
+                        if (i + 1 < text.size() && text[i + 1] == '=' && op != '=') {
+                            op = op == '<' ? 'l' : 'g';
+                            ++i;
+                        }
+                        ops.push_back(op);
+                        start = i + 1;
+                    }
+                }
+                pieces.push_back(lower(trim(text.substr(start))));
+                const auto flip = [](char op) {
+                    return op == '<' ? '>' : op == '>' ? '<' : op == 'l' ? 'g' : op == 'g' ? 'l' : op;
+                };
+                if (pieces.size() == 2) {
+                    if (const auto f = sized(pieces[0])) {
+                        if (const auto a = media_amount(pieces[1])) {
+                            return size(*f, ops[0], *a);
+                        }
+                    } else if (const auto f2 = sized(pieces[1])) {
+                        if (const auto a = media_amount(pieces[0])) {
+                            return size(*f2, flip(ops[0]), *a);
+                        }
+                    }
+                } else if (pieces.size() == 3) {
+                    if (const auto f = sized(pieces[1])) {
+                        const auto a = media_amount(pieces[0]);
+                        const auto b = media_amount(pieces[2]);
+                        if (a && b) {
+                            M all;
+                            all.kind = M::Kind::All;
+                            all.parts.push_back(size(*f, flip(ops[0]), *a));
+                            all.parts.push_back(size(*f, ops[1], *b));
+                            return all;
+                        }
+                    }
+                }
+                warnings.add("@media: a range outside the profile (" + excerpt(text) + ")");
+                return M::constant(false);
+            }
+            const auto colon = text.find(':');
+            const auto name = lower(trim(text.substr(0, colon)));
+            const auto value = colon == std::string::npos ? std::string() : lower(trim(text.substr(colon + 1)));
+            for (const auto& [prefix, op] : {std::pair<const char*, char>{"min-", 'g'}, {"max-", 'l'}}) {
+                if (name.starts_with(prefix)) {
+                    if (const auto f = sized(name.substr(std::string_view(prefix).size()))) {
+                        if (const auto a = media_amount(value)) {
+                            return size(*f, op, *a);
+                        }
+                    }
+                }
+            }
+            if (const auto f = sized(name); f && colon != std::string::npos) {
+                if (const auto a = media_amount(value)) {
+                    return size(*f, '=', *a);
+                }
+            }
+            if (name == "orientation") {
+                // portrait: height >= width.
+                M c;
+                c.kind = M::Kind::Size;
+                c.feature = M::Feature::Aspect;
+                c.op = value == "portrait" ? 'l' : '>';
+                c.amount = 1;
+                return c;
+            }
+            // The fixed device: what holds.
+            static const std::map<std::string, std::vector<std::string>> device{
+                {"hover", {"hover", ""}},
+                {"any-hover", {"hover", ""}},
+                {"pointer", {"fine", ""}},
+                {"any-pointer", {"fine", ""}},
+                {"prefers-reduced-motion", {"no-preference"}},
+                {"prefers-reduced-transparency", {"no-preference"}},
+                {"prefers-reduced-data", {"no-preference"}},
+                {"prefers-contrast", {"no-preference"}},
+                {"prefers-color-scheme", {"light"}},
+                {"forced-colors", {"none"}},
+                {"inverted-colors", {"none"}},
+                {"color", {""}},
+                {"color-gamut", {"srgb"}},
+                {"dynamic-range", {"standard"}},
+                {"scripting", {"enabled", ""}},
+                {"update", {"fast", ""}},
+                {"display-mode", {"browser"}},
+                {"grid", {"0"}},
+                {"monochrome", {"0"}},
+            };
+            if (const auto it = device.find(name); it != device.end()) {
+                const auto& holds = it->second;
+                return M::constant(std::find(holds.begin(), holds.end(), value) != holds.end());
+            }
+            warnings.add("@media: the feature " + name + " is outside the profile (taken as false)");
+            return M::constant(false);
+        }
+
+        MediaCondition media_condition(const std::vector<std::string>& parts, std::size_t begin, std::size_t end,
+                                       Warnings& warnings);
+
+        // A <media-in-parens>: a nested condition or a feature.
+        MediaCondition media_in_parens(const std::string& group, Warnings& warnings) {
+            const auto inside = std::string_view(group).substr(1, group.size() - 2);
+            const auto t = trim(inside);
+            if (!t.empty() && (t[0] == '(' || lower(t).starts_with("not ") || lower(t).starts_with("not("))) {
+                const auto parts = condition_parts(t);
+                return media_condition(parts, 0, parts.size(), warnings);
+            }
+            if (lower(t).find(" and ") != std::string::npos || lower(t).find(" or ") != std::string::npos) {
+                const auto parts = condition_parts(t);
+                return media_condition(parts, 0, parts.size(), warnings);
+            }
+            return media_feature(inside, warnings);
+        }
+
+        // not X | X [and X]* | X [or X]* over parts [begin, end).
+        MediaCondition media_condition(const std::vector<std::string>& parts, std::size_t begin, std::size_t end,
+                                       Warnings& warnings) {
+            using M = MediaCondition;
+            if (begin >= end) {
+                return M::constant(false);
+            }
+            if (parts[begin] == "not") {
+                M c;
+                c.kind = M::Kind::Not;
+                c.parts.push_back(media_condition(parts, begin + 1, end, warnings));
+                return c;
+            }
+            M combined;
+            combined.kind = M::Kind::All;
+            for (std::size_t i = begin; i < end; ++i) {
+                const auto& part = parts[i];
+                if (part == "and") {
+                    continue;
+                }
+                if (part == "or") {
+                    combined.kind = M::Kind::Any;
+                    continue;
+                }
+                if (part.starts_with("(")) {
+                    combined.parts.push_back(media_in_parens(part, warnings));
+                } else {
+                    warnings.add("@media: " + part + " is outside the profile (taken as false)");
+                    combined.parts.push_back(M::constant(false));
+                }
+            }
+            return combined.parts.size() == 1 ? combined.parts[0] : combined;
+        }
+
+        // A media query list: queries separated by commas, each [not | only]? <type> [and <condition>]? or a
+        // condition.
+        MediaCondition media_query_list(std::string_view text, Warnings& warnings) {
+            using M = MediaCondition;
+            const auto parts = condition_parts(text);
+            M any;
+            any.kind = M::Kind::Any;
+            std::size_t begin{};
+            for (std::size_t i = 0; i <= parts.size(); ++i) {
+                if (i < parts.size() && parts[i] != ",") {
+                    continue;
+                }
+                std::size_t b = begin;
+                bool negate{};
+                if (b < i && (parts[b] == "only")) {
+                    ++b;
+                }
+                if (b < i && parts[b] == "not" && b + 1 < i && !parts[b + 1].starts_with("(")) {
+                    negate = true;
+                    ++b;
+                }
+                M query;
+                if (b < i && !parts[b].starts_with("(") && parts[b] != "not") {
+                    const auto& type = parts[b];
+                    const bool screen = type == "all" || type == "screen";
+                    if (!screen && type != "print" && type != "speech" && type != "tv" && type != "projection" &&
+                        type != "handheld" && type != "braille" && type != "embossed" && type != "aural" &&
+                        type != "tty") {
+                        warnings.add("@media: the media type " + type + " is unknown (taken as false)");
+                    }
+                    query = M::constant(screen);
+                    if (b + 1 < i && parts[b + 1] == "and") {
+                        M all;
+                        all.kind = M::Kind::All;
+                        all.parts.push_back(query);
+                        all.parts.push_back(media_condition(parts, b + 2, i, warnings));
+                        query = all;
+                    }
+                } else {
+                    query = media_condition(parts, b, i, warnings);
+                }
+                if (negate) {
+                    M n;
+                    n.kind = M::Kind::Not;
+                    n.parts.push_back(query);
+                    query = n;
+                }
+                any.parts.push_back(std::move(query));
+                begin = i + 1;
+            }
+            if (any.parts.empty()) {
+                return M::constant(true);
+            }
+            return any.parts.size() == 1 ? any.parts[0] : any;
+        }
+
+        // The cascade layers of a sheet: a tree of names whose ranks follow CSS Cascade 5 (a layer's sublayers in
+        // the order they first appear, then the layer itself; rules in no layer last).
+        struct LayerTree {
+            struct Node {
+                std::string name;
+                std::vector<std::size_t> children;
+                unsigned rank{};
+            };
+
+            std::vector<Node> nodes{Node{}};
+            unsigned anonymous{};
+
+            std::size_t child(std::size_t parent, const std::string& name) {
+                for (const auto c : nodes[parent].children) {
+                    if (nodes[c].name == name) {
+                        return c;
+                    }
+                }
+                if (nodes.size() >= std::size_t(constants::style::max_forgiving_layers)) {
+                    fail("cascade layer bound");
+                }
+                nodes.push_back({name, {}, 0});
+                nodes[parent].children.push_back(nodes.size() - 1);
+                return nodes.size() - 1;
+            }
+
+            // A dotted name (a.b) under parent; empty: a new anonymous layer.
+            std::size_t path(std::size_t parent, std::string_view dotted) {
+                if (trim(dotted).empty()) {
+                    return child(parent, "\x01" + std::to_string(++anonymous));
+                }
+                std::size_t at = parent;
+                for (const auto& part : css::split(trim(dotted), '.').parts) {
+                    at = child(at, trim(part));
+                }
+                return at;
+            }
+
+            void rank() {
+                unsigned next{};
+                const auto visit = [&](auto&& self, std::size_t n) -> void {
+                    for (const auto c : nodes[n].children) {
+                        self(self, c);
+                    }
+                    nodes[n].rank = n == 0 ? std::numeric_limits<unsigned>::max() : next++;
+                };
+                visit(visit, 0);
+            }
+        };
+
+        bool supports(std::string_view condition, const StyleProfile& profile);
+
+        // A forgiving profile's sheet, as CSS Syntax 3 parses a style sheet: qualified rules and at-rules, nested as
+        // CSS Nesting nests them; what it cannot take is dropped with a warning.
+        struct SheetParser {
+            const StyleProfile& profile;
+            Sheet& out;
+            LayerTree layers;
+            std::vector<std::size_t> rule_layers;
+            const dom::SelectorGrammar grammar{true, true, Diag::StyleProfile, Diag::StyleProfile, true};
+
+            void warn(std::string text) {
+                out.warnings.add(std::move(text));
+            }
+
+            static std::shared_ptr<const MediaCondition> both(const std::shared_ptr<const MediaCondition>& outer,
+                                                              MediaCondition inner) {
+                if (!outer) {
+                    return std::make_shared<const MediaCondition>(std::move(inner));
+                }
+                MediaCondition all;
+                all.kind = MediaCondition::Kind::All;
+                all.parts.push_back(*outer);
+                all.parts.push_back(std::move(inner));
+                return std::make_shared<const MediaCondition>(std::move(all));
+            }
+
+            // A nested rule's selector list against its parent's (CSS Nesting 1): & is the parent, a relative
+            // selector or one without & is a descendant of it.
+            static std::string nest(std::string_view parent, std::string_view child) {
+                const auto items = css::split(child, ',', {.quotes = true, .brackets = true, .trim_parts = true}).parts;
+                const std::string is = ":is(" + std::string(parent) + ")";
+                std::string out;
+                for (const auto& raw : items) {
+                    auto item = trim(raw);
+                    std::string resolved;
+                    if (item.find('&') != std::string::npos) {
+                        for (const char c : item) {
+                            resolved += c == '&' ? is : std::string(1, c);
+                        }
+                    } else {
+                        resolved = is + " " + item;
+                    }
+                    out += (out.empty() ? "" : ", ") + resolved;
+                }
+                return out;
+            }
+
+            void block(std::string_view text, std::size_t layer, const std::shared_ptr<const MediaCondition>& media,
+                       unsigned depth, const std::string* parent) {
+                if (depth > unsigned(constants::style::max_at_rule_depth)) {
+                    warn("rules nested deeper than the profile takes were dropped");
+                    return;
+                }
+                std::size_t p{};
+                // The declarations directly in a nested at-rule's block belong to the parent rule.
+                std::string declarations_text;
+                while (p < text.size()) {
+                    const char c = text[p];
+                    if (std::isspace(static_cast<unsigned char>(c)) || c == ';') {
+                        ++p;
+                        continue;
+                    }
+                    if (c == '}') {
+                        warn("a stray } in the style sheet");
+                        ++p;
+                        continue;
+                    }
+                    const auto end = prelude_end(text, p);
+                    if (end == std::string_view::npos) {
+                        if (parent) {
+                            declarations_text += std::string(text.substr(p)) + ";";
+                        } else {
+                            warn("a rule without a block (" + excerpt(text.substr(p)) + ")");
+                        }
+                        break;
+                    }
+                    if (text[end] == ';') {
+                        if (c == '@') {
+                            statement(text.substr(p + 1, end - p - 1), layer);
+                        } else if (parent) {
+                            declarations_text += std::string(text.substr(p, end - p)) + ";";
+                        } else {
+                            warn("a declaration outside a rule (" + excerpt(text.substr(p, end - p)) + ")");
+                        }
+                        p = end + 1;
+                        continue;
+                    }
+                    const auto close = skip_group(text, end);
+                    if (close == std::string_view::npos) {
+                        warn("an unclosed block (" + excerpt(text.substr(p, end - p)) + ")");
+                        break;
+                    }
+                    const auto prelude = text.substr(p, end - p);
+                    const auto body = text.substr(end + 1, close - end - 2);
+                    if (c == '@') {
+                        at_rule(prelude.substr(1), body, layer, media, depth, parent);
+                    } else {
+                        style_rule(parent ? nest(*parent, prelude) : std::string(trim(prelude)), body, layer, media,
+                                   depth);
+                    }
+                    p = close;
+                }
+                if (parent && !trim(declarations_text).empty()) {
+                    add_rules(*parent, declarations_text, layer, media);
+                }
+            }
+
+            void add_rules(const std::string& selectors, const std::string& body, std::size_t layer,
+                           const std::shared_ptr<const MediaCondition>& media) {
+                std::vector<dom::Selector> list;
+                for (const auto& item :
+                     css::split(selectors, ',', {.quotes = true, .brackets = true, .trim_parts = true}).parts) {
+                    auto s = dom::parse_selector(trim(item), grammar);
+                    if (!s) {
+                        // An invalid selector invalidates its rule (Selectors 4 §3.1).
+                        warn("a rule dropped for its selector " + excerpt(item) + ": " + s.error().message);
+                        return;
+                    }
+                    list.push_back(std::move(*s));
+                }
+                auto decl = declarations(body, profile, &out.warnings);
+                if (decl.empty()) {
+                    return;
+                }
+                for (auto& s : list) {
+                    if (s.pseudo() == dom::PseudoElement::Other) {
+                        continue;
+                    }
+                    if (out.rules.size() >= std::size_t(constants::style::max_forgiving_rules)) {
+                        fail("rule bound");
+                    }
+                    out.rules.push_back({std::move(s), decl});
+                    out.rules.back().media = media;
+                    rule_layers.push_back(layer);
+                }
+            }
+
+            void style_rule(const std::string& selectors, std::string_view body, std::size_t layer,
+                            const std::shared_ptr<const MediaCondition>& media, unsigned depth) {
+                // Declarations first; nested rules and at-rules (CSS Nesting) after, as rules of their own.
+                std::string declarations_text;
+                std::vector<std::pair<std::string_view, std::string_view>> nested;
+                std::size_t p{};
+                while (p < body.size()) {
+                    const char c = body[p];
+                    if (std::isspace(static_cast<unsigned char>(c)) || c == ';') {
+                        ++p;
+                        continue;
+                    }
+                    const auto end = prelude_end(body, p);
+                    if (end == std::string_view::npos) {
+                        declarations_text += std::string(body.substr(p));
+                        break;
+                    }
+                    if (body[end] == ';') {
+                        declarations_text += std::string(body.substr(p, end - p + 1));
+                        p = end + 1;
+                        continue;
+                    }
+                    const auto close = skip_group(body, end);
+                    if (close == std::string_view::npos) {
+                        warn("an unclosed nested block (" + excerpt(body.substr(p, end - p)) + ")");
+                        break;
+                    }
+                    nested.emplace_back(body.substr(p, end - p), body.substr(end + 1, close - end - 2));
+                    p = close;
+                }
+                add_rules(selectors, declarations_text, layer, media);
+                for (const auto& [prelude, inner] : nested) {
+                    if (!prelude.empty() && prelude[0] == '@') {
+                        at_rule(prelude.substr(1), inner, layer, media, depth + 1, &selectors);
+                    } else {
+                        style_rule(nest(selectors, prelude), inner, layer, media, depth + 1);
+                    }
+                }
+            }
+
+            // An at-rule ending in ';'.
+            void statement(std::string_view text, std::size_t layer) {
+                std::size_t n{};
+                while (n < text.size() && (ident_char(text[n]))) {
+                    ++n;
+                }
+                const auto name = lower(std::string(text.substr(0, n)));
+                const auto prelude = trim(text.substr(n));
+                if (name == "layer") {
+                    for (const auto& item : css::split(prelude, ',').parts) {
+                        layers.path(layer, trim(item));
+                    }
+                } else if (name != "charset") {
+                    warn("@" + name + " is outside the profile (one sheet a page)");
+                }
+            }
+
+            void at_rule(std::string_view text, std::string_view body, std::size_t layer,
+                         const std::shared_ptr<const MediaCondition>& media, unsigned depth,
+                         const std::string* parent) {
+                std::size_t n{};
+                while (n < text.size() && ident_char(text[n])) {
+                    ++n;
+                }
+                const auto name = lower(std::string(text.substr(0, n)));
+                const auto prelude = trim(text.substr(n));
+                if (name == "layer") {
+                    block(body, layers.path(layer, prelude), media, depth + 1, parent);
+                } else if (name == "media") {
+                    auto condition = media_query_list(prelude, out.warnings);
+                    if (condition.kind == MediaCondition::Kind::Constant && !condition.value) {
+                        return;
+                    }
+                    const bool sized = condition.sized();
+                    out.sized_media |= sized;
+                    const auto inner = condition.kind == MediaCondition::Kind::Constant
+                                           ? media
+                                           : both(media, std::move(condition));
+                    block(body, layer, inner, depth + 1, parent);
+                } else if (name == "supports") {
+                    bool holds{};
+                    try {
+                        holds = supports(prelude, profile);
+                    } catch (const std::invalid_argument&) {
+                        holds = false;
+                    }
+                    if (holds) {
+                        block(body, layer, media, depth + 1, parent);
+                    }
+                } else if (name == "keyframes") {
+                    out.keyframes += "@keyframes " + prelude + "{" + std::string(body) + "}\n";
+                } else if (name == "-webkit-keyframes" || name == "-moz-keyframes") {
+                    // The unprefixed rule says the same.
+                } else if (name == "property") {
+                    property(prelude, body);
+                } else if (name == "font-face") {
+                    warn("@font-face is outside the profile: the host registers a page's fonts "
+                         "(weft_runtime_add_font)");
+                } else if (name == "container" || name == "scope" || name == "starting-style") {
+                    warn("@" + name + " is outside the profile; its rules were dropped");
+                } else {
+                    warn("@" + name + " is outside the profile");
+                }
+            }
+
+            // @property --name { syntax: ...; inherits: ...; initial-value: ... }
+            void property(std::string_view prelude, std::string_view body) {
+                const auto name = trim(prelude);
+                if (!custom(name)) {
+                    warn("@property " + excerpt(name) + ": not a custom property name");
+                    return;
+                }
+                Registered r;
+                std::optional<bool> inherits;
+                std::string syntax;
+                for (const auto& part : css::split(body, ';', {.quotes = true, .brackets = true}).parts) {
+                    const auto colon = part.find(':');
+                    if (colon == std::string::npos) {
+                        continue;
+                    }
+                    const auto key = lower(trim(part.substr(0, colon)));
+                    const auto value = trim(part.substr(colon + 1));
+                    if (key == "inherits") {
+                        inherits = lower(value) == "true";
+                    } else if (key == "syntax") {
+                        syntax = value;
+                    } else if (key == "initial-value") {
+                        Lexer lexer{value};
+                        lexer.forgiving = true;
+                        r.initial = lexer.scan();
+                    }
+                }
+                if (!inherits || syntax.empty()) {
+                    warn("@property " + name + " without syntax and inherits was dropped");
+                    return;
+                }
+                r.inherits = *inherits;
+                if (out.registered.size() >= std::size_t(constants::style::max_registered_custom_properties)) {
+                    warn("@property " + name + ": more registered properties than the profile takes");
+                    return;
+                }
+                out.registered[name] = std::move(r);
+            }
+        };
+
+        Sheet parse_sheet(std::string text, const StyleProfile& profile) {
+            if (text.size() > std::size_t(constants::style::max_forgiving_stylesheet_bytes)) {
+                fail("stylesheet byte bound");
+            }
+            Sheet sheet;
+            text = comments(text, true);
+            SheetParser parser{profile, sheet};
+            parser.block(text, 0, nullptr, 0, nullptr);
+            parser.layers.rank();
+            for (std::size_t i = 0; i < sheet.rules.size(); ++i) {
+                sheet.rules[i].layer = parser.layers.nodes[parser.rule_layers[i]].rank;
+            }
+            return sheet;
+        }
 
         Rule selector(std::string text, std::vector<Declaration> decl, bool scene) {
             const dom::SelectorGrammar grammar{scene, scene, Diag::StyleProfile, Diag::StyleProfile};
@@ -890,6 +2039,741 @@ namespace weft {
             return length_token(t[0]);
         }
 
+        // ---- Colors and math functions as a forgiving profile computes them (CSS Color 4 and 5, CSS Values 4). ----
+
+        // Properties whose values hold <color>s.
+        bool color_bearing(std::string_view key) {
+            return key == "color" || key.ends_with("-color") || key == "background" || key == "background-image" ||
+                   key == "box-shadow" || key == "text-shadow" || key == "fill" || key == "stroke" || key == "filter" ||
+                   key == "border-image-source" || key == "outline" || key == "text-decoration";
+        }
+
+        // A number of a token: a plain number, or a percentage of `percent` (the value 100% stands for).
+        std::optional<double> amount(const Token& t, double percent) {
+            if (t.kind == Kind::Number) {
+                const auto n = css::parse_number<double>(t.text);
+                return n ? std::optional(*n) : std::nullopt;
+            }
+            if (t.kind == Kind::Percentage) {
+                const auto n = css::parse_number<double>(t.text.substr(0, t.text.size() - 1));
+                return n ? std::optional(*n / 100 * percent) : std::nullopt;
+            }
+            if (t.kind == Kind::Ident && lower(t.text) == "none") {
+                return 0.0;
+            }
+            return std::nullopt;
+        }
+
+        // A <hue> in degrees: a number or an angle.
+        std::optional<double> hue_amount(const Token& t) {
+            if (t.kind == Kind::Number || (t.kind == Kind::Ident && lower(t.text) == "none")) {
+                return amount(t, 1);
+            }
+            if (t.kind != Kind::Dimension) {
+                return std::nullopt;
+            }
+            const auto text = lower(t.text);
+            for (const auto& [unit, scale] : {std::pair<const char*, double>{"deg", 1.0},
+                                              {"grad", 0.9},
+                                              {"rad", 180 / 3.14159265358979323846},
+                                              {"turn", 360.0}}) {
+                if (text.ends_with(unit)) {
+                    const auto n = css::parse_number<double>(text.substr(0, text.size() - std::string_view(unit).size()));
+                    return n ? std::optional(*n * scale) : std::nullopt;
+                }
+            }
+            return std::nullopt;
+        }
+
+        // A color function's components and alpha: legacy (separated by commas) or modern (by spaces, / alpha).
+        struct ColorArguments {
+            std::vector<Token> components;
+            std::optional<Token> alpha;
+            bool legacy{};
+        };
+
+        std::optional<ColorArguments> color_arguments(const Tokens& args) {
+            ColorArguments out;
+            out.legacy = std::any_of(args.begin(), args.end(), [](const Token& t) {
+                return t.kind == Kind::Delim && t.text == ",";
+            });
+            bool slash{};
+            for (std::size_t i = 0; i < args.size(); ++i) {
+                const auto& t = args[i];
+                if (t.kind == Kind::Delim && t.text == ",") {
+                    if (!out.legacy || i == 0 || i + 1 == args.size()) {
+                        return std::nullopt;
+                    }
+                    continue;
+                }
+                if (t.kind == Kind::Delim && t.text == "/") {
+                    if (out.legacy || slash) {
+                        return std::nullopt;
+                    }
+                    slash = true;
+                    continue;
+                }
+                if (slash) {
+                    if (out.alpha) {
+                        return std::nullopt;
+                    }
+                    out.alpha = t;
+                } else {
+                    out.components.push_back(t);
+                }
+            }
+            if (out.legacy && out.components.size() == 4) {
+                out.alpha = out.components.back();
+                out.components.pop_back();
+            }
+            if (out.components.size() != 3) {
+                return std::nullopt;
+            }
+            return out;
+        }
+
+        std::optional<color::Rgba> color_value(const Token& t, const std::optional<color::Rgba>& current);
+
+        // A color function (rgb(), hsl(), hwb(), lab(), lch(), oklab(), oklch(), color()) or color-mix().
+        std::optional<color::Rgba> color_function(const Token& t, const std::optional<color::Rgba>& current) {
+            const auto name = lower(t.text);
+            if (name == "color-mix") {
+                // color-mix(in <space> [<hue> hue]?, <color> <percentage>?, <color> <percentage>?)
+                std::vector<Tokens> items(1);
+                for (const auto& a : t.args) {
+                    if (a.kind == Kind::Delim && a.text == ",") {
+                        items.emplace_back();
+                    } else {
+                        items.back().push_back(a);
+                    }
+                }
+                if (items.size() != 3 || items[0].size() < 2 || items[0][0].kind != Kind::Ident ||
+                    lower(items[0][0].text) != "in" || items[0][1].kind != Kind::Ident) {
+                    return std::nullopt;
+                }
+                const auto space = color::space(lower(items[0][1].text));
+                if (!space) {
+                    return std::nullopt;
+                }
+                auto hue = color::HueInterpolation::Shorter;
+                if (items[0].size() == 4 && lower(items[0][3].text) == "hue") {
+                    const auto h = lower(items[0][2].text);
+                    hue = h == "longer"       ? color::HueInterpolation::Longer
+                          : h == "increasing" ? color::HueInterpolation::Increasing
+                          : h == "decreasing" ? color::HueInterpolation::Decreasing
+                                              : color::HueInterpolation::Shorter;
+                } else if (items[0].size() != 2) {
+                    return std::nullopt;
+                }
+                std::array<color::Rgba, 2> colors{};
+                std::array<std::optional<double>, 2> weights;
+                for (std::size_t i = 0; i < 2; ++i) {
+                    const auto& item = items[i + 1];
+                    std::optional<color::Rgba> c;
+                    for (const auto& part : item) {
+                        if (part.kind == Kind::Percentage && !weights[i]) {
+                            weights[i] = amount(part, 1);
+                        } else if (!c) {
+                            c = color_value(part, current);
+                            if (!c) {
+                                return std::nullopt;
+                            }
+                        } else {
+                            return std::nullopt;
+                        }
+                    }
+                    if (!c) {
+                        return std::nullopt;
+                    }
+                    colors[i] = *c;
+                }
+                double a = weights[0].value_or(weights[1] ? 1 - *weights[1] : 0.5);
+                double b = weights[1].value_or(weights[0] ? 1 - *weights[0] : 0.5);
+                if (a < 0 || b < 0 || a > 1 || b > 1) {
+                    return std::nullopt;
+                }
+                const double sum = a + b;
+                if (sum <= 0) {
+                    return std::nullopt;
+                }
+                auto mixed = color::mix(*space, hue, colors[0], a / sum, colors[1], b / sum);
+                if (sum < 1) {
+                    mixed[3] *= sum;
+                }
+                return mixed;
+            }
+            if (std::any_of(t.args.begin(), t.args.end(), [](const Token& a) {
+                    return a.kind == Kind::Ident && lower(a.text) == "from";
+                })) {
+                // Relative color syntax is outside the profile.
+                return std::nullopt;
+            }
+            if (name == "color") {
+                if (t.args.empty() || t.args[0].kind != Kind::Ident) {
+                    return std::nullopt;
+                }
+                const auto space = color::space(lower(t.args[0].text));
+                if (!space || color::polar(*space) || *space == color::Space::Lab || *space == color::Space::Oklab) {
+                    return std::nullopt;
+                }
+                const auto args = color_arguments(Tokens(t.args.begin() + 1, t.args.end()));
+                if (!args || args->legacy) {
+                    return std::nullopt;
+                }
+                std::array<double, 3> c{};
+                for (std::size_t i = 0; i < 3; ++i) {
+                    const auto v = amount(args->components[i], 1);
+                    if (!v) {
+                        return std::nullopt;
+                    }
+                    c[i] = *v;
+                }
+                const auto alpha = args->alpha ? amount(*args->alpha, 1) : std::optional(1.0);
+                if (!alpha) {
+                    return std::nullopt;
+                }
+                const auto rgb = color::to_srgb(*space, c);
+                return color::Rgba{rgb[0], rgb[1], rgb[2], std::clamp(*alpha, 0.0, 1.0)};
+            }
+            const auto args = color_arguments(t.args);
+            if (!args) {
+                return std::nullopt;
+            }
+            const auto alpha = args->alpha ? amount(*args->alpha, 1) : std::optional(1.0);
+            if (!alpha) {
+                return std::nullopt;
+            }
+            const auto& c = args->components;
+            std::array<double, 3> v{};
+            std::optional<color::Space> space;
+            if (name == "rgb" || name == "rgba") {
+                for (std::size_t i = 0; i < 3; ++i) {
+                    const auto x = amount(c[i], 255);
+                    if (!x) {
+                        return std::nullopt;
+                    }
+                    v[i] = *x / 255;
+                }
+                space = color::Space::Srgb;
+            } else if (name == "hsl" || name == "hsla" || name == "hwb") {
+                const auto h = hue_amount(c[0]);
+                const auto x = amount(c[1], 100);
+                const auto y = amount(c[2], 100);
+                if (!h || !x || !y) {
+                    return std::nullopt;
+                }
+                v = {*h, *x, *y};
+                space = name == "hwb" ? color::Space::Hwb : color::Space::Hsl;
+            } else if (name == "lab" || name == "oklab") {
+                const bool ok = name == "oklab";
+                const auto l = amount(c[0], ok ? 1 : 100);
+                const auto a = amount(c[1], ok ? 0.4 : 125);
+                const auto b = amount(c[2], ok ? 0.4 : 125);
+                if (!l || !a || !b) {
+                    return std::nullopt;
+                }
+                v = {*l, *a, *b};
+                space = ok ? color::Space::Oklab : color::Space::Lab;
+            } else if (name == "lch" || name == "oklch") {
+                const bool ok = name == "oklch";
+                const auto l = amount(c[0], ok ? 1 : 100);
+                const auto ch = amount(c[1], ok ? 0.4 : 150);
+                const auto h = hue_amount(c[2]);
+                if (!l || !ch || !h) {
+                    return std::nullopt;
+                }
+                v = {*l, std::max(*ch, 0.0), *h};
+                space = ok ? color::Space::Oklch : color::Space::Lch;
+            } else {
+                return std::nullopt;
+            }
+            const auto rgb = color::to_srgb(*space, v);
+            return color::Rgba{rgb[0], rgb[1], rgb[2], std::clamp(*alpha, 0.0, 1.0)};
+        }
+
+        // A <color> token: a hex color, a named color, transparent, currentcolor (the given current color) or a color
+        // function; none for any other token.
+        std::optional<color::Rgba> color_value(const Token& t, const std::optional<color::Rgba>& current) {
+            if (t.kind == Kind::Hash) {
+                const auto hex = lower(t.text.substr(1));
+                if (hex.size() != 3 && hex.size() != 4 && hex.size() != 6 && hex.size() != 8) {
+                    return std::nullopt;
+                }
+                const auto digit = [](char c) -> int {
+                    return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1;
+                };
+                std::array<int, 8> d{};
+                for (std::size_t i = 0; i < hex.size(); ++i) {
+                    if ((d[i] = digit(hex[i])) < 0) {
+                        return std::nullopt;
+                    }
+                }
+                color::Rgba c{0, 0, 0, 1};
+                if (hex.size() <= 4) {
+                    for (std::size_t i = 0; i < hex.size(); ++i) {
+                        c[i] = (d[i] * 17) / 255.0;
+                    }
+                } else {
+                    for (std::size_t i = 0; i < hex.size() / 2; ++i) {
+                        c[i] = (d[2 * i] * 16 + d[2 * i + 1]) / 255.0;
+                    }
+                }
+                return c;
+            }
+            if (t.kind == Kind::Ident) {
+                const auto name = lower(t.text);
+                if (name == "currentcolor") {
+                    return current;
+                }
+                return color::named(name);
+            }
+            if (t.kind == Kind::Function) {
+                return color_function(t, current);
+            }
+            return std::nullopt;
+        }
+
+        bool color_function_name(std::string_view name) {
+            for (const auto* n : {"rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch", "color",
+                                  "color-mix"}) {
+                if (name == n) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // A color as the scene draws it: #rrggbb when opaque, rgba() of 8-bit channels otherwise.
+        Token color_token(color::Rgba c) {
+            c = color::clip(c);
+            const auto channel = [](double v) {
+                return int(std::lround(v * 255));
+            };
+            if (c[3] >= 1) {
+                char text[8];
+                std::snprintf(text, sizeof text, "#%02x%02x%02x", channel(c[0]), channel(c[1]), channel(c[2]));
+                return {Kind::Hash, text, {}};
+            }
+            Token out{Kind::Function, "rgba", {}};
+            for (int i = 0; i < 3; ++i) {
+                out.args.push_back({Kind::Number, std::to_string(channel(c[std::size_t(i)])), {}});
+                out.args.push_back({Kind::Delim, ",", {}});
+            }
+            char alpha[32];
+            std::snprintf(alpha, sizeof alpha, "%.4g", c[3]);
+            out.args.push_back({Kind::Number, alpha, {}});
+            return out;
+        }
+
+        // The colors of a value computed to the forms the scene draws, inside gradients and shadows too; a color it
+        // cannot read fails (the declaration is invalid at computed-value time). A bare currentcolor stays for the
+        // scene to resolve as it inherits.
+        void normalize_colors(Tokens& tokens, const std::optional<color::Rgba>& current) {
+            for (auto& t : tokens) {
+                if (t.kind == Kind::Hash) {
+                    const auto c = color_value(t, current);
+                    if (!c) {
+                        fail("color " + t.text);
+                    }
+                    t = color_token(*c);
+                } else if (t.kind == Kind::Ident) {
+                    const auto name = lower(t.text);
+                    if (name != "currentcolor" && name != "transparent") {
+                        if (const auto c = color::named(name)) {
+                            t = color_token(*c);
+                        }
+                    }
+                } else if (t.kind == Kind::Function) {
+                    const auto name = lower(t.text);
+                    if (color_function_name(name)) {
+                        const auto c = color_value(t, current);
+                        if (!c) {
+                            fail("color " + serialize({t}) + " outside the profile");
+                        }
+                        t = color_token(*c);
+                        continue;
+                    }
+                    if (name.ends_with("-gradient")) {
+                        // A gradient's interpolation color space ("to right in oklab"): the scene interpolates in
+                        // sRGB, the space CSS gradients used before; the clause goes.
+                        for (std::size_t i = 0; i < t.args.size(); ++i) {
+                            if (t.args[i].kind == Kind::Delim && t.args[i].text == ",") {
+                                break;
+                            }
+                            if (t.args[i].kind == Kind::Ident && lower(t.args[i].text) == "in" &&
+                                i + 1 < t.args.size()) {
+                                std::size_t end = i + 2;
+                                if (end + 1 < t.args.size() && t.args[end + 1].kind == Kind::Ident &&
+                                    lower(t.args[end + 1].text) == "hue") {
+                                    end += 2;
+                                }
+                                t.args.erase(t.args.begin() + std::ptrdiff_t(i), t.args.begin() + std::ptrdiff_t(end));
+                                // A first argument that was only the clause leaves a leading comma.
+                                if (i == 0 && !t.args.empty() && t.args[0].kind == Kind::Delim &&
+                                    t.args[0].text == ",") {
+                                    t.args.erase(t.args.begin());
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    normalize_colors(t.args, current);
+                }
+            }
+        }
+
+        // Whether every color of a value parses (@supports).
+        bool colors_parse(const Tokens& tokens) {
+            try {
+                Tokens copy = tokens;
+                normalize_colors(copy, color::Rgba{0, 0, 0, 1});
+                return true;
+            } catch (const std::invalid_argument&) {
+                return false;
+            }
+        }
+
+        // ---- calc(), min(), max() and clamp() simplified (CSS Values 4 §10.10). ----
+
+        // A sum of terms by canonical unit: "" numbers, "%" percentages, "px" absolute lengths (rem at the default
+        // font size), "deg" angles, "ms" times, and other units as they are (em, the viewport units).
+        using Sum = std::map<std::string, double>;
+
+        std::optional<Sum> term(const Token& t);
+        std::optional<Sum> sum_of(const Tokens& tokens);
+
+        std::optional<Sum> single(std::string unit, double v) {
+            if (!std::isfinite(v)) {
+                // infinity clamps to a large finite value (CSS Values 4 §10.9).
+                v = v > 0 ? 1e7 : -1e7;
+            }
+            return Sum{{std::move(unit), v}};
+        }
+
+        std::optional<Sum> term(const Token& t) {
+            switch (t.kind) {
+                case Kind::Number: {
+                    const auto n = css::parse_number<double>(t.text);
+                    return n ? single("", *n) : std::nullopt;
+                }
+                case Kind::Percentage: {
+                    const auto n = css::parse_number<double>(t.text.substr(0, t.text.size() - 1));
+                    return n ? single("%", *n) : std::nullopt;
+                }
+                case Kind::Dimension: {
+                    std::size_t unit = t.text.size();
+                    while (unit && std::isalpha(static_cast<unsigned char>(t.text[unit - 1]))) {
+                        --unit;
+                    }
+                    const auto n = css::parse_number<double>(t.text.substr(0, unit));
+                    if (!n) {
+                        return std::nullopt;
+                    }
+                    const auto u = lower(t.text.substr(unit));
+                    if (u == "px") {
+                        return single("px", *n);
+                    }
+                    if (u == "rem") {
+                        return single("px", *n * constants::default_font_size_px);
+                    }
+                    if (u == "deg" || u == "grad" || u == "rad" || u == "turn") {
+                        return single("deg", *hue_amount(t));
+                    }
+                    if (u == "s" || u == "ms") {
+                        return single("ms", u == "s" ? *n * 1000 : *n);
+                    }
+                    return single(u, *n);
+                }
+                case Kind::Ident: {
+                    const auto w = lower(t.text);
+                    if (w == "infinity") {
+                        return single("", 1e7);
+                    }
+                    if (w == "-infinity") {
+                        return single("", -1e7);
+                    }
+                    if (w == "pi") {
+                        return single("", 3.14159265358979323846);
+                    }
+                    if (w == "e") {
+                        return single("", 2.71828182845904523536);
+                    }
+                    return std::nullopt;
+                }
+                case Kind::Function: {
+                    const auto name = lower(t.text);
+                    if (name.empty() || name == "calc") {
+                        return sum_of(t.args);
+                    }
+                    if (name == "min" || name == "max" || name == "clamp") {
+                        std::vector<Sum> items;
+                        Tokens item;
+                        for (std::size_t i = 0; i <= t.args.size(); ++i) {
+                            if (i == t.args.size() || (t.args[i].kind == Kind::Delim && t.args[i].text == ",")) {
+                                auto s = sum_of(item);
+                                if (!s || s->size() != 1) {
+                                    return std::nullopt;
+                                }
+                                items.push_back(std::move(*s));
+                                item.clear();
+                            } else {
+                                item.push_back(t.args[i]);
+                            }
+                        }
+                        if (items.empty() || (name == "clamp" && items.size() != 3)) {
+                            return std::nullopt;
+                        }
+                        const auto unit = items[0].begin()->first;
+                        for (const auto& s : items) {
+                            if (s.begin()->first != unit) {
+                                return std::nullopt;
+                            }
+                        }
+                        double v = items[0].begin()->second;
+                        if (name == "clamp") {
+                            v = std::max(items[0].begin()->second,
+                                         std::min(items[1].begin()->second, items[2].begin()->second));
+                        } else {
+                            for (const auto& s : items) {
+                                v = name == "min" ? std::min(v, s.begin()->second) : std::max(v, s.begin()->second);
+                            }
+                        }
+                        return single(unit, v);
+                    }
+                    return std::nullopt;
+                }
+                default:
+                    return std::nullopt;
+            }
+        }
+
+        bool unitless(const Sum& s) {
+            return s.size() == 1 && s.begin()->first.empty();
+        }
+
+        // sum := product (('+' | '-') product)*; product := term (('*' | '/') term)*.
+        std::optional<Sum> sum_of(const Tokens& tokens) {
+            Sum total;
+            std::optional<Sum> product;
+            double sign = 1;
+            char op = 0;
+            const auto add = [&](const Sum& s, double k) {
+                for (const auto& [u, v] : s) {
+                    total[u] += k * v;
+                }
+            };
+            for (const auto& t : tokens) {
+                if (t.kind == Kind::Delim && (t.text == "+" || t.text == "-")) {
+                    if (!product || op) {
+                        return std::nullopt;
+                    }
+                    add(*product, sign);
+                    product.reset();
+                    sign = t.text == "-" ? -1 : 1;
+                    continue;
+                }
+                if (t.kind == Kind::Delim && (t.text == "*" || t.text == "/")) {
+                    if (!product || op) {
+                        return std::nullopt;
+                    }
+                    op = t.text[0];
+                    continue;
+                }
+                auto value = term(t);
+                if (!value) {
+                    return std::nullopt;
+                }
+                if (!product) {
+                    if (op) {
+                        return std::nullopt;
+                    }
+                    product = std::move(*value);
+                } else if (op == '*') {
+                    if (unitless(*value)) {
+                        for (auto& [u, v] : *product) {
+                            v *= value->begin()->second;
+                        }
+                    } else if (unitless(*product)) {
+                        const double k = product->begin()->second;
+                        product = std::move(*value);
+                        for (auto& [u, v] : *product) {
+                            v *= k;
+                        }
+                    } else {
+                        return std::nullopt;
+                    }
+                } else if (op == '/') {
+                    if (!unitless(*value) || value->begin()->second == 0) {
+                        return std::nullopt;
+                    }
+                    for (auto& [u, v] : *product) {
+                        v /= value->begin()->second;
+                    }
+                } else {
+                    // Two terms without an operator.
+                    return std::nullopt;
+                }
+                op = 0;
+            }
+            if (!product || op) {
+                return std::nullopt;
+            }
+            add(*product, sign);
+            // Terms that cancel out go (but keep one).
+            for (auto it = total.begin(); it != total.end() && total.size() > 1;) {
+                it = it->second == 0 ? total.erase(it) : std::next(it);
+            }
+            return total;
+        }
+
+        std::string number_text(double v) {
+            if (std::abs(v) < 1e-9) {
+                v = 0;
+            }
+            char text[32];
+            std::snprintf(text, sizeof text, "%.6g", v);
+            return text;
+        }
+
+        // A sum as tokens: one term as itself, more as calc(a + b - c) with percentages first.
+        Token sum_token(const Sum& s) {
+            const auto one = [](const std::string& unit, double v) -> Token {
+                const auto n = number_text(v);
+                if (unit.empty()) {
+                    return {Kind::Number, n, {}};
+                }
+                if (unit == "%") {
+                    return {Kind::Percentage, n + "%", {}};
+                }
+                return {Kind::Dimension, n + unit, {}};
+            };
+            if (s.size() == 1) {
+                return one(s.begin()->first, s.begin()->second);
+            }
+            Token out{Kind::Function, "calc", {}};
+            std::vector<std::pair<std::string, double>> terms(s.begin(), s.end());
+            std::stable_sort(terms.begin(), terms.end(), [](const auto& a, const auto& b) {
+                return (a.first == "%") > (b.first == "%");
+            });
+            for (const auto& [u, v] : terms) {
+                if (!out.args.empty()) {
+                    out.args.push_back({Kind::Delim, v < 0 ? "-" : "+", {}});
+                    out.args.push_back(one(u, std::abs(v)));
+                } else {
+                    out.args.push_back(one(u, v));
+                }
+            }
+            return out;
+        }
+
+        // The math functions of a value simplified, inside other functions too: one that reduces to a single term is
+        // that term; one that does not stays a canonical calc() (or as it was).
+        void simplify_math(Tokens& tokens) {
+            for (auto& t : tokens) {
+                if (t.kind != Kind::Function) {
+                    continue;
+                }
+                const auto name = lower(t.text);
+                if (name == "calc" || name == "min" || name == "max" || name == "clamp" || name.empty()) {
+                    simplify_math(t.args);
+                    if (const auto s = name.empty() ? sum_of(t.args) : term(t)) {
+                        t = sum_token(*s);
+                    }
+                } else {
+                    simplify_math(t.args);
+                }
+            }
+        }
+
+        // ---- @supports (CSS Conditional 3) as a forgiving profile answers it. ----
+
+        bool supports_declaration(std::string_view text, const StyleProfile& profile) {
+            const auto colon = text.find(':');
+            if (colon == std::string_view::npos) {
+                return false;
+            }
+            auto key = trim(text.substr(0, colon));
+            if (custom(key)) {
+                return true;
+            }
+            key = lower(key);
+            if (std::find(profile.ignored.begin(), profile.ignored.end(), key) != profile.ignored.end()) {
+                return false;
+            }
+            std::vector<Declaration> out;
+            try {
+                declaration(text, profile, out);
+            } catch (const std::invalid_argument&) {
+                return false;
+            }
+            if (out.empty()) {
+                return false;
+            }
+            for (const auto& d : out) {
+                if (!profile.properties.contains(d.key)) {
+                    return false;
+                }
+                if (color_bearing(d.key) && !references(d.tokens) && !colors_parse(d.tokens)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        bool supports_parts(const std::vector<std::string>& parts, std::size_t begin, std::size_t end,
+                            const StyleProfile& profile);
+
+        bool supports_group(const std::string& part, const StyleProfile& profile) {
+            if (part.starts_with("selector(")) {
+                const dom::SelectorGrammar grammar{true, true, Diag::StyleProfile, Diag::StyleProfile, true};
+                const auto inside = std::string_view(part).substr(9, part.size() - 10);
+                const auto list = dom::parse_selector_list(inside, grammar, 64);
+                return bool(list);
+            }
+            if (!part.starts_with("(")) {
+                // font-tech(), font-format() and general enclosed: false.
+                return false;
+            }
+            const auto inside = trim(std::string_view(part).substr(1, part.size() - 2));
+            if (!inside.empty() && (inside[0] == '(' || lower(inside).starts_with("not ") ||
+                                    lower(inside).starts_with("not(") || lower(inside).starts_with("selector("))) {
+                const auto parts = condition_parts(inside);
+                return supports_parts(parts, 0, parts.size(), profile);
+            }
+            return supports_declaration(inside, profile);
+        }
+
+        bool supports_parts(const std::vector<std::string>& parts, std::size_t begin, std::size_t end,
+                            const StyleProfile& profile) {
+            if (begin >= end) {
+                return false;
+            }
+            if (parts[begin] == "not") {
+                return begin + 1 < end && !supports_group(parts[begin + 1], profile);
+            }
+            bool any = false;
+            bool all = true;
+            bool disjunction = false;
+            for (std::size_t i = begin; i < end; ++i) {
+                if (parts[i] == "and") {
+                    continue;
+                }
+                if (parts[i] == "or") {
+                    disjunction = true;
+                    continue;
+                }
+                const bool holds = supports_group(parts[i], profile);
+                any |= holds;
+                all &= holds;
+            }
+            return disjunction ? any : all;
+        }
+
+        bool supports(std::string_view condition, const StyleProfile& profile) {
+            const auto parts = condition_parts(condition);
+            return supports_parts(parts, 0, parts.size(), profile);
+        }
+
         using Variables = std::map<std::string, std::optional<Tokens>>;
     } // namespace
 
@@ -941,11 +2825,120 @@ namespace weft {
                    }) != text.end();
         }
 
+        // Calls f for every compound of a selector, those of its :is(), :where(), :not() and :nth-child(of S) too.
+        template <class F>
+        void each_compound(const dom::Selector& s, F&& f) {
+            for (const auto& part : s.parts) {
+                f(part);
+                for (const auto& alternative : part.alternatives) {
+                    for (const auto& inner : alternative.list) {
+                        each_compound(inner, f);
+                    }
+                }
+                for (const auto& n : part.nth) {
+                    for (const auto& inner : n.of) {
+                        each_compound(inner, f);
+                    }
+                }
+            }
+        }
+
+        // An author sheet's rules by the key of their subject compound: its first id, else its first class, else its
+        // type; the rest are universal. An element's candidates merge in sheet order.
+        struct RuleIndex {
+            std::unordered_map<std::string, std::vector<std::uint32_t>> ids;
+            std::unordered_map<std::string, std::vector<std::uint32_t>> classes;
+            std::unordered_map<std::string, std::vector<std::uint32_t>> tags;
+            std::vector<std::uint32_t> universal;
+
+            RuleIndex() = default;
+
+            explicit RuleIndex(const std::vector<Rule>& rules) {
+                for (std::uint32_t i = 0; i < rules.size(); ++i) {
+                    const auto& subject = rules[i].selector.parts.back();
+                    if (!subject.ids.empty()) {
+                        ids[subject.ids.front()].push_back(i);
+                    } else if (!subject.classes.empty()) {
+                        classes[subject.classes.front()].push_back(i);
+                    } else if (!subject.tag.empty() && subject.tag != "*") {
+                        tags[subject.lower_tag].push_back(i);
+                    } else {
+                        universal.push_back(i);
+                    }
+                }
+            }
+
+            void candidates(const DomSnapshot& n, std::vector<std::uint32_t>& out) const {
+                out.clear();
+                const auto take = [&](const std::vector<std::uint32_t>& list) {
+                    out.insert(out.end(), list.begin(), list.end());
+                };
+                take(universal);
+                if (const auto id = n.attributes.find("id"); id != n.attributes.end() && !ids.empty()) {
+                    if (const auto it = ids.find(id->second); it != ids.end()) {
+                        take(it->second);
+                    }
+                }
+                if (const auto list = n.attributes.find("class"); list != n.attributes.end() && !classes.empty()) {
+                    const std::string_view text = list->second;
+                    std::size_t i{};
+                    while (i < text.size()) {
+                        while (i < text.size() && (text[i] == ' ' || text[i] == '\t' || text[i] == '\n' ||
+                                                   text[i] == '\f' || text[i] == '\r')) {
+                            ++i;
+                        }
+                        const auto start = i;
+                        while (i < text.size() && !(text[i] == ' ' || text[i] == '\t' || text[i] == '\n' ||
+                                                    text[i] == '\f' || text[i] == '\r')) {
+                            ++i;
+                        }
+                        if (i > start) {
+                            if (const auto it = classes.find(std::string(text.substr(start, i - start)));
+                                it != classes.end()) {
+                                take(it->second);
+                            }
+                        }
+                    }
+                }
+                if (!tags.empty()) {
+                    if (const auto it = tags.find(lower(n.local_name)); it != tags.end()) {
+                        take(it->second);
+                    }
+                }
+                std::sort(out.begin(), out.end());
+                out.erase(std::unique(out.begin(), out.end()), out.end());
+            }
+        };
+
+        // What a forgiving profile's cascade reads besides the rules: their index, the sheet's registered custom
+        // properties, where to warn, and the viewport @media conditions read.
+        struct ForgivingContext {
+            const RuleIndex* index{};
+            const std::map<std::string, Registered>* registered{};
+            Warnings* warnings{};
+            float width{};
+            float height{};
+        };
+
+        // A computed color value read back (the forms normalize_colors writes, or what a strict profile keeps).
+        std::optional<color::Rgba> parse_computed_color(std::string_view text) {
+            try {
+                Lexer lexer{text};
+                lexer.forgiving = true;
+                const auto tokens = lexer.scan();
+                return tokens.size() == 1 ? color_value(tokens[0], std::nullopt) : std::nullopt;
+            } catch (const std::invalid_argument&) {
+                return std::nullopt;
+            }
+        }
+
         struct Engine {
             const StyleProfile& profile;
             const ProfileIndex& profile_index;
             const std::vector<Rule>& ua;
             const std::vector<Rule>& author;
+            const ForgivingContext* forgiving{};
+            std::vector<std::uint32_t> candidates;
             std::vector<const DomSnapshot*> path;
             std::size_t nodes{};
             std::size_t work{};
@@ -972,6 +2965,12 @@ namespace weft {
             bool memoize{};
             bool uses_hover{};
             bool uses_active{};
+            // What the modern grammar's selectors read: focus, an element's position among its siblings, its
+            // siblings themselves (+, ~, :nth-child(of S)), and whether it is empty.
+            bool uses_focus{};
+            bool uses_position{};
+            bool uses_siblings{};
+            bool uses_empty{};
             bool parent_all{};
             std::set<std::string> memo_attributes{"id", "class"};
             std::vector<const dom::Compound*> state_parts;
@@ -1019,17 +3018,34 @@ namespace weft {
             std::uint64_t stamp{};
 
             Engine(const StyleProfile& p, const ProfileIndex& i, const std::vector<Rule>& u, const std::vector<Rule>& a,
-                   bool reuse = false, MemoState* state = nullptr, std::vector<NodeIdentity>* changed = nullptr)
-                : profile(p), profile_index(i), ua(u), author(a), memoize(reuse) {
+                   bool reuse = false, MemoState* state = nullptr, std::vector<NodeIdentity>* changed = nullptr,
+                   const ForgivingContext* forgiving_context = nullptr)
+                : profile(p), profile_index(i), ua(u), author(a), forgiving(forgiving_context), memoize(reuse) {
                 if (state) {
                     memo_state = state;
                 }
                 changed_nodes = changed;
                 for (const auto* list : {&ua, &author}) {
                     for (const auto& rule : *list) {
-                        for (const auto& part : rule.selector.parts) {
+                        for (const auto relation : rule.selector.relations) {
+                            uses_siblings |= relation == '+' || relation == '~';
+                        }
+                        each_compound(rule.selector, [&](const dom::Compound& part) {
                             uses_hover |= part.hover;
                             uses_active |= part.active;
+                            uses_focus |= part.focus || part.focus_within;
+                            uses_empty |= part.empty;
+                            uses_position |= !part.nth.empty();
+                            for (const auto& n : part.nth) {
+                                uses_siblings |= !n.of.empty();
+                            }
+                            for (const auto& alternative : part.alternatives) {
+                                for (const auto& inner : alternative.list) {
+                                    for (const auto relation : inner.relations) {
+                                        uses_siblings |= relation == '+' || relation == '~';
+                                    }
+                                }
+                            }
                             if (part.hover || part.active) {
                                 state_parts.push_back(&part);
                             }
@@ -1037,12 +3053,55 @@ namespace weft {
                                 memo_attributes.insert(attribute.name);
                                 memo_attributes.insert(attribute.lower_name);
                             }
-                        }
+                            if (part.disabled || part.enabled || part.checked) {
+                                memo_attributes.insert("disabled");
+                                memo_attributes.insert("checked");
+                                memo_attributes.insert("selected");
+                            }
+                        });
                         for (const auto& d : rule.declarations) {
                             parent_all |= keyword(d.tokens) == "inherit" || references(d.tokens);
                         }
                     }
                 }
+            }
+
+            // A cascade-wide bound was passed: the document fails, whatever the profile.
+            bool bounds_passed() const {
+                return work > std::size_t(constants::style::max_token_work) ||
+                       bytes > std::size_t(constants::style::max_computed_output_bytes) ||
+                       nodes > std::size_t(constants::max_document_nodes);
+            }
+
+            void warn(std::string text) const {
+                if (forgiving && forgiving->warnings) {
+                    forgiving->warnings->add(std::move(text));
+                }
+            }
+
+            Warnings* warnings() const {
+                return forgiving ? forgiving->warnings : nullptr;
+            }
+
+            const Registered* registered(const std::string& name) const {
+                if (!forgiving || !forgiving->registered) {
+                    return nullptr;
+                }
+                const auto it = forgiving->registered->find(name);
+                return it == forgiving->registered->end() ? nullptr : &it->second;
+            }
+
+            // The custom properties a child inherits from variables: all but the registered ones that do not inherit.
+            Variables inheritable(const Variables& variables) const {
+                if (!forgiving || !forgiving->registered || forgiving->registered->empty()) {
+                    return variables;
+                }
+                Variables out = variables;
+                for (auto it = out.begin(); it != out.end();) {
+                    const auto* r = registered(it->first);
+                    it = r && !r->inherits ? out.erase(it) : std::next(it);
+                }
+                return out;
             }
 
             std::string selector_key() {
@@ -1068,11 +3127,51 @@ namespace weft {
                 if (uses_active) {
                     selector_path += (a && n->active) ? '1' : '0';
                 }
+                if (uses_focus) {
+                    selector_path += n->focused ? 'F' : 'f';
+                    selector_path += n->focus_within ? 'W' : 'w';
+                }
+                if (uses_empty) {
+                    selector_path += has_content(*n) ? 'C' : 'c';
+                }
                 for (const auto& [k, v] : n->attributes) {
                     if (memo_attributes.contains(k)) {
                         add(k);
                         add(v);
                     }
+                }
+                // What the structural selectors read: the element's position among its element siblings, of every
+                // type and of its own, from each end; and with sibling combinators the siblings themselves.
+                if ((uses_position || uses_siblings) && path.size() >= 2) {
+                    std::size_t index{};
+                    std::size_t count{};
+                    std::size_t type_index{};
+                    std::size_t type_count{};
+                    for (const auto& s : path[path.size() - 2]->children) {
+                        if (s.type != constants::element_node_type) {
+                            continue;
+                        }
+                        const bool same_type = s.local_name == n->local_name && s.namespace_uri == n->namespace_uri;
+                        if (&s == n) {
+                            index = count;
+                            type_index = type_count;
+                            selector_path += '@';
+                        } else if (uses_siblings) {
+                            add(s.local_name);
+                            selector_path += s.hovered ? 'h' : '-';
+                            selector_path += s.active ? 'a' : '-';
+                            for (const auto& [k, v] : s.attributes) {
+                                if (memo_attributes.contains(k)) {
+                                    add(k);
+                                    add(v);
+                                }
+                            }
+                        }
+                        ++count;
+                        type_count += same_type ? 1 : 0;
+                    }
+                    add(std::to_string(index) + "/" + std::to_string(count) + "/" + std::to_string(type_index) + "/" +
+                        std::to_string(type_count));
                 }
                 selector_path += ';';
                 return selector_path;
@@ -1207,16 +3306,19 @@ namespace weft {
 
             // Whether two copies of an element hold the same values for its own cascade: its name, attributes and
             // state.
-            static bool same_own_input(const DomSnapshot& a, const DomSnapshot& b) {
+            bool same_own_input(const DomSnapshot& a, const DomSnapshot& b) const {
                 return a.type == b.type && a.local_name == b.local_name && a.namespace_uri == b.namespace_uri &&
-                       a.hovered == b.hovered && a.active == b.active && a.attributes == b.attributes;
+                       a.hovered == b.hovered && a.active == b.active && a.attributes == b.attributes &&
+                       (!uses_focus || (a.focused == b.focused && a.focus_within == b.focus_within)) &&
+                       (!uses_empty || has_content(a) == has_content(b));
             }
 
             // Whether two copies of an element read alike to the selectors of its descendants: name, state and the
             // attributes selectors read.
             bool same_selector_input(const DomSnapshot& a, const DomSnapshot& b) const {
                 if (a.local_name != b.local_name || a.namespace_uri != b.namespace_uri ||
-                    (uses_hover && a.hovered != b.hovered) || (uses_active && a.active != b.active)) {
+                    (uses_hover && a.hovered != b.hovered) || (uses_active && a.active != b.active) ||
+                    (uses_focus && (a.focused != b.focused || a.focus_within != b.focus_within))) {
                     return false;
                 }
                 const auto read = [&](const AttributeMap& m, AttributeMap::const_iterator it) {
@@ -1312,7 +3414,8 @@ namespace weft {
                                                const std::string& selectors) {
                 if (!memoize || dom.namespace_uri != constants::xhtml_namespace_uri || dom.type != old.type ||
                     dom.local_name != old.local_name || dom.namespace_uri != old.namespace_uri ||
-                    dom.hovered != old.hovered || dom.active != old.active || !same_selector_input(dom, old)) {
+                    dom.hovered != old.hovered || dom.active != old.active || !same_selector_input(dom, old) ||
+                    (uses_empty && has_content(dom) != has_content(old))) {
                     return std::nullopt;
                 }
                 const auto winners = memo_state->winners.find(selectors);
@@ -1324,7 +3427,7 @@ namespace weft {
                 static const Parse none = std::make_shared<const std::map<std::string, Declaration>>();
                 const auto parse = [&](const std::string& text) {
                     auto out = std::make_shared<std::map<std::string, Declaration>>();
-                    for (const auto& d : declarations(comments(text, profile.scene_syntax), profile)) {
+                    for (const auto& d : declarations(comments(text, profile.scene_syntax), profile, warnings())) {
                         if (const auto found = out->find(d.key);
                             found == out->end() || !found->second.important || d.important) {
                             (*out)[d.key] = d;
@@ -1351,7 +3454,7 @@ namespace weft {
                 const auto winner = [&](const std::map<std::string, Declaration>& inline_values,
                                         const std::string& key) -> const Declaration* {
                     if (const auto it = inline_values.find(key); it != inline_values.end()) {
-                        Rank rank{it->second.important ? 1u : 0u, 1, 1, 0, 0, 0, 0};
+                        Rank rank{it->second.important ? 1u : 0u, 1, 1, 0, 0, 0, 0, 0};
                         rank[constants::style::cascade_rank_order_index] = std::numeric_limits<unsigned>::max();
                         if (const auto r = rules.ranks.find(key); r == rules.ranks.end() || r->second <= rank) {
                             return &it->second;
@@ -1405,6 +3508,19 @@ namespace weft {
                 if (removed > target.own_work) {
                     return std::nullopt;
                 }
+                if (profile.forgiving) {
+                    // A value the forgiving profile drops is the full cascade's to drop (with its warning).
+                    for (const auto& c : contests) {
+                        if (c.after) {
+                            Tokens copy = c.after->tokens;
+                            try {
+                                normalize(*c.key, copy, target.values, nullptr);
+                            } catch (const std::invalid_argument&) {
+                                return std::nullopt;
+                            }
+                        }
+                    }
+                }
                 touch(memo_state->winner_uses, winners, memo_state->clock);
                 charge(target.own_work - removed);
                 const std::function<std::optional<Tokens>(const std::string&)> no_variables = [](const std::string&) {
@@ -1413,7 +3529,10 @@ namespace weft {
                 bool changed{};
                 for (const auto& c : contests) {
                     if (c.after) {
-                        const auto tokens = substitute(c.after->tokens, no_variables);
+                        auto tokens = substitute(c.after->tokens, no_variables);
+                        if (profile.forgiving) {
+                            normalize(*c.key, *tokens, target.values, nullptr);
+                        }
                         auto text = serialize(*tokens);
                         if (const auto* current = target.values.find(c.id); !current || current->text() != text) {
                             target.values.set(c.id, CssValue(std::move(text)));
@@ -1471,6 +3590,25 @@ namespace weft {
                 }
                 std::size_t hint{};
                 std::size_t old_hint{};
+                // Selectors that read positions or siblings match anew when the element children are other ones, or
+                // in another order; with sibling combinators, every child after one whose selector input changed.
+                bool siblings_moved{};
+                if ((uses_position || uses_siblings) && old) {
+                    std::vector<NodeIdentity> now;
+                    std::vector<NodeIdentity> then;
+                    for (const auto& c : dom.children) {
+                        if (c.type == constants::element_node_type) {
+                            now.push_back(c.identity);
+                        }
+                    }
+                    for (const auto& c : old->children) {
+                        if (c.type == constants::element_node_type) {
+                            then.push_back(c.identity);
+                        }
+                    }
+                    siblings_moved = now != then;
+                }
+                bool sibling_changed{};
                 for (const auto& child : dom.children) {
                     if (child.type == constants::element_node_type) {
                         std::size_t index = hint++;
@@ -1497,13 +3635,17 @@ namespace weft {
                         }
                         out.children.push_back(index < previous.size() ? std::move(previous[index]) : ComputedStyle{});
                         auto& kept = out.children.back();
-                        if (!dirty && !selectors && old_child && child.revision != 0 &&
+                        const bool child_selectors = selectors || siblings_moved || sibling_changed;
+                        if (uses_siblings && (!old_child || !same_selector_input(child, *old_child))) {
+                            sibling_changed = true;
+                        }
+                        if (!dirty && !child_selectors && old_child && child.revision != 0 &&
                             old_child->revision == child.revision && kept.identity == child.identity &&
                             kept.environment) {
                             keep(kept);
                             continue;
                         }
-                        compute_into(child, kept, &out, variables, old_child, dirty, selectors);
+                        compute_into(child, kept, &out, variables, old_child, dirty, child_selectors);
                     }
                 }
                 if (out.children.size() != before.size() ||
@@ -1646,15 +3788,32 @@ namespace weft {
                         winning[d.key] = d;
                     }
                 };
-                auto sheet = [&](const auto& list, unsigned origin) {
-                    for (const auto& r : list) {
-                        if (r.matches(path)) {
-                            for (const auto& d : r.declarations) {
-                                const auto& specificity = r.selector.specificity;
-                                apply(d, {d.important ? 1u : 0u, d.important && origin == 0 ? 2u : origin, 0,
-                                          specificity[0], specificity[1], specificity[2], 0});
-                            }
+                const auto apply_rule = [&](const Rule& r, unsigned origin) {
+                    if (r.media && (!forgiving || !r.media->holds(forgiving->width, forgiving->height))) {
+                        return;
+                    }
+                    if (!r.matches(path)) {
+                        return;
+                    }
+                    const auto& specificity = r.selector.specificity;
+                    for (const auto& d : r.declarations) {
+                        // Cascade layers: an earlier layer loses among normal declarations and wins among important
+                        // ones (CSS Cascade 5 6.4).
+                        const unsigned layer = d.important ? std::numeric_limits<unsigned>::max() - r.layer : r.layer;
+                        apply(d, {d.important ? 1u : 0u, d.important && origin == 0 ? 2u : origin, 0, layer,
+                                  specificity[0], specificity[1], specificity[2], 0});
+                    }
+                };
+                auto sheet = [&](const std::vector<Rule>& list, unsigned origin, const RuleIndex* index) {
+                    if (!index) {
+                        for (const auto& r : list) {
+                            apply_rule(r, origin);
                         }
+                        return;
+                    }
+                    index->candidates(dom, candidates);
+                    for (const auto i : candidates) {
+                        apply_rule(list[i], origin);
                     }
                 };
                 // Stable rule matching is shared by all inline animation samples.
@@ -1671,8 +3830,8 @@ namespace weft {
                     }
                 }
                 if (!winner_hit) {
-                    sheet(ua, 0);
-                    sheet(author, 1);
+                    sheet(ua, 0, nullptr);
+                    sheet(author, 1, forgiving ? forgiving->index : nullptr);
                     if (memoize) {
                         std::size_t payload = selectors.size();
                         for (const auto& [k, d] : winning) {
@@ -1699,8 +3858,9 @@ namespace weft {
                 if (profile.scene_syntax && dom.namespace_uri == constants::svg_namespace_uri) {
                     for (const auto k : presentation_attributes) {
                         if (const auto it = dom.attributes.find(k); it != dom.attributes.end()) {
-                            for (const auto& d : declarations(std::string(k) + ":" + it->second, profile)) {
-                                auto rank = Rank{0, 1, 0, 0, 0, 0, 0};
+                            for (const auto& d :
+                                 declarations(std::string(k) + ":" + it->second, profile, warnings())) {
+                                auto rank = Rank{0, 1, 0, 0, 0, 0, 0, 0};
                                 if (!ranks.contains(d.key) || ranks[d.key] < rank) {
                                     ranks[d.key] = rank;
                                     winning[d.key] = d;
@@ -1710,9 +3870,9 @@ namespace weft {
                     }
                 }
                 if (dom.attributes.contains("style")) {
-                    for (const auto& d :
-                         declarations(comments(dom.attributes.at("style"), profile.scene_syntax), profile)) {
-                        apply(d, {d.important ? 1u : 0u, 1, 1, 0, 0, 0, 0});
+                    for (const auto& d : declarations(comments(dom.attributes.at("style"), profile.scene_syntax),
+                                                      profile, warnings())) {
+                        apply(d, {d.important ? 1u : 0u, 1, 1, 0, 0, 0, 0, 0});
                     }
                 }
                 // Charge inherited token copies before allocating a child environment.
@@ -1722,25 +3882,30 @@ namespace weft {
                         charge(token_count(*t));
                     }
                 }
-                Variables variables = inherited;
+                Variables variables = inheritable(inherited);
                 std::map<std::string, Tokens> local;
                 for (const auto& [k, d] : winning) {
                     if (custom(k)) {
                         const auto word = keyword(d.tokens);
+                        const auto* r = registered(k);
                         if (word == "revert" || word == "revert-layer") {
                             fail("cascade rollback outside profile");
                         }
-                        if (word == "initial") {
-                            variables[k] = std::nullopt;
+                        if (word == "initial" || (word == "unset" && r && !r->inherits)) {
+                            // A registered property's initial value (none: guaranteed-invalid).
+                            variables[k] = r ? r->initial : std::nullopt;
                         } else if (word == "inherit" || word == "unset") {
                             if (!variables.contains(k)) {
-                                variables[k] = std::nullopt;
+                                variables[k] = inherited.contains(k) ? inherited.at(k) : std::nullopt;
                             }
                         } else {
                             local[k] = d.tokens;
                         }
                     }
                 }
+                const auto custom_bound =
+                    std::size_t(profile.forgiving ? constants::style::max_forgiving_custom_properties
+                                                  : constants::style::max_custom_properties);
                 std::set<std::string> variable_names;
                 for (const auto& [k, t] : variables) {
                     variable_names.insert(k);
@@ -1748,7 +3913,7 @@ namespace weft {
                 for (const auto& [k, t] : local) {
                     variable_names.insert(k);
                 }
-                if (variable_names.size() > constants::style::max_custom_properties) {
+                if (variable_names.size() > custom_bound) {
                     fail("custom property count bound");
                 }
                 // Current CSS Values substitution contexts: selected fallbacks only.
@@ -1779,12 +3944,17 @@ namespace weft {
                         variables[k] = cycle.contains(k) ? std::nullopt : std::move(result);
                         done.insert(k);
                     }
-                    return variables.contains(k) ? variables.at(k) : std::nullopt;
+                    if (const auto it = variables.find(k); it != variables.end()) {
+                        return it->second;
+                    }
+                    // A registered property no element set: its initial value.
+                    const auto* r = registered(k);
+                    return r ? r->initial : std::nullopt;
                 };
                 for (const auto& [k, t] : local) {
                     resolve(k);
                 }
-                if (variables.size() > constants::style::max_custom_properties) {
+                if (variables.size() > custom_bound) {
                     fail("custom property count bound");
                 }
                 ComputedStyle out;
@@ -1805,8 +3975,8 @@ namespace weft {
                         }
                     }
                 }
-                for (const auto& [k, d] : winning) {
-                    if (!custom(k)) {
+                const auto compute_property = [&](const std::string& k, const Declaration& d) {
+                    {
                         const auto& prop = profile.properties.at(k);
                         auto tokens = substitute(d.tokens, resolve);
                         if (tokens && d.box_edge >= 0 && !wide(keyword(*tokens))) {
@@ -1845,6 +4015,10 @@ namespace weft {
                             }
                             if (okay) {
                                 tokens = Tokens{x[corners[x.size() - 1][d.corner]], y[corners[y.size() - 1][d.corner]]};
+                                // A circular corner is one radius (the scene draws one value a corner).
+                                if (profile.forgiving && (*tokens)[0] == (*tokens)[1]) {
+                                    tokens->pop_back();
+                                }
                             } else {
                                 tokens = std::nullopt;
                             }
@@ -1911,6 +4085,9 @@ namespace weft {
                             }
                         }
                         std::string word = tokens ? keyword(*tokens) : "";
+                        if (profile.forgiving && tokens && !wide(word)) {
+                            normalize(k, *tokens, out.values, parent ? &parent->values : nullptr);
+                        }
                         bool invalid = !tokens;
                         if (tokens && d.solid_background && !wide(word)) {
                             if (tokens->size() != 1) {
@@ -1930,15 +4107,61 @@ namespace weft {
                             out.invalid_at_computed_value.push_back(k);
                             word = "unset";
                         }
+                        // A forgiving profile's initial value left empty is the consumer's default: no value.
+                        const auto set_initial = [&] {
+                            const auto& initial = profile_index.initial[std::size_t(d.id)];
+                            if (profile.forgiving && initial.text().empty()) {
+                                out.values.erase(d.id);
+                            } else {
+                                out.values.set(d.id, initial);
+                            }
+                        };
                         if (word == "inherit" || (word == "unset" && prop.inherited)) {
                             const auto* inherited_value = parent ? parent->values.find(d.id) : nullptr;
-                            out.values.set(d.id, inherited_value ? *inherited_value
-                                                                 : profile_index.initial[std::size_t(d.id)]);
+                            if (inherited_value) {
+                                out.values.set(d.id, *inherited_value);
+                            } else {
+                                set_initial();
+                            }
                         } else if (word == "initial" || word == "unset") {
-                            out.values.set(d.id, profile_index.initial[std::size_t(d.id)]);
+                            set_initial();
                         } else {
                             out.values.set(d.id, CssValue(serialize(*tokens)));
                         }
+                    }
+                };
+                const auto run = [&](const std::string& k, const Declaration& d) {
+                    if (!profile.forgiving) {
+                        compute_property(k, d);
+                        return;
+                    }
+                    try {
+                        compute_property(k, d);
+                    } catch (const std::invalid_argument& e) {
+                        if (bounds_passed()) {
+                            throw;
+                        }
+                        // Invalid at computed-value time: the property is unset, and the page is told.
+                        warn(std::string(e.what()) + " (" + k + ")");
+                        out.invalid_at_computed_value.push_back(k);
+                        const auto& prop = profile.properties.at(k);
+                        const auto* inherited_value = prop.inherited && parent ? parent->values.find(d.id) : nullptr;
+                        if (inherited_value) {
+                            out.values.set(d.id, *inherited_value);
+                        } else if (profile_index.initial[std::size_t(d.id)].text().empty()) {
+                            out.values.erase(d.id);
+                        } else {
+                            out.values.set(d.id, profile_index.initial[std::size_t(d.id)]);
+                        }
+                    }
+                };
+                // color first: the other properties' currentcolor in a color-mix() is this element's.
+                if (const auto color = winning.find("color"); color != winning.end()) {
+                    run(color->first, color->second);
+                }
+                for (const auto& [k, d] : winning) {
+                    if (!custom(k) && k != "color") {
+                        run(k, d);
                     }
                 }
                 for (const auto& [id, v] : out.values) {
@@ -1950,6 +4173,8 @@ namespace weft {
                 if (bytes > constants::style::max_computed_output_bytes) {
                     fail("computed output byte bound");
                 }
+                // What the children inherit: all but the registered properties that do not inherit.
+                const Variables child_variables = inheritable(variables);
                 if (memoize) {
                     const auto output_bytes = bytes - bytes_before;
                     std::size_t variable_bytes{};
@@ -1968,7 +4193,7 @@ namespace weft {
                         }
                         const auto [entry, added] = memo_state->entries.emplace(
                             std::move(key),
-                            Memo{out, variables, work - work_before, output_bytes, payload, ++memo_state->clock});
+                            Memo{out, child_variables, work - work_before, output_bytes, payload, ++memo_state->clock});
                         if (added) {
                             memo_state->entry_uses.emplace(entry->second.used, entry);
                         }
@@ -1979,22 +4204,78 @@ namespace weft {
                 const bool changed = own_into(destination, out, dom.identity);
                 destination.own_work = work - work_before;
                 destination.own_bytes = bytes - bytes_before;
-                const bool inherited_changed = inherit(destination, variables, parent);
-                children_into(dom, destination, variables, old, (changed && reaches) || inherited_changed,
+                const bool inherited_changed = inherit(destination, child_variables, parent);
+                children_into(dom, destination, child_variables, old, (changed && reaches) || inherited_changed,
                               child_selectors);
                 close(destination, nodes_before, work_before, bytes_before);
+            }
+
+            // A forgiving profile's computed value of a property: its math functions simplified and its colors in the
+            // forms the scene draws. own: the element's values so far (its color, for currentcolor inside a
+            // color-mix()); parent: its parent's (the color property's own currentcolor).
+            void normalize(const std::string& key, Tokens& tokens, const StyleValues& own, const StyleValues* parent) {
+                simplify_math(tokens);
+                if (!color_bearing(key)) {
+                    return;
+                }
+                std::optional<color::Rgba> current;
+                if (const auto* source = key == "color" ? parent : &own) {
+                    if (const auto* c = source->find(PropertyId::Color)) {
+                        current = parse_computed_color(c->text());
+                    }
+                }
+                if (!current) {
+                    current = parse_computed_color(constants::default_color);
+                }
+                normalize_colors(tokens, current);
+            }
+        };
+    } // namespace
+
+    namespace {
+        // A sheet compiled for a profile: its rules, and for a forgiving profile their index, the sheet's registered
+        // custom properties, its @keyframes and what it dropped.
+        struct Compiled {
+            std::vector<Rule> ua;
+            std::vector<Rule> author;
+            std::unique_ptr<RuleIndex> index;
+            std::map<std::string, Registered> registered;
+            std::string keyframes;
+            bool sized_media{};
+            Warnings warnings;
+
+            Compiled(std::string sheet, const StyleProfile& profile) {
+                ua = rules(profile.ua_stylesheet, profile);
+                if (!profile.forgiving) {
+                    author = rules(std::move(sheet), profile);
+                    return;
+                }
+                auto parsed = parse_sheet(std::move(sheet), profile);
+                author = std::move(parsed.rules);
+                registered = std::move(parsed.registered);
+                keyframes = std::move(parsed.keyframes);
+                sized_media = parsed.sized_media;
+                warnings = std::move(parsed.warnings);
+                index = std::make_unique<RuleIndex>(author);
             }
         };
     } // namespace
 
     ComputedStyle compute_style(const DomSnapshot& root, std::string_view sheet, const StyleProfile& profile) {
+        return compute_style(root, sheet, profile, 0, 0);
+    }
+
+    ComputedStyle compute_style(const DomSnapshot& root, std::string_view sheet, const StyleProfile& profile,
+                                float viewport_width, float viewport_height) {
         if (profile.properties.size() > constants::style::max_registered_properties) {
             fail("property registry count bound");
         }
-        auto ua = rules(profile.ua_stylesheet, profile);
-        auto author = rules(std::string(sheet), profile);
+        Compiled compiled(std::string(sheet), profile);
         const ProfileIndex index(profile);
-        Engine engine{profile, index, ua, author};
+        const ForgivingContext context{compiled.index.get(), &compiled.registered, &compiled.warnings, viewport_width,
+                                       viewport_height};
+        Engine engine{profile, index, compiled.ua, compiled.author, false, nullptr, nullptr,
+                      profile.forgiving ? &context : nullptr};
         return engine.compute(root, nullptr, {});
     }
 
@@ -2019,29 +4300,48 @@ namespace weft {
         std::shared_ptr<const int> identity = std::make_shared<const int>(0);
         StyleProfile profile;
         ProfileIndex index;
-        std::vector<Rule> ua;
-        std::vector<Rule> author;
+        std::unique_ptr<Compiled> compiled;
+        std::vector<Rule>& ua;
+        std::vector<Rule>& author;
         std::set<std::string> attributes{"id", "class", "style"};
         std::vector<const dom::Compound*> state_parts;
+        // What the sheet's selectors read beyond names, attributes, hover and active.
+        bool uses_focus{};
+        bool uses_empty{};
+        // A forgiving sheet's cascade context, the viewport its @media conditions read, and their outcomes there.
+        ForgivingContext context;
+        std::vector<bool> media_outcomes;
 
-        Impl(std::string sheet, StyleProfile p) : profile(std::move(p)) {
+        static Compiled& build(std::unique_ptr<Compiled>& out, std::string sheet, const StyleProfile& profile) {
             if (profile.properties.size() > constants::style::max_registered_properties) {
                 fail("property registry count bound");
             }
+            out = std::make_unique<Compiled>(std::move(sheet), profile);
+            return *out;
+        }
+
+        Impl(std::string sheet, StyleProfile p)
+            : profile(std::move(p)), ua(build(compiled, std::move(sheet), profile).ua), author(compiled->author) {
             index = ProfileIndex(profile);
-            ua = rules(profile.ua_stylesheet, profile);
-            author = rules(std::move(sheet), profile);
+            context = {compiled->index.get(), &compiled->registered, &compiled->warnings, 0, 0};
             for (const auto* list : {&ua, &author}) {
                 for (const auto& rule : *list) {
-                    for (const auto& part : rule.selector.parts) {
+                    each_compound(rule.selector, [&](const dom::Compound& part) {
                         if (part.hover || part.active) {
                             state_parts.push_back(&part);
                         }
+                        uses_focus |= part.focus || part.focus_within;
+                        uses_empty |= part.empty;
                         for (const auto& attribute : part.attributes) {
                             attributes.insert(attribute.name);
                             attributes.insert(attribute.lower_name);
                         }
-                    }
+                        if (part.disabled || part.enabled || part.checked) {
+                            attributes.insert("disabled");
+                            attributes.insert("checked");
+                            attributes.insert("selected");
+                        }
+                    });
                 }
             }
             if (profile.scene_syntax) {
@@ -2061,8 +4361,43 @@ namespace weft {
 
     CompiledStyle::~CompiledStyle() = default;
 
+    std::vector<std::string> CompiledStyle::take_warnings() const {
+        auto& warnings = impl_->compiled->warnings;
+        auto out = std::move(warnings.list);
+        warnings.list.clear();
+        return out;
+    }
+
+    const std::string& CompiledStyle::keyframes() const {
+        return impl_->compiled->keyframes;
+    }
+
+    bool CompiledStyle::set_viewport(float width, float height) {
+        auto& i = *impl_;
+        i.context.width = width;
+        i.context.height = height;
+        if (!i.profile.forgiving || !i.compiled->sized_media) {
+            return false;
+        }
+        std::vector<bool> outcomes;
+        for (const auto& rule : i.author) {
+            if (rule.media && rule.media->sized()) {
+                outcomes.push_back(rule.media->holds(width, height));
+            }
+        }
+        if (outcomes == i.media_outcomes) {
+            return false;
+        }
+        const bool first = i.media_outcomes.empty();
+        i.media_outcomes = std::move(outcomes);
+        // Other rules match now: what the memos and style inputs hold is of the other outcomes.
+        i.identity = std::make_shared<const int>(0);
+        return !first;
+    }
+
     ComputedStyle CompiledStyle::compute(const DomSnapshot& dom) const {
-        Engine engine{impl_->profile, impl_->index, impl_->ua, impl_->author, true};
+        Engine engine{impl_->profile, impl_->index, impl_->ua, impl_->author, true, nullptr, nullptr,
+                      impl_->profile.forgiving ? &impl_->context : nullptr};
         return engine.compute(dom, nullptr, {});
     }
 
@@ -2073,7 +4408,8 @@ namespace weft {
             cache.values = {};
             cache.binding = impl_->identity;
         }
-        Engine engine{impl_->profile, impl_->index, impl_->ua, impl_->author, true, &cache.values};
+        Engine engine{impl_->profile, impl_->index, impl_->ua, impl_->author, true, &cache.values, nullptr,
+                      impl_->profile.forgiving ? &impl_->context : nullptr};
         return engine.compute(dom, nullptr, {});
     }
 
@@ -2088,7 +4424,8 @@ namespace weft {
         if (changed) {
             changed->clear();
         }
-        Engine engine{impl_->profile, impl_->index, impl_->ua, impl_->author, true, &cache.values, changed};
+        Engine engine{impl_->profile, impl_->index, impl_->ua, impl_->author, true, &cache.values, changed,
+                      impl_->profile.forgiving ? &impl_->context : nullptr};
         engine.compute_into(dom, output, nullptr, {});
     }
 
@@ -2103,7 +4440,8 @@ namespace weft {
         if (changed) {
             changed->clear();
         }
-        Engine engine{impl_->profile, impl_->index, impl_->ua, impl_->author, true, &cache.values, changed};
+        Engine engine{impl_->profile, impl_->index, impl_->ua, impl_->author, true, &cache.values, changed,
+                      impl_->profile.forgiving ? &impl_->context : nullptr};
         engine.stamp = stamp;
         // The root's context is the document's: it changes only with the root itself.
         engine.compute_into(dom, output, nullptr, {},
@@ -2198,6 +4536,9 @@ namespace weft {
             const auto [hovered, active] = state(n, depth);
             assign(k.hovered, hovered);
             assign(k.active, active);
+            assign(k.focused, impl_->uses_focus && n.focused);
+            assign(k.focus_within, impl_->uses_focus && n.focus_within);
+            assign(k.content, impl_->uses_empty && has_content(n));
             if (!same_attributes(n, k)) {
                 k.attributes.clear();
                 for (const auto& [key, value] : n.attributes) {
@@ -2279,6 +4620,8 @@ namespace weft {
             }
             n.hovered &= h;
             n.active &= a;
+            n.focused &= impl_->uses_focus;
+            n.focus_within &= impl_->uses_focus;
             // A normalized copy no longer matches the DOM state its revision names.
             n.revision = 0;
             for (auto& child : n.children) {
@@ -2311,6 +4654,21 @@ namespace weft {
             }
         };
         visit(visit, dom, style, 0);
+    }
+
+    std::string simplify_math_text(std::string_view value) {
+        if (value.find('(') == std::string_view::npos) {
+            return std::string(value);
+        }
+        try {
+            Lexer lexer{value};
+            lexer.forgiving = true;
+            auto tokens = lexer.scan();
+            simplify_math(tokens);
+            return serialize(tokens);
+        } catch (const std::invalid_argument&) {
+            return std::string(value);
+        }
     }
 
     std::array<float, 4> parse_css_color(std::string_view input) {

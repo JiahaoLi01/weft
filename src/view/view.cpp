@@ -126,6 +126,16 @@ namespace weft {
             diagnostics.push_back({kind, std::move(message)});
         }
 
+        // What a forgiving page's styles dropped since the last time, as scene diagnostics.
+        void take_style_warnings() {
+            if (!scene) {
+                return;
+            }
+            for (auto& warning : scene->take_warnings()) {
+                diagnose(ViewDiagnostic::Kind::Scene, "WEFT_STYLE_DROPPED: " + std::move(warning));
+            }
+        }
+
         // A fault of the VM ends the page; other errors are the page's.
         void handle(const std::exception& e, ViewDiagnostic::Kind kind) {
             if (faulting(e)) {
@@ -247,6 +257,11 @@ namespace weft {
                 flush_scene();
                 return true;
             } catch (const DiagnosticError& e) {
+                diagnose(ViewDiagnostic::Kind::Scene, e.what());
+            } catch (const std::invalid_argument& e) {
+                // The layout adapter and the text shaper report what they cannot format (an unsupported unit or
+                // display, a script the shaper does not take) as invalid arguments: as the styles' errors, a scene
+                // the page cannot make, which keeps its last frame, not a failure of the host's call.
                 diagnose(ViewDiagnostic::Kind::Scene, e.what());
             } catch (const std::runtime_error& e) {
                 handle(e, ViewDiagnostic::Kind::Scene);
@@ -407,7 +422,7 @@ namespace weft {
         i.faulted = false;
         i.root_selector = page.root.empty() ? "#root" : page.root;
         try {
-            i.scene = std::make_unique<SceneSolver>(page.stylesheet, page.keyframes, i.text);
+            i.scene = std::make_unique<SceneSolver>(page.stylesheet, page.keyframes, i.text, true, page.forgiving_css);
         } catch (const DiagnosticError& e) {
             // A stylesheet or keyframes outside the scene profile: the page does not load, as when its script
             // throws, and the diagnostic says why.
@@ -417,6 +432,7 @@ namespace weft {
         }
         // Geometry reads take the View's own (ensure_geometry).
         i.scene->set_element_geometry(false);
+        i.take_style_warnings();
         // A page's images anew each load: the files may have changed.
         i.images = std::make_unique<ViewImages>(page.base, i.reader, [&i](std::string message) {
             i.diagnose(ViewDiagnostic::Kind::Scene, std::move(message));
@@ -491,10 +507,12 @@ namespace weft {
                 i.handle(e, ViewDiagnostic::Kind::Script);
             }
             if (!i.try_flush()) {
+                i.take_style_warnings();
                 return;
             }
             i.publish();
         }
+        i.take_style_warnings();
     }
 
     void View::resize(float width, float height, float scale) {
@@ -614,6 +632,21 @@ namespace weft {
             i.handle(e, ViewDiagnostic::Kind::Script);
         }
         return prevented;
+    }
+
+    std::pair<bool, std::string> View::evaluate(std::string_view source) {
+        auto& i = *impl_;
+        if (!i.loaded || i.faulted) {
+            return {false, "WEFT_VIEW_EMPTY: no page"};
+        }
+        try {
+            return {true, i.vm.eval(source, "evaluate")};
+        } catch (const std::runtime_error& e) {
+            if (faulting(e)) {
+                i.handle(e, ViewDiagnostic::Kind::Script);
+            }
+            return {false, e.what()};
+        }
     }
 
     ViewHit View::hit(float x, float y) {

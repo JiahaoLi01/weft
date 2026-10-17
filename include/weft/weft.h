@@ -122,6 +122,12 @@ typedef struct weft_script {
 
 /* CRPG Framework's window.ue.sendEvent, __ue_dispatch and __vm_update over weft.engine. */
 #define WEFT_PAGE_CRPG_BRIDGE 1u
+/* The page's stylesheet and keyframes taken as browsers take CSS: cascade layers, @media, @supports, @property and
+ * @keyframes in the stylesheet, CSS nesting, the selectors of Selectors 4 (:is, :where, :not, the structural and
+ * sibling selectors, ::before and ::after), logical properties, every <color> and calc(); and what the scene cannot take
+ * (a declaration, a selector, an at-rule) dropped with a scene diagnostic, as CSS drops what it does not parse, instead
+ * of failing the page or its frame. Pages a build tool generates (Tailwind and the like) need it. */
+#define WEFT_PAGE_FORGIVING_CSS 2u
 
 /* A page: scripts evaluated in order after the platform modules (DOM host, animation frames, the scene platform,
  * weft.engine), the scene's stylesheet and keyframes, the selector of the scene's root ("#id" or a tag name; NULL
@@ -194,6 +200,17 @@ typedef struct weft_hit {
 } weft_hit;
 
 weft_result weft_view_hit_test(weft_runtime* runtime, weft_view_handle view, float x, float y, weft_hit* out_hit);
+
+/* ---- Tools. Owner thread. ---- */
+
+/* A text a tool asked for, valid during the callback; ok is 0 when it is an error's. */
+typedef void (*weft_text_fn)(void* user, uint32_t ok, const char* text, size_t text_size);
+
+/* Evaluates source in the page as a classic script, for tools such as a debug console: fn gets String() of the
+ * completion value, or (ok 0) of what the script threw, after the microtasks it queued ran. The page's DOM changes reach
+ * its scene at the next advance. WEFT_BUSY without a loaded page. */
+weft_result weft_view_evaluate(weft_runtime* runtime, weft_view_handle view, const char* source, size_t source_size,
+                               weft_text_fn fn, void* user);
 
 /* ---- Frames. Any thread. ---- */
 

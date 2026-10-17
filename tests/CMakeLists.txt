@@ -499,6 +499,8 @@ weft_add_executable(weft_grammar_differential_tests SOURCES grammar_differential
 weft_add_test(NAME grammar_differential COMMAND weft_grammar_differential_tests)
 weft_add_executable(weft_scene_transform_tests SOURCES scene_transform_tests.cpp LINK weft::scene)
 weft_add_test(NAME scene_transform_contract COMMAND weft_scene_transform_tests)
+weft_add_executable(weft_style_forgiving_tests SOURCES style_forgiving_tests.cpp LINK weft::scene)
+weft_add_test(NAME style_forgiving_contract COMMAND weft_style_forgiving_tests)
 weft_add_executable(weft_style_tests SOURCES style_tests.cpp LINK weft::script weft::layout SOURCE_DIR)
 weft_add_test(NAME style_cascade_contract
     COMMAND weft_style_tests "${artifacts}/style-$<CONFIG>/native.json"

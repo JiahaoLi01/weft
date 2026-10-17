@@ -299,31 +299,84 @@ namespace weft {
             split();
         }
 
-        static bool wraps(const SceneStyle& s) {
+        // How white-space treats a text (CSS Text 3 §3): whether its spaces and tabs collapse, and whether a newline
+        // (a segment break) is a forced break; wraps() says whether its lines wrap.
+        struct WhiteSpace {
+            bool collapse_spaces{};
+            bool keep_newlines{};
+        };
+
+        static WhiteSpace white_space(const SceneStyle& s) {
             const auto ws = s.text(PropertyId::WhiteSpace, "normal");
-            if (ws != "normal" && ws != "nowrap") {
-                fail("white-space " + std::string(ws) + " outside scene profile");
+            if (ws == "normal" || ws == "nowrap") {
+                return {true, false};
             }
-            return ws == "normal";
+            if (ws == "pre" || ws == "pre-wrap" || ws == "break-spaces") {
+                return {false, true};
+            }
+            if (ws == "pre-line") {
+                return {true, true};
+            }
+            fail("white-space " + std::string(ws) + " outside scene profile");
         }
 
+        static bool wraps(const SceneStyle& s) {
+            const auto ws = s.text(PropertyId::WhiteSpace, "normal");
+            white_space(s);
+            return ws == "normal" || ws == "pre-wrap" || ws == "pre-line" || ws == "break-spaces";
+        }
+
+        // A text node's text: its runs between preserved newlines as text items, each such newline a forced break.
         void add_text(const SceneNode& owner, std::size_t box) {
+            const auto mode = white_space(owner.style);
+            std::string run;
+            const auto flush = [&] {
+                if (!run.empty()) {
+                    add_text_run(owner, box, std::move(run));
+                    run.clear();
+                }
+            };
+            for (const char c : owner.text) {
+                if (mode.keep_newlines && (c == '\n' || c == '\r')) {
+                    if (c == '\r') {
+                        continue;
+                    }
+                    flush();
+                    // A preserved newline breaks the line as <br> does; the spaces before it collapse away when they
+                    // collapse, and hang otherwise.
+                    Item item;
+                    item.kind = Item::Kind::Break;
+                    item.node = &owner;
+                    item.box = box;
+                    item.begin = paragraph.size();
+                    paragraph += '\n';
+                    space_before = true;
+                    items.push_back(std::move(item));
+                    continue;
+                }
+                if (mode.collapse_spaces && collapsible(c)) {
+                    if (!space_before) {
+                        run += ' ';
+                        space_before = true;
+                    }
+                } else if (!mode.collapse_spaces && (c == '\t' || c == '\f' || c == '\r' || c == '\n')) {
+                    // A preserved tab advances as spaces (the scene does not align to tab stops).
+                    run += c == '\t' ? std::string(4, ' ') : std::string(" ");
+                    space_before = false;
+                } else {
+                    run += c;
+                    space_before = false;
+                }
+            }
+            flush();
+        }
+
+        void add_text_run(const SceneNode& owner, std::size_t box, std::string content) {
             Item item;
             item.kind = Item::Kind::Text;
             item.node = &owner;
             item.box = box;
-            wraps(owner.style);
-            for (const char c : owner.text) {
-                if (collapsible(c)) {
-                    if (!space_before) {
-                        item.text += ' ';
-                        space_before = true;
-                    }
-                } else {
-                    item.text += c;
-                    space_before = false;
-                }
-            }
+            item.text = std::move(content);
             if (item.text.empty()) {
                 return;
             }

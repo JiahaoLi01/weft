@@ -149,6 +149,14 @@ CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后�
 - 渐变与 `-weft-effect()` 仍铺满边框盒并重复：它们的 `background-repeat` 不是 `repeat`、`background-origin` 与 `background-clip` 不是初始值、`background-attachment` 不是 `scroll` 时诊断。内容盒带百分比内边距时的 `content-box` 诊断。
 - 与 Chrome 155 截图对照 4 个用例（尺寸、位置、重复、盒子），原生 D3D11 WARP 与 D2D 参考光栅：平均差 0.2–0.6 级、差 32 级以上的像素 ≤ 0.8%、5 × 5 平均后最大差 13 级（Chrome 在 PNG 的编码值上过滤，scene 在线性值上过滤，放大的核也不同）。
 
+2026-10-17：宽松样式（`WEFT_PAGE_FORGIVING_CSS`，`weft-dev` 分支；CRPG 的 Tailwind v4 页面）。
+- 设了这个页面标志，样式表与关键帧按浏览器的方式处理：看不懂的规则、声明与值丢弃，页面照常加载；每个丢弃发一条 `WEFT_STYLE_DROPPED: …` 的 `WEFT_DIAGNOSTIC_SCENE`（同一消息只发一次）。没设时与此前完全相同（严格 profile，超出即不加载）。
+- 规则：`@layer`（声明、块、匿名、嵌套，未分层的样式在所有层之后，`!important` 反转层序）、`@media`（`width`/`height` 与 `min-`/`max-`、范围语法、`aspect-ratio`、`orientation`、`hover`、`any-hover`、`pointer`、`prefers-*`（减少动效等为 `no-preference`，配色为 `light`）、`and`/`or`/`not`、`only`、`screen`/`all`；视口改变时重新层叠）、`@supports`（按引擎实际接受的属性与值）、`@property`（`initial-value` 与 `inherits`，未设的注册属性取初始值）、`@keyframes`（帧里不认识的声明丢弃）、CSS 嵌套（`&`、隐式的后代）；`@font-face` 与其他 at-rule 丢弃并诊断。
+- 值：CSS Color 4/5 的 `rgb()`/`hsl()` 现代写法、`hwb()`、`lab()`/`lch()`（D50）、`oklab()`/`oklch()`、`color()`（`srgb`、`srgb-linear`、`display-p3`、`a98-rgb`、`prophoto-rgb`、`rec2020`、`xyz`）、`color-mix()`（预乘，色相插值 shorter/longer/increasing/decreasing），在计算值时换成 sRGB 并裁剪；`calc()`、`min()`、`max()`、`clamp()` 在视口单位与 em 确定后化简（`clamp(420px, 768px, 640px)` 这类常量一律化简）；`inset`、`gap`、`place-*` 等简写与逻辑属性（`inset-inline`、`margin-block-start` 等，按横排从左到右）展开到物理属性。
+- 选择器：见 status 的同日条目；`::before`/`::after` 的规则匹配但不生成内容（`content` 丢弃）。
+- 不生效但不诊断的属性：字体平滑与字体特性、`appearance`、滚动条、`color-scheme`、表格与列表样式、分页、`contain`、`direction`/`writing-mode`（只有横排从左到右）等（`scene_style_profile` 的 `ignored` 表）。
+- 尚未实现：Chrome 的逐值对照；`unicode-range` 与 `@font-face`；CSS `zoom`；相对颜色语法；`@container`、`@scope`、`@starting-style`。
+
 2026-10-17：scene 的 transition（Unity 插件的示例页面发现的两个问题）。
 - `transition` 简写：逗号分隔的若干过渡，每个是属性名（或单独的 `none`）、时长与其后的延迟、缓动函数与 `transition-behavior`，顺序任意，没写的部分取初始值（`all`、`0s`、`ease`、`0s`）；在层叠中展开为四个分量（同 `background` 简写），名字、单位与关键字转成小写；含 `var()` 时在代换后拆分，代换出的不是过渡列表时四个分量在计算值时无效。scene profile 的四个分量有了初始值（`initial`、`unset` 与无效值取它们）。JS 的 `'transition' in element.style` 为真。此前简写不在 profile 里，整个样式表被拒：`weft_view_load` 返回 `WEFT_INVALID_ARGUMENT`，没有诊断。
 - 列表的配对按 CSS Transitions 1：`transition-property` 的每一项取同一序号的时长、延迟与缓动函数，较短的列表循环、较长的截去；一个属性取最后一个点到它（或 `all`）的项；组合时长（max(时长, 0) + 延迟）大于 0 才开始过渡，所以 `0s` 加延迟在延迟之后跳变；过渡用改变之后的样式的列表。元素样式改变时，进行中的过渡若属性不再被点到、再次改变而不开始新过渡、或离开了目标样式，即结束（显示目标值）。此前每个列表只取整串文字：时长列表（`0.15s, 0.1s`）一开始过渡就是 scene 诊断，整帧被拒；延迟与缓动列表同样。

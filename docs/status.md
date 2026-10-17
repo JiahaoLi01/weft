@@ -16,6 +16,17 @@
 
 ## 本次已实现
 
+宽松样式表、white-space 的 pre 系列、无头页面运行器（2026-10-17，`weft-dev` 分支；用户提出：用 weft 替换 CRPG 框架里 Ultralight 上的 React UI，需要时可以改 weft 本身）。详见 [兼容](compatibility.md)“2026-10-17：宽松样式”。
+- **起因**：CRPG 的 UI（React 19、Vite 6、Tailwind v4.2 生成的 90 KB 样式表、framer-motion）在 weft 里第一步就停：严格的 scene profile 拒绝整张样式表（`@layer`、`@property`、`@supports`、嵌套、`oklch()`、`color-mix()`、profile 外的属性），页面不加载。逐条兼容一张 Tailwind 表不现实；浏览器的做法是丢掉看不懂的声明，照常加载。
+- **实现**：
+  - C ABI：页面标志 `WEFT_PAGE_FORGIVING_CSS`，不设时一切不变（严格 profile 照旧拒绝）；`weft_view_evaluate` 在页面里求值一段脚本并交回结果文字（调试与无头测试用）。
+  - `src/style/style.cpp`（宽松时）：样式表按 CSS 语法解析：`@layer`（命名、匿名、嵌套、先声明的顺序，`!important` 反转层序）、`@media`（宽高、宽高比、方向、`hover`/`pointer`、`prefers-*`、范围语法；视口改变时重新层叠）、`@supports`（按引擎实际接受的属性与值回答）、`@property`（注册属性的初始值与继承）、`@keyframes`、CSS 嵌套；`@font-face` 跳过并警告（字体由宿主注册）。层叠的次序加上来源、层与 inline。值：CSS Color 4/5（`oklch`、`oklab`、`lab`、`lch`、`hwb`、`color-mix()` 的预乘插值）换算成 sRGB；`calc()`、`min()`、`max()`、`clamp()` 在视口与 em 确定后化简；逻辑属性映射到物理边。profile 外的属性或值丢弃，发一条 `WEFT_STYLE_DROPPED` 的 scene 诊断（同一消息一次）；没有效果的属性（`cursor`、`user-select`、`will-change` 等）静默忽略。新文件 `src/style/color.cpp`。
+  - 选择器（`src/dom/selector`，宽松时）：兄弟组合子 `+`、`~`；`:is()`、`:where()`、`:not()`（含复杂选择器，权重按 Selectors 4）；`:nth-child()`、`:nth-last-child()`、`:nth-of-type()` 等（含 `of S`）与 `:first-child` 一族、`:empty`；`:focus`、`:focus-within`、`:disabled`、`:enabled`、`:checked`；属性的 `i` 标志；`::before`、`::after` 只匹配、不生成内容。严格文法不变。
+  - scene：`white-space: pre`、`pre-wrap`、`pre-line`、`break-spaces`（保留的换行是强制换行，以换行结尾的空行有行盒，制表按 4 个空格）；`display: none` 的 `position: fixed` 元素不再报错；布局里的 `std::invalid_argument` 成为 scene 诊断（此前 `weft_view_advance` 返回 `WEFT_INVALID_ARGUMENT`，没有消息）；UA 表隐藏 `head`、`style`、`script` 等。
+  - `samples/page-runner`：`weft_page_runner` 无头加载页面文件夹（`page.json`），按时间线发事件、改视图模型、写锚点、指针与滚轮、求值、截图（D3D11 或 WARP，PNG），打印诊断、页面发出的消息与调用。
+- **验证**（Release）：`style_forgiving_contract`（新，`tests/style_forgiving_tests.cpp`）：层与 `!important`、条件规则与视口改变、注册属性、颜色、数学与逻辑属性、选择器、嵌套、丢弃的诊断、严格模式照旧拒绝。`scene_inline_contract` 加 white-space 的 6 项（不支持的值改用 `balance` 检查诊断）；`c_api_view_contract` 的未知标志改为 4。CRPG 的测试菜单页面（Tailwind 全表）用 `weft_page_runner` 加载、渲染，布局与颜色和浏览器一致。全量 ctest 173 项：159 项通过，14 项与此前相同（夹具与浏览器输入的散列校验，签出换行）。
+- **限制**：宽松模式还没有 Chrome 的逐值对照；`::before`/`::after` 不生成内容；`@font-face` 与 `unicode-range` 未接；常见但被丢弃的属性（`outline`、`visibility`、`translate`/`scale`、`text-decoration`、`border-image`、`overflow-wrap`、`word-break`、ruby）待做；CSS `zoom` 不支持（UI 缩放用设备缩放）。
+
 weft 的 logo（2026-10-17，main；用户要求：动态 logo，深色、浅色、静态、彩色四个版本，用 weft 支持的内容实现）。见 [examples/logo](../examples/logo/README.md)。
 - **内容**：`examples/logo/` 的四个页面文件夹（`dark`、`light`、`color`、`static`）共用 `weft-logo.js`、`weft-logo.css`、`weft-logo-keyframes.css`。标志是三根经线与三根纬线的平纹，压在上面的线两侧留底色断开下面的线；字标 `weft` 用同样粗细的线写，f 与 t 共用的横笔从 f 上、t 下穿过。全部是 SVG 的线与路径描边（圆头、圆角连接），动画是 `stroke-dashoffset` 的关键帧：经线画出，纬线依次拉过，写字母，横笔拉过，约 2.4 秒，停在最后一帧。不用字体与图片。
 - **工具**：`tools/browser_logo_reference.mjs`（Chrome 无头、`probes/page_reference_clock.js`，`reference-cases.json` 的 10 帧 × 4 个版本，960 × 400）写 `tests/fixtures/logo-reference`；`tools/verify_logo_fixture.py` 检查截图与来源文件的散列。

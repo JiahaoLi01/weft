@@ -28,6 +28,8 @@ namespace weft::dom {
         assign(to.scroll_top, from.scroll_top);
         assign(to.hovered, from.hovered);
         assign(to.active, from.active);
+        assign(to.focused, from.focused);
+        assign(to.focus_within, from.focus_within);
         const bool same_children = to.children.size() == from.children.size() &&
                                    std::equal(to.children.begin(), to.children.end(), from.children.begin(),
                                               [](const DomSnapshot& a, const DomSnapshot& b) {
@@ -75,6 +77,7 @@ namespace weft::dom {
         if (a.type != b.type || a.local_name != b.local_name || a.namespace_uri != b.namespace_uri ||
             a.data != b.data || a.attributes != b.attributes || a.scroll_left != b.scroll_left ||
             a.scroll_top != b.scroll_top || a.hovered != b.hovered || a.active != b.active ||
+            a.focused != b.focused || a.focus_within != b.focus_within ||
             a.children.size() != b.children.size()) {
             return false;
         }

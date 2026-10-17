@@ -242,7 +242,40 @@ int main() {
             require(code == weft::Diag::SceneProfile && message.find(expected) != std::string::npos,
                     std::string("diagnostic: ") + expected + " (got " + message + ")");
         };
-        refused("white-space:pre", "", "white-space pre outside scene profile");
+        refused("white-space:balance", "", "white-space balance outside scene profile");
+        // white-space (CSS Text 3 §3): pre keeps spaces and breaks only at newlines, pre-wrap also wraps, pre-line
+        // collapses spaces but keeps newlines.
+        {
+            const auto laid_lines = [&](const std::string& style, const std::string& content) {
+                weft::testing::NativeScene t;
+                auto& b = element(t, *t.root, "div", "width:120px;font-family:system-ui;font-size:14px;" + style);
+                text(t, b, content);
+                weft::SceneSolver solver("", "", scene_text);
+                return solver.frame(t.tree.snapshot(*t.root), 300, 200, 0).root.children[0].lines;
+            };
+            const auto lines = [&](const std::string& style, const std::string& content) {
+                std::vector<std::string> out;
+                for (const auto& line : laid_lines(style, content)) {
+                    out.push_back(line.text);
+                }
+                return out;
+            };
+            // The distance between the first and the last text line.
+            const auto apart = [&](const std::string& content) {
+                const auto l = laid_lines("white-space:pre-wrap", content);
+                return l.size() == 2 ? l[1].rect[1] - l[0].rect[1] : -1.f;
+            };
+            const std::string long_line = "one two three four five six seven eight";
+            require(lines("white-space:pre", "a  b\nc") == std::vector<std::string>{"a  b", "c"},
+                    "pre keeps spaces and breaks at a newline");
+            require(lines("white-space:pre", long_line).size() == 1, "pre does not wrap");
+            require(lines("white-space:pre-wrap", long_line).size() > 1, "pre-wrap wraps");
+            // An empty line has a line box (it ends in a preserved newline) but no text.
+            require(apart("x\ny") > 0 && apart("x\n\ny") > 1.5f * apart("x\ny"), "pre-wrap keeps an empty line");
+            require(lines("white-space:pre-line", "a   b\nc") == std::vector<std::string>{"a b", "c"},
+                    "pre-line collapses spaces and keeps newlines");
+            require(lines("", "a  b\nc") == std::vector<std::string>{"a b c"}, "normal collapses both");
+        }
         refused("text-align:justify", "", "text-align justify outside scene profile");
         refused("", "vertical-align:middle", "vertical-align middle outside scene profile");
         {

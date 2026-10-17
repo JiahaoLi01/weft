@@ -182,7 +182,7 @@ namespace {
         d.struct_size = sizeof(d) - 8;
         require(weft_view_load(r.runtime, view, &d) == WEFT_INVALID_ARGUMENT, "a short page descriptor");
         d = page.desc();
-        d.flags = 2;
+        d.flags = 4;
         require(weft_view_load(r.runtime, view, &d) == WEFT_INVALID_ARGUMENT, "unknown page flags");
         d = page.desc();
         d.reserved = 1;

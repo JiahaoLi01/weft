@@ -33,6 +33,9 @@ namespace weft {
         double scroll_top{};
         bool hovered{};
         bool active{};
+        // The element has the focus (:focus), or it or a descendant has (:focus-within).
+        bool focused{};
+        bool focus_within{};
         // The node's subtree revision when the DOM copied it, or 0 for a value the DOM did not produce. Copies of one
         // node with the same non-zero revision have equal content. Code that changes a copy afterwards sets revision to
         // 0 on the changed node and its ancestors in that copy.
@@ -43,7 +46,8 @@ namespace weft {
             return a.identity == b.identity && a.type == b.type && a.local_name == b.local_name &&
                    a.namespace_uri == b.namespace_uri && a.data == b.data && a.attributes == b.attributes &&
                    a.children == b.children && a.scroll_left == b.scroll_left && a.scroll_top == b.scroll_top &&
-                   a.hovered == b.hovered && a.active == b.active;
+                   a.hovered == b.hovered && a.active == b.active && a.focused == b.focused &&
+                   a.focus_within == b.focus_within;
         }
     };
 

@@ -175,6 +175,12 @@ namespace weft {
             return out;
         }
 
+        // Whether a value holds a math function the layout and paint code read only once it is reduced.
+        bool math_functions(std::string_view value) {
+            return value.find("calc(") != value.npos || value.find("min(") != value.npos ||
+                   value.find("max(") != value.npos || value.find("clamp(") != value.npos;
+        }
+
         // The font size of a resolved style in px: the default without one.
         double font_px(const Style* style) {
             if (!style) {
@@ -210,6 +216,9 @@ namespace weft {
                 }
             }
             for (auto& [property, text] : resolved) {
+                if (math_functions(text)) {
+                    text = simplify_math_text(text);
+                }
                 style.set(property, std::move(text));
             }
         }
@@ -218,16 +227,24 @@ namespace weft {
             return css::split(s, delimiter).parts;
         }
 
-        Style declarations(std::string_view s) {
+        Style declarations(std::string_view s, std::vector<std::string>* dropped = nullptr) {
             Style out;
             for (auto part : split(s, ';')) {
                 auto p = part.find(':');
                 if (p == part.npos) {
+                    if (dropped) {
+                        dropped->push_back("keyframes: a declaration without a colon (" + part + ")");
+                        continue;
+                    }
                     fail("declaration colon");
                 }
                 const auto name = trim(part.substr(0, p));
                 const auto id = find_property(name);
                 if (!id) {
+                    if (dropped) {
+                        dropped->push_back("keyframes: the scene does not animate " + name);
+                        continue;
+                    }
                     fail("unsupported keyframe property " + name);
                 }
                 out.set(*id, trim(part.substr(p + 1)));
@@ -443,6 +460,10 @@ namespace weft {
             std::vector<std::pair<PropertyId, std::string>> resolved;
             for (const auto& [id, value] : s) {
                 if (auto px = viewport_lengths(value.text(), viewport)) {
+                    // Math functions over the lengths, now in px, reduce to them (clamp(420px, 40vw, 640px)).
+                    if (math_functions(*px)) {
+                        *px = simplify_math_text(*px);
+                    }
                     resolved.emplace_back(id, std::move(*px));
                 }
             }
@@ -857,7 +878,9 @@ namespace weft {
 
         using Keyframes = std::map<std::string, std::map<double, Style>>;
 
-        Keyframes parse_keyframes(std::string text) {
+        // dropped (a forgiving page): what the scene cannot take is dropped with a note there, each @keyframes rule
+        // on its own (alone: the text is one rule, parsed in place).
+        Keyframes parse_keyframes(std::string text, std::vector<std::string>* dropped = nullptr, bool alone = false) {
             Keyframes out;
             text = css::strip_block_comments(text);
             std::size_t p{};
@@ -879,6 +902,21 @@ namespace weft {
                 }
                 auto name = trim(text.substr(p + 10, b - p - 10));
                 auto body = text.substr(b + 1, e - b - 2);
+                if (dropped && !alone) {
+                    // A forgiving page: a keyframes rule the scene cannot take is dropped, the others stay.
+                    std::vector<std::string> inner;
+                    try {
+                        auto one = parse_keyframes("@keyframes " + name + "{" + body + "}", &inner, true);
+                        for (auto& [k, frames] : one) {
+                            out[k] = std::move(frames);
+                        }
+                    } catch (const std::invalid_argument& error) {
+                        dropped->push_back("@keyframes " + name + " dropped: " + error.what());
+                    }
+                    dropped->insert(dropped->end(), inner.begin(), inner.end());
+                    p = e;
+                    continue;
+                }
                 std::size_t q{};
                 while (q < body.size()) {
                     auto start = body.find('{', q);
@@ -890,7 +928,8 @@ namespace weft {
                         fail("keyframe block");
                     }
                     bool viewport_units{};
-                    auto style = expand(declarations(body.substr(start + 1, end - start - 1)), {}, &viewport_units);
+                    auto style =
+                        expand(declarations(body.substr(start + 1, end - start - 1), dropped), {}, &viewport_units);
                     if (viewport_units) {
                         fail("viewport length in keyframes outside scene profile");
                     }
@@ -1054,9 +1093,10 @@ namespace weft {
         bool same_layout_style(const Style& a, const Style& b);
     } // namespace
 
-    StyleProfile scene_style_profile() {
+    StyleProfile scene_style_profile(bool forgiving) {
         StyleProfile p;
         p.scene_syntax = true;
+        p.forgiving = forgiving;
         p.single_value_inset = true;
         p.four_value_edges = true;
         p.ua_stylesheet =
@@ -1189,6 +1229,81 @@ namespace weft {
         for (const auto* corner : {"top-left", "top-right", "bottom-right", "bottom-left"}) {
             p.properties[std::string("border-") + corner + "-radius"] = {"0", false, CssGrammar::Tokens, {}};
         }
+        if (forgiving) {
+            // A document's head and its non-rendered elements, as a browser's UA sheet hides them.
+            p.ua_stylesheet += "head,style,script,title,meta,link,template,noscript,base{display:none}";
+            // Hints that change nothing a scene draws: dropped without a warning.
+            p.ignored = {"-webkit-font-smoothing",
+                         "-moz-osx-font-smoothing",
+                         "text-rendering",
+                         "-webkit-text-size-adjust",
+                         "-moz-text-size-adjust",
+                         "text-size-adjust",
+                         "tab-size",
+                         "-moz-tab-size",
+                         "-webkit-tap-highlight-color",
+                         "font-feature-settings",
+                         "font-variation-settings",
+                         "font-synthesis",
+                         "font-kerning",
+                         "font-optical-sizing",
+                         "appearance",
+                         "-webkit-appearance",
+                         "-moz-appearance",
+                         "resize",
+                         "accent-color",
+                         "caret-color",
+                         "scrollbar-width",
+                         "scrollbar-color",
+                         "scrollbar-gutter",
+                         "scroll-behavior",
+                         "overscroll-behavior",
+                         "overscroll-behavior-x",
+                         "overscroll-behavior-y",
+                         "-webkit-overflow-scrolling",
+                         "print-color-adjust",
+                         "-webkit-print-color-adjust",
+                         "color-scheme",
+                         "forced-color-adjust",
+                         "border-collapse",
+                         "border-spacing",
+                         "table-layout",
+                         "caption-side",
+                         "empty-cells",
+                         "list-style",
+                         "list-style-type",
+                         "list-style-position",
+                         "list-style-image",
+                         "quotes",
+                         "hyphens",
+                         "-webkit-hyphens",
+                         "orphans",
+                         "widows",
+                         "break-inside",
+                         "break-before",
+                         "break-after",
+                         "page-break-inside",
+                         "box-decoration-break",
+                         "-webkit-box-decoration-break",
+                         "contain",
+                         "content-visibility",
+                         "contain-intrinsic-size",
+                         "-webkit-backdrop-filter",
+                         "speak",
+                         "text-indent",
+                         "-webkit-text-decoration",
+                         "unicode-bidi",
+                         "direction",
+                         "writing-mode",
+                         "image-rendering",
+                         "shape-rendering",
+                         "text-wrap",
+                         "text-wrap-mode",
+                         "text-wrap-style",
+                         "font-display",
+                         "src",
+                         "unicode-range"};
+        }
         return p;
     }
 
@@ -1203,6 +1318,9 @@ namespace weft {
         std::unique_ptr<CompiledStyle> compiled;
         StyleMemo style_memo;
         bool incremental = true;
+        // A forgiving page (StyleProfile::forgiving), and what the solver itself dropped since the last take.
+        bool forgiving{};
+        std::vector<std::string> warnings;
         bool profiling = true;
         SceneSolver::Work work;
         StyleInput style_input;
@@ -2183,7 +2301,10 @@ namespace weft {
             const auto style_start = clock();
             try {
                 ++stamp;
-                const bool input_changed = compiled->refresh_input(d, style_input);
+                // A forgiving sheet's @media conditions on the viewport: when their outcomes change, other rules match
+                // and the cascade starts over.
+                const bool media_changed = compiled->set_viewport(w, h);
+                const bool input_changed = compiled->refresh_input(d, style_input) || media_changed;
                 if (input_changed || viewport_moved || !computed) {
                     if (!cascade) {
                         cascade.emplace();
@@ -2192,7 +2313,8 @@ namespace weft {
                         computed.emplace();
                     }
                     if (input_changed) {
-                        compiled->update(d, previous_dom ? &*previous_dom : nullptr, *cascade, style_memo, stamp);
+                        compiled->update(d, previous_dom && !media_changed ? &*previous_dom : nullptr, *cascade,
+                                         style_memo, stamp);
                     }
                     expand_into(*cascade, *computed, viewport_moved);
                     expanded = stamp;
@@ -2475,7 +2597,12 @@ namespace weft {
             // A fixed box is an absolute box of its containing block. Away from its parent, a static position (both
             // insets of an axis auto) would be the parent's: outside the profile.
             if (n.style.text(PropertyId::Position, "static") == "fixed" &&
-                n.style.text(PropertyId::Display, "inline") != "none") {
+                n.style.text(PropertyId::Display, "inline") == "none") {
+                // A fixed box that is not shown has no box to place: absolute, where it is, for the adapter.
+                auto& style = run.fixed_styles.emplace_back(n.style);
+                style[PropertyId::Position] = "absolute";
+                box.style = &style;
+            } else if (n.style.text(PropertyId::Position, "static") == "fixed") {
                 if (!fixed_block) {
                     fail("position: fixed inside an inline-block outside scene profile");
                 }
@@ -3223,12 +3350,31 @@ namespace weft {
     }
 
     SceneSolver::SceneSolver(std::string s, std::string k, SceneText& text, bool incremental)
+        : SceneSolver(std::move(s), std::move(k), text, incremental, false) {
+    }
+
+    SceneSolver::SceneSolver(std::string s, std::string k, SceneText& text, bool incremental, bool forgiving)
         : impl_(std::make_unique<Impl>()) {
         impl_->sheet = std::move(s);
         impl_->incremental = incremental;
-        impl_->compiled = std::make_unique<CompiledStyle>(impl_->sheet, scene_style_profile());
-        impl_->keyframes = parse_keyframes(std::move(k));
+        impl_->forgiving = forgiving;
+        impl_->compiled = std::make_unique<CompiledStyle>(impl_->sheet, scene_style_profile(forgiving));
+        if (forgiving) {
+            impl_->keyframes = parse_keyframes(k + "\n" + impl_->compiled->keyframes(), &impl_->warnings);
+        } else {
+            impl_->keyframes = parse_keyframes(std::move(k));
+        }
         impl_->text = &text;
+    }
+
+    std::vector<std::string> SceneSolver::take_warnings() {
+        auto& i = *impl_;
+        i.owner.require(Diag::SceneOwner);
+        auto out = std::move(i.warnings);
+        i.warnings.clear();
+        auto style = i.compiled->take_warnings();
+        out.insert(out.end(), std::make_move_iterator(style.begin()), std::make_move_iterator(style.end()));
+        return out;
     }
 
     SceneSolver::~SceneSolver() = default;
@@ -3351,7 +3497,7 @@ namespace weft {
             });
             return;
         }
-        i.computed = compute_style(d, i.sheet, scene_style_profile());
+        i.computed = compute_style(d, i.sheet, scene_style_profile(i.forgiving), w, h);
         ++i.work.style_evaluations;
         const auto build_start = clock();
         i.work.style_ms += ms(profile_start, build_start);

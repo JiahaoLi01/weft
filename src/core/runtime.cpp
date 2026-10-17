@@ -511,7 +511,7 @@ extern "C" weft_result weft_view_load(weft_runtime* runtime, weft_view_handle vi
     // A page of an earlier ABI ends before base.
     const bool based = page && page->struct_size >= sizeof(weft_page_desc);
     if (!page || (!based && page->struct_size != offsetof(weft_page_desc, base)) ||
-        (page->flags & ~WEFT_PAGE_CRPG_BRIDGE) || page->reserved || (!page->scripts && page->script_count)) {
+        (page->flags & ~(WEFT_PAGE_CRPG_BRIDGE | WEFT_PAGE_FORGIVING_CSS)) || page->reserved || (!page->scripts && page->script_count)) {
         return WEFT_INVALID_ARGUMENT;
     }
     weft::ViewPage content;
@@ -543,6 +543,7 @@ extern "C" weft_result weft_view_load(weft_runtime* runtime, weft_view_handle vi
         content.root = root.empty() ? std::string("#root") : std::string(root);
         content.base = base;
         content.crpg_bridge = page->flags & WEFT_PAGE_CRPG_BRIDGE;
+        content.forgiving_css = page->flags & WEFT_PAGE_FORGIVING_CSS;
         if (!entry->view) {
             freeze_fonts(*runtime);
             entry->view =
@@ -641,6 +642,25 @@ extern "C" weft_result weft_view_hit_test(weft_runtime* runtime, weft_view_handl
             std::memcpy(out_hit->cursor, hit.cursor.data(), size);
             out_hit->cursor[size] = 0;
         }
+        return WEFT_OK;
+    });
+}
+
+extern "C" weft_result weft_view_evaluate(weft_runtime* runtime, weft_view_handle view, const char* source,
+                                          size_t source_size, weft_text_fn fn, void* user) {
+    ViewEntry* entry{};
+    if (const auto error = find_idle(runtime, view, entry); error != WEFT_OK) {
+        return error;
+    }
+    if ((!source && source_size) || !fn) {
+        return WEFT_INVALID_ARGUMENT;
+    }
+    return guarded([&] {
+        if (!entry->view || !entry->view->loaded()) {
+            return WEFT_BUSY;
+        }
+        const auto [ok, text] = entry->view->evaluate(std::string_view(source ? source : "", source_size));
+        fn(user, ok ? 1u : 0u, text.data(), text.size());
         return WEFT_OK;
     });
 }
