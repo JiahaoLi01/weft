@@ -85,7 +85,99 @@ namespace weft {
                                                     PropertyId::WhiteSpace,
                                                     PropertyId::FontStyle,
                                                     PropertyId::FontVariantNumeric,
-                                                    PropertyId::TextTransform};
+                                                    PropertyId::TextTransform,
+                                                    PropertyId::Visibility,
+                                                    PropertyId::TextDecorationLine,
+                                                    PropertyId::TextDecorationColor,
+                                                    PropertyId::TextDecorationStyle,
+                                                    PropertyId::TextDecorationThickness};
+
+        // The text a computed content value gives a generated box (CSS Generated Content 3 §1): its strings (with their
+        // escapes) and attr(name), the element's attribute, in order; quotes, counters and images give nothing.
+        std::string generated_text(std::string_view v, const AttributeMap& attributes) {
+            std::string out;
+            const auto utf8 = [&](std::uint32_t cp) {
+                if (cp == 0 || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
+                    cp = 0xFFFD;
+                }
+                if (cp < 0x80) {
+                    out += char(cp);
+                } else if (cp < 0x800) {
+                    out += char(0xC0 | (cp >> 6));
+                    out += char(0x80 | (cp & 0x3F));
+                } else if (cp < 0x10000) {
+                    out += char(0xE0 | (cp >> 12));
+                    out += char(0x80 | ((cp >> 6) & 0x3F));
+                    out += char(0x80 | (cp & 0x3F));
+                } else {
+                    out += char(0xF0 | (cp >> 18));
+                    out += char(0x80 | ((cp >> 12) & 0x3F));
+                    out += char(0x80 | ((cp >> 6) & 0x3F));
+                    out += char(0x80 | (cp & 0x3F));
+                }
+            };
+            std::size_t i = 0;
+            while (i < v.size()) {
+                const char c = v[i];
+                if (c == '"' || c == '\'') {
+                    for (++i; i < v.size() && v[i] != c;) {
+                        if (v[i] != '\\' || i + 1 == v.size()) {
+                            out += v[i++];
+                            continue;
+                        }
+                        ++i;
+                        if (std::isxdigit(static_cast<unsigned char>(v[i]))) {
+                            std::uint32_t cp{};
+                            for (int n = 0; n < 6 && i < v.size() && std::isxdigit(static_cast<unsigned char>(v[i]));
+                                 ++n, ++i) {
+                                const char h = char(std::tolower(static_cast<unsigned char>(v[i])));
+                                cp = cp * 16 + std::uint32_t(h <= '9' ? h - '0' : h - 'a' + 10);
+                            }
+                            if (i < v.size() && v[i] == ' ') {
+                                ++i;
+                            }
+                            utf8(cp);
+                        } else if (v[i] == '\n') {
+                            ++i;
+                        } else {
+                            out += v[i++];
+                        }
+                    }
+                    ++i;
+                } else if (v.substr(i).starts_with("attr(")) {
+                    const auto close = v.find(')', i);
+                    auto name = trim(v.substr(i + 5, (close == v.npos ? v.size() : close) - i - 5));
+                    name = name.substr(0, name.find_first_of(" ,"));
+                    if (const auto it = attributes.find(name); it != attributes.end()) {
+                        out += it->second;
+                    }
+                    i = close == v.npos ? v.size() : close + 1;
+                } else {
+                    ++i;
+                }
+            }
+            return out;
+        }
+
+        // The DOM stand-in of a generated box (ComputedStyle::generated) for a scene build: an element of its local
+        // name and identity whose one child is the text its content gives, of the element's attributes for attr().
+        DomSnapshot generated_dom(const ComputedStyle& g, const AttributeMap& attributes) {
+            DomSnapshot n;
+            n.identity = g.identity;
+            n.type = constants::element_node_type;
+            n.local_name = g.local_name;
+            n.namespace_uri = constants::xhtml_namespace_uri;
+            const auto* content = g.values.find(PropertyId::Content);
+            if (auto text = generated_text(content ? content->text() : std::string_view{}, attributes); !text.empty()) {
+                DomSnapshot t;
+                t.identity = g.identity;
+                t.identity.view_epoch |= generated_text_bit;
+                t.type = constants::text_node_type;
+                t.data = std::move(text);
+                n.children.push_back(std::move(t));
+            }
+            return n;
+        }
 
         bool specified(const ComputedStyle& c, PropertyId k) {
             return std::find(c.specified_properties.begin(), c.specified_properties.end(), property_name(k)) !=
@@ -642,6 +734,16 @@ namespace weft {
             return t < constants::scene::discrete_interpolation_midpoint ? a : b;
         }
 
+        // A property's value t of the way from a to b: lerp_value, but visibility is visible all the way between its
+        // ends when either end is (CSS Display 3 §4), so what fades in or out with it shows through the fade.
+        std::string lerp_property(std::string_view property, const std::string& a, const std::string& b, double t,
+                                  InterpolationCache* cache = nullptr) {
+            if (property == "visibility" && a != b && (a == "visible" || b == "visible")) {
+                return t <= 0 ? a : t >= 1 ? b : "visible";
+            }
+            return lerp_value(a, b, t, cache);
+        }
+
         // Endpoint decoding is bounded and follows the reference interpolation grammar.
         // Incompatible lists/units remain discrete; typed paint cannot broaden the profile.
         struct PaintPair {
@@ -1092,6 +1194,8 @@ namespace weft {
         struct State {
             Style target;
             Style current;
+            // A generated box's DOM stand-in (generated_dom) the last build read: what its next refresh compares with.
+            std::optional<DomSnapshot> stand_in;
             bool expand_dirty = true;
             // The expanded values used viewport lengths: a new viewport expands them again.
             bool viewport_units{};
@@ -1170,7 +1274,7 @@ namespace weft {
             "blockquote,"
             "figure,figcaption,address,hr{display:block}button{display:inline-block;text-align:center}"
             "span,b,strong{display:inline}"
-            "svg{display:inline}*{box-sizing:border-box;border-style:solid;border-width:0}";
+            "svg{display:inline}*{box-sizing:border-box;border-style:solid;border-width:0}rp{display:none}";
         for (const auto* k : {"display",
                               "position",
                               "width",
@@ -1248,6 +1352,8 @@ namespace weft {
                               "will-change"}) {
             p.properties[k] = {"", false, CssGrammar::Tokens, {}};
         }
+        // Inherited. The text-decoration longhands too: the scene propagates an element's decorations to its
+        // descendants' text by inheritance.
         for (const auto* k : {"font-size",
                               "font-weight",
                               "font-family",
@@ -1271,9 +1377,17 @@ namespace weft {
                               "font-style",
                               "font-variant-numeric",
                               "text-transform",
-                              "text-shadow"}) {
+                              "text-shadow",
+                              "visibility",
+                              "ruby-position",
+                              "ruby-align",
+                              "text-decoration-line",
+                              "text-decoration-color",
+                              "text-decoration-style",
+                              "text-decoration-thickness"}) {
             p.properties[k] = {"", true, CssGrammar::Tokens, {}};
         }
+        p.properties["visibility"].initial = "visible";
         p.properties["pointer-events"] = {"auto", true, CssGrammar::Tokens, {}};
         p.properties["font-size"].initial = constants::default_font_size;
         p.properties["color"].initial = constants::default_color;
@@ -1304,6 +1418,13 @@ namespace weft {
         p.properties["border-image-width"] = {"1", false, CssGrammar::Tokens, {}};
         p.properties["border-image-outset"] = {"0", false, CssGrammar::Tokens, {}};
         p.properties["border-image-repeat"] = {"stretch", false, CssGrammar::Tokens, {}};
+        // outline (CSS UI 4 §5): a ring outside the border box over the content (scene_values::outline); no layout.
+        p.properties["outline-width"] = {"medium", false, CssGrammar::Tokens, {}};
+        p.properties["outline-style"] = {"none", false, CssGrammar::Tokens, {}};
+        p.properties["outline-color"] = {"currentcolor", false, CssGrammar::Tokens, {}};
+        p.properties["outline-offset"] = {"0", false, CssGrammar::Tokens, {}};
+        // content: the text of a ::before or ::after box (generated_text); normal and none make no box.
+        p.properties["content"] = {"normal", false, CssGrammar::Tokens, {}};
         if (forgiving) {
             // A document's head and its non-rendered elements, as a browser's UA sheet hides them.
             p.ua_stylesheet += "head,style,script,title,meta,link,template,noscript,base{display:none}";
@@ -1528,6 +1649,20 @@ namespace weft {
                 expand_into(child, out.children.back(), all);
                 out.subtree_stamp = std::max(out.subtree_stamp, out.children.back().subtree_stamp);
             }
+            auto prior_generated = std::move(out.generated);
+            out.generated.clear();
+            for (const auto& g : raw.generated) {
+                ComputedStyle mirrored;
+                for (auto& p : prior_generated) {
+                    if (p.identity == g.identity) {
+                        mirrored = std::move(p);
+                        break;
+                    }
+                }
+                expand_into(g, mirrored, all);
+                out.subtree_stamp = std::max(out.subtree_stamp, mirrored.subtree_stamp);
+                out.generated.push_back(std::move(mirrored));
+            }
         }
 
         // What an element's build decides of its children: whether it shows (no display: none on it or an
@@ -1615,10 +1750,10 @@ namespace weft {
                     out.text += t.data;
                 }
             }
-            if (std::any_of(d.children.begin(), d.children.end(),
-                            [](const auto& n) {
-                                return n.type == constants::element_node_type;
-                            }) &&
+            if ((!c.generated.empty() || std::any_of(d.children.begin(), d.children.end(),
+                                                     [](const auto& n) {
+                                                         return n.type == constants::element_node_type;
+                                                     })) &&
                 trim(out.text).empty() && get(out.style, PropertyId::WhiteSpace, "normal") == "normal") {
                 out.text.clear();
             }
@@ -1627,6 +1762,33 @@ namespace weft {
                     const auto* inherited = parent->find(k);
                     if (inherited && !specified(c, k)) {
                         out.style.set(k, *inherited);
+                    }
+                }
+                // Decorations propagate (CSS Text Decoration 3 §2.1): an element of no lines of its own draws its
+                // parent's, in the parent's color, style and thickness; one of its own lines starts from the initial
+                // values of the decoration properties it leaves out.
+                constexpr PropertyId decoration_properties[]{PropertyId::TextDecorationColor,
+                                                             PropertyId::TextDecorationStyle,
+                                                             PropertyId::TextDecorationThickness};
+                if (specified(c, PropertyId::TextDecorationLine)) {
+                    for (const auto k : decoration_properties) {
+                        if (!specified(c, k)) {
+                            out.style.erase(k);
+                        }
+                    }
+                } else if (parent->text(PropertyId::TextDecorationLine, "none") != "none") {
+                    for (const auto k : decoration_properties) {
+                        const auto decoration = parent->text(k, "currentcolor");
+                        if (k == PropertyId::TextDecorationColor &&
+                            (decoration == "currentcolor" || decoration == "currentColor")) {
+                            out.style.set(k, std::string(parent->text(PropertyId::Color, constants::default_color)));
+                            continue;
+                        }
+                        if (const auto* v = parent->find(k)) {
+                            out.style.set(k, *v);
+                        } else {
+                            out.style.erase(k);
+                        }
                     }
                 }
             }
@@ -1704,7 +1866,8 @@ namespace weft {
                 }
                 animated = true;
                 const auto amount = easing(tr.timing, std::max(0., t));
-                out.style[i->first] = lerp_value(tr.from, tr.to, amount, incremental ? &interpolation : nullptr);
+                out.style[i->first] =
+                    lerp_property(i->first, tr.from, tr.to, amount, incremental ? &interpolation : nullptr);
                 typed(i->first, tr.from, tr.to, amount);
                 ++i;
             }
@@ -1761,8 +1924,8 @@ namespace weft {
                     }
                     const auto amount = hi->first == lo->first ? 0 : (f - lo->first) / (hi->first - lo->first);
                     const auto eased = easing(a.timing, amount);
-                    out.style[track.property] =
-                        lerp_value(lo->second, hi->second, eased, incremental ? &interpolation : nullptr);
+                    out.style[track.property] = lerp_property(track.property, lo->second, hi->second, eased,
+                                                              incremental ? &interpolation : nullptr);
                     typed(track.property, lo->second, hi->second, eased);
                 }
             }
@@ -1913,6 +2076,16 @@ namespace weft {
                         inline_context = false;
                     }
                 }
+                // Its ::before and ::after boxes are element children too.
+                for (const auto& g : c.generated) {
+                    elements = true;
+                    const auto display = g.values.text(PropertyId::Display, "inline");
+                    const auto position = g.values.text(PropertyId::Position, "static");
+                    if (display != "none" && position != "absolute" && position != "fixed" && display != "inline" &&
+                        display != "inline-block" && display != "inline-flex" && display != "inline-grid") {
+                        inline_context = false;
+                    }
+                }
             }
             inline_context = inline_context && elements;
             const bool mixed = elements && (inline_context || !trim(out.text).empty());
@@ -1972,6 +2145,19 @@ namespace weft {
             out.children.reserve(d.children.size());
             const bool hidden_before = hidden;
             hidden = !own_built.shown;
+            // The element's ::before first and ::after last (ComputedStyle::generated), built from their stand-ins.
+            const auto generated_child = [&](const char* name) {
+                for (const auto& g : c.generated) {
+                    if (g.local_name == name) {
+                        auto stand_in = generated_dom(g, d.attributes);
+                        const auto at = find_child(prior, stand_in.identity, out.children.size());
+                        out.children.push_back(at < prior.size() ? prior[at] : SceneNode{});
+                        build_into(out.children.edit_back(), stand_in, g, &out.style);
+                        states[identity(stand_in.identity)].stand_in = std::move(stand_in);
+                    }
+                }
+            };
+            generated_child("::before");
             std::size_t ci{};
             for (const auto& child : d.children) {
                 if (child.type == constants::element_node_type) {
@@ -1982,6 +2168,7 @@ namespace weft {
                     out.children.push_back(text_run(child, out.style));
                 }
             }
+            generated_child("::after");
             hidden = hidden_before;
             if (bold_again(out, c)) {
                 out.style[PropertyId::FontWeight] = constants::scene::bold_font_weight;
@@ -2101,7 +2288,25 @@ namespace weft {
                     }
                 }
             }
-            const bool structure = fresh || !same_dom_children(d, *od);
+            // Its generated boxes: one restyled, or another list of them than its last node has.
+            bool generated_changed{};
+            {
+                std::vector<NodeIdentity> had;
+                if (!fresh) {
+                    for (const auto& child : old->children) {
+                        if (is_generated(child.identity) && child.tag != "#text") {
+                            had.push_back(child.identity);
+                        }
+                    }
+                }
+                std::vector<NodeIdentity> has;
+                for (const auto& g : c.generated) {
+                    has.push_back(g.identity);
+                    restyled_children = restyled_children || g.stamp > built;
+                }
+                generated_changed = had != has;
+            }
+            const bool structure = fresh || generated_changed || !same_dom_children(d, *od);
             const bool own = fresh || force || inherited || structure || restyled_children || c.stamp > built ||
                              active.contains(id) || pending.contains(id) || !same_dom_own(d, *od);
             // The node as it was (none when fresh), and its own part built again; copied only for a new node.
@@ -2149,6 +2354,28 @@ namespace weft {
             const bool hidden_before = hidden;
             hidden = !built_now.shown;
             const bool svg_inside = in_svg || current.space == constants::svg_namespace_uri;
+            // The element's ::before first and ::after last, refreshed from their stand-ins against the last ones.
+            const auto generated_child = [&](const char* name) {
+                for (const auto& g : c.generated) {
+                    if (g.local_name != name) {
+                        continue;
+                    }
+                    auto stand_in = generated_dom(g, d.attributes);
+                    const auto gid = identity(stand_in.identity);
+                    const auto at = fresh ? prior.size() : find_child(prior, stand_in.identity, next.size());
+                    const Handle kept = at < prior.size() ? prior.handle(at) : nullptr;
+                    auto& stored = states[gid].stand_in;
+                    const std::optional<DomSnapshot> last_stand_in = std::move(stored);
+                    refresh_path.push_back(std::uint32_t(next.size()));
+                    Handle h = refresh(kept, stand_in, last_stand_in ? &*last_stand_in : nullptr, g, &child_parent, id,
+                                       inherit, force_children, svg_inside);
+                    refresh_path.pop_back();
+                    states[gid].stand_in = std::move(stand_in);
+                    handles_changed = handles_changed || h != kept;
+                    next.push_back(std::move(h));
+                }
+            };
+            generated_child("::before");
             std::size_t ci{};
             std::size_t old_hint{};
             for (const auto& child : d.children) {
@@ -2200,6 +2427,7 @@ namespace weft {
                     }
                 }
             }
+            generated_child("::after");
             hidden = hidden_before;
             // Children that went: their elements' states go unless built elsewhere; a new order is new content.
             const auto& built_children = std::as_const(next);
@@ -2943,6 +3171,95 @@ namespace weft {
             return std::nullopt;
         }
 
+        // A ruby element (CSS Ruby 1) laid out as an atomic inline: its content in columns, each the base text up to an
+        // rt (its #text runs side by side) under the rt's text, as wide as the wider of the two, both centred
+        // (ruby-position: over, ruby-align: center). Its baseline is its bases', so the line keeps its text's and
+        // grows by the annotations. An rt of display: none annotates nothing; rp shows nothing.
+        SceneAtomicExtent lay_out_ruby(const SceneNode& node, SceneAtomicExtent e) {
+            struct Column {
+                std::vector<const SceneNode*> base;
+                const SceneNode* annotation{};
+            };
+
+            std::vector<Column> columns(1);
+            for (const auto& c : node.children) {
+                if (c.tag == "rt") {
+                    columns.back().annotation = &c;
+                    columns.emplace_back();
+                    continue;
+                }
+                if (c.tag == "rp" || c.style.text(PropertyId::Display) == "none") {
+                    continue;
+                }
+                if (c.tag != "#text") {
+                    fail("ruby base content other than text outside scene profile");
+                }
+                columns.back().base.push_back(&c);
+            }
+            const auto shown = [](const SceneNode* a) {
+                return a && a->style.text(PropertyId::Display) != "none" && !a->text.empty();
+            };
+            // The annotation row and the base row: their heights, and the bases' baseline below the base row's top.
+            float annotation_height{};
+            float base_height{};
+            float base_baseline{};
+            std::map<const SceneNode*, SceneTextMetrics> metrics;
+            for (const auto& column : columns) {
+                if (shown(column.annotation)) {
+                    const auto m = text->measure(column.annotation->text, column.annotation->style);
+                    metrics[column.annotation] = m;
+                    annotation_height = std::max(annotation_height, m.height);
+                }
+                for (const auto* b : column.base) {
+                    const auto m = text->measure(b->text, b->style);
+                    metrics[b] = m;
+                    base_height = std::max(base_height, m.height);
+                    base_baseline = std::max(base_baseline, m.baseline);
+                }
+            }
+            float x{};
+            for (const auto& column : columns) {
+                float base_width{};
+                for (const auto* b : column.base) {
+                    base_width += metrics[b].width;
+                }
+                const float annotation_width = shown(column.annotation) ? metrics[column.annotation].width : 0;
+                const float width = std::max(base_width, annotation_width);
+                float bx = x + (width - base_width) / 2;
+                for (const auto* b : column.base) {
+                    const auto& m = metrics[b];
+                    auto& out = laid_out(*b);
+                    out.box = {bx, annotation_height + base_baseline - m.baseline, m.width, m.height};
+                    out.lines = {{b->text, {0, 0, m.width, m.height}, m.baseline}};
+                    out.fragments.clear();
+                    bx += m.width;
+                }
+                if (column.annotation) {
+                    auto& out = laid_out(*column.annotation);
+                    out.fragments.clear();
+                    if (shown(column.annotation)) {
+                        const auto& m = metrics[column.annotation];
+                        out.box = {x + (width - annotation_width) / 2, annotation_height - m.height, m.width, m.height};
+                        out.lines = {{column.annotation->text, {0, 0, m.width, m.height}, m.baseline}};
+                    } else {
+                        out.box = {};
+                        out.lines.clear();
+                    }
+                }
+                x += width;
+            }
+            auto& out = laid_out(node);
+            out.box[2] = x;
+            out.box[3] = annotation_height + base_height;
+            out.lines.clear();
+            out.fragments.clear();
+            context_baselines[&node] = annotation_height + base_baseline;
+            e.width = x;
+            e.height = out.box[3];
+            e.baseline = annotation_height + base_baseline;
+            return e;
+        }
+
         // Lays out an atomic inline's subtree, shrunk to fit the available width, and returns its extents; its box
         // is placed later.
         SceneAtomicExtent lay_out_atomic(const SceneNode& node, float available) {
@@ -2952,6 +3269,9 @@ namespace weft {
                         edge_length(node.style, PropertyId::MarginRight, base),
                         edge_length(node.style, PropertyId::MarginBottom, base),
                         edge_length(node.style, PropertyId::MarginLeft, base)};
+            if (scene_ruby(node)) {
+                return lay_out_ruby(node, e);
+            }
             LayoutOptions options;
             if (std::isfinite(available)) {
                 options.fit_width = available;
@@ -3537,6 +3857,15 @@ namespace weft {
                                       PropertyId::PointerEvents,
                                       PropertyId::Cursor,
                                       PropertyId::ZIndex,
+                                      PropertyId::Visibility,
+                                      PropertyId::OutlineColor,
+                                      PropertyId::OutlineOffset,
+                                      PropertyId::OutlineStyle,
+                                      PropertyId::OutlineWidth,
+                                      PropertyId::TextDecorationColor,
+                                      PropertyId::TextDecorationLine,
+                                      PropertyId::TextDecorationStyle,
+                                      PropertyId::TextDecorationThickness,
                                       PropertyId::Transform}) {
                     out[std::size_t(id)] = true;
                 }

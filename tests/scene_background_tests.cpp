@@ -27,7 +27,8 @@
 // background shorthand's one layer, the tiles laid out (sizes, positions, repeat, space and round), the diagnostics of
 // what stays outside the profile, the display list's fit, and the native D3D11 pass (WARP) drawing the tiles as the
 // reference raster lays them out on the CPU; the same layouts of a url() image (its translucent texels linear floats
-// in the pass), which lays out as a host texture.
+// in the pass), which lays out as a host texture. Border images; and what else paints about a box: visibility,
+// outlines and the ::before and ::after boxes.
 namespace {
     using weft::testing::require;
     using Fit = weft::paint::TextureFit;
@@ -682,6 +683,170 @@ namespace {
             require(compared > w * h / 8 && apart == 0, "the native pass draws the pieces as the reference raster");
         }
     }
+
+    // visibility: hidden paints nothing of its own and takes no hits, its visible child both; outlines are rings outside
+    // (or, with a negative offset, inside) the border box, rounded with it, drawn as the reference raster draws them.
+    void visibility_and_outlines(const std::filesystem::path& folder) {
+        weft::testing::NativeScene s;
+        s.set(*s.root, "style", "position:relative;width:240px;height:120px;background-color:#202020");
+        auto& hidden = s.html("div");
+        s.set(hidden, "style",
+              "position:absolute;left:10px;top:10px;width:80px;height:40px;background-color:#406080;"
+              "visibility:hidden;outline:2px solid #ffcc00");
+        s.tree.insert(*s.root, hidden, nullptr);
+        auto& shown = s.html("div");
+        s.set(
+            shown, "style",
+            "position:absolute;left:10px;top:10px;width:30px;height:20px;background-color:#e08040;visibility:visible");
+        s.tree.insert(hidden, shown, nullptr);
+        const char* outlines[] = {
+            "left:110px;top:12px;width:40px;height:30px;outline:4px solid #ffcc00;outline-offset:2px",
+            "left:170px;top:12px;width:50px;height:30px;outline:2px solid #00ccff;outline-offset:-6px",
+            "left:110px;top:66px;width:60px;height:36px;border-radius:12px;outline:4px solid #ff00ff;"
+            "outline-offset:2px",
+            "left:190px;top:66px;width:30px;height:30px;outline:none",
+        };
+        for (const auto* o : outlines) {
+            auto& e = s.html("div");
+            s.set(e, "style", std::string("position:absolute;background-color:#405060;") + o);
+            s.tree.insert(*s.root, e, nullptr);
+        }
+        weft::SceneSolver solver("", "", weft::testing::thread_scene_text());
+        const auto frame = solver.frame(s.tree.snapshot(*s.root), 240, 120, 0);
+        const auto listed = weft::scene_display_list(frame, {}, &weft::testing::thread_scene_text());
+        require(listed.fallback.empty() && bool(weft::paint::check(listed.list, 1)), "a well-formed list");
+        std::vector<const weft::paint::Item*> rings;
+        std::size_t boxes{};
+        for (const auto& item : listed.list.items) {
+            if (item.kind != weft::paint::Item::Kind::Box) {
+                continue;
+            }
+            ++boxes;
+            if (listed.list.boxes[item.payload].widths[0] > 0) {
+                rings.push_back(&item);
+            }
+        }
+        // The root, the visible child, four outlined boxes (the hidden one's background and outline are not drawn),
+        // three rings.
+        require(boxes == 2 + 4 + 3 && rings.size() == 3, "hidden: nothing of its own; three outlines");
+        require(rings[0]->transform[4] == 104 && rings[0]->transform[5] == 6 && rings[0]->width == 52 &&
+                    rings[0]->height == 42 && listed.list.boxes[rings[0]->payload].widths[0] == 4,
+                "an outline outside the box by its offset");
+        require(rings[1]->transform[4] == 174 && rings[1]->width == 42,
+                "a negative offset draws the outline inside the box");
+        require(listed.list.boxes[rings[2]->payload].radii[0] == 18, "the outline's corners round with the border's");
+        weft::SceneGeometry geometry(weft::testing::thread_scene_text());
+        require(geometry.hit_test(frame, 60, 40) == s.root->identity, "a hidden element takes no hit: its parent does");
+        require(geometry.hit_test(frame, 25, 25) == shown.identity, "its visible child takes the hit");
+        for (const float scale : {1.f, 2.f}) {
+            const auto w = unsigned(240 * scale);
+            const auto h = unsigned(120 * scale);
+            weft::testing::D3D11Scene d3d11{w, h};
+            const auto native = d3d11.draw(frame, scale);
+            d3d11.gpu.check_debug_messages();
+            require(d3d11.scene.fallbacks == 0, "the native pass drew the frame");
+            weft::SceneRaster reference(weft::testing::thread_scene_text());
+            const auto raster = reference.raster(frame, scale);
+            const auto at = [&](const std::vector<std::uint8_t>& image, bool bgra, float x, float y) {
+                const auto* p = image.data() + (std::size_t(y * scale) * w + std::size_t(x * scale)) * 4;
+                return bgra ? std::array<int, 3>{p[2], p[1], p[0]} : std::array<int, 3>{p[0], p[1], p[2]};
+            };
+            // The middle of each ring's top side, the hidden box's own area, the visible child.
+            for (const auto& [x, y, what] :
+                 std::vector<std::tuple<float, float, std::string>>{{130.f, 8.f, "the first outline"},
+                                                                    {195.f, 19.f, "the inside outline"},
+                                                                    {140.f, 62.f, "the rounded outline"},
+                                                                    {70.f, 40.f, "the hidden box's area"},
+                                                                    {25.f, 25.f, "the visible child"}}) {
+                const auto n = at(native, true, x, y);
+                const auto r = at(raster.rgba, false, x, y);
+                int d{};
+                for (unsigned c = 0; c < 3; ++c) {
+                    d = std::max(d, std::abs(n[c] - r[c]));
+                }
+                require(d <= 2, what + " at scale " + std::to_string(int(scale)) + ": native " + std::to_string(n[0]) +
+                                    "," + std::to_string(n[1]) + "," + std::to_string(n[2]) + " raster " +
+                                    std::to_string(r[0]) + "," + std::to_string(r[1]) + "," + std::to_string(r[2]));
+            }
+            const auto hidden_area = at(raster.rgba, false, 70, 40);
+            require(hidden_area == std::array<int, 3>{0x20, 0x20, 0x20}, "the hidden box shows the root behind it");
+            weft::testing::write_png(folder / ("outlines-" + std::to_string(int(scale)) + ".png"), w, h, raster.rgba);
+        }
+    }
+
+    // ::before and ::after in the scene: boxes before and after their element's children, laid out and painted as
+    // elements, hit as their element, their transitions running as the element's state restyles them (frames of an
+    // incremental solver), drawn alike by the native pass and the reference raster.
+    void generated_boxes(const std::filesystem::path& folder) {
+        weft::testing::NativeScene s;
+        s.set(*s.root, "style", "position:relative;width:200px;height:80px;background-color:#202020");
+        const std::string sheet =
+            ".tab { position: absolute; left: 20px; top: 20px; width: 60px; height: 24px; background-color: #304050 }"
+            ".tab::after { content: ''; position: absolute; left: 0px; right: 0px; bottom: 0px; height: 4px;"
+            " background-color: #ffcc00; opacity: 0; transition: opacity 100ms linear }"
+            ".tab.on::after { opacity: 1 }"
+            ".mark { position: absolute; left: 110px; top: 20px; width: 60px; height: 24px;"
+            " background-color: #304050 }"
+            ".mark::before { content: ''; position: absolute; left: 4px; top: 4px; width: 16px; height: 16px;"
+            " background-color: #00ccff }"
+            ".mark::after { content: \"\\5B \" attr(data-n) ']'; position: absolute; left: 30px; top: 4px;"
+            " font-family: system-ui; font-size: 12px; color: #ffffff }";
+        auto& tab = s.html("div");
+        s.set(tab, "class", "tab");
+        s.tree.insert(*s.root, tab, nullptr);
+        auto& mark = s.html("div");
+        s.set(mark, "class", "mark");
+        s.set(mark, "data-n", "7");
+        s.tree.insert(*s.root, mark, nullptr);
+        weft::SceneSolver solver(sheet, "", weft::testing::thread_scene_text(), true, true);
+        auto frame = solver.frame(s.tree.snapshot(*s.root), 200, 80, 0);
+        const auto& underline = frame.root.children[0].children.at(0);
+        require(frame.root.children[0].children.size() == 1 && weft::is_generated(underline.identity) &&
+                    weft::originating(underline.identity) == tab.identity && underline.tag == "::after" &&
+                    underline.box == std::array<float, 4>{0, 20, 60, 4},
+                "an ::after box at the bottom of its element");
+        const auto& marks = frame.root.children[1].children;
+        require(marks.size() == 2 && marks[0].tag == "::before" && marks[1].tag == "::after" && marks[1].text == "[7]",
+                "::before, then an ::after of strings, an escape and attr(): [" +
+                    (marks.size() == 2 ? marks[1].text : std::string()) + "]");
+        weft::SceneGeometry geometry(weft::testing::thread_scene_text());
+        require(geometry.hit_test(frame, 118, 28) == mark.identity, "a ::before box hits as its element");
+        const auto opacity = [](const weft::SceneFrame& f) {
+            return std::stod(std::string(f.root.children[0].children.at(0).style.text(weft::PropertyId::Opacity, "1")));
+        };
+        require(opacity(frame) == 0, "the underline starts hidden");
+        s.set(tab, "class", "tab on");
+        frame = solver.frame(s.tree.snapshot(*s.root), 200, 80, 100);
+        const auto start = opacity(frame);
+        frame = solver.frame(s.tree.snapshot(*s.root), 200, 80, 150);
+        const auto middle = opacity(frame);
+        frame = solver.frame(s.tree.snapshot(*s.root), 200, 80, 400);
+        require(start < .1 && std::abs(middle - .5) < .05 && opacity(frame) == 1,
+                "the element's class runs the ::after transition: " + std::to_string(start) + ", " +
+                    std::to_string(middle) + ", " + std::to_string(opacity(frame)));
+        for (const float scale : {1.f, 2.f}) {
+            const auto w = unsigned(200 * scale);
+            const auto h = unsigned(80 * scale);
+            weft::testing::D3D11Scene d3d11{w, h};
+            const auto native = d3d11.draw(frame, scale);
+            d3d11.gpu.check_debug_messages();
+            require(d3d11.scene.fallbacks == 0, "the native pass drew the frame");
+            weft::SceneRaster reference(weft::testing::thread_scene_text());
+            const auto raster = reference.raster(frame, scale);
+            for (const auto& [x, y, want] :
+                 std::vector<std::tuple<float, float, std::array<int, 3>>>{{50.f, 42.f, {0xff, 0xcc, 0x00}},
+                                                                           {120.f, 32.f, {0x00, 0xcc, 0xff}},
+                                                                           {60.f, 30.f, {0x30, 0x40, 0x50}}}) {
+                const auto i = (std::size_t(y * scale) * w + std::size_t(x * scale)) * 4;
+                const std::array<int, 3> n{native[i + 2], native[i + 1], native[i]};
+                const std::array<int, 3> r{raster.rgba[i], raster.rgba[i + 1], raster.rgba[i + 2]};
+                require(n == want && r == want, "a generated box's color at " + std::to_string(int(x)) + "," +
+                                                    std::to_string(int(y)) + ": native " + std::to_string(n[0]) + "," +
+                                                    std::to_string(n[1]) + "," + std::to_string(n[2]));
+            }
+            weft::testing::write_png(folder / ("generated-" + std::to_string(int(scale)) + ".png"), w, h, raster.rgba);
+        }
+    }
 } // namespace
 
 int main(int argc, char** argv) {
@@ -697,7 +862,10 @@ int main(int argc, char** argv) {
         drawn(folder, true);
         border_image_geometry();
         border_images_drawn(folder);
-        std::cout << "PASS scene background layouts of host textures and url() images, border images\n";
+        visibility_and_outlines(folder);
+        generated_boxes(folder);
+        std::cout << "PASS scene background layouts of host textures and url() images, border images, visibility, "
+                     "outlines, generated boxes\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

@@ -284,12 +284,68 @@ namespace {
         same(r.value("two", PropertyId::BorderRightColor), "#0000ff", "two values: right and left");
         same(r.value("side", PropertyId::BorderLeftColor), "#0000ff", "a later side longhand beats the shorthand");
         same(r.value("side", PropertyId::BorderTopColor), "#ff0000", "the other sides keep the shorthand's");
+        // outline: width, style and color in any order; none and auto are styles.
+        const auto o = cascade(".a { outline: #00ff00 2px dashed } .b { outline: none } .c { outline: auto }",
+                               el("html", "root", "", {el("div", "a", "a"), el("div", "b", "b"), el("div", "c", "c")}));
+        same(o.value("a", PropertyId::OutlineWidth), "2px", "the outline's width");
+        same(o.value("a", PropertyId::OutlineStyle), "dashed", "the outline's style");
+        same(o.value("a", PropertyId::OutlineColor), "#00ff00", "the outline's color");
+        same(o.value("b", PropertyId::OutlineStyle), "none", "outline: none");
+        same(o.value("c", PropertyId::OutlineStyle), "auto", "outline: auto");
+        same(o.value("c", PropertyId::OutlineWidth), "medium", "an outline's width left out");
+    }
+
+    // ::before and ::after (ComputedStyle::generated): computed as children of their element from the rules whose
+    // subject is that pseudo-element of it, a box only when a rule gives content other than normal and none.
+    void generated() {
+        const std::string sheet = "*, ::after, ::before { margin: 0px }"
+                                  ".a { color: #00ff00; font-size: 20px }"
+                                  ".a::before { content: \"x\"; color: #ff0000 }"
+                                  ".a::after { content: '' }"
+                                  ".b::after { content: none }"
+                                  ".c::before { color: #ff0000 }"
+                                  "*::after { position: absolute }"
+                                  ".d::after { content: 'd' } .d.on::after { color: #0000ff }";
+        const auto r =
+            cascade(sheet, el("html", "root", "",
+                              {el("div", "a", "a"), el("div", "b", "b"), el("div", "c", "c"), el("div", "d", "d")}));
+        const auto* a = by_id(r.dom, r.style, "a");
+        require(a && a->generated.size() == 2 && a->generated[0].local_name == "::before" &&
+                    a->generated[1].local_name == "::after" && is_generated(a->generated[0].identity) &&
+                    originating(a->generated[0].identity) == a->identity,
+                "::before then ::after, of identities their element's");
+        const auto value = [](const ComputedStyle& s, PropertyId id) {
+            const auto* v = s.values.find(id);
+            return v ? std::string(v->text()) : std::string("<none>");
+        };
+        same(value(a->generated[0], PropertyId::Color), "#ff0000", "the pseudo-element's own rule");
+        same(value(a->generated[1], PropertyId::Color), "#00ff00", "it inherits from its element");
+        same(value(a->generated[1], PropertyId::Position), "absolute", "*::after gives every ::after a style");
+        require(a->generated[0].generated.empty(), "a generated box generates none");
+        require(by_id(r.dom, r.style, "b")->generated.empty(), "content: none makes no box");
+        require(by_id(r.dom, r.style, "c")->generated.empty(), "without content no box");
+        require(by_id(r.dom, r.style, "root")->generated.empty(), "the preflight's ::before and ::after make none");
+        // The element's state changes what its pseudo-elements match, incrementally too.
+        auto doc = el("html", "root", "", {el("div", "d", "d")});
+        CompiledStyle compiled(sheet, scene_style_profile(true));
+        auto dom = snapshot(doc);
+        ComputedStyle out;
+        StyleMemo memo;
+        compiled.update(dom, nullptr, out, memo, 1);
+        const auto before = out.children[0].generated.at(0);
+        auto changed = dom;
+        changed.children[0].attributes["class"] = "d on";
+        changed.revision = changed.children[0].revision = 0;
+        compiled.update(changed, &dom, out, memo, 2);
+        const auto& after = out.children[0].generated.at(0);
+        same(value(after, PropertyId::Color), "#0000ff", "a class on the element restyles its ::after");
+        require(after.stamp == 2 && before.stamp == 1, "the restyled box takes the update's stamp");
     }
 
     // What the profile cannot take is dropped with a warning; the rest of the sheet and of the rule stays. A strict
     // profile still fails the sheet.
     void drops() {
-        const std::string sheet = ".k { outline: 1px solid red; width: 7px }"
+        const std::string sheet = ".k { column-count: 2; width: 7px }"
                                   ".bad:has(.x) { width: 8px } .ok { height: 9px }"
                                   "@container (min-width: 1px) { .k { width: 1px } }"
                                   "@keyframes spin { to { transform: rotate(360deg) } }"
@@ -301,7 +357,7 @@ namespace {
                 return w.find(part) != std::string::npos;
             });
         };
-        require(says("outline"), "a dropped property is a warning");
+        require(says("column-count"), "a dropped property is a warning");
         require(says(":has"), "a dropped rule names its selector");
         require(says("@container"), "a dropped at-rule");
         require(says("@font-face"), "@font-face is the host's");
@@ -330,6 +386,7 @@ int main() {
         selectors();
         nesting();
         borders();
+        generated();
         drops();
         std::cout << "PASS forgiving CSS: cascade layers, @media/@supports, @property, colors, calc, logical "
                      "properties, Selectors 4, nesting, border-color per side and drops with warnings\n";

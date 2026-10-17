@@ -16,6 +16,17 @@
 
 ## 本次已实现
 
+生成内容（`::before`/`::after`）、`outline`、`visibility`、ruby 与 `text-decoration`（2026-10-17，`weft-dev` 分支；CRPG 的 UI 移到 weft 之后宽松样式还在丢弃的几项）。
+- **起因**：这几项在宽松页面上丢弃并诊断，CRPG 的页面因此画错：设置页分类标签的下划线与按钮的角标是 `::after`/`::before`；焦点环与选中框是 `outline`；`invisible`（悬停才出现的按钮、工具提示）照常显示，也挡住下面的命中；字幕的振假名 `<ruby>`/`<rt>` 排成一行，读音跟在汉字后面；`underline`、`line-through` 没有线。
+- **实现**：
+  - 生成内容（层叠，`src/style/style.cpp`）：主体是 `::before`/`::after` 的规则在原元素的路径上匹配（`matches_originating`，`:hover`、类等看原元素）；只有声明了 `content` 的规则决定盒子在不在（Tailwind 预置样式的 `*, ::after, ::before` 不声明 `content`，不生成盒子），`content` 计算为 `normal`、`none` 时没有盒子。生成盒的样式继承原元素，存在 `ComputedStyle::generated`，从上次的同一盒子增量计算，所以它们的过渡与动画照常。scene（`src/scene/scene.cpp`）：生成盒是原元素的第一个与最后一个子项（标签 `::before`/`::after`，身份是原元素的身份加高位：`generated_identity`、`is_generated`、`originating`），像元素一样布局与绘制；文字是 `content` 的字符串（含转义）与 `attr()`，引号、计数器与图片不给文字。命中算原元素；元素几何（`getBoundingClientRect` 等）不列出它们。
+  - `outline`（CSS UI 4 §5）：简写与 `outline-width`、`-style`、`-color`、`-offset`。样式不是 `none`/`hidden` 时画一个环：内边在边框盒外 `outline-offset` 处（负值在里面），圆角随边框（半径 + 偏移 + 宽度），画在元素的子项之上，不占布局；`auto` 与其他样式都画实线（`scene_values::outline`）。
+  - `visibility`（CSS Display 3 §4，继承）：`hidden`、`collapse` 的元素不画自己的任何东西（背景、边框、阴影、边框图片、效果、粒子、文字、轮廓）也不接受命中，子项按自己的值画与命中，布局不变。过渡与动画中两端有一个是 `visible` 时中间一直是 `visible`（`lerp_property`）：淡入一开始就可见，淡出到最后才隐藏（Tailwind 的 `transition` 把 `visibility` 与 `opacity` 一起列出）。
+  - ruby（CSS Ruby 1）：`ruby` 元素是一个原子行内（`lay_out_ruby`）：内容分列，每列是一个 `rt` 之前的基文字（几段文字并排）与 `rt` 的文字，列宽取两者较宽，都居中；基文字在行的基线上，注音在其上一行（`ruby-position: over`、`ruby-align: center`）；`display: none` 的 `rt` 不注音，`rp` 不显示（UA 样式）。
+  - `text-decoration`（CSS Text Decoration 3/4）：简写（线、样式、颜色、粗细，任意顺序）与四个分量。每一行的下划线在基线之下字号的 0.09 处、上划线在行的文字框顶，在文字之下；删除线中心在基线之上字号的 0.3 处，在文字之上；粗细 `auto` 是字号的 1/14，至少 1px；`currentcolor` 跟着文字的颜色，包括颜色的过渡（`scene_values::text_decoration_bands`）。装饰传给子孙：没有自己的线的元素画父元素的线，用父元素的颜色、样式与粗细；有自己的线的元素，它没写的装饰属性取初始值，不取父元素的。显示列表每条线是一个盒子，在行的矩形上（不在文字图像的整像素框上），裁剪同文字；D2D 参考光栅一样。
+- **验证**（Release）：`scene_background_contract` 加 `visibility_and_outlines`（隐藏的盒子不画、它可见的子项画并接受命中，三种轮廓的位置、负偏移与圆角，原生 pass 与参考光栅逐点对照，缩放 1 与 2）与 `generated_boxes`（`::after` 的位置，`::before` 命中原元素，字符串、转义与 `attr()` 给出的文字，原元素的类改变时 `::after` 的过渡逐帧，两种光栅的颜色）；`style_forgiving_contract` 加 `generated`（顺序与身份、自己的规则、继承、`*::after`、`content: none`、没有 `content`、预置样式不生成、原元素的类改变时增量重算）与轮廓简写的层叠；`scene_inline_contract` 加 ruby（两列、较宽的注音撑开列、基线、`display: none` 的 `rt`）与 text-decoration（下划线的位置、粗细与颜色在文字之下，子元素的文字画父元素颜色的下划线，删除线在文字之上，元素自己的上划线用自己的颜色与自动粗细，原生 pass 与参考光栅逐点对照）；`scene_transition_browser_contract` 加 `visibility`（淡入、淡出）；`c_api_view_contract` 里“profile 外的属性”的例子由 `outline` 换成 `column-count`。传递的两条、`visibility` 的过渡核对过去掉修复时失败。全量 ctest 174 项：除既有的 14 项（签出换行的散列校验）外通过。
+- **限制**：生成内容只有文字（没有 `content: url()`、计数器与引号），没有 `::marker`、`::first-line`、`::first-letter`、`::placeholder`、`::selection`；轮廓与装饰的各种样式都画实线（没有 `dashed`、`dotted`、`double`、`wavy`）；装饰不避让字形的下伸部分（`text-decoration-skip-ink`），位置不看字体的度量（没有 `text-underline-offset`、`-position`）；装饰按继承传递：子元素自己的线替换父元素的，不叠加，`text-decoration: none` 能去掉父元素的线（CSS 里不能）；ruby 的基只能是文字，`rt` 只取它的文字，没有 `ruby-position: under`、`ruby-align` 的其他值、`rtc` 与跨列注音；`visibility: collapse` 同 `hidden`；`overflow-wrap`/`word-break` 仍丢弃。
+
 边框图片，以及 CRPG 页面在游戏里暴露的五处层叠、布局与绘制的错误（2026-10-17，`weft-dev` 分支；CRPG 的 UI 在 UE 里跑起来之后）。
 - **起因**：CRPG 的页面在游戏里（UE 的 `-game` 进程，界面截图走 Slate 自己的读回）与 `weft_page_runner` 里逐页对照：所有 Tailwind 边框都是文字色（`border-amber-500` 不起作用）；右上角“结束轮次”按钮的最后一个字换行；工具提示演示的第三张卡片压在图例上；设置页的两块雕花边框（`border-image`）是两圈米色粗框。
 - **实现**：

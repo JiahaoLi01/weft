@@ -783,7 +783,9 @@ namespace weft {
                     key == "border-top" || key == "border-right" || key == "border-bottom" || key == "border-left";
                 if (!custom(key) && !profile.properties.contains(key) &&
                     !(profile.scene_syntax &&
-                      (key == "border" || border_side || key == "flex" || key == "transition")) &&
+                      (key == "border" || border_side || key == "flex" || key == "transition" ||
+                       (key == "outline" && profile.properties.contains("outline-style")) ||
+                       (key == "text-decoration" && profile.properties.contains("text-decoration-line")))) &&
                     !(profile.forgiving && (key == "font" || key == "place-content" || key == "place-self")) &&
                     !(key == "inset" && profile.single_value_inset) &&
                     !(key == "background" && profile.properties.contains("background-color"))) {
@@ -871,6 +873,69 @@ namespace weft {
                         result.push_back({prefix + "-style", style, important});
                         result.push_back({prefix + "-color", color, important});
                     }
+                } else if (profile.scene_syntax && key == "outline" && profile.properties.contains("outline-style")) {
+                    // Width, style and color in any order, as border's; auto is a style too. What is left out takes its
+                    // initial value.
+                    Tokens width{{Kind::Ident, "medium", {}}};
+                    Tokens style{{Kind::Ident, "none", {}}};
+                    Tokens color{{Kind::Ident, "currentcolor", {}}};
+                    for (const auto& token : tokens) {
+                        const auto word = lower(token.text);
+                        if (token.kind == Kind::Dimension || token.kind == Kind::Number ||
+                            (token.kind == Kind::Ident && (word == "thin" || word == "medium" || word == "thick"))) {
+                            width = {token};
+                        } else if (token.kind == Kind::Ident && (border_style_keyword(word) || word == "auto")) {
+                            style = {{Kind::Ident, word, {}}};
+                        } else if (token.kind == Kind::Hash || token.kind == Kind::Function ||
+                                   token.kind == Kind::Ident) {
+                            color = {token};
+                        } else {
+                            fail("outline shorthand profile");
+                        }
+                    }
+                    result.push_back({"outline-width", width, important});
+                    result.push_back({"outline-style", style, important});
+                    result.push_back({"outline-color", color, important});
+                } else if (profile.scene_syntax && key == "text-decoration" &&
+                           profile.properties.contains("text-decoration-line")) {
+                    // Lines, style, color and thickness in any order (CSS Text Decoration 4 §2.6); a CSS-wide keyword
+                    // is every longhand's. What is left out takes its initial value.
+                    Tokens line{{Kind::Ident, "none", {}}};
+                    Tokens style{{Kind::Ident, "solid", {}}};
+                    Tokens color{{Kind::Ident, "currentcolor", {}}};
+                    Tokens thickness{{Kind::Ident, "auto", {}}};
+                    if (wide(keyword(tokens))) {
+                        line = style = color = thickness = tokens;
+                    } else {
+                        Tokens lines;
+                        for (const auto& token : tokens) {
+                            const auto word = lower(token.text);
+                            if (token.kind == Kind::Ident &&
+                                (word == "underline" || word == "overline" || word == "line-through" ||
+                                 word == "none" || word == "blink")) {
+                                lines.push_back(token);
+                            } else if (token.kind == Kind::Ident &&
+                                       (word == "solid" || word == "double" || word == "dotted" || word == "dashed" ||
+                                        word == "wavy")) {
+                                style = {{Kind::Ident, word, {}}};
+                            } else if (token.kind == Kind::Dimension || token.kind == Kind::Percentage ||
+                                       (token.kind == Kind::Ident && (word == "auto" || word == "from-font"))) {
+                                thickness = {token};
+                            } else if (token.kind == Kind::Hash || token.kind == Kind::Function ||
+                                       token.kind == Kind::Ident) {
+                                color = {token};
+                            } else {
+                                fail("text-decoration shorthand profile");
+                            }
+                        }
+                        if (!lines.empty()) {
+                            line = std::move(lines);
+                        }
+                    }
+                    result.push_back({"text-decoration-line", line, important});
+                    result.push_back({"text-decoration-style", style, important});
+                    result.push_back({"text-decoration-color", color, important});
+                    result.push_back({"text-decoration-thickness", thickness, important});
                 } else if (profile.scene_syntax && key == "flex") {
                     if (tokens.size() != 1 || tokens[0].kind != Kind::Number) {
                         fail("flex shorthand profile requires one number");
@@ -1169,6 +1234,17 @@ namespace weft {
             }
         };
 
+        // The pseudo-element a node of a cascade path stands for: none for an element, ::before or ::after for the
+        // stand-in Engine::generate computes a generated box's style with (its local name "::before" or "::after").
+        dom::PseudoElement generated_kind(const DomSnapshot& n) {
+            if (n.local_name.size() < 2 || n.local_name[0] != ':') {
+                return dom::PseudoElement::None;
+            }
+            return n.local_name == "::before"  ? dom::PseudoElement::Before
+                   : n.local_name == "::after" ? dom::PseudoElement::After
+                                               : dom::PseudoElement::None;
+        }
+
         struct Rule {
             dom::Selector selector;
             std::vector<Declaration> declarations;
@@ -1179,6 +1255,12 @@ namespace weft {
             std::shared_ptr<const MediaCondition> media;
 
             bool matches(const std::vector<const DomSnapshot*>& path) const {
+                // A generated box (Engine::generate) matches the rules whose subject is that pseudo-element of its
+                // element, the element below it on the path; an element matches no such rule.
+                if (const auto kind = generated_kind(*path.back()); kind != dom::PseudoElement::None) {
+                    return path.size() >= 2 && selector.pseudo() == kind &&
+                           dom::matches_originating(selector, PathElement{&path, path.size() - 2});
+                }
                 return dom::matches(selector, PathElement{&path, path.size() - 1});
             }
         };
@@ -2991,6 +3073,10 @@ namespace weft {
             bool uses_siblings{};
             bool uses_empty{};
             bool parent_all{};
+            // The rules whose subject is ::before or ::after and that declare content: only a pseudo-element one of
+            // them gives makes a box (Tailwind's preflight gives every element's ::before and ::after a style, but no
+            // content).
+            std::vector<const Rule*> content_rules;
             std::set<std::string> memo_attributes{"id", "class"};
             std::vector<const dom::Compound*> state_parts;
             std::string selector_path;
@@ -3080,6 +3166,13 @@ namespace weft {
                         });
                         for (const auto& d : rule.declarations) {
                             parent_all |= keyword(d.tokens) == "inherit" || references(d.tokens);
+                        }
+                        const auto pseudo = rule.selector.pseudo();
+                        if ((pseudo == dom::PseudoElement::Before || pseudo == dom::PseudoElement::After) &&
+                            std::any_of(rule.declarations.begin(), rule.declarations.end(), [](const Declaration& d) {
+                                return d.key == "content";
+                            })) {
+                            content_rules.push_back(&rule);
                         }
                     }
                 }
@@ -3718,6 +3811,67 @@ namespace weft {
                 for (const auto& c : node.children) {
                     node.subtree_stamp = std::max(node.subtree_stamp, c.subtree_stamp);
                 }
+                for (const auto& g : node.generated) {
+                    node.subtree_stamp = std::max(node.subtree_stamp, g.subtree_stamp);
+                }
+            }
+
+            // The ::before and ::after of the element atop path (CSS Pseudo-Elements 4 §2): each a child of the element
+            // computed from the rules whose subject is that pseudo-element of it (it inherits from the element and the
+            // custom properties its children inherit, variables), when a rule that declares content gives it; a box
+            // only when its content computes to other than normal and none. Each starts from the previous one of its
+            // kind, so what did not change keeps its stamp; another list of boxes is a change of the element's
+            // children.
+            void generate(const DomSnapshot& dom, ComputedStyle& destination, const Variables& variables) {
+                auto previous = std::move(destination.generated);
+                destination.generated.clear();
+                std::vector<NodeIdentity> before;
+                for (const auto& g : previous) {
+                    before.push_back(g.identity);
+                }
+                // A generated box generates none (*::after does not give ::after::after).
+                if (generated_kind(dom) != dom::PseudoElement::None) {
+                    return;
+                }
+                const PathElement element{&path, path.size() - 1};
+                for (const auto box : {GeneratedBox::Before, GeneratedBox::After}) {
+                    const auto kind =
+                        box == GeneratedBox::Before ? dom::PseudoElement::Before : dom::PseudoElement::After;
+                    const bool given = std::any_of(content_rules.begin(), content_rules.end(), [&](const Rule* r) {
+                        return r->selector.pseudo() == kind &&
+                               !(r->media && (!forgiving || !r->media->holds(forgiving->width, forgiving->height))) &&
+                               dom::matches_originating(r->selector, element);
+                    });
+                    if (!given) {
+                        continue;
+                    }
+                    DomSnapshot stand_in;
+                    stand_in.identity = generated_identity(dom.identity, box);
+                    stand_in.type = constants::element_node_type;
+                    stand_in.local_name = box == GeneratedBox::Before ? "::before" : "::after";
+                    stand_in.namespace_uri = constants::xhtml_namespace_uri;
+                    ComputedStyle style;
+                    for (auto& g : previous) {
+                        if (g.identity == stand_in.identity) {
+                            style = std::move(g);
+                            break;
+                        }
+                    }
+                    compute_into(stand_in, style, &destination, variables);
+                    const auto* content = style.values.find(PropertyId::Content);
+                    const auto text = content ? trim(content->text()) : std::string("normal");
+                    if (text == "normal" || text == "none") {
+                        continue;
+                    }
+                    destination.generated.push_back(std::move(style));
+                }
+                if (destination.generated.size() != before.size() ||
+                    !std::equal(before.begin(), before.end(), destination.generated.begin(),
+                                [](const NodeIdentity& a, const ComputedStyle& b) {
+                                    return a == b.identity;
+                                })) {
+                    destination.children_stamp = stamp;
+                }
             }
 
             ComputedStyle compute(const DomSnapshot& dom, const ComputedStyle* parent, const Variables& inherited) {
@@ -3755,6 +3909,9 @@ namespace weft {
                         fail("computed output byte bound");
                     }
                     const auto environment = destination.environment;
+                    for (const auto& g : destination.generated) {
+                        keep(g);
+                    }
                     children_into(dom, destination, environment->variables, old, false, false);
                     close(destination, nodes_before, work_before, bytes_before);
                     return;
@@ -3766,6 +3923,7 @@ namespace weft {
                         destination.own_work = work - work_before;
                         destination.own_bytes = bytes - bytes_before;
                         const auto environment = destination.environment;
+                        generate(dom, destination, environment->variables);
                         children_into(dom, destination, environment->variables, old,
                                       *restyled && children_read_all(dom), false);
                         close(destination, nodes_before, work_before, bytes_before);
@@ -3791,6 +3949,7 @@ namespace weft {
                         destination.own_work = token_work;
                         destination.own_bytes = output_bytes;
                         const bool inherited_changed = inherit(destination, variables, parent);
+                        generate(dom, destination, variables);
                         children_into(dom, destination, variables, old, (changed && reaches) || inherited_changed,
                                       child_selectors);
                         close(destination, nodes_before, work_before, bytes_before);
@@ -3830,7 +3989,10 @@ namespace weft {
                         }
                         return;
                     }
-                    index->candidates(dom, candidates);
+                    index->candidates(generated_kind(dom) != dom::PseudoElement::None && path.size() >= 2
+                                          ? *path[path.size() - 2]
+                                          : dom,
+                                      candidates);
                     for (const auto i : candidates) {
                         apply_rule(list[i], origin);
                     }
@@ -4223,6 +4385,7 @@ namespace weft {
                 destination.own_work = work - work_before;
                 destination.own_bytes = bytes - bytes_before;
                 const bool inherited_changed = inherit(destination, child_variables, parent);
+                generate(dom, destination, child_variables);
                 children_into(dom, destination, child_variables, old, (changed && reaches) || inherited_changed,
                               child_selectors);
                 close(destination, nodes_before, work_before, bytes_before);

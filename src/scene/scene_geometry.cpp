@@ -813,7 +813,8 @@ namespace weft {
         std::vector<ScenePlacedAnchor> placed;
         const auto area = [&](const SceneNode& n, const Plane& inverse, std::vector<HitShape> shapes,
                               std::size_t clip) {
-            out.targets.push_back(n.identity);
+            // A generated box (::before, ::after) hits as its element.
+            out.targets.push_back(originating(n.identity));
             out.areas.areas.push_back({out.targets.size() - 1, inverse, std::move(shapes), clip});
         };
         auto svg_visit = [&](auto&& self, const SceneNode& n, Plane parent, const SceneNode& root,
@@ -908,7 +909,9 @@ namespace weft {
                 corners->kind = HitShape::Kind::Rounded;
                 corners->rounded = *rounded;
             }
-            if (n.tag != "#text" && view(n.style, PropertyId::PointerEvents) != "none") {
+            // visibility: hidden takes no hits (its children may: they follow their own visibility).
+            if (n.tag != "#text" && view(n.style, PropertyId::PointerEvents) != "none" &&
+                !scene_values::invisible(n.style)) {
                 if (n.fragments.empty()) {
                     area(n, inverse, {box}, corners ? out.areas.add_clip(inverse, *corners, clip) : clip);
                 } else {
@@ -1155,6 +1158,10 @@ namespace weft {
         visit(visit, f.root, Plane{}, {}, 0, 0);
         scene_anchor_sort(placed);
         impl_->placed = std::move(placed);
+        // Generated boxes (::before, ::after) are no elements of the document.
+        std::erase_if(out, [](const ElementGeometry& e) {
+            return is_generated(e.identity);
+        });
         return out;
     }
 } // namespace weft

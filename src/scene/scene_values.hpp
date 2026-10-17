@@ -110,6 +110,31 @@ namespace weft::scene_values {
         return *n;
     }
 
+    // A text line's decorations (CSS Text Decoration 3 §2), as bands in the line's px from its rect's top left: the
+    // underline below the baseline and the overline at the line box's top, under the text; the line-through about the
+    // middle of lowercase letters, over it. Their thickness: text-decoration-thickness, auto (a 14th of the font size)
+    // at least 1px. Every style draws solid.
+    struct TextDecorationBands {
+        std::vector<std::array<float, 4>> under;
+        std::vector<std::array<float, 4>> over;
+    };
+
+    // visibility: hidden or collapse (CSS Display 3 §4): the element paints nothing of its own and takes no hits; its
+    // children follow their own (inherited) visibility.
+    inline bool invisible(const Style& s) {
+        const auto v = s.text(PropertyId::Visibility, "visible");
+        return v == "hidden" || v == "collapse";
+    }
+
+    // An outline (CSS UI 4 §5) as the scene draws it: a ring of the outline's width whose inner edge lies outline-offset
+    // outside the border box (inside for a negative offset), in the box's px; its corners round with the border's
+    // (radius + offset + width where the border rounds). Every style but none draws solid.
+    struct OutlineRing {
+        std::array<float, 4> rect{};
+        float width{};
+        std::array<float, 4> radii{};
+    };
+
     // Unitless numbers are accepted as px; em resolves against reference; calc() takes a + b and a - b.
     inline float len(std::string_view input, float reference = 1) {
         const auto s = css::trim(input);
@@ -153,6 +178,57 @@ namespace weft::scene_values {
             v *= factor;
         }
         return r;
+    }
+
+    // The ring of a w x h box's outline (OutlineRing), or none: outline-style none (or hidden), no width, or a negative
+    // offset that leaves no box.
+    inline std::optional<OutlineRing> outline(const Style& s, float w, float h) {
+        const auto style = s.text(PropertyId::OutlineStyle, "none");
+        if (style.empty() || style == "none" || style == "hidden") {
+            return std::nullopt;
+        }
+        const auto width_text = s.text(PropertyId::OutlineWidth, "medium");
+        const float width = width_text == "thin"     ? 1.f
+                            : width_text == "medium" ? 3.f
+                            : width_text == "thick"  ? 5.f
+                                                     : len(width_text);
+        if (!(width > 0)) {
+            return std::nullopt;
+        }
+        const float grow = len(s.text(PropertyId::OutlineOffset, "0")) + width;
+        OutlineRing ring;
+        ring.rect = {-grow, -grow, w + 2 * grow, h + 2 * grow};
+        if (!(ring.rect[2] > 0) || !(ring.rect[3] > 0)) {
+            return std::nullopt;
+        }
+        ring.width = std::min(width, std::min(ring.rect[2], ring.rect[3]) / 2);
+        const auto radii = corner_radii(s, w, h);
+        for (unsigned k = 0; k < 4; ++k) {
+            ring.radii[k] = radii[k] > 0 ? std::max(0.f, radii[k] + grow) : 0.f;
+        }
+        return ring;
+    }
+
+    // The decoration bands of a text line width px wide whose baseline lies baseline below its top (TextDecorationBands).
+    inline TextDecorationBands text_decoration_bands(const Style& s, float width, float baseline) {
+        TextDecorationBands out;
+        const auto line = s.text(PropertyId::TextDecorationLine, "none");
+        if (line.empty() || line == "none" || !(width > 0)) {
+            return out;
+        }
+        const float size = len(s.text(PropertyId::FontSize, "16px"));
+        const auto t = s.text(PropertyId::TextDecorationThickness, "auto");
+        const float thickness = std::max(1.f, t.empty() || t == "auto" || t == "from-font" ? size / 14 : len(t, size));
+        for (const auto& word : css::split(line, ' ').parts) {
+            if (word == "underline") {
+                out.under.push_back({0, baseline + size * .09f, width, thickness});
+            } else if (word == "overline") {
+                out.under.push_back({0, 0, width, thickness});
+            } else if (word == "line-through") {
+                out.over.push_back({0, baseline - size * .3f - thickness / 2, width, thickness});
+            }
+        }
+        return out;
     }
 
     // The overflow clip of a w x h box in its own coordinates: its padding box, with the inner corner radii. A

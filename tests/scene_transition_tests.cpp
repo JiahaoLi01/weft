@@ -493,6 +493,26 @@ namespace {
         require(std::abs(channels(at[1].at("border-top-color"))[0] - 224) < 1,
                 "border-width does not transition the colors");
     }
+
+    // visibility is visible between its ends when either end is (CSS Display 3 §4): what fades in shows from the start
+    // of its fade, what fades out until the end of it; Tailwind's transition names visibility with opacity.
+    void visibility() {
+        const auto sheet = ".t{width:40px;height:20px;opacity:0;visibility:hidden;"
+                           "transition:opacity 100ms linear, visibility 100ms linear}"
+                           ".t.on{opacity:1;visibility:visible}";
+        Change in(sheet);
+        auto at = in.samples({0, 10, 90, 200});
+        require(at[0].at("visibility") == "hidden" && at[1].at("visibility") == "visible" &&
+                    at[2].at("visibility") == "visible" && at[3].at("visibility") == "visible",
+                "fading in, visible from the start: " + at[1].at("visibility"));
+        in.set_class("t");
+        std::vector<std::string> out;
+        for (const double t : {0., 10., 90., 200.}) {
+            out.push_back(in.frame(limits::transition_change_ms + 200 + t).at("visibility"));
+        }
+        require(out[0] == "visible" && out[1] == "visible" && out[2] == "visible" && out[3] == "hidden",
+                "fading out, visible until the end: " + out[2] + ", then " + out[3]);
+    }
 } // namespace
 
 int main() {
@@ -500,6 +520,7 @@ int main() {
         shorthand();
         ending();
         shorthand_names();
+        visibility();
         chrome();
         random_lists();
         std::cout << "scene transitions: passed\n";

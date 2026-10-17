@@ -146,7 +146,15 @@ namespace weft {
             return true;
         }
         const auto d = display(n);
-        return d == "inline-block" || d == "inline-flex" || d == "inline-grid";
+        return d == "inline-block" || d == "inline-flex" || d == "inline-grid" || scene_ruby(n);
+    }
+
+    bool scene_ruby(const SceneNode& n) {
+        if (n.tag != "ruby" || (!n.space.empty() && n.space != constants::xhtml_namespace_uri)) {
+            return false;
+        }
+        const auto d = display(n);
+        return d == "inline" || d == "ruby";
     }
 
     bool scene_inline_children(const SceneNode& n) {

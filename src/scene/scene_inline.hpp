@@ -82,6 +82,10 @@ namespace weft {
     // inline-block, inline-flex or inline-grid element, or an svg element.
     bool scene_atomic_inline(const SceneNode& n);
 
+    // Whether an element is a ruby (CSS Ruby 1) the scene lays out as an atomic inline of base and annotation columns:
+    // an HTML ruby element of display inline or ruby.
+    bool scene_ruby(const SceneNode& n);
+
     // Whether an element establishes an inline formatting context for its children: an HTML block container (not
     // flex or grid) whose in-flow children are all inline-level, at least one of them.
     bool scene_inline_children(const SceneNode& n);

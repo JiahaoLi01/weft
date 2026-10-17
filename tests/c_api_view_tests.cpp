@@ -680,15 +680,14 @@ namespace {
         };
 
         Page frames = inline_page("weft.engine.send('loaded')");
-        frames.keyframes = "@keyframes k{from{outline-width:0}to{outline-width:2px}}";
+        frames.keyframes = "@keyframes k{from{column-count:1}to{column-count:2}}";
         const Rejected rejected[]{
-            {inline_page("weft.engine.send('loaded')", ".b{outline:1px solid #ffffff}"),
-             "unsupported property outline"},
+            {inline_page("weft.engine.send('loaded')", ".b{column-count:2}"), "unsupported property column-count"},
             {inline_page("weft.engine.send('loaded')", ".b{transition:opacity 1s 2s 3s}"),
              "more than a duration and a delay"},
             {inline_page("weft.engine.send('loaded')", ".b{transition:opacity 1s allow-discrete}"), "allow-discrete"},
             {inline_page("weft.engine.send('loaded')", "@media (min-width:1px){.b{opacity:1}}"), "at-rule"},
-            {frames, "unsupported keyframe property outline-width"},
+            {frames, "unsupported keyframe property column-count"},
         };
         for (const auto& [page, why] : rejected) {
             require(load(r, view, page) == WEFT_SCRIPT_ERROR, std::string("a page rejected for ") + why);

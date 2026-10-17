@@ -17,6 +17,33 @@ namespace weft {
         friend bool operator==(const NodeIdentity&, const NodeIdentity&) = default;
     };
 
+    // The boxes an element's ::before and ::after generate (CSS Pseudo-Elements 4 §2), and their text, are not DOM nodes:
+    // their identities are the element's with a mark in the view epoch's top bits (epochs stay far below them), so a
+    // scene keeps their state from frame to frame and a hit on one is its element's.
+    enum class GeneratedBox : std::uint8_t {
+        Before = 1,
+        After = 2
+    };
+
+    inline constexpr unsigned generated_epoch_shift = 62;
+    inline constexpr std::uint64_t generated_text_bit = std::uint64_t(1) << 61;
+
+    inline NodeIdentity generated_identity(NodeIdentity element, GeneratedBox box, bool text = false) {
+        element.view_epoch |= std::uint64_t(box) << generated_epoch_shift | (text ? generated_text_bit : 0);
+        return element;
+    }
+
+    // Whether an identity is a generated box's (or its text's).
+    inline bool is_generated(NodeIdentity id) {
+        return id.view_epoch >= generated_text_bit;
+    }
+
+    // The element a generated box belongs to; the identity itself for any other.
+    inline NodeIdentity originating(NodeIdentity id) {
+        id.view_epoch &= generated_text_bit - 1;
+        return id;
+    }
+
     // Element attributes by qualified name. Lookups take a string_view or literal without building a string.
     using AttributeMap = std::map<std::string, std::string, std::less<>>;
 

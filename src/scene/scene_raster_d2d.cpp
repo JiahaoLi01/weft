@@ -1085,12 +1085,36 @@ namespace weft {
                 return;
             }
             const auto current = matrix();
+            // text-decoration (scene_values::text_decoration_bands): underlines and overlines under the line's text,
+            // line-throughs over it.
+            const auto decoration_text = get(n.style, PropertyId::TextDecorationColor, "currentcolor");
+            const auto decoration =
+                decoration_text == "currentcolor" || decoration_text == "currentColor"
+                    ? paint_color(n, constants::scene::paint_slot_color, get(n.style, PropertyId::Color, "#000000"))
+                    : color(decoration_text, n.style);
+            // A band on the line's rect, which lies (x, y) inside the line's text image.
+            const auto band = [&](const std::array<float, 4>& b, float x, float y) {
+                solid(decoration);
+                target->FillRectangle(D2D1::RectF(x + b[0], y + b[1], x + b[0] + b[2], y + b[1] + b[3]), brush.Get());
+            };
             for (std::size_t i = 0; i < n.lines.size(); ++i) {
                 auto line = scene_text_line(n, i);
                 target->SetTransform(D2D1::Matrix3x2F::Translation(line.box[0], line.box[1]) * current);
+                const auto& r = n.lines[i].rect;
+                const float x = r[0] - line.box[0];
+                const float y = r[1] - line.box[1];
+                const auto bands = n.lines[i].text.empty()
+                                       ? scene_values::TextDecorationBands{}
+                                       : scene_values::text_decoration_bands(n.style, r[2], n.lines[i].baseline);
                 line.box[0] = line.box[1] = 0;
+                for (const auto& b : bands.under) {
+                    band(b, x, y);
+                }
                 draw_text_shadows(line, text_shadows);
                 draw_line(line, false, std::uint32_t(i));
+                for (const auto& b : bands.over) {
+                    band(b, x, y);
+                }
             }
             target->SetTransform(current);
         }
@@ -1923,6 +1947,8 @@ namespace weft {
             // The reference raster has no anchors: an anchored element draws nothing, as without a table.
             // A box of no area paints nothing of its own; what overflows it still shows (scene_shows_overflow).
             const bool empty = n.box[2] <= 0 || n.box[3] <= 0;
+            // visibility: hidden paints nothing of its own, its text included; children by their own visibility.
+            const bool invisible = scene_values::invisible(n.style);
             if (get(n.style, PropertyId::Display) == "none" || n.anchoring || (empty && !scene_shows_overflow(n))) {
                 return;
             }
@@ -1987,7 +2013,7 @@ namespace weft {
                 }
             }
             auto shape = commands ? commands->shape : round_box(n.box[2], n.box[3], radii);
-            if (!empty) {
+            if (!empty && !invisible) {
                 // border-image: its pieces instead of the border styles (scene_border_image.hpp).
                 std::vector<SceneBorderImagePiece> border_pieces;
                 if (n.border_image && n.border_image->width && n.border_image->height) {
@@ -2173,7 +2199,9 @@ namespace weft {
                     svg(c, n);
                 }
             } else {
-                draw_text(n);
+                if (!invisible) {
+                    draw_text(n);
+                }
                 if (commands) {
                     for (auto index : commands->order) {
                         paint(n.children[index]);
@@ -2197,6 +2225,21 @@ namespace weft {
             }
             if (clipped) {
                 target->PopLayer();
+            }
+            // outline (scene_values::outline): over the content, outside the element's own clip, in its group; the
+            // ring stroked along its middle.
+            if (!invisible) {
+                if (const auto ring = scene_values::outline(n.style, n.box[2], n.box[3])) {
+                    solid(color(get(n.style, PropertyId::OutlineColor, "currentcolor"), n.style));
+                    const float half = ring->width / 2;
+                    RoundedClip middle;
+                    middle.rect = {ring->rect[0] + half, ring->rect[1] + half, ring->rect[2] - ring->width,
+                                   ring->rect[3] - ring->width};
+                    for (unsigned k = 0; k < 4; ++k) {
+                        middle.radius_x[k] = middle.radius_y[k] = std::max(0.f, ring->radii[k] - half);
+                    }
+                    target->DrawGeometry(rounded_rect(middle).Get(), brush.Get(), ring->width);
+                }
             }
             if (group) {
                 target->PopLayer();

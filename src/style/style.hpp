@@ -60,6 +60,10 @@ namespace weft {
         std::vector<std::string> invalid_at_computed_value;
         std::vector<ComputedStyle> children;           // Element children, DOM order.
         std::vector<std::string> specified_properties; // Cascade provenance for animated inheritance.
+        // The element's ::before then ::after (local names "::before", "::after"), those whose content makes a box:
+        // computed as children of the element from the rules whose subject is that pseudo-element of it. Identities
+        // from generated_identity.
+        std::vector<ComputedStyle> generated;
 
         // Bookkeeping of the cascade, not content: == ignores it. stamp is the update (CompiledStyle::update) that last
         // changed the node's own values (its identity, name, values, custom properties or lists), children_stamp the
@@ -82,7 +86,7 @@ namespace weft {
             return a.identity == b.identity && a.local_name == b.local_name && a.values == b.values &&
                    a.custom_properties == b.custom_properties &&
                    a.invalid_at_computed_value == b.invalid_at_computed_value && a.children == b.children &&
-                   a.specified_properties == b.specified_properties;
+                   a.specified_properties == b.specified_properties && a.generated == b.generated;
         }
     };
 

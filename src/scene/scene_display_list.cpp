@@ -687,6 +687,10 @@ namespace weft {
                 if (get(n.style, PropertyId::Display) == "none" || (empty && !scene_shows_overflow(n))) {
                     return;
                 }
+                // visibility: hidden paints nothing of its own either, its text included; its children paint by their
+                // own visibility. bare: the node paints nothing of its own (no area, or hidden).
+                const bool invisible = scene_values::invisible(n.style);
+                const bool bare = empty || invisible;
                 if (list.items.size() > constants::scene::max_display_list_items) {
                     throw std::invalid_argument("native command bound");
                 }
@@ -838,7 +842,7 @@ namespace weft {
                 };
                 box.background =
                     paint_color(constants::scene::paint_slot_background_color, "background-color", "transparent");
-                if (auto g = empty ? std::nullopt : scene_gradient(n.style, item.width, item.height)) {
+                if (auto g = bare ? std::nullopt : scene_gradient(n.style, item.width, item.height)) {
                     box.gradient = std::move(*g);
                 }
                 // Solid sides are the box's; dotted and dashed ones are Chrome's shapes, drawn apart. A dotted or
@@ -865,11 +869,11 @@ namespace weft {
                     box.edges[k] = stroked ? std::array<float, 4>{} : edge_color;
                     ++k;
                 }
-                bordered = bordered && !empty;
+                bordered = bordered && !bare;
                 // border-image: its pieces instead of the border styles (scene_border_image.hpp); the border widths
                 // still give the background its boxes.
                 std::vector<SceneBorderImagePiece> border_pieces;
-                if (!empty && n.border_image && n.border_image->width && n.border_image->height) {
+                if (!bare && n.border_image && n.border_image->width && n.border_image->height) {
                     border_pieces = scene_border_image(n.style, item.width, item.height, float(n.border_image->width),
                                                        float(n.border_image->height));
                 }
@@ -879,7 +883,7 @@ namespace weft {
                     bordered = false;
                     dashed_widths = {};
                 }
-                const bool dashed = !empty && std::any_of(dashed_widths.begin(), dashed_widths.end(), [](float w) {
+                const bool dashed = !bare && std::any_of(dashed_widths.begin(), dashed_widths.end(), [](float w) {
                     return w > 0;
                 });
                 if (dashed && std::any_of(box.radii.begin(), box.radii.end(), [](float r) {
@@ -895,7 +899,7 @@ namespace weft {
                 }
                 // A layer image holds its subtree in place: an anchored descendant moves on its own, so such a node
                 // draws in the pass.
-                if (!empty && std::find(layers.begin(), layers.end(), n.identity) != layers.end() &&
+                if (!bare && std::find(layers.begin(), layers.end(), n.identity) != layers.end() &&
                     !shows_effect(shows_effect, n) && !anchored_below(anchored_below, n)) {
                     auto source = std::make_shared<SceneNode>(n);
                     source->box[0] = source->box[1] = 0;
@@ -913,15 +917,15 @@ namespace weft {
                 }
                 // A background image laid out as CSS lays one out: a host texture or a url() image.
                 const auto host_texture = texture_of(n);
-                const bool fitted = !empty && (!host_texture.empty() || n.background_image);
+                const bool fitted = !bare && (!host_texture.empty() || n.background_image);
                 const bool painted =
-                    !empty && (box.background[3] > 0 || box.gradient.kind != paint::GradientKind::None || bordered ||
-                               dashed || n.effect || fitted || !border_pieces.empty());
+                    !bare && (box.background[3] > 0 || box.gradient.kind != paint::GradientKind::None || bordered ||
+                              dashed || n.effect || fitted || !border_pieces.empty());
                 // Shadows of the border box with its corners as specified, as the reference raster draws them.
                 const auto shadows =
-                    empty ? std::vector<scene_values::BoxShadow>{}
-                          : scene_values::box_shadows(n.style, item.width, item.height,
-                                                      scene_values::specified_radii(n.style, item.width, item.height));
+                    bare ? std::vector<scene_values::BoxShadow>{}
+                         : scene_values::box_shadows(n.style, item.width, item.height,
+                                                     scene_values::specified_radii(n.style, item.width, item.height));
                 // backdrop-filter: what lies behind the box, filtered, under everything the element paints. An element
                 // whose opacity or a descendant's backdrop needs a group of its own draws it at the group's end, beneath
                 // what the group holds (a descendant's backdrop holds the element's own painting alone).
@@ -929,7 +933,7 @@ namespace weft {
                 if (!filtered) {
                     throw std::invalid_argument(filtered.error().message);
                 }
-                const auto backdrop = empty ? std::remove_cvref_t<decltype(*filtered)>{} : *filtered;
+                const auto backdrop = bare ? std::remove_cvref_t<decltype(*filtered)>{} : *filtered;
                 const bool backdrop_group = backdrop && (opacity < 1 || filtered_below(filtered_below, n));
                 const auto add_backdrop = [&](bool under) {
                     paint::Backdrop b;
@@ -1079,7 +1083,7 @@ namespace weft {
                 } else if (inset && !n.effect && !fitted) {
                     // Nothing else painted: the inset shadows alone.
                     add_shadows(true);
-                } else if (n.effect && !empty) {
+                } else if (n.effect && !bare) {
                     // As CSS paints a background image: over the background color and under the borders, inside the
                     // border box's corners. The effect's time is the frame's.
                     if (box.background[3] > 0) {
@@ -1221,7 +1225,7 @@ namespace weft {
                 // The element's particles over its background and borders, under its content, unclipped by its own
                 // overflow; the emitter's area in the box's px, a sprite an asset of the list.
                 static const std::remove_cvref_t<decltype(n.particles)> no_particles;
-                for (const auto& emission : empty ? no_particles : n.particles) {
+                for (const auto& emission : bare ? no_particles : n.particles) {
                     paint::Particles particles{emission.emitter->emitter, emission.emission};
                     particles.emitter.area = scene_emitter_area(particles.emitter, item.width, item.height);
                     particles.emitter.sprite.reset();
@@ -1330,17 +1334,49 @@ namespace weft {
                     list.rasters.push_back(std::move(raster));
                     list.items.push_back(t);
                 };
-                for (std::size_t line = 0; line < n.lines.size(); ++line) {
+                // text-decoration (scene_values::text_decoration_bands): underlines and overlines under each line's
+                // text, line-throughs over it, clipped as the text is.
+                const auto decoration_text = get(n.style, PropertyId::TextDecorationColor, "currentcolor");
+                const auto decoration =
+                    decoration_text == "currentcolor" || decoration_text == "currentColor"
+                        ? paint_color(constants::scene::paint_slot_color, "color", constants::default_color)
+                        : color(decoration_text, n.style);
+                const auto add_band = [&](const Matrix& at, const std::array<float, 4>& band) {
+                    paint::Box value;
+                    value.background = decoration;
+                    auto shape = item;
+                    shape.kind = paint::Item::Kind::Box;
+                    shape.transform = multiply(at, {1, 0, 0, 1, band[0], band[1]});
+                    shape.width = band[2];
+                    shape.height = band[3];
+                    shape.clip = clip;
+                    shape.clips_begin = chain.begin;
+                    shape.clips_count = chain.count;
+                    shape.payload = std::uint32_t(list.boxes.size());
+                    list.boxes.push_back(value);
+                    list.items.push_back(shape);
+                };
+                for (std::size_t line = 0; !invisible && line < n.lines.size(); ++line) {
                     // A line that text-overflow hides draws nothing.
                     if (n.lines[line].text.empty()) {
                         continue;
                     }
                     auto source = std::make_shared<SceneNode>(scene_text_line(n, line));
                     const auto at = source->box;
+                    // The bands lie on the line's rect, the text image on its whole px around it.
+                    const auto& r = n.lines[line].rect;
+                    const auto lined = multiply(item.transform, {1, 0, 0, 1, r[0], r[1]});
+                    const auto bands = scene_values::text_decoration_bands(n.style, r[2], n.lines[line].baseline);
+                    for (const auto& band : bands.under) {
+                        add_band(lined, band);
+                    }
                     add_text(std::move(source), multiply(item.transform, {1, 0, 0, 1, at[0], at[1]}), at[2], at[3],
                              std::uint32_t(line));
+                    for (const auto& band : bands.over) {
+                        add_band(lined, band);
+                    }
                 }
-                if (n.lines.empty() && !n.text.empty()) {
+                if (!invisible && n.lines.empty() && !n.text.empty()) {
                     auto source = own(n);
                     source->style.erase(PropertyId::Transform);
                     source->style.erase(PropertyId::Opacity);
@@ -1463,6 +1499,24 @@ namespace weft {
                                            members.begin() + std::ptrdiff_t(end));
                     }
                     begin = end;
+                }
+                // outline: a ring outside the border box (scene_values::outline) over the element's content, in its
+                // group but outside its own overflow clip (the item's clips are its parent's).
+                if (!invisible) {
+                    if (const auto ring = scene_values::outline(n.style, item.width, item.height)) {
+                        paint::Box value;
+                        value.widths.fill(ring->width);
+                        value.edges.fill(color(get(n.style, PropertyId::OutlineColor, "currentcolor"), n.style));
+                        value.radii = ring->radii;
+                        auto shape = item;
+                        shape.kind = paint::Item::Kind::Box;
+                        shape.transform = multiply(item.transform, {1, 0, 0, 1, ring->rect[0], ring->rect[1]});
+                        shape.width = ring->rect[2];
+                        shape.height = ring->rect[3];
+                        shape.payload = std::uint32_t(list.boxes.size());
+                        list.boxes.push_back(value);
+                        list.items.push_back(shape);
+                    }
                 }
                 if (backdrop_group) {
                     add_backdrop(true);
