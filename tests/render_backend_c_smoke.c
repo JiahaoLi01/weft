@@ -1,5 +1,6 @@
 #include "weft/render_backend.h"
 #include "weft/render_backend_d3d11.h"
+#include "weft/render_backend_metal.h"
 #include "weft/render_backend_vulkan.h"
 
 #include <stddef.h>
@@ -19,12 +20,20 @@ int main(void) {
     weft_render_handle handle = {0};
     weft_render_d3d11_texture native = {0};
     weft_render_vulkan_pass vulkan = {0};
+    weft_render_metal_pass metal = {0};
     weft_render_scene_frame scene = {0};
     /* Fixed layout on every platform: 64-bit handles, the clear fields, then the target's image. */
     vulkan.struct_size = sizeof(vulkan);
     if (vulkan.struct_size != 64 || offsetof(weft_render_vulkan_pass, target_image) != 56 ||
         sizeof(vulkan.command_buffer) != 8) {
         return 4;
+    }
+    /* Metal's objects are pointers of 64-bit Apple platforms, the clear fields after them. */
+    metal.struct_size = sizeof(metal);
+    if (sizeof(void*) == 8 && (metal.struct_size != 48 || offsetof(weft_render_metal_pass, target) != 16 ||
+                               offsetof(weft_render_metal_pass, clear_linear_premultiplied) != 32 ||
+                               sizeof(weft_render_metal_texture) != 24 || sizeof(weft_render_metal_desc) != 32)) {
+        return 6;
     }
     scene.struct_size = sizeof(scene);
     scene.abi_version = WEFT_RENDER_ABI_VERSION;

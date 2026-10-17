@@ -17,6 +17,7 @@ include(WeftTargets)
 include(WeftThirdParty)
 include(WeftShaders)
 include(WeftSpirv)
+include(WeftMetal)
 include(WeftEffects)
 
 if(WEFT_BUILD_TESTS)

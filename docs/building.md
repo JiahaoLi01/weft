@@ -4,7 +4,7 @@
 
 ## Windows x64
 
-需要 CMake 3.25 以上、Visual Studio 2022 C++ 工具链与 Windows SDK。Vulkan 后端（`weft::render_vulkan`，`WEFT_RENDER_VULKAN`）另需 Vulkan SDK 1.4.363.0：构建时用它的 DXC 1.9.0.5512 把共享着色器编成 SPIR-V（`cmake/WeftSpirv.cmake` 核对版本），测试时用它的验证层；没有这个 DXC 时该后端自动不构建。头文件是固定版本的 vendored Vulkan-Headers，运行时打开驱动自带的加载器，不链接 SDK 的库。当前验证版本见 [status](status.md)。Python 3 用于离线依赖校验、fixture 完整性、浏览器几何差分和 GPU 颜色合同比较；缺少 Python 时 CMake 不注册相应 Python 测试，必须另行执行，不能把少量测试通过当作完整验证。C++ 源要求 C++20；QuickJS 与 C 调用 smoke test 使用 C11。
+需要 CMake 3.25 以上、Visual Studio 2022 C++ 工具链与 Windows SDK。Vulkan 后端（`weft::render_vulkan`，`WEFT_RENDER_VULKAN`）另需 Vulkan SDK 1.4.363.0：构建时用它的 DXC 1.9.0.5512 把共享着色器编成 SPIR-V（`cmake/WeftSpirv.cmake` 核对版本），测试时用它的验证层；没有这个 DXC 时该后端自动不构建。头文件是固定版本的 vendored Vulkan-Headers，运行时打开驱动自带的加载器，不链接 SDK 的库。Metal 后端的着色器（`WEFT_SHADERS_METAL`，2026-10-17）另用同一 SDK 的 spirv-cross（revision `vulkan-sdk-1.4.357.0-39-gf11ba9f0`，`spirv-cross.exe` SHA-256 `6702f1d74b2aaff02cff452f7c96bddb947b8d93fee24af6af0df2692c2e0ea9`，Apache-2.0）把 DXC 的 SPIR-V 写成 MSL（`cmake/WeftMetal.cmake` 核对 revision，不符即停，除非 `WEFT_SPIRV_CROSS_REVISION` 指名另一个）；有 DXC 与 spirv-cross 时默认开，Windows 与 Android 构建里也生成并检查 MSL；Metal 适配器本身尚未实现。当前验证版本见 [status](status.md)。Python 3 用于离线依赖校验、fixture 完整性、浏览器几何差分和 GPU 颜色合同比较；缺少 Python 时 CMake 不注册相应 Python 测试，必须另行执行，不能把少量测试通过当作完整验证。C++ 源要求 C++20；QuickJS 与 C 调用 smoke test 使用 C11。
 
 在项目根目录执行：
 

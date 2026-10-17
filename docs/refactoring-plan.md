@@ -2421,6 +2421,30 @@ CMake 拆分：
   - `ctest`：Release 165/165，Debug 165/165；产物与 12.3 基线相比与 13.5b 相同；Android 零警告。
 - 与计划不同：文字整形的缓存没有做。局部布局之后，改宽度的帧只排一个单位，整形不再是热点；整页布局（视口变了、结构在边界外变了）照旧整形。
 
+## Metal 计划（2026-10-17）
+
+**用户决定（2026-10-17）**：在 `metal` 分支写 Metal 的兼容（D3D12 的改动合入 main 之后），先只做 Windows 上能验证的部分；没有 Mac，Metal 的编译、运行与性能都标为未验证。
+
+做法：原生 Metal，不经 MoltenVK（[架构](architecture.md)）；在渲染器 C ABI 下作一个适配器，画 View 帧（`WEFT_RENDER_FEATURE_SCENE`），录制模型同 D3D12 与 Vulkan：宿主给命令缓冲，适配器编入自己的编码器，宿主提交并报告完成（[后端 API](render-backend-api.md#metal2026-10-17未实现)）。
+
+| 段 | 内容 | Windows 上能验证的 |
+| --- | --- | --- |
+| M.1 | 着色器的 MSL（DXC → SPIR-V → spirv-cross，构建时生成并内嵌）、参数表下标、C ABI 头文件 | MSL 的入口、下标、记录大小、阶段接口与裁剪空间（`render_metal_shader_contract`）；C 结构的布局 |
+| M.2 | 可移植的 scene pass 编排：把 Vulkan 与 D3D12 的 `record()` 里与 API 无关的部分（平面与图层的嵌套 pass、组与背景拷贝处的换目标、采样表、绘制序列、保留 pass 的部分上传）提成一份操作序列，两个后端改为执行它 | 两个后端的产物逐字节不变、全部像素对照通过；序列本身的测试（换目标时结束编码器、每次绘制前绑定齐全、资源的租约） |
+| M.3 | Apple 上的 Objective-C++ 执行器（`weft::scene_metal`）：设备、缓冲与纹理、管线（`newLibraryWithSource`）、编码器，执行 M.2 的序列；macOS 与 iOS 的构建 | 不能（需要 Mac）：配置、编译、链接、Metal 编译 MSL、与 Vulkan 的像素对照、性能，各级分别记录 |
+
+M.2 的取舍：另一种是只给 Metal 写编排、用假设备测试，不动现有后端；但那是同一逻辑的第三份（D3D12 已经是照 Vulkan 移植的第二份），而且没有像素验证。提成共用的一份，现有后端的像素测试就验证了 Metal 将执行的同一份序列，Metal 只剩把每个操作翻成 Metal 的调用。
+
+**M.1：着色器的 MSL 与 C ABI（2026-10-17）**：
+- `cmake/WeftMetal.cmake`：
+  - `WEFT_SHADERS_METAL`，有 DXC 与 spirv-cross 时默认开；固定 spirv-cross 的 revision（Vulkan SDK 1.4.363.0 带的 `vulkan-sdk-1.4.357.0-39-gf11ba9f0`，配置时核对，不符即停），DXC 版本照 `WeftSpirv.cmake` 核对；
+  - 寄存器偏移：b n → buffer n，t n → 1 + n，s n → sampler n（结构化缓冲是 Metal 的 buffer、纹理是 texture，偏移 1 让记录 t0 不压在 View 常量 b0 上）；不翻转 y；
+  - `weft_add_msl` 每个阶段 DXC → SPIR-V → MSL 2.1（`--msl-decoration-binding`）→ 内嵌文本（换行规范为 LF，末尾一个 0）。
+- `weft::render_metal`（`src/render/backends/metal`，可移植）：`scene_shader()`、`particle_shader()`、`backdrop_shader(BackdropPass)`；`WeftEffects.cmake` 为每个效果生成编码空间 pass 的 MSL（`EffectProgram::msl_encoded`）。
+- `constants::render::metal`：各资源的下标与 MSL 版本。
+- `include/weft/render_backend_metal.h`：payload、外部纹理与创建描述；三个函数只在 Apple 平台声明，未实现。
+- 验证：`render_metal_shader_contract`（新，见 [后端 API](render-backend-api.md#metal2026-10-17未实现)）；7 个构建反例与测试里 7 段改坏的文本都被发现；`render_backend_c_abi` 加 Metal 结构的布局（改布局的反例失败）；spirv-cross 的 revision 不符时配置停止；ctest Release 170/170、Debug 170/170，Android arm64 零警告（Android 构建里也生成 MSL），产物与 13.5c 相同。
+
 ## 顺序调整（2026-10-10）
 
 用户决定先完成第 7–9 步，第 10 步（第二个图形后端与移动平台）暂缓。跨平台仍是硬性需求：

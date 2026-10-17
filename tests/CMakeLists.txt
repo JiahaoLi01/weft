@@ -80,6 +80,14 @@ weft_add_effect(weft_test_effects effect_refraction ../samples/effects/refractio
 weft_add_effect(weft_test_effects effect_heat_haze ../samples/effects/heat-haze.hlsl
     PARAMETERS amplitude:number=3 wavelength:number=28 speed:number=36 fade:number=0.6 TEXTURES 0 ANIMATED BACKDROP 8)
 
+# The Metal backend's MSL, checked without Metal (cmake/WeftMetal.cmake): entry points, argument table indices,
+# record sizes, stage interfaces and clip space of the scene, particle, backdrop and effect programs.
+if(WEFT_SHADERS_METAL)
+    weft_add_executable(weft_render_metal_shader_tests SOURCES render_metal_shader_tests.cpp
+        LINK weft::render_metal weft_test_effects)
+    weft_add_test(NAME render_metal_shader_contract COMMAND weft_render_metal_shader_tests)
+endif()
+
 # The effect check (cmake/check_effect.cmake) on tests/effects/check/<sample>.hlsl: it accepts the sample, or with a
 # reason refuses it with a message that names the reason. CMake wraps messages: the reason's spaces match any space.
 function(weft_effect_check sample)
