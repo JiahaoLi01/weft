@@ -348,7 +348,8 @@ namespace {
     }
 
     void BackdropPrograms() {
-        for (const auto pass : {metal::BackdropPass::Area, metal::BackdropPass::Blur, metal::BackdropPass::Matrix}) {
+        using weft::render::BackdropFilter;
+        for (const auto pass : {BackdropFilter::Area, BackdropFilter::Blur, BackdropFilter::Matrix}) {
             const std::string label = "backdrop " + std::to_string(int(pass));
             const auto source = metal::backdrop_shader(pass);
             const auto vertex = parse(source.vertex, label + " vertex");
@@ -356,8 +357,8 @@ namespace {
             check_entry(vertex, "vertex", {}, label + " vertex");
             // The area downsample reads texels; the others sample with the mirroring sampler.
             check_entry(fragment, "fragment",
-                        pass == metal::BackdropPass::Area ? std::set<std::string>{"BackdropPass", "source"}
-                                                          : std::set<std::string>{"BackdropPass", "source", "mirror"},
+                        pass == BackdropFilter::Area ? std::set<std::string>{"BackdropPass", "source"}
+                                                     : std::set<std::string>{"BackdropPass", "source", "mirror"},
                         label + " fragment");
             check_interface(vertex, fragment, label);
             check_clip_space(vertex, label);
@@ -365,10 +366,10 @@ namespace {
             CHECK(fragment.structs.count("type_BackdropPass"));
         }
         // One fullscreen triangle for all three.
-        CHECK(metal::backdrop_shader(metal::BackdropPass::Area).vertex.data() ==
-              metal::backdrop_shader(metal::BackdropPass::Matrix).vertex.data());
-        CHECK(metal::backdrop_shader(metal::BackdropPass::Blur).fragment !=
-              metal::backdrop_shader(metal::BackdropPass::Matrix).fragment);
+        CHECK(metal::backdrop_shader(BackdropFilter::Area).vertex.data() ==
+              metal::backdrop_shader(BackdropFilter::Matrix).vertex.data());
+        CHECK(metal::backdrop_shader(BackdropFilter::Blur).fragment !=
+              metal::backdrop_shader(BackdropFilter::Matrix).fragment);
     }
 
     // Each effect's encoded fragment after the scene's vertex stage: its textures in the effect slots, at most as many
@@ -449,7 +450,7 @@ namespace {
         });
         // The y flip of Vulkan's SPIR-V, as DXC's -fvk-invert-y writes it into the MSL.
         expect_refused([&] {
-            const auto vertex = parse(metal::backdrop_shader(metal::BackdropPass::Blur).vertex, "vertex");
+            const auto vertex = parse(metal::backdrop_shader(weft::render::BackdropFilter::Blur).vertex, "vertex");
             auto flipped = vertex;
             flipped.entry.body = replaced(vertex.entry.body, "    out.gl_Position = float4(", "    float4 p = float4(");
             flipped.entry.body = replaced(flipped.entry.body, "    out.out_var_TEXCOORD0",

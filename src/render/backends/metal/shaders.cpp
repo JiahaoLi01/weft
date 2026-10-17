@@ -45,13 +45,13 @@ namespace weft::render::metal {
         return {text(particle_vertex), text(particle_fragment)};
     }
 
-    ShaderSource backdrop_shader(BackdropPass pass) {
-        switch (pass) {
-            case BackdropPass::Area:
+    ShaderSource backdrop_shader(BackdropFilter filter) {
+        switch (filter) {
+            case BackdropFilter::Area:
                 return {text(backdrop_vertex), text(area_fragment)};
-            case BackdropPass::Blur:
+            case BackdropFilter::Blur:
                 return {text(backdrop_vertex), text(blur_fragment)};
-            case BackdropPass::Matrix:
+            case BackdropFilter::Matrix:
                 break;
         }
         return {text(backdrop_vertex), text(matrix_fragment)};

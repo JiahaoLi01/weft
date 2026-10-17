@@ -2,7 +2,8 @@
 # device compiles, built and checked wherever the translation runs. The Metal device and its pass need Apple's Metal
 # and are not built yet.
 weft_add_library(render_metal
-    SOURCES shaders.cpp)
+    SOURCES shaders.cpp
+    PUBLIC weft::render)
 # The shared scene shader's encoded pass.
 weft_add_msl(weft_render_metal scene_encoded "${PROJECT_SOURCE_DIR}/src/render/shaders/scene.hlsl")
 # Its backdrop passes: a fullscreen triangle with the area downsample, the Gaussian pass and the color matrix.

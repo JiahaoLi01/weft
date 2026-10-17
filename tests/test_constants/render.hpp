@@ -14,4 +14,9 @@ namespace weft::test_constants::render {
     // Randomized external texture import/encode/retire iterations.
     inline constexpr std::uint32_t external_mutation_seed = 0xce112026;
     inline constexpr int external_mutation_iterations = 512;
+
+    // Random scene pass schedules (scene_schedule_contract): the seed, the passes and the most steps of one.
+    inline constexpr std::uint32_t schedule_seed = 0xce172026;
+    inline constexpr int schedule_passes = 2000;
+    inline constexpr int schedule_batches = 40;
 } // namespace weft::test_constants::render

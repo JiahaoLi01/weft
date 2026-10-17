@@ -2445,6 +2445,15 @@ M.2 的取舍：另一种是只给 Metal 写编排、用假设备测试，不动
 - `include/weft/render_backend_metal.h`：payload、外部纹理与创建描述；三个函数只在 Apple 平台声明，未实现。
 - 验证：`render_metal_shader_contract`（新，见 [后端 API](render-backend-api.md#metal2026-10-17未实现)）；7 个构建反例与测试里 7 段改坏的文本都被发现；`render_backend_c_abi` 加 Metal 结构的布局（改布局的反例失败）；spirv-cross 的 revision 不符时配置停止；ctest Release 170/170、Debug 170/170，Android arm64 零警告（Android 构建里也生成 MSL），产物与 13.5c 相同。
 
+**M.2：可移植的 scene pass 编排（2026-10-17）**：
+- `scene/scene_schedule.*`（`weft::scene_native`）：`schedule_scene_pass` 把一个 prepared pass 编成命令：开始画进一个目标（清成某色或保留）、绘制（记录区间、实例数与每个实例的顶点数、管线、采样的图像，以及效果纹理或粒子贴图）、结束（之后要采样时标出）、背景拷贝的复制与滤镜。目标、图像与管线按角色命名：自己的目标、某一层的组、某条背景链的第几张图。另给出背景链（每张图的大小、滤镜种类与常量、是否读自己的目标、是否读不了）、组数与宿主纹理的绑定。读不了的目标（Vulkan 宿主没给图像，Metal 的 `framebufferOnly`）上，背景改为清空链的最后一张图。
+- Vulkan 与 D3D12 的 `record()` 改为执行它：先录嵌套 pass（平面内容、首次画的图层），再按命令开始与结束 render pass（D3D12：设渲染目标与状态转换）、复制、滤镜和绘制，命令流与改前逐条相同（D3D12 的场景根签名在滤镜之后下一次开始画时重设，位置同改前）。共用的还有 `render::BackdropFilter`（背景滤镜的种类，Metal 的着色器也按它取）与 `constants::render::quad_vertex_count`（三个后端的同名常量引用它）。
+- 新测试 `scene_schedule_contract`：五个手写 pass 的确切命令（普通绘制与跳过的空路径、两层的组、读目标与在组下方的背景及五个滤镜的链、读不了的目标、效果与粒子与宿主纹理）；2,000 个随机 pass（固定种子，87,028 条命令、5,219 个背景，其中 725 个读不了目标）按一次一个目标的规则执行：绘制只在当前目标里、复制与滤镜只在目标之间、组与链的图在画完之后才被采样、组按嵌套开始与结束、背景复制它的批次所读的目标、绘制按批次的顺序。
+- D3D12 的覆盖：`tests/support/d3d12_scene.hpp` 在 WARP 上用 D3D12 的 scene pass 画帧并读回；`render_scene_effects_contract`、`render_scene_particles_contract`、`render_scene_backdrop_contract` 与 `render_scene_shape_boxes_contract` 加上 D3D12，与 D3D11 WARP 逐字节相同，调试层无错误（此前 D3D12 只在 View 合同里画过组与背景）。
+- 变异：编排 10 个，都被 `scene_schedule_contract` 发现，其中 8 个也被像素测试发现；另两个：横向降采样的图开大（输出相同，只多占显存）、效果批次只画第一条记录（像素测试里没有多条记录的效果批次）。
+- 独立审查（只读，子任务）：成功路径上两个后端的命令、分配顺序与计数都与改前相同。出错路径上有两处改回与改前一致：绑定了但没有视图的宿主纹理算作绑定、不画（不再抛出）；Vulkan 在链的图上开始画时用命令给的清屏色（现在只有透明）。剩下的差异都在出错时：不合法的组嵌套（在组外画组下方的背景）在录任何命令之前就抛出，此前在录到一半时抛出。
+- 验证：ctest Release 171/171、Debug 171/171（审查后的两处修正之后重跑 Release 全量与 Debug 的 21 个相关测试）；Android arm64 零警告；产物与 13.5c 相同（同样的 24 个已知差异套件，Vulkan 的 206 个文件与原生 pass 的 110 个文件只差已知的图层复用数）。
+
 ## 顺序调整（2026-10-10）
 
 用户决定先完成第 7–9 步，第 10 步（第二个图形后端与移动平台）暂缓。跨平台仍是硬性需求：

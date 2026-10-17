@@ -88,6 +88,8 @@ D3D11 参考适配器只有一条绘制路径：四边形帧在适配器里先�
 | `linearRepeat`、`effectRepeat` | s1 | sampler 1 |
 | 背景拷贝的常量、源与镜像采样器 | b0、t0、s0 | buffer 0、texture 1、sampler 0 |
 
+录制的编排（M.2，2026-10-17）：Vulkan 与 D3D12 的 scene pass 执行同一份可移植的命令（[scene_schedule.hpp](../src/scene/scene_schedule.hpp)）：开始画进一个目标（清成某色或保留）、绘制、结束、背景拷贝的复制与滤镜，目标与图像按角色命名。Metal 将执行同一份：开始是一个新的 render 编码器（load action 为 clear 或 load），结束是 `endEncoding`，复制是一个 blit 编码器，每个滤镜是一个 render 编码器；`framebufferOnly` 的目标读不了，编排已把读它的背景改为清空链的最后一张图。`scene_schedule_contract` 检查编排本身，Vulkan 与 D3D12 的像素测试检查它画出的东西。
+
 没有顶点缓冲（顶点由 `[[vertex_id]]` 算出），buffer 下标不与顶点属性冲突。`[[instance_id]]` 含起始实例（同 Vulkan），着色器读 `instance + View.baseInstance`：像 Vulkan 那样以起始实例画、`baseInstance` 为 0。整数 varying 在 Metal 只能平插，spirv-cross 不为它写 `[[flat]]`。
 
 验证（Windows）：`render_metal_shader_contract` 在凡有 DXC 与 spirv-cross 的构建上解析每个阶段的 MSL：入口名与阶段；每个资源在上表的下标、类型与种类相符、同一阶段不共用下标，没有表外的资源或内建量；记录（448 B）、圆角裁剪（80 B）、View 常量（16 B）与背景拷贝常量（176 B）按 MSL 的大小与对齐算出的大小等于 CPU 写的；片元读的每个 `user(locnN)` 都由顶点阶段以同一类型写出（效果接在场景的顶点阶段之后），两阶段共有的结构相同；目标 px 以 y 向下映射到裁剪空间，之后没有分量取反。测试里 7 段改坏的文本都被拒；构建上的 7 个反例（顶点阶段加 `-fvk-invert-y`、spirv-cross 加 `--flip-vert-y`、纹理偏移改为 2、去掉 `--msl-decoration-binding`、改 `buffer_order` 与 `texture_effects` 常量、改记录大小）都使它失败。`render_backend_c_abi` 核对 Metal 结构在 64 位平台上的布局。未验证：Metal 编译器接受这些 MSL、管线创建、任何绘制与性能，macOS 与 iOS 的配置与构建。

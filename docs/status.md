@@ -12,7 +12,7 @@
   - 低优先级，暂不做。
 - **与引擎通信**（2026-10-14 起，第 13 步，[计划](refactoring-plan.md#第-13-步计划2026-10-14与引擎通信)，[技术路线](engine-communication.md)）：血条这类每帧变位置的元素不靠每帧推 JSON（锚点在渲染线程取最新值），双向事件、带 Promise 的引擎调用与视图模型，C ABI 与 CRPG UI 的兼容层。基线：200 个血条每帧约 13 ms，页面自己算出同样的值（零传输）也一样慢，瓶颈在逐个改 DOM 之后的样式、布局与场景更新。13.1 已完成（2026-10-14）：400 个名牌只移动时 UI 线程每帧约 0.005 ms、渲染 CPU 约 0.02–0.04 ms（推 JSON 时分别约 23 ms 与 4 ms）。13.2 已完成（2026-10-14）：带类型的值、双向事件、调用与 Promise、同步函数、视图模型与 CRPG 兼容层；每秒约 1,000 个 10 KB 的事件时 UI 线程每帧 0.79 ms（CRPG 的拼脚本求值约 4.5 ms）。13.3 已完成（[计划](refactoring-plan.md#第-13-步记录2026-10-14)）：13.3a 对外 View 与它的 C ABI、13.3b 渲染 C ABI 接 View 的帧与模拟引擎的宿主样例（2026-10-14），13.3c 页面显示引擎的纹理（2026-10-15，用户提出，如 UE 的 render target）。13.4 已完成（2026-10-15）：CRPG 原样的浮动 UI 跑在 scene 上，200 个单位时锚点方式的 UI 线程每帧 p50 29 ms、推 JSON 191 ms（剩下的是动画每帧改 DOM 后按整个文档的计算，13.5）。引擎纹理的限制已做（下一条）。13.5 增量管线已完成（2026-10-15）：13.5a owner 侧只处理变化的节点，13.5b 渲染侧只重做变化的子树，13.5c 每个元素的开销与局部布局。400 个单位（约 1,600 个节点）每帧改 1 个时 owner p50 / p99 5.3 / 12.1 → 0.111 / 0.194 ms，渲染 CPU 4.1 → 0.043 / 0.078 ms；400 个只移动 owner p99 3.7 ms；锚点加 20 个血条改宽度 owner 10.7 → 0.91 ms。
 - **引擎纹理的限制**（13.3c 之后，用户 2026-10-15 定为中优先级）：2026-10-15 做了铺排（`background-size`、`-position`、`-repeat`、`-origin`、`-clip`）、sRGB 与 BGRA 视图、mip、D2D 参考光栅、Vulkan 的目标别名检查、D3D11 上别的设备或 API 共享的纹理（见下方“本次已实现”）。剩下：文档页面（整体没有背景图片）、Vulkan 的跨 API 导入（未测）、UE 插件（M5；2026-10-15 起在 `unreal` 分支与 weft-unreal 仓库做，D3D12 后端已完成，2026-10-17 合入 main，见下方“本次已实现”）。
-- **Metal 的设备端**（2026-10-17，`metal` 分支）：着色器的 MSL 与 C ABI 已定（M.1），适配器本身（M.3）要在 Mac 上写与验证；macOS 与 iOS 的配置、编译、链接、Metal 编译 MSL、绘制与性能都未验证。
+- **Metal 的设备端**（2026-10-17，`metal` 分支）：着色器的 MSL 与 C ABI 已定（M.1），录制的编排与 Vulkan、D3D12 共用（M.2），适配器本身（M.3）要在 Mac 上写与验证；macOS 与 iOS 的配置、编译、链接、Metal 编译 MSL、绘制与性能都未验证。
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
@@ -418,6 +418,16 @@ scene 的 transition 简写与列表配对；样式表的加载错误（2026-10-
   - Unity 插件（weft-unity 的 `Native~` 用这个签出重建在临时目录，`weft_unity_tests --page`）：简写 `transition: background-color 0.15s, transform 0.1s` 的页面 `load: ok`，悬停与按下无诊断；时长列表的页面按下时不再有 `finite numeric value` 诊断；写了 `outline` 的页面 `load: page script error` 与 `diagnostic: WEFT_STYLE_PROFILE: unsupported property outline`；示例页面改回简写与时长列表后加载、点击、消息照常。
 - **限制**：从没有声明的值（初始值）开始或到它结束的过渡（改变前后有一侧没有该属性时不过渡，如 `:active` 才写 `transform`）；`transition-property` 里的简写名；反向过渡的缩短；不能插值的属性在一半处切换；没有 transition 事件；加载失败沿用 `WEFT_SCRIPT_ERROR` 这个名字（字符串仍是 "page script error"）。
 - **插件**：Unity 与 UE 插件用这个提交重建 weft 即可，ABI 不变；Unity 示例页面可以改回 `transition` 简写与时长列表。
+
+Metal 兼容第二段 M.2：可移植的 scene pass 编排（2026-10-17，`metal` 分支，用户选定：抽出 Vulkan 与 D3D12 共用的一份，而不是只给 Metal 写一份）。详见 [Metal 计划](refactoring-plan.md#metal-计划2026-10-17) 与 [渲染后端 API](render-backend-api.md#metal2026-10-17未实现)。
+- **实现**：`scene/scene_schedule.*`（`weft::scene_native`）把一个 prepared pass 编成命令：开始画进一个目标（清成某色或保留）、绘制、结束、背景拷贝的复制与滤镜，目标与图像按角色命名，另给出背景链与宿主纹理的绑定；读不了的目标上的背景改为清空链的最后一张图。Vulkan 与 D3D12 的 `record()` 改为执行它，命令流与改前逐条相同。Metal 的执行器（M.3）只需把每条命令翻成编码器的调用。
+- **验证**（Release 与 Debug，Windows）：
+  - `scene_schedule_contract`（新）：五个手写 pass 的确切命令；2,000 个随机 pass（87,028 条命令、5,219 个背景，725 个读不了目标）按一次一个目标的规则执行。
+  - D3D12 的覆盖：新的 `tests/support/d3d12_scene.hpp`；`render_scene_effects/particles/backdrop/shape_boxes_contract` 加 D3D12，与 D3D11 WARP 逐字节相同，调试层无错误。
+  - 变异：编排 10 个，都被发现（8 个也被像素测试发现；另两个：横向降采样的图开大，输出相同；效果批次只画第一条记录，像素测试里没有这种批次）。
+  - `ctest` Release 171/171、Debug 171/171（独立审查后两处出错路径的修正之后，重跑 Release 全量与 Debug 的 21 个相关测试）；Android arm64 零警告；产物与 13.5c 相同（同样的 24 个已知差异套件）。
+- **未验证**：同 M.1（Metal 编译与运行、macOS 与 iOS 构建）；D3D12 只在 WARP 上跑过这次的测试，UE 里没有重跑。
+- **下一步**：M.3 在 Mac 上写 Objective-C++ 执行器，执行这份编排。
 
 Metal 兼容第一段 M.1：着色器的 MSL 与 C ABI（2026-10-17，`metal` 分支，用户提出：写一些 Metal 的兼容；用户定为先只做 Windows 上能验证的）。详见 [渲染后端 API](render-backend-api.md#metal2026-10-17未实现) 与 [Metal 计划](refactoring-plan.md#metal-计划2026-10-17)。
 - **接口**：`include/weft/render_backend_metal.h`：`weft_render_metal_pass`（宿主未提交、没有打开编码器的命令缓冲与目标纹理）、`weft_render_metal_texture`、`weft_render_metal_desc`；`weft_render_metal_create`、`_external`、`_destroy` 只在 Apple 平台声明，**尚未实现**。

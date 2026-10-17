@@ -6,6 +6,9 @@
 #ifdef WEFT_TEST_VULKAN
 #include "render/backends/vulkan/scene_renderer.hpp"
 #endif
+#ifdef WEFT_TEST_D3D12
+#include "support/d3d12_scene.hpp"
+#endif
 
 #include <algorithm>
 #include <array>
@@ -247,6 +250,16 @@ int main(int argc, char** argv) {
             require(listed.fallback.empty() && count(listed.list, weft::paint::Item::Kind::Path) == 1,
                     std::string(what) + " stays a path");
         }
+        std::string d3d12 = "skipped";
+#ifdef WEFT_TEST_D3D12
+        // The D3D12 pass runs the D3D11 pass's DXBC on the same rasterizer: the same bytes.
+        if (const auto scene = weft::testing::D3D12Scene::open(width, height)) {
+            require(scene->draw(shapes, scale) == boxes, "D3D12 WARP draws the boxes as D3D11 WARP");
+            d3d12 = scene->debugged() ? "WARP with the debug layer" : "WARP";
+        } else {
+            std::cout << "D3D12 skipped: no WARP\n";
+        }
+#endif
         std::string vulkan = "skipped";
 #ifdef WEFT_TEST_VULKAN
         {
@@ -268,7 +281,8 @@ int main(int argc, char** argv) {
 #endif
         d3d11.gpu.check_debug_messages();
         std::cout << "PASS SVG shapes as boxes: " << all.size()
-                  << " cases as their paths, what boxes cannot draw stays paths; D3D11 WARP, Vulkan " << vulkan << '\n';
+                  << " cases as their paths, what boxes cannot draw stays paths; D3D11 WARP, D3D12 " << d3d12
+                  << ", Vulkan " << vulkan << '\n';
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';
