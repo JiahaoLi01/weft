@@ -3,6 +3,7 @@
 #include "support/check.hpp"
 #include "support/scene_fonts.hpp"
 
+#include <algorithm>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -231,6 +232,48 @@ namespace {
         require(f.eval("seen.join(',')") == "out:true:1", "an element that came into view");
     }
 
+    // A forgiving page's filter the scene cannot draw is dropped with a note; the frame still comes.
+    void filters() {
+        Fixture f;
+        f.load(R"JS(
+            const glow = document.createElement('div');
+            glow.id = 'glow';
+            glow.setAttribute('style', 'width:40px;height:20px;background:#335577;filter:blur(10px)');
+            document.getElementById('root').appendChild(glow);
+          )JS");
+        f.view.advance(16);
+        const auto d = f.diagnostics();
+        require(std::any_of(d.begin(), d.end(),
+                            [](const ViewDiagnostic& x) {
+                                return x.kind == ViewDiagnostic::Kind::Scene &&
+                                       x.message == "WEFT_STYLE_DROPPED: filter blur(10px) on <div> (the scene draws "
+                                                    "one drop-shadow() of an svg element)";
+                            }),
+                "the filter dropped with a note");
+        const auto* glow = find(f.view.scene().root, "glow");
+        require(glow && !glow->style.contains(weft::PropertyId::Filter) && f.view.shared()->frame(),
+                "the element without it, in a frame");
+    }
+
+    // translate, rotate and scale apply before transform, in that order (CSS Transforms 2).
+    void transforms() {
+        Fixture f;
+        f.load(R"JS(
+            const box = document.createElement('div');
+            box.id = 'box';
+            box.setAttribute('style', 'position:absolute;left:100px;top:100px;width:40px;height:20px;' +
+                                      'translate:-50% 10px;scale:200% 1;transform-origin:0 0');
+            document.getElementById('root').appendChild(box);
+          )JS");
+        f.view.advance(16);
+        const auto* box = find(f.view.scene().root, "box");
+        require(box && box->style.text(weft::PropertyId::Transform, "none") == "translate(-50%, 10px) scale(2, 1)",
+                "folded into transform: " + std::string(box ? box->style.text(weft::PropertyId::Transform, "") : ""));
+        require(f.eval("JSON.stringify(Object.values(box.getBoundingClientRect().toJSON ? box.getBoundingClientRect()"
+                       ".toJSON() : box.getBoundingClientRect()).slice(0, 4))") == "[80,110,80,20]",
+                "the box where translate then scale put it");
+    }
+
     void numbers() {
         Fixture f;
         f.load("");
@@ -250,6 +293,8 @@ int main() {
         documents();
         keys_and_focus();
         media_and_observers();
+        filters();
+        transforms();
         numbers();
         std::cout << "web platform tests passed\n";
         return 0;

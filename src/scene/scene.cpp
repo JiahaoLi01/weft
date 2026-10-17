@@ -1,5 +1,6 @@
 #include "scene/scene.hpp"
 #include "scene/scene_values.hpp"
+#include "constants/style.hpp"
 #include "scene/scene_background.hpp"
 #include "base/css_scalar.hpp"
 #include "base/owner_thread.hpp"
@@ -400,11 +401,40 @@ namespace weft {
         // A scene element's computed values from its cascaded ones: shorthands and aliases expanded, viewport
         // lengths in px of `viewport`. `viewport_units` is set when some value used one.
         Style expand(Style s, std::array<float, 2> viewport, bool* viewport_units = nullptr) {
-            if (s.contains(PropertyId::Rotate)) {
-                s[PropertyId::Transform] =
-                    "rotate(" + s.at(PropertyId::Rotate) + ") " +
-                    (get(s, PropertyId::Transform) == "none" ? std::string{} : get(s, PropertyId::Transform));
-                s.erase(PropertyId::Rotate);
+            // The individual transform properties (CSS Transforms 2) apply before transform, translate first, then
+            // rotate, then scale; each folds into transform's functions. A third value (z) of translate and scale is
+            // left out (the scene's transforms are flat).
+            if (s.contains(PropertyId::Translate) || s.contains(PropertyId::Rotate) || s.contains(PropertyId::Scale)) {
+                std::string functions;
+                const auto take = [&](PropertyId id) {
+                    std::vector<std::string> parts;
+                    if (s.contains(id)) {
+                        const auto text = css::trim(s.at(id));
+                        s.erase(id);
+                        if (text != "none") {
+                            parts = split(text);
+                        }
+                    }
+                    return parts;
+                };
+                if (const auto t = take(PropertyId::Translate); !t.empty()) {
+                    functions += "translate(" + t[0] + ", " + (t.size() > 1 ? t[1] : std::string("0px")) + ") ";
+                }
+                if (const auto r = take(PropertyId::Rotate); !r.empty()) {
+                    // rotate: <angle>, or z <angle> about the z axis.
+                    functions += "rotate(" + r.back() + ") ";
+                }
+                if (const auto sc = take(PropertyId::Scale); !sc.empty()) {
+                    const auto factor = [](const std::string& v) {
+                        return v.ends_with('%') ? numeric(std::stod(v.substr(0, v.size() - 1)) / 100) : v;
+                    };
+                    functions += "scale(" + factor(sc[0]) + ", " + factor(sc.size() > 1 ? sc[1] : sc[0]) + ") ";
+                }
+                if (!functions.empty()) {
+                    const auto transform = get(s, PropertyId::Transform, "none");
+                    s[PropertyId::Transform] =
+                        css::trim(functions + (transform == "none" ? std::string{} : std::string(transform)));
+                }
             }
             if (s.contains(PropertyId::Background)) {
                 expand_background(s, s.at(PropertyId::Background));
@@ -1128,6 +1158,8 @@ namespace weft {
                               "column-gap",
                               "flex",
                               "rotate",
+                              "translate",
+                              "scale",
                               "flex-direction",
                               "flex-wrap",
                               "flex-grow",
@@ -1320,6 +1352,7 @@ namespace weft {
         // A forgiving page (StyleProfile::forgiving), and what the solver itself dropped since the last take.
         bool forgiving{};
         std::vector<std::string> warnings;
+        std::set<std::string> warned;
         bool profiling = true;
         SceneSolver::Work work;
         StyleInput style_input;
@@ -1466,6 +1499,31 @@ namespace weft {
         // but its children, into out, which keeps the layout output of `before` (the element's last node, or an empty
         // one) until layout runs again. Updates the element's state (transitions, animations, particles) at the
         // frame's time, and the frame's work flags against before.
+        // A note of what a forgiving page lost, once a message.
+        void warn(std::string message) {
+            if (warnings.size() < std::size_t(constants::style::max_style_warnings) && warned.insert(message).second) {
+                warnings.push_back(std::move(message));
+            }
+        }
+
+        // A forgiving page's filter the scene cannot draw (any but one drop-shadow() of an svg element) is dropped
+        // with a warning, as CSS drops what it does not take, instead of failing every frame that shows it.
+        void drop_filter(SceneNode& out) {
+            const auto filter = std::string(get(out.style, PropertyId::Filter, "none"));
+            if (filter == "none") {
+                return;
+            }
+            if (out.space == constants::svg_namespace_uri && out.tag == "svg") {
+                try {
+                    (void)scene_values::drop_shadow(out.style);
+                    return;
+                } catch (const DiagnosticError&) {
+                }
+            }
+            warn("filter " + filter + " on <" + out.tag + "> (the scene draws one drop-shadow() of an svg element)");
+            out.style.erase(PropertyId::Filter);
+        }
+
         Built build_own(SceneNode& out, const SceneNode& last, const DomSnapshot& d, const ComputedStyle& c,
                         const Style* parent) {
             // Layout outputs stay until layout runs again.
@@ -1487,6 +1545,9 @@ namespace weft {
                 out.anchoring = *anchoring;
             }
             out.style = incremental ? c.values : expand(c.values, viewport);
+            if (forgiving) {
+                drop_filter(out);
+            }
             if (const auto overflow = get(out.style, PropertyId::Overflow, "visible");
                 overflow != "visible" && overflow != "clip") {
                 out.scroll = {float(d.scroll_left), float(d.scroll_top)};

@@ -16,6 +16,11 @@
 
 ## 本次已实现
 
+宽松页面丢掉画不出的 filter，`translate`/`scale` 属性（2026-10-17，`weft-dev` 分支）。CRPG 字幕的光晕是 HTML 元素上的 `filter: blur(10px)`，scene 只画 svg 元素的单个 `drop-shadow()`，显示字幕的每一帧都回退而不画（游戏里界面会停在旧帧）；Tailwind v4 的 `-translate-x-1/2`、`scale-*` 写的是单独的 `translate`、`scale` 属性。
+- **实现**：宽松页面（`WEFT_PAGE_FORGIVING_CSS`）的元素上 scene 画不出的 `filter` 在构建 scene 时去掉，并发一条 `WEFT_STYLE_DROPPED: filter ... on <div> ...` 的诊断（同一消息一次），帧照常；严格页面不变。`translate`、`scale` 与原有的 `rotate` 一样并进 `transform`：先 translate、再 rotate、再 scale、最后 transform 的函数（CSS Transforms 2），`scale` 的百分比换成倍数，第三个值（z）不用。
+- **验证**：`web_platform_contract` 加 `filters`（诊断、元素没有 filter、帧照常）与 `transforms`（`translate:-50% 10px;scale:200% 1` 并成 `translate(-50%, 10px) scale(2, 1)`，getBoundingClientRect 为 80,110,80,20）。全量 ctest 174 项：160 项通过，14 项与此前相同。CRPG 的字幕帧画出（数字 Cinzel、拉丁 EB Garamond、假名 Shippori、汉字 LXGW）。
+- **限制**：HTML 元素的 `filter`（模糊、颜色函数、drop-shadow）仍不画；`visibility` 仍丢弃（字幕的振假名 `<rt>` 靠它切换，ruby 排版也还没有）。
+
 scene 的滚动容器、字体的 unicode-range、假名与韩文等文字、宿主注册的 UI 着色器效果（2026-10-17，`weft-dev` 分支；CRPG 的 UI 移到 weft 的第三步）。
 - **起因**：CRPG 的页面逐个在 `weft_page_runner` 里跑：作弊面板的命令列表是内容超出的 `overflow: auto`，scene 每帧报 `scene scrolling outside supported non-overflowing auto profile` 而不画；字幕的混合字体栈靠 `unicode-range`（Cinzel 只出数字，Shippori 只出假名），weft 的字体没有这一项，Cinzel 会画全部拉丁字母；日文假名（与韩文、希腊文、西里尔文）在整形时抛 `WEFT_TEXT_SCRIPT`；设置页 1536 × 1024 的背景图超过 100 万像素的上限；烟雾背景（canvas 逐像素）改用 `-weft-effect(crpg-smoke)` 后，宿主没有 C ABI 注册效果。
 - **实现**：
