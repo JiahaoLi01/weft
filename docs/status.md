@@ -11,10 +11,12 @@
   - 半透明窗口（11.5c，4K）：32 个窗口时 owner 约 2 ms、渲染 CPU 2.3–2.9 ms，随窗口里的元素数增长，三种窗口相近；背景拷贝本身 GPU 约 0.5–0.8 ms；
   - 低优先级，暂不做。
 - **与引擎通信**（2026-10-14 起，第 13 步，[计划](refactoring-plan.md#第-13-步计划2026-10-14与引擎通信)，[技术路线](engine-communication.md)）：血条这类每帧变位置的元素不靠每帧推 JSON（锚点在渲染线程取最新值），双向事件、带 Promise 的引擎调用与视图模型，C ABI 与 CRPG UI 的兼容层。基线：200 个血条每帧约 13 ms，页面自己算出同样的值（零传输）也一样慢，瓶颈在逐个改 DOM 之后的样式、布局与场景更新。13.1 已完成（2026-10-14）：400 个名牌只移动时 UI 线程每帧约 0.005 ms、渲染 CPU 约 0.02–0.04 ms（推 JSON 时分别约 23 ms 与 4 ms）。13.2 已完成（2026-10-14）：带类型的值、双向事件、调用与 Promise、同步函数、视图模型与 CRPG 兼容层；每秒约 1,000 个 10 KB 的事件时 UI 线程每帧 0.79 ms（CRPG 的拼脚本求值约 4.5 ms）。13.3 已完成（[计划](refactoring-plan.md#第-13-步记录2026-10-14)）：13.3a 对外 View 与它的 C ABI、13.3b 渲染 C ABI 接 View 的帧与模拟引擎的宿主样例（2026-10-14），13.3c 页面显示引擎的纹理（2026-10-15，用户提出，如 UE 的 render target）。13.4 已完成（2026-10-15）：CRPG 原样的浮动 UI 跑在 scene 上，200 个单位时锚点方式的 UI 线程每帧 p50 29 ms、推 JSON 191 ms（剩下的是动画每帧改 DOM 后按整个文档的计算，13.5）。引擎纹理的限制已做（下一条）。13.5 增量管线已完成（2026-10-15）：13.5a owner 侧只处理变化的节点，13.5b 渲染侧只重做变化的子树，13.5c 每个元素的开销与局部布局。400 个单位（约 1,600 个节点）每帧改 1 个时 owner p50 / p99 5.3 / 12.1 → 0.111 / 0.194 ms，渲染 CPU 4.1 → 0.043 / 0.078 ms；400 个只移动 owner p99 3.7 ms；锚点加 20 个血条改宽度 owner 10.7 → 0.91 ms。
-- **引擎纹理的限制**（13.3c 之后，用户 2026-10-15 定为中优先级）：2026-10-15 做了铺排（`background-size`、`-position`、`-repeat`、`-origin`、`-clip`）、sRGB 与 BGRA 视图、mip、D2D 参考光栅、Vulkan 的目标别名检查、D3D11 上别的设备或 API 共享的纹理（见下方“本次已实现”）。剩下：文档页面（整体没有背景图片）、Vulkan 的跨 API 导入（未测）、UE 插件（M5；2026-10-15 起在 `unreal` 分支与 weft-unreal 仓库做，D3D12 后端已完成，见下方“本次已实现”）。
+- **引擎纹理的限制**（13.3c 之后，用户 2026-10-15 定为中优先级）：2026-10-15 做了铺排（`background-size`、`-position`、`-repeat`、`-origin`、`-clip`）、sRGB 与 BGRA 视图、mip、D2D 参考光栅、Vulkan 的目标别名检查、D3D11 上别的设备或 API 共享的纹理（见下方“本次已实现”）。剩下：文档页面（整体没有背景图片）、Vulkan 的跨 API 导入（未测）、UE 插件（M5；2026-10-15 起在 `unreal` 分支与 weft-unreal 仓库做，D3D12 后端已完成，2026-10-17 合入 main，见下方“本次已实现”）。
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
+
+`unreal` 分支合入 main（2026-10-17，用户检查后同意）：D3D12 后端、10 位渲染目标、不持有宿主目标（交换链可改大小）、页面文件里的图片（`url()`）、大面板的阴影、d3-sankey，共 6 个提交，main 是它的祖先，快进合并。合并前在分支上重跑全量 ctest（169 项）：155 项通过，14 项与此前相同（夹具与浏览器输入的散列校验，这台机器签出的换行）。之后在 main 上开发；下面各条标的 `unreal` 分支是它们做的时候的位置。
 
 D3 的桑基图：d3-sankey 0.12.3（2026-10-16，`unreal` 分支，用户提出：游戏的经济面板要用桑基图画资源的流向）。详见 [前端库](frontend-libraries.md#d3-sankey2026-10-16)。
 - **依赖**：`third_party/d3-sankey`（npm 发布包原样，tarball 与 UMD 的 SHA256、npm 的 SHA512 integrity 与 shasum 已核对，BSD-3-Clause），`third_party/manifest.json` 加一项；只是测试与样例依赖。
@@ -43,7 +45,7 @@ D3 的桑基图：d3-sankey 0.12.3（2026-10-16，`unreal` 分支，用户提出
   - 全量 ctest（168 项）：154 项通过；14 项是与上次相同的夹具与浏览器输入散列校验（这台机器的签出换行，与本次无关）。
   - UE（CaseKargaroo，weft-unreal 插件经 `FFileHelper` 读文件、传页面基准）：城市面板的环图用 `url(../Textures/pigment.png)`，冒烟 0 失败、无页面诊断，截图上纹理与边缘暗化可见；自动化测试 40/40；两进程联机 0 不同步。
 - **限制**：只有 PNG；没有 `data:` URL、`<img>`、`image-set()`、多层背景、文档页面的背景图；没有 mip（缩得很小时会闪烁）；回调是同步的（本地小文件，第一帧就有图，不为异步到达重做场景）；半透明图在 pass 里每像素 16 字节，所以单图限 1,048,576 像素。
-- **下一步**：随 weft 的 main rebase 时一起合（用户审阅）；需要时加 JPEG/WebP、mip 与 `<img>`。
+- **下一步**：需要时加 JPEG/WebP、mip 与 `<img>`。（2026-10-17 已合入 main。）
 
 D3D12 后端（2026-10-15，`unreal` 分支，为 UE 5 的 D3D12 RHI；用户要求同时保留 Metal 等 API 的能力：后端仍是渲染器 C ABI 下的一个适配器，核心与其他后端不变）。详见 [渲染后端 API](render-backend-api.md#view-帧2026-10-14)。
 - **接口**：`include/weft/render_backend_d3d12.h`：`weft_render_d3d12_create`、`_external`、`_destroy`，`weft_render_d3d12_pass`（打开的命令列表与目标资源）、`weft_render_d3d12_texture`；`WEFT_RENDER_API_D3D12`（4）。
@@ -52,7 +54,8 @@ D3D12 后端（2026-10-15，`unreal` 分支，为 UE 5 的 D3D12 RHI；用户要
   - `render_d3d12_view_contract`：D3D12 WARP 与 D3D11 WARP 画同一帧逐字节相同：游戏画面之上、宿主清屏、保留的 pass、锚点移动、RGBA8 目标、typeless 目标、丢弃的录制、宿主纹理；另一设备的目标、格式不符、pass 大于目标、空命令列表、非预乘的清屏色被拒，帧绑定的纹理作目标是 `INVALID_STATE`；录制已提交、尚未报告完成时目标的引用计数不变（适配器不引用目标，交换链能改大小）；D3D12 调试层无错误；`WEFT_D3D12_GPU_VALIDATION=1` 时 GPU 校验也无错误。
   - `engine_host_d3d12_warp`：样例的 D3D12 模式（每帧写的小地图纹理、锚点、事件与调用）与 D3D11 WARP 的末帧逐字节相同；本机 GPU 上与 WARP 至多差 3 级。
   - 全量 ctest（167 项）：153 项通过；其余 14 项是 Python 夹具与浏览器输入的散列校验（如 `react_fixture_integrity`、`scene_fixture_integrity`），它们核对的文件这次都没改，有的在仓库之外（CaseCheetah 的 `UI/src`），在这台机器的新克隆上无论 CRLF 还是 LF 签出都不符，与 D3D12 后端无关。
-- **未验证**：UE 里的整合（weft-unreal 插件）；多 GPU；设备移除。
+- **UE 里的整合**：在 CaseKargaroo 里经 weft-unreal 插件验证（城市标签、地块与城市面板、经济面板、改窗口大小；冒烟与两进程联机）。
+- **未验证**：多 GPU；设备移除。
 
 重构第 13 步之五（完）：增量管线，13.5c owner 侧每个元素的开销（2026-10-15）。详见 [重构计划](refactoring-plan.md#第-13-步记录2026-10-14) 与 [架构](architecture.md#增量更新的正确性)。
 - **结果**：
