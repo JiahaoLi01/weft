@@ -16,6 +16,10 @@ namespace weft::constants::render {
     // Live ResourceLifetime resources (CPU leased or pinned by a frame or use).
     inline constexpr int default_max_resources = 4096;
 
+    // The shared scene shader draws each instance as two triangles from its vertex index (scene.hlsl's vs_main; its
+    // particle pass, a particle per six vertices).
+    inline constexpr int quad_vertex_count = 6;
+
     // Remaining default weft_renderer_desc budgets.
     inline constexpr int default_max_draws = 65536;
     inline constexpr int default_max_assets = 512;
@@ -81,7 +85,7 @@ namespace weft::constants::render {
     // D3D11 reference renderer and its C ABI adapter (src/render/backends/d3d11).
     namespace d3d11 {
         // The vertex shader draws each instance as two triangles from SV_VertexID.
-        inline constexpr int quad_vertex_count = 6;
+        inline constexpr int quad_vertex_count = render::quad_vertex_count;
         // Render targets are at most this many pixels wide and high; the backend reports the same
         // max_texture_size and max_target_size.
         inline constexpr int max_surface_dimension = 4096;
@@ -142,7 +146,7 @@ namespace weft::constants::render {
         inline constexpr int backdrop_root_constants = 0;
         inline constexpr int backdrop_root_source = 1;
         // Each instance draws two triangles.
-        inline constexpr int quad_vertex_count = 6;
+        inline constexpr int quad_vertex_count = render::quad_vertex_count;
         // Render targets are at most this many pixels wide and high.
         inline constexpr int max_surface_dimension = 8192;
         // A recording's shader-visible descriptor heap has room for at least this many descriptors, doubling past it;
@@ -176,7 +180,7 @@ namespace weft::constants::render {
         inline constexpr int binding_order = 17;
         inline constexpr int binding_anchors = 18;
         // Each instance draws two triangles.
-        inline constexpr int quad_vertex_count = 6;
+        inline constexpr int quad_vertex_count = render::quad_vertex_count;
         // Descriptor sets one pass may allocate: one per batch.
         inline constexpr int max_pass_descriptor_sets = 4096;
         // Waits on a fence give up after this many nanoseconds.

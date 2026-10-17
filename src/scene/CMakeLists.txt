@@ -4,9 +4,10 @@ weft_add_library(scene
     PUBLIC weft::style weft::text weft::paint
     PRIVATE weft::layout)
 
-# The backend-neutral half of native scene passes: display lists, their plans and the images they sample.
+# The backend-neutral half of native scene passes: display lists, their plans, the images they sample, and the
+# commands that record them on backends with render passes.
 weft_add_library(scene_native
-    SOURCES scene_native.cpp
+    SOURCES scene_native.cpp scene_schedule.cpp
     PUBLIC weft::scene weft::render weft::vector)
 
 if(WIN32)

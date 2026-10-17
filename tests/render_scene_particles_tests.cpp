@@ -9,6 +9,9 @@
 #ifdef WEFT_TEST_VULKAN
 #include "render/backends/vulkan/scene_renderer.hpp"
 #endif
+#ifdef WEFT_TEST_D3D12
+#include "support/d3d12_scene.hpp"
+#endif
 
 #include <algorithm>
 #include <array>
@@ -494,6 +497,20 @@ int main() {
         });
         one.gpu.check_debug_messages();
         two.gpu.check_debug_messages();
+        std::string d3d12 = "skipped";
+#ifdef WEFT_TEST_D3D12
+        // The D3D12 pass runs the D3D11 pass's DXBC on the same rasterizer: the same bytes.
+        if (const auto one12 = weft::testing::D3D12Scene::open(width, height)) {
+            const auto two12 = weft::testing::D3D12Scene::open(width * 2, height * 2);
+            const auto drawn = check("D3D12 WARP", [&](const weft::SceneFrame& f, float scale) {
+                return scale == 1 ? one12->draw(f) : two12->draw(f, scale);
+            });
+            require(drawn == warp, "D3D12 WARP draws as D3D11 WARP");
+            d3d12 = one12->debugged() ? "WARP with the debug layer" : "WARP";
+        } else {
+            std::cout << "D3D12 skipped: no WARP\n";
+        }
+#endif
         std::string vulkan = "skipped";
 #ifdef WEFT_TEST_VULKAN
         namespace vk = weft::render::vulkan;
@@ -549,7 +566,7 @@ int main() {
             }
             require(refused, "the reference raster refuses particles");
         }
-        std::cout << "PASS UI particles in native scene passes: D3D11 WARP, Vulkan " << vulkan
+        std::cout << "PASS UI particles in native scene passes: D3D11 WARP, D3D12 " << d3d12 << ", Vulkan " << vulkan
                   << "; soft and hard discs, stream, burst, flight, transform, opacity, rounded clip, sprites, the "
                      "solver's stream and flight\n";
         return 0;

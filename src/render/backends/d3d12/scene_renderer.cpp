@@ -2,6 +2,7 @@
 
 #include "constants/common.hpp"
 #include "constants/render.hpp"
+#include "scene/scene_schedule.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -564,6 +565,8 @@ namespace weft::render::d3d12 {
                                std::span<const SceneTexture> host_textures, const ScenePatchHistory* history) {
         const auto& pass = prepared.pass;
         auto* command = command_;
+        // What the pass draws, in order (scene/scene_schedule.hpp).
+        const auto schedule = schedule_scene_pass(prepared, host_textures, clear);
         // Nested passes first, each ending before this one begins: plane contents, and layers not drawn before. The
         // slot leases every image and layer the pass samples.
         std::vector<View> views(prepared.images.size());
@@ -588,18 +591,14 @@ namespace weft::render::d3d12 {
                 slot_->leases.push_back(drawn);
             }
         }
-        // The host texture bound to each texture item's name; none, and nothing drawn, for an unbound one.
-        const auto host = scene_texture_bindings(prepared, host_textures);
-        for (std::size_t i = 0; i < prepared.textures.size(); ++i) {
-            if (const auto t = prepared.textures[i]) {
-                if (const auto* texture = host[t - 1]) {
-                    views[i] = *reinterpret_cast<const View*>(static_cast<std::uintptr_t>(texture->view));
-                    ++texture_draws;
-                } else {
-                    ++unbound_textures;
-                }
+        // The host texture each texture item draws.
+        for (std::size_t i = 0; i < schedule.textures.size(); ++i) {
+            if (const auto* texture = schedule.textures[i]) {
+                views[i] = *reinterpret_cast<const View*>(static_cast<std::uintptr_t>(texture->view));
             }
         }
+        texture_draws += schedule.bound_textures;
+        unbound_textures += schedule.unbound_textures;
         // The records of host textures whose rows start at the bottom sample them flipped.
         const SceneRecord* record_data = pass.records.data();
         std::vector<SceneRecord> flipped;
@@ -696,21 +695,23 @@ namespace weft::render::d3d12 {
             std::bit_cast<std::uint32_t>(scale), 0};
         // A group texture of the pass's size for each depth.
         std::vector<Image*> groups;
-        for (std::size_t depth = 0; depth < pass.group_depth; ++depth) {
+        for (std::size_t depth = 0; depth < schedule.groups; ++depth) {
             groups.push_back(&scratch(prepared.width, prepared.height));
         }
+        // Each backdrop's chain of textures: its copy (of the format of the target it reads), then one target per
+        // filter pass; the backdrop draws the last.
+        std::vector<std::vector<Image*>> chains;
+        for (const auto& chain : schedule.chains) {
+            auto& images = chains.emplace_back();
+            for (std::size_t k = 0; k < chain.images.size(); ++k) {
+                const auto [w, h] = chain.images[k];
+                images.push_back(&scratch(w, h, k == 0 && chain.from_out ? out.format : target_format));
+            }
+        }
 
-        // Each backdrop's chain of textures, in batch order: its copy (of the format of the target it reads), then one
-        // target per pass, each with the pass's pipeline and constants; the backdrop draws the last.
-        struct Chain {
-            std::vector<Image*> images;
-            std::vector<std::pair<std::size_t, BackdropConstants>> passes;
-        };
-
-        std::vector<Chain> chains;
         // A table per distinct sampling of the pass's draws: the texture a draw samples (a texture, a page, the group
-        // it composites, or none) with an effect's textures (or a sprite); per draw in batch order, its table; and per
-        // Effect step in batch order, its program. Draws that sample alike share a table.
+        // it composites, a backdrop's filtered copy, or none) with an effect's textures (or a sprite); per draw in
+        // order, its table; and per effect draw in order, its program. Draws that sample alike share a table.
         using Textures = std::array<View, weft::constants::max_effect_textures>;
         const View blank{blank_image_.resource.Get(), blank_image_.format};
 
@@ -733,106 +734,58 @@ namespace weft::render::d3d12 {
             }
         };
         std::vector<std::shared_ptr<const paint::EffectProgram>> effects;
-        const auto group_view = [&](std::size_t depth) {
-            return View{groups[depth]->resource.Get(), groups[depth]->format};
+        const auto view_of = [](const Image& image) {
+            return View{image.resource.Get(), image.format};
         };
-        // The copy each Copy step takes, of the format of the target it copies (the pass's own at its level, or a
-        // group's), which an effect that reads its backdrop samples as its image.
-        std::vector<Image*> copies(pass.copies.size());
-        std::size_t open{};
-        for (const auto& batch : pass.batches) {
-            switch (batch.step) {
-                case ScenePass::Step::Boxes:
-                    use(blank, std::nullopt);
-                    break;
-                case ScenePass::Step::Image:
-                    // A path with nothing inside its clip has no image and draws nothing.
-                    if (views[batch.first].resource) {
-                        use(views[batch.first], std::nullopt);
-                    }
-                    break;
-                case ScenePass::Step::Atlas: {
-                    const auto& p = page(prepared.pages.at(batch.source));
-                    use({p.resource.Get(), p.format}, std::nullopt);
-                    break;
-                }
-                case ScenePass::Step::BeginGroup:
-                    ++open;
-                    break;
-                case ScenePass::Step::EndGroup:
-                    use(group_view(--open), std::nullopt);
-                    break;
-                case ScenePass::Step::Effect: {
-                    const auto& effect = prepared.effects.at(batch.source);
-                    ensure(effect.textures.size() <= weft::constants::max_effect_textures, "effect textures");
-                    Textures textures;
-                    textures.fill(blank);
-                    for (std::size_t t = 0; t < effect.textures.size(); ++t) {
-                        const auto& image = textures_.at(effect.textures[t]->id).image;
-                        textures[t] = {image.resource.Get(), image.format};
-                        slot_->leases.push_back(effect.textures[t]);
-                    }
-                    const auto* copy = batch.copy ? copies.at(batch.copy - 1) : nullptr;
-                    use(copy ? View{copy->resource.Get(), copy->format} : blank, textures);
-                    effects.push_back(effect.program);
-                    break;
-                }
-                case ScenePass::Step::Copy: {
-                    const auto& region = pass.copies.at(batch.source).region;
-                    copies.at(batch.source) =
-                        &scratch(std::uint32_t(region[2] - region[0]), std::uint32_t(region[3] - region[1]),
-                                 open == 0 ? out.format : target_format);
-                    break;
-                }
-                case ScenePass::Step::Backdrop: {
-                    const auto& b = pass.backdrops.at(batch.source);
-                    auto w = std::uint32_t(b.region[2] - b.region[0]);
-                    auto h = std::uint32_t(b.region[3] - b.region[1]);
-                    // The copy has the format of what it copies: the pass's own target at its level, or a group.
-                    const bool reads_out = b.under ? open < 2 : open == 0;
-                    Chain chain;
-                    chain.images.push_back(&scratch(w, h, reads_out ? out.format : target_format));
-                    const auto add = [&](std::size_t pipeline, const BackdropConstants& values) {
-                        chain.images.push_back(&scratch(w, h));
-                        chain.passes.emplace_back(pipeline, values);
-                    };
-                    if (b.pre != paint::identity_color_matrix) {
-                        add(2, backdrop_matrix_constants(b.pre));
-                    }
-                    if (b.size[0] < w) {
-                        const auto wide = w;
-                        w = b.size[0];
-                        add(0, backdrop_area_constants(wide, w, true));
-                    }
-                    if (b.size[1] < h) {
-                        const auto tall = h;
-                        h = b.size[1];
-                        add(0, backdrop_area_constants(tall, h, false));
-                    }
-                    if (b.sigma[0] > 0) {
-                        add(1, backdrop_blur_constants(b.sigma[0], true, w, h));
-                        add(1, backdrop_blur_constants(b.sigma[1], false, w, h));
-                    }
-                    use({chain.images.back()->resource.Get(), chain.images.back()->format}, std::nullopt);
-                    chains.push_back(std::move(chain));
-                    break;
-                }
-                case ScenePass::Step::Particles: {
-                    // The emission's sprite where an effect's first texture goes.
-                    Textures textures;
-                    textures.fill(blank);
-                    if (const auto& sprite = prepared.sprites.at(batch.source)) {
-                        const auto& image = textures_.at(sprite->id).image;
-                        textures[0] = {image.resource.Get(), image.format};
-                        slot_->leases.push_back(sprite);
-                    }
-                    use(blank, textures);
-                    break;
-                }
+        for (const auto& step : schedule.commands) {
+            const auto* draw = std::get_if<SceneSchedule::Draw>(&step);
+            if (!draw) {
+                continue;
             }
+            View sampled = blank;
+            switch (draw->image.kind) {
+                case SceneSchedule::Image::Kind::Blank:
+                    break;
+                case SceneSchedule::Image::Kind::Item:
+                    sampled = views.at(draw->image.index);
+                    ensure(sampled.resource != nullptr, "an image item's texture");
+                    break;
+                case SceneSchedule::Image::Kind::Page:
+                    sampled = view_of(page(prepared.pages.at(draw->image.index)));
+                    break;
+                case SceneSchedule::Image::Kind::Group:
+                    sampled = view_of(*groups.at(draw->image.index));
+                    break;
+                case SceneSchedule::Image::Kind::Backdrop:
+                    sampled = view_of(*chains.at(draw->image.index).back());
+                    break;
+            }
+            if (draw->extra == SceneSchedule::Extra::None) {
+                use(sampled, std::nullopt);
+                continue;
+            }
+            Textures textures;
+            textures.fill(blank);
+            if (draw->extra == SceneSchedule::Extra::Effect) {
+                const auto& effect = prepared.effects.at(draw->source);
+                ensure(effect.textures.size() <= weft::constants::max_effect_textures, "effect textures");
+                for (std::size_t t = 0; t < effect.textures.size(); ++t) {
+                    textures[t] = view_of(textures_.at(effect.textures[t]->id).image);
+                    slot_->leases.push_back(effect.textures[t]);
+                }
+                effects.push_back(effect.program);
+            } else if (const auto& sprite = prepared.sprites.at(draw->source)) {
+                // The emission's sprite where an effect's first texture goes.
+                textures[0] = view_of(textures_.at(sprite->id).image);
+                slot_->leases.push_back(sprite);
+            }
+            use(sampled, textures);
         }
+        // Each chain's first filter pass among all of the pass's.
+        std::vector<std::size_t> first_filters;
         std::size_t backdrop_passes_total{};
-        for (const auto& chain : chains) {
+        for (const auto& chain : schedule.chains) {
+            first_filters.push_back(backdrop_passes_total);
             backdrop_passes_total += chain.passes.size();
         }
         // Every image table of the pass, every backdrop pass's source and the pass's buffers, in one run of the
@@ -841,8 +794,8 @@ namespace weft::render::d3d12 {
         const auto first_descriptor =
             descriptors(std::uint32_t(samplings.size()) * table_size + std::uint32_t(backdrop_passes_total) +
                         std::uint32_t(limits::buffer_descriptors));
-        const auto buffer_descriptors =
-            first_descriptor + std::uint32_t(samplings.size()) * table_size + std::uint32_t(backdrop_passes_total);
+        const auto sources = first_descriptor + std::uint32_t(samplings.size()) * table_size;
+        const auto buffer_descriptors = sources + std::uint32_t(backdrop_passes_total);
         const auto records_count = std::max<std::size_t>(pass.records.size(), 1);
         write_buffer(buffer_descriptors, *records, records_count, sizeof(SceneRecord));
         write_buffer(buffer_descriptors + 1, *clips, std::max<std::size_t>(pass.clips.size(), 1), sizeof(SceneClip));
@@ -862,12 +815,12 @@ namespace weft::render::d3d12 {
             auto& values = buffer(stride * backdrop_passes_total);
             backdrop_constants = values.address;
             std::size_t k{};
-            auto source = first_descriptor + std::uint32_t(samplings.size()) * table_size;
-            for (const auto& chain : chains) {
-                for (std::size_t p = 0; p < chain.passes.size(); ++p, ++k) {
-                    std::memcpy(static_cast<std::uint8_t*>(values.mapped) + stride * k, &chain.passes[p].second,
+            for (std::size_t c = 0; c < schedule.chains.size(); ++c) {
+                const auto& filters = schedule.chains[c].passes;
+                for (std::size_t p = 0; p < filters.size(); ++p, ++k) {
+                    std::memcpy(static_cast<std::uint8_t*>(values.mapped) + stride * k, &filters[p].second,
                                 sizeof(BackdropConstants));
-                    write_view(source++, {chain.images[p]->resource.Get(), chain.images[p]->format});
+                    write_view(sources + std::uint32_t(k), view_of(*chains[c][p]));
                 }
             }
         }
@@ -875,12 +828,14 @@ namespace weft::render::d3d12 {
         // The scene's root signature and its root views: set once, and again after a backdrop's passes replaced them.
         constexpr auto unbound = std::numeric_limits<std::size_t>::max();
         auto bound = unbound;
+        bool scene_root{};
         const auto bind = [&] {
             command->SetGraphicsRootSignature(root_.Get());
             command->SetGraphicsRootDescriptorTable(limits::root_buffers, gpu_descriptor(buffer_descriptors));
             command->SetGraphicsRoot32BitConstants(limits::root_view, limits::view_constant_count, constants.data(), 0);
             command->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
             bound = unbound;
+            scene_root = true;
         };
         // The target the pass draws into now, cleared first when asked.
         DXGI_FORMAT format{};
@@ -898,10 +853,19 @@ namespace weft::render::d3d12 {
             format = s.format;
             command->SetPipelineState(pipelines(format).scene.Get());
         };
+        // A backdrop chain's image as the target, cleared, over all of it.
+        const auto begin_over = [&](Image& over, const paint::Color& color) {
+            transition(command, over, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            command->OMSetRenderTargets(1, &over.rtv, FALSE, nullptr);
+            command->ClearRenderTargetView(over.rtv, color.data(), 0, nullptr);
+            const D3D12_VIEWPORT viewport{0, 0, float(over.width), float(over.height), 0, 1};
+            command->RSSetViewports(1, &viewport);
+            const D3D12_RECT scissor{0, 0, LONG(over.width), LONG(over.height)};
+            command->RSSetScissorRects(1, &scissor);
+        };
         std::size_t next_draw{};
-        // count instances of a quad, or one instance of vertices (the particles' 6 per particle).
-        const auto instances = [&](std::uint32_t first, std::uint32_t count,
-                                   std::uint32_t vertices = std::uint32_t(limits::quad_vertex_count)) {
+        // count instances of vertices each.
+        const auto instances = [&](std::uint32_t first, std::uint32_t count, std::uint32_t vertices) {
             if (const auto table = draw_tables.at(next_draw++); table != bound) {
                 command->SetGraphicsRootDescriptorTable(
                     limits::root_images, gpu_descriptor(first_descriptor + std::uint32_t(table) * table_size));
@@ -912,132 +876,103 @@ namespace weft::render::d3d12 {
             command->DrawInstanced(vertices, count, 0, 0);
             ++draws;
         };
-        const auto surface = [&](Image& image) {
-            return Surface{&image, image.rtv, image.format, image.width, image.height};
-        };
-        const paint::Color transparent{};
-        bind();
-        if (!prepared.over) {
-            begin(out, &pass.clear);
-        } else {
-            begin(out, clear);
-        }
-        std::size_t depth{};
-        std::size_t next_effect{};
-        std::size_t next_chain{};
-        std::size_t next_backdrop{};
-        for (const auto& batch : pass.batches) {
-            switch (batch.step) {
-                case ScenePass::Step::Boxes:
-                case ScenePass::Step::Atlas:
-                    instances(batch.first, batch.count);
-                    break;
-                case ScenePass::Step::Image:
-                    if (views[batch.first].resource) {
-                        instances(batch.first, 1);
-                    }
-                    break;
-                case ScenePass::Step::BeginGroup:
-                    begin(surface(*groups[depth++]), &transparent);
-                    break;
-                case ScenePass::Step::EndGroup:
-                    transition(command, *groups[--depth], readable);
-                    begin(depth ? surface(*groups[depth - 1]) : out, nullptr);
-                    instances(batch.first, 1);
-                    break;
-                case ScenePass::Step::Effect:
-                    command->SetPipelineState(effect_pipeline(format, effects.at(next_effect++)));
-                    instances(batch.first, batch.count);
-                    command->SetPipelineState(pipelines(format).scene.Get());
-                    break;
-                case ScenePass::Step::Copy: {
-                    // What the current target holds over the copy's region, for the effect that reads it later.
-                    const auto& region = pass.copies.at(batch.source).region;
-                    Image& from = depth ? *groups[depth - 1] : *out.image;
-                    auto& copy = *copies.at(batch.source);
-                    const auto was = from.state;
-                    transition(command, from, D3D12_RESOURCE_STATE_COPY_SOURCE);
-                    transition(command, copy, D3D12_RESOURCE_STATE_COPY_DEST);
-                    D3D12_TEXTURE_COPY_LOCATION source{};
-                    source.pResource = from.resource.Get();
-                    source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-                    D3D12_TEXTURE_COPY_LOCATION destination{};
-                    destination.pResource = copy.resource.Get();
-                    destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-                    const D3D12_BOX box{UINT(region[0]), UINT(region[1]), 0, UINT(region[2]), UINT(region[3]), 1};
-                    command->CopyTextureRegion(&destination, 0, 0, 0, &source, &box);
-                    transition(command, from, was);
-                    transition(command, copy, readable);
-                    ++backdrop_copies;
-                    break;
-                }
-                case ScenePass::Step::Backdrop: {
-                    // Copy the region of the target the backdrop reads (the current one, or the one enclosing the
-                    // current group), run its passes, and draw it over the current target or beneath its content.
-                    const auto& b = pass.backdrops.at(batch.source);
-                    const auto& chain = chains.at(next_chain++);
-                    ensure(!b.under || depth > 0, "a backdrop beneath a group inside one");
-                    Image& from = b.under ? (depth >= 2 ? *groups[depth - 2] : *out.image)
-                                          : (depth ? *groups[depth - 1] : *out.image);
-                    auto& copy = *chain.images.front();
-                    const auto was = from.state;
-                    transition(command, from, D3D12_RESOURCE_STATE_COPY_SOURCE);
-                    transition(command, copy, D3D12_RESOURCE_STATE_COPY_DEST);
-                    D3D12_TEXTURE_COPY_LOCATION source{};
-                    source.pResource = from.resource.Get();
-                    source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-                    D3D12_TEXTURE_COPY_LOCATION destination{};
-                    destination.pResource = copy.resource.Get();
-                    destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-                    const D3D12_BOX region{UINT(b.region[0]), UINT(b.region[1]), 0,
-                                           UINT(b.region[2]), UINT(b.region[3]), 1};
-                    command->CopyTextureRegion(&destination, 0, 0, 0, &source, &region);
-                    transition(command, from, was);
-                    transition(command, copy, readable);
-                    if (!chain.passes.empty()) {
-                        command->SetGraphicsRootSignature(backdrop_root_.Get());
-                        command->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-                        for (std::size_t k = 0; k < chain.passes.size(); ++k) {
-                            auto& over = *chain.images[k + 1];
-                            transition(command, over, D3D12_RESOURCE_STATE_RENDER_TARGET);
-                            command->OMSetRenderTargets(1, &over.rtv, FALSE, nullptr);
-                            const float none[4]{};
-                            command->ClearRenderTargetView(over.rtv, none, 0, nullptr);
-                            const D3D12_VIEWPORT viewport{0, 0, float(over.width), float(over.height), 0, 1};
-                            command->RSSetViewports(1, &viewport);
-                            const D3D12_RECT scissor{0, 0, LONG(over.width), LONG(over.height)};
-                            command->RSSetScissorRects(1, &scissor);
-                            command->SetPipelineState(backdrop_pipelines_.at(chain.passes[k].first).Get());
-                            command->SetGraphicsRootConstantBufferView(
-                                limits::backdrop_root_constants, backdrop_constants + stride * (next_backdrop + k));
-                            command->SetGraphicsRootDescriptorTable(
-                                limits::backdrop_root_source,
-                                gpu_descriptor(first_descriptor + std::uint32_t(samplings.size()) * table_size +
-                                               std::uint32_t(next_backdrop + k)));
-                            command->DrawInstanced(3, 1, 0, 0);
-                            transition(command, over, readable);
-                        }
-                        bind();
-                    }
-                    next_backdrop += chain.passes.size();
-                    begin(depth ? surface(*groups[depth - 1]) : out, nullptr);
-                    if (b.under) {
-                        command->SetPipelineState(pipelines(format).under.Get());
-                    }
-                    instances(batch.first, 1);
-                    if (b.under) {
-                        command->SetPipelineState(pipelines(format).scene.Get());
-                    }
-                    ++backdrop_passes;
-                    break;
-                }
-                case ScenePass::Step::Particles:
-                    command->SetPipelineState(pipelines(format).particles.Get());
-                    instances(batch.first, 1, std::uint32_t(limits::quad_vertex_count) * batch.count);
-                    command->SetPipelineState(pipelines(format).scene.Get());
+        // The texture of a target of the schedule: the pass's own, a group's, or a chain's.
+        const auto image_of = [&](const SceneSchedule::Target& t) -> Image& {
+            switch (t.kind) {
+                case SceneSchedule::Target::Kind::Group:
+                    return *groups.at(t.index);
+                case SceneSchedule::Target::Kind::Chain:
+                    return *chains.at(t.index).at(t.image);
+                case SceneSchedule::Target::Kind::Out:
                     break;
             }
+            return *out.image;
+        };
+        bind();
+        std::size_t next_effect{};
+        for (const auto& step : schedule.commands) {
+            if (const auto* b = std::get_if<SceneSchedule::Begin>(&step)) {
+                if (b->target.kind == SceneSchedule::Target::Kind::Chain) {
+                    begin_over(image_of(b->target), b->clear.value_or(paint::Color{}));
+                    continue;
+                }
+                if (!scene_root) {
+                    bind();
+                }
+                if (b->target.kind == SceneSchedule::Target::Kind::Out) {
+                    begin(out, b->clear ? &*b->clear : nullptr);
+                } else {
+                    auto& image = image_of(b->target);
+                    begin({&image, image.rtv, image.format, image.width, image.height},
+                          b->clear ? &*b->clear : nullptr);
+                }
+            } else if (const auto* e = std::get_if<SceneSchedule::End>(&step)) {
+                // Its draws done, a target that is sampled next becomes shader-readable.
+                if (e->sampled) {
+                    transition(command, image_of(e->target), readable);
+                }
+            } else if (const auto* draw = std::get_if<SceneSchedule::Draw>(&step)) {
+                ID3D12PipelineState* pipeline{};
+                switch (draw->pipeline) {
+                    case SceneSchedule::Pipeline::Scene:
+                        break;
+                    case SceneSchedule::Pipeline::Under:
+                        pipeline = pipelines(format).under.Get();
+                        break;
+                    case SceneSchedule::Pipeline::Particles:
+                        pipeline = pipelines(format).particles.Get();
+                        break;
+                    case SceneSchedule::Pipeline::Effect:
+                        pipeline = effect_pipeline(format, effects.at(next_effect++));
+                        break;
+                }
+                if (pipeline) {
+                    command->SetPipelineState(pipeline);
+                }
+                instances(draw->first, draw->count, draw->vertices);
+                if (pipeline) {
+                    command->SetPipelineState(pipelines(format).scene.Get());
+                }
+            } else if (const auto* copy = std::get_if<SceneSchedule::Copy>(&step)) {
+                // The region of the target the backdrop reads, into its chain's first texture; the target returns to
+                // the state it had.
+                auto& from = image_of(copy->from);
+                auto& to = *chains.at(copy->chain).front();
+                const auto was = from.state;
+                transition(command, from, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                transition(command, to, D3D12_RESOURCE_STATE_COPY_DEST);
+                D3D12_TEXTURE_COPY_LOCATION source{};
+                source.pResource = from.resource.Get();
+                source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                D3D12_TEXTURE_COPY_LOCATION destination{};
+                destination.pResource = to.resource.Get();
+                destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                const auto& r = copy->region;
+                const D3D12_BOX region{UINT(r[0]), UINT(r[1]), 0, UINT(r[2]), UINT(r[3]), 1};
+                command->CopyTextureRegion(&destination, 0, 0, 0, &source, &region);
+                transition(command, from, was);
+                transition(command, to, readable);
+            } else if (const auto* filter = std::get_if<SceneSchedule::Filter>(&step)) {
+                // The backdrop passes' root signature, until the scene's next target.
+                if (scene_root) {
+                    command->SetGraphicsRootSignature(backdrop_root_.Get());
+                    command->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+                    scene_root = false;
+                }
+                const auto k = std::uint32_t(first_filters.at(filter->chain) + filter->pass);
+                auto& over = *chains.at(filter->chain).at(filter->pass + 1);
+                begin_over(over, paint::Color{});
+                const auto kind = schedule.chains.at(filter->chain).passes.at(filter->pass).first;
+                command->SetPipelineState(backdrop_pipelines_.at(std::size_t(kind)).Get());
+                command->SetGraphicsRootConstantBufferView(limits::backdrop_root_constants,
+                                                           backdrop_constants + stride * k);
+                command->SetGraphicsRootDescriptorTable(limits::backdrop_root_source, gpu_descriptor(sources + k));
+                command->DrawInstanced(3, 1, 0, 0);
+                transition(command, over, readable);
+            }
         }
+        backdrop_passes += schedule.backdrops;
+        backdrop_copies += schedule.copies;
     }
 
     bool SceneRenderer::encode(Slot& slot, const SceneFrame& frame, ID3D12GraphicsCommandList* command,

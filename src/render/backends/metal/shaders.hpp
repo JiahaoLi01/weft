@@ -1,5 +1,7 @@
 #pragma once
 
+#include "render/scene_pass.hpp"
+
 #include <string_view>
 
 // The shared shaders of the Metal backend in Metal Shading Language (cmake/WeftMetal.cmake): text the device compiles
@@ -13,17 +15,11 @@ namespace weft::render::metal {
         std::string_view fragment;
     };
 
-    // The passes that blur a backdrop (src/render/shaders/backdrop.hlsl), all over the same fullscreen triangle.
-    enum class BackdropPass {
-        Area,
-        Blur,
-        Matrix
-    };
-
     // The shared scene shader's encoded pass (src/render/shaders/scene.hlsl), whose vertex stage an effect program's
     // fragment (paint::EffectProgram::msl_encoded) runs after too.
     ShaderSource scene_shader();
     // Its particle pass (WEFT_PARTICLES).
     ShaderSource particle_shader();
-    ShaderSource backdrop_shader(BackdropPass pass);
+    // A backdrop pass (src/render/shaders/backdrop.hlsl), all over the same fullscreen triangle.
+    ShaderSource backdrop_shader(BackdropFilter filter);
 } // namespace weft::render::metal
