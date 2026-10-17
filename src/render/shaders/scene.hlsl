@@ -679,7 +679,9 @@ float4 fittedTexture(Paint p, float2 position) {
         return float4(0, 0, 0, 0);
     }
     float2 t = float2(u.x, v.x);
-    float2 edge = .5 / natural;
+    // Half a texel of the part of the texture the image samples (uv: a border image's slice; the whole texture for a
+    // background), so a clamped edge stops at its own texels' centers.
+    float2 edge = .5 / max(natural * p.uv.zw, MinimumRadius);
     if (repeats.x == RepeatNone || repeats.x == RepeatSpace) {
         t.x = clamp(t.x, edge.x, 1 - edge.x);
     }

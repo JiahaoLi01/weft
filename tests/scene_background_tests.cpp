@@ -1,6 +1,7 @@
 #include "base/diagnostic.hpp"
 #include "scene/scene.hpp"
 #include "scene/scene_background.hpp"
+#include "scene/scene_border_image.hpp"
 #include "scene/scene_display_list.hpp"
 #include "support/check.hpp"
 #include "support/d3d11_scene.hpp"
@@ -513,11 +514,172 @@ namespace {
                     right[3] = 255;
                 }
             }
-            weft::testing::write_png(
-                folder / ((urls ? "images-" : "textures-") + std::to_string(int(scale)) + ".png"), w * 2, h, trio);
+            weft::testing::write_png(folder / ((urls ? "images-" : "textures-") + std::to_string(int(scale)) + ".png"),
+                                     w * 2, h, trio);
             std::printf("scale %.0f: %zu of %zu pixels inside the painting areas more than 2 levels apart, worst %d\n",
                         scale, apart, compared, worst);
             require(compared > w * h / 4 && apart == 0, "the native pass lays the texture out as the reference raster");
+        }
+    }
+
+    // border-image's pieces (scene_border_image.hpp) of a 9 x 9 image sliced at 3 px over a 100 x 60 border box.
+    void border_image_geometry() {
+        weft::StyleValues s;
+        for (const auto id : {weft::PropertyId::BorderTopWidth, weft::PropertyId::BorderRightWidth,
+                              weft::PropertyId::BorderBottomWidth, weft::PropertyId::BorderLeftWidth}) {
+            s[id] = "10px";
+        }
+        s[weft::PropertyId::BorderImageSlice] = "3 fill";
+        using Box = std::array<float, 4>;
+        auto pieces = weft::scene_border_image(s, 100, 60, 9, 9);
+        require(pieces.size() == 9 && pieces[0].source == Box{0, 0, 3, 3} && pieces[0].target == Box{0, 0, 10, 10} &&
+                    pieces[1].source == Box{3, 0, 3, 3} && pieces[1].target == Box{10, 0, 80, 10} &&
+                    pieces[4].source == Box{3, 3, 3, 3} && pieces[4].target == Box{10, 10, 80, 40} &&
+                    pieces[8].target == Box{90, 50, 10, 10},
+                "fill: nine pieces, corners as wide as the borders, edges and the middle stretched");
+        s[weft::PropertyId::BorderImageSlice] = "3";
+        require(weft::scene_border_image(s, 100, 60, 9, 9).size() == 8, "without fill no middle");
+        s[weft::PropertyId::BorderImageSlice] = "33.3333% 1";
+        pieces = weft::scene_border_image(s, 100, 60, 9, 9);
+        require(std::abs(pieces[0].source[3] - 3) < 1e-3f && pieces[0].source[2] == 1, "percentages of the image");
+        s[weft::PropertyId::BorderImageSlice] = "3";
+        s[weft::PropertyId::BorderImageWidth] = "2 auto";
+        pieces = weft::scene_border_image(s, 100, 60, 9, 9);
+        require(pieces[0].target == Box{0, 0, 3, 20}, "numbers are border widths, auto the slice's");
+        s[weft::PropertyId::BorderImageWidth] = "40px";
+        pieces = weft::scene_border_image(s, 100, 60, 9, 9);
+        // 40 + 40 of a height of 60: every width scaled by 0.75, the corners meet and the side pieces have no height.
+        require(pieces[0].target == Box{0, 0, 30, 30} && pieces.size() == 6,
+                "opposite widths past the area are scaled down together");
+        s[weft::PropertyId::BorderImageWidth] = "1";
+        s[weft::PropertyId::BorderImageOutset] = "5px 1";
+        pieces = weft::scene_border_image(s, 100, 60, 9, 9);
+        // Without fill the eight pieces run top row, the sides, bottom row: the bottom edge is the seventh.
+        require(pieces[0].target == Box{-10, -5, 10, 10} && pieces[6].target == Box{0, 55, 100, 10},
+                "outsets grow the area: px, and numbers of the border widths");
+        for (const auto& [id, value] :
+             std::vector<std::pair<weft::PropertyId, std::string>>{{weft::PropertyId::BorderImageSlice, "3px"},
+                                                                   {weft::PropertyId::BorderImageSlice, "1 2 3 4 5"},
+                                                                   {weft::PropertyId::BorderImageWidth, "1em"},
+                                                                   {weft::PropertyId::BorderImageOutset, "10%"}}) {
+            auto bad = s;
+            bad[id] = value;
+            bool refused{};
+            try {
+                (void)weft::scene_border_image(bad, 100, 60, 9, 9);
+            } catch (const std::invalid_argument&) {
+                refused = true;
+            }
+            require(refused, "outside the profile: " + value);
+        }
+    }
+
+    // border-image drawn: the display list's pieces (fitted images of slices) and the native pass against the reference
+    // raster inside each piece, of a 9 x 9 url() image whose texels are each their own color, some translucent.
+    void border_images_drawn(const std::filesystem::path& folder) {
+        weft::testing::NativeScene s;
+        s.set(*s.root, "style", "position:relative;width:240px;height:160px;background-color:#d8d0c0");
+        const char* layouts[] = {
+            "left:10px;top:10px;width:100px;height:60px;border:10px solid #000000;border-image-slice:3 fill",
+            "left:130px;top:14px;width:90px;height:70px;border-width:12px 8px;border-style:solid;"
+            "border-image-slice:33.3333% 3 3 3;border-image-width:1 2;border-image-outset:4px",
+            "left:20px;top:100px;width:200px;height:44px;border:6px solid;border-image-slice:3 fill;"
+            "border-image-width:auto;background-color:#305070",
+        };
+        for (const auto* l : layouts) {
+            auto& e = s.html("div");
+            s.set(e, "style", std::string("position:absolute;border-image-source:url(t.png);") + l);
+            s.tree.insert(*s.root, e, nullptr);
+        }
+        weft::paint::Asset asset{9, 9, weft::paint::Encoding::SrgbStraight, {}, 0};
+        for (unsigned y = 0; y < 9; ++y) {
+            for (unsigned x = 0; x < 9; ++x) {
+                const unsigned a = (x + y) % 4 == 0 ? 128 : 255;
+                for (const unsigned c : {25 * x + 10, 220 - 20 * y, 40 + 10 * (x + y), a}) {
+                    asset.bytes.push_back(std::uint8_t(c));
+                }
+            }
+        }
+        OneImage images_of;
+        images_of.asset = std::make_shared<const weft::paint::Asset>(std::move(asset));
+        weft::SceneSolver solver("", "", weft::testing::thread_scene_text());
+        solver.set_images(&images_of);
+        const auto frame = solver.frame(s.tree.snapshot(*s.root), 240, 160, 0);
+        const auto listed = weft::scene_display_list(frame, {}, &weft::testing::thread_scene_text());
+        require(listed.fallback.empty() && bool(weft::paint::check(listed.list, 1)), "a well-formed list");
+        std::size_t pieces{};
+        for (const auto& item : listed.list.items) {
+            if (item.kind == weft::paint::Item::Kind::Image) {
+                const auto& image = listed.list.images[item.payload];
+                require(image.fitted && listed.list.assets[image.asset] == images_of.asset, "a piece of the image");
+                ++pieces;
+            }
+            if (item.kind == weft::paint::Item::Kind::Box) {
+                const auto& box = listed.list.boxes[item.payload];
+                require(box.widths == std::array<float, 4>{}, "the border image instead of the border styles");
+            }
+        }
+        require(pieces == 9 + 8 + 9, "nine pieces with fill, eight without");
+        for (const float scale : {1.f, 2.f}) {
+            const auto w = unsigned(240 * scale);
+            const auto h = unsigned(160 * scale);
+            weft::testing::D3D11Scene d3d11{w, h};
+            const auto native = d3d11.draw(frame, scale);
+            d3d11.gpu.check_debug_messages();
+            require(d3d11.scene.fallbacks == 0, "the native pass drew the frame");
+            weft::SceneRaster reference(weft::testing::thread_scene_text());
+            const auto raster = reference.raster(frame, scale);
+            std::size_t apart{};
+            std::size_t compared{};
+            int worst{};
+            const auto at_scale = weft::scene_display_list(frame, {}, &weft::testing::thread_scene_text(), scale).list;
+            for (const auto& item : at_scale.items) {
+                if (item.kind != weft::paint::Item::Kind::Image) {
+                    continue;
+                }
+                // Inside each piece, a device px in from its edges (where the next piece's texels meet its own).
+                const int x0 = int(std::lround(item.transform[4] * scale)) + 1;
+                const int y0 = int(std::lround(item.transform[5] * scale)) + 1;
+                const int x1 = int(std::lround((item.transform[4] + item.width) * scale)) - 1;
+                const int y1 = int(std::lround((item.transform[5] + item.height) * scale)) - 1;
+                for (int y = std::max(y0, 0); y < std::min(y1, int(h)); ++y) {
+                    for (int x = std::max(x0, 0); x < std::min(x1, int(w)); ++x) {
+                        const auto* n = native.data() + (std::size_t(y) * w + x) * 4;
+                        const auto* r = raster.rgba.data() + (std::size_t(y) * w + x) * 4;
+                        int d{};
+                        for (unsigned c = 0; c < 3; ++c) {
+                            d = std::max(d, std::abs(int(n[2 - c]) - int(r[c])));
+                        }
+                        if (d > 2 && apart < 8) {
+                            std::printf("  apart at %d, %d: native %d %d %d, raster %d %d %d\n", x, y, n[2], n[1], n[0],
+                                        r[0], r[1], r[2]);
+                        }
+                        apart += d > 2;
+                        worst = std::max(worst, d);
+                        ++compared;
+                    }
+                }
+            }
+            std::vector<std::uint8_t> pair(std::size_t(w) * 2 * h * 4);
+            for (unsigned y = 0; y < h; ++y) {
+                for (unsigned x = 0; x < w; ++x) {
+                    const auto* n = native.data() + (std::size_t(y) * w + x) * 4;
+                    const auto* r = raster.rgba.data() + (std::size_t(y) * w + x) * 4;
+                    auto* left = pair.data() + (std::size_t(y) * w * 2 + x) * 4;
+                    left[0] = n[2];
+                    left[1] = n[1];
+                    left[2] = n[0];
+                    left[3] = 255;
+                    auto* right = pair.data() + (std::size_t(y) * w * 2 + w + x) * 4;
+                    std::copy(r, r + 3, right);
+                    right[3] = 255;
+                }
+            }
+            weft::testing::write_png(folder / ("border-images-" + std::to_string(int(scale)) + ".png"), w * 2, h, pair);
+            std::printf("border images at scale %.0f: %zu of %zu pixels inside the pieces more than 2 levels apart, "
+                        "worst %d\n",
+                        scale, apart, compared, worst);
+            require(compared > w * h / 8 && apart == 0, "the native pass draws the pieces as the reference raster");
         }
     }
 } // namespace
@@ -533,7 +695,9 @@ int main(int argc, char** argv) {
         solver();
         drawn(folder, false);
         drawn(folder, true);
-        std::cout << "PASS scene background layouts of host textures and url() images\n";
+        border_image_geometry();
+        border_images_drawn(folder);
+        std::cout << "PASS scene background layouts of host textures and url() images, border images\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

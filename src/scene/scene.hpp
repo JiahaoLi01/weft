@@ -325,6 +325,9 @@ namespace weft {
         // The url() background's image (SceneImages): straight sRGB RGBA8, one asset for one image, compared by
         // identity. None for another background, or a URL the images have no image of.
         std::shared_ptr<const paint::Asset> background_image;
+        // The url() image of border-image-source (scene_border_image.hpp), drawn in nine pieces instead of the border
+        // styles; none for no border image or a URL the images have no image of (the border styles draw then).
+        std::shared_ptr<const paint::Asset> border_image;
         // The particle emissions the element shows at the frame, drawn after its background and borders, before its
         // content.
         std::vector<SceneEmission> particles;
@@ -346,9 +349,9 @@ namespace weft {
                    a.attributes == b.attributes && a.style == b.style && a.box == b.box && a.lines == b.lines &&
                    a.fragments == b.fragments &&
                    (a.effect == b.effect || (a.effect && b.effect && *a.effect == *b.effect)) &&
-                   a.background_image == b.background_image && a.particles == b.particles &&
-                   a.anchoring == b.anchoring && a.scroll == b.scroll && a.scrolled == b.scrolled &&
-                   a.scroll_shift == b.scroll_shift && a.children == b.children;
+                   a.background_image == b.background_image && a.border_image == b.border_image &&
+                   a.particles == b.particles && a.anchoring == b.anchoring && a.scroll == b.scroll &&
+                   a.scrolled == b.scrolled && a.scroll_shift == b.scroll_shift && a.children == b.children;
         }
     };
 
@@ -464,8 +467,9 @@ namespace weft {
                a.attributes == b.attributes && a.style == b.style && a.box == b.box && a.lines == b.lines &&
                a.fragments == b.fragments && bool(a.paint) == bool(b.paint) &&
                (!a.paint || a.paint->values == b.paint->values) && scene_effect_equal(a.effect, b.effect) &&
-               a.background_image == b.background_image && a.particles == b.particles && a.anchoring == b.anchoring &&
-               a.scroll == b.scroll && a.scrolled == b.scrolled && a.scroll_shift == b.scroll_shift;
+               a.background_image == b.background_image && a.border_image == b.border_image &&
+               a.particles == b.particles && a.anchoring == b.anchoring && a.scroll == b.scroll &&
+               a.scrolled == b.scrolled && a.scroll_shift == b.scroll_shift;
     }
 
     struct SceneFrame {
@@ -541,7 +545,8 @@ namespace weft {
             a.attributes != b.attributes || a.style != b.style || a.box != b.box || a.lines != b.lines ||
             a.fragments != b.fragments || a.children.size() != b.children.size() || bool(a.paint) != bool(b.paint) ||
             (a.paint && a.paint->values != b.paint->values) || !scene_effect_equal(a.effect, b.effect) ||
-            a.background_image != b.background_image || a.particles != b.particles) {
+            a.background_image != b.background_image || a.border_image != b.border_image ||
+            a.particles != b.particles) {
             return false;
         }
         for (std::size_t i = 0; i < a.children.size(); ++i) {

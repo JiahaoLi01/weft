@@ -1,6 +1,7 @@
 #define NOMINMAX
 #include "scene/scene.hpp"
 #include "scene/scene_background.hpp"
+#include "scene/scene_border_image.hpp"
 #include "scene/scene_border.hpp"
 #include "scene/scene_inline.hpp"
 #include "scene/scene_geometry.hpp"
@@ -1288,28 +1289,111 @@ namespace weft {
         // at the edge texels' centers along another), its straight color encoded and premultiplied again. Nothing for
         // a name the raster was not given. A url() background's image draws alike, its texels linear premultiplied as
         // a scene pass samples them.
+        // A url() image's texels as a scene pass samples them: linear, premultiplied.
+        SceneRasterTexture linear_texels(const paint::Asset& asset, const char* what) {
+            const auto pixels = std::size_t(asset.width) * asset.height;
+            if (asset.encoding != paint::Encoding::SrgbStraight ||
+                asset.bytes.size() != pixels * constants::rgba8_bytes_per_pixel) {
+                fail(std::string(what) + " of no sRGB texels or a wrong size");
+            }
+            SceneRasterTexture image;
+            image.width = asset.width;
+            image.height = asset.height;
+            image.rgba.resize(pixels * 4);
+            for (std::size_t i = 0; i < pixels * 4; i += 4) {
+                const float a = asset.bytes[i + 3] / constants::render::color_channel_max_float;
+                for (unsigned c = 0; c < 3; ++c) {
+                    image.rgba[i + c] =
+                        render::srgb_to_linear(asset.bytes[i + c] / constants::render::color_channel_max_float) * a;
+                }
+                image.rgba[i + 3] = a;
+            }
+            return image;
+        }
+
+        // A border image's pieces as the scene shader draws them (scene.hlsl, fittedTexture, one tile of the piece's
+        // size over a slice of the image): each device pixel bilinear between the texels of its slice around it, the
+        // slice's edge texels' centers its limit, its straight color encoded and premultiplied again.
+        void border_image(const SceneNode& n, const std::vector<SceneBorderImagePiece>& pieces) {
+            if (pieces.empty()) {
+                return;
+            }
+            const auto t = linear_texels(*n.border_image, "border image");
+            const auto channel = [](float v) {
+                return std::uint8_t(std::clamp(v * constants::color_channel_max + .5f, 0.f,
+                                               static_cast<float>(constants::color_channel_max)));
+            };
+            // One axis: the texels on either side of a pixel's place in the slice, and the second's weight.
+            const auto axis = [](float at, float extent, float start, float size, unsigned texels) {
+                const float x = start + std::clamp(at / extent, .5f / size, 1 - .5f / size) * size - .5f;
+                const float base = std::floor(x);
+                const auto index = [&](float i) {
+                    return int(std::clamp(static_cast<long long>(i), 0LL, static_cast<long long>(texels) - 1));
+                };
+                return std::tuple{index(base), index(base + 1), x - base};
+            };
+            for (const auto& piece : pieces) {
+                const auto [sx, sy, sw, sh] = piece.source;
+                const auto [tx, ty, tw, th] = piece.target;
+                const unsigned iw = unsigned(std::ceil(tw * scale));
+                const unsigned ih = unsigned(std::ceil(th * scale));
+                if (!iw || !ih) {
+                    continue;
+                }
+                if (std::uint64_t(iw) * ih > constants::scene::max_bitmap_pixels) {
+                    fail("border image bitmap bound");
+                }
+                std::vector<std::uint8_t> pixels(std::size_t(iw) * ih * 4);
+                for (unsigned y = 0; y < ih; ++y) {
+                    const float py = (y + .5f) / scale;
+                    if (py >= th) {
+                        continue;
+                    }
+                    const auto [y0, y1, fy] = axis(py, th, sy, sh, t.height);
+                    for (unsigned x = 0; x < iw; ++x) {
+                        const float px = (x + .5f) / scale;
+                        if (px >= tw) {
+                            continue;
+                        }
+                        const auto [x0, x1, fx] = axis(px, tw, sx, sw, t.width);
+                        const auto texel = [&](int i, int j, unsigned c) {
+                            return t.rgba[(std::size_t(j) * t.width + i) * 4 + c];
+                        };
+                        std::array<float, 4> c{};
+                        for (unsigned k = 0; k < 4; ++k) {
+                            c[k] = (texel(x0, y0, k) * (1 - fx) + texel(x1, y0, k) * fx) * (1 - fy) +
+                                   (texel(x0, y1, k) * (1 - fx) + texel(x1, y1, k) * fx) * fy;
+                        }
+                        const float a = std::clamp(c[3], 0.f, 1.f);
+                        if (a <= 0) {
+                            continue;
+                        }
+                        auto* p = pixels.data() + (std::size_t(y) * iw + x) * 4;
+                        for (unsigned k = 0; k < 3; ++k) {
+                            p[2 - k] = channel(render::linear_to_srgb(std::clamp(c[k] / c[3], 0.f, 1.f)) * a);
+                        }
+                        p[3] = channel(a);
+                    }
+                }
+                ComPtr<ID2D1Bitmap> bitmap;
+                check(target->CreateBitmap({iw, ih}, pixels.data(), iw * 4,
+                                           D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,
+                                                                                    D2D1_ALPHA_MODE_PREMULTIPLIED)),
+                                           &bitmap));
+                ComPtr<ID2D1BitmapBrush> fill;
+                check(target->CreateBitmapBrush(bitmap.Get(), &fill));
+                fill->SetTransform(D2D1::Matrix3x2F::Scale(1 / scale, 1 / scale) *
+                                   D2D1::Matrix3x2F::Translation(tx, ty));
+                target->FillRectangle(D2D1::RectF(tx, ty, tx + tw, ty + th), fill.Get());
+            }
+        }
+
         void host_texture(const SceneNode& n) {
             SceneRasterTexture image;
             const SceneRasterTexture* found{};
             std::string name;
             if (const auto& asset = n.background_image) {
-                const auto pixels = std::size_t(asset->width) * asset->height;
-                if (asset->encoding != paint::Encoding::SrgbStraight ||
-                    asset->bytes.size() != pixels * constants::rgba8_bytes_per_pixel) {
-                    fail("background image of no sRGB texels or a wrong size");
-                }
-                image.width = asset->width;
-                image.height = asset->height;
-                image.rgba.resize(pixels * 4);
-                for (std::size_t i = 0; i < pixels * 4; i += 4) {
-                    const float a = asset->bytes[i + 3] / constants::render::color_channel_max_float;
-                    for (unsigned c = 0; c < 3; ++c) {
-                        image.rgba[i + c] =
-                            render::srgb_to_linear(asset->bytes[i + c] / constants::render::color_channel_max_float) *
-                            a;
-                    }
-                    image.rgba[i + 3] = a;
-                }
+                image = linear_texels(*asset, "background image");
                 found = &image;
                 name = "background image";
             } else {
@@ -1904,6 +1988,16 @@ namespace weft {
             }
             auto shape = commands ? commands->shape : round_box(n.box[2], n.box[3], radii);
             if (!empty) {
+                // border-image: its pieces instead of the border styles (scene_border_image.hpp).
+                std::vector<SceneBorderImagePiece> border_pieces;
+                if (n.border_image && n.border_image->width && n.border_image->height) {
+                    try {
+                        border_pieces = scene_border_image(n.style, n.box[2], n.box[3], float(n.border_image->width),
+                                                           float(n.border_image->height));
+                    } catch (const std::invalid_argument& e) {
+                        fail(e.what());
+                    }
+                }
                 shadow(n, radii, false);
                 auto background = paint_color(n, constants::scene::paint_slot_background_color,
                                               get(n.style, PropertyId::BackgroundColor, "transparent"));
@@ -1935,8 +2029,9 @@ namespace weft {
                 gradient(n, shape.Get());
                 host_texture(n);
                 shadow(n, radii, true);
+                border_image(n, border_pieces);
                 // Dotted and dashed sides as Chrome draws them, laid out on the target's pixels, before the solid sides.
-                {
+                if (border_pieces.empty()) {
                     const auto placed = matrix();
                     const bool aligned = std::abs(placed._12) < 1e-6f && std::abs(placed._21) < 1e-6f;
                     const std::array<double, 4> device =
@@ -1994,7 +2089,7 @@ namespace weft {
                 const bool geometry_border =
                     gpu_target && std::hypot(current._11, current._12) + std::hypot(current._21, current._22) <=
                                       constants::scene::max_geometry_transform_scale;
-                if (has_border) {
+                if (has_border && border_pieces.empty()) {
                     ComPtr<ID2D1Layer> border_clip;
                     if (!geometry_border) {
                         border_clip = layer();

@@ -208,6 +208,7 @@ namespace weft {
         out.style[PropertyId::BackgroundColor] = "transparent";
         out.style[PropertyId::BackgroundImage] = "none";
         out.style[PropertyId::BoxShadow] = "none";
+        out.border_image.reset();
         for (const auto id : {PropertyId::BorderTopWidth, PropertyId::BorderRightWidth, PropertyId::BorderBottomWidth,
                               PropertyId::BorderLeftWidth}) {
             out.style[id] = "0";

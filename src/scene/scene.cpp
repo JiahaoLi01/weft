@@ -2,6 +2,7 @@
 #include "scene/scene_values.hpp"
 #include "constants/style.hpp"
 #include "scene/scene_background.hpp"
+#include "scene/scene_border_image.hpp"
 #include "base/css_scalar.hpp"
 #include "base/owner_thread.hpp"
 #include "constants/scene.hpp"
@@ -1296,6 +1297,13 @@ namespace weft {
         for (const auto* corner : {"top-left", "top-right", "bottom-right", "bottom-left"}) {
             p.properties[std::string("border-") + corner + "-radius"] = {"0", false, CssGrammar::Tokens, {}};
         }
+        // border-image (CSS Backgrounds 3 §6): a url() image sliced in nine and drawn over the border area instead of
+        // the border styles (scene_border_image.hpp).
+        p.properties["border-image-source"] = {"none", false, CssGrammar::Tokens, {}};
+        p.properties["border-image-slice"] = {"100%", false, CssGrammar::Tokens, {}};
+        p.properties["border-image-width"] = {"1", false, CssGrammar::Tokens, {}};
+        p.properties["border-image-outset"] = {"0", false, CssGrammar::Tokens, {}};
+        p.properties["border-image-repeat"] = {"stretch", false, CssGrammar::Tokens, {}};
         if (forgiving) {
             // A document's head and its non-rendered elements, as a browser's UA sheet hides them.
             p.ua_stylesheet += "head,style,script,title,meta,link,template,noscript,base{display:none}";
@@ -1842,6 +1850,35 @@ namespace weft {
                     out.background_image = images->image(*url);
                 }
             }
+            // border-image-source: a url() image, drawn in nine pieces instead of the border styles
+            // (scene_border_image.hpp). What the scene cannot draw is a forgiving page's warning (its border styles
+            // draw) and a strict page's error; repeat, round and space draw as stretch.
+            if (const auto source = get(out.style, PropertyId::BorderImageSource, "none"); source != "none") {
+                std::string problem;
+                const auto url = scene_values::image_url(source);
+                if (!url || url->empty()) {
+                    problem = "border-image-source " + source + " (the scene draws a url() image)";
+                } else if (!images) {
+                    problem = "border-image-source url(" + *url + ") without images";
+                } else {
+                    try {
+                        (void)scene_border_image(out.style, 1, 1, 1, 1);
+                    } catch (const std::invalid_argument& e) {
+                        problem = e.what();
+                    }
+                }
+                if (problem.empty()) {
+                    if (!scene_border_image_stretches(out.style)) {
+                        warn("border-image-repeat " + get(out.style, PropertyId::BorderImageRepeat) +
+                             " drawn as stretch");
+                    }
+                    out.border_image = images->image(*url);
+                } else if (forgiving) {
+                    warn(problem);
+                } else {
+                    fail(problem);
+                }
+            }
             const bool shown = !hidden && get(out.style, PropertyId::Display) != "none";
             emit(out, st, id, c, shown);
             // backdrop-filter: the functions the scene takes, on an HTML element or an svg root.
@@ -1888,7 +1925,8 @@ namespace weft {
                                   last.style != out.style || bool(last.paint) != bool(out.paint) ||
                                   (last.paint && out.paint && last.paint->values != out.paint->values) ||
                                   !scene_effect_equal(last.effect, out.effect) ||
-                                  last.background_image != out.background_image || last.particles != out.particles;
+                                  last.background_image != out.background_image ||
+                                  last.border_image != out.border_image || last.particles != out.particles;
             return {shown, inline_context, mixed};
         }
 
@@ -3478,6 +3516,11 @@ namespace weft {
                                       PropertyId::BorderBottomColor,
                                       PropertyId::BorderLeftColor,
                                       PropertyId::BorderColor,
+                                      PropertyId::BorderImageOutset,
+                                      PropertyId::BorderImageRepeat,
+                                      PropertyId::BorderImageSlice,
+                                      PropertyId::BorderImageSource,
+                                      PropertyId::BorderImageWidth,
                                       PropertyId::BorderRadius,
                                       PropertyId::BorderTopLeftRadius,
                                       PropertyId::BorderTopRightRadius,

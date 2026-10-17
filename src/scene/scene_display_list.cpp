@@ -1,5 +1,6 @@
 #include "scene/scene_display_list.hpp"
 #include "scene/scene_background.hpp"
+#include "scene/scene_border_image.hpp"
 #include "scene/scene_gradient.hpp"
 #include "scene/scene_geometry.hpp"
 #include "scene/scene_path.hpp"
@@ -865,6 +866,19 @@ namespace weft {
                     ++k;
                 }
                 bordered = bordered && !empty;
+                // border-image: its pieces instead of the border styles (scene_border_image.hpp); the border widths
+                // still give the background its boxes.
+                std::vector<SceneBorderImagePiece> border_pieces;
+                if (!empty && n.border_image && n.border_image->width && n.border_image->height) {
+                    border_pieces = scene_border_image(n.style, item.width, item.height, float(n.border_image->width),
+                                                       float(n.border_image->height));
+                }
+                if (!border_pieces.empty()) {
+                    box.widths = {};
+                    box.edges = {};
+                    bordered = false;
+                    dashed_widths = {};
+                }
                 const bool dashed = !empty && std::any_of(dashed_widths.begin(), dashed_widths.end(), [](float w) {
                     return w > 0;
                 });
@@ -902,7 +916,7 @@ namespace weft {
                 const bool fitted = !empty && (!host_texture.empty() || n.background_image);
                 const bool painted =
                     !empty && (box.background[3] > 0 || box.gradient.kind != paint::GradientKind::None || bordered ||
-                               dashed || n.effect || fitted);
+                               dashed || n.effect || fitted || !border_pieces.empty());
                 // Shadows of the border box with its corners as specified, as the reference raster draws them.
                 const auto shadows =
                     empty ? std::vector<scene_values::BoxShadow>{}
@@ -1161,6 +1175,47 @@ namespace weft {
                         over.background = {};
                         over.gradient = {};
                         add_box(over);
+                    }
+                }
+                // The border image's pieces over the background and inset shadows, where the border styles would be:
+                // each a slice of the image (its uv) stretched over its place, laid out as a fitted image of one tile
+                // the piece's size and snapped to device pixels as an image is (neighbouring pieces share their edges).
+                if (!border_pieces.empty()) {
+                    const float iw = float(n.border_image->width);
+                    const float ih = float(n.border_image->height);
+                    const auto asset = index_of(list.assets, n.border_image);
+                    const bool snapped = axis_aligned(m) && m[0] > 0 && m[3] > 0;
+                    const auto snap = [&](float px) {
+                        return std::round(px * scale) / scale;
+                    };
+                    for (const auto& piece : border_pieces) {
+                        auto shape = item;
+                        shape.kind = paint::Item::Kind::Image;
+                        shape.transform = multiply(m, {1, 0, 0, 1, piece.target[0], piece.target[1]});
+                        shape.width = piece.target[2];
+                        shape.height = piece.target[3];
+                        if (snapped) {
+                            const float left = snap(m[4] + m[0] * piece.target[0]);
+                            const float top = snap(m[5] + m[3] * piece.target[1]);
+                            shape.transform = {m[0], 0, 0, m[3], left, top};
+                            shape.width = (snap(m[4] + m[0] * (piece.target[0] + piece.target[2])) - left) / m[0];
+                            shape.height = (snap(m[5] + m[3] * (piece.target[1] + piece.target[3])) - top) / m[3];
+                        }
+                        if (shape.width <= 0 || shape.height <= 0) {
+                            continue;
+                        }
+                        paint::Image image;
+                        image.asset = asset;
+                        image.fitted = true;
+                        image.uv = {piece.source[0] / iw, piece.source[1] / ih, piece.source[2] / iw,
+                                    piece.source[3] / ih};
+                        image.fit.area = {0, 0, shape.width, shape.height};
+                        image.fit.scale = paint::TextureFit::Scale::Lengths;
+                        image.fit.size = {shape.width, shape.height};
+                        image.fit.repeat = {paint::TextureFit::Repeat::NoRepeat, paint::TextureFit::Repeat::NoRepeat};
+                        shape.payload = std::uint32_t(list.images.size());
+                        list.images.push_back(image);
+                        list.items.push_back(shape);
                     }
                 }
                 // The element's particles over its background and borders, under its content, unclipped by its own

@@ -16,6 +16,17 @@
 
 ## 本次已实现
 
+边框图片，以及 CRPG 页面在游戏里暴露的五处层叠、布局与绘制的错误（2026-10-17，`weft-dev` 分支；CRPG 的 UI 在 UE 里跑起来之后）。
+- **起因**：CRPG 的页面在游戏里（UE 的 `-game` 进程，界面截图走 Slate 自己的读回）与 `weft_page_runner` 里逐页对照：所有 Tailwind 边框都是文字色（`border-amber-500` 不起作用）；右上角“结束轮次”按钮的最后一个字换行；工具提示演示的第三张卡片压在图例上；设置页的两块雕花边框（`border-image`）是两圈米色粗框。
+- **实现**：
+  - 层叠：`border-color` 是一到四个值的盒简写，在层叠里展开成 `border-<side>-color`（同 `border-width`、`border-style`）。此前它整个进层叠，到构建 scene 时才填进没有被设过的边，Tailwind 预置样式 `*, ::after, ::before { border: 0 solid }` 设过每条边的颜色，于是优先级更高的 `.border-amber-500` 总是输。`transition-property` 里的简写（`border-color`、`border`、`border-<side>`、`border-width`、`border-style`、`border-radius`、`margin`、`padding`、`inset`、`gap`、`background`）启动其分量的过渡（CSS Transitions 1 §2.1；Tailwind 的 `transition-colors` 写的是 `border-color`）。
+  - 行内排版：可用宽度取到最近的 LayoutUnit（此前截断）。收缩适应的盒是文字的最大内容宽度加内边距与边框，文字在盒减去这些边（浮点）里排，浮点误差让它少一个 LayoutUnit，最后一个词就换行。
+  - 绘制：没有面积的盒（宽或高为 0）不再连子孙一起跳过：自己什么也不画，子项与文字照画，除非它裁剪（`overflow` 不是 `visible`、svg 视口、透视平面）——高度为 0 的 body 里绝对定位的子项此前不画。显示列表与 D2D 参考光栅一样（`scene_shows_overflow`）。
+  - 布局：列方向的 flex 项基准与高度都是自动时不收缩（`flex-shrink: 0`），因为基准就是它在自己宽度下的内容高度，自动最小值也是。此前自动最小值取最大内容宽度下的高度，换行的行（`flex flex-wrap`）只算一行，短的列里它缩到一行高，第二行压到下一项上。
+  - `border-image`（`src/scene/scene_border_image.*`）：见 [兼容性](compatibility.md) 的“边框图片”一行。scene 着色器的适配图片按 `uv` 那一块的纹素算边缘夹取（背景图的 `uv` 是整张，不变）。
+- **验证**（Release）：`style_forgiving_contract` 的 `borders`（预置样式之后的单值、`var()`、两个值、之后的单边）；`scene_transition_contract` 的 `shorthand_names`；`scene_inline_contract` 加收缩适应的盒在六种小数内边距下一行（去掉修复时 `End turn` 换行）与没有高度的包装盒的溢出（显示列表一个盒、参考光栅画出；裁剪时都没有）；`box_layout_contract` 的 `wrapping_row_keeps_its_lines`；`scene_background_contract` 的 `border_image_geometry`（九块、无 fill、百分比、宽度与 auto、重叠时缩小、外扩、诊断）与 `border_images_drawn`（三种边框图片，原生 pass 与参考光栅在每块里逐像素对照，缩放 1 与 2，差不超过 2 级）。行内、溢出与 flex 三项核对过去掉修复时失败，层叠一项先在页面运行器里复现过。全量 ctest 174 项：除既有的 14 项（CRLF 换行改变了固定 fixture 的 hash）外通过。CRPG 的设置页、按钮、工具提示演示在游戏里与页面运行器里画对。
+- **限制**：`border-image-repeat` 只有 `stretch`；`::before`/`::after`、`outline`、`visibility`、`text-decoration`、`overflow-wrap`/`word-break`、ruby 仍丢弃。
+
 宽松页面丢掉画不出的 filter，`translate`/`scale` 属性（2026-10-17，`weft-dev` 分支）。CRPG 字幕的光晕是 HTML 元素上的 `filter: blur(10px)`，scene 只画 svg 元素的单个 `drop-shadow()`，显示字幕的每一帧都回退而不画（游戏里界面会停在旧帧）；Tailwind v4 的 `-translate-x-1/2`、`scale-*` 写的是单独的 `translate`、`scale` 属性。
 - **实现**：宽松页面（`WEFT_PAGE_FORGIVING_CSS`）的元素上 scene 画不出的 `filter` 在构建 scene 时去掉，并发一条 `WEFT_STYLE_DROPPED: filter ... on <div> ...` 的诊断（同一消息一次），帧照常；严格页面不变。`translate`、`scale` 与原有的 `rotate` 一样并进 `transform`：先 translate、再 rotate、再 scale、最后 transform 的函数（CSS Transforms 2），`scale` 的百分比换成倍数，第三个值（z）不用。
 - **验证**：`web_platform_contract` 加 `filters`（诊断、元素没有 filter、帧照常）与 `transforms`（`translate:-50% 10px;scale:200% 1` 并成 `translate(-50%, 10px) scale(2, 1)`，getBoundingClientRect 为 80,110,80,20）。全量 ctest 174 项：160 项通过，14 项与此前相同。CRPG 的字幕帧画出（数字 Cinzel、拉丁 EB Garamond、假名 Shippori、汉字 LXGW）。
