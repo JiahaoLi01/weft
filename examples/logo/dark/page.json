@@ -1,0 +1,5 @@
+{
+  "scripts": ["variant.js", "../weft-logo.js"],
+  "stylesheet": "../weft-logo.css",
+  "keyframes": "../weft-logo-keyframes.css"
+}

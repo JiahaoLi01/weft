@@ -261,6 +261,13 @@ if(WIN32)
         LINK weft::scene_d3d11 weft::platform_win32 windowscodecs ole32 SOURCE_DIR)
     weft_add_test(NAME scene_border_browser_contract
         COMMAND weft_scene_border_browser_tests "${artifacts}/scene-border-$<CONFIG>" TIMEOUT 120)
+    # The logo pages (examples/logo) drawn by the native D3D11 pass against Chrome's frames of their animation
+    # (tools/browser_logo_reference.mjs, tests/fixtures/logo-reference).
+    weft_add_executable(weft_logo_reference_tests SOURCES logo_reference_tests.cpp
+        LINK weft::view weft::scene_d3d11 weft::platform_win32 windowscodecs ole32 SOURCE_DIR LARGE_STACK)
+    weft_add_test(NAME logo_browser_reference
+        COMMAND weft_logo_reference_tests "${artifacts}/logo-reference-$<CONFIG>" TIMEOUT 120)
+    weft_add_python_test(NAME logo_fixture_integrity SCRIPT tools/verify_logo_fixture.py)
     # Scene text styles and the CSS around them: synthetic oblique against Chrome's pixels, case mappings, viewport
     # lengths, overflow axes and diagnostics.
     weft_add_executable(weft_scene_text_style_tests SOURCES scene_text_style_tests.cpp

@@ -16,6 +16,15 @@
 
 ## 本次已实现
 
+weft 的 logo（2026-10-17，main；用户要求：动态 logo，深色、浅色、静态、彩色四个版本，用 weft 支持的内容实现）。见 [examples/logo](../examples/logo/README.md)。
+- **内容**：`examples/logo/` 的四个页面文件夹（`dark`、`light`、`color`、`static`）共用 `weft-logo.js`、`weft-logo.css`、`weft-logo-keyframes.css`。标志是三根经线与三根纬线的平纹，压在上面的线两侧留底色断开下面的线；字标 `weft` 用同样粗细的线写，f 与 t 共用的横笔从 f 上、t 下穿过。全部是 SVG 的线与路径描边（圆头、圆角连接），动画是 `stroke-dashoffset` 的关键帧：经线画出，纬线依次拉过，写字母，横笔拉过，约 2.4 秒，停在最后一帧。不用字体与图片。
+- **工具**：`tools/browser_logo_reference.mjs`（Chrome 无头、`probes/page_reference_clock.js`，`reference-cases.json` 的 10 帧 × 4 个版本，960 × 400）写 `tests/fixtures/logo-reference`；`tools/verify_logo_fixture.py` 检查截图与来源文件的散列。
+- **验证**（Release，RTX 5090 机器）：
+  - `logo_browser_reference`（新，`tests/logo_reference_tests.cpp`，View 加原生 D3D11 pass，WARP）：40 帧对 Chrome 155.0.8059.80 都通过，一帧里超过 32 级差的像素最多 0.040%（限 0.5%），平均差至多 0.07 级，最大差 90 级（曲线边缘的抗锯齿）。`logo_fixture_integrity`（新）：50 个 SHA256。
+  - `weft_page_runner`（硬件 D3D11）画四个版本 200 帧：没有诊断，与 Chrome 的截图同样一致。
+  - 变异检查：纬线在经线上的规则取反，40 帧中 31 帧失败、来源散列检查失败；纬线晚 0.1 秒拉过，三个动画版本的第 60 帧失败。
+- **未验证**：D3D12、Vulkan 后端与 UE、Unity 插件里画 logo（同一个 scene，没有逐帧对照）；Android。
+
 scene 的 transition 简写与列表配对；样式表的加载错误（2026-10-17，main；Unity 插件写示例页面时发现：样式表里的 `transition` 简写让 `weft_view_load` 返回 `WEFT_INVALID_ARGUMENT`，没有任何诊断；时长列表 `transition-duration: 0.15s, 0.1s` 能加载，但一开始过渡就是 scene 诊断 `finite numeric value 0.15s, 0.1`，整帧被拒）。详见 [兼容](compatibility.md)“2026-10-17：scene 的 transition”。
 - **原因**：scene 的 profile 没有 `transition` 简写，`CompiledStyle` 在 `SceneSolver` 的构造里抛出 `WEFT_STYLE_PROFILE: unsupported property transition`；它在 `View::load` 捕获脚本错误的 try 之外，`failure()` 把它当作 `std::invalid_argument` 映射成 `WEFT_INVALID_ARGUMENT`，消息丢失。scene 的过渡对每个列表只取整串文字：`duration("0.15s, 0.1s")` 不是一个时间。
 - **实现**：
