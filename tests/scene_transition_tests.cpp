@@ -471,12 +471,35 @@ namespace {
                     "and runs for its own duration");
         }
     }
+
+    // A shorthand in transition-property starts the transitions of its longhands (CSS Transitions 1 §2.1): Tailwind's
+    // transition-colors names border-color, and the scene has only the sides' colors.
+    void shorthand_names() {
+        for (const std::string name : {"border-color", "border", "border-top"}) {
+            Change change(".t{width:40px;height:20px;border:2px solid #204080;transition-property:" + name +
+                          ";transition-duration:100ms;transition-timing-function:linear}.t.on{border-color:#e0c010}");
+            const auto at = change.samples({0, 50, 200});
+            // #204080 to #e0c010: the red channel goes from 32 to 224.
+            const auto red = [&](std::size_t i) {
+                return channels(at[i].at("border-top-color"))[0];
+            };
+            require(std::abs(red(1) - 128) < 2,
+                    name + " transitions border-top-color: " + at[1].at("border-top-color"));
+            require(std::abs(red(2) - 224) < 1, name + " ends at the target: " + at[2].at("border-top-color"));
+        }
+        Change other(".t{width:40px;height:20px;border:2px solid #204080;transition-property:border-width;"
+                     "transition-duration:100ms}.t.on{border-color:#e0c010}");
+        const auto at = other.samples({0, 50});
+        require(std::abs(channels(at[1].at("border-top-color"))[0] - 224) < 1,
+                "border-width does not transition the colors");
+    }
 } // namespace
 
 int main() {
     try {
         shorthand();
         ending();
+        shorthand_names();
         chrome();
         random_lists();
         std::cout << "scene transitions: passed\n";

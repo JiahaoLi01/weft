@@ -264,6 +264,28 @@ namespace {
         same(r.value("p", PropertyId::Height), "5px", "declarations in a nested @media");
     }
 
+    // border-color is a box shorthand of the sides' colors: each side cascades with the same side of the other rules, so
+    // a class's border-color beats the side colors of a less specific `border: 0 solid` (Tailwind's preflight).
+    void borders() {
+        const std::string sheet = "*, ::after, ::before { border: 0 solid }"
+                                  ":root { --c: #ff0000 }"
+                                  ".b { border-width: 1px }"
+                                  ".one { border-color: #00ff00 }"
+                                  ".var { border-color: var(--c) }"
+                                  ".two { border-color: #ff0000 #0000ff }"
+                                  ".side { border-color: #ff0000; border-left-color: #0000ff }";
+        const auto r = cascade(sheet, el("html", "root", "",
+                                         {el("div", "one", "b one"), el("div", "var", "b var"),
+                                          el("div", "two", "b two"), el("div", "side", "b side")}));
+        same(r.value("one", PropertyId::BorderTopColor), "#00ff00", "a class's border-color beats the reset's");
+        same(r.value("one", PropertyId::BorderLeftColor), "#00ff00", "on every side");
+        same(r.value("var", PropertyId::BorderBottomColor), "#ff0000", "through var()");
+        same(r.value("two", PropertyId::BorderBottomColor), "#ff0000", "two values: top and bottom");
+        same(r.value("two", PropertyId::BorderRightColor), "#0000ff", "two values: right and left");
+        same(r.value("side", PropertyId::BorderLeftColor), "#0000ff", "a later side longhand beats the shorthand");
+        same(r.value("side", PropertyId::BorderTopColor), "#ff0000", "the other sides keep the shorthand's");
+    }
+
     // What the profile cannot take is dropped with a warning; the rest of the sheet and of the rule stays. A strict
     // profile still fails the sheet.
     void drops() {
@@ -307,9 +329,10 @@ int main() {
         math_and_logical();
         selectors();
         nesting();
+        borders();
         drops();
         std::cout << "PASS forgiving CSS: cascade layers, @media/@supports, @property, colors, calc, logical "
-                     "properties, Selectors 4, nesting and drops with warnings\n";
+                     "properties, Selectors 4, nesting, border-color per side and drops with warnings\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

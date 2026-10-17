@@ -912,7 +912,11 @@ namespace weft {
                     }
                 } else if (profile.four_value_edges &&
                            (key == "padding" || key == "margin" || key == "border-width" ||
-                            (key == "border-style" && profile.properties.contains("border-top-style")))) {
+                            (key == "border-style" && profile.properties.contains("border-top-style")) ||
+                            (key == "border-color" && profile.properties.contains("border-top-color")))) {
+                    // A box shorthand of one to four values, top, right, bottom, left, as its longhands: each cascades
+                    // with the same side's longhand of the other rules (a class's border-color beats the side colors
+                    // a less specific `border: 0 solid` sets).
                     int edge{};
                     for (const auto* side : {"top", "right", "bottom", "left"}) {
                         const auto name = key.starts_with("border-")
@@ -3995,7 +3999,7 @@ namespace weft {
                         auto tokens = substitute(d.tokens, resolve);
                         if (tokens && d.box_edge >= 0 && !wide(keyword(*tokens))) {
                             if (tokens->empty() || tokens->size() > 4) {
-                                fail("box shorthand needs one to four lengths");
+                                fail("box shorthand needs one to four values");
                             }
                             static constexpr int edge_indices[4][4] = {
                                 {0, 0, 0, 0}, {0, 1, 0, 1}, {0, 1, 2, 1}, {0, 1, 2, 3}};

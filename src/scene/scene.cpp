@@ -856,10 +856,46 @@ namespace weft {
             return items;
         }
 
-        // The item that transitions a property: the last that names it or all.
+        // Whether a transition-property name covers a longhand: all, the longhand, or a shorthand of it (CSS
+        // Transitions 1 §2.1: a shorthand starts the transitions of its longhands) — Tailwind's transition-colors names
+        // border-color, and the scene has only the side colors.
+        bool transition_covers(std::string_view name, std::string_view property) {
+            if (name == "all" || name == property) {
+                return true;
+            }
+            if (name == "margin" || name == "padding" || name == "background") {
+                return property.size() > name.size() && property.starts_with(name) && property[name.size()] == '-';
+            }
+            if (name == "inset") {
+                return property == "top" || property == "right" || property == "bottom" || property == "left";
+            }
+            if (name == "gap") {
+                return property == "row-gap" || property == "column-gap";
+            }
+            if (name == "border-radius") {
+                return property.starts_with("border-") && property.ends_with("-radius");
+            }
+            // border, border-<side> and border-width / -style / -color: the sides' widths, styles and colors.
+            constexpr std::string_view border = "border-";
+            if (name != "border" && !name.starts_with(border)) {
+                return false;
+            }
+            const auto rest = name == "border" ? std::string_view{} : name.substr(border.size());
+            for (const std::string_view side : {"top", "right", "bottom", "left"}) {
+                for (const std::string_view part : {"width", "style", "color"}) {
+                    if (property == std::string(border) + std::string(side) + "-" + std::string(part) &&
+                        (rest.empty() || rest == side || rest == part)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        // The item that transitions a property: the last that names it, a shorthand of it or all.
         const TransitionItem* transition_item(const std::vector<TransitionItem>& items, std::string_view property) {
             for (auto i = items.rbegin(); i != items.rend(); ++i) {
-                if (i->property == "all" || i->property == property) {
+                if (transition_covers(i->property, property)) {
                     return &*i;
                 }
             }
