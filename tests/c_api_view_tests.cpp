@@ -212,6 +212,14 @@ namespace {
         face = {sizeof(weft_font_face), 400, 2, 0, "Ahem", 4, "x.ttf", 5};
         require(weft_runtime_add_font(r.runtime, &face) == WEFT_INVALID_ARGUMENT, "italic 2");
         face = {sizeof(weft_font_face), 400, 0, 0, "", 0, "x.ttf", 5};
+        require(weft_runtime_add_font(r.runtime, &face) == WEFT_INVALID_ARGUMENT, "a face without a family");
+        face = {sizeof(weft_font_face), 400, 0, 0, "Ahem", 4, "x.ttf", 5, "U+30-", 5};
+        require(weft_runtime_add_font(r.runtime, &face) == WEFT_INVALID_ARGUMENT, "a unicode-range that is none");
+        face = {sizeof(weft_font_face), 400, 0, 0, "Ahem", 4, "x.ttf", 5, nullptr, 3};
+        require(weft_runtime_add_font(r.runtime, &face) == WEFT_INVALID_ARGUMENT, "a unicode-range's text missing");
+        face = {offsetof(weft_font_face, unicode_range) + 8, 400, 0, 0, "Ahem", 4, "x.ttf", 5};
+        require(weft_runtime_add_font(r.runtime, &face) == WEFT_INVALID_ARGUMENT, "a size inside unicode_range");
+        face = {sizeof(weft_font_face), 400, 0, 0, "", 0, "x.ttf", 5};
         require(weft_runtime_add_font(r.runtime, &face) == WEFT_INVALID_ARGUMENT, "no family");
         require(weft_runtime_set_generic_family(r.runtime, "math", 4, "Ahem", 4) == WEFT_INVALID_ARGUMENT,
                 "an unknown generic family");
@@ -221,6 +229,11 @@ namespace {
         const auto ahem = std::string(WEFT_SOURCE_DIR) + "/third_party/ahem/Ahem.ttf";
         face = {sizeof(weft_font_face), 400, 0, 0, "Ahem", 4, ahem.data(), ahem.size()};
         require(weft_runtime_add_font(r.runtime, &face) == WEFT_OK, "a font file");
+        face.unicode_range = "U+0-7F";
+        face.unicode_range_size = 6;
+        require(weft_runtime_add_font(r.runtime, &face) == WEFT_OK, "a face with a unicode-range");
+        face.struct_size = offsetof(weft_font_face, unicode_range);
+        require(weft_runtime_add_font(r.runtime, &face) == WEFT_OK, "a face of the earlier ABI");
         require(load(r, view, inline_page("1")) == WEFT_OK, "a page");
         require(weft_runtime_add_font(r.runtime, &face) == WEFT_BUSY &&
                     weft_runtime_add_fallback_family(r.runtime, "Ahem", 4) == WEFT_BUSY,

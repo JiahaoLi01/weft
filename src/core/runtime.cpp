@@ -5,9 +5,11 @@
 #include <constants/bridge.hpp>
 #include <constants/core.hpp>
 #include <constants/view.hpp>
+#include <scene/scene_effects.hpp>
 #include <scene/scene_text.hpp>
 #include <view/view.hpp>
 #include <view/view_abi.hpp>
+#include <view/view_images.hpp>
 #if defined(_WIN32)
 #include <platform/win32/system_fonts.hpp>
 #elif defined(__ANDROID__)
@@ -99,6 +101,8 @@ struct weft_runtime {
     weft::FontCatalog catalog;
     std::shared_ptr<const weft::FontCatalog> fonts;
     std::unique_ptr<weft::SceneText> text;
+    // The UI shader effects the host registered; every View's scenes read them.
+    weft::SceneEffects effects;
 };
 
 struct weft_value_writer {
@@ -355,10 +359,23 @@ extern "C" weft_result weft_runtime_add_font(weft_runtime* runtime, const weft_f
     }
     std::string_view family;
     std::string_view path;
-    if (!face || face->struct_size < sizeof(weft_font_face) || !text_arg(face->family, face->family_size, family) ||
-        !text_arg(face->path, face->path_size, path) || family.empty() || path.empty() || face->weight < 1 ||
-        face->weight > 1000 || face->italic > 1 || !weft::bridge::utf8(family) || !weft::bridge::utf8(path)) {
+    std::string_view range;
+    // A face of the earlier ABI ends before unicode_range.
+    const bool ranged = face && face->struct_size >= sizeof(weft_font_face);
+    if (!face || (!ranged && face->struct_size != offsetof(weft_font_face, unicode_range)) ||
+        !text_arg(face->family, face->family_size, family) || !text_arg(face->path, face->path_size, path) ||
+        (ranged && !text_arg(face->unicode_range, face->unicode_range_size, range)) || family.empty() || path.empty() ||
+        face->weight < 1 || face->weight > 1000 || face->italic > 1 || !weft::bridge::utf8(family) ||
+        !weft::bridge::utf8(path)) {
         return WEFT_INVALID_ARGUMENT;
+    }
+    std::vector<weft::UnicodeRange> ranges;
+    if (!range.empty()) {
+        auto parsed = weft::parse_unicode_range(range);
+        if (!parsed) {
+            return WEFT_INVALID_ARGUMENT;
+        }
+        ranges = std::move(*parsed);
     }
     return guarded([&] {
         weft::FontFaceEntry entry;
@@ -367,7 +384,100 @@ extern "C" weft_result weft_runtime_add_font(weft_runtime* runtime, const weft_f
         entry.italic = face->italic != 0;
         entry.source.path = std::filesystem::path(std::u8string(path.begin(), path.end()));
         entry.source.face_index = face->face_index;
+        entry.unicode_range = std::move(ranges);
         runtime->catalog.faces.push_back(std::move(entry));
+        return WEFT_OK;
+    });
+}
+
+extern "C" weft_result weft_runtime_add_effect(weft_runtime* runtime, const weft_effect_desc* effect) {
+    if (const auto error = validate_owner(runtime); error != WEFT_OK) {
+        return error;
+    }
+    std::string_view name;
+    if (!effect || effect->struct_size < sizeof(weft_effect_desc) || effect->animated > 1 ||
+        !text_arg(effect->name, effect->name_size, name) || name.empty() || !weft::bridge::utf8(name) ||
+        effect->parameter_count > weft::constants::max_effect_parameters ||
+        effect->texture_count > weft::constants::max_effect_textures ||
+        (effect->parameter_count && !effect->parameters) || (effect->texture_count && !effect->textures) ||
+        (!effect->dxbc_encoded && effect->dxbc_encoded_size) || (!effect->dxbc_linear && effect->dxbc_linear_size) ||
+        (!effect->spirv_encoded && effect->spirv_encoded_size) ||
+        (!effect->spirv_linear && effect->spirv_linear_size)) {
+        return WEFT_INVALID_ARGUMENT;
+    }
+    return guarded([&] {
+        auto program = std::make_shared<weft::paint::EffectProgram>();
+        program->name = std::string(name);
+        program->parameters = effect->parameter_count;
+        program->textures = effect->texture_count;
+        program->animated = effect->animated != 0;
+        for (uint32_t i = 0; i < effect->parameter_count; ++i) {
+            const auto& p = effect->parameters[i];
+            std::string_view parameter;
+            std::string_view initial;
+            if (!text_arg(p.name, p.name_size, parameter) || parameter.empty() || !weft::bridge::utf8(parameter) ||
+                !text_arg(p.initial, p.initial_size, initial) || !weft::bridge::utf8(initial) ||
+                p.type < WEFT_EFFECT_NUMBER || p.type > WEFT_EFFECT_COLOR || p.reserved) {
+                return WEFT_INVALID_ARGUMENT;
+            }
+            program->named_parameters.push_back({std::string(parameter),
+                                                 weft::paint::EffectParameter::Type(p.type - WEFT_EFFECT_NUMBER),
+                                                 std::string(initial)});
+        }
+        std::vector<std::shared_ptr<const weft::paint::Asset>> textures;
+        for (uint32_t i = 0; i < effect->texture_count; ++i) {
+            const auto& t = effect->textures[i];
+            std::string_view texture;
+            const auto kind = t.format & ~WEFT_EFFECT_TEXTURE_PNG;
+            const bool png = (t.format & WEFT_EFFECT_TEXTURE_PNG) != 0;
+            if (!text_arg(t.name, t.name_size, texture) || texture.empty() || !weft::bridge::utf8(texture) ||
+                (kind != WEFT_EFFECT_TEXTURE_DATA && kind != WEFT_EFFECT_TEXTURE_SRGB) || !t.bytes || !t.size ||
+                t.reserved || (png && (t.width || t.height))) {
+                return WEFT_INVALID_ARGUMENT;
+            }
+            program->named_textures.emplace_back(texture);
+            weft::paint::Asset asset;
+            const auto* bytes = static_cast<const std::uint8_t*>(t.bytes);
+            if (png) {
+                auto decoded = weft::view_decode_png({bytes, t.size});
+                if (!decoded) {
+                    return WEFT_INVALID_ARGUMENT;
+                }
+                asset = std::move(*decoded);
+                if (kind == WEFT_EFFECT_TEXTURE_DATA) {
+                    std::vector<std::uint8_t> red(std::size_t(asset.width) * asset.height);
+                    for (std::size_t p = 0; p < red.size(); ++p) {
+                        red[p] = asset.bytes[p * 4];
+                    }
+                    asset.bytes = std::move(red);
+                    asset.encoding = weft::paint::Encoding::Coverage;
+                }
+            } else {
+                const std::size_t texels = std::size_t(t.width) * t.height;
+                const std::size_t expected = kind == WEFT_EFFECT_TEXTURE_DATA ? texels : texels * 4;
+                if (!t.width || !t.height || t.width > weft::constants::view::max_image_side ||
+                    t.height > weft::constants::view::max_image_side || t.size != expected) {
+                    return WEFT_INVALID_ARGUMENT;
+                }
+                asset.width = t.width;
+                asset.height = t.height;
+                asset.encoding = kind == WEFT_EFFECT_TEXTURE_DATA ? weft::paint::Encoding::Coverage
+                                                                  : weft::paint::Encoding::SrgbStraight;
+                asset.bytes.assign(bytes, bytes + t.size);
+            }
+            textures.push_back(std::make_shared<const weft::paint::Asset>(std::move(asset)));
+        }
+        const auto bytecode = [](const void* data, size_t size) {
+            const auto* p = static_cast<const std::uint8_t*>(data);
+            return size ? std::vector<std::uint8_t>(p, p + size) : std::vector<std::uint8_t>{};
+        };
+        program->d3d11_encoded = bytecode(effect->dxbc_encoded, effect->dxbc_encoded_size);
+        program->d3d11_linear = bytecode(effect->dxbc_linear, effect->dxbc_linear_size);
+        program->spirv_encoded = bytecode(effect->spirv_encoded, effect->spirv_encoded_size);
+        program->spirv_linear = bytecode(effect->spirv_linear, effect->spirv_linear_size);
+        if (!runtime->effects.add(std::string(name), std::move(program), std::move(textures))) {
+            return WEFT_INVALID_ARGUMENT;
+        }
         return WEFT_OK;
     });
 }
@@ -558,6 +668,7 @@ extern "C" weft_result weft_view_load(weft_runtime* runtime, weft_view_handle vi
             }
             entry->view->set_resource_reader(resource_reader(*entry));
             entry->view->set_local_storage(entry->storage);
+            entry->view->set_effects(&runtime->effects);
         }
         entry->view->load(content);
         return WEFT_OK;

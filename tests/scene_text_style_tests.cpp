@@ -192,8 +192,8 @@ int main() {
                     "diagnostic: viewport lengths in keyframes (got " + message + ")");
         }
 
-        // Overflow axes: one axis that clips makes the box clip (visible beside it is auto, whose content must
-        // fit); clip and scroll stay diagnostics. -webkit-user-select is accepted and does nothing.
+        // Overflow axes: one axis that clips makes the box clip (visible beside it is auto); clip and scroll stay as
+        // written, another value is a diagnostic. -webkit-user-select is accepted and does nothing.
         {
             const auto overflow_of = [&](const std::string& style, const std::string& child) {
                 weft::testing::NativeScene s;
@@ -217,8 +217,11 @@ int main() {
                 require(message.find(expected) != std::string::npos,
                         "diagnostic: " + expected + " (got " + message + ")");
             };
-            refused("overflow-y:auto", "height:80px", "scene scrolling outside supported non-overflowing auto profile");
-            refused("overflow-x:clip", "height:20px", "overflow:clip");
+            require(overflow_of("overflow-y:auto", "height:80px") == "auto" &&
+                        overflow_of("overflow-x:clip", "height:20px") == "clip" &&
+                        overflow_of("overflow:scroll", "height:80px") == "scroll",
+                    "an overflowing auto box, clip and scroll");
+            refused("overflow-y:overlay", "height:20px", "overflow:overlay");
         }
 
         // The background shorthand cascades as its color and image: an inline background-color beats a sheet's

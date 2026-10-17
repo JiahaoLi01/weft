@@ -5,7 +5,7 @@
 //
 //   weft_page_runner --page <dir> [--timeline <file.json>] [--fonts <file.json>] [--size 1920x1080] [--scale 1]
 //                    [--fps 60] [--frames N] [--out <dir>] [--warp] [--background #rrggbb] [--render-every N]
-//                    [--storage <file.json>]
+//                    [--storage <file.json>] [--slow 100] [--effects <file.json>]
 //
 // The page is a folder as hosts load it: page.json ({"scripts": [...], "stylesheet": "...", "keyframes": "...", "root":
 // "...", "crpgBridge": false, "forgivingCss": false, "webPlatform": false}, paths relative to the folder), or page.js
@@ -30,7 +30,15 @@
 //
 // The fonts file lists faces the runtime gets before the page loads, paths relative to the file:
 //   {"faces": [{"family": "Noto Serif SC", "path": "fonts/NotoSerifSC.ttf", "weight": 400, "italic": false,
+//               "unicodeRange": "U+0-10FFFF",
 //               "face": 0}], "fallback": ["Noto Serif SC"]}
+//
+// The effects file lists the UI shader effects the runtime gets (cmake/compile_effect.cmake compiled their bytecode to
+// <bytecode>.encoded.dxbc, .linear.dxbc and the .spv ones), paths relative to the file:
+//   {"effects": [{"name": "crpg-smoke", "bytecode": "fx/crpg-smoke", "animated": true,
+//                 "parameters": [{"name": "smoke-scales", "type": "vec4", "initial": "7.2 2.8 0.1 0.3"}],
+//                 "textures": [{"name": "cloud", "path": "cloud.png", "format": "data"}]}]}
+// (type number, vec2, vec3, vec4 or color; a texture's format data, its PNG's red channel, or srgb).
 //
 // Prints [load], [diag:<kind>], [send], [call], [hit], [shot] and [render] lines, then the advance times. Exits 0 when
 // the page loaded, 1 when it did not (or an argument was wrong), 77 without a D3D11 device for a shot.
@@ -51,6 +59,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -920,6 +929,7 @@ namespace {
         std::filesystem::path page;
         std::filesystem::path timeline;
         std::filesystem::path fonts;
+        std::filesystem::path effects;
         std::filesystem::path out = "page-runner-out";
         float width = 1920;
         float height = 1080;
@@ -930,6 +940,7 @@ namespace {
         unsigned render_every{};
         std::array<float, 4> background{0.10f, 0.12f, 0.16f, 1};
         std::filesystem::path storage;
+        double slow_ms = 100;
     };
 
     // The engine of the run: the runtime, the View and what the page sent.
@@ -1010,6 +1021,8 @@ namespace {
                 o.timeline = utf8_path(next());
             } else if (a == "--fonts") {
                 o.fonts = utf8_path(next());
+            } else if (a == "--effects") {
+                o.effects = utf8_path(next());
             } else if (a == "--out") {
                 o.out = utf8_path(next());
             } else if (a == "--size") {
@@ -1034,6 +1047,8 @@ namespace {
                 o.background = parse_color(next());
             } else if (a == "--storage") {
                 o.storage = utf8_path(next());
+            } else if (a == "--slow") {
+                o.slow_ms = std::stod(next());
             } else {
                 throw Failure("unknown argument " + a);
             }
@@ -1059,6 +1074,11 @@ namespace {
                 face.family_size = family.size();
                 face.path = path.data();
                 face.path_size = path.size();
+                const std::string range = f.get_string("unicodeRange");
+                if (!range.empty()) {
+                    face.unicode_range = range.data();
+                    face.unicode_range_size = range.size();
+                }
                 const weft_result r = weft_runtime_add_font(runtime, &face);
                 std::printf("[font] %s %u%s %s: %s\n", family.c_str(), face.weight, face.italic ? " italic" : "",
                             path.c_str(), weft_result_string(r));
@@ -1102,6 +1122,80 @@ namespace {
             },
             &items, revision);
         return items;
+    }
+
+    void add_effects(weft_runtime* runtime, const std::filesystem::path& file) {
+        const Json json = parse_json(read(file));
+        const auto folder = file.parent_path();
+        const Json* effects = json.find("effects");
+        if (!effects) {
+            throw Failure(utf8(file) + " lists no effects");
+        }
+        for (const Json& e : effects->items) {
+            const std::string name = e.get_string("name");
+            // Each value the descriptor points at, kept in place until the call.
+            std::deque<std::string> texts;
+            const auto keep = [&](std::string text) -> const std::string& {
+                return texts.emplace_back(std::move(text));
+            };
+            std::vector<weft_effect_parameter> parameters;
+            if (const Json* list = e.find("parameters")) {
+                static const std::map<std::string, std::uint32_t> types{{"number", WEFT_EFFECT_NUMBER},
+                                                                        {"vec2", WEFT_EFFECT_VEC2},
+                                                                        {"vec3", WEFT_EFFECT_VEC3},
+                                                                        {"vec4", WEFT_EFFECT_VEC4},
+                                                                        {"color", WEFT_EFFECT_COLOR}};
+                for (const Json& p : list->items) {
+                    const auto type = types.find(p.get_string("type"));
+                    if (type == types.end()) {
+                        throw Failure(name + ": a parameter's type is number, vec2, vec3, vec4 or color");
+                    }
+                    const auto& n = keep(p.get_string("name"));
+                    const auto& initial = keep(p.get_string("initial"));
+                    parameters.push_back({n.data(), n.size(), initial.data(), initial.size(), type->second, 0});
+                }
+            }
+            std::vector<weft_effect_texture> textures;
+            if (const Json* list = e.find("textures")) {
+                for (const Json& t : list->items) {
+                    const auto& n = keep(t.get_string("name"));
+                    const auto& bytes = keep(read(folder / utf8_path(t.get_string("path"))));
+                    const auto format =
+                        t.get_string("format") == "srgb" ? WEFT_EFFECT_TEXTURE_SRGB : WEFT_EFFECT_TEXTURE_DATA;
+                    textures.push_back(
+                        {n.data(), n.size(), bytes.data(), bytes.size(), format | WEFT_EFFECT_TEXTURE_PNG, 0, 0, 0});
+                }
+            }
+            const auto prefix = folder / utf8_path(e.get_string("bytecode"));
+            const auto code = [&](const char* suffix) -> const std::string& {
+                auto path = prefix;
+                path += suffix;
+                return keep(std::filesystem::exists(path) ? read(path) : std::string());
+            };
+            const auto& dxbc_encoded = code(".encoded.dxbc");
+            const auto& dxbc_linear = code(".linear.dxbc");
+            const auto& spirv_encoded = code(".encoded.spv");
+            const auto& spirv_linear = code(".linear.spv");
+            weft_effect_desc desc{sizeof(desc)};
+            desc.animated = e.get_bool("animated") ? 1 : 0;
+            desc.name = name.data();
+            desc.name_size = name.size();
+            desc.parameters = parameters.data();
+            desc.parameter_count = std::uint32_t(parameters.size());
+            desc.textures = textures.data();
+            desc.texture_count = std::uint32_t(textures.size());
+            desc.dxbc_encoded = dxbc_encoded.data();
+            desc.dxbc_encoded_size = dxbc_encoded.size();
+            desc.dxbc_linear = dxbc_linear.data();
+            desc.dxbc_linear_size = dxbc_linear.size();
+            desc.spirv_encoded = spirv_encoded.data();
+            desc.spirv_encoded_size = spirv_encoded.size();
+            desc.spirv_linear = spirv_linear.data();
+            desc.spirv_linear_size = spirv_linear.size();
+            const weft_result r = weft_runtime_add_effect(runtime, &desc);
+            std::printf("[effect] %s (%zu parameters, %zu textures): %s\n", name.c_str(), parameters.size(),
+                        textures.size(), weft_result_string(r));
+        }
     }
 
     bool load(Run& run, const Page& page) {
@@ -1158,6 +1252,9 @@ namespace {
         if (!o.fonts.empty()) {
             add_fonts(run.runtime, o.fonts);
         }
+        if (!o.effects.empty()) {
+            add_effects(run.runtime, o.effects);
+        }
         const weft_view_desc view_desc{sizeof(view_desc), 0, o.width, o.height, o.scale, 0};
         if (const weft_result r = weft_view_create(run.runtime, &view_desc, &run.view); r != WEFT_OK) {
             throw Failure(std::string("view: ") + weft_result_string(r));
@@ -1187,6 +1284,8 @@ namespace {
         };
 
         std::vector<double> advance_ms;
+        // An advance that took longer is printed as it happens.
+        const double slow_ms = o.slow_ms;
         const Json* steps = timeline.find("steps");
         int status = loaded ? 0 : 1;
         for (long n = 0; n < frames; ++n) {
@@ -1296,6 +1395,9 @@ namespace {
             }
             advance_ms.push_back(
                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+            if (advance_ms.back() > slow_ms) {
+                std::printf("[slow] frame %ld: advance %.1f ms\n", n, advance_ms.back());
+            }
             run.drain();
             std::string shot;
             if (steps) {

@@ -101,6 +101,7 @@ namespace weft {
             lodepng_state_init(&state);
             state.info_raw.colortype = LCT_RGBA;
             state.info_raw.bitdepth = 8;
+
             struct Cleanup {
                 LodePNGState& state;
                 unsigned char* pixels{};
@@ -110,6 +111,7 @@ namespace weft {
                     lodepng_state_cleanup(&state);
                 }
             } cleanup{state};
+
             unsigned width{};
             unsigned height{};
             // The header first: an image past the bounds is never inflated.
@@ -126,11 +128,20 @@ namespace weft {
                     lodepng_decode(&cleanup.pixels, &width, &height, &state, bytes.data(), bytes.size())) {
                 return std::string("no PNG image: ") + lodepng_error_text(error);
             }
+            const auto pixels = std::size_t(width) * height;
+            if (pixels > constants::view::max_translucent_image_pixels) {
+                for (std::size_t p = 3; p < pixels * constants::rgba8_bytes_per_pixel;
+                     p += constants::rgba8_bytes_per_pixel) {
+                    if (cleanup.pixels[p] != constants::color_channel_max) {
+                        return "a translucent PNG image of " + std::to_string(width) + " x " + std::to_string(height) +
+                               " pixels, past the bounds";
+                    }
+                }
+            }
             out.width = width;
             out.height = height;
             out.encoding = paint::Encoding::SrgbStraight;
-            out.bytes.assign(cleanup.pixels,
-                             cleanup.pixels + std::size_t(width) * height * constants::rgba8_bytes_per_pixel);
+            out.bytes.assign(cleanup.pixels, cleanup.pixels + pixels * constants::rgba8_bytes_per_pixel);
             return std::nullopt;
         }
     } // namespace

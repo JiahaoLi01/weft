@@ -16,6 +16,18 @@
 
 ## 本次已实现
 
+scene 的滚动容器、字体的 unicode-range、假名与韩文等文字、宿主注册的 UI 着色器效果（2026-10-17，`weft-dev` 分支；CRPG 的 UI 移到 weft 的第三步）。
+- **起因**：CRPG 的页面逐个在 `weft_page_runner` 里跑：作弊面板的命令列表是内容超出的 `overflow: auto`，scene 每帧报 `scene scrolling outside supported non-overflowing auto profile` 而不画；字幕的混合字体栈靠 `unicode-range`（Cinzel 只出数字，Shippori 只出假名），weft 的字体没有这一项，Cinzel 会画全部拉丁字母；日文假名（与韩文、希腊文、西里尔文）在整形时抛 `WEFT_TEXT_SCRIPT`；设置页 1536 × 1024 的背景图超过 100 万像素的上限；烟雾背景（canvas 逐像素）改用 `-weft-effect(crpg-smoke)` 后，宿主没有 C ABI 注册效果。
+- **实现**：
+  - 滚动（`src/scene`）：`overflow` 为 `hidden`、`auto`、`scroll` 的元素是滚动容器（`clip` 只裁剪，不再报错；Yoga 适配器把 `clip` 当 `hidden`）。scene 节点记下元素要求的滚动位置（`SceneNode::scroll`，脚本的 scrollTop/scrollLeft）；每次布局它的子项之后（`scroll_content`），由子项的外边距盒与结束内边距算出内容大小，把位置限制在内容之内，按它移动子项的盒子（`scrolled`、子项的 `scroll_shift` 记下已移的量，局部布局只重排其中一个子项时按差值再移，不重复移动）。滚动位置改变使布局重新进行；部分布局写回容器自己的结果与其他子项。元素几何（`scene_scroll_geometry`）给出 scrollWidth/Height、scrollLeft/Top 与可滚动的轴，于是脚本赋值按内容限制、滚轮的默认动作滚动最近能滚的祖先并派发 `scroll` 事件（ScriptDom 原有的逻辑），命中测试与 getBoundingClientRect 随之。
+  - 字体：`FontFaceEntry::unicode_range`、`parse_unicode_range`（`U+XXXX`、`U+XXXX-YYYY`、`U+4??`）；同一族的字面带范围时是组合字体（最近的字重与样式的全部字面，后列的先试）；`shape_with_fallback` 的 `ranges`：簇的码点不全在一个字体的范围内就不用它（第一个字体也一样）；行的度量取第一个范围含 U+0020 的字体（CSS Fonts 4 的 first available font）。C ABI：`weft_font_face` 末尾加 `unicode_range`（旧大小的结构仍可用）。
+  - 文字：整形接受平假名、片假名、韩文、注音、希腊文、西里尔文（与拉丁文、汉字一样不需要分段整形的从左到右文字）；阿拉伯文与双向控制字符仍是 `WEFT_TEXT_SCRIPT`。
+  - 图片：不透明的 PNG 可到 400 万像素（scene pass 按字节采样）；半透明的仍是 100 万像素（按浮点采样），超过的报 `a translucent PNG image ... past the bounds`。
+  - 效果：`weft_runtime_add_effect`（`weft_effect_desc`：名字、参数与类型和初始值、纹理（原始字节或 PNG，数据或 sRGB）、是否用时间、D3D11/D3D12 的 DXBC 与 Vulkan 的 SPIR-V，编码与线性两种合成空间）；运行时的效果表交给每个 View 的 scene（`View::set_effects`）。`cmake/compile_effect.cmake`：宿主用 weft 的外壳把效果编成上述四份字节码（先按 `check_effect.cmake` 检查源文件；可与 `check_effect.cmake`、`scene.hlsl` 一起随宿主发布）。
+  - `weft_page_runner`：`--effects <file.json>`（名字、字节码前缀、参数、PNG 纹理）、字体文件的 `"unicodeRange"`、`--slow <ms>`（打印过慢的推进）。
+- **验证**（Release）：`view_contract` 加 `scrolling`（滚轮滚动内容超出的盒子，`scroll` 事件，行在 scene 里移动，命中跟着，超出内容时停在末端）；`incremental_contract` 的随机更新加滚动（增量与全量构建逐节点相同）；`scene_cluster_platform` 的 overflow auto 由拒绝改为检查 scrollHeight、限制后的 scrollTop 与内容移动；`scene_text_style_contract` 的 overflow 折叠（`clip`、`scroll` 保留，`overlay` 仍诊断）；`font_catalog_contract` 加 unicode-range 的解析与组合字体；`font_fallback_contract` 加假名、韩文、希腊文、西里尔文与带范围的回退；`view_images_contract` 加不透明与半透明大图；`c_api_view_contract` 加字面的 unicode-range 参数与旧大小的结构。全量 ctest 174 项：160 项通过，14 项与此前相同（签出换行的散列校验）。CRPG：嵌套提示页的烟雾由 GPU 效果画出；作弊面板加载不再报滚动诊断。
+- **限制**：没有滚动条（`::-webkit-scrollbar` 在宽松样式下丢弃）；滚动内容只算直接子项（子项自己溢出的后代不计）；包含块在滚动容器之外的绝对定位后代也随之移动；`scroll-behavior`、`scrollIntoView` 与 `scroll-snap` 没有；效果在运行时注册后对之后的帧生效，没有卸载。
+
 Web 平台模块、localStorage 的宿主接口、渲染回退的原因（2026-10-17，`weft-dev` 分支；CRPG 的 UI 移到 weft 的第二步）。
 - **起因**：CRPG 的页面在宽松样式下能加载，但脚本要的浏览器对象不在：`localStorage`（语言、字体、字幕与 UI 缩放的设置）、`element.dataset`、`document.head`（字体模块插 `<style>`）、手柄输入合成的 `KeyboardEvent` 与 `document.activeElement`、`console.log`（此前什么也不做，`console.error` 让页面出错）。帧画不出时渲染 C ABI 只返回 `WEFT_RENDER_UNSUPPORTED_FEATURE`，看不到原因。
 - **实现**：

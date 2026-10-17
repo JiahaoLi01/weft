@@ -92,7 +92,11 @@ const char* weft_result_string(weft_result result);
 
 /* ---- Fonts. Owner thread, before the runtime's first page loads (WEFT_BUSY after). ---- */
 
-/* A face of a font file: CSS matches its family (ASCII case-insensitive), weight (1-1000) and style. */
+/* A face of a font file: CSS matches its family (ASCII case-insensitive), weight (1-1000) and style. unicode_range,
+ * when given, is the code points it supplies as CSS writes them ("U+0030-0039, U+3040-309F, U+4??"): a family whose
+ * faces have ranges is a composite font, and a character outside a face's range falls to the next face or family,
+ * as with @font-face's unicode-range. A struct_size of offsetof(weft_font_face, unicode_range) (the earlier ABI) is a
+ * face without one. */
 typedef struct weft_font_face {
     uint32_t struct_size;
     uint32_t weight;
@@ -102,6 +106,8 @@ typedef struct weft_font_face {
     size_t family_size;
     const char* path; /* the file */
     size_t path_size;
+    const char* unicode_range; /* NULL: every code point */
+    size_t unicode_range_size;
 } weft_font_face;
 
 weft_result weft_runtime_add_font(weft_runtime* runtime, const weft_font_face* face);
@@ -110,6 +116,73 @@ weft_result weft_runtime_set_generic_family(weft_runtime* runtime, const char* g
                                             const char* family, size_t family_size);
 /* Appends a family tried for characters no family of an element's font-family list covers. */
 weft_result weft_runtime_add_fallback_family(weft_runtime* runtime, const char* family, size_t family_size);
+
+/* ---- UI shader effects (docs/architecture.md, "UI 着色器效果"). Owner thread. ---- */
+
+/* The type of an effect parameter, and so the CSS value of the custom property --<name> that sets it: a number; two,
+ * three or four numbers separated by spaces; a color. */
+#define WEFT_EFFECT_NUMBER 1u
+#define WEFT_EFFECT_VEC2 2u
+#define WEFT_EFFECT_VEC3 3u
+#define WEFT_EFFECT_VEC4 4u
+#define WEFT_EFFECT_COLOR 5u
+
+typedef struct weft_effect_parameter {
+    const char* name; /* without the leading "--" */
+    size_t name_size;
+    const char* initial; /* its value as CSS writes it; NULL or "": zeros */
+    size_t initial_size;
+    uint32_t type; /* WEFT_EFFECT_NUMBER .. WEFT_EFFECT_COLOR */
+    uint32_t reserved;
+} weft_effect_parameter;
+
+/* What an effect texture's bytes are: one byte a texel, which the function reads as data in r
+ * (WEFT_EFFECT_TEXTURE_DATA), or straight sRGB RGBA8 texels, which it reads as linear premultiplied color
+ * (WEFT_EFFECT_TEXTURE_SRGB), width x height of them, rows top-down. With WEFT_EFFECT_TEXTURE_PNG the bytes are a PNG
+ * file of the image instead (its red channel as data), and width and height 0. */
+#define WEFT_EFFECT_TEXTURE_DATA 1u
+#define WEFT_EFFECT_TEXTURE_SRGB 2u
+#define WEFT_EFFECT_TEXTURE_PNG 0x100u
+
+typedef struct weft_effect_texture {
+    const char* name;
+    size_t name_size;
+    const void* bytes;
+    size_t size;
+    uint32_t format; /* WEFT_EFFECT_TEXTURE_DATA or _SRGB, with WEFT_EFFECT_TEXTURE_PNG */
+    uint32_t width;
+    uint32_t height;
+    uint32_t reserved;
+} weft_effect_texture;
+
+/* A UI shader effect, which pages show with background-image: -weft-effect(name): its HLSL pixel function compiled with
+ * weft's shell (cmake/compile_effect.cmake) to DXBC for D3D11 and D3D12 and to SPIR-V for Vulkan, each for the scene's
+ * encoded and the document's linear composition space (a backend without its bytecode cannot draw frames that show the
+ * effect); its parameters and textures in the order the function reads them (at most 16 and 4); and whether it reads
+ * the time, so that frames keep coming while it shows. */
+typedef struct weft_effect_desc {
+    uint32_t struct_size;
+    uint32_t animated; /* 0 or 1 */
+    const char* name;
+    size_t name_size;
+    const weft_effect_parameter* parameters;
+    const weft_effect_texture* textures;
+    uint32_t parameter_count;
+    uint32_t texture_count;
+    const void* dxbc_encoded;
+    size_t dxbc_encoded_size;
+    const void* dxbc_linear;
+    size_t dxbc_linear_size;
+    const void* spirv_encoded;
+    size_t spirv_encoded_size;
+    const void* spirv_linear;
+    size_t spirv_linear_size;
+} weft_effect_desc;
+
+/* Registers an effect for every View's pages, its bytes copied. WEFT_INVALID_ARGUMENT for a name registered already, a
+ * manifest past its bounds, an initial value not of its parameter's type, or texture bytes that are no image of their
+ * format. */
+weft_result weft_runtime_add_effect(weft_runtime* runtime, const weft_effect_desc* effect);
 
 /* ---- Pages. Owner thread. The owner thread needs at least 8 MiB of stack for React and D3 pages. ---- */
 

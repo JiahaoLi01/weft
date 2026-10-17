@@ -331,6 +331,15 @@ namespace weft {
         // What its data-anchor attributes declare: the element follows an anchor (scene_anchor.hpp) instead of the place
         // layout gives it.
         std::optional<SceneAnchoring> anchoring;
+        // A scroll container (overflow hidden, auto or scroll): the scroll position its element asks for (scrollLeft,
+        // scrollTop), and what layout made of it: the position by which its children's boxes are moved, clamped to
+        // the content (x, y), and the size of that content from its padding box's start (scrollWidth, scrollHeight).
+        // Zeros elsewhere.
+        std::array<float, 2> scroll{};
+        std::array<float, 4> scrolled{};
+        // How far its scroll container moved its box (its parent's scrolled position when the box was placed), so
+        // that layout can move it again from where layout put it.
+        std::array<float, 2> scroll_shift{};
 
         friend bool operator==(const SceneNode& a, const SceneNode& b) {
             return a.identity == b.identity && a.tag == b.tag && a.space == b.space && a.text == b.text &&
@@ -338,9 +347,28 @@ namespace weft {
                    a.fragments == b.fragments &&
                    (a.effect == b.effect || (a.effect && b.effect && *a.effect == *b.effect)) &&
                    a.background_image == b.background_image && a.particles == b.particles &&
-                   a.anchoring == b.anchoring && a.children == b.children;
+                   a.anchoring == b.anchoring && a.scroll == b.scroll && a.scrolled == b.scrolled &&
+                   a.scroll_shift == b.scroll_shift && a.children == b.children;
         }
     };
+
+    // A scroll container's scroll geometry for script reads: its position and content size (layout's SceneNode::scrolled),
+    // the axes script may scroll (overflow other than visible and clip) and those a wheel scrolls (auto or scroll, with
+    // content past the client box). Nothing for another node.
+    inline void scene_scroll_geometry(const SceneNode& n, ElementGeometry& e) {
+        const auto overflow = n.style.text(PropertyId::Overflow, "visible");
+        if (overflow == "visible" || overflow == "clip") {
+            return;
+        }
+        e.scroll_left = n.scrolled[0];
+        e.scroll_top = n.scrolled[1];
+        e.scroll_width = std::max(e.client_width, double(n.scrolled[2]));
+        e.scroll_height = std::max(e.client_height, double(n.scrolled[3]));
+        e.scroll_x = e.scroll_y = true;
+        const bool wheel = overflow == "auto" || overflow == "scroll";
+        e.wheel_x = wheel && e.scroll_width > e.client_width;
+        e.wheel_y = wheel && e.scroll_height > e.client_height;
+    }
 
     inline SceneChildren::SceneChildren(std::initializer_list<SceneNode> nodes) {
         nodes_.reserve(nodes.size());
@@ -436,7 +464,8 @@ namespace weft {
                a.attributes == b.attributes && a.style == b.style && a.box == b.box && a.lines == b.lines &&
                a.fragments == b.fragments && bool(a.paint) == bool(b.paint) &&
                (!a.paint || a.paint->values == b.paint->values) && scene_effect_equal(a.effect, b.effect) &&
-               a.background_image == b.background_image && a.particles == b.particles && a.anchoring == b.anchoring;
+               a.background_image == b.background_image && a.particles == b.particles && a.anchoring == b.anchoring &&
+               a.scroll == b.scroll && a.scrolled == b.scrolled && a.scroll_shift == b.scroll_shift;
     }
 
     struct SceneFrame {

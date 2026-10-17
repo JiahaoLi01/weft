@@ -189,9 +189,13 @@ namespace weft {
 
         // A font-family list's faces in fallback order, and where each comes from: the list, or the system's
         // fallback (monochrome or color).
+        // A font-family list's faces: their ids, roles and unicode-ranges, and the first available font (CSS Fonts 4,
+        // 4.5: the first whose unicode-range includes U+0020), whose metrics are the line's.
         struct Match {
             std::vector<std::uint32_t> ids;
             std::vector<FontRole> roles;
+            std::vector<std::vector<UnicodeRange>> ranges;
+            std::uint32_t primary{};
         };
 
         std::map<std::tuple<std::string, int, bool>, Match> matches;
@@ -240,14 +244,23 @@ namespace weft {
                 return i->second;
             }
             std::size_t listed{};
-            auto sources = match_font_faces(catalog, f.families, f.weight, f.italic, &listed);
+            std::vector<std::vector<UnicodeRange>> ranges;
+            auto sources = match_font_faces(catalog, f.families, f.weight, f.italic, &listed, &ranges);
             if (sources.empty()) {
                 throw_diagnostic(Diag::SceneRaster, "no font for font-family " + f.families);
             }
             if (sources.size() > constants::text::max_fallback_fonts) {
                 sources.resize(constants::text::max_fallback_fonts);
+                ranges.resize(constants::text::max_fallback_fonts);
             }
             Match match;
+            match.ranges = std::move(ranges);
+            for (std::uint32_t i = 0; i < match.ranges.size(); ++i) {
+                if (in_unicode_range(match.ranges[i], U' ')) {
+                    match.primary = i;
+                    break;
+                }
+            }
             for (const auto& source : sources) {
                 match.ids.push_back(face(source));
                 match.roles.push_back(match.roles.size() < listed     ? FontRole::Listed
@@ -305,7 +318,7 @@ namespace weft {
                 return i->second;
             }
             ++misses;
-            const auto [ids, roles] = matched(f);
+            const auto& [ids, roles, ranges, primary] = matched(f);
             std::vector<Font*> fonts;
             for (auto id : ids) {
                 fonts.push_back(faces[id].font.get());
@@ -313,7 +326,7 @@ namespace weft {
             auto run = std::make_shared<SceneTextRun>();
             run->size = f.size;
             float pen{};
-            std::set<std::uint32_t> used{ids.front()};
+            std::set<std::uint32_t> used{ids[primary]};
             // font-variant-numeric's OpenType features.
             std::vector<FontFeature> features;
             constexpr std::array<std::pair<std::uint8_t, std::array<char, 4>>, 8> tags{{
@@ -336,7 +349,7 @@ namespace weft {
             for (const auto& [begin, end] : words(text)) {
                 // Chrome positions glyphs in HarfBuzz 16.16 units.
                 const auto shaped = shape_with_fallback(fonts, text.substr(begin, end - begin), f.size,
-                                                        ShapePrecision::Fixed16_16, features, roles);
+                                                        ShapePrecision::Fixed16_16, features, roles, ranges);
                 const auto& glyphs = shaped.shaped.glyphs;
                 for (std::size_t i = 0; i < glyphs.size(); ++i) {
                     const auto& g = glyphs[i];
@@ -350,7 +363,7 @@ namespace weft {
                     pen += advance;
                 }
             }
-            run->metrics = line_box(used, ids.front(), f, pen);
+            run->metrics = line_box(used, ids[primary], f, pen);
             const auto bytes = text.size() + run->glyphs.size() * sizeof(SceneGlyph);
             if (runs.size() >= constants::scene::text_cache_max_entries ||
                 run_bytes + bytes > constants::scene::text_cache_max_bytes) {
@@ -471,7 +484,8 @@ namespace weft {
     SceneTextMetrics SceneText::slice(const SceneTextRun& run, const SceneFont& font, std::uint32_t begin,
                                       std::uint32_t end) {
         impl_->require_owner();
-        const auto primary = impl_->matched(font).ids.front();
+        const auto& match = impl_->matched(font);
+        const auto primary = match.ids[match.primary];
         std::set<std::uint32_t> used{primary};
         float pen{};
         for (const auto& g : run.glyphs) {
@@ -485,12 +499,15 @@ namespace weft {
 
     bool SceneText::primary_covers(const SceneFont& font, char32_t character) {
         impl_->require_owner();
-        return face(impl_->matched(font).ids.front()).glyph_index(character) != 0;
+        const auto& match = impl_->matched(font);
+        return in_unicode_range(match.ranges[match.primary], character) &&
+               face(match.ids[match.primary]).glyph_index(character) != 0;
     }
 
     SceneStrut SceneText::strut(const SceneFont& font) {
         impl_->require_owner();
-        return impl_->face_strut(impl_->matched(font).ids.front(), font);
+        const auto& match = impl_->matched(font);
+        return impl_->face_strut(match.ids[match.primary], font);
     }
 
     const FontFaceSource& SceneText::face_source(std::uint32_t face) const {

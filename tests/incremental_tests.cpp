@@ -513,7 +513,14 @@ namespace {
 
         void change(Random& r) {
             auto& n = *elements[r.below(elements.size())];
-            switch (r.below(18)) {
+            switch (r.below(19)) {
+                case 18:
+                    // The clipping box scrolled (script's scrollTop and scrollLeft): its children move by what its
+                    // content allows.
+                    clipper->scroll_top = double(r.below(40));
+                    clipper->scroll_left = r.below(2) ? 0. : double(r.below(30));
+                    s.tree.changed(*clipper);
+                    break;
                 case 17: {
                     // Another anchor for a bird: the run it lies in orders it by that anchor's depth.
                     const auto it =

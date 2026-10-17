@@ -20,12 +20,14 @@ namespace weft::constants::view {
     inline constexpr std::size_t max_diagnostic_bytes = 4096;
     // Where a pointer that left the View is: outside every element.
     inline constexpr float outside = -1e6f;
-    // A page's url() images (view/view_images.hpp): the bytes of a file the host reads; an image's sides and pixels (a
-    // scene pass samples a translucent image as linear floats, 16 bytes a pixel, within one image of
-    // constants::render::scene::image_max_bytes); the images a page load keeps, and their decoded bytes.
+    // A page's url() images (view/view_images.hpp): the bytes of a file the host reads; an image's sides and pixels, and
+    // the pixels of a translucent one (a scene pass samples an opaque image as sRGB bytes, 4 a pixel, and a translucent
+    // one as linear floats, 16 a pixel, within one image of constants::render::scene::image_max_bytes); the images a
+    // page load keeps, and their decoded bytes.
     inline constexpr std::size_t max_resource_bytes = 16 * std::size_t(constants::bytes_per_mib);
     inline constexpr std::uint32_t max_image_side = 4096;
-    inline constexpr std::size_t max_image_pixels = 1024 * 1024;
+    inline constexpr std::size_t max_image_pixels = 4 * 1024 * 1024;
+    inline constexpr std::size_t max_translucent_image_pixels = 1024 * 1024;
     inline constexpr std::size_t max_images = 256;
     inline constexpr std::size_t max_image_bytes = 64 * std::size_t(constants::bytes_per_mib);
 } // namespace weft::constants::view

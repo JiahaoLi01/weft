@@ -141,6 +141,35 @@ int main() {
                 fonts.shape(std::string("\xc0\xaf", 2), 16);
             },
             "WEFT_TEXT_UTF8:");
+        // Left-to-right scripts that shape without itemization: kana and Hangul fall to the CJK font, Greek and
+        // Cyrillic stay in the Latin one.
+        const auto kana = fonts.shape("\u304b\u306a\u30ab\u30ca\ud55c\uae00", 16);
+        require(!kana.shaped.missing_glyph && kana.runs.size() == 1 && kana.runs[0].font_id == 1, "kana and Hangul");
+        const auto greek = fonts.shape("\u0391\u03bb\u03c6\u03b1 \u041a\u0438\u0440\u0438\u043b\u043b", 16);
+        require(!greek.shaped.missing_glyph && greek.runs.size() == 1 && greek.runs[0].font_id == 0,
+                "Greek and Cyrillic");
+        // unicode-range: a first font of digits only gives its letters to the next; a range that leaves out a
+        // character the font has does not cover it.
+        {
+            Font roboto(latin);
+            Font noto(cjk);
+            const std::vector<Font*> pair{&roboto, &noto};
+            const std::vector<std::vector<UnicodeRange>> digits{{{U'0', U'9'}}, {}};
+            const auto ranged = shape_with_fallback(pair, "A1", 16, ShapePrecision::Fixed26_6, {}, {}, digits);
+            require(!ranged.shaped.missing_glyph && ranged.runs.size() == 2 && ranged.runs[0].font_id == 1 &&
+                        ranged.runs[1].font_id == 0,
+                    "letters outside the first font's range");
+            const std::vector<std::vector<UnicodeRange>> no_han{{}, {{U'0', U'9'}}};
+            require(
+                shape_with_fallback(pair, "\u4ed3", 16, ShapePrecision::Fixed26_6, {}, {}, no_han).shaped.missing_glyph,
+                "a range leaves out what the font has");
+            rejects(
+                [&] {
+                    const std::vector<std::vector<UnicodeRange>> one{{}};
+                    (void)shape_with_fallback(pair, "A", 16, ShapePrecision::Fixed26_6, {}, {}, one);
+                },
+                "WEFT_FONT_SET:");
+        }
         rejects(
             [&] {
                 fonts.shape("العربية", 16);

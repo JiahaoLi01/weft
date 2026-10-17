@@ -11,6 +11,9 @@
 #include <vector>
 
 namespace weft {
+    // A face's unicode-range (CSS Fonts 4): the code points first through last. A face with none covers every one.
+    using UnicodeRange = std::array<char32_t, 2>;
+
     struct Glyph {
         std::uint32_t glyph_id{};
         std::uint32_t utf8_cluster{};
@@ -213,13 +216,19 @@ namespace weft {
 
     // Shapes text with the first font and moves every cluster it cannot render to the first later font
     // that covers it; adjacent clusters of one font are shaped together. Glyph font_id is the index in
-    // fonts. Bounded LTR Latin/Han/Common/Inherited profile (no bidi or script itemization yet).
+    // fonts. Bounded profile of left-to-right scripts that shape without script itemization: Latin, Greek, Cyrillic,
+    // Han, Hiragana, Katakana, Hangul, Bopomofo, Common and Inherited (no bidi).
     // With roles (one per font), the listed fonts are tried in order first; then, as Chrome's system fallback
     // chooses, an emoji shown as text (by default, or with VS15) prefers a monochrome fallback font and one shown as
-    // emoji (by default, or with VS16) a color one.
+    // emoji (by default, or with VS16) a color one. With ranges (one list per font, an empty one for every code
+    // point), a font covers only the clusters whose code points all lie in its unicode-range, the first font too.
     FallbackText shape_with_fallback(const std::vector<Font*>& fonts, std::string_view utf8, float pixels,
                                      ShapePrecision precision = ShapePrecision::Fixed26_6,
-                                     std::span<const FontFeature> features = {}, std::span<const FontRole> roles = {});
+                                     std::span<const FontFeature> features = {}, std::span<const FontRole> roles = {},
+                                     std::span<const std::vector<UnicodeRange>> ranges = {});
+
+    // Whether a code point lies in a unicode-range (an empty one is every code point).
+    bool in_unicode_range(std::span<const UnicodeRange> ranges, char32_t codepoint);
 
     // Owner-only font resource collection. Bounded LTR Latin/Han/Common/Inherited
     // profile, HarfBuzz clusters for fallback; paragraph bidi/line breaking pending.

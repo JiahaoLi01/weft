@@ -680,7 +680,8 @@ namespace weft {
                     } else if (id == P::Overflow) {
                         if (v == "visible") {
                             YGNodeStyleSetOverflow(y, YGOverflowVisible);
-                        } else if (v == "hidden") {
+                        } else if (v == "hidden" || v == "clip") {
+                            // clip as hidden: it clips and its box does not grow to its content.
                             YGNodeStyleSetOverflow(y, YGOverflowHidden);
                         } else if (v == "scroll" || v == "auto") {
                             YGNodeStyleSetOverflow(y, YGOverflowScroll);

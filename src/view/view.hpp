@@ -172,6 +172,9 @@ namespace weft {
         // Views and save it). sessionStorage is the View's own, kept across loads too.
         void set_local_storage(std::shared_ptr<WebStorage> storage);
         const std::shared_ptr<WebStorage>& local_storage() const;
+        // The UI shader effects -weft-effect(name) names; the host keeps them alive (and adds to them only on the owner
+        // thread). Without them such a background is a scene diagnostic.
+        void set_effects(const SceneEffects* effects);
 
         const std::shared_ptr<ViewShared>& shared() const {
             return shared_;

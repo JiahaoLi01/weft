@@ -671,15 +671,17 @@ int main() {
             "document.getElementById('box').style.transform='translateX(25px)';globalThis.geometry=[document.getElementById('box').offsetLeft,document.getElementById('box').getBoundingClientRect().x];document.getElementById('box').style.width='160px';globalThis.freshWidth=document.getElementById('box').offsetWidth");
         require(s.vm.eval("JSON.stringify(geometry)") == "[0,25]" && s.vm.eval("freshWidth") == "160",
                 "offset excludes transforms / synchronous fresh geometry");
+        // An overflowing auto box scrolls: script reads its content's size, and a position it sets is clamped to it
+        // and moves the content.
         s.vm.eval(
-            "document.getElementById('box').style.cssText='width:100px;height:20px;overflow:auto';document.getElementById('box').innerHTML='<div style=\"width:100px;height:40px\"></div>'");
-        bool scroll_rejected = false;
-        try {
-            s.flush_scene();
-        } catch (const std::invalid_argument& e) {
-            scroll_rejected = std::string(e.what()).find("scene scrolling") != std::string::npos;
-        }
-        require(scroll_rejected, "overflow auto silently omitted scrolling");
+            "document.getElementById('box').style.cssText='width:100px;height:20px;overflow:auto';document.getElementById('box').innerHTML='<div id=\"tall\" style=\"width:100px;height:40px\"></div>'");
+        s.flush_scene();
+        require(s.vm.eval(
+                    "(()=>{const b=document.getElementById('box');const top=document.getElementById('tall')."
+                    "getBoundingClientRect().y;b.scrollTop=100;return JSON.stringify([b.scrollHeight,"
+                    "b.clientHeight,b.scrollTop,top-document.getElementById('tall').getBoundingClientRect().y])})()") ==
+                    "[40,20,20,20]",
+                "overflow auto scrolls its content");
         s.vm.eval("document.getElementById('box').innerHTML='<div style=\"width:80px;height:10px\"></div>'");
         s.flush_scene();
         s.vm.eval(

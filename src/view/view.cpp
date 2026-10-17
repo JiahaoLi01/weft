@@ -100,6 +100,8 @@ namespace weft {
         NodeIdentity pressed{};
         std::deque<ViewDiagnostic> diagnostics;
         std::size_t dropped{};
+        // The host's UI shader effects.
+        const SceneEffects* effects{};
         // The web platform's localStorage and sessionStorage.
         std::shared_ptr<WebStorage> local_storage = std::make_shared<WebStorage>();
         std::shared_ptr<WebStorage> session_storage = std::make_shared<WebStorage>();
@@ -451,6 +453,7 @@ namespace weft {
             i.diagnose(ViewDiagnostic::Kind::Scene, std::move(message));
         });
         i.scene->set_images(i.images.get());
+        i.scene->set_effects(i.effects);
         try {
             i.install_hosts();
             install_script_platform(i.vm, ScriptPlatformModule::WebHost);
@@ -728,6 +731,13 @@ namespace weft {
 
     const std::shared_ptr<WebStorage>& View::local_storage() const {
         return impl_->local_storage;
+    }
+
+    void View::set_effects(const SceneEffects* effects) {
+        impl_->effects = effects;
+        if (impl_->scene) {
+            impl_->scene->set_effects(effects);
+        }
     }
 
     bool View::faulted() const {

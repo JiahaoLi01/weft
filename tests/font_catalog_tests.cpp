@@ -77,6 +77,34 @@ namespace {
         CHECK(weft::match_font_faces(c, "Body", 400, false, &listed).size() == 2 && listed == 1);
     }
 
+    // CSS unicode-range values, and a family whose faces have ranges as a composite font.
+    void UnicodeRanges() {
+        using R = std::vector<weft::UnicodeRange>;
+        CHECK((*weft::parse_unicode_range("U+0030-0039") == R{{0x30, 0x39}}));
+        CHECK((*weft::parse_unicode_range(" u+3040-309F , U+4??, U+20 ") ==
+               R{{0x3040, 0x309F}, {0x400, 0x4FF}, {0x20, 0x20}}));
+        CHECK((*weft::parse_unicode_range("U+10FFFF") == R{{0x10FFFF, 0x10FFFF}}));
+        for (const char* bad :
+             {"", "0030", "U+", "U+39-30", "U+110000", "U+30,", "U+3?-40", "U+1234567", "U+30 U+40"}) {
+            CHECK(!weft::parse_unicode_range(bad));
+        }
+        // All faces of the nearest weight, the last listed first, each with its range; a family without ranges gives
+        // one face.
+        weft::FontCatalog c;
+        c.faces.push_back({"Mixed", 400, false, face("latin.ttf"), {{0x0, 0xFF}}});
+        c.faces.push_back({"Mixed", 400, false, face("kana.ttf"), {{0x3040, 0x30FF}}});
+        c.faces.push_back({"Mixed", 700, false, face("bold.ttf"), {{0x0, 0xFF}}});
+        c.faces.push_back({"Plain", 400, false, face("plain.ttf")});
+        c.faces.push_back({"Plain", 400, false, face("plain-copy.ttf")});
+        std::vector<std::vector<weft::UnicodeRange>> ranges;
+        CHECK((weft::match_font_faces(c, "Mixed, Plain", 400, false, nullptr, &ranges) ==
+               std::vector<weft::FontFaceSource>{face("kana.ttf"), face("latin.ttf"), face("plain.ttf")}));
+        CHECK((ranges == std::vector<R>{{{0x3040, 0x30FF}}, {{0x0, 0xFF}}, {}}));
+        CHECK((weft::match_font_faces(c, "Mixed", 700, false, nullptr, &ranges) ==
+               std::vector<weft::FontFaceSource>{face("bold.ttf")}) &&
+              ranges.size() == 1);
+    }
+
     // Family names read from the name table, for platform font lists that report only files.
     void FamilyNames() {
         auto names = [](const char* path, std::uint32_t index = 0) {
@@ -103,6 +131,7 @@ int main() {
         Parsing();
         WeightMatching();
         ListsGenericsAndFallback();
+        UnicodeRanges();
         FamilyNames();
         std::cout << "PASS font catalog: family parsing, CSS weight/style matching, generics and fallback, family "
                      "names\n";

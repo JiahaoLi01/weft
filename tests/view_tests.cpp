@@ -380,6 +380,52 @@ namespace {
                 "a resize, then its observation");
     }
 
+    // A box whose content overflows scrolls: a wheel over it moves its scroll position within its content (a scroll
+    // event follows), its rows move in the scene, and what is under a point follows them.
+    void scrolling() {
+        Fixture f;
+        f.view.load(inline_page(R"JS(
+            const box = document.createElement('div');
+            box.id = 'box';
+            box.setAttribute('style', 'position:absolute;left:0;top:0;width:100px;height:50px;overflow:auto');
+            for (let i = 0; i < 5; ++i) {
+              const row = document.createElement('div');
+              row.id = 'row' + i;
+              row.setAttribute('style', 'height:30px;cursor:pointer');
+              box.appendChild(row);
+            }
+            document.getElementById('root').appendChild(box);
+            box.addEventListener('scroll', () => weft.engine.send('scrolled', box.scrollTop));
+          )JS"));
+        f.view.advance(16);
+        const auto row = [&](const char* id) {
+            const weft::SceneNode* found{};
+            const auto visit = [&](auto&& self, const weft::SceneNode& n) -> void {
+                if (const auto it = n.attributes.find("id"); it != n.attributes.end() && it->second == id) {
+                    found = &n;
+                }
+                for (const auto& c : n.children) {
+                    self(self, c);
+                }
+            };
+            visit(visit, f.view.scene().root);
+            return found;
+        };
+        require(row("row0") && row("row0")->box[1] == 0, "unscrolled");
+        f.view.pointer({PointerKind::Wheel, 50, 25, 0, 0, 40});
+        f.view.advance(32);
+        const auto messages = f.view.take_messages();
+        require(messages.size() == 1 && messages[0].name == "scrolled" && json(messages[0].value) == "40",
+                "a wheel scrolls the box, and a scroll event says so");
+        require(row("row0")->box[1] == -40 && row("row2")->box[1] == 20, "the rows move by the scroll position");
+        const auto under = f.view.hit(50, 25);
+        require(row("row2") && under.element == row("row2")->identity, "the row under the point after the scroll");
+        // Past the content's end the position stops there.
+        f.view.pointer({PointerKind::Wheel, 50, 25, 0, 0, 500});
+        f.view.advance(48);
+        require(row("row0")->box[1] == -100, "clamped to the content");
+    }
+
     // Equal scenes but for node identities, which each VM numbers by its own epoch.
     bool same_scene(const weft::SceneNode& a, const weft::SceneNode& b) {
         if (a.tag != b.tag || a.space != b.space || a.text != b.text || a.attributes != b.attributes ||
@@ -447,6 +493,7 @@ int main() {
         diagnostics();
         frames();
         observers();
+        scrolling();
         like_the_session();
         std::cout << "view tests passed\n";
         return 0;

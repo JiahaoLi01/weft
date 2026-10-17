@@ -443,8 +443,7 @@ namespace weft {
                 }
             }
             // The scene clips both axes or neither: one axis that clips makes the box clip. As in CSS, visible beside
-            // an axis that clips is auto, so auto wins (its content must fit); scroll and clip stay for the
-            // diagnostic.
+            // an axis that clips is auto, so auto wins; scroll and clip stay.
             if (s.contains(PropertyId::OverflowX) || s.contains(PropertyId::OverflowY)) {
                 const auto both = std::string(s.text(PropertyId::Overflow, "visible"));
                 const auto x = std::string(s.text(PropertyId::OverflowX, both));
@@ -1473,6 +1472,8 @@ namespace weft {
             out.box = last.box;
             out.lines = last.lines;
             out.fragments = last.fragments;
+            out.scrolled = last.scrolled;
+            out.scroll_shift = last.scroll_shift;
             out.identity = d.identity;
             out.tag = d.local_name;
             out.space = d.namespace_uri;
@@ -1486,8 +1487,13 @@ namespace weft {
                 out.anchoring = *anchoring;
             }
             out.style = incremental ? c.values : expand(c.values, viewport);
-            if ((d.scroll_left != 0 || d.scroll_top != 0) && get(out.style, PropertyId::Overflow) == "auto") {
-                fail("scene scrolling outside supported non-overflowing auto profile");
+            if (const auto overflow = get(out.style, PropertyId::Overflow, "visible");
+                overflow != "visible" && overflow != "clip") {
+                out.scroll = {float(d.scroll_left), float(d.scroll_top)};
+            } else {
+                // No scroll container: nothing scrolled, whatever layout made of it before.
+                out.scroll = {};
+                out.scrolled = {};
             }
             if (d.namespace_uri == constants::svg_namespace_uri) {
                 for (const auto* attribute : {"mask", "filter"}) {
@@ -1913,7 +1919,7 @@ namespace weft {
         // Whether a laid-out node keeps its layout as its values change from a to b: the values layout reads.
         static bool same_layout_own(const SceneNode& a, const SceneNode& b) {
             if (a.identity != b.identity || a.tag != b.tag || a.space != b.space || a.text != b.text ||
-                !same_layout_style(a.style, b.style)) {
+                a.scroll != b.scroll || !same_layout_style(a.style, b.style)) {
                 return false;
             }
             if (a.space == constants::svg_namespace_uri) {
@@ -2500,6 +2506,10 @@ namespace weft {
             std::array<float, 4> box{};
             std::vector<SceneLine> lines;
             std::vector<SceneFragment> fragments;
+            std::array<float, 4> scrolled{};
+            // The node's SceneNode::scroll_shift: zero where layout writes its box, its parent's position once
+            // scroll_content moved it.
+            std::array<float, 2> shift{};
         };
 
         std::unordered_map<const SceneNode*, LaidOut> laid;
@@ -2508,7 +2518,7 @@ namespace weft {
         LaidOut& laid_out(const SceneNode& n) {
             auto [it, fresh] = laid.try_emplace(&n);
             if (fresh) {
-                it->second = {n.box, n.lines, n.fragments};
+                it->second = {n.box, n.lines, n.fragments, n.scrolled, n.scroll_shift};
             }
             return it->second;
         }
@@ -2533,8 +2543,10 @@ namespace weft {
         Handle apply_layout(const Handle& node) {
             const auto& n = *node;
             const auto it = laid.find(&n);
-            const bool own = it != laid.end() && (it->second.box != n.box || it->second.lines != n.lines ||
-                                                  it->second.fragments != n.fragments);
+            const bool own =
+                it != laid.end() &&
+                (it->second.box != n.box || it->second.lines != n.lines || it->second.fragments != n.fragments ||
+                 it->second.scrolled != n.scrolled || it->second.shift != n.scroll_shift);
             std::vector<std::pair<std::size_t, Handle>> changed;
             for (std::size_t k = 0; k < n.children.size(); ++k) {
                 const auto child = n.children.handle(k);
@@ -2550,6 +2562,8 @@ namespace weft {
                 copy->box = it->second.box;
                 copy->lines = std::move(it->second.lines);
                 copy->fragments = std::move(it->second.fragments);
+                copy->scrolled = it->second.scrolled;
+                copy->scroll_shift = it->second.shift;
             }
             for (auto& [k, child] : changed) {
                 copy->children.set(k, std::move(child));
@@ -2576,9 +2590,9 @@ namespace weft {
                 })) {
                 fail("dotted or dashed border with rounded corners outside scene profile");
             }
-            // The scene scrolls only boxes whose content fits (checked after layout).
             const auto overflow = n.style.text(PropertyId::Overflow, "visible");
-            if (overflow != "visible" && overflow != "hidden" && overflow != "auto") {
+            if (overflow != "visible" && overflow != "hidden" && overflow != "auto" && overflow != "scroll" &&
+                overflow != "clip") {
                 fail("unsupported scene value overflow:" + std::string(overflow));
             }
             if (const auto truncation = n.style.text(PropertyId::TextOverflow, "clip");
@@ -2884,6 +2898,7 @@ namespace weft {
                               b->second.bottom - b->second.top};
                     }
                     auto& out = laid_out(c);
+                    out.shift = {};
                     if (scene_atomic_inline(c)) {
                         out.box[0] = at[0] - px;
                         out.box[1] = at[1] - py;
@@ -2963,7 +2978,9 @@ namespace weft {
             for (std::size_t i = 0; i < run.boxes.size(); ++i) {
                 if (const auto* n = run.targets[i]) {
                     const auto& g = geometry[i];
-                    laid_out(*n).box = {g.left, g.top, g.width, g.height};
+                    auto& out = laid_out(*n);
+                    out.box = {g.left, g.top, g.width, g.height};
+                    out.shift = {};
                 }
             }
             // Fixed boxes in their parent's coordinates: no box between them and their containing block has a
@@ -3020,20 +3037,62 @@ namespace weft {
                 }
                 place(root, layout, origin, available);
             }
-            for (std::size_t i = 1; i < run.boxes.size(); ++i) {
-                const auto* child = run.targets[i];
-                const auto* parent = run.targets[run.boxes[i].parent];
-                if (!child || !parent || get(parent->style, PropertyId::Overflow) != "auto") {
+            for (std::size_t i = 0; i < run.boxes.size(); ++i) {
+                if (const auto* n = run.targets[i]) {
+                    scroll_content(*n);
+                }
+            }
+        }
+
+        // A scroll container just laid out (its children's boxes where layout put them): the size of its content, from
+        // its padding box's start edges to the far edges of its children's margin boxes and its end padding (CSS
+        // Overflow 3's scrollable overflow, without descendants that overflow their own boxes), and the scroll
+        // position its element asks for, clamped to that content, by which its children's boxes move (from where layout
+        // put them: a box layout did not place again moves by the difference). Its own lines stay.
+        void scroll_content(const SceneNode& n) {
+            auto& out = laid_out(n);
+            const auto overflow = n.style.text(PropertyId::Overflow, "visible");
+            if (overflow == "visible" || overflow == "clip" || n.space == constants::svg_namespace_uri) {
+                out.scrolled = {};
+                return;
+            }
+            const auto& s = n.style;
+            const auto box = out.box;
+            const float base = box[2];
+            const float left = edge_length(s, PropertyId::BorderLeftWidth, base);
+            const float top = edge_length(s, PropertyId::BorderTopWidth, base);
+            const float client_w = std::max(0.f, box[2] - left - edge_length(s, PropertyId::BorderRightWidth, base));
+            const float client_h = std::max(0.f, box[3] - top - edge_length(s, PropertyId::BorderBottomWidth, base));
+            float right = client_w;
+            float bottom = client_h;
+            const float end_x = edge_length(s, PropertyId::PaddingRight, base);
+            const float end_y = edge_length(s, PropertyId::PaddingBottom, base);
+            for (const auto& c : n.children) {
+                if (c.style.text(PropertyId::Display, c.tag == "#text" ? "inline" : "block") == "none") {
                     continue;
                 }
-                // In the layout's coordinates: a fixed box against its containing block.
-                const auto& g = geometry[i];
-                const auto& p = geometry[run.boxes[i].parent];
-                if (g.left < -constants::scene::overflow_tolerance_px ||
-                    g.top < -constants::scene::overflow_tolerance_px ||
-                    g.left + g.width > p.width + constants::scene::overflow_tolerance_px ||
-                    g.top + g.height > p.height + constants::scene::overflow_tolerance_px) {
-                    fail("scene scrolling outside supported non-overflowing auto profile");
+                const auto& placed = laid_out(c);
+                const bool is_text = c.tag == "#text";
+                const float margin_x =
+                    is_text ? 0.f : std::max(0.f, edge_length(c.style, PropertyId::MarginRight, base));
+                const float margin_y =
+                    is_text ? 0.f : std::max(0.f, edge_length(c.style, PropertyId::MarginBottom, base));
+                right = std::max(right, placed.box[0] + placed.shift[0] + placed.box[2] + margin_x - left + end_x);
+                bottom = std::max(bottom, placed.box[1] + placed.shift[1] + placed.box[3] + margin_y - top + end_y);
+            }
+            for (const auto& line : out.lines) {
+                right = std::max(right, line.rect[0] + line.rect[2] - left + end_x);
+                bottom = std::max(bottom, line.rect[1] + line.rect[3] - top + end_y);
+            }
+            const float x = std::clamp(n.scroll[0], 0.f, std::max(0.f, right - client_w));
+            const float y = std::clamp(n.scroll[1], 0.f, std::max(0.f, bottom - client_h));
+            out.scrolled = {x, y, right, bottom};
+            for (const auto& c : n.children) {
+                auto& placed = laid_out(c);
+                if (placed.shift[0] != x || placed.shift[1] != y) {
+                    placed.box[0] += placed.shift[0] - x;
+                    placed.box[1] += placed.shift[1] - y;
+                    placed.shift = {x, y};
                 }
             }
         }
@@ -3058,6 +3117,7 @@ namespace weft {
                 }
                 e.scroll_width = e.client_width;
                 e.scroll_height = e.client_height;
+                scene_scroll_geometry(n, e);
                 out.push_back(e);
             }
             if (n.space == constants::svg_namespace_uri) {
@@ -3082,6 +3142,8 @@ namespace weft {
                     root.box = it->second.box;
                     root.lines = std::move(it->second.lines);
                     root.fragments = std::move(it->second.fragments);
+                    root.scrolled = it->second.scrolled;
+                    root.scroll_shift = it->second.shift;
                 }
                 for (std::size_t k = 0; k < root.children.size(); ++k) {
                     const auto child = std::as_const(root.children).handle(k);
@@ -3175,6 +3237,7 @@ namespace weft {
                 throw;
             }
             laid.erase(&container);
+            scroll_content(cb);
         }
 
         // Lays out the frame being built again around its layout points alone: for each point, the nearest box at
@@ -3242,19 +3305,40 @@ namespace weft {
                     const auto& cb = node_at(part, part.size() - 1);
                     layout_boundary(cb, cb.children.handle(part.back()));
                 }
-                // Written back along the parts' paths; nothing else changed.
+                // Written back along the parts' paths: each part, and where its parent is a scroll container, the
+                // parent's scroll position and content and its other children's shifts (scroll_content).
                 for (const auto& part : outer) {
                     const auto& cb = node_at(part, part.size() - 1);
                     const auto before = cb.children.handle(part.back());
                     auto laid_part = apply_layout(before);
-                    if (laid_part == before) {
+                    const auto own = laid.find(&cb);
+                    const bool scrolled = own != laid.end() && own->second.scrolled != cb.scrolled;
+                    std::vector<std::pair<std::size_t, Handle>> moved;
+                    for (std::size_t k = 0; own != laid.end() && k < cb.children.size(); ++k) {
+                        if (k == part.back()) {
+                            continue;
+                        }
+                        const auto child = cb.children.handle(k);
+                        if (auto laid_child = apply_layout(child); laid_child != child) {
+                            moved.emplace_back(k, std::move(laid_child));
+                        }
+                    }
+                    if (laid_part == before && !scrolled && moved.empty()) {
                         continue;
                     }
                     SceneNode* n = &root;
                     for (std::size_t j = 0; j + 1 < part.size(); ++j) {
                         n = &n->children.edit(part[j]);
                     }
-                    n->children.set(part.back(), std::move(laid_part));
+                    if (laid_part != before) {
+                        n->children.set(part.back(), std::move(laid_part));
+                    }
+                    if (scrolled) {
+                        n->scrolled = own->second.scrolled;
+                    }
+                    for (auto& [k, child] : moved) {
+                        n->children.set(k, std::move(child));
+                    }
                 }
             } catch (...) {
                 laid.clear();

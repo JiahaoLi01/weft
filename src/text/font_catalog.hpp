@@ -3,6 +3,7 @@
 #include "text/font.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -18,6 +19,8 @@ namespace weft {
         std::uint16_t weight{400};
         bool italic{};
         FontFaceSource source;
+        // The code points the face supplies (CSS unicode-range); empty: every one.
+        std::vector<UnicodeRange> unicode_range;
     };
 
     struct FontCatalog {
@@ -31,6 +34,10 @@ namespace weft {
     // Family names of a CSS font-family value in order: quotes removed, unquoted generic keywords lowercased.
     std::vector<std::string> parse_font_families(std::string_view value);
 
+    // A CSS unicode-range value: comma-separated U+XXXX, U+XXXX-YYYY and wildcard U+XX?? ranges, each within
+    // U+0-10FFFF (CSS Fonts 4). None for text that is not one.
+    std::optional<std::vector<UnicodeRange>> parse_unicode_range(std::string_view value);
+
     // CSS Fonts 4 font matching: for each family of the list that the catalog provides (generic keywords
     // mapped first), the face nearest to weight and style; then the same for the fallback families. Families
     // the catalog lacks are skipped and each face appears once. Empty when nothing matches.
@@ -40,6 +47,9 @@ namespace weft {
     std::vector<std::string> font_family_names(const FontFaceSource& face);
 
     // listed, when given, receives how many of the faces come from the font-family list (the rest are fallback).
+    // A family whose faces have unicode-ranges is a composite font: every face of the nearest weight and style, the
+    // last listed first (CSS Fonts 4, 4.5); ranges, when given, receives each face's unicode-range in order.
     std::vector<FontFaceSource> match_font_faces(const FontCatalog& catalog, std::string_view families, int weight,
-                                                 bool italic, std::size_t* listed = nullptr);
+                                                 bool italic, std::size_t* listed = nullptr,
+                                                 std::vector<std::vector<UnicodeRange>>* ranges = nullptr);
 } // namespace weft

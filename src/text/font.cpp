@@ -772,11 +772,21 @@ namespace weft {
         }
     } // namespace
 
+    bool in_unicode_range(std::span<const UnicodeRange> ranges, char32_t codepoint) {
+        return ranges.empty() || std::any_of(ranges.begin(), ranges.end(), [&](const UnicodeRange& r) {
+                   return codepoint >= r[0] && codepoint <= r[1];
+               });
+    }
+
     FallbackText shape_with_fallback(const std::vector<Font*>& fonts, std::string_view text, float pixels,
                                      ShapePrecision precision, std::span<const FontFeature> features,
-                                     std::span<const FontRole> roles) {
+                                     std::span<const FontRole> roles,
+                                     std::span<const std::vector<UnicodeRange>> ranges) {
         if (!roles.empty() && roles.size() != fonts.size()) {
             throw std::invalid_argument("WEFT_FONT_SET: one role per font");
+        }
+        if (!ranges.empty() && ranges.size() != fonts.size()) {
+            throw std::invalid_argument("WEFT_FONT_SET: one unicode-range per font");
         }
         if (fonts.empty() || fonts.size() > constants::text::max_fallback_fonts) {
             throw std::invalid_argument("WEFT_FONT_SET: expected 1..8 ordered fonts");
@@ -807,16 +817,35 @@ namespace weft {
                 throw std::invalid_argument("WEFT_TEXT_UTF8: malformed input");
             }
             const auto script = hb_unicode_script(hb_unicode_funcs_get_default(), cp);
+            // Scripts whose text shapes one character to a glyph or by the default shaper's features alone, so that a
+            // run of several of them needs no itemization: Japanese kana and Korean Hangul among Han, Greek and
+            // Cyrillic among Latin.
+            const bool simple = script == HB_SCRIPT_LATIN || script == HB_SCRIPT_HAN || script == HB_SCRIPT_COMMON ||
+                                script == HB_SCRIPT_INHERITED || script == HB_SCRIPT_HIRAGANA ||
+                                script == HB_SCRIPT_KATAKANA || script == HB_SCRIPT_HANGUL ||
+                                script == HB_SCRIPT_BOPOMOFO || script == HB_SCRIPT_GREEK ||
+                                script == HB_SCRIPT_CYRILLIC;
             if ((cp >= constants::text::bidi_embedding_first && cp <= constants::text::bidi_embedding_last) ||
                 (cp >= constants::text::bidi_isolate_first && cp <= constants::text::bidi_isolate_last) ||
                 cp == constants::text::left_to_right_mark || cp == constants::text::right_to_left_mark ||
-                cp == constants::text::arabic_letter_mark ||
-                (script != HB_SCRIPT_LATIN && script != HB_SCRIPT_HAN && script != HB_SCRIPT_COMMON &&
-                 script != HB_SCRIPT_INHERITED)) {
-                throw std::invalid_argument(
-                    "WEFT_TEXT_SCRIPT: LTR Latin/Han profile; paragraph bidi/script itemization required");
+                cp == constants::text::arabic_letter_mark || !simple) {
+                throw std::invalid_argument("WEFT_TEXT_SCRIPT: LTR Latin, Greek, Cyrillic, Han, kana, Hangul and "
+                                            "Bopomofo profile; paragraph bidi/script itemization required");
             }
         }
+        // Whether every code point of the cluster [begin, end) lies in font f's unicode-range.
+        const auto in_range = [&](std::uint32_t f, std::uint32_t begin, std::uint32_t end) {
+            if (ranges.empty() || ranges[f].empty()) {
+                return true;
+            }
+            for (unsigned i = 0; i < count; ++i) {
+                if (points[i].cluster >= begin && points[i].cluster < end &&
+                    !in_unicode_range(ranges[f], char32_t(points[i].codepoint))) {
+                    return false;
+                }
+            }
+            return true;
+        };
         auto primary = fonts.front()->shape(text, pixels, precision, features);
         FallbackText result;
         if (primary.glyphs.empty()) {
@@ -828,6 +857,14 @@ namespace weft {
                 throw std::logic_error("WEFT_TEXT_CLUSTER: invalid HarfBuzz output");
             }
             clusters[g.utf8_cluster] = clusters[g.utf8_cluster] || g.glyph_id == 0;
+        }
+        // A cluster outside the first font's unicode-range is the next font's, as one it has no glyph for.
+        if (!ranges.empty() && !ranges.front().empty()) {
+            for (auto i = clusters.begin(); i != clusters.end(); ++i) {
+                const auto next = std::next(i);
+                const auto end = next == clusters.end() ? std::uint32_t(text.size()) : next->first;
+                i->second = i->second || !in_range(0, i->first, end);
+            }
         }
 
         struct Span {
@@ -844,7 +881,8 @@ namespace weft {
             if (i->second) {
                 const auto cluster = text.substr(i->first, end - i->first);
                 const auto covers = [&](std::uint32_t f) {
-                    return !fonts[f]->shape(cluster, pixels, precision, features).missing_glyph;
+                    return in_range(f, i->first, end) &&
+                           !fonts[f]->shape(cluster, pixels, precision, features).missing_glyph;
                 };
                 // The fallback fonts this cluster prefers: any, the monochrome ones or the color ones.
                 auto preferred = FontRole::Listed;

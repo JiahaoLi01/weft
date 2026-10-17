@@ -1086,6 +1086,7 @@ namespace weft {
             }
             e.scroll_width = e.client_width;
             e.scroll_height = e.client_height;
+            scene_scroll_geometry(n, e);
             e.offset = {n.box[0], n.box[1], n.box[2], n.box[3]};
             e.offset_parent = offset_parent;
             e.matrix = {m.m[0], m.m[3], m.m[1], m.m[4], m.m[2], m.m[5]};

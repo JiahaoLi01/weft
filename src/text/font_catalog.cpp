@@ -124,8 +124,11 @@ namespace weft {
             return below(desired);
         }
 
-        std::optional<FontFaceSource> match_family(const FontCatalog& catalog, std::string_view family, int weight,
-                                                   bool italic) {
+        // The family's faces nearest to weight and style: the first such face, or, when the faces have unicode-ranges,
+        // all of them, the last listed first.
+        std::vector<const FontFaceEntry*> match_family(const FontCatalog& catalog, std::string_view family, int weight,
+                                                       bool italic) {
+            std::vector<const FontFaceEntry*> out;
             for (const bool style : {italic, !italic}) {
                 std::vector<std::uint16_t> weights;
                 for (const auto& face : catalog.faces) {
@@ -136,12 +139,20 @@ namespace weft {
                 if (const auto w = nearest_weight(weights, weight)) {
                     for (const auto& face : catalog.faces) {
                         if (face.italic == style && face.weight == *w && same_family(face.family, family)) {
-                            return face.source;
+                            out.push_back(&face);
                         }
                     }
+                    const bool composite = std::any_of(out.begin(), out.end(), [](const FontFaceEntry* f) {
+                        return !f->unicode_range.empty();
+                    });
+                    if (!composite) {
+                        out.resize(1);
+                    }
+                    std::reverse(out.begin(), out.end());
+                    return out;
                 }
             }
-            return std::nullopt;
+            return out;
         }
 
         bool generic(std::string_view family) {
@@ -265,13 +276,89 @@ namespace weft {
         return out;
     }
 
+    std::optional<std::vector<UnicodeRange>> parse_unicode_range(std::string_view value) {
+        std::vector<UnicodeRange> out;
+        std::size_t at{};
+        const auto space = [&] {
+            while (at < value.size() && (value[at] == ' ' || value[at] == '\t' || value[at] == '\n' ||
+                                         value[at] == '\r' || value[at] == '\f')) {
+                ++at;
+            }
+        };
+        const auto hex = [](char c) -> int {
+            return c >= '0' && c <= '9'   ? c - '0'
+                   : c >= 'a' && c <= 'f' ? c - 'a' + 10
+                   : c >= 'A' && c <= 'F' ? c - 'A' + 10
+                                          : -1;
+        };
+        // Up to six hex digits; with wild, '?' digits after them (first takes 0 for each, last F).
+        const auto digits = [&](bool wild, std::uint32_t& first, std::uint32_t& last) {
+            unsigned n{};
+            unsigned wildcards{};
+            first = last = 0;
+            while (at < value.size() && n < 6) {
+                const int d = hex(value[at]);
+                if (d >= 0 && !wildcards) {
+                    first = first * 16 + std::uint32_t(d);
+                    last = last * 16 + std::uint32_t(d);
+                } else if (wild && value[at] == '?') {
+                    first *= 16;
+                    last = last * 16 + 15;
+                    ++wildcards;
+                } else {
+                    break;
+                }
+                ++at;
+                ++n;
+            }
+            return n > 0;
+        };
+        while (true) {
+            space();
+            if (at + 2 > value.size() || (value[at] != 'U' && value[at] != 'u') || value[at + 1] != '+') {
+                return std::nullopt;
+            }
+            at += 2;
+            std::uint32_t first{};
+            std::uint32_t last{};
+            if (!digits(true, first, last)) {
+                return std::nullopt;
+            }
+            if (first == last && at < value.size() && value[at] == '-') {
+                ++at;
+                std::uint32_t end{};
+                std::uint32_t same{};
+                if (!digits(false, end, same)) {
+                    return std::nullopt;
+                }
+                last = end;
+            }
+            if (first > last || last > 0x10FFFF) {
+                return std::nullopt;
+            }
+            out.push_back({char32_t(first), char32_t(last)});
+            space();
+            if (at == value.size()) {
+                return out;
+            }
+            if (value[at] != ',') {
+                return std::nullopt;
+            }
+            ++at;
+        }
+    }
+
     std::vector<FontFaceSource> match_font_faces(const FontCatalog& catalog, std::string_view families, int weight,
-                                                 bool italic, std::size_t* listed) {
+                                                 bool italic, std::size_t* listed,
+                                                 std::vector<std::vector<UnicodeRange>>* ranges) {
         std::vector<FontFaceSource> out;
+        std::vector<std::vector<UnicodeRange>> out_ranges;
         auto add = [&](std::string_view family) {
-            if (auto face = match_family(catalog, family, weight, italic)) {
-                if (std::find(out.begin(), out.end(), *face) == out.end()) {
-                    out.push_back(std::move(*face));
+            for (const auto* face : match_family(catalog, family, weight, italic)) {
+                // A face appears once (with its first unicode-range).
+                if (std::find(out.begin(), out.end(), face->source) == out.end()) {
+                    out.push_back(face->source);
+                    out_ranges.push_back(face->unicode_range);
                 }
             }
         };
@@ -292,6 +379,9 @@ namespace weft {
         }
         for (const auto& family : catalog.fallback_families) {
             add(family);
+        }
+        if (ranges) {
+            *ranges = std::move(out_ranges);
         }
         return out;
     }
