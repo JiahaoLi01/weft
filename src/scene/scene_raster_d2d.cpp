@@ -1241,9 +1241,14 @@ namespace weft {
                 x = origin[0];
                 y = origin[1];
             }
-            solid(svg_text
-                      ? color(get(n.style, PropertyId::Fill, "#000000"), n.style)
-                      : paint_color(n, constants::scene::paint_slot_color, get(n.style, PropertyId::Color, "#000000")));
+            auto ink = svg_text ? color(get(n.style, PropertyId::Fill, "#000000"), n.style)
+                                : paint_color(n, constants::scene::paint_slot_color,
+                                              get(n.style, PropertyId::Color, "#000000"));
+            if (svg_text) {
+                // SVG text's fill-opacity, as the display list takes it.
+                ink.a *= std::clamp(len(get(n.style, PropertyId::FillOpacity, "1")), 0.f, 1.f);
+            }
+            solid(ink);
             draw_run(*run, n.text, x, y + m.baseline);
         }
 

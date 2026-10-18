@@ -16,6 +16,11 @@
 
 ## 本次已实现
 
+SVG 文字的 `fill-opacity`（2026-10-18，`weft-dev` 分支；CRPG 的 d20 检定揭晓叠层按面的朝向让骰面数字渐隐，背面的数字设为 0）。
+- **起因**：显示列表与参考光栅给 SVG 文字取颜色时只读 `fill`，`fill-opacity` 只乘到形状上。骰子上从未转到正面的数字停在 svg 原点、`fill-opacity="0"`，仍被画成一团字；斜面上渐隐的数字也是不透明的。
+- **实现**：`scene_display_list.cpp` 把 `fill-opacity`（夹到 0–1）乘进文字的填充色，为 0 时不取字形轮廓、不出项；`scene_raster_d2d.cpp` 画 SVG 文字时同样相乘（SVG 2 §13.2，与 Chrome 一致）。
+- **验证**（Release）：`scene_cluster_platform` 的 SVG 用例加：标签 `fill-opacity: 0.5` 时文字路径颜色的透明度为 0.5，为 0 时显示列表少一项，参考光栅在 0 时与没有文字的帧逐字节相同（有文字时不同）。核对过去掉参考光栅的修复时失败。全量 ctest 176 项：除既有的 14 项（签出换行的散列校验）外通过（`d3d11_warp_gallery_preview` 在 `-j 6` 下偶发失败，单独重跑通过）。CRPG 的骰子在页面运行器里不再有原点的残字。
+
 CSS Grid 的轨道、放置与对齐（2026-10-18，`weft-dev` 分支；用户定的顺序：HTML `filter`、读背景的效果之后做 grid。CRPG 的 Pick 17 构筑页、Market 页与设置页色盲预览的网格都在等列子集之外）。
 - **起因**：scene 布局的 grid 只有 1–8 个等宽 `minmax(0,1fr)` 列，其他写法抛 `WEFT_UNSUPPORTED_FORMAT: grid supports 1-8 equal minmax(0,1fr) tracks`，整帧失败，UE 里界面停在上一帧。测试关卡的战斗开局推出 Pick 17 构筑页（`UPick17BattleSchema`，网格 `repeat(auto-fill, minmax(320px, 1fr))`），从推入起每帧失败，第一屏画不出来（2026-10-18 游戏日志里发现；此前的游戏内检查在 6 秒时把界面换成了 HUD，没有看到）。Market 页的 `grid-cols-[auto_auto_1fr_auto]`、`grid-cols-[1fr_auto_auto]` 同样失败；设置页色盲预览的 `repeat(8, 1fr)` 也在子集外（滤镜那次发现）。子集里 `1fr` 被当成 `minmax(0, 1fr)`，网格项不拉伸到行高，`height: 100%` 的色块没有高度。网格修好之后，Pick 17 页又露出两处原先被它挡住的失败（见实现的最后一条）。
 - **实现**：

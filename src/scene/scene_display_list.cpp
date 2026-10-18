@@ -447,6 +447,9 @@ namespace weft {
                         taken.text_at = {x, y};
                         taken.text_metrics = metrics;
                         taken.text_fill = color(get(c.style, PropertyId::Fill, "#000000"), c.style);
+                        // fill-opacity scales the text's fill as it does a shape's (SVG 2 §13.2): text at 0 paints
+                        // nothing.
+                        taken.text_fill[3] *= std::clamp(len(get(c.style, PropertyId::FillOpacity, "1")), 0.f, 1.f);
                         // Glyph outlines as a path, drawn under the whole transform like any SVG shape; text with
                         // color glyphs stays an image.
                         if (taken.text_fill[3] > 0) {

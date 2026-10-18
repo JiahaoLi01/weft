@@ -217,6 +217,29 @@ int main() {
                         items[7].transform[4] == 10 + 2 * (30 - metrics.width / 2) &&
                         items[7].transform[5] == 10 + 2 * (30 - metrics.baseline),
                     "SVG text as glyph outlines placed by its anchor and baseline");
+            // fill-opacity scales the text's fill as it does a shape's: half at 0.5, nothing at 0, in the display list
+            // and in the reference raster alike (it was dropped for text, so a page hiding text by fill-opacity
+            // still drew it).
+            {
+                auto faded = frame;
+                faded.root.children.edit(0).children.edit_back().style["fill-opacity"] = "0.5";
+                const auto half = weft::scene_display_list(faded, {}, &text);
+                require(half.fallback.empty() && half.list.items.size() == 8 &&
+                            half.list.paths[half.list.items[7].payload].color ==
+                                weft::paint::Color{0x12 / 255.f, 0x34 / 255.f, 0x56 / 255.f, .5f},
+                        "SVG text fill-opacity scales its fill");
+                auto hidden = frame;
+                hidden.root.children.edit(0).children.edit_back().style["fill-opacity"] = "0";
+                const auto none = weft::scene_display_list(hidden, {}, &text);
+                require(none.fallback.empty() && none.list.items.size() == 7,
+                        "SVG text at fill-opacity 0 paints nothing");
+                auto blank = frame;
+                blank.root.children.edit(0).children.edit_back().text.clear();
+                weft::SceneRaster reference{text};
+                const auto without = reference.raster(blank, 2).rgba;
+                require(reference.raster(hidden, 2).rgba == without && reference.raster(frame, 2).rgba != without,
+                        "the reference raster hides SVG text at fill-opacity 0");
+            }
             // Arcs become cubics that stay on their circles: an annular sector as d3.arc writes it, both sweeps.
             {
                 const auto sector = node(
