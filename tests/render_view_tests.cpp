@@ -288,17 +288,22 @@ namespace {
             ComPtr<ID3D11RenderTargetView> rtv;
         };
 
-        Target target(DXGI_FORMAT format = DXGI_FORMAT_B8G8R8A8_UNORM) {
+        // A target of a format, or of its typeless family with a view of the format, as an engine makes its render
+        // textures (Unity's are typeless, for views of either encoding).
+        Target target(DXGI_FORMAT format = DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT typeless = DXGI_FORMAT_UNKNOWN) {
             D3D11_TEXTURE2D_DESC desc{};
             desc.Width = width;
             desc.Height = height;
             desc.MipLevels = desc.ArraySize = 1;
-            desc.Format = format;
+            desc.Format = typeless == DXGI_FORMAT_UNKNOWN ? format : typeless;
             desc.SampleDesc.Count = 1;
             desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+            D3D11_RENDER_TARGET_VIEW_DESC view{};
+            view.Format = format;
+            view.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
             Target t;
             require(SUCCEEDED(device->CreateTexture2D(&desc, nullptr, &t.texture)) &&
-                        SUCCEEDED(device->CreateRenderTargetView(t.texture.Get(), nullptr, &t.rtv)),
+                        SUCCEEDED(device->CreateRenderTargetView(t.texture.Get(), &view, &t.rtv)),
                     "a target");
             const float picture[]{game[2] / 255.f, game[1] / 255.f, game[0] / 255.f, game[3] / 255.f};
             context->ClearRenderTargetView(t.rtv.Get(), picture);
@@ -457,6 +462,16 @@ namespace {
         require(pixel(through, 2, 2) == game && pixel(through, width - 2, 2) == game, "the game shows around the UI");
         require(pixel(through, 15, 22) != game, "a plate over the game");
         require(darker(pixel(through, 280, 30)), "the glass darkens the game beneath it");
+
+        // Into a typeless texture through a view of its format, as an engine's render texture: the glass's copy of what
+        // lies beneath it takes the view's format.
+        frame = page.frame(0.018);
+        prepared = prepare(renderer, frame);
+        weft_view_frame_release(frame);
+        target = gpu.target(DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_B8G8R8A8_TYPELESS);
+        ok(draw(renderer, prepared, target.rtv.Get(), serial), "draw into a typeless texture");
+        ok(weft_renderer_release_prepared(renderer, prepared), "release");
+        require(gpu.read(target) == through, "a typeless texture shows the page as a typed one does, the glass too");
 
         // A clear to the host's color first.
         const float blue[]{0.05f, 0.1f, 0.4f, 1};

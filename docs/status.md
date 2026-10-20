@@ -1,6 +1,6 @@
 # Weft 当前状态
 
-更新日期：2026 年 10 月 18 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG、键盘/IME 与移动尚未实现，仍未达到 M0 全部退出条件。
+更新日期：2026 年 10 月 21 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG、键盘/IME 与移动尚未实现，仍未达到 M0 全部退出条件。
 
 ## 待办
 
@@ -15,6 +15,11 @@
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
+
+D3D11 的毛玻璃在无类型（typeless）的目标上（2026-10-21，`weft-op` 分支；上一条日志里的失败）。
+- **起因**：`backdrop-filter` 拷贝下方内容时，按目标纹理资源的格式建复制纹理，再用默认视图建它的 RTV。引擎的渲染纹理是无类型的（Unity 的 BGRA8 渲染纹理是 `B8G8R8A8_TYPELESS`，由视图选编码），无类型纹理没有默认视图，建 RTV 失败（E_INVALIDARG），场景 pass 抛出，那一帧不画。复制纹理按尺寸缓存，所以只在毛玻璃出现新尺寸（滚动时被裁剪）时失败：宣传页巡览一次约 6 帧。
+- **实现**：`d3d11/scene_renderer.cpp` 的 `backdrop` 按目标视图的格式建复制纹理，与读背景的效果的 `copy` 相同。
+- **验证**（Release）：`render_view_tests` 的 D3D11 帧加：带毛玻璃的名牌页面画进 `B8G8R8A8_TYPELESS` 的纹理（视图 `B8G8R8A8_UNORM`），与画进有类型纹理的结果逐字节相同；修复前绘制失败（`WEFT_RENDER_BACKEND_ERROR`）。宣传页的 Unity 播放器（D3D11，1600 × 900）巡览里失败的帧 6 → 0。全量 ctest 176 项：除既有的 14 项外通过。
 
 视图后端说出场景 pass 抛出的原因（2026-10-21，`weft-op` 分支；weft 宣传页的 Unity 播放器在 D3D11 上偶尔整帧不画，日志只有 `BACKEND_ERROR`）。
 - **起因**：三个视图后端的 `encode` 里场景 pass 抛出的异常由 C 接口的转接层变成 `WEFT_RENDER_BACKEND_ERROR`，`weft_renderer_last_failure` 只说已知的失败，宿主的日志只有错误码。

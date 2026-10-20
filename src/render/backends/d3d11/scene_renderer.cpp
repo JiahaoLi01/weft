@@ -311,8 +311,10 @@ namespace weft::render::d3d11 {
         from->GetResource(&resource);
         ComPtr<ID3D11Texture2D> source;
         throw_if_failed(resource.As(&source), "native backdrop source texture");
-        D3D11_TEXTURE2D_DESC desc{};
-        source->GetDesc(&desc);
+        // The copy of what lies beneath takes the format the pass draws in, which a typeless target's view names (an
+        // engine's render textures are typeless).
+        D3D11_RENDER_TARGET_VIEW_DESC drawn{};
+        from->GetDesc(&drawn);
         // A target of the chain: its place in the chain names it, so a backdrop's targets are distinct.
         unsigned place{};
         const auto target = [&](unsigned w, unsigned h, DXGI_FORMAT format) -> Surface& {
@@ -337,7 +339,7 @@ namespace weft::render::d3d11 {
         };
         auto w = unsigned(b.region[2] - b.region[0]);
         auto h = unsigned(b.region[3] - b.region[1]);
-        auto* current = &target(w, h, desc.Format);
+        auto* current = &target(w, h, drawn.Format);
         const D3D11_BOX box{UINT(b.region[0]), UINT(b.region[1]), 0, UINT(b.region[2]), UINT(b.region[3]), 1};
         ctx->CopySubresourceRegion(current->texture.Get(), 0, 0, 0, 0, resource.Get(), 0, &box);
         ctx->ClearState();
