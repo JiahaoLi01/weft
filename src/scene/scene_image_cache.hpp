@@ -8,8 +8,9 @@
 #include <utility>
 
 // The image caches of a native scene pass (scene_native.hpp): values by key, the least recently used first out once
-// the cache is over its entries or bytes, but never a value the current pass has used. One pass may hold more than
-// the bounds while it lasts; a pass that reuses what the last one built finds all of it.
+// the cache is over its entries or bytes, but never a value the current pass or the last one used. One pass may hold
+// more than the bounds while it lasts; a pass that reuses what the last one built finds all of it, though it builds
+// values of its own too (the last pass's values it has yet to reach stay).
 //
 // Owner thread of the preparer.
 namespace weft {
@@ -20,7 +21,7 @@ namespace weft {
             : max_entries_(max_entries), max_bytes_(max_bytes) {
         }
 
-        // Starts a pass: what earlier passes used may go.
+        // Starts a pass: what passes before the last one used may go.
         void begin_pass() {
             ++pass_;
         }
@@ -37,13 +38,13 @@ namespace weft {
         }
 
         // Puts value of bytes under key, in place of what was there, as the most recently used, then evicts the least
-        // recently used values of earlier passes while over a bound.
+        // recently used values of passes before the last while over a bound.
         Value& put(const Key& key, Value value, std::size_t bytes) {
             erase(key);
             order_.push_back(Node{key, std::move(value), bytes, pass_});
             index_.emplace(key, std::prev(order_.end()));
             bytes_ += bytes;
-            while ((order_.size() > max_entries_ || bytes_ > max_bytes_) && order_.front().pass != pass_) {
+            while ((order_.size() > max_entries_ || bytes_ > max_bytes_) && order_.front().pass + 1 < pass_) {
                 bytes_ -= order_.front().bytes;
                 index_.erase(order_.front().key);
                 order_.pop_front();

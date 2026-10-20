@@ -277,7 +277,8 @@ int main() {
                     "the same text at another scale is another image");
         }
         // A pass with more images than a cache's entry bound keeps them all for the next pass, which reuses every
-        // one; a pass of other images then evicts the earlier pass's, oldest first, down to the bound.
+        // one; a pass of other images keeps the last pass's too, and the pass after it evicts them, oldest first, down
+        // to the bound.
         weft::SceneNativeWork bounded_work;
         weft::ScenePreparer bounded(text, bounded_work, 4096, {}, weft::SceneCacheBounds{4, std::size_t(1) << 30});
         const auto many = labels(200, "Label");
@@ -286,8 +287,52 @@ int main() {
                     bounded_work.text_reuses == 6 && !bounded_work.image_evictions,
                 "a pass over the entry bound keeps its images");
         require(bool(bounded.prepare(labels(300, "Name"), 1, 200, 200, std::nullopt, 0, {})) &&
-                    bounded_work.text_builds == 12 && bounded_work.image_evictions == 6,
-                "a later pass evicts the earlier pass's images");
+                    bounded_work.text_builds == 12 && !bounded_work.image_evictions,
+                "a pass of other images keeps the last pass's");
+        require(bool(bounded.prepare(labels(400, "Word"), 1, 200, 200, std::nullopt, 0, {})) &&
+                    bounded_work.text_builds == 18 && bounded_work.image_evictions == 6,
+                "a later pass evicts the images of passes before the last");
+        // A pass over the bound that builds an image of its own still reuses all the last pass's others: its new image
+        // evicts none it has yet to reach (that cascade rebuilt a long page's text every pass at a high scale).
+        {
+            weft::SceneNativeWork churn_work;
+            weft::ScenePreparer churn(text, churn_work, 4096, {}, weft::SceneCacheBounds{4, std::size_t(1) << 30});
+            auto changing = labels(200, "Label");
+            require(bool(churn.prepare(changing, 1, 200, 200, std::nullopt, 0, {})) && churn_work.text_builds == 6,
+                    "the first pass builds its images");
+            changing.root.children.edit(0).text = "Label 10";
+            require(bool(churn.prepare(changing, 1, 200, 200, std::nullopt, 0, {})) && churn_work.text_builds == 7 &&
+                        churn_work.text_reuses == 5,
+                    "a pass with an image of its own reuses the last pass's others");
+        }
+        // Text and shadows that cannot reach the target get no images (a long page rasterizes what can show, not all of
+        // itself); moved onto the target, they get theirs.
+        {
+            weft::SceneNativeWork culled_work;
+            weft::ScenePreparer culled(text, culled_work, 4096);
+            weft::SceneFrame page;
+            page.root = node(1100, {0, 0, 200, 2000}, {});
+            page.root.children = {
+                node(1101, {4, 4, 80, 20}, {{"font-size", "12px"}, {"color", "#202020"}}, "Seen"),
+                node(1102, {4, 1500, 80, 20}, {{"font-size", "12px"}, {"color", "#202020"}}, "Below"),
+                node(1103, {4, 60, 40, 30},
+                     {{"background-color", "#3060c0"}, {"box-shadow", "2px 3px 4px 0px rgba(0, 0, 0, 0.5)"}}),
+                node(1104, {4, 1600, 50, 30},
+                     {{"background-color", "#3060c0"}, {"box-shadow", "2px 3px 4px 0px rgba(0, 0, 0, 0.5)"}})};
+            const auto imaged = [](const weft::ScenePrepared& p) {
+                return std::count_if(p.images.begin(), p.images.end(), [](const auto& image) {
+                    return bool(image);
+                });
+            };
+            const auto shown = culled.prepare(page, 1, 200, 200, std::nullopt, 0, {});
+            require(shown && imaged(*shown) == 2 && culled_work.text_builds == 1 && culled_work.shadow_builds == 1,
+                    "text and a shadow below the target get no images");
+            page.root.children.edit(1).box[1] = 100;
+            page.root.children.edit(3).box[1] = 140;
+            const auto moved = culled.prepare(page, 1, 200, 200, std::nullopt, 0, {});
+            require(moved && imaged(*moved) == 4 && culled_work.text_builds == 2 && culled_work.shadow_builds == 2,
+                    "moved onto the target, they get theirs");
+        }
         // Small images lie on atlas pages of their format, coverage (paths, text of one color) or colors (shadows, text in
         // colors of its own); an image too large has a texture of its own. Their records sample their pages, and runs of
         // boxes and of images on one page next to each other are one Atlas step, never across a group. Without pages,
@@ -385,19 +430,24 @@ int main() {
             weft::ScenePreparer reuse(text, reuse_work, 4096, {}, weft::SceneCacheBounds{4, std::size_t(1) << 30});
             auto held = reuse.prepare(labels(700, "Alpha"), 1, 200, 200, std::nullopt, 0, {});
             const auto alpha = places(*held);
+            // Beta's pass keeps Alpha's images, the last pass's; Gamma's evicts them, which held still holds.
             auto beta = reuse.prepare(labels(800, "Beta"), 1, 200, 200, std::nullopt, 0, {});
-            bool apart = alpha.size() == 6 && places(*beta).size() == 6;
+            auto gamma = reuse.prepare(labels(900, "Gamma"), 1, 200, 200, std::nullopt, 0, {});
+            bool apart = alpha.size() == 6 && places(*beta).size() == 6 && places(*gamma).size() == 6;
             for (const auto& a : alpha) {
-                for (const auto& b : places(*beta)) {
-                    apart &= !overlap(a, b);
+                for (const auto* later : {beta.get(), gamma.get()}) {
+                    for (const auto& b : places(*later)) {
+                        apart &= !overlap(a, b);
+                    }
                 }
             }
             require(apart && reuse_work.image_evictions == 6, "evicted images still held keep their regions");
             held.reset();
             beta.reset();
-            const auto gamma = reuse.prepare(labels(900, "Gamma"), 1, 200, 200, std::nullopt, 0, {});
+            gamma.reset();
+            const auto delta = reuse.prepare(labels(1200, "Delta"), 1, 200, 200, std::nullopt, 0, {});
             std::size_t taken{};
-            for (const auto& g : places(*gamma)) {
+            for (const auto& g : places(*delta)) {
                 taken += std::count_if(alpha.begin(), alpha.end(), [&](const auto& a) {
                     return a[0] == g[0] && a[1] == g[1] && a[2] == g[2] && a[3] == g[3];
                 });

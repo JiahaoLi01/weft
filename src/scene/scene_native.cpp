@@ -216,6 +216,20 @@ namespace weft {
             pass.batches = std::move(merged);
         }
 
+        // Whether a planned record can draw on its target (width x height device px at scale): its bounds, the item's
+        // extent within its clip in CSS px, meet the target's. An anchored record is placed as the pass draws, so it
+        // always may. A pass makes no text or shadow image for a record that cannot (as no path image for an empty
+        // mask): a long page rasterizes what can show, not all of itself.
+        bool reaches(const paint::Item& item, const render::SceneRecord& record, float scale, unsigned width,
+                     unsigned height) {
+            if (item.anchor) {
+                return true;
+            }
+            const auto& b = record.bounds;
+            return b[2] > 0 && b[3] > 0 && b[0] < float(width) / scale && b[1] < float(height) / scale &&
+                   b[0] + b[2] > 0 && b[1] + b[3] > 0;
+        }
+
         // Whether a pass may draw a run's items in another order without planning it again: they lie in one batch
         // that draws its records in any order (boxes, or boxes and images on one atlas page).
         bool reorderable(const ScenePrepared& prepared, const SceneListRun& run) {
@@ -752,12 +766,13 @@ namespace weft {
                 out.record = planned->record;
                 out.mask = planned->mask;
                 try {
-                    if (item.kind == Kind::Text) {
+                    const bool shows = reaches(item, out.record, scale, listed.width, listed.height);
+                    if (item.kind == Kind::Text && shows) {
                         auto made = image(item, built.list.rasters[item.payload], scale, view_index);
                         out.image = std::move(made.text);
                     } else if (item.kind == Kind::Filter) {
                         out.filter = filter(built.list.filters[item.payload], view_index);
-                    } else if (item.kind == Kind::Shadow) {
+                    } else if (item.kind == Kind::Shadow && shows) {
                         out.image = shadow(item, built.list.shadows[item.payload], scale);
                     } else if (item.kind == Kind::Path && out.mask[2] > out.mask[0] && out.mask[3] > out.mask[1]) {
                         out.image = path(item, built.list.paths[item.payload], scale, out.mask);
@@ -1602,6 +1617,9 @@ namespace weft {
         }
         for (std::size_t i = 0; i < list.items.size(); ++i) {
             const auto& item = list.items[i];
+            if (item.kind == Kind::Text && !reaches(item, out->pass.records[i], scale, width, height)) {
+                continue;
+            }
             if (item.kind == Kind::Text || item.kind == Kind::Layer) {
                 auto built = image(item, list.rasters[item.payload], scale, view_index);
                 out->images[i] = std::move(built.text);
@@ -1614,7 +1632,9 @@ namespace weft {
                     out->images[i] = effect_texture(list.assets.at(image.asset));
                 }
             } else if (item.kind == Kind::Shadow) {
-                out->images[i] = shadow(item, list.shadows[item.payload], scale);
+                if (reaches(item, out->pass.records[i], scale, width, height)) {
+                    out->images[i] = shadow(item, list.shadows[item.payload], scale);
+                }
             } else if (item.kind == Kind::Path) {
                 const auto& mask = out->pass.masks[i];
                 if (mask[2] > mask[0] && mask[3] > mask[1]) {
