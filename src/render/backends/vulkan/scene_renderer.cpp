@@ -364,21 +364,24 @@ namespace weft::render::vulkan {
         keep(slot.buffers, slot.spare_buffers, std::size_t(limits::scene_slot_spare_buffers), [&](Buffer& b) {
             d.destroy(b);
         });
-        // Scratch images within a count and their bytes.
+        // Scratch images: those this recording drew with, whatever their bytes (the next one most likely draws the
+        // same, and a pass's groups at a large target pass any fixed bound alone), then the spares it left within a
+        // count and their bytes.
         std::size_t image_bytes{};
-        for (const auto& image : slot.spare_images) {
+        for (const auto& image : slot.images) {
             image_bytes += std::size_t(image.width) * image.height * 4;
         }
-        for (auto& image : slot.images) {
+        for (auto& image : slot.spare_images) {
             const auto bytes = std::size_t(image.width) * image.height * 4;
-            if (slot.spare_images.size() < std::size_t(limits::scene_slot_spare_images) &&
+            if (slot.images.size() < std::size_t(limits::scene_slot_spare_images) &&
                 image_bytes + bytes <= std::size_t(limits::scene_slot_spare_image_bytes)) {
-                slot.spare_images.push_back(image);
+                slot.images.push_back(image);
                 image_bytes += bytes;
             } else {
                 d.destroy(image);
             }
         }
+        slot.spare_images = std::move(slot.images);
         slot.images.clear();
         keep(slot.pools, slot.spare_pools, std::size_t(limits::scene_slot_spare_pools),
              [&](std::pair<VkDescriptorPool, std::uint32_t>& pool) {

@@ -274,21 +274,25 @@ namespace weft::render::d3d12 {
             }
         }
         slot.buffers.clear();
-        // Scratch textures within a count and their bytes.
+        // Scratch textures: those this recording drew with, whatever their bytes (the next one most likely draws the
+        // same, and a pass's groups at a large target pass any fixed bound alone), then the spares it left within a
+        // count and their bytes.
+        std::vector<Image> spares(slot.images.begin(), slot.images.end());
         std::size_t image_bytes{};
-        for (const auto& image : slot.spare_images) {
+        for (const auto& image : spares) {
             image_bytes += std::size_t(image.width) * image.height * 4;
         }
-        for (auto& image : slot.images) {
+        for (auto& image : slot.spare_images) {
             const auto bytes = std::size_t(image.width) * image.height * 4;
-            if (slot.spare_images.size() < std::size_t(limits::scene_slot_spare_images) &&
+            if (spares.size() < std::size_t(limits::scene_slot_spare_images) &&
                 image_bytes + bytes <= std::size_t(limits::scene_slot_spare_image_bytes)) {
-                slot.spare_images.push_back(image);
+                spares.push_back(image);
                 image_bytes += bytes;
             } else {
                 gpu.destroy(image);
             }
         }
+        slot.spare_images = std::move(spares);
         slot.images.clear();
         for (auto& h : slot.heaps) {
             if (slot.spare_heaps.size() < std::size_t(limits::scene_slot_spare_heaps)) {

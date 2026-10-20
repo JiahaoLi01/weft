@@ -194,6 +194,70 @@ namespace {
         d.vkd.vkDestroyCommandPool(d.device, pool, nullptr);
         return patching.kept_patches;
     }
+
+    // A recording whose scratch passes the bytes of spares a slot keeps of what it leaves (two nested groups over a
+    // target past 4K, each an image of the target's size) keeps what it drew with all the same: the slot's later
+    // recordings of the frame make no scratch images. Returns the objects the first recording made.
+    std::size_t large_groups_kept(vk::Device& d) {
+        constexpr std::uint32_t width = 4096;
+        constexpr std::uint32_t height = 2304;
+        static_assert(std::size_t(width) * height * 4 * 2 >
+                      std::size_t(weft::constants::render::vulkan::scene_slot_spare_image_bytes));
+        vk::SceneRenderer scene(d, weft::testing::thread_scene_text());
+        weft::SceneFrame f;
+        f.root = node(1, {0, 0, float(width), float(height)}, {{"background-color", "#102030"}});
+        auto outer = node(2, {0, 0, float(width), float(height)}, {{"opacity", "0.8"}, {"background-color", "#405060"}});
+        auto inner = node(3, {100, 100, 800, 600}, {{"opacity", "0.6"}, {"background-color", "#c02060"}});
+        inner.children = {node(4, {10, 10, 100, 60}, {{"background-color", "#ffffff"}})};
+        outer.children = {inner, node(5, {1000, 100, 200, 100}, {{"background-color", "#20a060"}})};
+        f.root.children = {outer};
+        VkCommandPool pool{};
+        VkCommandPoolCreateInfo pool_info{};
+        pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        pool_info.queueFamilyIndex = d.queue_family;
+        vk::check(d.vkd.vkCreateCommandPool(d.device, &pool_info, nullptr, &pool), "vkCreateCommandPool");
+        Host h;
+        h.image = d.image(VK_FORMAT_B8G8R8A8_UNORM, width, height, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
+        VkCommandBufferAllocateInfo allocate{};
+        allocate.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocate.commandPool = pool;
+        allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocate.commandBufferCount = 1;
+        vk::check(d.vkd.vkAllocateCommandBuffers(d.device, &allocate, &h.command), "vkAllocateCommandBuffers");
+        VkFenceCreateInfo fence{};
+        fence.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        vk::check(d.vkd.vkCreateFence(d.device, &fence, nullptr, &h.fence), "vkCreateFence");
+        std::size_t first{};
+        for (int k = 0; k < 3; ++k) {
+            VkCommandBufferBeginInfo info{};
+            info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            vk::check(d.vkd.vkBeginCommandBuffer(h.command, &info), "vkBeginCommandBuffer");
+            require(scene.encode(h.slot, f, h.command, {h.image.view, width, height}, 1, std::nullopt, 0, {}),
+                    "a recording of nested groups at 4K");
+            vk::check(d.vkd.vkEndCommandBuffer(h.command), "vkEndCommandBuffer");
+            VkSubmitInfo submit{};
+            submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            submit.commandBufferCount = 1;
+            submit.pCommandBuffers = &h.command;
+            vk::check(d.vkd.vkQueueSubmit(d.queue, 1, &submit, h.fence), "vkQueueSubmit");
+            scene.submitted(h.slot);
+            d.wait(h.fence);
+            vk::check(d.vkd.vkResetFences(d.device, 1, &h.fence), "vkResetFences");
+            scene.retire(h.slot);
+            if (k == 0) {
+                first = scene.slot_objects;
+            }
+        }
+        require(first > 0 && scene.slot_objects == first,
+                "groups past the spare bytes are kept for the slot's next recordings: " +
+                    std::to_string(scene.slot_objects - first) + " objects made again");
+        d.vkd.vkDestroyFence(d.device, h.fence, nullptr);
+        d.destroy(h.image);
+        d.vkd.vkDestroyCommandPool(d.device, pool, nullptr);
+        return first;
+    }
 } // namespace
 
 int main(int argc, char** argv) {
@@ -377,6 +441,7 @@ int main(int argc, char** argv) {
         d.vkd.vkDestroyCommandPool(d.device, pool, nullptr);
         const auto patched = patched_in_flight(*device);
         require(patched > 30, "most recordings patch the kept pass: " + std::to_string(patched));
+        (void)large_groups_kept(*device);
         if (d.validation_messages) {
             std::cerr << d.first_validation_message << '\n';
         }
@@ -386,7 +451,7 @@ int main(int argc, char** argv) {
         require(!d.validation_messages && !scene.fallbacks, "validation and fallbacks");
         std::cout << "PASS Vulkan scene recording on " << d.name << ": " << compared
                   << " frames in flight equal to draw(), later recordings of a slot made nothing, Busy, discard; "
-                  << patched << " patched recordings in flight as fresh passes\n";
+                  << patched << " patched recordings in flight as fresh passes; groups at 4K kept\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';
