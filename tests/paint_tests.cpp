@@ -9,6 +9,7 @@
 #include "scene/scene.hpp"
 #include "support/check.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -16,6 +17,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 // The portable paint IR: structural checks of display lists, the portable plan of a scene pass, quad packets as
 // display lists, external textures, appended lists, UI shader effects and UI particles.
@@ -185,6 +187,109 @@ namespace {
         const auto inset = render::shadow_image(inner, 4000, 4000, 2).value();
         require(std::size_t(inset.geometry.width) * inset.geometry.height <= bound && inset.geometry.width < 4000,
                 "an inset shadow past the bound is made at a lower scale too");
+        // A blur wider than shadow_coarse_sigma_px is taken on a coarser grid and read back bilinear: the shadow the
+        // full grid's Gaussian makes (the spread shape's coverage of each cell, blurred, cut to the box's outside or
+        // inside), within two levels of alpha at every pixel.
+        {
+            const auto covered = [](float x, float y, float w, float h, float r, float k) {
+                r = std::min(r, std::min(w, h) / 2);
+                const float qx = std::abs(x - w / 2) - (w / 2 - r);
+                const float qy = std::abs(y - h / 2) - (h / 2 - r);
+                const float d = std::hypot(std::max(qx, 0.f), std::max(qy, 0.f)) + std::min(std::max(qx, qy), 0.f) - r;
+                return std::clamp(.5f - d * k, 0.f, 1.f);
+            };
+            // The full grid's separable Gaussian, three deviations wide, zero beyond the mask.
+            const auto exact = [](const std::vector<float>& mask, unsigned w, unsigned h, float sigma) {
+                const int radius = int(std::ceil(3 * sigma));
+                std::vector<float> kernel(2 * radius + 1);
+                float total{};
+                for (int k = -radius; k <= radius; ++k) {
+                    total += kernel[k + radius] = std::exp(-float(k * k) / (2 * sigma * sigma));
+                }
+                for (auto& v : kernel) {
+                    v /= total;
+                }
+                std::vector<float> across(mask.size());
+                std::vector<float> out(mask.size());
+                for (int pass = 0; pass < 2; ++pass) {
+                    const auto& from = pass ? across : mask;
+                    auto& to = pass ? out : across;
+                    for (unsigned row = 0; row < h; ++row) {
+                        for (unsigned col = 0; col < w; ++col) {
+                            float v{};
+                            for (int k = -radius; k <= radius; ++k) {
+                                const int c = int(col) + (pass ? 0 : k);
+                                const int r = int(row) + (pass ? k : 0);
+                                if (c >= 0 && c < int(w) && r >= 0 && r < int(h)) {
+                                    v += from[std::size_t(r) * w + c] * kernel[k + radius];
+                                }
+                            }
+                            to[std::size_t(row) * w + col] = v;
+                        }
+                    }
+                }
+                return out;
+            };
+            // A text shadow's coverage (glyph-like strokes) blurred on blocks of the grid: within two levels too.
+            {
+                const unsigned tw = 300;
+                const unsigned th = 120;
+                std::vector<float> strokes(std::size_t(tw) * th);
+                for (unsigned row = 40; row < 80; ++row) {
+                    for (unsigned col = 60; col < 240; ++col) {
+                        strokes[std::size_t(row) * tw + col] = (col / 7 + row / 5) % 3 == 0 ? 1.f : (col % 11) / 10.f;
+                    }
+                }
+                const auto want = exact(strokes, tw, th, 20);
+                const auto got = render::gaussian_blur(strokes, tw, th, 20);
+                float worst{};
+                for (std::size_t i = 0; i < want.size(); ++i) {
+                    worst = std::max(worst, std::abs(want[i] - got[i]) * 255);
+                }
+                require(worst <= 2, "a wide text shadow's blur on blocks is the full one's within two levels (" +
+                                        std::to_string(worst) + ")");
+            }
+            const float scale = 2;
+            for (const bool inset_shadow : {false, true}) {
+                paint::Shadow wide{{0, 0, 0, .8f}, 3, 5, 24, inset_shadow ? 6.f : -4.f, {12, 12, 12, 12}};
+                wide.inset = inset_shadow;
+                const auto made = render::shadow_image(wide, 120, 80, scale).value();
+                const auto& mg = made.geometry;
+                const float sigma = wide.blur * scale / 2;
+                // An inset shadow's hole on a grid a kernel radius beyond the image, as the image's own is read.
+                const unsigned reach = inset_shadow ? unsigned(std::ceil(3 * sigma)) : 0;
+                const unsigned gw = mg.width + 2 * reach;
+                const unsigned gh = mg.height + 2 * reach;
+                // The spread shape (an outer shadow's box grown, an inset one's hole shrunk) from its own corner.
+                const float grow = inset_shadow ? -wide.spread : wide.spread;
+                std::vector<float> shape(std::size_t(gw) * gh);
+                for (unsigned row = 0; row < gh; ++row) {
+                    for (unsigned col = 0; col < gw; ++col) {
+                        const float x = mg.rect[0] + (float(col) - float(reach) + .5f) / scale - wide.x + grow;
+                        const float y = mg.rect[1] + (float(row) - float(reach) + .5f) / scale - wide.y + grow;
+                        shape[std::size_t(row) * gw + col] =
+                            covered(x, y, 120 + 2 * grow, 80 + 2 * grow, std::max(0.f, 12 + grow), scale);
+                    }
+                }
+                const auto spread = exact(shape, gw, gh, sigma);
+                int worst{};
+                for (unsigned row = 0; row < mg.height; ++row) {
+                    for (unsigned col = 0; col < mg.width; ++col) {
+                        const float in = covered(mg.rect[0] + (col + .5f) / scale, mg.rect[1] + (row + .5f) / scale,
+                                                 120, 80, 12, scale);
+                        const float blur = spread[std::size_t(row + reach) * gw + col + reach];
+                        const float shown = inset_shadow ? std::clamp(1 - blur, 0.f, 1.f) * in * wide.color[3]
+                                                         : blur * (1 - in) * wide.color[3];
+                        const int expected = int(std::clamp(shown * 255 + .5f, 0.f, 255.f));
+                        const int got = made.rgba[(std::size_t(row) * mg.width + col) * 4 + 3];
+                        worst = std::max(worst, std::abs(expected - got));
+                    }
+                }
+                require(worst <= 2, std::string(inset_shadow ? "an inset" : "an outer") +
+                                        " shadow's coarse blur is the full one's within two levels (" +
+                                        std::to_string(worst) + ")");
+            }
+        }
         // Planned as an image with its own colors over the shadow's rectangle, under the item's transform.
         paint::DisplayList list;
         list.shadows.push_back(hard);

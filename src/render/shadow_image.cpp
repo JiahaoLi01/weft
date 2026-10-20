@@ -76,6 +76,120 @@ namespace weft::render {
                                            static_cast<float>(constants::color_channel_max)));
         }
 
+        // How much of a rounded box (width x height, radii) covers each cell of a w x h grid: the cell at (col, row)
+        // is centered at (x0 + col / k, y0 + row / k) in the box's px, and covers clamp(.5 - distance * k, 0, 1). Cells
+        // more than half a cell inside the box's straight sides cover it whole and cells as far outside it not at all,
+        // so the distance is taken only along its edges.
+        std::vector<float> coverage(unsigned w, unsigned h, float x0, float y0, float k, float width, float height,
+                                    const std::array<float, 4>& radii) {
+            std::vector<float> out(std::size_t(w) * h);
+            if (!(width > 0) || !(height > 0)) {
+                return out;
+            }
+            float corner{};
+            for (const auto r : radii) {
+                corner = std::max(corner, std::min(std::min(width, height) / 2, r));
+            }
+            // Half a cell and a little: past it the clamp is 0 or 1.
+            const float band = .5f / k + 1e-3f;
+            // The columns whose centers lie in [a, b].
+            const auto columns = [&](float a, float b) {
+                const auto first = std::max(0.f, std::ceil((a - x0) * k));
+                const auto last = std::min(float(w) - 1, std::floor((b - x0) * k));
+                return std::pair{int(first), int(last)};
+            };
+            for (unsigned row = 0; row < h; ++row) {
+                const float y = y0 + float(row) / k;
+                if (y < -band || y > height + band) {
+                    continue;
+                }
+                auto* line = out.data() + std::size_t(row) * w;
+                // The span every cell of which the box covers whole: its full width where the row passes the
+                // corners' reach, else between the corners.
+                float whole_from = 1;
+                float whole_to = 0;
+                if (y >= corner + band && y <= height - corner - band) {
+                    whole_from = band;
+                    whole_to = width - band;
+                } else if (y >= band && y <= height - band) {
+                    whole_from = corner + band;
+                    whole_to = width - corner - band;
+                }
+                const auto [near_first, near_last] = columns(-band, width + band);
+                const auto [whole_first, whole_last] =
+                    whole_from <= whole_to ? columns(whole_from, whole_to) : std::pair{1, 0};
+                for (int col = near_first; col <= near_last; ++col) {
+                    if (col >= whole_first && col <= whole_last) {
+                        line[col] = 1;
+                        continue;
+                    }
+                    const float x = x0 + float(col) / k;
+                    line[col] = std::clamp(.5f - distance(x, y, width, height, radii) * k, 0.f, 1.f);
+                }
+            }
+            return out;
+        }
+
+        // A mask's value at a point of its grid's px (its first cell's center at 0), bilinear, zero beyond it.
+        float sample(const std::vector<float>& mask, unsigned w, unsigned h, float x, float y) {
+            const float fx = std::floor(x);
+            const float fy = std::floor(y);
+            const int x0 = int(fx);
+            const int y0 = int(fy);
+            const float tx = x - fx;
+            const float ty = y - fy;
+            const auto at = [&](int cx, int cy) {
+                return cx < 0 || cy < 0 || cx >= int(w) || cy >= int(h) ? 0.f : mask[std::size_t(cy) * w + cx];
+            };
+            return (at(x0, y0) * (1 - tx) + at(x0 + 1, y0) * tx) * (1 - ty) +
+                   (at(x0, y0 + 1) * (1 - tx) + at(x0 + 1, y0 + 1) * tx) * ty;
+        }
+
+        // A box blurred by sigma device px over a grid of the image's cells, as `blurred` takes it on that grid; past
+        // shadow_coarse_sigma_px, on a grid that much coarser, its value at each cell bilinear between the coarse
+        // cells (a blur that wide is smooth). The grid: w x h cells, the first centered at (x0, y0) in the box's px,
+        // scale cells per px; reach cells around it read as the box's too.
+        struct Blur {
+            std::vector<float> values;
+            unsigned width{};
+            unsigned height{};
+            // The coarse grid's cells per image cell, and the image cell (0, 0) on it.
+            float step = 1;
+            float origin_x{};
+            float origin_y{};
+
+            float at(unsigned col, unsigned row) const {
+                if (step == 1) {
+                    return values[std::size_t(row) * width + col];
+                }
+                return sample(values, width, height, origin_x + float(col) * step, origin_y + float(row) * step);
+            }
+        };
+
+        Blur blur_box(unsigned w, unsigned h, float x0, float y0, float scale, float sigma, float width, float height,
+                      const std::array<float, 4>& radii) {
+            Blur out;
+            const float coarse = constants::scene::shadow_coarse_sigma_px;
+            if (!(sigma > coarse)) {
+                out.values = blurred(coverage(w, h, x0, y0, scale, width, height, radii), w, h, sigma);
+                out.width = w;
+                out.height = h;
+                return out;
+            }
+            // Cells of the coarse grid per image cell; its cells cover the image's and a cell beyond each side.
+            out.step = coarse / sigma;
+            const float k = scale * out.step;
+            out.width = unsigned(std::ceil(float(w) * out.step)) + 3;
+            out.height = unsigned(std::ceil(float(h) * out.step)) + 3;
+            const float cx0 = x0 - 1 / k;
+            const float cy0 = y0 - 1 / k;
+            out.values = blurred(coverage(out.width, out.height, cx0, cy0, k, width, height, radii), out.width,
+                                 out.height, coarse);
+            out.origin_x = 1;
+            out.origin_y = 1;
+            return out;
+        }
+
         // Where a shadow's pixels lie when they are made at a scale.
         ShadowGeometry geometry_at(const paint::Shadow& s, float width, float height, float scale) {
             ShadowGeometry g;
@@ -118,27 +232,21 @@ namespace weft::render {
             for (auto& r : radii) {
                 r = std::max(0.f, r - s.spread);
             }
-            std::vector<float> hole(cells);
-            if (hole_w > 0 && hole_h > 0) {
-                for (unsigned row = 0; row < gh; ++row) {
-                    for (unsigned col = 0; col < gw; ++col) {
-                        const float px = left + (float(col) - float(reach) + .5f) / scale - s.x - s.spread;
-                        const float py = top + (float(row) - float(reach) + .5f) / scale - s.y - s.spread;
-                        hole[std::size_t(row) * gw + col] =
-                            std::clamp(.5f - distance(px, py, hole_w, hole_h, radii) * scale, 0.f, 1.f);
-                    }
-                }
-            }
-            const auto clear = blurred(hole, gw, gh, sigma);
+            // The hole on its grid (a kernel radius beyond the image), blurred; the box's own coverage of the image.
+            const auto clear = blur_box(gw, gh, left + (.5f - float(reach)) / scale - s.x - s.spread,
+                                        top + (.5f - float(reach)) / scale - s.y - s.spread, scale, sigma, hole_w,
+                                        hole_h, radii);
+            const auto inside = coverage(iw, ih, left + .5f / scale, top + .5f / scale, scale, w, h, s.radii);
             out.rgba.resize(std::size_t(iw) * ih * 4);
             for (unsigned row = 0; row < ih; ++row) {
                 for (unsigned col = 0; col < iw; ++col) {
-                    const auto inside = std::clamp(
-                        .5f - distance(left + (col + .5f) / scale, top + (row + .5f) / scale, w, h, s.radii) * scale,
-                        0.f, 1.f);
-                    const auto shade = 1 - clear[std::size_t(row + reach) * gw + col + reach];
-                    const auto alpha = std::clamp(shade, 0.f, 1.f) * inside * s.color[3];
-                    auto* p = out.rgba.data() + (std::size_t(row) * iw + col) * 4;
+                    const auto index = std::size_t(row) * iw + col;
+                    if (!(inside[index] > 0)) {
+                        continue;
+                    }
+                    const auto shade = 1 - clear.at(col + reach, row + reach);
+                    const auto alpha = std::clamp(shade, 0.f, 1.f) * inside[index] * s.color[3];
+                    auto* p = out.rgba.data() + index * 4;
                     p[0] = channel(s.color[0] * alpha);
                     p[1] = channel(s.color[1] * alpha);
                     p[2] = channel(s.color[2] * alpha);
@@ -199,30 +307,25 @@ namespace weft::render {
         if (!iw || !ih || count > std::size_t(constants::scene::max_shadow_bitmap_pixels)) {
             return make_diagnostic(Diag::PaintList, "shadow bitmap bound");
         }
-        std::vector<float> mask(count);
-        // The spread shape: the box grown by spread on each side, its radii by spread.
+        // The spread shape: the box grown by spread on each side, its radii by spread; its top-left lies at the
+        // image's guard.
         auto radii = s.radii;
         for (auto& r : radii) {
             r = std::max(0.f, r + s.spread);
         }
-        for (unsigned row = 0; row < ih; ++row) {
-            for (unsigned col = 0; col < iw; ++col) {
-                const float px = (col + .5f) / scale - guard / scale;
-                const float py = (row + .5f) / scale - guard / scale;
-                mask[std::size_t(row) * iw + col] =
-                    std::clamp(.5f - distance(px, py, w + 2 * s.spread, h + 2 * s.spread, radii) * scale, 0.f, 1.f);
-            }
-        }
-        const auto filtered = blurred(mask, iw, ih, sigma);
-        // An outer shadow shows only outside the box.
+        const float first = (.5f - guard) / scale;
+        const auto filtered = blur_box(iw, ih, first, first, scale, sigma, w + 2 * s.spread, h + 2 * s.spread, radii);
+        // An outer shadow shows only outside the box: what the box covers of each cell is cut away.
+        const auto inside = coverage(iw, ih, left + .5f / scale, top + .5f / scale, scale, w, h, s.radii);
         out.rgba.resize(count * 4);
         for (unsigned row = 0; row < ih; ++row) {
             for (unsigned col = 0; col < iw; ++col) {
                 const auto index = std::size_t(row) * iw + col;
-                const auto outside = std::clamp(
-                    .5f + distance(left + (col + .5f) / scale, top + (row + .5f) / scale, w, h, s.radii) * scale, 0.f,
-                    1.f);
-                const auto alpha = filtered[index] * outside * s.color[3];
+                const auto outside = 1 - inside[index];
+                if (!(outside > 0)) {
+                    continue;
+                }
+                const auto alpha = filtered.at(col, row) * outside * s.color[3];
                 auto* p = out.rgba.data() + index * 4;
                 p[0] = channel(s.color[0] * alpha);
                 p[1] = channel(s.color[1] * alpha);
@@ -234,6 +337,32 @@ namespace weft::render {
     }
 
     std::vector<float> gaussian_blur(const std::vector<float>& mask, unsigned w, unsigned h, float sigma) {
-        return blurred(mask, w, h, sigma);
+        // Twice shadow_coarse_sigma_px wide and more: the mask's averages over blocks of n x n cells (n as many times
+        // the coarse width as the blur is, a block's own spread adding a part in a few hundred), blurred there and read
+        // back bilinear at each cell's center, a block of zeros beyond each side.
+        const float coarse = constants::scene::shadow_coarse_sigma_px;
+        const unsigned n = sigma >= 2 * coarse ? unsigned(sigma / coarse) : 1;
+        if (n < 2 || !w || !h) {
+            return blurred(mask, w, h, sigma);
+        }
+        const unsigned cw = (w + n - 1) / n + 2;
+        const unsigned ch = (h + n - 1) / n + 2;
+        std::vector<float> blocks(std::size_t(cw) * ch);
+        const float share = 1 / float(n * n);
+        for (unsigned row = 0; row < h; ++row) {
+            auto* line = blocks.data() + std::size_t(row / n + 1) * cw + 1;
+            for (unsigned col = 0; col < w; ++col) {
+                line[col / n] += mask[std::size_t(row) * w + col] * share;
+            }
+        }
+        const auto soft = blurred(blocks, cw, ch, sigma / float(n));
+        std::vector<float> out(mask.size());
+        for (unsigned row = 0; row < h; ++row) {
+            const float v = (float(row) + .5f) / float(n) + .5f;
+            for (unsigned col = 0; col < w; ++col) {
+                out[std::size_t(row) * w + col] = sample(soft, cw, ch, (float(col) + .5f) / float(n) + .5f, v);
+            }
+        }
+        return out;
     }
 } // namespace weft::render

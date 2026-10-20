@@ -181,6 +181,10 @@ namespace weft::constants::scene {
     inline constexpr int max_box_shadow_extent_px = 64;
     // Gaussian shadow kernels extend this many standard deviations.
     inline constexpr int shadow_kernel_sigmas = 3;
+    // A box shadow's blur wider than this many device px (its standard deviation) is taken on a grid as much coarser,
+    // where it is this wide, and read back bilinear: a blur that wide is smooth, and its samples differ from the full
+    // grid's by under a level of 8-bit alpha.
+    inline constexpr float shadow_coarse_sigma_px = 6;
     // Extra device pixels around a blurred shadow bitmap.
     inline constexpr int shadow_guard_px = 2;
     inline constexpr int max_shadow_bitmap_pixels = 1024 * 1024;
