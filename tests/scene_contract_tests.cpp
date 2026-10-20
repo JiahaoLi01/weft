@@ -383,6 +383,163 @@ namespace {
         }
         require(center[0] != center[1] && center[1] == star.identity, "fill rule changed no hit");
     }
+
+    // A long-lived SceneGeometry's hit map of a View's rect (within), which leaves out the subtrees that take hits only
+    // past it and keeps their reaches while they are shared, hits as a fresh one's of the whole frame at every point
+    // of the rect: a long page scrolled by a transform, with clipping boxes overflowed by their children, children past
+    // their sections' boxes (positioned and transformed), turned boxes, inline text, svg, z-index, pointer-events: none,
+    // and anchored elements inside clipped boxes far off the View that their anchors bring onto it, over random
+    // scrolls, display and overflow changes, moves and anchor writes.
+    void hit_within_differential() {
+        constexpr float width = 160;
+        constexpr float height = 120;
+        auto& text = weft::testing::thread_scene_text();
+        weft::ScriptDom vm;
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
+        weft::SceneSolver scene(
+            "#root{position:relative;width:160px;height:120px;overflow:hidden}"
+            ".track{position:absolute;left:0;top:0;width:160px}"
+            ".section{position:relative;height:56px;margin:4px 0}"
+            ".clip{position:relative;width:70px;height:40px;overflow:hidden}"
+            ".out{position:absolute;left:50px;top:-20px;width:60px;height:80px}"
+            ".turn{position:absolute;left:90px;top:8px;width:30px;height:20px;transform:rotate(25deg) scale(1.4)}"
+            ".over{position:absolute;left:10px;top:10px;width:40px;height:30px;z-index:2}"
+            ".under{position:absolute;left:20px;top:15px;width:40px;height:30px;z-index:1}"
+            ".tag{position:absolute;left:0;top:0;width:24px;height:16px}"
+            ".none{pointer-events:none}"
+            ".stray{position:absolute;left:120px;top:-70px;width:30px;height:24px}"
+            ".down{position:absolute;left:60px;top:20px;width:30px;height:20px;transform:translateY(90px)}"
+            "svg{position:absolute;left:100px;top:30px;width:40px;height:20px}",
+            "", text);
+        vm.eval(R"JS(
+            const root = document.getElementById('root');
+            const track = document.createElement('div');
+            track.setAttribute('class', 'track');
+            root.appendChild(track);
+            globalThis.track = track;
+            globalThis.sections = [];
+            globalThis.clips = [];
+            const add = (parent, tag, cls) => {
+              const e = document.createElement(tag);
+              if (cls) e.setAttribute('class', cls);
+              parent.appendChild(e);
+              return e;
+            };
+            for (let i = 0; i < 24; ++i) {
+              const s = add(track, 'div', 'section');
+              sections.push(s);
+              const clip = add(s, 'div', 'clip');
+              clips.push(clip);
+              add(clip, 'div', 'out');
+              if (i % 3 === 0) add(s, 'div', 'turn');
+              if (i % 4 === 1) { add(s, 'div', 'over'); add(s, 'div', 'under'); }
+              if (i % 5 === 2) add(s, 'div', 'none');
+              // Past their section's box, which clips nothing: above it, and moved below it.
+              if (i % 2 === 0) add(s, 'div', 'stray');
+              if (i % 3 === 1) add(add(s, 'div'), 'div', 'down');
+              const p = add(s, 'p');
+              p.textContent = 'words that wrap over lines ' + i;
+              const b = add(p, 'span');
+              b.textContent = ' and a span';
+              if (i % 6 === 3) {
+                const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                svg.setAttribute('viewBox', '0 0 40 20');
+                const r = document.createElementNS(svg.namespaceURI, 'rect');
+                r.setAttribute('width', '30');
+                r.setAttribute('height', '12');
+                svg.appendChild(r);
+                s.appendChild(svg);
+              }
+              // Anchored, in clipped boxes far down the page.
+              if (i === 17 || i === 21) {
+                const tag = add(clip, 'div', 'tag');
+                tag.setAttribute('data-anchor', String(i === 17 ? 1 : 2));
+              }
+            }
+          )JS");
+        weft::SceneAnchorChannel anchors;
+        std::uint32_t seed = 0x1a2b;
+        const auto next = [&] {
+            seed = seed * weft::constants::lcg_multiplier + weft::constants::lcg_increment;
+            return seed >> 8;
+        };
+        const auto write = [&] {
+            const std::array<weft::SceneAnchor, 2> table{
+                weft::SceneAnchor{1, float(next() % 160), float(next() % 120), 1, float(next() % 3), 0, 0},
+                weft::SceneAnchor{2, float(next() % 160), float(next() % 120), 1.5f, float(next() % 3), 0, 0}};
+            require(anchors.write(table) == weft::SceneAnchorWrite::Written, "anchors written");
+        };
+        write();
+        weft::SceneGeometry kept{text};
+        const std::array<float, 4> within{0, 0, width, height};
+        // The element that follows key, in tree order.
+        const auto follower = [](auto&& self, const weft::SceneNode& n, std::uint64_t key) -> const weft::SceneNode* {
+            if (n.anchoring && n.anchoring->key == key) {
+                return &n;
+            }
+            for (const auto& c : n.children) {
+                if (const auto* found = self(self, c, key)) {
+                    return found;
+                }
+            }
+            return nullptr;
+        };
+        int smaller = 0;
+        int anchored_hits = 0;
+        constexpr int steps = 120;
+        for (int step = 0; step < steps; ++step) {
+            switch (next() % 6) {
+                case 0:
+                case 1:
+                    vm.eval("track.style.transform='translateY(-" + std::to_string(next() % 1400) + "px)'");
+                    break;
+                case 2: {
+                    const auto i = std::to_string(next() % 24);
+                    vm.eval("sections[" + i + "].style.display=sections[" + i + "].style.display==='none'?'':'none'");
+                    break;
+                }
+                case 3: {
+                    const auto i = std::to_string(next() % 24);
+                    vm.eval("clips[" + i + "].style.overflow=clips[" + i + "].style.overflow==='visible'?'':'visible'");
+                    break;
+                }
+                case 4:
+                    vm.eval("sections[" + std::to_string(next() % 24) + "].style.marginLeft='" +
+                            std::to_string(next() % 50) + "px'");
+                    break;
+                default:
+                    write();
+                    break;
+            }
+            const auto frame = scene.frame(vm.snapshot_subtree("#root"), width, height, step * 16.0);
+            const auto& table = anchors.take(weft::SceneAnchorChannel::Reader::Owner);
+            weft::SceneGeometry fresh{text};
+            // What the map keeps of the subtrees holds none of them (the renderer's caches release a subtree only
+            // when nothing else holds it).
+            const auto first = frame.root.children.handle(0);
+            const auto holders = first.use_count();
+            const auto bounded = kept.hit_map(frame, &table, &within);
+            require(first.use_count() == holders, "a hit map held a subtree" + std::to_string(step));
+            const auto whole = fresh.hit_map(frame, &table);
+            for (float y = 0; y <= height; y += 3) {
+                for (float x = 0; x <= width; x += 3) {
+                    require(bounded.hit(x, y) == whole.hit(x, y), "a bounded hit map hit otherwise at " +
+                                                                      std::to_string(x) + "," + std::to_string(y) +
+                                                                      " at step " + std::to_string(step));
+                }
+            }
+            require(bounded.areas.areas.size() <= whole.areas.areas.size(), "a bounded hit map listed more");
+            smaller += bounded.areas.areas.size() < whole.areas.areas.size();
+            for (const auto& a : table.anchors()) {
+                const auto* tag = follower(follower, frame.root, a.key);
+                anchored_hits += tag && bounded.hit(a.x, a.y) == tag->identity;
+            }
+        }
+        // Most frames leave most of the page out; the anchored elements in the boxes far down it take hits on the View.
+        require(smaller > steps * 3 / 4 && anchored_hits > steps / 4,
+                "the differential left out " + std::to_string(smaller) + " maps and hit " +
+                    std::to_string(anchored_hits) + " anchored elements");
+    }
 } // namespace
 
 int main() {
@@ -965,6 +1122,7 @@ int main() {
         fixed.unmount();
         retained_frames_differential(raster);
         geometry_cache_differential();
+        hit_within_differential();
         std::cout
             << "PASS scene contracts: timer lifecycle, selector diagnostics, cascade inheritance, timeline, transform hit/pixels, detach/reinsert, owner isolation, implicit endpoints, 120 mutation raster/layout differentials\n";
         return 0;

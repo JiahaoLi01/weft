@@ -258,6 +258,32 @@ namespace {
                 "enter, a wheel whose default is prevented, leave");
     }
 
+    // Hits between advances follow the page: the View keeps a hit map for the scene's revision and the anchors' serial
+    // alone, and asks the whole scene about a point off the View.
+    void hit_cache() {
+        Fixture f;
+        f.view.load(inline_page(R"JS(
+            const box = document.createElement('div');
+            box.className = 'box';
+            document.getElementById('root').appendChild(box);
+            globalThis.box = box;
+            box.addEventListener('pointerdown', () => { box.style.top = '100px'; });
+          )JS",
+                                ".box{position:absolute;left:0;top:0;width:40px;height:40px;cursor:move}"));
+        require(f.view.hit(20, 20).cursor == "move" && f.view.hit(220, 20).cursor == "auto", "the box");
+        f.view.script().eval("box.style.left = '200px'");
+        require(f.view.hit(220, 20).cursor == "move" && f.view.hit(20, 20).cursor == "auto",
+                "the box where a script moved it, before an advance");
+        f.view.pointer({PointerKind::Move, 220, 20});
+        f.view.pointer({PointerKind::Down, 220, 20, 1});
+        require(f.view.hit(220, 120).cursor == "move" && f.view.hit(220, 20).cursor == "auto",
+                "the box where its handler moved it");
+        f.view.pointer({PointerKind::Up, 220, 120, 0});
+        f.view.script().eval("box.style.left = '-30px'; box.style.top = '0px'");
+        require(f.view.hit(5, 5).cursor == "move" && f.view.hit(-10, 5).cursor == "move",
+                "a point off the View hits what lies there");
+    }
+
     void diagnostics() {
         Fixture f;
         bool threw = false;
@@ -490,6 +516,7 @@ int main() {
         frame_time();
         events_and_models();
         hits_and_pointer();
+        hit_cache();
         diagnostics();
         frames();
         observers();

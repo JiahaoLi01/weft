@@ -71,8 +71,11 @@ namespace weft {
 
         std::vector<ElementGeometry> geometry(const SceneFrame& frame, bool svg_descendants = false,
                                               const SceneAnchorTable* anchors = nullptr);
-        // For many points of one frame, build its hit map once.
-        HitMap hit_map(const SceneFrame& frame, const SceneAnchorTable* anchors = nullptr);
+        // For many points of one frame, build its hit map once. within (x, y, w, h in the frame's px), when given, is
+        // where the points will be: what lies under a clip wholly past it is left out, and points outside it may miss
+        // what they would hit.
+        HitMap hit_map(const SceneFrame& frame, const SceneAnchorTable* anchors = nullptr,
+                       const std::array<float, 4>* within = nullptr);
         NodeIdentity hit_test(const SceneFrame& frame, float x, float y, const SceneAnchorTable* anchors = nullptr);
         // The node's CSS transform as {m11, m12, m21, m22, dx, dy}, without transform-origin.
         std::array<double, 6> transform_matrix(const SceneNode& node) const;

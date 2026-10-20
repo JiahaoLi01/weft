@@ -551,7 +551,74 @@ namespace weft {
         // What the anchored elements took at the last call (scene_anchor_resolve).
         std::vector<ScenePlacedAnchor> placed;
 
+        // Where each subtree a hit map met takes hits (reach), by its storage: equal handles hold equal subtrees. The
+        // entry watches the storage without holding it (the scene's other caches release a subtree when only they
+        // hold it), so it counts while the subtree lives, and the next hit map drops it after.
+        struct KeptReach {
+            std::weak_ptr<const SceneNode> subtree;
+            std::optional<Bounds> reach;
+        };
+
+        std::unordered_map<const SceneNode*, KeptReach> reaches;
+
         explicit Impl(SceneText& t) : text(t) {
+        }
+
+        // The rect in the parent's px that holds whatever of a subtree takes hits: its element's box and fragments,
+        // and its descendants' reaches unless it clips them (an svg element and overflow hidden or auto do), through
+        // its transform. Empty for display: none; nullopt where nothing bounds it: an anchored element, which follows
+        // its anchor past its ancestors, or one below it, or a projective transform.
+        std::optional<Bounds> reach(const SceneChildren::Handle& subtree) {
+            // An entry of storage that went counts for nothing, though new storage took its address.
+            if (const auto known = reaches.find(subtree.get());
+                known != reaches.end() && !known->second.subtree.expired()) {
+                return known->second.reach;
+            }
+            const auto value = measure_reach(*subtree);
+            reaches.insert_or_assign(subtree.get(), KeptReach{subtree, value});
+            return value;
+        }
+
+        std::optional<Bounds> measure_reach(const SceneNode& n) {
+            if (view(n.style, PropertyId::Display) == "none") {
+                return Bounds{};
+            }
+            if (n.anchoring) {
+                return std::nullopt;
+            }
+            const auto m =
+                n.fragments.empty() ? scene_plane(n) : affine_plane(SceneAffine::translation(n.box[0], n.box[1]));
+            if (m.m[6] != 0 || m.m[7] != 0 || m.m[8] != 1) {
+                return std::nullopt;
+            }
+            Bounds own;
+            own.add(0, 0);
+            own.add(n.box[2], n.box[3]);
+            for (const auto& fragment : n.fragments) {
+                own.add(fragment.rect[0], fragment.rect[1]);
+                own.add(fragment.rect[0] + fragment.rect[2], fragment.rect[1] + fragment.rect[3]);
+            }
+            if (n.tag != "svg") {
+                const auto overflow = view(n.style, PropertyId::Overflow);
+                const bool clipping = overflow == "hidden" || overflow == "auto";
+                for (std::size_t i = 0; i < n.children.size(); ++i) {
+                    const auto child = reach(n.children.handle(i));
+                    if (!child) {
+                        return std::nullopt;
+                    }
+                    if (!clipping && child->right >= child->left) {
+                        own.add(child->left, child->top);
+                        own.add(child->right, child->bottom);
+                    }
+                }
+            }
+            Bounds out;
+            for (auto p : std::array<Point, 4>{
+                     {{own.left, own.top}, {own.right, own.top}, {own.right, own.bottom}, {own.left, own.bottom}}}) {
+                const auto q = m.point(p[0], p[1]);
+                out.add(q[0], q[1]);
+            }
+            return out;
         }
 
         // Where an anchored element lies: the map of its border box into the View, its own transform included, and
@@ -807,11 +874,87 @@ namespace weft {
 
     // Areas in the order the scene paints: children in order-modified document order by z-index, SVG content after
     // its svg box. A box clips its descendants when its overflow is hidden or auto, as an svg element does; a
-    // clip-path clips its element too.
-    SceneGeometry::HitMap SceneGeometry::hit_map(const SceneFrame& f, const SceneAnchorTable* anchors) {
+    // clip-path clips its element too. With within, a box whose clip lies past it lists no descendants but the
+    // anchored ones, which no ancestor clips: what points inside within hit is the same.
+    SceneGeometry::HitMap SceneGeometry::hit_map(const SceneFrame& f, const SceneAnchorTable* anchors,
+                                                 const std::array<float, 4>* within) {
         impl_->require_owner();
         HitMap out;
         std::vector<ScenePlacedAnchor> placed;
+        // Whether a subtree below n holds an anchored element, once for each node asked.
+        std::unordered_map<const SceneNode*, bool> holds_anchored;
+        const auto holds = [&](auto&& self, const SceneNode& n) -> bool {
+            if (const auto known = holds_anchored.find(&n); known != holds_anchored.end()) {
+                return known->second;
+            }
+            bool any{};
+            for (const auto& c : n.children) {
+                if (c.anchoring || self(self, c)) {
+                    any = true;
+                    break;
+                }
+            }
+            holds_anchored.emplace(&n, any);
+            return any;
+        };
+        // Whether a rect of a box's px, mapped to the frame by an affine m, lies wholly past within (an empty rect
+        // does).
+        const auto past = [&](const Plane& m, const Bounds& r) {
+            if (!within || m.m[6] != 0 || m.m[7] != 0 || m.m[8] != 1) {
+                return false;
+            }
+            if (r.right < r.left) {
+                return true;
+            }
+            Bounds b;
+            for (auto p :
+                 std::array<Point, 4>{{{r.left, r.top}, {r.right, r.top}, {r.right, r.bottom}, {r.left, r.bottom}}}) {
+                const auto q = m.point(p[0], p[1]);
+                b.add(q[0], q[1]);
+            }
+            const auto& w = *within;
+            return b.right < w[0] || b.left > w[0] + w[2] || b.bottom < w[1] || b.top > w[1] + w[3];
+        };
+        if (within) {
+            std::erase_if(impl_->reaches, [](const auto& kept) {
+                return kept.second.subtree.expired();
+            });
+        }
+        // Children in stacking order, as painted: order-modified document order (scene_child_order), stably by
+        // z-index; auto stacks at 0, anchored siblings of equal z-index far to near. A single child is not ordered, so
+        // its z-index is not read. With only_anchored, the children that are or hold anchored elements.
+        const auto stacking = [&](const SceneNode& n, bool only_anchored) {
+            auto order = scene_child_order(n);
+            if (only_anchored) {
+                std::erase_if(order, [&](std::size_t i) {
+                    return !n.children[i].anchoring && !holds(holds, n.children[i]);
+                });
+            }
+            std::vector<float> z(n.children.size());
+            bool anchored_children{};
+            for (const auto i : order) {
+                const auto& c = n.children[i];
+                if (n.children.size() > 1) {
+                    const auto v = view(c.style, PropertyId::ZIndex, "0");
+                    z[i] = v == "auto" ? 0.f : len(v);
+                }
+                anchored_children = anchored_children || c.anchoring;
+            }
+            std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+                return z[a] < z[b];
+            });
+            if (anchored_children) {
+                scene_anchor_order(
+                    order,
+                    [&](std::size_t i) {
+                        return z[i];
+                    },
+                    [&](std::size_t i) {
+                        return impl_->depth(n.children[i], anchors);
+                    });
+            }
+            return order;
+        };
         const auto area = [&](const SceneNode& n, const Plane& inverse, std::vector<HitShape> shapes,
                               std::size_t clip) {
             // A generated box (::before, ::after) hits as its element.
@@ -880,8 +1023,15 @@ namespace weft {
                 self(self, c, m, root, clip);
             }
         };
-        auto visit = [&](auto&& self, const SceneNode& n, Plane parent, std::size_t clip) -> void {
+        // clipped: below a clip past within, where only anchored elements take hits inside it.
+        auto visit = [&](auto&& self, const SceneNode& n, Plane parent, std::size_t clip, bool clipped) -> void {
             if (view(n.style, PropertyId::Display) == "none") {
+                return;
+            }
+            if (clipped && !n.anchoring) {
+                for (const auto i : stacking(n, true)) {
+                    self(self, n.children[i], parent, clip, true);
+                }
                 return;
             }
             std::optional<Plane> anchored;
@@ -936,6 +1086,17 @@ namespace weft {
             } else if (clipping) {
                 // Content clips to the padding box with its inner corners, as painted.
                 const auto padding = scene_values::padding_box(n.style, n.box[2], n.box[3]);
+                Bounds inside;
+                inside.add(padding.rect[0], padding.rect[1]);
+                inside.add(padding.rect[0] + padding.rect[2], padding.rect[1] + padding.rect[3]);
+                if (past(m, inside)) {
+                    if (holds(holds, n)) {
+                        for (const auto i : stacking(n, true)) {
+                            self(self, n.children[i], m, clip, true);
+                        }
+                    }
+                    return;
+                }
                 clip = out.areas.add_clip(
                     inverse, HitShape::box(padding.rect[0], padding.rect[1], padding.rect[2], padding.rect[3]), clip);
                 if (scene_values::is_rounded(padding)) {
@@ -952,38 +1113,17 @@ namespace weft {
                 }
                 return;
             }
-            // Stacking order among siblings, as painted: order-modified document order (scene_child_order), stably by
-            // z-index; auto stacks at 0, anchored siblings of equal z-index far to near. A single child is not ordered,
-            // so its z-index is not read.
-            std::vector<float> z(n.children.size());
-            auto order = scene_child_order(n);
-            bool anchored_children{};
-            for (std::size_t i = 0; i < n.children.size(); ++i) {
-                const auto& c = n.children[i];
-                if (n.children.size() > 1) {
-                    const auto v = view(c.style, PropertyId::ZIndex, "0");
-                    z[i] = v == "auto" ? 0.f : len(v);
+            for (const auto i : stacking(n, false)) {
+                // A subtree that takes hits only past within adds nothing for the points inside it.
+                if (within) {
+                    if (const auto r = impl_->reach(n.children.handle(i)); r && past(m, *r)) {
+                        continue;
+                    }
                 }
-                anchored_children = anchored_children || c.anchoring;
-            }
-            std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
-                return z[a] < z[b];
-            });
-            if (anchored_children) {
-                scene_anchor_order(
-                    order,
-                    [&](std::size_t i) {
-                        return z[i];
-                    },
-                    [&](std::size_t i) {
-                        return impl_->depth(n.children[i], anchors);
-                    });
-            }
-            for (const auto i : order) {
-                self(self, n.children[i], m, clip);
+                self(self, n.children[i], m, clip, false);
             }
         };
-        visit(visit, f.root, Plane{}, HitAreas::none);
+        visit(visit, f.root, Plane{}, HitAreas::none, false);
         scene_anchor_sort(placed);
         impl_->placed = std::move(placed);
         return out;

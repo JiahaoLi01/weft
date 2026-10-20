@@ -96,6 +96,13 @@ namespace weft {
         float cache_width = -1;
         float cache_height = -1;
         const SceneAnchorTable* anchor_table{};
+        // The hit map of the View's rect in the scene's revision with the anchors' serial it was built for: the pointer
+        // events and hit tests of one frame share it (a scene's revision is unique to its content; 0 vouches for
+        // nothing).
+        std::optional<SceneGeometry::HitMap> hits;
+        std::uint64_t hits_revision{};
+        std::uint64_t hits_anchors{};
+        std::array<float, 4> hits_within{};
         NodeIdentity hovered{};
         NodeIdentity pressed{};
         std::deque<ViewDiagnostic> diagnostics;
@@ -158,6 +165,26 @@ namespace weft {
 
         const SceneAnchorTable* anchors() const {
             return anchor_table && anchor_table->serial() ? anchor_table : nullptr;
+        }
+
+        // The topmost node at a point of the current scene with the anchors taken last. A point on the View is asked
+        // of the hit map of its rect, built again only when the scene, the anchors or the size changed; one off it
+        // (a captured pointer's) of the whole scene.
+        NodeIdentity hit_test(float x, float y) {
+            const auto* table = anchors();
+            if (!(x >= 0 && y >= 0 && x <= width && y <= height)) {
+                return geometry.hit_map(current, table).hit(x, y);
+            }
+            const std::uint64_t serial = table ? table->serial() : 0;
+            const std::array<float, 4> within{0, 0, width, height};
+            if (!hits || !current.revision || hits_revision != current.revision || hits_anchors != serial ||
+                hits_within != within) {
+                hits = geometry.hit_map(current, table, &within);
+                hits_revision = current.revision;
+                hits_anchors = serial;
+                hits_within = within;
+            }
+            return hits->hit(x, y);
         }
 
         // The scene's root in a document snapshot: the node of the root's id or tag.
@@ -391,6 +418,7 @@ namespace weft {
             geometry_valid = false;
             hovered = pressed = {};
             anchor_table = nullptr;
+            hits.reset();
         }
 
         // The ancestors of id and itself in the scene, the root first; empty when the scene lacks it.
@@ -571,7 +599,7 @@ namespace weft {
         const float x = leave ? constants::view::outside : input.x;
         const float y = leave ? constants::view::outside : input.y;
         i.take_anchors();
-        const auto target = leave ? NodeIdentity{} : i.geometry.hit_test(i.current, x, y, i.anchors());
+        const auto target = leave ? NodeIdentity{} : i.hit_test(x, y);
         const auto destination = target.generation ? target : i.root_id;
         bool prevented{};
         unsigned buttons = input.buttons;
@@ -678,7 +706,7 @@ namespace weft {
             return out;
         }
         i.take_anchors();
-        const auto target = i.geometry.hit_test(i.current, x, y, i.anchors());
+        const auto target = i.hit_test(x, y);
         const auto path = i.chain(target);
         // The root and its ancestors are the page, not something on it.
         if (path.empty() || path.back()->identity == i.root_id) {
