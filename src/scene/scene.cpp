@@ -2507,10 +2507,21 @@ namespace weft {
                     if (shows_text(child, built_now)) {
                         auto run = text_run(child, child_parent);
                         const auto at = find_child(prior, child.identity, next.size());
+                        // Its layout outputs stay until layout runs again, as an element's do (build_own): a run
+                        // built again for an element that follows the time is the run it was when nothing changed.
+                        if (at < prior.size()) {
+                            const auto& was = prior[at];
+                            run.box = was.box;
+                            run.lines = was.lines;
+                            run.fragments = was.fragments;
+                            run.scrolled = was.scrolled;
+                            run.scroll_shift = was.scroll_shift;
+                        }
                         if (at < prior.size() && prior[at] == run) {
                             next.push_back(prior.handle(at));
                         } else {
-                            if (!in_svg) {
+                            // A run whose change layout does not read (its color) keeps its lines.
+                            if (!in_svg && (at >= prior.size() || !same_layout_own(prior[at], run))) {
                                 layout_dirty = true;
                                 layout_points.push_back({refresh_path, fresh ? nullptr : &last});
                             }
@@ -3953,6 +3964,8 @@ namespace weft {
                                       PropertyId::BorderTopRightRadius,
                                       PropertyId::BorderBottomRightRadius,
                                       PropertyId::BorderBottomLeftRadius,
+                                      PropertyId::BoxShadow,
+                                      PropertyId::TextShadow,
                                       PropertyId::Animation,
                                       PropertyId::AnimationDelay,
                                       PropertyId::AnimationDuration,

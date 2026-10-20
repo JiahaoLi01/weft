@@ -125,6 +125,37 @@ int main() {
         require(animated.work().layout_reuses == 1 && next_frame.root.children[0].lines.size() > 1 &&
                     next_frame.root.children[0].lines == first_frame.root.children[0].lines,
                 "an animated paragraph reuses its layout with its lines");
+        // A paragraph of mixed content (text runs beside an element) whose opacity, transform, color and shadows
+        // animate, as a block fading up into view does: each frame builds its runs again, and they are the runs they
+        // were, laid out, so the layout is reused (none of these is laid out by), the runs keeping their lines and
+        // taking the color. A run whose text changes is laid out again.
+        weft::testing::NativeScene m;
+        auto& revealing =
+            element(m, *m.root, "div", "width:120px;font-family:system-ui;font-size:14px;animation:reveal 1s infinite");
+        text(m, revealing, "Words before ");
+        text(m, element(m, revealing, "b", ""), "bold");
+        auto& tail = text(m, revealing, " and the words after them that wrap");
+        weft::SceneSolver revealed("",
+                                   "@keyframes reveal{from{opacity:0;transform:translateY(30px);color:#ff0000;"
+                                   "box-shadow:0 0 0 #000000;text-shadow:0 0 0 #000000}to{opacity:1;"
+                                   "transform:translateY(0);color:#0000ff;box-shadow:0 0 40px #ffffff;"
+                                   "text-shadow:0 1px 2px #000000}}",
+                                   scene_text);
+        const auto shown_first = revealed.frame(m.tree.snapshot(*m.root), 300, 200, 0);
+        const auto shown_next = revealed.frame(m.tree.snapshot(*m.root), 300, 200, 250);
+        const auto& runs_first = shown_first.root.children[0].children;
+        const auto& runs_next = shown_next.root.children[0].children;
+        require(revealed.work().layout_reuses == 1 && runs_first.size() == 3 && runs_next.size() == 3 &&
+                    runs_next[2].lines.size() > 1 && runs_next[2].lines == runs_first[2].lines &&
+                    runs_next[2].style.text(weft::PropertyId::Color, "") !=
+                        runs_first[2].style.text(weft::PropertyId::Color, ""),
+                "an animated paragraph of mixed content reuses its layout, its runs keeping their lines");
+        tail.data = " and other words";
+        m.tree.changed(tail);
+        const auto shown_changed = revealed.frame(m.tree.snapshot(*m.root), 300, 200, 500);
+        require(revealed.work().layout_evaluations == 2 &&
+                    shown_changed.root.children[0].children[2].lines != runs_next[2].lines,
+                "a run of an animated paragraph whose text changes is laid out again");
 
         // Hits and client rects by fragment. The block's (and span's) origin in the frame.
         const auto& block_node = frame.root.children[0];
