@@ -1951,6 +1951,16 @@ namespace weft {
                 ++work.typed_samples;
             };
             const auto& target = st.target;
+            // An element that does not show (display: none, or inside such an element) runs no transitions or
+            // animations (CSS Transitions 1 §3, CSS Animations 1 §3): its values are its target's, and its animations
+            // start over when it shows again.
+            const bool showing = !hidden && get(target, PropertyId::Display) != "none";
+            if (!showing) {
+                st.transitions.clear();
+                st.animation_value.clear();
+                st.plans.clear();
+                st.plans_valid = false;
+            }
             for (auto i = st.transitions.begin(); i != st.transitions.end();) {
                 const auto& tr = i->second;
                 // A transition of 0s shows its start value through its delay, then its end value.
@@ -1966,18 +1976,18 @@ namespace weft {
                 typed(i->first, tr.from, tr.to, amount);
                 ++i;
             }
-            const auto av = get(target, PropertyId::Animation, "none");
+            const auto av = showing ? get(target, PropertyId::Animation, "none") : std::string();
             if (st.animation_value != av) {
                 st.animation_value = av;
                 st.animation_start = now;
             }
-            if (!incremental || target_changed || !st.plans_valid) {
+            if (showing && (!incremental || target_changed || !st.plans_valid)) {
                 st.plans_valid = false;
                 auto plans = compile_animations(target, keyframes);
                 st.plans = std::move(plans);
                 st.plans_valid = true;
                 ++work.animation_compilations;
-            } else {
+            } else if (showing) {
                 ++work.animation_reuses;
             }
             for (const auto& plan : st.plans) {

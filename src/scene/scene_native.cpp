@@ -518,8 +518,10 @@ namespace weft {
         // Adds the nodes below now (whose own values are old's) whose storage differs from old's to changed, each with
         // the node it replaces: subtrees to list again, and the nodes on the way to them; false when now's children are
         // not old's in their order (as children, and in order-modified document order) and z-index, so that now is to be
-        // listed whole.
-        bool changed_parts(const SceneNode& old, const SceneNode& now, std::vector<Changed>& changed) {
+        // listed whole. A node whose visit listed no items (display: none, no box, or its subtree beyond its clip) left
+        // no spans below it: it is listed again whole.
+        bool changed_parts(const SceneNode& old, const SceneNode& now, const SceneListSpans& spans,
+                           std::vector<Changed>& changed) {
             if (old.children.size() != now.children.size() ||
                 (scene_orders_children(now) && scene_child_order(old) != scene_child_order(now))) {
                 return false;
@@ -534,7 +536,10 @@ namespace weft {
                     return false;
                 }
                 const auto before = changed.size();
-                if (!scene_own_equal(*a, *b) || atomic(*b) || !changed_parts(*a, *b, changed)) {
+                const auto span = spans.find(a.get());
+                const bool unlisted =
+                    span != spans.end() && span->second.begin[Part::Items] == span->second.end[Part::Items];
+                if (!scene_own_equal(*a, *b) || atomic(*b) || unlisted || !changed_parts(*a, *b, spans, changed)) {
                     changed.resize(before);
                     changed.push_back({a.get(), b.get(), true});
                 } else {
@@ -643,7 +648,7 @@ namespace weft {
             return refuse("another root, size or effects");
         }
         std::vector<Changed> changed;
-        if (!changed_parts(listed.frame.root, frame.root, changed)) {
+        if (!changed_parts(listed.frame.root, frame.root, listed.spans, changed)) {
             return refuse("children in another order or z-index");
         }
         // Listing most of the list again a part at a time costs more than listing it whole.

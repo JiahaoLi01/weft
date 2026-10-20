@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -144,25 +145,33 @@ namespace weft {
     // SVG elements' values (SceneSvgValues) by view and element identity, while the element's tag, attributes, style and
     // text stay those they came from: a frame lists an unchanged element without parsing it again, and the list equals
     // one built without the cache. Past its bounds the least recently used elements of earlier passes go
-    // (scene_image_cache.hpp).
+    // (scene_image_cache.hpp). And the extents of subtrees (what each may paint, which a list culls by) by their
+    // storage, which the cache holds: equal handles hold equal subtrees (SceneChildren), so a subtree whose handle
+    // stays has the extent it had; those of subtrees nothing else holds go as each pass starts.
     //
     // Owner thread of the SceneText the lists are built with.
     class SceneDisplayCache {
     public:
+        // Left, top, right and bottom in the subtree's node's own px (left past right: it paints nothing); none when
+        // the subtree paints beyond what layout gives it.
+        using Extent = std::optional<std::array<float, 4>>;
+
         explicit SceneDisplayCache(
             std::size_t max_entries = std::size_t(constants::scene::svg_values_cache_max_entries),
             std::size_t max_bytes = std::size_t(constants::scene::svg_values_cache_max_bytes));
 
         // Starts a pass that lists view's elements: elements earlier passes listed may go.
-        void begin_pass(std::uint64_t view) {
-            view_ = view;
-            entries_.begin_pass();
-        }
+        void begin_pass(std::uint64_t view);
 
         // The element's values while its own values are those they came from; null otherwise.
         const SceneSvgValues* find(const SceneNode& element);
         // Keeps values taken from the element's own values now.
         const SceneSvgValues& put(const SceneNode& element, SceneSvgValues values);
+
+        // The extent kept for the subtree of this storage; null when none is.
+        const Extent* extent(const SceneNode& subtree);
+        // Keeps a subtree's extent with its storage.
+        void keep_extent(std::shared_ptr<const SceneNode> subtree, Extent extent);
 
         // Elements listed from their kept values, and values taken anew.
         std::size_t reuses() const {
@@ -183,10 +192,16 @@ namespace weft {
             SceneSvgValues values;
         };
 
+        struct KeptExtent {
+            std::shared_ptr<const SceneNode> subtree;
+            Extent extent;
+        };
+
         SceneImageCache<std::array<std::uint64_t, 4>, Entry> entries_;
         std::uint64_t view_{};
         std::size_t reuses_{};
         std::size_t builds_{};
+        std::unordered_map<const SceneNode*, KeptExtent> extents_;
     };
 
     // The frame's boxes, shadows, text, SVG paths, perspective planes and opacity groups in paint order. layers are the
@@ -205,6 +220,10 @@ namespace weft {
 
     // The sizes of each part of a list (SceneListSpan::Part): its items, rounded clips, payload lists, anchors and runs.
     std::array<std::uint32_t, SceneListSpan::Parts> scene_list_sizes(const SceneDisplayList& list);
+
+    // Whether the lists this thread builds leave out the subtrees whose extent misses their clip (scene_display_list):
+    // true, but for a reference that lists every subtree to check the cull against.
+    bool& scene_list_culls();
 
     // A filtered element's content (paint::Filter): the element alone at its origin, without its own transform,
     // opacity, filter, position and anchoring, as its list keys it (source, which keeps the element's identity), and

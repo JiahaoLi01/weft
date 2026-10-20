@@ -1233,6 +1233,210 @@ namespace {
                   << " written in part\n";
     }
 
+    // A page four targets tall scrolled through its target, as a long page in a View: a renderer whose lists leave out
+    // what lies beyond the clip, and that patches its kept pass across culled and hidden subtrees, draws what a renderer
+    // listing every subtree draws, frame after frame, while the page scrolls by whole and part pixels, text, shadows,
+    // colors and visibility change, and animations run inside a hidden element and far off the target.
+    void cull_differential() {
+        const std::string sheet = ".pulse{animation:pulse 300ms linear infinite}.gone{display:none}";
+        const std::string keyframes = "@keyframes pulse{from{opacity:.25}to{opacity:1}}";
+        auto& text = weft::testing::thread_scene_text();
+        constexpr unsigned width = 320;
+        constexpr unsigned height = 240;
+        constexpr float tall = 4 * height;
+        weft::render::d3d11::Renderer gpu(true, width, height);
+        weft::render::d3d11::SceneRenderer culling(gpu, text);
+        weft::render::d3d11::SceneRenderer whole(gpu, text);
+        std::array<weft::render::d3d11::SceneRenderer::Slot, 2> slots;
+        weft::render::d3d11::SceneRenderer::Slot whole_slot;
+        weft::testing::NativeScene s;
+        std::vector<weft::dom::Node*> words;
+        std::vector<weft::dom::Node*> cards;
+        const auto add = [&](weft::dom::Node& parent, const char* tag, const std::string& style) -> weft::dom::Node& {
+            auto& n = s.html(tag);
+            s.set(n, "style", style);
+            s.tree.insert(parent, n, nullptr);
+            return n;
+        };
+        const auto say = [&](weft::dom::Node& parent, const std::string& data) {
+            auto& t = s.tree.create(weft::constants::text_node_type, "#text", "", s.document->identity);
+            t.data = data;
+            s.tree.insert(parent, t, nullptr);
+            words.push_back(&t);
+        };
+        auto& track = add(*s.root, "div", "position:absolute;left:0;top:0;width:320px;height:960px");
+        weft::dom::Node* hidden{};
+        for (int k = 0; k < 8; ++k) {
+            const auto top = std::to_string(k * 120);
+            auto& section = add(track, "div",
+                                "position:absolute;left:0;top:" + top + "px;width:320px;height:120px;background-color:#" +
+                                    (k % 2 ? std::string("f4f1ea") : std::string("16181f")));
+            auto& card = add(section, "div",
+                             "position:absolute;left:16px;top:20px;width:150px;height:70px;border-radius:10px;"
+                             "background-color:#3a6ea5;box-shadow:0 6px 18px rgba(0,0,0,0.45)");
+            cards.push_back(&card);
+            say(add(card, "div", "position:absolute;left:8px;top:8px;font-size:13px;color:#ffffff"),
+                "Card " + std::to_string(k));
+            auto& line = add(section, "div",
+                             "position:absolute;left:180px;top:24px;width:130px;font-size:12px;line-height:16px;color:#" +
+                                 (k % 2 ? std::string("202020") : std::string("e0e0e0")));
+            say(line, "Words in lines ");
+            say(add(line, "span", "color:#c0392b"), "inline");
+            say(line, " that wrap");
+            // Ink past the boxes: an outline, a text shadow, a turned box near the section's edge, a path near it.
+            add(section, "div",
+                "position:absolute;left:200px;top:96px;width:60px;height:14px;outline:3px solid #f39c12;"
+                "transform:rotate(14deg);background-color:#8e44ad");
+            say(add(section, "div",
+                    "position:absolute;left:20px;top:100px;font-size:11px;color:#ffffff;text-shadow:2px 3px 4px #000000"),
+                "shadowed " + std::to_string(k));
+            auto& icon = s.svg("svg");
+            s.set(icon, "width", "30");
+            s.set(icon, "height", "30");
+            s.set(icon, "viewBox", "0 0 30 30");
+            s.set(icon, "style", "position:absolute;left:280px;top:100px");
+            s.tree.insert(section, icon, nullptr);
+            auto& path = s.svg("path");
+            s.set(path, "d", "M2 2 L28 6 L14 28 Z");
+            s.set(path, "fill", "#27ae60");
+            s.tree.insert(icon, path, nullptr);
+            if (k == 2) {
+                // An animated element in a hidden one: neither shows, nothing in it changes what shows.
+                hidden = &add(section, "div", "position:absolute;left:60px;top:40px;width:80px;height:40px");
+                s.set(*hidden, "class", "gone");
+                auto& pulse = add(*hidden, "div", "width:40px;height:20px;background-color:#e74c3c");
+                s.set(pulse, "class", "pulse");
+            }
+            if (k == 6) {
+                // An animation far below the target until the page scrolls to it.
+                auto& pulse = add(section, "div",
+                                  "position:absolute;left:100px;top:60px;width:30px;height:30px;background-color:#1abc9c");
+                s.set(pulse, "class", "pulse");
+            }
+        }
+        weft::SceneSolver solver(sheet, keyframes, text);
+        weft::SceneFrame frame;
+        Random r{0xc011};
+        float scrolled = 0;
+        int scrolls{};
+        for (int step = 0; step < 240; ++step) {
+            const auto change = r.below(6);
+            switch (change) {
+                case 0:
+                case 5: {
+                    // A scroll by whole or part pixels.
+                    const float by = float(r.below(220)) - 100 + (r.below(2) ? 0.f : float(r.below(10)) / 10);
+                    scrolled = std::clamp(scrolled + by, 0.f, tall - height);
+                    s.set(track, "style",
+                          "position:absolute;left:0;top:0;width:320px;height:960px;transform:translateY(" +
+                              std::to_string(-scrolled) + "px)");
+                    ++scrolls;
+                    break;
+                }
+                case 1: {
+                    auto& t = *words[r.below(words.size())];
+                    t.data = "changed " + std::to_string(step);
+                    s.tree.changed(t);
+                    break;
+                }
+                case 2:
+                    s.toggle_class(*hidden, "gone");
+                    break;
+                case 3: {
+                    auto& card = *cards[r.below(cards.size())];
+                    s.set(card, "style",
+                          "position:absolute;left:16px;top:20px;width:150px;height:70px;border-radius:10px;"
+                          "background-color:#" +
+                              std::string(r.below(2) ? "3a6ea5" : "a53a6e") + ";box-shadow:0 " +
+                              std::to_string(2 + r.below(8)) + "px " + std::to_string(4 + r.below(20)) +
+                              "px rgba(0,0,0,0.45)");
+                    break;
+                }
+                default:
+                    break;
+            }
+            solver.update(s.tree.snapshot(*s.root), frame, width, height, step * 16.0);
+            const auto drawn = draw_warp(gpu, culling, slots[step % 2], frame, nullptr, width, height);
+            weft::scene_list_culls() = false;
+            whole.forget(0);
+            const auto expected = draw_warp(gpu, whole, whole_slot, frame, nullptr, width, height);
+            weft::scene_list_culls() = true;
+            if (drawn != expected) {
+                // Where the pixels differ, for the report.
+                unsigned left = width;
+                unsigned top = height;
+                unsigned right{};
+                unsigned bottom{};
+                std::size_t count{};
+                for (unsigned y = 0; y < height; ++y) {
+                    for (unsigned x = 0; x < width; ++x) {
+                        const auto i = (std::size_t(y) * width + x) * 4;
+                        if (std::memcmp(&drawn[i], &expected[i], 4) != 0) {
+                            ++count;
+                            left = std::min(left, x);
+                            top = std::min(top, y);
+                            right = std::max(right, x);
+                            bottom = std::max(bottom, y);
+                        }
+                    }
+                }
+                require(false, "a culled pass drew other pixels at step " + std::to_string(step) + " (change " +
+                                   std::to_string(change) + ", scrolled " + std::to_string(scrolled) + "): " +
+                                   std::to_string(count) + " pixels in [" + std::to_string(left) + ", " +
+                                   std::to_string(top) + "] - [" + std::to_string(right) + ", " +
+                                   std::to_string(bottom) + "]");
+            }
+        }
+        require(scrolls > 60 && culling.kept_patches > 60,
+                "frames scroll, and most quiet frames patch: " + std::to_string(scrolls) + " scrolled, " +
+                    std::to_string(culling.kept_patches) + " patched");
+        std::cout << "PASS incremental cull: 240 frames of a page four targets tall, " << scrolls << " scrolled, "
+                  << culling.kept_patches << " patched, as a pass that lists every subtree\n";
+    }
+
+    // An animation of an element that does not show (display: none, or inside such an element) does not run (CSS
+    // Animations 1 §3): the frame is not animated and keeps its revision while the element is hidden; shown, the
+    // animation starts over. The full solver and the incremental one alike.
+    void hidden_animation() {
+        const std::string sheet = ".gone{display:none}.pulse{animation:pulse 400ms linear infinite}";
+        const std::string keyframes = "@keyframes pulse{from{opacity:0}to{opacity:1}}";
+        auto& text = weft::testing::thread_scene_text();
+        for (const bool incremental : {true, false}) {
+            weft::testing::NativeScene s;
+            auto& box = s.html("div");
+            s.set(box, "style", "position:absolute;left:0;top:0;width:80px;height:40px");
+            s.set(box, "class", "gone");
+            s.tree.insert(*s.root, box, nullptr);
+            auto& pulse = s.html("div");
+            s.set(pulse, "style", "width:40px;height:20px;background-color:#e74c3c");
+            s.set(pulse, "class", "pulse");
+            s.tree.insert(box, pulse, nullptr);
+            weft::SceneSolver solver(sheet, keyframes, text, incremental);
+            weft::SceneFrame frame;
+            const auto opacity = [&] {
+                const auto& n = frame.root.children.at(0).children.at(0);
+                return std::stof(std::string(n.style.text(weft::PropertyId::Opacity, "1")));
+            };
+            solver.update(s.tree.snapshot(*s.root), frame, 200, 100, 0);
+            const auto hidden_revision = frame.revision;
+            const auto hidden_root = frame.root;
+            const auto mode = std::string(incremental ? "incremental" : "full");
+            require(!frame.animated, mode + ": a hidden animation leaves the frame unanimated");
+            // (The full solver gives every frame a revision of its own: its content is what stays.)
+            solver.update(s.tree.snapshot(*s.root), frame, 200, 100, 150);
+            require(!frame.animated && frame.root == hidden_root && (!incremental || frame.revision == hidden_revision),
+                    mode + ": a hidden animation changes nothing as time goes on");
+            // Shown at 1000 ms: the animation starts there, at its first keyframe.
+            s.toggle_class(box, "gone");
+            solver.update(s.tree.snapshot(*s.root), frame, 200, 100, 1000);
+            require(frame.animated && std::abs(opacity()) < 1e-3f,
+                    mode + ": shown, an animation starts over (" + std::to_string(opacity()) + ")");
+            solver.update(s.tree.snapshot(*s.root), frame, 200, 100, 1100);
+            require(std::abs(opacity() - .25f) < 1e-2f, mode + ": and runs from there (" + std::to_string(opacity()) + ")");
+        }
+        std::cout << "PASS incremental hidden animation: none runs while hidden, each starts over when shown\n";
+    }
+
     bool same_path(const weft::paint::PathPaint& a, const weft::paint::PathPaint& b) {
         const auto& x = *a.path;
         const auto& y = *b.path;
@@ -1642,7 +1846,8 @@ int main(int argc, char** argv) {
         const std::pair<const char*, void (*)()> sections[]{
             {"cascade", cascade_differential}, {"scene", scene_differential},   {"particles", particles_differential},
             {"inline", inline_differential},   {"layout", layout_differential}, {"effects", effect_refusal},
-            {"pass", pass_differential},       {"warp", warp_differential}};
+            {"pass", pass_differential},       {"warp", warp_differential},     {"cull", cull_differential},
+            {"hidden", hidden_animation}};
         for (const auto& [name, section] : sections) {
             if (argc < 2 || std::string_view(argv[1]) == name) {
                 section();

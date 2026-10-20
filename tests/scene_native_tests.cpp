@@ -30,14 +30,15 @@ namespace {
 
     // Small and large images among boxes: labels (text of one color) over boxes, a shadow, text in colors of its own, a
     // label in a translucent group, an SVG path, and text too tall for an atlas page; between two labels, a backdrop
-    // over no pixel of the target, which draws nothing.
+    // over no pixel of the target, which draws nothing (just past the root's corner, within the guard by which a list
+    // still takes an element as reaching its clip; farther off, the list leaves it out).
     weft::SceneFrame atlas_frame() {
         weft::SceneFrame f;
         f.root = node(600, {0, 0, 400, 300}, {{"background-color", "#ffffff"}});
         auto& c = f.root.children;
         c.push_back(node(601, {4, 4, 80, 20}, {{"background-color", "#e0e0e0"}}));
         c.push_back(node(602, {4, 4, 80, 20}, {{"font-size", "12px"}, {"color", "#202020"}}, "Open 1"));
-        c.push_back(node(613, {500, 400, 20, 20}, {{"backdrop-filter", "blur(4px)"}}));
+        c.push_back(node(613, {402, 302, 20, 20}, {{"backdrop-filter", "blur(4px)"}}));
         c.push_back(node(603, {4, 30, 80, 20}, {{"background-color", "#d0d0d0"}}));
         c.push_back(node(604, {4, 30, 80, 20}, {{"font-size", "12px"}, {"color", "#2060c0"}}, "Close 2"));
         c.push_back(node(605, {100, 4, 40, 30},

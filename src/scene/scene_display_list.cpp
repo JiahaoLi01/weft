@@ -118,6 +118,29 @@ namespace weft {
         : entries_(max_entries, max_bytes) {
     }
 
+    void SceneDisplayCache::begin_pass(std::uint64_t view) {
+        view_ = view;
+        entries_.begin_pass();
+        // The extents of subtrees no frame holds any more (the cache alone holds their storage), each pass: they go as
+        // frames let them go, a few at a time, not all at once.
+        std::erase_if(extents_, [](const auto& kept) {
+            return kept.second.subtree.use_count() == 1;
+        });
+    }
+
+    const SceneDisplayCache::Extent* SceneDisplayCache::extent(const SceneNode& subtree) {
+        // The cache holds the storage it keeps an extent for: nothing else lies there, and copy on write changes
+        // none of it.
+        const auto found = extents_.find(&subtree);
+        return found == extents_.end() ? nullptr : &found->second.extent;
+    }
+
+    void SceneDisplayCache::keep_extent(std::shared_ptr<const SceneNode> subtree, Extent extent) {
+        auto& kept = extents_[subtree.get()];
+        kept.subtree = std::move(subtree);
+        kept.extent = extent;
+    }
+
     const SceneSvgValues* SceneDisplayCache::find(const SceneNode& e) {
         const auto* entry = entries_.find({view_, e.identity.view_epoch, e.identity.slot, e.identity.generation});
         if (!entry || entry->tag != e.tag || entry->space != e.space || entry->text != e.text ||
@@ -147,6 +170,11 @@ namespace weft {
             .put({view_, e.identity.view_epoch, e.identity.slot, e.identity.generation},
                  Entry{e.tag, e.space, e.text, e.attributes, e.style, std::move(values)}, bytes)
             .values;
+    }
+
+    bool& scene_list_culls() {
+        thread_local bool culls = true;
+        return culls;
     }
 
     std::array<std::uint32_t, SceneListSpan::Parts> scene_list_sizes(const SceneDisplayList& out) {
@@ -237,6 +265,118 @@ namespace weft {
             source->box = n.box;
             source->paint = n.paint;
             return source;
+        };
+
+        // What a subtree may paint, in its node's own px (its border box from the origin, before its transform): left,
+        // top, right and bottom over its boxes, its lines with room for glyphs that overhang them and their shadows,
+        // its box shadows and outline, and its children's extents through their maps; left past right when it paints
+        // nothing. None where something in it paints beyond what layout gives it (an anchored element, particles, a
+        // perspective plane, a filter) or a value does not parse here, where its visit says why.
+        // The list's own, and the cache's for subtrees whose storage it holds (SceneDisplayCache::extent).
+        using Extent = SceneDisplayCache::Extent;
+        constexpr float endless = std::numeric_limits<float>::infinity();
+        constexpr std::array<float, 4> nothing{endless, endless, -endless, -endless};
+        std::unordered_map<const SceneNode*, Extent> extents;
+        const bool culls = scene_list_culls();
+        const auto extent = [&](auto&& self, const SceneNode& n) -> Extent {
+            if (const auto found = extents.find(&n); found != extents.end()) {
+                return found->second;
+            }
+            if (const auto* kept = cache ? cache->extent(n) : nullptr) {
+                return *kept;
+            }
+            const auto keep = [&](Extent e) {
+                extents.emplace(&n, e);
+                return e;
+            };
+            const bool empty = n.box[2] <= 0 || n.box[3] <= 0;
+            if (n.style.text(PropertyId::Display, "") == "none" || (empty && !scene_shows_overflow(n))) {
+                return keep(nothing);
+            }
+            if (n.anchoring || !n.particles.empty() || filtered(n) ||
+                n.style.text(PropertyId::Transform, "none").find("perspective(") != std::string_view::npos) {
+                return keep(std::nullopt);
+            }
+            auto e = nothing;
+            const auto add = [&](float x, float y, float w, float h) {
+                e = {std::min(e[0], x), std::min(e[1], y), std::max(e[2], x + w), std::max(e[3], y + h)};
+            };
+            const bool invisible = scene_values::invisible(n.style);
+            try {
+                if (!empty && !invisible) {
+                    // The box and the fragments of an inline one, which the box bounds; their shadows lie in the
+                    // shadow of the whole box, which grows each side as far. An outer shadow lies around its box,
+                    // offset, spread and blurred three deviations (blur / 2) past it with a guard (shadow_geometry);
+                    // an inset one inside its padding box.
+                    add(0, 0, n.box[2], n.box[3]);
+                    for (const auto& [shadow, rect] : scene_values::box_shadows(
+                             n.style, n.box[2], n.box[3], scene_values::specified_radii(n.style, n.box[2], n.box[3]))) {
+                        const float reach = shadow.inset ? 0.f
+                                                         : std::max(shadow.spread, 0.f) +
+                                                               float(constants::scene::shadow_kernel_sigmas) *
+                                                                   shadow.blur / 2 +
+                                                               2 * float(constants::scene::shadow_guard_px);
+                        const float dx = shadow.inset ? 0.f : shadow.x;
+                        const float dy = shadow.inset ? 0.f : shadow.y;
+                        add(rect[0] + dx - reach, rect[1] + dy - reach, rect[2] + 2 * reach, rect[3] + 2 * reach);
+                    }
+                }
+                if (!invisible) {
+                    if (const auto ring = scene_values::outline(n.style, n.box[2], n.box[3])) {
+                        add(ring->rect[0], ring->rect[1], ring->rect[2], ring->rect[3]);
+                    }
+                    if (!n.lines.empty() || !n.text.empty()) {
+                        float reach = 0;
+                        for (const auto& s : scene_values::text_shadows(n.style)) {
+                            reach = std::max(reach, std::abs(s.x) + std::abs(s.y) +
+                                                        std::ceil(constants::scene::shadow_kernel_sigmas *
+                                                                  scene_values::shadow_sigma(s.blur)));
+                        }
+                        // A line's height around it covers glyphs that overhang their line box and italic overhang
+                        // (constants::scene::italic_overhang_em of the font size).
+                        const auto add_line = [&](const std::array<float, 4>& r) {
+                            const float grow = r[3] + reach + 1;
+                            add(r[0] - grow, r[1] - grow, r[2] + 2 * grow, r[3] + 2 * grow);
+                        };
+                        for (const auto& line : n.lines) {
+                            add_line(line.rect);
+                        }
+                        if (n.lines.empty()) {
+                            add_line({0, 0, n.box[2], n.box[3]});
+                        }
+                    }
+                }
+                if (n.space == constants::svg_namespace_uri && n.tag == "svg") {
+                    // Its content lies in its viewport, which clips it.
+                    add(0, 0, n.box[2], n.box[3]);
+                } else {
+                    for (std::size_t k = 0; k < n.children.size(); ++k) {
+                        const auto handle = n.children.handle(k);
+                        const auto& c = *handle;
+                        const auto inner = self(self, c);
+                        if (cache) {
+                            cache->keep_extent(handle, inner);
+                        }
+                        if (!inner) {
+                            return keep(std::nullopt);
+                        }
+                        const auto& r = *inner;
+                        if (r[0] > r[2] || r[1] > r[3]) {
+                            continue;
+                        }
+                        // Transforms do not apply to an inline box, which lies at its box.
+                        const Matrix m = c.fragments.empty() ? matrix(c) : Matrix{1, 0, 0, 1, c.box[0], c.box[1]};
+                        for (const auto& [x, y] :
+                             std::array<std::array<float, 2>, 4>{{{r[0], r[1]}, {r[2], r[1]}, {r[0], r[3]}, {r[2], r[3]}}}) {
+                            const auto p = point(m, x, y);
+                            add(p[0], p[1], 0, 0);
+                        }
+                    }
+                }
+            } catch (const std::invalid_argument&) {
+                return keep(std::nullopt);
+            }
+            return keep(e);
         };
 
         // The rounded clips of a subtree: a run of list.clips, outermost first.
@@ -720,6 +860,25 @@ namespace weft {
                 const bool bare = empty || invisible;
                 if (list.items.size() > constants::scene::max_display_list_items) {
                     throw std::invalid_argument("native command bound");
+                }
+                // A subtree whose extent misses the clip draws nothing: it is left out, its span empty, so that a long
+                // page lists what can show, not all of itself (a patch lists such an element again whole when something
+                // in it changes, ScenePreparer::patch). An anchored element lies where its anchor puts it.
+                if (framed && !n.anchoring && culls) {
+                    if (const auto e = extent(extent, n)) {
+                        const auto& r = *e;
+                        if (r[0] > r[2] || r[1] > r[3]) {
+                            return;
+                        }
+                        const Matrix at = multiply(parent, n.fragments.empty() ? matrix(n)
+                                                                               : Matrix{1, 0, 0, 1, n.box[0], n.box[1]});
+                        constexpr float guard = constants::scene::list_cull_guard_px;
+                        const auto reached =
+                            bound(clip, at, {r[0] - guard, r[1] - guard, r[2] - r[0] + 2 * guard, r[3] - r[1] + 2 * guard});
+                        if (reached[2] <= reached[0] || reached[3] <= reached[1]) {
+                            return;
+                        }
+                    }
                 }
                 // An anchored element: its anchor places it in the root's box, beyond its ancestors' transforms and
                 // clips; hidden without one.

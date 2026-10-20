@@ -82,6 +82,9 @@ namespace weft::constants::scene {
     inline constexpr int max_display_list_items = 2 * constants::max_document_nodes;
     // Deepest nesting of isolated opacity groups.
     inline constexpr int max_opacity_group_depth = 4;
+    // px around a subtree's extent (what its boxes, lines, shadows and outlines reach) that a list still takes as
+    // reaching its clip: room for the antialiasing and glyph ink the extent leaves out.
+    inline constexpr float list_cull_guard_px = 8;
     // A filtered element's image (paint::Filter): its blurs reach this many standard deviations past what they blur
     // (three, and the area downsample and bilinear upsample of a wide blur), and a guard of device px more; past
     // filter_image_max_pixels device pixels the image is made at a lower resolution, filter_scale_margin under the one
