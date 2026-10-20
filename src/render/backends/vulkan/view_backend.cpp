@@ -218,6 +218,12 @@ namespace weft::render::vulkan {
         } catch (const Busy&) {
             idle_.push_back(std::move(slot));
             return WEFT_RENDER_BUSY;
+        } catch (const std::exception& e) {
+            // The host's log says why (last_failure); the thunk makes it WEFT_RENDER_BACKEND_ERROR.
+            failure_ = std::string("the native pass failed: ") + e.what();
+            renderer_->discard(*slot);
+            idle_.push_back(std::move(slot));
+            throw;
         } catch (...) {
             renderer_->discard(*slot);
             idle_.push_back(std::move(slot));

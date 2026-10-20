@@ -222,8 +222,16 @@ namespace weft::render::d3d11 {
         if (p.clear_target) {
             start.clear = encoded(p.clear_linear_premultiplied);
         }
-        if (!renderer_->paint(state.slot, *frame.scene, target, prepared.scale, pass.width, pass.height, std::nullopt,
-                              state.index, {}, anchors, start, prepared.textures)) {
+        bool drawn{};
+        try {
+            drawn = renderer_->paint(state.slot, *frame.scene, target, prepared.scale, pass.width, pass.height,
+                                     std::nullopt, state.index, {}, anchors, start, prepared.textures);
+        } catch (const std::exception& e) {
+            // The host's log says why (last_failure); the thunk makes it WEFT_RENDER_BACKEND_ERROR.
+            failure_ = std::string("the native pass failed: ") + e.what();
+            throw;
+        }
+        if (!drawn) {
             failure_ = "the native pass cannot draw the frame: " + renderer_->last_failure();
             return WEFT_RENDER_UNSUPPORTED_FEATURE;
         }
