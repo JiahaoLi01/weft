@@ -518,15 +518,37 @@ namespace {
         require(pass() == std::array<std::size_t, 2>{5, 5}, "dashes draw the stroke anew");
         n.style["fill-rule"] = "evenodd";
         require(pass() == std::array<std::size_t, 2>{7, 5}, "another fill rule draws anew");
+        // A map moved by whole device pixels (a unit at scale 2) covers what it covered, moved: the images stay. Moved
+        // by part of a pixel, it draws anew.
         n.attributes["transform"] = "translate(1 0)";
-        require(pass() == std::array<std::size_t, 2>{9, 5}, "another device map draws anew");
+        require(pass() == std::array<std::size_t, 2>{7, 7}, "a map moved by whole device pixels keeps its images");
+        n.attributes["transform"] = "translate(1.3 0)";
+        require(pass() == std::array<std::size_t, 2>{9, 7}, "another device map draws anew");
         n.style["stroke-width"] = "4";
-        require(pass() == std::array<std::size_t, 2>{10, 6}, "another stroke width draws the stroke anew");
-        // A narrower svg viewport clips the path to fewer device pixels: the same map, another mask.
+        require(pass() == std::array<std::size_t, 2>{10, 8}, "another stroke width draws the stroke anew");
+        // A narrower svg viewport clips what shows of the path, not its image: the same map, the same images (the
+        // records' clips cut them).
         frame.root.children.edit(0).box[2] = 90;
-        require(pass() == std::array<std::size_t, 2>{12, 6}, "another mask draws anew");
-        // A stroked path past the viewport on every side: its mask is the viewport's whatever the map or the width,
-        // so they alone tell the coverage apart.
+        require(pass() == std::array<std::size_t, 2>{10, 10}, "a narrower viewport draws from the same images");
+        // Past the root's edge too: an svg the target cuts keeps its path's image while it moves by whole device
+        // pixels, though another part of the path shows.
+        {
+            weft::SceneNativeWork edge_work;
+            weft::ScenePreparer edge(text, edge_work, 4096);
+            auto across = element(400, "path");
+            across.attributes["d"] = "M10 10 L120 40 L60 120 Z";
+            across.style["fill"] = "#2a9d8f";
+            auto cut = page({across});
+            cut.root.children.edit(0).box = {250, 10, 300, 220};
+            require(bool(edge.prepare(cut, 2, 640, 480, std::nullopt, 0, {})) && edge_work.path_builds == 1,
+                    "a path the target cuts");
+            cut.root.children.edit(0).box[0] = 249;
+            require(bool(edge.prepare(cut, 2, 640, 480, std::nullopt, 0, {})) && edge_work.path_builds == 1 &&
+                        edge_work.path_reuses == 1,
+                    "moved by whole device pixels past the target's edge, it keeps its image");
+        }
+        // A stroked path past the viewport on every side: a map a fraction apart, or another width alone, draws it
+        // anew.
         n.attributes["d"] = "M-60 -60 L400 -60 L400 400 L-60 400 Z M20 20 L60 90 L120 30";
         n.style["stroke-dasharray"] = "none";
         n.attributes.erase("transform");
@@ -546,8 +568,8 @@ namespace {
         const auto again = pass();
         require(other[0] == one[0] + 2 && again == std::array<std::size_t, 2>{other[0], other[1] + 2},
                 "paths of the same verbs stay apart");
-        std::cout << "path digests: reuse by object and by points, anew for points, dashes, rules, maps, widths and "
-                     "masks\n";
+        std::cout << "path digests: reuse by object, by points and by maps moved by whole pixels, anew for points, "
+                     "dashes, rules, maps, widths and masks\n";
     }
 } // namespace
 

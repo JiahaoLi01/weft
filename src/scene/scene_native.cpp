@@ -1242,11 +1242,20 @@ namespace weft {
         for (auto& v : device) {
             v *= scale;
         }
-        // The key: every value the coverage depends on, the path by its digest.
+        // The key: every value the coverage depends on, the path by its digest. A path moved by whole device pixels
+        // covers what it covered, moved: the key takes its map's translation past whole pixels (in steps of
+        // path_key_subpixels of a pixel) and its mask from those pixels, so that a page scrolled by whole pixels draws
+        // its paths again from their images.
         const auto& path = *p.path;
         const auto bits = [](float v) {
             return std::bit_cast<std::uint32_t>(v);
         };
+        constexpr float steps = limits::path_key_subpixels;
+        const auto whole = [&](float v) {
+            return std::floor(v + 0.5f / steps);
+        };
+        const float whole_x = whole(device[4]);
+        const float whole_y = whole(device[5]);
         const auto d = digest(p.path);
         std::array<std::uint32_t, 21> key{};
         key[0] = std::uint32_t(d);
@@ -1255,11 +1264,13 @@ namespace weft {
         key[3] = std::uint32_t(path.points.size());
         const bool stroked = p.stroke.has_value();
         key[4] = std::uint32_t(path.evenodd) | std::uint32_t(stroked) << 1;
-        for (unsigned i = 0; i < device.size(); ++i) {
+        for (unsigned i = 0; i < 4; ++i) {
             key[5 + i] = bits(device[i]);
         }
+        key[9] = std::uint32_t(std::lround((device[4] - whole_x) * steps));
+        key[10] = std::uint32_t(std::lround((device[5] - whole_y) * steps));
         for (unsigned i = 0; i < mask.size(); ++i) {
-            key[11 + i] = std::uint32_t(mask[i]);
+            key[11 + i] = std::uint32_t(mask[i] - std::int32_t(i % 2 ? whole_y : whole_x));
         }
         if (stroked) {
             const auto& s = *p.stroke;

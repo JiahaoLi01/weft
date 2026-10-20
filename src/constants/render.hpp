@@ -285,6 +285,9 @@ namespace weft::constants::render {
         inline constexpr int image_cache_budget_bytes = 32 * constants::bytes_per_mib;
         // The bytes of one text, layer, shadow or path image.
         inline constexpr int image_max_bytes = 16 * constants::bytes_per_mib;
+        // Steps of a device pixel in which a path image's key takes its map's translation past whole pixels: maps
+        // closer than a step share an image.
+        inline constexpr int path_key_subpixels = 64;
         // Atlases of a scene preparer: text, shadow and path images that, with a border of atlas_border texels that
         // repeat their edge texels, are at most half a page wide and atlas_max_height texels high share pages of their
         // format, atlas_page_size texels a side for coverage (a byte per texel) and atlas_color_page_size for colors

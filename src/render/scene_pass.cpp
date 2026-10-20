@@ -2,6 +2,7 @@
 
 #include "base/plane.hpp"
 #include "constants/common.hpp"
+#include "constants/render.hpp"
 #include "paint/particles.hpp"
 #include "render/rounded_clip.hpp"
 #include "render/shadow_image.hpp"
@@ -82,12 +83,28 @@ namespace weft::render {
                 return std::int32_t(std::clamp(d, -double(1 << 24), double(1 << 24)));
             };
             const bool target = !item.anchor;
-            const std::array<std::int32_t, 4> bounds{
-                target ? std::max(0, edge(clip[0] * scale, false)) : edge(clip[0] * scale, false),
-                target ? std::max(0, edge(clip[1] * scale, false)) : edge(clip[1] * scale, false),
-                target ? std::min(std::int32_t(w), edge(clip[2] * scale, true)) : edge(clip[2] * scale, true),
-                target ? std::min(std::int32_t(h), edge(clip[3] * scale, true)) : edge(clip[3] * scale, true)};
-            return vector::mask_bounds(list.paths[item.payload], device, bounds);
+            const auto& paint = list.paths[item.payload];
+            const auto within = [&](std::int32_t left, std::int32_t top, std::int32_t right, std::int32_t bottom) {
+                return vector::mask_bounds(
+                    paint, device,
+                    {target ? std::max(left, edge(clip[0] * scale, false)) : edge(clip[0] * scale, false),
+                     target ? std::max(top, edge(clip[1] * scale, false)) : edge(clip[1] * scale, false),
+                     target ? std::min(right, edge(clip[2] * scale, true)) : edge(clip[2] * scale, true),
+                     target ? std::min(bottom, edge(clip[3] * scale, true)) : edge(clip[3] * scale, true)});
+            };
+            const auto iw = std::int32_t(w);
+            const auto ih = std::int32_t(h);
+            const auto cut = within(0, 0, iw, ih);
+            if (!target || cut[2] <= cut[0] || cut[3] <= cut[1]) {
+                return cut;
+            }
+            // A path its clip or the target cuts reaches as far as it goes, up to a target's size past each of the
+            // target's edges and within the rasterizer's bound: its image stays while a page scrolls it past a clip
+            // that stays put (the root's, the target's), and the record's clip cuts what shows.
+            const auto reach = vector::mask_bounds(paint, device, {-iw, -ih, 2 * iw, 2 * ih});
+            const auto pixels = std::uint64_t(std::int64_t(reach[2]) - reach[0]) *
+                                std::uint64_t(std::int64_t(reach[3]) - reach[1]);
+            return pixels <= std::uint64_t(constants::render::path::max_mask_pixels) ? reach : cut;
         }
 
         // The device pixels a path shadow's coverage covers: its box under the item's map at scale, rounded out, within
