@@ -2205,12 +2205,16 @@ namespace weft {
         }
 
         // A text node an element with mixed content shows: anonymous inline text, of the element's inherited
-        // properties and initial others.
+        // properties and initial others. Its spaces collapse here only where its white-space collapses them all;
+        // pre, pre-wrap and break-spaces keep its spaces and newlines, and pre-line its newlines, for the inline
+        // layout to break the lines at (as it does with an element's own text).
         static SceneNode text_run(const DomSnapshot& t, const Style& style) {
             SceneNode run;
             run.identity = t.identity;
             run.tag = "#text";
-            run.text = transformed(css::collapse_spaces(t.data), style);
+            const auto white_space = style.text(PropertyId::WhiteSpace, "normal");
+            const bool collapses = white_space == "normal" || white_space == "nowrap";
+            run.text = transformed(collapses ? css::collapse_spaces(t.data) : std::string(t.data), style);
             for (const auto k : inherited_properties) {
                 if (const auto* v = style.find(k)) {
                     run.style.set(k, *v);

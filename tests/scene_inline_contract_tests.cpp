@@ -278,6 +278,25 @@ int main() {
             require(lines("white-space:pre-line", "a   b\nc") == std::vector<std::string>{"a b", "c"},
                     "pre-line collapses spaces and keeps newlines");
             require(lines("", "a  b\nc") == std::vector<std::string>{"a b c"}, "normal collapses both");
+            // An element's mixed content (a line of highlighted code: spans and the text between them) keeps its
+            // spaces and newlines as the element's own text does.
+            {
+                weft::testing::NativeScene t;
+                auto& b = element(t, *t.root, "div", "width:240px;font-family:system-ui;font-size:14px;white-space:pre");
+                auto& keyword = element(t, b, "span", "");
+                text(t, keyword, "const");
+                text(t, b, " x  = 1;\nlet y = 2;");
+                weft::SceneSolver mixing("", "", scene_text);
+                const auto mixed = mixing.frame(t.tree.snapshot(*t.root), 300, 200, 0);
+                const auto& run = mixed.root.children[0].children[1];
+                std::vector<std::string> got;
+                for (const auto& line : run.lines) {
+                    got.push_back(line.text);
+                }
+                require(run.tag == "#text" && got == std::vector<std::string>{" x  = 1;", "let y = 2;"} &&
+                            run.lines[1].rect[1] > run.lines[0].rect[1],
+                        "pre keeps the spaces and newlines of mixed content");
+            }
         }
         // A shrink-to-fit box (absolutely positioned, auto width) is its text's max-content width plus its padding and
         // borders, and the text fits on one line in it: its content width is the box less those edges in floats,

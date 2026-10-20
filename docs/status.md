@@ -16,6 +16,11 @@
 
 ## 本次已实现
 
+`white-space: pre` 等之下混排内容的空白（2026-10-20，`weft-op` 分支；weft 宣传页的 Unity 版里，高亮的代码块挤成了一行）。
+- **起因**：元素的混排内容（元素与文字节点相间，如高亮的一行代码）里的文字节点建成文字段时，空白总按 `normal` 折叠：`pre`、`pre-wrap`、`break-spaces` 下的空格与换行、`pre-line` 下的换行都丢了，代码块的几行挤成一行。元素自己的文字（没有子元素时）一直按 `white-space` 处理。
+- **实现**：`scene.cpp` 的 `text_run` 只在 `white-space` 为 `normal`、`nowrap` 时折叠空白，其他值保留原文，交给行内布局按 `white-space` 断行（与元素自己的文字相同）。
+- **验证**（Release）：`scene_inline_contract_tests` 加：`white-space: pre` 的块里一个 `<span>` 与它后面的文字节点，文字段的两行是 `" x  = 1;"` 与 `"let y = 2;"`，第二行在第一行之下；修复前失败。全量 ctest 176 项：除既有的 14 项（签出换行的散列校验）外通过。
+
 SVG 文字的 `fill-opacity`（2026-10-18，`weft-dev` 分支；CRPG 的 d20 检定揭晓叠层按面的朝向让骰面数字渐隐，背面的数字设为 0）。
 - **起因**：显示列表与参考光栅给 SVG 文字取颜色时只读 `fill`，`fill-opacity` 只乘到形状上。骰子上从未转到正面的数字停在 svg 原点、`fill-opacity="0"`，仍被画成一团字；斜面上渐隐的数字也是不透明的。
 - **实现**：`scene_display_list.cpp` 把 `fill-opacity`（夹到 0–1）乘进文字的填充色，为 0 时不取字形轮廓、不出项；`scene_raster_d2d.cpp` 画 SVG 文字时同样相乘（SVG 2 §13.2，与 Chrome 一致）。
