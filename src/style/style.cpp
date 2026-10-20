@@ -1219,6 +1219,30 @@ namespace weft {
             }
         };
 
+        // A compound with :hover or :active as an element alone is matched to it: its positions among siblings and
+        // its :not(), :is() and :where(), which the element alone cannot answer, taken to hold.
+        dom::Compound lone_state_part(const dom::Compound& part) {
+            dom::Compound lone = part;
+            lone.nth.clear();
+            lone.alternatives.clear();
+            return lone;
+        }
+
+        // The hover and active of n that a state compound (a lone_state_part) could see; a state no compound can
+        // match n by is no input of the cascade.
+        std::pair<bool, bool> seen_state(const std::vector<dom::Compound>& parts, const DomSnapshot& n, bool root) {
+            std::pair<bool, bool> seen{};
+            if (n.hovered || n.active) {
+                for (const auto& p : parts) {
+                    if (dom::matches(p, LoneElement{&n, root}, false)) {
+                        seen.first |= p.hover && n.hovered;
+                        seen.second |= p.active && n.active;
+                    }
+                }
+            }
+            return seen;
+        }
+
         // A @media condition (Media Queries 4) as a forgiving profile evaluates it: the device is a screen with a fine
         // pointer that hovers, color, no preference for reduced motion or contrast and a light color scheme; width,
         // height, aspect ratio and orientation are the viewport's, which the cascade is given.
@@ -3170,7 +3194,7 @@ namespace weft {
             // content).
             std::vector<const Rule*> content_rules;
             std::set<std::string> memo_attributes{"id", "class"};
-            std::vector<const dom::Compound*> state_parts;
+            std::vector<dom::Compound> state_parts;
             std::string selector_path;
             std::vector<std::size_t> selector_lengths;
 
@@ -3244,7 +3268,7 @@ namespace weft {
                                 }
                             }
                             if (part.hover || part.active) {
-                                state_parts.push_back(&part);
+                                state_parts.push_back(lone_state_part(part));
                             }
                             for (const auto& attribute : part.attributes) {
                                 memo_attributes.insert(attribute.name);
@@ -3308,6 +3332,11 @@ namespace weft {
                 return out;
             }
 
+            // Whether n, on the path, is the document's root element (:root).
+            bool at_root(const DomSnapshot& n) const {
+                return !path.empty() && &n == path.front() && n.local_name == "html";
+            }
+
             std::string selector_key() {
                 selector_lengths.push_back(selector_path.size());
                 auto add = [&](std::string_view value) {
@@ -3317,19 +3346,12 @@ namespace weft {
                 const auto* n = path.back();
                 add(n->local_name);
                 add(n->namespace_uri);
-                bool h{};
-                bool a{};
-                for (auto* p : state_parts) {
-                    if (dom::matches(*p, LoneElement{n, n == path.front() && n->local_name == "html"}, false)) {
-                        h |= p->hover;
-                        a |= p->active;
-                    }
-                }
+                const auto [h, a] = seen_state(state_parts, *n, at_root(*n));
                 if (uses_hover) {
-                    selector_path += (h && n->hovered) ? '1' : '0';
+                    selector_path += h ? '1' : '0';
                 }
                 if (uses_active) {
-                    selector_path += (a && n->active) ? '1' : '0';
+                    selector_path += a ? '1' : '0';
                 }
                 if (uses_focus) {
                     selector_path += n->focused ? 'F' : 'f';
@@ -3509,19 +3531,20 @@ namespace weft {
             }
 
             // Whether two copies of an element hold the same values for its own cascade: its name, attributes and
-            // state.
-            bool same_own_input(const DomSnapshot& a, const DomSnapshot& b) const {
+            // the state selectors can see (root: the copies are of the document's root element).
+            bool same_own_input(const DomSnapshot& a, const DomSnapshot& b, bool root) const {
                 return a.type == b.type && a.local_name == b.local_name && a.namespace_uri == b.namespace_uri &&
-                       a.hovered == b.hovered && a.active == b.active && a.attributes == b.attributes &&
+                       a.attributes == b.attributes &&
+                       seen_state(state_parts, a, root) == seen_state(state_parts, b, root) &&
                        (!uses_focus || (a.focused == b.focused && a.focus_within == b.focus_within)) &&
                        (!uses_empty || has_content(a) == has_content(b));
             }
 
-            // Whether two copies of an element read alike to the selectors of its descendants: name, state and the
-            // attributes selectors read.
-            bool same_selector_input(const DomSnapshot& a, const DomSnapshot& b) const {
+            // Whether two copies of an element read alike to the selectors of its descendants: name, the state
+            // selectors can see and the attributes they read.
+            bool same_selector_input(const DomSnapshot& a, const DomSnapshot& b, bool root) const {
                 if (a.local_name != b.local_name || a.namespace_uri != b.namespace_uri ||
-                    (uses_hover && a.hovered != b.hovered) || (uses_active && a.active != b.active) ||
+                    seen_state(state_parts, a, root) != seen_state(state_parts, b, root) ||
                     (uses_focus && (a.focused != b.focused || a.focus_within != b.focus_within))) {
                     return false;
                 }
@@ -3615,11 +3638,10 @@ namespace weft {
             // it charges them. Whether its own values changed; nullopt, with nothing changed, where it is to be
             // cascaded in full.
             std::optional<bool> restyle_inline(const DomSnapshot& dom, const DomSnapshot& old, ComputedStyle& target,
-                                               const std::string& selectors) {
+                                               const std::string& selectors, bool root) {
                 if (!memoize || dom.namespace_uri != constants::xhtml_namespace_uri || dom.type != old.type ||
                     dom.local_name != old.local_name || dom.namespace_uri != old.namespace_uri ||
-                    dom.hovered != old.hovered || dom.active != old.active || !same_selector_input(dom, old) ||
-                    (uses_empty && has_content(dom) != has_content(old))) {
+                    !same_selector_input(dom, old, root) || (uses_empty && has_content(dom) != has_content(old))) {
                     return std::nullopt;
                 }
                 const auto winners = memo_state->winners.find(selectors);
@@ -3840,7 +3862,7 @@ namespace weft {
                         out.children.push_back(index < previous.size() ? std::move(previous[index]) : ComputedStyle{});
                         auto& kept = out.children.back();
                         const bool child_selectors = selectors || siblings_moved || sibling_changed;
-                        if (uses_siblings && (!old_child || !same_selector_input(child, *old_child))) {
+                        if (uses_siblings && (!old_child || !same_selector_input(child, *old_child, false))) {
                             sibling_changed = true;
                         }
                         if (!dirty && !child_selectors && old_child && child.revision != 0 &&
@@ -3989,12 +4011,13 @@ namespace weft {
                     fail("HTML/scene SVG element snapshot required");
                 }
                 path.push_back(&dom);
+                const bool root = at_root(dom);
                 const auto work_before = work;
                 const auto bytes_before = bytes;
                 auto selectors = memoize ? selector_key() : std::string{};
                 // Only a descendant changed: the own values stand, as do the custom properties the children inherit.
                 if (old && !dirty && !selectors_dirty && destination.identity == dom.identity &&
-                    destination.environment && same_own_input(dom, *old)) {
+                    destination.environment && same_own_input(dom, *old, root)) {
                     charge(destination.own_work);
                     bytes += destination.own_bytes;
                     if (bytes > constants::style::max_computed_output_bytes) {
@@ -4011,7 +4034,7 @@ namespace weft {
                 // Only the inline style changed, in values the children do not inherit: those values alone.
                 if (old && !dirty && !selectors_dirty && destination.identity == dom.identity &&
                     destination.environment) {
-                    if (const auto restyled = restyle_inline(dom, *old, destination, selectors)) {
+                    if (const auto restyled = restyle_inline(dom, *old, destination, selectors, root)) {
                         destination.own_work = work - work_before;
                         destination.own_bytes = bytes - bytes_before;
                         const auto environment = destination.environment;
@@ -4023,7 +4046,7 @@ namespace weft {
                     }
                 }
                 // What the children's selectors read of dom changed, so may what they match.
-                const bool child_selectors = selectors_dirty || !old || !same_selector_input(dom, *old);
+                const bool child_selectors = selectors_dirty || !old || !same_selector_input(dom, *old, root);
                 auto key = memoize ? memo_key(parent, inherited, selectors) : std::string{};
                 if (memoize) {
                     if (auto it = memo_state->entries.find(key); it != memo_state->entries.end()) {
@@ -4578,7 +4601,7 @@ namespace weft {
         std::vector<Rule>& ua;
         std::vector<Rule>& author;
         std::set<std::string> attributes{"id", "class", "style"};
-        std::vector<const dom::Compound*> state_parts;
+        std::vector<dom::Compound> state_parts;
         // What the sheet's selectors read beyond names, attributes, hover and active.
         bool uses_focus{};
         bool uses_empty{};
@@ -4602,7 +4625,7 @@ namespace weft {
                 for (const auto& rule : *list) {
                     each_compound(rule.selector, [&](const dom::Compound& part) {
                         if (part.hover || part.active) {
-                            state_parts.push_back(&part);
+                            state_parts.push_back(lone_state_part(part));
                         }
                         uses_focus |= part.focus || part.focus_within;
                         uses_empty |= part.empty;
@@ -4768,16 +4791,7 @@ namespace weft {
         };
         // hover and active where a state selector can see them.
         const auto state = [&](const DomSnapshot& n, unsigned depth) {
-            std::pair<bool, bool> seen{};
-            if (n.hovered || n.active) {
-                for (const auto* p : impl_->state_parts) {
-                    if (dom::matches(*p, LoneElement{&n, depth == 0 && n.local_name == "html"}, false)) {
-                        seen.first |= p->hover && n.hovered;
-                        seen.second |= p->active && n.active;
-                    }
-                }
-            }
-            return seen;
+            return seen_state(impl_->state_parts, n, depth == 0 && n.local_name == "html");
         };
         const auto same_attributes = [&](const DomSnapshot& n, const Node& k) {
             auto it = k.attributes.begin();
@@ -4884,16 +4898,9 @@ namespace weft {
             if (++nodes > constants::max_document_nodes || depth >= constants::max_document_depth) {
                 fail("state key node/depth bound");
             }
-            bool h{};
-            bool a{};
-            for (auto* p : impl_->state_parts) {
-                if (dom::matches(*p, LoneElement{&n, depth == 0 && n.local_name == "html"}, false)) {
-                    h |= p->hover;
-                    a |= p->active;
-                }
-            }
-            n.hovered &= h;
-            n.active &= a;
+            const auto [h, a] = seen_state(impl_->state_parts, n, depth == 0 && n.local_name == "html");
+            n.hovered = h;
+            n.active = a;
             n.focused &= impl_->uses_focus;
             n.focus_within &= impl_->uses_focus;
             // A normalized copy no longer matches the DOM state its revision names.

@@ -236,8 +236,8 @@ namespace {
     // Random updates of a page against full cascades, steps of each seed: the values, the nodes reported changed, the
     // stamps, and the bounds kept subtrees charged.
     void cascade_runs(const std::string& sheet, void (Page::*change)(Random&),
-                      std::initializer_list<std::uint32_t> seeds, int steps) {
-        const auto profile = weft::scene_style_profile();
+                      std::initializer_list<std::uint32_t> seeds, int steps, bool forgiving = false) {
+        const auto profile = weft::scene_style_profile(forgiving);
         const weft::CompiledStyle compiled(sheet, profile);
         for (std::uint32_t seed : seeds) {
             Random r{seed};
@@ -315,6 +315,13 @@ namespace {
         cascade_runs(".box{transform:translate(1px,2px);opacity:.8}.lock{opacity:.3 !important}.wide{width:30px}"
                      ".wide>div{width:12px}div{background-color:#101010}span{color:#202020}.box span{color:#ff0000}",
                      &Page::change_inline, {0x61u, 0x7f1u, 0x2468u}, 400);
+        // The hover of an element no :hover compound can match is no input: its subtree is not matched again. A
+        // compound's parts an element alone cannot answer (its position, :not(), :is()) are taken to hold, so the
+        // hover of an element they match stays one.
+        cascade_runs(".hot:hover span{color:#00ff00}div:nth-child(2):hover>span{font-size:20px}"
+                     "span:not(.on):hover{width:30px}div:is(.on):hover>div{--ink:#010203}"
+                     "div:not(:first-child):hover{opacity:.5}span{color:var(--ink,#123456)}",
+                     &Page::change, {0x3c5u, 0x8a1u, 0x4242u}, 400, true);
         const auto profile = weft::scene_style_profile();
         const weft::CompiledStyle compiled(sheet, profile);
         // Copies the DOM did not produce (revision 0) are never taken as unchanged.
@@ -368,7 +375,7 @@ namespace {
             refused = true;
         }
         require(refused, "a document over the node bound fails though most of it is kept");
-        std::cout << "PASS incremental cascade: 2,400 random updates against full cascades\n";
+        std::cout << "PASS incremental cascade: 3,600 random updates against full cascades\n";
     }
 
     // A scene page: positioned panels of nameplates (a name over a bar), text in lines, a flex row, a rounded box that
