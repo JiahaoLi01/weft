@@ -1090,7 +1090,18 @@ namespace weft {
                 }
                 return done;
             }
+            // A key that types (one character, or a dead key's accent to come) types into the field: the page has it
+            // (not the host), and its text, which follows, goes in.
+            if (f.editable && !control && (key == "Dead" || types_character(key))) {
+                return std::pair<unsigned, bool>{input_default, false};
+            }
             return std::nullopt;
+        }
+
+        // Whether a key's value is one character that types (not a control character).
+        static bool types_character(std::string_view key) {
+            const auto points = code_points(key);
+            return points.size() == 1 && points[0] >= 0x20 && points[0] != 0x7F;
         }
 
         // A character the user typed at the focused text field (its keypress nobody prevented): it replaces the

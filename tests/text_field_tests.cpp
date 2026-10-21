@@ -786,6 +786,29 @@ namespace {
         require(f.view.text_input().active && f.eval("document.getElementById('a').value") == "",
                 "a text field again, of its default value");
     }
+
+    // A key that types into an editable text field is the page's as it goes down (WEFT_INPUT_DEFAULT, so that a host
+    // leaves it, as a browser leaves a page's typing), its text going in after; not in a read-only field, nor with Ctrl,
+    // nor a key that types nothing.
+    void typing_keys() {
+        Fixture f;
+        field_page(f);
+        f.eval("document.getElementById('b').focus()");
+        const auto press = [&](const std::string& key, const std::string& code, unsigned modifiers = 0) {
+            const auto result = f.view.key({true, key, code, modifiers, false, false, 0});
+            f.view.key({false, key, code, modifiers, false, false, 0});
+            return result;
+        };
+        require(press("w", "KeyW") == weft::input_default, "a letter types into the field");
+        require(f.view.text("w") == weft::input_default && f.eval("document.getElementById('b').value") == "w",
+                "and its text goes in");
+        require(press(" ", "Space") == weft::input_default, "Space types a space");
+        require(press("Dead", "BracketLeft") == weft::input_default, "a dead key types the accent to come");
+        require(press("b", "KeyB", weft::key_modifier::control) == 0, "Ctrl+B types nothing");
+        require(press("F2", "F2") == 0, "nor does F2");
+        f.eval("document.getElementById('b').readOnly = true");
+        require(press("w", "KeyW") == 0, "a read-only field takes no text");
+    }
 } // namespace
 
 int main(int argc, char** argv) {
@@ -800,6 +823,7 @@ int main(int argc, char** argv) {
     try {
         scene_follows_field();
         beyond_the_page();
+        typing_keys();
         chrome_scenarios();
         std::cout << "text field contract passed\n";
     } catch (const std::exception& e) {
