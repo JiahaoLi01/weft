@@ -328,6 +328,29 @@ int main() {
                             run.lines[1].rect[1] > run.lines[0].rect[1],
                         "pre keeps the spaces and newlines of mixed content");
             }
+            // A newline alone between two elements (a comment's line and the code under it) ends the line and draws
+            // nothing: listed as text in its empty box, it made the native pass refuse the frame.
+            {
+                weft::testing::NativeScene t;
+                auto& b =
+                    element(t, *t.root, "div", "width:240px;font-family:system-ui;font-size:14px;white-space:pre");
+                text(t, element(t, b, "span", ""), "// a comment");
+                text(t, b, "\n");
+                text(t, element(t, b, "span", ""), "call();");
+                weft::SceneSolver breaking("", "", scene_text);
+                const auto f = breaking.frame(t.tree.snapshot(*t.root), 300, 200, 0);
+                const auto& pre = f.root.children[0];
+                const auto pre_list = weft::scene_display_list(f, {}, &scene_text);
+                const auto pre_texts =
+                    std::count_if(pre_list.list.items.begin(), pre_list.list.items.end(), [](const auto& item) {
+                        return item.kind == Kind::Text;
+                    });
+                require(pre.children.size() == 3 && pre.children[1].lines.empty() && pre_texts == 2 &&
+                            pre.children[2].box[1] > pre.children[0].box[1],
+                        "a newline alone ends the line and lists no text");
+                weft::testing::D3D11Scene drawn(300, 200);
+                drawn.draw(f);
+            }
         }
         // A shrink-to-fit box (absolutely positioned, auto width) is its text's max-content width plus its padding and
         // borders, and the text fits on one line in it: its content width is the box less those edges in floats,

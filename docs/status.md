@@ -16,6 +16,12 @@
 
 ## 本次已实现
 
+`white-space: pre` 里单独一个换行的文本节点不再让原生 pass 拒绝整帧（2026-10-21，`weft-op` 分支；宣传页的 Unreal 版点开 C 的代码面板后那一块画不出来，黑着）。
+- **起因**：d506ee5 起混合内容（高亮代码：span 与它们之间的文字）在 `pre` 下保留换行，两个 span 之间只有一个换行的文本节点（注释那一行与下一行代码之间）就成了一个只有 `\n` 的 run。它在行内布局里只结束一行，没有行；显示列表把“没有行的文本”当成没经过布局的帧，按节点的盒子（0 × 0）列成一行文字，原生 pass 量出它有 7.9 × 23.6 px，比盒子大，就以 `text overflow reference` 拒绝整帧（UNSUPPORTED_FEATURE），UE 里那一帧不画。
+- **实现**：`scene_display_list.cpp`：没有行、只有换行符的文本不列出（它什么也不画）。
+- **验证**（Release）：`scene_inline_contract` 加：`pre` 里 span、单独的换行、span，换行的 run 没有行，显示列表只有两段文字，第二个 span 在下一行，原生 D3D11 pass 画得出这一帧；改之前这个测试失败。页面运行器在宣传页上依次点 Unreal、Godot、C 的标签，C 原来每帧 `encode failed`，改后画出代码面板。全量 ctest 176 项：除既有的 14 项外通过。
+- **限制**：作为 flex 或 grid 项被块化的 `ruby` 仍不按 ruby 排（`scene_ruby` 只认行内的 ruby，注音跟在字后面）；宣传页的注音卡片改为把两个 ruby 包在一个 span 里。
+
 层叠按选择器看得见的 hover 与 active 判断是否重算，而不是 DOM 的（2026-10-21，`weft-op` 分支；宣传页的 Unreal 版在指针不动、页面从它底下滚过时，每次跨进另一个 section 有一帧 15–18 ms）。
 - **起因**：指针从长页面的一个 section 移进另一个时，两个 section 与它们祖先的 hover 都翻转。样式输入的键（`refresh_input`）与记忆键（`selector_key`）早已把这两个标志遮成“某个 :hover / :active 复合选择器能匹配这个元素”时才算，但层叠自己的三处判断（`same_own_input`、`same_selector_input`、`restyle_inline`）比较的是 DOM 的原始标志：只要同一帧里别的东西也变了（滚动的 transform），hover 翻转的 section 就重算自己的值，整个子树重新匹配。宣传页在静止的指针下滚动时，这样的移动每次花 2–15 ms 在样式上；UE 里页面跑在游戏线程上，就是滚动中 15–18 ms 的一帧（trace：那一帧 Slate 的 Tick 里 `Weft_Advance` 17 ms，游戏线程别的都不到 2 ms）。
 - **实现**（`style/style.cpp`）：

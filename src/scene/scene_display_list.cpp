@@ -1619,7 +1619,8 @@ namespace weft {
                         add_band(lined, band);
                     }
                 }
-                if (!invisible && n.lines.empty() && !n.text.empty()) {
+                // Line breaks alone (white-space: pre's newline between two elements) end a line and draw nothing.
+                if (!invisible && n.lines.empty() && n.text.find_first_not_of("\r\n") != std::string::npos) {
                     auto source = own(n);
                     source->style.erase(PropertyId::Transform);
                     source->style.erase(PropertyId::Opacity);
