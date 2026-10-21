@@ -6,9 +6,14 @@
 // button calls the engine, which answers; the minimap is a texture the engine draws every frame. The pointer goes to the
 // page (hover, click); a click on the world where the page has nothing to interact with damages the unit there.
 //
-//   weft_macos_demo [--page <dir>] [--capture <file.png>] [--quit-after S]
-//                                                                   a window; --capture writes what it shows after 3 s
-//                                                                   as a PNG, --quit-after closes it after S s
+//   weft_macos_demo [--page <page>] [--vsync] [--fullscreen] [--capture <file.png>] [--quit-after S]
+//                                                                   a window, frames as fast as the GPU draws them (V or
+//                                                                   --vsync waits for the display; F full screen);
+//                                                                   --capture writes what it shows after 3 s as a PNG,
+//                                                                   --quit-after closes it after S s
+//
+// A page is a folder (page.json, or the HUD's hud.js) or one of the examples' names: hud, logo (logo/color), color,
+// dark, light, static, logo/<variant>.
 //   weft_macos_demo --shot <file.png> [--frames N] [--size WxH] [--scale S] [--page <dir>]
 //                                                                   draws N frames off screen (clicking end turn at
 //                                                                   frame 30) and writes the last as a PNG
@@ -21,6 +26,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <filesystem>
 #include <memory>
 #include <string>
 
@@ -28,11 +34,37 @@ namespace {
     using Clock = std::chrono::steady_clock;
 
     std::string page_folder = std::string(WEFT_EXAMPLES) + "/engine-host";
+    // Present at the display's refresh (the layer's displaySyncEnabled) or as soon as each frame is drawn.
+    bool vsync{};
+    bool fullscreen{};
     std::string capture_path;
     double quit_after{};
 
     std::string text_of(id value) {
         return [value isKindOfClass:[NSString class]] ? std::string([(NSString*)value UTF8String]) : std::string();
+    }
+
+    // The folder a page argument names: a folder of its own (page.json, or the HUD's hud.js), or one of the examples'.
+    std::string resolve_page(const std::string& name) {
+        namespace fs = std::filesystem;
+        const std::string examples = WEFT_EXAMPLES;
+        const auto page = [](const fs::path& folder) {
+            return fs::exists(folder / "page.json") || fs::exists(folder / "hud.js");
+        };
+        std::string wanted = name;
+        if (name == "hud" || name == "engine-host") {
+            wanted = examples + "/engine-host";
+        } else if (name == "logo") {
+            wanted = examples + "/logo/color";
+        }
+        for (const auto& candidate : {fs::path(wanted), fs::path(examples) / wanted, fs::path(examples) / "logo" / wanted}) {
+            if (page(candidate)) {
+                return fs::absolute(candidate).lexically_normal().string();
+            }
+        }
+        throw demo::Failure("no page \"" + name +
+                            "\": a folder with page.json (or the HUD's hud.js), or one of hud, logo, color, dark, "
+                            "light, static");
     }
 
     // A page folder as hosts load it: page.json ({"scripts": [...], "stylesheet": "...", "keyframes": "...", "root":
@@ -142,7 +174,7 @@ namespace {
                         [blit endEncoding];
                     }
                 },
-                [](std::uint64_t) {
+                [](std::uint64_t, double) {
                 });
             id<MTLCommandBuffer> fence = [gpu.queue commandBuffer];
             [fence commit];
@@ -177,6 +209,12 @@ namespace {
     std::uint32_t _buttons;
     bool _captured;
     id<MTLBuffer> _capture;
+    // This second's frame times: the CPU's (the View's advance, encoding and committing), the wait for a drawable,
+    // and the GPU's (from Metal's completed command buffers, on the main thread).
+    double _cpu_ms;
+    double _wait_ms;
+    double _gpu_ms;
+    unsigned _gpu_frames;
 }
 
 - (instancetype)initWithFrame:(NSRect)frame {
@@ -189,6 +227,8 @@ namespace {
     // Backdrop filters at the drawable's level copy from it.
     _layer.framebufferOnly = NO;
     _layer.opaque = YES;
+    _layer.maximumDrawableCount = 3;
+    _layer.displaySyncEnabled = vsync;
     CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
     _layer.colorspace = space;
     CGColorSpaceRelease(space);
@@ -199,13 +239,20 @@ namespace {
     _inflight = dispatch_semaphore_create(2);
     _start = _second = Clock::now();
     [self updateDrawableSize];
-    _timer = [NSTimer timerWithTimeInterval:1.0 / 120
+    [self schedule];
+    return self;
+}
+
+// The frame timer: with vsync, a little faster than the display (the drawables pace the frames); without, as often as
+// the run loop turns (a tick with two frames in flight does nothing), so frames go as fast as the GPU draws them.
+- (void)schedule {
+    [_timer invalidate];
+    _timer = [NSTimer timerWithTimeInterval:vsync ? 1.0 / 240 : 0
                                      target:self
                                    selector:@selector(tick)
                                    userInfo:nil
                                     repeats:YES];
     [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes];
-    return self;
 }
 
 - (BOOL)isFlipped {
@@ -262,14 +309,18 @@ namespace {
         const double t = std::chrono::duration<double>(Clock::now() - _start).count();
         const auto before = Clock::now();
         _engine->frame(t);
-        _advance_ms = std::chrono::duration<double, std::milli>(Clock::now() - before).count();
+        const auto advanced = Clock::now();
+        _advance_ms = std::chrono::duration<double, std::milli>(advanced - before).count();
         id<CAMetalDrawable> drawable = [_layer nextDrawable];
+        const auto acquired = Clock::now();
+        _wait_ms += std::chrono::duration<double, std::milli>(acquired - advanced).count();
         if (!drawable) {
             dispatch_semaphore_signal(_inflight);
             return;
         }
         dispatch_semaphore_t inflight = _inflight;
         std::weak_ptr<demo::Gpu> gpu = _gpu;
+        __weak WeftView* view = self;
         _gpu->frame(
             *_engine, t, drawable.texture, unsigned(drawable.texture.width), unsigned(drawable.texture.height),
             [&](id<MTLCommandBuffer> command) {
@@ -305,15 +356,17 @@ namespace {
                 }
                 [command presentDrawable:drawable];
             },
-            [inflight, gpu](std::uint64_t serial) {
+            [inflight, gpu, view](std::uint64_t serial, double gpu_ms) {
                 dispatch_semaphore_signal(inflight);
                 // weft's renderer is the owner thread's: the completion reaches it there.
                 dispatch_async(dispatch_get_main_queue(), ^{
                   if (const auto alive = gpu.lock()) {
                       alive->complete(serial);
                   }
+                  [view frameTookGpu:gpu_ms];
                 });
             });
+        _cpu_ms += std::chrono::duration<double, std::milli>(Clock::now() - acquired).count() + _advance_ms;
     } catch (const std::exception& e) {
         dispatch_semaphore_signal(_inflight);
         std::fprintf(stderr, "frame failed: %s\n", e.what());
@@ -325,15 +378,22 @@ namespace {
     const auto now = Clock::now();
     if (now - _second >= std::chrono::seconds(1)) {
         const double seconds = std::chrono::duration<double>(now - _second).count();
+        const double frames = std::max(1u, _frames_this_second);
+        const double cpu = _cpu_ms / frames;
+        const double wait = _wait_ms / frames;
+        const double gpu = _gpu_frames ? _gpu_ms / _gpu_frames : 0;
         self.window.title =
-            [NSString stringWithFormat:@"weft on Metal — %s · %.0f fps · %ld×%ld px · advance %.2f ms · keys 1–5 "
-                                       @"pages, R reload",
-                                       _engine->page_name.c_str(), _frames_this_second / seconds,
-                                       long(_layer.drawableSize.width), long(_layer.drawableSize.height),
-                                       _advance_ms];
-        std::printf("%s: %.0f fps, %ldx%ld device px, turn %u, View advance %.2f ms\n", _engine->page_name.c_str(),
-                    _frames_this_second / seconds, long(_layer.drawableSize.width), long(_layer.drawableSize.height),
-                    _engine->turn, _advance_ms);
+            [NSString stringWithFormat:@"weft on Metal — %s · %.0f fps · vsync %s · %ld×%ld px · CPU %.2f ms · GPU %.2f "
+                                       @"ms · keys 1–5 pages, R reload, V vsync, F full screen",
+                                       _engine->page_name.c_str(), _frames_this_second / seconds, vsync ? "on" : "off",
+                                       long(_layer.drawableSize.width), long(_layer.drawableSize.height), cpu, gpu];
+        std::printf("%s: %.0f fps (vsync %s), %ldx%ld px; per frame CPU %.2f ms (View %.2f), GPU %.2f ms, waiting "
+                    "for a drawable %.2f ms; turn %u\n",
+                    _engine->page_name.c_str(), _frames_this_second / seconds, vsync ? "on" : "off",
+                    long(_layer.drawableSize.width), long(_layer.drawableSize.height), cpu, _advance_ms, gpu, wait,
+                    _engine->turn);
+        _cpu_ms = _wait_ms = _gpu_ms = 0;
+        _gpu_frames = 0;
         std::fflush(stdout);
         _frames_this_second = 0;
         _second = now;
@@ -341,6 +401,11 @@ namespace {
     if (quit_after > 0 && std::chrono::duration<double>(now - _start).count() >= quit_after) {
         [NSApp terminate:nil];
     }
+}
+
+- (void)frameTookGpu:(double)ms {
+    _gpu_ms += ms;
+    ++_gpu_frames;
 }
 
 - (NSPoint)pointOf:(NSEvent*)event {
@@ -416,6 +481,15 @@ namespace {
         folder = std::string(WEFT_EXAMPLES) + "/" + switchable[[key characterAtIndex:0] - '1'];
     } else if ([key isEqualToString:@"r"]) {
         folder = page_folder;
+    } else if ([key isEqualToString:@"f"]) {
+        [self.window toggleFullScreen:nil];
+        return;
+    } else if ([key isEqualToString:@"v"]) {
+        vsync = !vsync;
+        _layer.displaySyncEnabled = vsync;
+        [self schedule];
+        std::printf("vsync %s\n", vsync ? "on" : "off");
+        return;
     } else {
         [super keyDown:event];
         return;
@@ -464,6 +538,7 @@ namespace {
                                               defer:NO];
     _window.title = @"weft on Metal";
     _window.contentMinSize = NSMakeSize(720, 480);
+    _window.collectionBehavior = NSWindowCollectionBehaviorFullScreenPrimary;
     _window.delegate = self;
     try {
         _view = [[WeftView alloc] initWithFrame:frame];
@@ -478,6 +553,9 @@ namespace {
     [_window makeKeyAndOrderFront:nil];
     [_window makeFirstResponder:_view];
     [NSApp activateIgnoringOtherApps:YES];
+    if (fullscreen) {
+        [_window toggleFullScreen:nil];
+    }
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication*)sender {
@@ -492,6 +570,7 @@ namespace {
 int main(int argc, char** argv) {
     @autoreleasepool {
         std::string shot_path;
+        std::string page_name_argument;
         unsigned frames = 90;
         unsigned width = 1280;
         unsigned height = 720;
@@ -499,7 +578,11 @@ int main(int argc, char** argv) {
         for (int i = 1; i < argc; ++i) {
             const std::string a = argv[i];
             if (a == "--page" && i + 1 < argc) {
-                page_folder = argv[++i];
+                page_name_argument = argv[++i];
+            } else if (a == "--vsync") {
+                vsync = true;
+            } else if (a == "--fullscreen") {
+                fullscreen = true;
             } else if (a == "--capture" && i + 1 < argc) {
                 capture_path = argv[++i];
             } else if (a == "--quit-after" && i + 1 < argc) {
@@ -516,8 +599,17 @@ int main(int argc, char** argv) {
                 // Launch Services' and AppKit's own arguments.
                 ++i;
             } else {
-                std::fprintf(stderr, "usage: weft_macos_demo [--page dir] [--capture file.png] [--quit-after S] "
+                std::fprintf(stderr, "usage: weft_macos_demo [--page page] [--vsync] [--fullscreen] [--capture file.png] "
+                                     "[--quit-after S] "
                                      "[--shot file.png [--frames N] [--size WxH] [--scale S]]\n");
+                return 2;
+            }
+        }
+        if (!page_name_argument.empty()) {
+            try {
+                page_folder = resolve_page(page_name_argument);
+            } catch (const std::exception& e) {
+                std::fprintf(stderr, "weft demo: %s\n", e.what());
                 return 2;
             }
         }

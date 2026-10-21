@@ -184,10 +184,11 @@ fragment float4 world_fs(Out in [[stage_in]], constant World& w [[buffer(0)]]) {
 
         // Encodes and commits one frame into target (width x height device px) at time t: the world's picture, the
         // minimap's new texels, and the View's frame over them. before_commit runs on the command buffer before it is
-        // committed (a drawable's present); on_complete runs on Metal's thread when it completed, with its serial.
+        // committed (a drawable's present); on_complete runs on Metal's thread when it completed, with its serial and
+        // the GPU's time on it in ms.
         void frame(Engine& engine, double t, id<MTLTexture> target, unsigned width, unsigned height,
                    const std::function<void(id<MTLCommandBuffer>)>& before_commit,
-                   const std::function<void(std::uint64_t)>& on_complete) {
+                   const std::function<void(std::uint64_t, double)>& on_complete) {
             id<MTLCommandBuffer> command = [queue commandBuffer];
             // The world: ground and units, in the View's logical px (the target is scale times larger).
             struct WorldConstants {
@@ -279,9 +280,9 @@ fragment float4 world_fs(Out in [[stage_in]], constant World& w [[buffer(0)]]) {
             }
             const auto done = ++serial;
             // The block keeps its own copy of the callback: frame() returns long before the frame completes.
-            const std::function<void(std::uint64_t)> finish = on_complete;
-            [command addCompletedHandler:^(id<MTLCommandBuffer>) {
-              finish(done);
+            const std::function<void(std::uint64_t, double)> finish = on_complete;
+            [command addCompletedHandler:^(id<MTLCommandBuffer> completed) {
+              finish(done, (completed.GPUEndTime - completed.GPUStartTime) * 1000);
             }];
             [command commit];
             if (encoded_ui) {
