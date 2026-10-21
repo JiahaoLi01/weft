@@ -196,7 +196,11 @@ namespace {
                         static const std::array<const char*, 7> names{"id",   "class", "style",     "data-k",
                                                                       "fill", "x",     "data-other"};
                         static const std::array<const char*, 3> values{"key", "on", "a"};
-                        p.set(n, names[next() % names.size()], values[next() % values.size()]);
+                        // The value drawn before the name, in statements: the order of a call's arguments is
+                        // unspecified (MSVC evaluated these right to left, clang left to right).
+                        const auto* value = values[next() % values.size()];
+                        const auto* name = names[next() % names.size()];
+                        p.set(n, name, value);
                     }
                     break;
                 case 4:
