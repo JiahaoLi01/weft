@@ -706,6 +706,20 @@ int main() {
             require(!red(40, 13) && !red(13, 40) && !red(19, 19) && red(40, 40) && red(27, 27),
                     "overflow clip paints outside the padding box");
         }
+        // A box of no height does not size the boxes in it: in a block they keep their content's height and overflow
+        // it, clipped or not (CSS 2.1 10.6.3), and in a column flex container an item keeps it too, as its automatic
+        // minimum, unless it clips (then it shrinks to its padding). Chrome: 66, 66, 66 and 26.
+        vm.reset_document();
+        weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
+        vm.eval(
+            "const z=document.getElementById('root');for(const [outer,inner] of [['height:0;overflow:hidden',''],['height:0',''],['display:flex;flex-direction:column;height:0',''],['display:flex;flex-direction:column;height:0','overflow:hidden']]){const o=document.createElement('div');o.setAttribute('style',outer);const i=document.createElement('div');i.setAttribute('style','padding-bottom:26px;'+inner);const c=document.createElement('div');c.setAttribute('style','height:40px');i.appendChild(c);o.appendChild(i);z.appendChild(o)}");
+        weft::SceneSolver zero("", "", weft::testing::thread_scene_text());
+        const auto unsized = zero.frame(vm.snapshot_subtree("#root"), view, view, 0);
+        for (std::size_t k = 0; k < 4; ++k) {
+            const float height = unsized.root.children[k].children[0].box[3];
+            require(height == (k < 3 ? 66.f : 26.f), "a box in a box of no height is " + std::to_string(height) +
+                                                         " px tall (case " + std::to_string(k) + ")");
+        }
         vm.reset_document();
         weft::install_script_platform(vm, weft::ScriptPlatformModule::WebHost);
         vm.eval(

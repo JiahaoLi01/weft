@@ -285,15 +285,26 @@
         "yoga/algorithm/CalculateLayout.cpp"
       ],
       "retrieved_date": "2026-10-07",
-      "patch": {
-        "file": "patches/0001-definite-flex-basis.patch",
-        "original_file_sha256": "674f9e5ec59410abe5c381af54320e37b613389ba69eb41cc3159dfbc178d472",
-        "patched_file_sha256": "1f1ab504be7b0df4f03d6d1b000c7c3897f512c7ede9ea16c0cffd4cc2d1f538",
-        "sha256": "629bbb8d6aa960ef0b539702729a6fbfe552e06d12fc93897932cc5a5669c8b0",
-        "reason": "Resolved length flex-basis in an indefinite column must not become content. Row intrinsic algorithm unchanged.",
-        "upstream_issue": "No upstream issue filed; local fixed browser counterexamples retained.",
-        "exit_condition": "Drop when fixed upstream release passes column length/percentage and row intrinsic counterexamples."
-      },
+      "patches": [
+        {
+          "file": "patches/0001-definite-flex-basis.patch",
+          "original_file_sha256": "674f9e5ec59410abe5c381af54320e37b613389ba69eb41cc3159dfbc178d472",
+          "patched_file_sha256": "1f1ab504be7b0df4f03d6d1b000c7c3897f512c7ede9ea16c0cffd4cc2d1f538",
+          "sha256": "629bbb8d6aa960ef0b539702729a6fbfe552e06d12fc93897932cc5a5669c8b0",
+          "reason": "Resolved length flex-basis in an indefinite column must not become content. Row intrinsic algorithm unchanged.",
+          "upstream_issue": "No upstream issue filed; local fixed browser counterexamples retained.",
+          "exit_condition": "Drop when fixed upstream release passes column length/percentage and row intrinsic counterexamples."
+        },
+        {
+          "file": "patches/0002-fit-content-without-room.patch",
+          "original_file_sha256": "1f1ab504be7b0df4f03d6d1b000c7c3897f512c7ede9ea16c0cffd4cc2d1f538",
+          "patched_file_sha256": "625511e7292e54cf002844b7ee34a24246ed15b4623ca83bccab4b0e2ae68ec6",
+          "sha256": "4bf9888b074a93b2aad00f9ff6ad0b9dec949ecc6f916f8d8e34037773c007de",
+          "reason": "A box that does not scroll keeps its content's size when its parent gives it no room (measureNodeWithFixedSize gave it its padding): a block in a block of no height, and a column flex item that may not shrink below its content. Boxes that scroll keep the shortcut.",
+          "upstream_issue": "No upstream issue filed; local fixed browser counterexamples retained.",
+          "exit_condition": "Drop when a fixed upstream release lays out a box in a parent of no height at its content's height."
+        }
+      ],
       "build_options": {
         "target": "yogacore",
         "useWebDefaults": true,
@@ -303,9 +314,10 @@
       },
       "source_dir": "third_party/yoga",
       "files": {
-        "metadata.json": "f28e49389c61968b6d67790da80b8742b1e940a05f37728edb67fa4eb19a30ac",
+        "metadata.json": "4f34f0656aa6f2d7838d1710f2390eb291e0def4bed6ebd56c1d141685a9507b",
         "patches/0001-definite-flex-basis.patch": "629bbb8d6aa960ef0b539702729a6fbfe552e06d12fc93897932cc5a5669c8b0",
-        "README.md": "eb4bf081ee3002d7a59d65c3994f5a2879f71e060007e6945c6bace7658f0c55",
+        "patches/0002-fit-content-without-room.patch": "4bf9888b074a93b2aad00f9ff6ad0b9dec949ecc6f916f8d8e34037773c007de",
+        "README.md": "cb8a6ab290662d7a4479ef9e96392884074e4e1ab2780ed733a8a2c271088511",
         "source/.clang-format": "6456c652bba1b036ec30e31079853ef7f136bc34d4a2de7e6de0ba6b84f8f117",
         "source/.clang-tidy": "df4ce9d78e52896b839085cfe016fa492b0662e2ac895297625330c48348ef61",
         "source/.editorconfig": "49a7e1155be4548026ce1e540cc2b7f63ad8f58ada4c2083ff10a698347e3b13",
@@ -732,7 +744,7 @@
         "source/yoga/algorithm/BoundAxis.h": "fda8dad098fda150e75ffa066e7f0ecf57457e74fc01af04007647da13c3a30a",
         "source/yoga/algorithm/Cache.cpp": "175ae2dc551b72f720852d809b8b0bb64792f146f8a55c9f18a530e145583795",
         "source/yoga/algorithm/Cache.h": "ad2d15b710045f855530faf422954728f2b4b1dcd0d93e00571c5d534fbda861",
-        "source/yoga/algorithm/CalculateLayout.cpp": "1f1ab504be7b0df4f03d6d1b000c7c3897f512c7ede9ea16c0cffd4cc2d1f538",
+        "source/yoga/algorithm/CalculateLayout.cpp": "625511e7292e54cf002844b7ee34a24246ed15b4623ca83bccab4b0e2ae68ec6",
         "source/yoga/algorithm/CalculateLayout.h": "44b2cab01affc63b1a90391ccca0800e55554b5f261ba444cbff6681946114f3",
         "source/yoga/algorithm/FlexDirection.h": "aef2fb979e09c4b857881edea9d42bb3fe121fbacb07ab358cc8a5ef70b1a7da",
         "source/yoga/algorithm/FlexLine.cpp": "e5ae4b26ade3e93f655e85a36d3e237270d84872ff965f36b1ee5e81d50fb56c",

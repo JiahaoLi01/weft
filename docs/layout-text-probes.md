@@ -28,6 +28,8 @@
 
 补丁位于 [0001-definite-flex-basis.patch](../third_party/yoga/patches/0001-definite-flex-basis.patch)。[metadata](../third_party/yoga/metadata.json) 记录原始 archive/文件、修改后文件和补丁 SHA256。只有 CalculateLayout.cpp 被修改，其余 vendored Yoga 文件与 archive 一致；补丁可从原始 archive 应用重现。尚未提交上游 issue，未来上游版本通过 length/percentage 和 row intrinsic 反例后删除本地补丁。
 
+第二个补丁 [0002-fit-content-without-room.patch](../third_party/yoga/patches/0002-fit-content-without-room.patch)（2026-10-21，在第一个之后应用）：测量时，一个只需"放进可用尺寸"（FitContent）而可用尺寸不大于 0 的节点，Yoga 不排它的子节点，直接把它定为内边距的大小（`measureNodeWithFixedSize`）；可完整算法对不滚动的节点在 FitContent 下取的是内容的大小。于是高 0 的块里的块、高 0 的列 flex 里不能缩到内容以下的项目，都只剩内边距：宣传页 FAQ 的答案收起时（面板 `height: 0; overflow: hidden`）只量出 26 px，展开后只露一行。补丁让这条捷径只用于滚动容器，那时两者一致。浏览器反例：高 0 的块（overflow hidden 或 visible）里一个下内边距 26px、内有 40px 子块的块，Chrome 为 66 px；高 0 的列 flex 里同样的项目为 66 px，项目本身 overflow: hidden 时为 26 px（它的自动最小尺寸是 0）。`scene_contract` 检查这四种。上游修好这种情况后删除。
+
 最终报告中的 `raw-yoga.json` 与 `css-adapter.json` **都使用同一个已打补丁版本**。raw 模式仅关闭 CSS position/box-sizing 默认值及自动最小尺寸适配，仍共用输入、样式解析和字体回调，不能解释为完全未经适配的 Yoga。最初未打补丁的 24 场景输入、浏览器参考和两份 baseline 报告独立保存在 artifacts/local/flex-native-debug 的 upstream-* 文件中。
 
 ## 真实字体基础

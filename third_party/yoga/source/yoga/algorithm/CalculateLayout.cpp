@@ -425,9 +425,13 @@ static bool measureNodeWithFixedSize(
     const SizingMode heightSizingMode,
     const float ownerWidth,
     const float ownerHeight) {
-  if ((yoga::isDefined(availableWidth) &&
+  // Only a scroll container fits an available size (calculateLayoutImpl gives
+  // others their content's size however little it is), so only its size in no
+  // room is known without its children.
+  const bool scrolls = node->style().overflow() == Overflow::Scroll;
+  if ((scrolls && yoga::isDefined(availableWidth) &&
        widthSizingMode == SizingMode::FitContent && availableWidth <= 0.0f) ||
-      (yoga::isDefined(availableHeight) &&
+      (scrolls && yoga::isDefined(availableHeight) &&
        heightSizingMode == SizingMode::FitContent && availableHeight <= 0.0f) ||
       (widthSizingMode == SizingMode::StretchFit &&
        heightSizingMode == SizingMode::StretchFit)) {

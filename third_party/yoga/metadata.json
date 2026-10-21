@@ -10,15 +10,26 @@
     "yoga/algorithm/CalculateLayout.cpp"
   ],
   "retrieved_date": "2026-10-07",
-  "patch": {
-    "file": "patches/0001-definite-flex-basis.patch",
-    "original_file_sha256": "674f9e5ec59410abe5c381af54320e37b613389ba69eb41cc3159dfbc178d472",
-    "patched_file_sha256": "1f1ab504be7b0df4f03d6d1b000c7c3897f512c7ede9ea16c0cffd4cc2d1f538",
-    "sha256": "629bbb8d6aa960ef0b539702729a6fbfe552e06d12fc93897932cc5a5669c8b0",
-    "reason": "Resolved length flex-basis in an indefinite column must not become content. Row intrinsic algorithm unchanged.",
-    "upstream_issue": "No upstream issue filed; local fixed browser counterexamples retained.",
-    "exit_condition": "Drop when fixed upstream release passes column length/percentage and row intrinsic counterexamples."
-  },
+  "patches": [
+    {
+      "file": "patches/0001-definite-flex-basis.patch",
+      "original_file_sha256": "674f9e5ec59410abe5c381af54320e37b613389ba69eb41cc3159dfbc178d472",
+      "patched_file_sha256": "1f1ab504be7b0df4f03d6d1b000c7c3897f512c7ede9ea16c0cffd4cc2d1f538",
+      "sha256": "629bbb8d6aa960ef0b539702729a6fbfe552e06d12fc93897932cc5a5669c8b0",
+      "reason": "Resolved length flex-basis in an indefinite column must not become content. Row intrinsic algorithm unchanged.",
+      "upstream_issue": "No upstream issue filed; local fixed browser counterexamples retained.",
+      "exit_condition": "Drop when fixed upstream release passes column length/percentage and row intrinsic counterexamples."
+    },
+    {
+      "file": "patches/0002-fit-content-without-room.patch",
+      "original_file_sha256": "1f1ab504be7b0df4f03d6d1b000c7c3897f512c7ede9ea16c0cffd4cc2d1f538",
+      "patched_file_sha256": "625511e7292e54cf002844b7ee34a24246ed15b4623ca83bccab4b0e2ae68ec6",
+      "sha256": "4bf9888b074a93b2aad00f9ff6ad0b9dec949ecc6f916f8d8e34037773c007de",
+      "reason": "A box that does not scroll keeps its content's size when its parent gives it no room (measureNodeWithFixedSize gave it its padding): a block in a block of no height, and a column flex item that may not shrink below its content. Boxes that scroll keep the shortcut.",
+      "upstream_issue": "No upstream issue filed; local fixed browser counterexamples retained.",
+      "exit_condition": "Drop when a fixed upstream release lays out a box in a parent of no height at its content's height."
+    }
+  ],
   "build_options": {
     "target": "yogacore",
     "useWebDefaults": true,

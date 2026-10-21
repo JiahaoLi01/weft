@@ -1638,6 +1638,31 @@ namespace weft {
         // the last line's baseline of each inline formatting context root placed, from its border box top.
         std::map<std::pair<const SceneNode*, float>, SceneAtomicExtent> atomic_memo;
         std::map<const SceneNode*, float> context_baselines;
+
+        // An inline formatting context: its content (shaped and broken once), its lines by available width (the most
+        // recent last) and its min-content width.
+        struct InlineContext {
+            std::unique_ptr<SceneInlineContent> content;
+            std::vector<std::pair<float, SceneInlineLayout>> memo;
+            std::optional<float> min_content;
+        };
+
+        // The contexts layout reached through their roots' storage, from frame to frame by that storage, which an
+        // entry holds (so its key stays that node): equal handles hold equal subtrees (SceneChildren), so a root of the
+        // same storage has the same content and lines at a width. An entry goes when nothing else holds its root.
+        struct KeptContext {
+            SceneChildren::Handle root;
+            InlineContext context;
+        };
+
+        std::unordered_map<const SceneNode*, KeptContext> kept_contexts;
+
+        void sweep_contexts() {
+            std::erase_if(kept_contexts, [](const auto& entry) {
+                return entry.second.root.use_count() <= 1;
+            });
+        }
+
         std::map<SceneId, State> states;
         std::set<SceneId> live;
         double now = -1;
@@ -2943,10 +2968,12 @@ namespace weft {
             struct Context {
                 const SceneNode* root{};
                 bool anonymous{};
-                std::unique_ptr<SceneInlineContent> content;
-                // Layouts by available width, the most recent last.
-                std::vector<std::pair<float, SceneInlineLayout>> memo;
-                std::optional<float> min_content;
+                // The root's storage, where the run reached the root through its parent's children (none for the
+                // run's top): its content and lines are kept for the frames after (kept_contexts).
+                SceneChildren::Handle handle;
+                // The context's own content and lines, or those kept for its root.
+                InlineContext own;
+                InlineContext* state{};
             };
 
             std::vector<LayoutBox> boxes;
@@ -3058,9 +3085,10 @@ namespace weft {
         }
 
         // `fixed_block` is the box of the containing block of fixed boxes here: the run's top when it is the scene's
-        // root (the viewport), or the nearest box with a transform; none inside an inline-block without one.
+        // root (the viewport), or the nearest box with a transform; none inside an inline-block without one. `handle`
+        // is n's storage, where the run reached n through its parent's children.
         void collect_boxes(const SceneNode& n, std::size_t parent, LayoutRun& run,
-                           std::optional<std::size_t> fixed_block) {
+                           std::optional<std::size_t> fixed_block, const SceneChildren::Handle& handle = {}) {
             bool dashed{};
             for (std::size_t side = 0; side < border_style_edges.size(); ++side) {
                 const auto style = n.style.text(border_style_edges[side], "solid");
@@ -3142,7 +3170,9 @@ namespace weft {
             run.boxes.push_back(box);
             run.targets.push_back(&n);
             if (box.text) {
-                run.contexts[index].root = &n;
+                auto& context = run.contexts[index];
+                context.root = &n;
+                context.handle = handle;
                 return;
             }
             if (scene_inline_children(n)) {
@@ -3152,21 +3182,23 @@ namespace weft {
                 anonymous.text = true;
                 auto& context = run.contexts[run.boxes.size()];
                 context.root = &n;
+                context.handle = handle;
                 context.anonymous = true;
                 run.boxes.push_back(anonymous);
                 run.targets.push_back(nullptr);
                 // Positioned children stay boxes of the element; the lines place the others.
-                for (const auto& c : n.children) {
+                for (std::size_t k = 0; k < n.children.size(); ++k) {
+                    const auto& c = n.children[k];
                     if (out_of_flow(c) && c.style.text(PropertyId::Display) != "none") {
-                        collect_boxes(c, index, run, inner_block);
+                        collect_boxes(c, index, run, inner_block, n.children.handle(k));
                     } else {
                         clear_layout(c);
                     }
                 }
                 return;
             }
-            for (const auto& c : n.children) {
-                collect_boxes(c, index, run, inner_block);
+            for (std::size_t k = 0; k < n.children.size(); ++k) {
+                collect_boxes(n.children[k], index, run, inner_block, n.children.handle(k));
             }
         }
 
@@ -3548,12 +3580,22 @@ namespace weft {
             const auto atomic = [&](const SceneNode& node, float available) {
                 return atomic_extent(node, available);
             };
-            const auto content = [&](std::size_t i) -> LayoutRun::Context& {
+            // A context's content and lines: those kept for its root's storage, else its own.
+            const auto content = [&](std::size_t i) -> InlineContext& {
                 auto& c = run.contexts.at(i);
-                if (!c.content) {
-                    c.content = std::make_unique<SceneInlineContent>(*text, *c.root);
+                if (!c.state) {
+                    auto* state = &c.own;
+                    if (c.handle) {
+                        auto& kept = kept_contexts[c.handle.get()];
+                        kept.root = c.handle;
+                        state = &kept.context;
+                    }
+                    if (!state->content) {
+                        state->content = std::make_unique<SceneInlineContent>(*text, *c.root);
+                    }
+                    c.state = state;
                 }
-                return c;
+                return *c.state;
             };
             const auto at = [&](std::size_t i, float available) -> const SceneInlineLayout& {
                 auto& c = content(i);
@@ -3768,6 +3810,7 @@ namespace weft {
             std::vector<std::array<float, 4>> clips;
             check_fixed_clips(root, {0, 0}, clips, {0, 0, w, h});
             atomic_memo.clear();
+            sweep_contexts();
             elements.clear();
             if (element_geometry) {
                 list_elements(root, 0, 0, elements);
@@ -3957,6 +4000,7 @@ namespace weft {
             // The fixed boxes and the clips between them and their containing blocks lie outside the parts, as they
             // were (check_fixed_clips held for them).
             atomic_memo.clear();
+            sweep_contexts();
             elements.clear();
             if (element_geometry) {
                 list_elements(root, 0, 0, elements);
@@ -4150,6 +4194,7 @@ namespace weft {
         impl_->previous_dom.reset();
         impl_->retained.reset();
         impl_->retained_elements.clear();
+        impl_->kept_contexts.clear();
         impl_->built = impl_->expanded = 0;
         impl_->active.clear();
         impl_->next_active.clear();

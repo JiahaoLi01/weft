@@ -848,6 +848,53 @@ namespace {
         std::cout << "PASS incremental inline context: 60 updates against full builds\n";
     }
 
+    // A whole layout keeps the content and lines of the inline contexts whose roots did not change: a block whose height
+    // changes (a question opening) moves the paragraphs after it, an inline-block among them, and now and then one of
+    // their texts changes. Against full builds, which keep nothing (their nodes are new each frame).
+    void kept_contexts() {
+        auto& text = weft::testing::thread_scene_text();
+        weft::testing::NativeScene s;
+        auto& panel = s.html("div");
+        s.tree.insert(*s.root, panel, nullptr);
+        std::vector<weft::dom::Node*> texts;
+        const auto words = [&](weft::dom::Node& parent, const std::string& data) {
+            auto& t = s.tree.create(weft::constants::text_node_type, "#text", "", s.document->identity);
+            t.data = data;
+            s.tree.insert(parent, t, nullptr);
+            texts.push_back(&t);
+        };
+        for (int k = 0; k < 4; ++k) {
+            auto& p = s.html("p");
+            s.set(p, "style", "width:180px;font-size:13px");
+            s.tree.insert(*s.root, p, nullptr);
+            words(p, "Words that wrap in a narrow paragraph, number " + std::to_string(k) + " of four");
+            if (k == 2) {
+                auto& chip = s.html("span");
+                s.set(chip, "style", "display:inline-block;padding:2px");
+                s.tree.insert(p, chip, nullptr);
+                words(chip, "chip");
+            }
+        }
+        weft::SceneSolver incremental("", "", text);
+        weft::SceneSolver full("", "", text, false);
+        weft::SceneFrame frame;
+        Random r{0x4b1d};
+        for (int step = 0; step < 80; ++step) {
+            s.set(panel, "style", "height:" + std::to_string(r.below(60)) + "px");
+            if (r.below(6) == 0) {
+                auto& t = *texts[r.below(texts.size())];
+                t.data += " more";
+                s.tree.changed(t);
+            }
+            const auto dom = s.tree.snapshot(*s.root);
+            incremental.update(dom, frame, 400, 300, step * 16.0);
+            const auto expected = full.frame(dom, 400, 300, step * 16.0);
+            require(frame.root == expected.root,
+                    "the kept inline contexts lay out other lines than a full build at step " + std::to_string(step));
+        }
+        std::cout << "PASS kept inline contexts: 80 whole layouts against full builds\n";
+    }
+
     // Layouts of the subtrees around what changed (absolute boxes with an inset on each axis, laid out apart in their
     // containing block) against full layouts: insets on either side, sizes in px, percentages or auto, containing
     // blocks with padding and borders in px or percentages, static boxes between, text that wraps, and changes to
@@ -1851,10 +1898,10 @@ int main(int argc, char** argv) {
         require(SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED)), "COM init");
         // A section's name runs that section alone.
         const std::pair<const char*, void (*)()> sections[]{
-            {"cascade", cascade_differential}, {"scene", scene_differential},   {"particles", particles_differential},
-            {"inline", inline_differential},   {"layout", layout_differential}, {"effects", effect_refusal},
-            {"pass", pass_differential},       {"warp", warp_differential},     {"cull", cull_differential},
-            {"hidden", hidden_animation}};
+            {"cascade", cascade_differential}, {"scene", scene_differential}, {"particles", particles_differential},
+            {"inline", inline_differential},   {"kept", kept_contexts},       {"layout", layout_differential},
+            {"effects", effect_refusal},       {"pass", pass_differential},   {"warp", warp_differential},
+            {"cull", cull_differential},       {"hidden", hidden_animation}};
         for (const auto& [name, section] : sections) {
             if (argc < 2 || std::string_view(argv[1]) == name) {
                 section();
