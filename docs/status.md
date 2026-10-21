@@ -127,6 +127,12 @@ SVG 文字的几何跟着它的每一个字体值变（2026-10-31，`text-line-n
 - **验证**（Release）：`keyboard_contract`（新）：九个场景 153 步与 Chrome 逐事件、逐字段一致（坐标容差 1 px，滚动位置容差 1 px），两处有意不同（Tab 回绕；在文字上点击后的 Shift+Tab）；另有回绕、宿主焦点、out_handled 与丢弃的文字、输入法的键、keyCode/location/getModifierState、重入的监听器（blur 里抢焦点、keydown 里删焦点元素、祖先的移除与移动）、聚焦规则与 tabIndex、没有 web 平台的页面、焦点环的像素与 Chrome 量到的位置一致。`c_api_view_contract` 加 `keyboard`。`web_platform_contract`、`view_contract`、`incremental_contract`、scene 与样式的合同照旧通过。全量 ctest 177 项：除既有的 14 项（签出换行的散列校验与浏览器差分）外通过。
 - **限制**：文本框与 IME（下一阶段）、手柄（第三阶段）；在文字上点击后 Shift+Tab 从被点的元素算起（weft 的命中只到元素）；键盘滚动一步到位；`accesskey`、`inert`、`<dialog>`/popover 的焦点范围、焦点元素变得不可聚焦时的修正未做；右 Alt 的 key 一律是 `Alt`（不区分 AltGraph 布局）；严格页面没有默认焦点环（严格文法没有 `:focus-visible`）。
 
+Metal 第三段 M.3 与 macOS 窗口示例（2026-10-21，`metal` 分支；Apple M4 Pro，macOS 27.0.1，Homebrew LLVM 23.1.4，Vulkan SDK 1.4.363.0 的 DXC 与 spirv-cross，没有 Xcode）。详见 [渲染后端 API](render-backend-api.md#metal2026-10-17未实现) 与 [构建](building.md#macos-arm642026-10-21)。
+- **实现**：`weft::scene_metal`：执行 M.2 编排的 Metal scene pass（render 与 blit 编码器）与 `weft_render_metal_create`、`_external`、`_destroy` 的 View 后端，结构同 Vulkan。`samples/macos-host`（`weft_macos_demo.app`）：只用公开头文件，CAMetalLayer 窗口里引擎画地面与单位，HUD（engine-host 页面：锚点名牌、血量视图模型、伤害数字、每帧写的小地图外部纹理、结束回合的调用）画在其上；指针、悬停光标、滚轮、改大小与 Retina；1–5 换 logo 页面。
+- **验证**：Metal 在设备上编译全部 MSL 并建成管线；`logo_browser_reference_metal`（新）40 帧与 Chrome 对照，超过 32 级差的像素至多 0.039%；示例经 C ABI 画的 logo 与 Chrome 帧差 0.021%、0.016%；HUD 无窗口 90 帧：页面就绪、结束回合的调用得到回答、零诊断，小地图、按钮、文字与血条按 CSS 的像素核对；窗口 2560×1440 约 110–120 fps，View 推进 0.1–0.6 ms。`ctest`（Debug）76 项中 68 项通过，其余 8 项是夹具与浏览器输入的散列校验（签出的换行，同前）。
+- **未验证**：效果、背景滤镜、粒子、平面、图层与 CSS filter 在 Metal 上的像素；iOS；设备丢失；性能剖析；D3D12 与 Vulkan 这次没有构建（没有 Windows）。
+- **下一步**：效果与背景滤镜的 Metal 像素对照（画廊的 Chrome 参照），iOS 构建。
+
 macOS 上构建与运行可移植部分（2026-10-21，`metal` 分支在 main 上变基之后；Apple M4 Pro，macOS 27.0.1，Homebrew LLVM 23.1.4，没有 Xcode）。命令见 [构建](building.md#macos-arm642026-10-21)。
 - **变基**：M.2 的编排接上 main 之后的两项：读背景的效果的 Copy 步骤（一条只有拷贝、没有滤镜的链，效果以 `Image::Backdrop` 采样它；读不了的目标清空它，计入 `unreadable_copies`）与 CSS filter 的图像（`ScenePrepared::filters` 由 Image 项绘制）；D3D12 与 Vulkan 的 `record()` 照旧执行编排，`backdrop_copies` 与不可读的原因由编排的计数给出。`scene_schedule_contract` 加手写的 Copy 用例与随机的 Copy/filter 步骤（2,000 个随机 pass 中 4,642 个拷贝，646 个读不了目标）；三个编排变异都被发现。D3D12 与 Vulkan 这次没有编译（没有 Windows）。
 - **可移植性修正**：公开头 `render_backend.h` 缺 `<stddef.h>`，另两处缺 `<string>`、`<algorithm>`；Apple 上 Yoga 加 `-frtti`、全部目标 `-ffp-contract=off`、字体文件上限 128 MiB（原因见构建文档）；`style_input_differential` 的随机序列依赖实参求值顺序（MSVC 自右向左、clang 自左向右），改为分开的语句，取 MSVC 的顺序。

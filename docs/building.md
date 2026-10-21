@@ -56,6 +56,20 @@ Release 加 `-DCMAKE_BUILD_TYPE=Release`（另一个 `-B` 目录）。构建的�
 
 系统字体由 `src/platform/macos`（CoreText 列出，FreeType 找集合里的下标与名字）提供，见其头文件。
 
+Metal 后端与窗口示例（2026-10-21）：生成 MSL 要 Vulkan SDK 1.4.363.0 的 DXC 与 spirv-cross（macOS 版有同样固定的版本；`vulkansdk-macos-1.4.363.0.zip` 解压后用安装器的命令行装进用户目录即可，不要 sudo），配置时 `VULKAN_SDK` 指向它的 `macOS` 目录，Vulkan 后端关掉（Metal 不经 MoltenVK）：
+
+```sh
+./vulkansdk-macOS-1.4.363.0.app/Contents/MacOS/vulkansdk-macOS-1.4.363.0 --root ~/VulkanSDK/1.4.363.0 \
+  --accept-licenses --default-answer --confirm-command install
+export VULKAN_SDK=~/VulkanSDK/1.4.363.0/macOS
+cmake --preset portable-ninja -B build/macos-metal -DWEFT_RENDER_VULKAN=OFF ...   # 其余参数同上
+cmake --build build/macos-metal
+open build/macos-metal/bin/weft_macos_demo.app
+```
+
+`WEFT_SHADERS_METAL` 随之打开，Apple 上再构建 `weft::scene_metal` 与 `samples/macos-host`（`weft_macos_demo.app`：窗口里游戏的地面与单位上是 engine-host 的 HUD，按 1–5 换成 logo 的四个版本，R 重新载入；`--shot <png>` 无窗口画若干帧写 PNG，`--capture <png> --quit-after <s>` 把窗口 3 秒时的画面写成 PNG）。Objective-C++ 用同一个 clang；LLVM 23 的类消息存根要较新的链接器，CMake 在支持时加 `-fno-objc-msgsend-class-selector-stubs`。
+
+
 ## 固定依赖与离线构建
 
 固定 QuickJS-NG 0.17.0、Yoga 3.2.1、FreeType 2.13.3、HarfBuzz 11.2.1 与 Ahem 测试字体，源码位于各 `third_party` 目录。D3 7.9.0 原版 UMD 仅作为兼容性输入。来源、版本、commit、archive SHA256、逐文件 SHA256 与许可见 `third_party/manifest.json` 和依赖 metadata。只有 Yoga 的 CalculateLayout.cpp 有已保存的小补丁，其他上游源码未修改；构建不使用 FetchContent，也不追踪可变分支。
