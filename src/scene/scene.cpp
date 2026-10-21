@@ -3,6 +3,7 @@
 #include "constants/style.hpp"
 #include "scene/scene_background.hpp"
 #include "scene/scene_border_image.hpp"
+#include "scene/scene_field.hpp"
 #include "base/css_scalar.hpp"
 #include "base/owner_thread.hpp"
 #include "constants/scene.hpp"
@@ -93,7 +94,8 @@ namespace weft {
                                                     PropertyId::TextDecorationStyle,
                                                     PropertyId::TextDecorationThickness,
                                                     PropertyId::OverflowWrap,
-                                                    PropertyId::WordBreak};
+                                                    PropertyId::WordBreak,
+                                                    PropertyId::CaretColor};
 
         // The text a computed content value gives a generated box (CSS Generated Content 3 §1): its strings (with their
         // escapes) and attr(name), the element's attribute, in order; quotes, counters and images give nothing.
@@ -1432,9 +1434,11 @@ namespace weft {
                               "text-decoration-style",
                               "text-decoration-thickness",
                               "overflow-wrap",
-                              "word-break"}) {
+                              "word-break",
+                              "caret-color"}) {
             p.properties[k] = {"", true, CssGrammar::Tokens, {}};
         }
+        p.properties["caret-color"].initial = "auto";
         p.properties["visibility"].initial = "visible";
         p.properties["pointer-events"] = {"auto", true, CssGrammar::Tokens, {}};
         p.properties["font-size"].initial = constants::default_font_size;
@@ -1478,6 +1482,21 @@ namespace weft {
             p.ua_stylesheet += "head,style,script,title,meta,link,template,noscript,base{display:none}";
             // Chrome's focus ring where an element shows its focus (-webkit-focus-ring-color of a light scheme).
             p.ua_stylesheet += ":focus-visible{outline:auto 1px #101010}";
+            // Text fields as Chrome's UA sheet styles them (html.css): an input of a text type and a textarea (an
+            // inset border draws as Chrome's native text field), dimmed when disabled, the focus ring on the border
+            // box, and the placeholder's gray.
+            p.ua_stylesheet +=
+                "input:is(:not([type]),[type=text i],[type=search i],[type=password i],[type=email i],[type=url i],"
+                "[type=tel i],[type=number i]),textarea{display:inline-block;box-sizing:content-box;margin:0;"
+                "font-family:Arial;font-size:13.333333px;font-weight:400;font-style:normal;line-height:normal;"
+                "letter-spacing:normal;text-transform:none;text-shadow:none;text-align:left;color:#000;"
+                "background-color:#fff;cursor:text;padding:1px 2px;border:2px inset #767676}"
+                "textarea{padding:2px;border-width:1px;font-family:monospace;white-space:pre-wrap;"
+                "overflow-wrap:break-word;overflow:auto}"
+                "input:disabled,textarea:disabled{color:#545454;background-color:rgba(239,239,239,0.3);"
+                "border-color:rgba(118,118,118,0.3);cursor:default}"
+                "input:focus-visible,textarea:focus-visible{outline-offset:0}"
+                "::placeholder{color:#757575}";
             // Hints that change nothing a scene draws: dropped without a warning.
             p.ignored = {"-webkit-font-smoothing",
                          "-moz-osx-font-smoothing",
@@ -1498,7 +1517,6 @@ namespace weft {
                          "-moz-appearance",
                          "resize",
                          "accent-color",
-                         "caret-color",
                          "scrollbar-width",
                          "scrollbar-color",
                          "scrollbar-gutter",
@@ -1823,6 +1841,164 @@ namespace weft {
                     out.style.erase(id);
                 }
             }
+        }
+
+
+        // Sets a color of a node's style, and its compiled paint value when it has them.
+        static void set_color(SceneNode& out, PropertyId k, int slot, const std::string& color) {
+            out.style[k] = color;
+            if (out.paint) {
+                out.paint->values[std::size_t(slot)] = parse_scene_paint_value(color);
+            }
+        }
+
+        // A length in px as style text.
+        static std::string px_text(float v) {
+            char buffer[32];
+            const auto [end, error] = std::to_chars(buffer, buffer + sizeof buffer, v);
+            return error == std::errc{} ? std::string(buffer, end) + "px" : std::string("0px");
+        }
+
+        // A text field's node (SceneNode::field, dom/text_field.hpp): its text is what the field shows (its placeholder,
+        // in its ::placeholder's color, while its value is empty), on one line that does not wrap (an input's) or on
+        // the lines its white-space breaks (a textarea's). An input's line stands centered in its content box, as
+        // Chrome's inner editor does: the node lays out as a flex box whose justify-content follows its text-align. A
+        // field of no width or height of its own takes Blink's intrinsic size: an input its size attribute's average
+        // characters (20 without one) and the overhang of its widest character, a textarea its cols' average
+        // characters (20) and a scrollbar's width, by its rows (2) of its line height (LayoutTextControlSingleLine and
+        // -MultiLine; the average character is the font's 'x'). An inset border (the UA style sheet's) draws as Chrome's
+        // native text field: a one-px ring of its color inside the border box.
+        void field_own(SceneNode& out, const DomSnapshot& d, const ComputedStyle& c) {
+            const auto& f = *d.field;
+            auto field = std::make_shared<SceneField>();
+            field->state = d.field;
+            field->focused = d.focused;
+            out.text = scene_field_text(f, field->placeholder);
+            // A value the field changes, its authored one kept for getComputedStyle.
+            const auto keep = [&](PropertyId k) {
+                if (std::none_of(field->authored.begin(), field->authored.end(), [&](const auto& a) {
+                        return a.first == k;
+                    })) {
+                    const auto* v = out.style.find(k);
+                    field->authored.emplace_back(k, v ? std::optional<std::string>(std::string(v->text()))
+                                                      : std::nullopt);
+                }
+            };
+            const auto set = [&](PropertyId k, std::string v) {
+                keep(k);
+                out.style[k] = std::move(v);
+            };
+            const ComputedStyle* placeholder_style{};
+            const ComputedStyle* selection_style{};
+            for (const auto& g : c.generated) {
+                if (g.local_name == "::placeholder") {
+                    placeholder_style = &g;
+                } else if (g.local_name == "::selection") {
+                    selection_style = &g;
+                }
+            }
+            const auto own_value = [](const ComputedStyle* s, PropertyId k) {
+                const auto* v = s ? s->values.find(k) : nullptr;
+                auto text = v ? std::string(trim(v->text())) : std::string();
+                return text == "inherit" || text == "unset" || text == "initial" ? std::string() : text;
+            };
+            const auto current = std::string(out.style.text(PropertyId::Color, constants::default_color));
+            const auto resolve = [&](std::string color) {
+                return color.empty() || color == "currentcolor" || color == "currentColor" ? current : color;
+            };
+            if (field->placeholder) {
+                if (const auto color = own_value(placeholder_style, PropertyId::Color); !color.empty()) {
+                    keep(PropertyId::Color);
+                    set_color(out, PropertyId::Color, constants::scene::paint_slot_color, resolve(color));
+                }
+            }
+            // Chrome's selection in a focused field: white text on blue, unless the field's ::selection says otherwise
+            // (its background alone keeps the text's color).
+            const auto background = own_value(selection_style, PropertyId::BackgroundColor);
+            const auto foreground = own_value(selection_style, PropertyId::Color);
+            field->selection_background =
+                !background.empty()   ? resolve(background)
+                : foreground.empty() ? std::string(constants::scene::field_selection_background)
+                                     : std::string("transparent");
+            field->selection_color = !foreground.empty() ? resolve(foreground)
+                                     : background.empty() ? std::string(constants::scene::field_selection_color)
+                                                          : current;
+            const auto caret = std::string(trim(out.style.text(PropertyId::CaretColor, "auto")));
+            field->caret_color = caret == "auto" ? current : resolve(caret);
+            if (std::all_of(border_style_edges.begin(), border_style_edges.end(), [&](PropertyId k) {
+                    return out.style.text(k, "solid") == "inset";
+                })) {
+                field->native = true;
+                field->ring = resolve(std::string(trim(out.style.text(PropertyId::BorderTopColor, "currentcolor"))));
+                for (std::size_t side = 0; side < border_style_edges.size(); ++side) {
+                    set(border_style_edges[side], "solid");
+                    keep(border_color_edges[side]);
+                    set_color(out, border_color_edges[side], constants::scene::paint_slot_border_color + int(side),
+                              "transparent");
+                }
+            }
+            const bool multiline = f.multiline;
+            if (!multiline) {
+                set(PropertyId::WhiteSpace, "pre");
+                const auto display = std::string(out.style.text(PropertyId::Display, "inline"));
+                if (display != "none") {
+                    const bool block = display == "block" || display == "flex" || display == "grid";
+                    set(PropertyId::Display, block ? "flex" : "inline-flex");
+                    set(PropertyId::FlexDirection, "row");
+                    set(PropertyId::AlignItems, "center");
+                    const auto align = std::string(out.style.text(PropertyId::TextAlign, "left"));
+                    set(PropertyId::JustifyContent, align == "center"                    ? "center"
+                                                    : align == "right" || align == "end" ? "flex-end"
+                                                                                         : "flex-start");
+                }
+            }
+            const auto count = [&](const char* name, int fallback) {
+                const auto it = d.attributes.find(name);
+                if (it == d.attributes.end()) {
+                    return fallback;
+                }
+                const auto v = trim(it->second);
+                int n{};
+                const auto [end, error] = std::from_chars(v.data(), v.data() + v.size(), n);
+                return error == std::errc{} && end == v.data() + v.size() && n > 0 ? n : fallback;
+            };
+            const auto font = scene_font(out.style);
+            if (multiline) {
+                field->newline_width = text->measure(" ", out.style).width;
+            }
+            const bool border_box = trim(out.style.text(PropertyId::BoxSizing, "content-box")) == "border-box";
+            const auto edges = [&](PropertyId a, PropertyId b, PropertyId e, PropertyId g) {
+                return border_box ? edge_length(out.style, a, 0) + edge_length(out.style, b, 0) +
+                                        edge_length(out.style, e, 0) + edge_length(out.style, g, 0)
+                                  : 0.f;
+            };
+            if (trim(out.style.text(PropertyId::Width, "auto")) == "auto") {
+                const auto [x, widest] = text->field_char_widths(font);
+                const float average = std::round(x);
+                const float content =
+                    multiline ? std::ceil(average * float(count("cols", constants::scene::field_default_cols))) +
+                                    constants::scene::field_scrollbar_px
+                              : std::ceil(average * float(count("size", constants::scene::field_default_size))) +
+                                    std::round(widest) - average;
+                out.style[PropertyId::Width] =
+                    px_text(content + edges(PropertyId::PaddingLeft, PropertyId::PaddingRight,
+                                            PropertyId::BorderLeftWidth, PropertyId::BorderRightWidth));
+            }
+            if (trim(out.style.text(PropertyId::Height, "auto")) == "auto") {
+                const auto strut = text->strut(font);
+                const float line = strut.above + strut.below;
+                const float content =
+                    multiline ? line * float(count("rows", constants::scene::field_default_rows)) : line;
+                out.style[PropertyId::Height] =
+                    px_text(content + edges(PropertyId::PaddingTop, PropertyId::PaddingBottom,
+                                            PropertyId::BorderTopWidth, PropertyId::BorderBottomWidth));
+            }
+            out.field = std::move(field);
+        }
+
+        // Built::mixed and its kin, and the field's: whether a node's own values changed what its node draws.
+        static bool same_field(const std::shared_ptr<const SceneField>& a, const std::shared_ptr<const SceneField>& b) {
+            return a == b || (a && b && *a == *b);
         }
 
         Built build_own(SceneNode& out, const SceneNode& last, const DomSnapshot& d, const ComputedStyle& c,
@@ -2209,8 +2385,12 @@ namespace weft {
                         inline_context = false;
                     }
                 }
-                // Its ::before and ::after boxes are element children too.
+                // Its ::before and ::after boxes are element children too (a text field's ::placeholder and
+                // ::selection are not boxes).
                 for (const auto& g : c.generated) {
+                    if (g.local_name != "::before" && g.local_name != "::after") {
+                        continue;
+                    }
                     elements = true;
                     const auto display = g.values.text(PropertyId::Display, "inline");
                     const auto position = g.values.text(PropertyId::Position, "static");
@@ -2225,6 +2405,9 @@ namespace weft {
             if (mixed) {
                 out.text.clear();
             }
+            if (d.field) {
+                field_own(out, d, c);
+            }
             work.geometry_changed |= !scene_geometry_own_equal(last, out);
             work.paint_changed |= last.identity != out.identity || last.tag != out.tag || last.space != out.space ||
                                   last.text != out.text || last.attributes != out.attributes ||
@@ -2232,7 +2415,8 @@ namespace weft {
                                   (last.paint && out.paint && last.paint->values != out.paint->values) ||
                                   !scene_effect_equal(last.effect, out.effect) ||
                                   last.background_image != out.background_image ||
-                                  last.border_image != out.border_image || last.particles != out.particles;
+                                  last.border_image != out.border_image || last.particles != out.particles ||
+                                  !same_field(last.field, out.field);
             return {shown, inline_context, mixed};
         }
 
@@ -2282,10 +2466,11 @@ namespace weft {
             out.children.reserve(d.children.size());
             const bool hidden_before = hidden;
             hidden = !own_built.shown;
-            // The element's ::before first and ::after last (ComputedStyle::generated), built from their stand-ins.
+            // The element's ::before first and ::after last (ComputedStyle::generated), built from their stand-ins. A
+            // text field shows its value as its own text: its DOM children (a textarea's default value) build nothing.
             const auto generated_child = [&](const char* name) {
                 for (const auto& g : c.generated) {
-                    if (g.local_name == name) {
+                    if (g.local_name == name && !d.field) {
                         auto stand_in = generated_dom(g, d.attributes);
                         const auto at = find_child(prior, stand_in.identity, out.children.size());
                         out.children.push_back(at < prior.size() ? prior[at] : SceneNode{});
@@ -2296,7 +2481,8 @@ namespace weft {
             };
             generated_child("::before");
             std::size_t ci{};
-            for (const auto& child : d.children) {
+            static const std::vector<DomSnapshot> no_children;
+            for (const auto& child : d.field ? no_children : d.children) {
                 if (child.type == constants::element_node_type) {
                     const auto at = find_child(prior, child.identity, out.children.size());
                     out.children.push_back(at < prior.size() ? prior[at] : SceneNode{});
@@ -2343,7 +2529,8 @@ namespace weft {
         // Whether two copies of a DOM node hold the same values of its own for a scene build.
         static bool same_dom_own(const DomSnapshot& a, const DomSnapshot& b) {
             return a.local_name == b.local_name && a.namespace_uri == b.namespace_uri &&
-                   a.scroll_left == b.scroll_left && a.scroll_top == b.scroll_top && a.attributes == b.attributes;
+                   a.scroll_left == b.scroll_left && a.scroll_top == b.scroll_top && a.attributes == b.attributes &&
+                   DomSnapshot::same_field(a.field, b.field) && (!a.field || a.focused == b.focused);
         }
 
         // Whether two copies of a DOM node have the same children: the same nodes in the same order, and text of the
@@ -2379,6 +2566,12 @@ namespace weft {
         static bool same_layout_own(const SceneNode& a, const SceneNode& b) {
             if (a.identity != b.identity || a.tag != b.tag || a.space != b.space || a.text != b.text ||
                 a.scroll != b.scroll || !same_layout_style(a.style, b.style)) {
+                return false;
+            }
+            // A text field's text scrolls with its state.
+            if (bool(a.field) != bool(b.field) ||
+                (a.field && (a.field->state->scroll_x != b.field->state->scroll_x ||
+                             a.field->state->scroll_y != b.field->state->scroll_y))) {
                 return false;
             }
             if (a.space == constants::svg_namespace_uri) {
@@ -2494,7 +2687,7 @@ namespace weft {
             // The element's ::before first and ::after last, refreshed from their stand-ins against the last ones.
             const auto generated_child = [&](const char* name) {
                 for (const auto& g : c.generated) {
-                    if (g.local_name != name) {
+                    if (g.local_name != name || d.field) {
                         continue;
                     }
                     auto stand_in = generated_dom(g, d.attributes);
@@ -2515,7 +2708,8 @@ namespace weft {
             generated_child("::before");
             std::size_t ci{};
             std::size_t old_hint{};
-            for (const auto& child : d.children) {
+            static const std::vector<DomSnapshot> no_children;
+            for (const auto& child : d.field ? no_children : d.children) {
                 if (child.type == constants::element_node_type) {
                     const auto& cc = c.children.at(ci++);
                     const auto at = fresh ? prior.size() : find_child(prior, child.identity, next.size());
@@ -3574,6 +3768,53 @@ namespace weft {
             assign(assign, root, 0, 0);
         }
 
+
+        // A text field's lines (SceneLine::start, SceneLine::stops): where each starts in the node's text, and its caret
+        // stops, from its text shaped as the node's style shapes it. A field without text has one line of none at the
+        // start of its content box (centered in it, an input's), as tall as its font's line box, for its caret.
+        void field_lines(const SceneNode& root) {
+            auto& out = laid_out(root);
+            if (out.lines.empty() && root.text.empty()) {
+                const auto& s = root.style;
+                const auto& box = out.box;
+                const float base = box[2];
+                const float left = edge_length(s, PropertyId::BorderLeftWidth, base) +
+                                   edge_length(s, PropertyId::PaddingLeft, base);
+                const float right = edge_length(s, PropertyId::BorderRightWidth, base) +
+                                    edge_length(s, PropertyId::PaddingRight, base);
+                const float top =
+                    edge_length(s, PropertyId::BorderTopWidth, base) + edge_length(s, PropertyId::PaddingTop, base);
+                const float bottom = edge_length(s, PropertyId::BorderBottomWidth, base) +
+                                     edge_length(s, PropertyId::PaddingBottom, base);
+                const auto strut = text->strut(scene_font(s));
+                const float height = strut.above + strut.below;
+                const float width = std::max(0.f, box[2] - left - right);
+                const auto align = s.text(PropertyId::TextAlign, "left");
+                const float x = left + (align == "center" ? width / 2 : align == "right" || align == "end" ? width : 0);
+                const float y = root.field->state->multiline
+                                    ? top
+                                    : top + (std::max(0.f, box[3] - top - bottom) - height) / 2;
+                SceneLine line;
+                line.rect = {x, y, 0, height};
+                line.baseline = strut.above;
+                line.stops = {{0, 0.f}};
+                // The field's baseline is its line's, as with text.
+                context_baselines[&root] = y + strut.above;
+                out.lines.push_back(std::move(line));
+                return;
+            }
+            std::size_t from = 0;
+            for (auto& line : out.lines) {
+                const auto at = root.text.find(line.text, from);
+                line.start = std::uint32_t(at == std::string::npos ? from : at);
+                if (at != std::string::npos) {
+                    from = at + line.text.size();
+                }
+                const auto run = text->shape(line.text, root.style);
+                line.stops = scene_field_stops(*run, line.text, line.start);
+            }
+        }
+
         // Lays out the subtree of `top` and writes the boxes, lines and fragments of its nodes; options size `top`.
         // `scene_root`: top is the scene's root, the containing block of fixed boxes without a transformed ancestor.
         void layout_run(const SceneNode& top, const LayoutOptions& options, bool scene_root = false) {
@@ -3680,6 +3921,18 @@ namespace weft {
                                                                               : 0;
                         shift_y = align == "center" ? free_y / 2 : align == "flex-end" || align == "end" ? free_y : 0;
                     }
+                    // A text field's text scrolls (dom/text_field.hpp): an input's left, a textarea's up, no further
+                    // than its text and the caret after it reach.
+                    if (root.field) {
+                        const auto& state = *root.field->state;
+                        const float content_w = std::max(0.f, root_box[2] - left - right);
+                        const float content_h = std::max(0.f, root_box[3] - over - bottom);
+                        const float reach_x =
+                            at(i, state.multiline ? available : unbounded).width + constants::scene::field_caret_px;
+                        shift_x -= std::clamp(state.scroll_x, 0.f, std::max(0.f, reach_x - content_w));
+                        shift_y -= std::clamp(state.scroll_y, 0.f,
+                                              std::max(0.f, at(i, available).height - content_h));
+                    }
                 }
                 const auto& layout = at(i, available);
                 origin[0] += shift_x;
@@ -3691,6 +3944,9 @@ namespace weft {
             }
             for (std::size_t i = 0; i < run.boxes.size(); ++i) {
                 if (const auto* n = run.targets[i]) {
+                    if (n->field) {
+                        field_lines(*n);
+                    }
                     scroll_content(*n);
                 }
             }

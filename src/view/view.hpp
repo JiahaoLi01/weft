@@ -93,7 +93,8 @@ namespace weft {
         Leave
     };
 
-    // Pointer input in the View's CSS px; buttons as MouseEvent.buttons; a wheel's deltas in CSS px.
+    // Pointer input in the View's CSS px; buttons as MouseEvent.buttons; a wheel's deltas in CSS px; the modifiers held
+    // (key_modifier bits: Shift extends a text field's selection to a press).
     struct PointerInput {
         PointerKind kind{};
         float x{};
@@ -101,6 +102,19 @@ namespace weft {
         unsigned buttons{};
         float wheel_x{};
         float wheel_y{};
+        unsigned modifiers{};
+    };
+
+    // Where text input goes (the C ABI's weft_text_input): whether a text field the user may edit has the focus while
+    // the View has the host's (a host turns its input method on only then), whether an input method composes in it, and
+    // whether it is a password field (where Chrome keeps input methods off); its caret (where an input method's candidate
+    // window goes) and its border box, as rectangles in the View's px (x, y, width, height).
+    struct ViewTextInput {
+        bool active{};
+        bool composing{};
+        bool password{};
+        std::array<float, 4> caret{};
+        std::array<float, 4> field{};
     };
 
     // Keyboard input (the C ABI's weft_key_event): a key going down or up, its KeyboardEvent key and code values, the
@@ -181,6 +195,15 @@ namespace weft {
         // ignored (Enter, Tab and Backspace act from their keydown); after a keydown the page or a default action used,
         // the text is dropped, as Chrome drops the characters that follow such a key. Its input_* bits.
         unsigned text(std::string_view text);
+        // The input method composes text at the focused text field (ScriptDom::compose_text_field): its selection at
+        // [selection_start, selection_end) of text (UTF-8 offsets); empty text cancels the composition. Whether a field
+        // the user may edit took it.
+        bool compose(std::string_view text, std::uint32_t selection_start, std::uint32_t selection_end);
+        // The input method commits text at the focused text field (ScriptDom::commit_text_field): the composition
+        // ends with it; without one the text is typed (beforeinput and input, no keys). Whether a field took it.
+        bool commit(std::string_view text);
+        // Where text input goes now.
+        ViewTextInput text_input();
         // The host's keyboard focus came to the View or left it (ScriptDom::set_page_focus). A View starts with it,
         // and keeps it across loads.
         void set_focus(bool focused);

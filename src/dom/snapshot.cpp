@@ -31,6 +31,10 @@ namespace weft::dom {
         assign(to.focused, from.focused);
         assign(to.focus_visible, from.focus_visible);
         assign(to.focus_within, from.focus_within);
+        if (!DomSnapshot::same_field(to.field, from.field)) {
+            to.field = from.field;
+            changed = true;
+        }
         const bool same_children = to.children.size() == from.children.size() &&
                                    std::equal(to.children.begin(), to.children.end(), from.children.begin(),
                                               [](const DomSnapshot& a, const DomSnapshot& b) {
@@ -79,7 +83,7 @@ namespace weft::dom {
             a.data != b.data || a.attributes != b.attributes || a.scroll_left != b.scroll_left ||
             a.scroll_top != b.scroll_top || a.hovered != b.hovered || a.active != b.active || a.focused != b.focused ||
             a.focus_visible != b.focus_visible || a.focus_within != b.focus_within ||
-            a.children.size() != b.children.size()) {
+            !DomSnapshot::same_field(a.field, b.field) || a.children.size() != b.children.size()) {
             return false;
         }
         for (std::size_t i = 0; i < a.children.size(); ++i) {

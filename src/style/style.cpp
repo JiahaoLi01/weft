@@ -1103,6 +1103,10 @@ namespace weft {
                 return weft::has_content(node());
             }
 
+            const TextFieldState* field() const {
+                return node().field.get();
+            }
+
             // The element sibling before (step -1) or after (step 1) this one; none for the scope root, whose
             // siblings are outside the snapshot.
             std::optional<PathElement> step(int direction) const {
@@ -1212,6 +1216,10 @@ namespace weft {
 
             bool has_content() const {
                 return weft::has_content(*n);
+            }
+
+            const TextFieldState* field() const {
+                return n->field.get();
             }
 
             bool focused() const {
@@ -1332,9 +1340,18 @@ namespace weft {
             if (n.local_name.size() < 2 || n.local_name[0] != ':') {
                 return dom::PseudoElement::None;
             }
-            return n.local_name == "::before"  ? dom::PseudoElement::Before
-                   : n.local_name == "::after" ? dom::PseudoElement::After
-                                               : dom::PseudoElement::None;
+            return n.local_name == "::before"        ? dom::PseudoElement::Before
+                   : n.local_name == "::after"       ? dom::PseudoElement::After
+                   : n.local_name == "::placeholder" ? dom::PseudoElement::Placeholder
+                   : n.local_name == "::selection"   ? dom::PseudoElement::Selection
+                                                     : dom::PseudoElement::None;
+        }
+
+        // What :read-write and :placeholder-shown read of an element: whether it is a text field the user may edit,
+        // and whether its placeholder shows.
+        std::pair<bool, bool> field_flags(const DomSnapshot& n) {
+            const auto* f = n.field.get();
+            return {f && f->editable, f && f->value.empty() && !f->placeholder.empty()};
         }
 
         struct Rule {
@@ -3198,6 +3215,11 @@ namespace weft {
             bool uses_position{};
             bool uses_siblings{};
             bool uses_empty{};
+            // Selectors read text fields (:read-only, :read-write, :placeholder-shown), and rules style a text field's
+            // ::placeholder or ::selection.
+            bool uses_field{};
+            bool placeholder_rules{};
+            bool selection_rules{};
             bool parent_all{};
             // The rules whose subject is ::before or ::after and that declare content: only a pseudo-element one of
             // them gives makes a box (Tailwind's preflight gives every element's ::before and ::after a style, but no
@@ -3267,6 +3289,7 @@ namespace weft {
                             uses_focus |= part.focus || part.focus_visible;
                             uses_focus_within |= part.focus_within;
                             uses_empty |= part.empty;
+                            uses_field |= part.read_only || part.read_write || part.placeholder_shown;
                             uses_position |= !part.nth.empty();
                             for (const auto& n : part.nth) {
                                 uses_siblings |= !n.of.empty();
@@ -3295,6 +3318,8 @@ namespace weft {
                             parent_all |= keyword(d.tokens) == "inherit" || references(d.tokens);
                         }
                         const auto pseudo = rule.selector.pseudo();
+                        placeholder_rules |= pseudo == dom::PseudoElement::Placeholder;
+                        selection_rules |= pseudo == dom::PseudoElement::Selection;
                         if ((pseudo == dom::PseudoElement::Before || pseudo == dom::PseudoElement::After) &&
                             std::any_of(rule.declarations.begin(), rule.declarations.end(), [](const Declaration& d) {
                                 return d.key == "content";
@@ -3373,6 +3398,11 @@ namespace weft {
                 }
                 if (uses_empty) {
                     selector_path += has_content(*n) ? 'C' : 'c';
+                }
+                if (uses_field) {
+                    const auto [writable, placeholder] = field_flags(*n);
+                    selector_path += writable ? 'R' : 'r';
+                    selector_path += placeholder ? 'P' : 'p';
                 }
                 for (const auto& [k, v] : n->attributes) {
                     if (memo_attributes.contains(k)) {
@@ -3552,7 +3582,9 @@ namespace weft {
                        seen_state(state_parts, a, root) == seen_state(state_parts, b, root) &&
                        (!uses_focus || (a.focused == b.focused && a.focus_visible == b.focus_visible)) &&
                        (!uses_focus_within || a.focus_within == b.focus_within) &&
-                       (!uses_empty || has_content(a) == has_content(b));
+                       (!uses_empty || has_content(a) == has_content(b)) &&
+                       (!uses_field || field_flags(a) == field_flags(b)) &&
+                       ((!placeholder_rules && !selection_rules) || (a.field != nullptr) == (b.field != nullptr));
             }
 
             // Whether two copies of an element read alike to the selectors of its descendants: name, the state
@@ -3561,7 +3593,8 @@ namespace weft {
                 if (a.local_name != b.local_name || a.namespace_uri != b.namespace_uri ||
                     seen_state(state_parts, a, root) != seen_state(state_parts, b, root) ||
                     (uses_focus && (a.focused != b.focused || a.focus_visible != b.focus_visible)) ||
-                    (uses_focus_within && a.focus_within != b.focus_within)) {
+                    (uses_focus_within && a.focus_within != b.focus_within) ||
+                    (uses_field && field_flags(a) != field_flags(b))) {
                     return false;
                 }
                 const auto read = [&](const AttributeMap& m, AttributeMap::const_iterator it) {
@@ -3994,6 +4027,29 @@ namespace weft {
                         continue;
                     }
                     destination.generated.push_back(std::move(style));
+                }
+                // A text field's ::placeholder and ::selection: the styles its placeholder and selected text take from
+                // the rules whose subject they are (local names "::placeholder" and "::selection"), not boxes.
+                if (dom.field) {
+                    for (const bool selection : {false, true}) {
+                        if (!(selection ? selection_rules : placeholder_rules)) {
+                            continue;
+                        }
+                        DomSnapshot stand_in;
+                        stand_in.identity = field_part_identity(dom.identity, selection);
+                        stand_in.type = constants::element_node_type;
+                        stand_in.local_name = selection ? "::selection" : "::placeholder";
+                        stand_in.namespace_uri = constants::xhtml_namespace_uri;
+                        ComputedStyle style;
+                        for (auto& g : previous) {
+                            if (g.identity == stand_in.identity) {
+                                style = std::move(g);
+                                break;
+                            }
+                        }
+                        compute_into(stand_in, style, &destination, variables);
+                        destination.generated.push_back(std::move(style));
+                    }
                 }
                 if (destination.generated.size() != before.size() ||
                     !std::equal(before.begin(), before.end(), destination.generated.begin(),
@@ -4625,6 +4681,9 @@ namespace weft {
         bool uses_focus{};
         bool uses_focus_within{};
         bool uses_empty{};
+        // Text fields: selectors read their state (:read-write, :placeholder-shown), rules style their pseudo-elements.
+        bool uses_field{};
+        bool field_parts{};
         // A forgiving sheet's cascade context, the viewport its @media conditions read, and their outcomes there.
         ForgivingContext context;
         std::vector<bool> media_outcomes;
@@ -4650,6 +4709,7 @@ namespace weft {
                         uses_focus |= part.focus || part.focus_visible;
                         uses_focus_within |= part.focus_within;
                         uses_empty |= part.empty;
+                        uses_field |= part.read_only || part.read_write || part.placeholder_shown;
                         for (const auto& attribute : part.attributes) {
                             attributes.insert(attribute.name);
                             attributes.insert(attribute.lower_name);
@@ -4660,6 +4720,8 @@ namespace weft {
                             attributes.insert("selected");
                         }
                     });
+                    const auto pseudo = rule.selector.pseudo();
+                    field_parts |= pseudo == dom::PseudoElement::Placeholder || pseudo == dom::PseudoElement::Selection;
                 }
             }
             if (profile.scene_syntax) {
@@ -4849,6 +4911,10 @@ namespace weft {
             assign(k.focus_visible, impl_->uses_focus && n.focus_visible);
             assign(k.focus_within, impl_->uses_focus_within && n.focus_within);
             assign(k.content, impl_->uses_empty && has_content(n));
+            const auto [writable, placeholder] = field_flags(n);
+            assign(k.field, (impl_->uses_field || impl_->field_parts) && n.field != nullptr);
+            assign(k.writable, impl_->uses_field && writable);
+            assign(k.placeholder, impl_->uses_field && placeholder);
             if (!same_attributes(n, k)) {
                 k.attributes.clear();
                 for (const auto& [key, value] : n.attributes) {

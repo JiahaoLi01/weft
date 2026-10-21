@@ -261,15 +261,18 @@ typedef struct weft_pointer_event {
     uint32_t kind; /* weft_pointer_kind */
     float x;
     float y;
-    uint32_t buttons; /* MouseEvent.buttons after the event */
-    uint32_t reserved;
-    float wheel_x; /* logical px */
+    uint32_t buttons;   /* MouseEvent.buttons after the event */
+    uint32_t modifiers; /* WEFT_MODIFIER_* held (MouseEvent.shiftKey and the like; Shift extends a text field's
+                           selection to a press) */
+    float wheel_x;      /* logical px */
     float wheel_y;
 } weft_pointer_event;
 
 /* Dispatches the pointer and mouse events of the input (over, out, enter and leave as the hovered element changes,
- * click when a button comes up over the element it went down on). out_prevented, when given: whether a listener
- * prevented the main event's default action. */
+ * click when a button comes up over the element it went down on; detail counts the presses that come within Windows'
+ * double-click time and area, and a second click is followed by dblclick). A press in a text field places its caret
+ * (two select a word, three all), and moving with the button down selects. out_prevented, when given: whether a
+ * listener prevented the main event's default action. */
 weft_result weft_view_pointer(weft_runtime* runtime, weft_view_handle view, const weft_pointer_event* event,
                               uint32_t* out_prevented);
 
@@ -373,6 +376,48 @@ weft_result weft_keyboard_key(const char* code, size_t code_size, uint32_t modif
  * answer for a US keyboard. out_code receives it NUL-terminated (at most 31 bytes); WEFT_INVALID_ARGUMENT for a
  * virtual key that is no key weft knows. */
 weft_result weft_keyboard_code(uint32_t virtual_key, char out_code[32]);
+
+/* ---- Text fields and input methods (docs/engine-communication.md, "文本框与输入法"). Owner thread. ---- */
+
+/* Where text input goes (weft_view_text_input). active: a text field the user may edit (an input of a text type or a
+ * textarea, neither read-only nor disabled) has the focus while the View has the host's; a host turns its input method
+ * on while it is 1, and off when it goes to 0. composing: an input method's composition goes on in the field (when the
+ * page ends it, by script or by moving the focus, a host whose input method still composes cancels it). password: a
+ * password field, where Chrome keeps input methods off. caret: the field's caret (in a composition, its caret in it) in
+ * the View's logical px, where a host places the input method's candidate window (below it); field: the field's border
+ * box. */
+typedef struct weft_text_input {
+    uint32_t struct_size;
+    uint32_t active;
+    uint32_t composing;
+    uint32_t password;
+    float caret_x;
+    float caret_y;
+    float caret_width;
+    float caret_height;
+    float field_x;
+    float field_y;
+    float field_width;
+    float field_height;
+} weft_text_input;
+
+weft_result weft_view_text_input(weft_runtime* runtime, weft_view_handle view, weft_text_input* out_input);
+
+/* An input method's composition at the focused text field (Windows' GCS_COMPSTR with its cursor, Unity's
+ * Input.compositionString, Slate's text input method context): text (UTF-8, at most 4096 bytes) replaces the
+ * composition (or, as one starts, the selection) with the events Chrome gives (compositionstart, compositionupdate,
+ * beforeinput and input of insertCompositionText), its selection [selection_start, selection_end) in UTF-8 offsets of
+ * text (the caret when they are equal); the composition shows underlined. Empty text cancels the composition
+ * (compositionend). out_taken, when given: 1 when a text field the user may edit took it. */
+weft_result weft_view_composition(weft_runtime* runtime, weft_view_handle view, const char* text, size_t text_size,
+                                  uint32_t selection_start, uint32_t selection_end, uint32_t* out_taken);
+
+/* An input method commits text (UTF-8, at most 4096 bytes; Windows' GCS_RESULTSTR): the composition ends with it
+ * (compositionupdate, beforeinput, input, compositionend); without one the text goes in as typed text does (beforeinput
+ * and input of insertText, without keys). The keys an input method takes reach the page as WEFT_KEY_IME keys.
+ * out_taken as for weft_view_composition. */
+weft_result weft_view_commit_text(weft_runtime* runtime, weft_view_handle view, const char* text, size_t text_size,
+                                  uint32_t* out_taken);
 
 /* ---- Tools. Owner thread. ---- */
 

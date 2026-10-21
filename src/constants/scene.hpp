@@ -213,6 +213,22 @@ namespace weft::constants::scene {
     // Seed of the running min/max bounds in geometry().
     inline constexpr double geometry_bounds_seed = 1e10;
 
+    // Text fields (Blink's LayoutTextControl): an input's characters and a textarea's columns and rows without their
+    // attributes, the width a textarea keeps for its scrollbar, the caret's width, the composition's underlines (thin,
+    // and thick under the clause being converted), and Chrome's selection colors in a focused field.
+    inline constexpr int field_default_size = 20;
+    inline constexpr int field_default_cols = 20;
+    inline constexpr int field_default_rows = 2;
+    inline constexpr float field_scrollbar_px = 15;
+    inline constexpr float field_caret_px = 1;
+    inline constexpr float field_thin_underline_px = 1;
+    inline constexpr float field_thick_underline_px = 2;
+    // Chrome's native text field border: a ring this wide, its corners this round.
+    inline constexpr float field_native_ring_px = 1;
+    inline constexpr float field_native_radius_px = 2;
+    inline constexpr const char* field_selection_background = "#3367d1";
+    inline constexpr const char* field_selection_color = "#ffffff";
+
     // D2D raster adapter: paint programs and retained layers.
     inline constexpr int paint_program_cache_max_entries = 256;
     inline constexpr int paint_program_cache_max_bytes = 2 * constants::bytes_per_mib;

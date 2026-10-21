@@ -228,6 +228,12 @@ namespace weft {
                 (impl_->face->height - impl_->face->ascender + impl_->face->descender) * scale};
     }
 
+    float Font::bounding_width(float pixels) const {
+        impl_->check(pixels);
+        const auto* face = impl_->face;
+        return float(face->bbox.xMax - face->bbox.xMin) * pixels / float(face->units_per_EM);
+    }
+
     FontMetrics Font::inline_metrics(float pixels) const {
         impl_->check(pixels);
         auto m = metrics(pixels);

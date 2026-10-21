@@ -34,7 +34,6 @@ namespace weft::dom {
                                   "local-link",
                                   "target",
                                   "target-within",
-                                  "placeholder-shown",
                                   "autofill",
                                   "invalid",
                                   "valid",
@@ -46,7 +45,6 @@ namespace weft::dom {
                                   "indeterminate",
                                   "in-range",
                                   "out-of-range",
-                                  "read-write",
                                   "popover-open",
                                   "modal",
                                   "fullscreen",
@@ -71,7 +69,7 @@ namespace weft::dom {
 
         // Pseudo-elements a weft document does not have: valid in the modern grammar, matching nothing.
         bool absent_pseudo_element(std::string_view name) {
-            for (const auto* k : {"placeholder", "selection", "backdrop", "marker", "file-selector-button",
+            for (const auto* k : {"backdrop", "marker", "file-selector-button",
                                   "first-line", "first-letter", "cue", "grammar-error", "spelling-error", "target-text",
                                   "highlight", "part", "slotted", "view-transition"}) {
                 if (name == k) {
@@ -425,10 +423,12 @@ namespace weft::dom {
                     if (c.pseudo != PseudoElement::None) {
                         return syntax("two pseudo-elements");
                     }
-                    c.pseudo = pseudo_name == "before" && !function  ? PseudoElement::Before
-                               : pseudo_name == "after" && !function ? PseudoElement::After
-                               : absent_pseudo_element(pseudo_name)  ? PseudoElement::Other
-                                                                     : PseudoElement::None;
+                    c.pseudo = pseudo_name == "before" && !function        ? PseudoElement::Before
+                               : pseudo_name == "after" && !function       ? PseudoElement::After
+                               : pseudo_name == "placeholder" && element   ? PseudoElement::Placeholder
+                               : pseudo_name == "selection" && element     ? PseudoElement::Selection
+                               : absent_pseudo_element(pseudo_name)        ? PseudoElement::Other
+                                                                           : PseudoElement::None;
                     if (c.pseudo == PseudoElement::None) {
                         return unsupported("pseudo-element outside profile");
                     }
@@ -521,7 +521,11 @@ namespace weft::dom {
                 } else if (!function && pseudo_name == "defined") {
                     // Every element of a weft document is defined.
                 } else if (!function && pseudo_name == "read-only") {
-                    // No element of a weft document is editable.
+                    c.read_only = true;
+                } else if (!function && pseudo_name == "read-write") {
+                    c.read_write = true;
+                } else if (!function && pseudo_name == "placeholder-shown") {
+                    c.placeholder_shown = true;
                 } else if ((!function && absent_pseudo_class(pseudo_name)) ||
                            (function && (pseudo_name == "host" || pseudo_name == "host-context" ||
                                          pseudo_name.starts_with("-webkit-") || pseudo_name.starts_with("-moz-")))) {
@@ -561,7 +565,7 @@ namespace weft::dom {
                     } else {
                         if (!c.tag.empty() || !c.ids.empty() || !c.classes.empty() || !c.attributes.empty() || c.root ||
                             c.hover || c.active || c.never || c.focus || c.focus_visible || c.focus_within ||
-                            c.disabled || c.enabled ||
+                            c.disabled || c.enabled || c.read_only || c.read_write || c.placeholder_shown ||
                             c.checked || c.empty || !c.nth.empty() || !c.alternatives.empty()) {
                             return syntax("type selector must begin compound");
                         }
@@ -579,7 +583,7 @@ namespace weft::dom {
                 }
                 if (c.tag.empty() && c.ids.empty() && c.classes.empty() && c.attributes.empty() && !c.root &&
                     !c.hover && !c.active && !c.never && !c.focus && !c.focus_visible && !c.focus_within &&
-                    !c.disabled && !c.enabled &&
+                    !c.disabled && !c.enabled && !c.read_only && !c.read_write && !c.placeholder_shown &&
                     !c.checked && !c.empty && c.nth.empty() && c.alternatives.empty() &&
                     c.pseudo == PseudoElement::None) {
                     return syntax("empty selector compound");

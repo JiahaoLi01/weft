@@ -119,6 +119,12 @@ namespace weft {
             std::vector<Listener> listeners;
             // A scroll event job is queued for the node.
             bool scroll_pending{};
+            // A text field's script state beside its snapshot: its value is dirty (the user or script set it, so its
+            // default value no longer does), the value before the user's first edit since the last change event
+            // (none: no change to commit), and a selectionchange event job is queued.
+            bool field_dirty{};
+            std::optional<std::string> value_before_edit;
+            bool selectionchange_pending{};
         };
 
         struct Completion {
@@ -150,6 +156,10 @@ namespace weft {
         JSValue event_prototype{JS_UNDEFINED};
         JSValue keyboard_prototype{JS_UNDEFINED};
         JSValue focus_prototype{JS_UNDEFINED};
+        JSValue input_prototype{JS_UNDEFINED};
+        JSValue composition_prototype{JS_UNDEFINED};
+        // HTML input and textarea elements' prototype: the node prototype with the text field API.
+        JSValue field_prototype{JS_UNDEFINED};
         LayoutHost layout_host;
         ComputedStyleHost computed_style_host;
         ParticleHost particle_host;
@@ -877,6 +887,9 @@ namespace weft {
             }
             binding.listeners.clear();
             binding.scroll_pending = false;
+            binding.field_dirty = false;
+            binding.value_before_edit.reset();
+            binding.selectionchange_pending = false;
             if (auto* canvas = owner->canvases.find(n->identity)) {
                 JS_FreeValueRT(rt, canvas->context);
                 owner->canvases.erase(n->identity);
@@ -1294,6 +1307,12 @@ namespace weft {
                     throw PendingJsException{};
                 }
             }
+            if (type == constants::element_node_type && (local == "input" || local == "textarea") &&
+                space == constants::xhtml_namespace_uri) {
+                if (JS_SetPrototype(context, object.value, field_prototype) < 0) {
+                    throw PendingJsException{};
+                }
+            }
             if (JS_IsException(object.value)) {
                 faulted = true;
                 throw std::runtime_error("native wrapper allocation failed");
@@ -1316,6 +1335,7 @@ namespace weft {
             binding.expando = expando.value;
             expando.value = JS_UNDEFINED;
             JS_SetOpaque(object.value, &n);
+            sync_field(n);
             ++counters.created_nodes;
             ++counters.live_nodes;
             return JS_DupValue(context, object.value);
@@ -1340,6 +1360,7 @@ namespace weft {
             }
             const auto former = tree.detach(child);
             check_journal();
+            textarea_changed(former);
             if (former.generation) {
                 JS_FreeValue(context, edge_wrapper(former));
                 JS_FreeValue(context, wrapper(child));
@@ -1359,7 +1380,9 @@ namespace weft {
             if (move.former_parent.generation) {
                 JS_FreeValue(context, edge_wrapper(move.former_parent));
                 JS_FreeValue(context, wrapper(child));
+                textarea_changed(move.former_parent);
             }
+            textarea_changed(parent.identity);
         }
 
         std::string text(const Node& n) const {
@@ -1371,6 +1394,7 @@ namespace weft {
                 if (n.data != input) {
                     n.data = std::move(input);
                     changed(n);
+                    textarea_changed(n.parent);
                 }
                 return;
             }
@@ -1458,13 +1482,33 @@ namespace weft {
             OffsetHeight,
             OffsetParent,
             ActiveElement,
-            TabIndex
+            TabIndex,
+            // The text field API (field_property, set_field_property): every magic from FieldValue on.
+            FieldValue,
+            DefaultValue,
+            SelectionStart,
+            SelectionEnd,
+            SelectionDirection,
+            InputType,
+            Placeholder,
+            ReadOnly,
+            Disabled,
+            MaxLength,
+            FieldName,
+            TextLength
         };
 
         static JSValue get_property(JSContext* c, JSValueConst self, int magic) {
             try {
                 Node& n = node(c, self);
                 Impl& owner = state(c);
+                if (magic >= FieldValue) {
+                    return owner.field_property(n, magic);
+                }
+                // A text field scrolls its text, not its box: its scroll offsets are its field's.
+                if (n.field && (magic == ScrollLeft || magic == ScrollTop)) {
+                    return JS_NewFloat64(c, magic == ScrollLeft ? n.field->scroll_x : n.field->scroll_y);
+                }
                 switch (magic) {
                     case OffsetLeft:
                     case OffsetTop:
@@ -1636,6 +1680,22 @@ namespace weft {
         static JSValue set_property(JSContext* c, JSValueConst self, JSValueConst value, int magic) {
             try {
                 Node& n = node(c, self);
+                if (magic >= FieldValue) {
+                    state(c).set_field_property(n, magic, value);
+                    return JS_UNDEFINED;
+                }
+                if (n.field && (magic == ScrollLeft || magic == ScrollTop)) {
+                    double v{};
+                    if (JS_ToFloat64(c, &v, value) < 0) {
+                        throw PendingJsException{};
+                    }
+                    if (n.field) {
+                        const auto offset = static_cast<float>(std::isfinite(v) ? std::max(0., v) : 0.);
+                        state(c).set_field_view(n, n.field->caret_on, magic == ScrollLeft ? offset : n.field->scroll_x,
+                                                magic == ScrollTop ? offset : n.field->scroll_y);
+                    }
+                    return JS_UNDEFINED;
+                }
                 if (magic == ScrollLeft || magic == ScrollTop) {
                     double v{};
                     if (JS_ToFloat64(c, &v, value) < 0) {
@@ -1692,6 +1752,7 @@ namespace weft {
                 } else if (n.type == constants::text_node_type && n.data != input) {
                     n.data = std::move(input);
                     state(c).changed(n);
+                    state(c).textarea_changed(n.parent);
                 }
                 return JS_UNDEFINED;
             } catch (const PendingJsException&) {
@@ -1748,7 +1809,11 @@ namespace weft {
             MatchMedia,
             Blur,
             HasFocus,
-            ScrollIntoView
+            ScrollIntoView,
+            // The text field API (field_method).
+            SetSelectionRange,
+            SelectText,
+            SetRangeText
         };
 
         static JSValue arg(int argc, JSValueConst* argv, int index) {
@@ -2362,6 +2427,7 @@ namespace weft {
                             }
                             if (modified) {
                                 owner.changed(n);
+                                owner.sync_field(n);
                             }
                             return JS_UNDEFINED;
                         }
@@ -2372,6 +2438,7 @@ namespace weft {
                             if (it != n.attributes.end()) {
                                 n.attributes.erase(it);
                                 owner.changed(n);
+                                owner.sync_field(n);
                             }
                             return JS_UNDEFINED;
                         }
@@ -2482,6 +2549,10 @@ namespace weft {
                     }
                     case DispatchEvent:
                         return owner.dispatch(n, arg(argc, argv, 0));
+                    case SetSelectionRange:
+                    case SelectText:
+                    case SetRangeText:
+                        return owner.field_method(n, magic, argc, argv);
                     default:
                         return JS_UNDEFINED;
                 }
@@ -2640,6 +2711,26 @@ namespace weft {
                 property(prototype.value, "activeElement", ActiveElement);
                 property(prototype.value, "tabIndex", TabIndex, true);
                 JS_SetClassProto(context, node_class, JS_DupValue(context, prototype.value));
+                field_prototype = JS_NewObjectProto(context, prototype.value);
+                if (JS_IsException(field_prototype)) {
+                    field_prototype = JS_UNDEFINED;
+                    throw PendingJsException{};
+                }
+                property(field_prototype, "value", FieldValue, true);
+                property(field_prototype, "defaultValue", DefaultValue, true);
+                property(field_prototype, "selectionStart", SelectionStart, true);
+                property(field_prototype, "selectionEnd", SelectionEnd, true);
+                property(field_prototype, "selectionDirection", SelectionDirection, true);
+                property(field_prototype, "type", InputType, true);
+                property(field_prototype, "placeholder", Placeholder, true);
+                property(field_prototype, "readOnly", ReadOnly, true);
+                property(field_prototype, "disabled", Disabled, true);
+                property(field_prototype, "maxLength", MaxLength, true);
+                property(field_prototype, "name", FieldName, true);
+                property(field_prototype, "textLength", TextLength);
+                method(field_prototype, "setSelectionRange", SetSelectionRange, 3);
+                method(field_prototype, "select", SelectText, 0);
+                method(field_prototype, "setRangeText", SetRangeText, 4);
 
                 document_root = make_node(constants::document_node_type, "#document", "", {});
                 const auto document = node(context, document_root).identity;
@@ -2709,6 +2800,22 @@ globalThis.KeyboardEvent = class KeyboardEvent extends UIEvent {
 };
 Object.assign(KeyboardEvent, { DOM_KEY_LOCATION_STANDARD: 0, DOM_KEY_LOCATION_LEFT: 1, DOM_KEY_LOCATION_RIGHT: 2,
   DOM_KEY_LOCATION_NUMPAD: 3 });
+globalThis.InputEvent = class InputEvent extends UIEvent {
+  constructor(type, options = {}) {
+    super(type, options);
+    this.data = options.data ?? null; this.inputType = String(options.inputType ?? '');
+    this.isComposing = !!options.isComposing; this.dataTransfer = null;
+    Object.defineProperty(this, 'isTrusted', { value: false });
+  }
+  getTargetRanges() { return []; }
+};
+globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
+  constructor(type, options = {}) {
+    super(type, options);
+    this.data = String(options.data ?? '');
+    Object.defineProperty(this, 'isTrusted', { value: false });
+  }
+};
 )JS",
                      "<event-probe-bootstrap>");
                 Value mouse(context, JS_GetPropertyStr(context, global.value, "MouseEvent"));
@@ -2725,8 +2832,13 @@ Object.assign(KeyboardEvent, { DOM_KEY_LOCATION_STANDARD: 0, DOM_KEY_LOCATION_LE
                 keyboard_prototype = JS_GetPropertyStr(context, keyboard.value, "prototype");
                 Value focus_event(context, JS_GetPropertyStr(context, global.value, "FocusEvent"));
                 focus_prototype = JS_GetPropertyStr(context, focus_event.value, "prototype");
+                Value input_event(context, JS_GetPropertyStr(context, global.value, "InputEvent"));
+                input_prototype = JS_GetPropertyStr(context, input_event.value, "prototype");
+                Value composition_event(context, JS_GetPropertyStr(context, global.value, "CompositionEvent"));
+                composition_prototype = JS_GetPropertyStr(context, composition_event.value, "prototype");
                 if (JS_IsException(wheel_prototype) || JS_IsException(event_prototype) ||
-                    JS_IsException(keyboard_prototype) || JS_IsException(focus_prototype)) {
+                    JS_IsException(keyboard_prototype) || JS_IsException(focus_prototype) ||
+                    JS_IsException(input_prototype) || JS_IsException(composition_prototype)) {
                     throw PendingJsException{};
                 }
             } catch (...) {
@@ -2761,6 +2873,12 @@ Object.assign(KeyboardEvent, { DOM_KEY_LOCATION_STANDARD: 0, DOM_KEY_LOCATION_LE
             keyboard_prototype = JS_UNDEFINED;
             JS_FreeValue(context, focus_prototype);
             focus_prototype = JS_UNDEFINED;
+            JS_FreeValue(context, input_prototype);
+            input_prototype = JS_UNDEFINED;
+            JS_FreeValue(context, composition_prototype);
+            composition_prototype = JS_UNDEFINED;
+            JS_FreeValue(context, field_prototype);
+            field_prototype = JS_UNDEFINED;
             layout_host = {};
             computed_style_host = {};
             particle_host = {};
@@ -3451,8 +3569,19 @@ Object.assign(KeyboardEvent, { DOM_KEY_LOCATION_STANDARD: 0, DOM_KEY_LOCATION_LE
                 had_keyboard_event = false;
             }
             if (from) {
+                // A text field the focus leaves ends its composition (Chrome's FinishComposingText), then, without the
+                // focus, commits its change before blur (TextControlElement's blur handling).
+                if (page_focus && from->field) {
+                    finish_composition(*from);
+                    if (focused_node() != from) {
+                        return resolve(focus) == to && to;
+                    }
+                }
                 set_focus(nullptr);
                 if (page_focus) {
+                    if (from->field) {
+                        commit_change(*from);
+                    }
                     dispatch_focus_event(*from, "blur", to);
                     // focusout follows whatever blur's listeners did; it names no new element when they moved the
                     // focus.
@@ -3473,6 +3602,16 @@ Object.assign(KeyboardEvent, { DOM_KEY_LOCATION_STANDARD: 0, DOM_KEY_LOCATION_LE
             set_focus(to, visible);
             start_node = to->identity;
             start_parent = start_next = {};
+            // The keyboard selects all of an input it focuses before focus, and select follows (Chrome's
+            // SelectionBehaviorOnFocus::kReset).
+            bool selected{};
+            if (type == FocusType::Keyboard && to->field && !to->field->multiline) {
+                auto next = field_copy(*to);
+                next->selection_start = 0;
+                next->selection_end = static_cast<std::uint32_t>(next->value.size());
+                next->backward = false;
+                selected = store_field(*to, std::move(next));
+            }
             if (page_focus) {
                 const auto id = to->identity;
                 for (const char* name : {"focus", "focusin", "DOMFocusIn"}) {
@@ -3481,6 +3620,9 @@ Object.assign(KeyboardEvent, { DOM_KEY_LOCATION_STANDARD: 0, DOM_KEY_LOCATION_LE
                         return false;
                     }
                 }
+            }
+            if (selected) {
+                dispatch_plain_event(*to, "select");
             }
             if (scroll) {
                 scroll_into_view(*to, ScrollAlign::IfNeeded, ScrollAlign::IfNeeded);
@@ -3497,8 +3639,14 @@ Object.assign(KeyboardEvent, { DOM_KEY_LOCATION_STANDARD: 0, DOM_KEY_LOCATION_LE
             Node* target = focused_node();
             Value hold(context, target ? JS_DupValue(context, wrapper(*target)) : JS_UNDEFINED);
             if (!focused) {
+                if (target && target->field) {
+                    finish_composition(*target);
+                }
                 update_focus_flags();
                 if (target) {
+                    if (target->field) {
+                        commit_change(*target);
+                    }
                     dispatch_focus_event(*target, "blur", nullptr);
                     if (focused_node() == target) {
                         dispatch_focus_event(*target, "focusout", nullptr);
@@ -3786,6 +3934,860 @@ Object.assign(KeyboardEvent, { DOM_KEY_LOCATION_STANDARD: 0, DOM_KEY_LOCATION_LE
                 it->value = std::move(value);
             }
             changed(n);
+            sync_field(n);
+        }
+
+        // Text fields (dom/text_field.hpp): an HTML input of a text type and a textarea. A field's state is its node's
+        // field, replaced whole when it changes (snapshots share the old one); its offsets are the value's UTF-8 bytes,
+        // the DOM's UTF-16 code units.
+
+        // Line breaks as a textarea keeps them: CR LF and CR become LF.
+        static std::string line_feeds(std::string text) {
+            std::string out;
+            out.reserve(text.size());
+            for (std::size_t i = 0; i < text.size(); ++i) {
+                if (text[i] != '\r') {
+                    out += text[i];
+                    continue;
+                }
+                out += '\n';
+                if (i + 1 < text.size() && text[i + 1] == '\n') {
+                    ++i;
+                }
+            }
+            return out;
+        }
+
+        // A valid floating-point number (HTML §2.3.4.3): an optional minus, digits with an optional fraction (or only
+        // the fraction), and an optional exponent.
+        static bool valid_float(std::string_view s) {
+            std::size_t i = 0;
+            const auto digits = [&] {
+                const auto from = i;
+                while (i < s.size() && s[i] >= '0' && s[i] <= '9') {
+                    ++i;
+                }
+                return i > from;
+            };
+            if (i < s.size() && s[i] == '-') {
+                ++i;
+            }
+            const bool whole = digits();
+            if (i < s.size() && s[i] == '.') {
+                ++i;
+                if (!digits()) {
+                    return false;
+                }
+            } else if (!whole) {
+                return false;
+            }
+            if (i < s.size() && (s[i] == 'e' || s[i] == 'E')) {
+                ++i;
+                if (i < s.size() && (s[i] == '+' || s[i] == '-')) {
+                    ++i;
+                }
+                if (!digits()) {
+                    return false;
+                }
+            }
+            return i == s.size();
+        }
+
+        // HTML's value sanitization algorithm of the field's type: a textarea's line breaks become LF; an input loses
+        // its line breaks, an email or url also its leading and trailing white space, and a number that is not a valid
+        // floating-point number becomes empty.
+        static std::string sanitize_value(const Node& n, std::string value) {
+            if (n.local == "textarea") {
+                return line_feeds(std::move(value));
+            }
+            std::erase_if(value, [](char c) {
+                return c == '\r' || c == '\n';
+            });
+            const auto type = text_field_type(attribute(n, "type"));
+            if (type == "email" || type == "url") {
+                const auto space = [](char c) {
+                    return c == ' ' || c == '\t' || c == '\f';
+                };
+                while (!value.empty() && space(value.back())) {
+                    value.pop_back();
+                }
+                value.erase(value.begin(), std::find_if_not(value.begin(), value.end(), space));
+            }
+            if (type == "number" && !valid_float(value)) {
+                value.clear();
+            }
+            return value;
+        }
+
+        // A field's default value: an input's value content attribute, a textarea's child text.
+        std::string default_value(const Node& n) const {
+            if (n.local != "textarea") {
+                const auto* v = attribute(n, "value");
+                return v ? *v : std::string();
+            }
+            std::string text;
+            for (const auto id : n.children) {
+                if (const auto& child = node_at(id); child.type == constants::text_node_type) {
+                    text += child.data;
+                }
+            }
+            return text;
+        }
+
+        // An offset into a value: at most its size, at the start of a character.
+        static std::uint32_t boundary(std::string_view value, std::size_t offset) {
+            offset = std::min(offset, value.size());
+            while (offset < value.size() && (static_cast<unsigned char>(value[offset]) & 0xC0) == 0x80) {
+                ++offset;
+            }
+            return static_cast<std::uint32_t>(offset);
+        }
+
+        // Keeps a field's selection and composition in its value; a composition that does not fit ends.
+        static void clamp_field(TextFieldState& f) {
+            f.selection_start = boundary(f.value, f.selection_start);
+            f.selection_end = std::max(f.selection_start, boundary(f.value, f.selection_end));
+            if (f.composing && (f.composition_start > f.composition_end || f.composition_end > f.value.size())) {
+                f.composing = false;
+            }
+            if (!f.composing) {
+                f.composition_start = f.composition_end = f.clause_start = f.clause_end = 0;
+                return;
+            }
+            f.clause_start = std::clamp(f.clause_start, f.composition_start, f.composition_end);
+            f.clause_end = std::clamp(f.clause_end, f.clause_start, f.composition_end);
+        }
+
+        std::shared_ptr<TextFieldState> field_copy(const Node& n) const {
+            return std::make_shared<TextFieldState>(*n.field);
+        }
+
+        // Makes next n's field state when it differs from the one there: n restyles, and selectionchange follows when
+        // the selection moved. Whether it changed.
+        bool store_field(Node& n, std::shared_ptr<TextFieldState> next) {
+            clamp_field(*next);
+            const auto* old = n.field.get();
+            if (old && *old == *next) {
+                return false;
+            }
+            const bool moved =
+                old && (old->selection_start != next->selection_start || old->selection_end != next->selection_end);
+            n.field = std::move(next);
+            changed(n);
+            if (moved) {
+                queue_event(n, "selectionchange");
+            }
+            return true;
+        }
+
+        // Brings n's text field state up to date with the element: whether it is a field (an input's type decides),
+        // its placeholder, whether the user may edit it, and its value, its default value while the user and script
+        // have not set it (the value is not dirty). The selection and composition stay in the value.
+        void sync_field(Node& n) {
+            if (n.type != constants::element_node_type || n.space != constants::xhtml_namespace_uri ||
+                (n.local != "input" && n.local != "textarea")) {
+                return;
+            }
+            auto& b = binding(n);
+            const auto* type = attribute(n, "type");
+            if (!text_field_element(n.local, true, type)) {
+                if (n.field) {
+                    n.field.reset();
+                    b.field_dirty = false;
+                    b.value_before_edit.reset();
+                    changed(n);
+                }
+                return;
+            }
+            auto next = n.field ? field_copy(n) : std::make_shared<TextFieldState>();
+            next->multiline = n.local == "textarea";
+            next->password = !next->multiline && text_field_type(type) == "password";
+            const auto* placeholder = attribute(n, "placeholder");
+            next->placeholder = placeholder ? *placeholder : std::string();
+            if (next->multiline) {
+                next->placeholder = line_feeds(std::move(next->placeholder));
+            } else {
+                std::erase_if(next->placeholder, [](char c) {
+                    return c == '\r' || c == '\n';
+                });
+            }
+            next->editable = !attribute(n, "readonly") && !disabled(n);
+            next->value = sanitize_value(n, b.field_dirty ? std::move(next->value) : default_value(n));
+            store_field(n, std::move(next));
+        }
+
+        // A textarea's child text changed: its default value with it.
+        void textarea_changed(NodeIdentity parent) {
+            if (auto* p = resolve(parent); p && p->local == "textarea") {
+                sync_field(*p);
+            }
+        }
+
+        // Sets what a trusted event starts with: its type and flags, no target yet, the page's clock.
+        void init_event(JSValueConst event, const char* type, bool bubbles, bool cancelable, bool composed) {
+            event_property(event, "type", JS_NewString(context, type));
+            event_property(event, "bubbles", JS_NewBool(context, bubbles));
+            event_property(event, "cancelable", JS_NewBool(context, cancelable));
+            event_property(event, "composed", JS_NewBool(context, composed));
+            event_property(event, "defaultPrevented", JS_FALSE);
+            event_property(event, "currentTarget", JS_NULL);
+            event_property(event, "eventPhase", JS_NewInt32(context, constants::script::event_phase_none));
+            event_property(event, "timeStamp", JS_NewFloat64(context, clock_ms));
+            if (JS_DefinePropertyValueStr(context, event, "isTrusted", JS_TRUE, 0) < 0) {
+                throw PendingJsException{};
+            }
+        }
+
+        // An Event of type at target, bubbling and not cancelable: change, select, selectionchange, a search field's
+        // input.
+        void dispatch_plain_event(Node& target, const char* type) {
+            Value event(context, JS_NewObjectProto(context, event_prototype));
+            init_event(event.value, type, true, false, false);
+            Value result(context, dispatch(target, event.value));
+        }
+
+        // An InputEvent at target (beforeinput, input): its inputType, its data (none: null) and whether a composition
+        // goes on. Whether its default action may go ahead.
+        bool dispatch_input_event(Node& target, const char* type, std::string_view input_type,
+                                  std::optional<std::string_view> data, bool composing, bool cancelable) {
+            Value event(context, JS_NewObjectProto(context, input_prototype));
+            init_event(event.value, type, true, cancelable, true);
+            event_property(event.value, "view", JS_GetGlobalObject(context));
+            event_property(event.value, "detail", JS_NewInt32(context, 0));
+            event_property(event.value, "inputType", JS_NewStringLen(context, input_type.data(), input_type.size()));
+            event_property(event.value, "data", data ? JS_NewStringLen(context, data->data(), data->size()) : JS_NULL);
+            event_property(event.value, "isComposing", JS_NewBool(context, composing));
+            event_property(event.value, "dataTransfer", JS_NULL);
+            Value result(context, dispatch(target, event.value));
+            return JS_ToBool(context, result.value) > 0;
+        }
+
+        // A CompositionEvent at target: compositionstart (cancelable, to no effect), compositionupdate, compositionend.
+        void dispatch_composition_event(Node& target, const char* type, std::string_view data) {
+            Value event(context, JS_NewObjectProto(context, composition_prototype));
+            init_event(event.value, type, true, std::string_view(type) == "compositionstart", true);
+            event_property(event.value, "view", JS_GetGlobalObject(context));
+            event_property(event.value, "detail", JS_NewInt32(context, 0));
+            event_property(event.value, "data", JS_NewStringLen(context, data.data(), data.size()));
+            Value result(context, dispatch(target, event.value));
+        }
+
+        // Queues an Event of type at n, as a task fires it after the running script: selectionchange once until it
+        // fires, select (a script's selection, Chrome's ScheduleSelectEvent) each time.
+        void queue_event(Node& n, const char* type) {
+            const bool coalesced = std::string_view(type) == "selectionchange";
+            if (coalesced) {
+                if (binding(n).selectionchange_pending) {
+                    return;
+                }
+                binding(n).selectionchange_pending = true;
+            }
+            Value name(context, JS_NewString(context, type));
+            JSValue args[]{wrapper(n), name.value};
+            if (JS_EnqueueJob(
+                    context,
+                    [](JSContext* c, int, JSValueConst* args) -> JSValue {
+                        try {
+                            auto& owner = state(c);
+                            auto& n = node(c, args[0]);
+                            const auto type = string_value(c, args[1]);
+                            if (type == "selectionchange") {
+                                owner.binding(n).selectionchange_pending = false;
+                            }
+                            if (owner.resolve(n.identity) != &n || !owner.connected(n)) {
+                                return JS_UNDEFINED;
+                            }
+                            owner.dispatch_plain_event(n, type.c_str());
+                            return JS_UNDEFINED;
+                        } catch (const PendingJsException&) {
+                            return JS_EXCEPTION;
+                        } catch (const std::exception& e) {
+                            return JS_ThrowInternalError(c, "%s", e.what());
+                        } catch (...) {
+                            return JS_ThrowInternalError(c, "WEFT_FIELD_EVENT_JOB: native exception");
+                        }
+                    },
+                    2, args) < 0) {
+                if (coalesced) {
+                    binding(n).selectionchange_pending = false;
+                }
+                throw PendingJsException{};
+            }
+        }
+
+        // Throws a DOMException named name (a RangeError without the web platform module's DOMException).
+        [[noreturn]] void throw_dom(const char* name, const char* message) {
+            Value global(context, JS_GetGlobalObject(context));
+            Value constructor(context, JS_GetPropertyStr(context, global.value, "DOMException"));
+            if (JS_IsFunction(context, constructor.value)) {
+                Value text(context, JS_NewString(context, message));
+                Value kind(context, JS_NewString(context, name));
+                JSValue args[]{text.value, kind.value};
+                JSValue error = JS_CallConstructor(context, constructor.value, 2, args);
+                if (!JS_IsException(error)) {
+                    JS_Throw(context, error);
+                }
+                throw PendingJsException{};
+            }
+            JS_ThrowRangeError(context, "%s: %s", name, message);
+            throw PendingJsException{};
+        }
+
+        void remove_attribute(Node& n, std::string_view name) {
+            const auto it = std::find_if(n.attributes.begin(), n.attributes.end(), [&](const Attribute& a) {
+                return a.space.empty() && a.name == name;
+            });
+            if (it != n.attributes.end()) {
+                n.attributes.erase(it);
+                changed(n);
+                sync_field(n);
+            }
+        }
+
+        // Whether the selection API (selectionStart, selectionEnd, selectionDirection, setSelectionRange, setRangeText)
+        // applies to a text field: a textarea, or an input of type text, search, url, tel or password (HTML: not email
+        // and number, whose selection script cannot see).
+        static bool selectable(const Node& n) {
+            if (!n.field) {
+                return false;
+            }
+            if (n.local == "textarea") {
+                return true;
+            }
+            const auto type = text_field_type(attribute(n, "type"));
+            return type != "email" && type != "number";
+        }
+
+        // The text field API's attributes (HTMLInputElement, HTMLTextAreaElement), on an input of another type too.
+        JSValue field_property(Node& n, int magic) {
+            const auto* f = selectable(n) || (magic != SelectionStart && magic != SelectionEnd &&
+                                              magic != SelectionDirection)
+                                ? n.field.get()
+                                : nullptr;
+            const auto string = [&](std::string_view s) {
+                return JS_NewStringLen(context, s.data(), s.size());
+            };
+            const auto attribute_text = [&](std::string_view name) {
+                const auto* v = attribute(n, name);
+                return v ? string(*v) : string({});
+            };
+            switch (magic) {
+                case FieldValue: {
+                    if (f) {
+                        return string(f->value);
+                    }
+                    // An input of another type: its value attribute ("on" for a checkbox or radio without one).
+                    if (const auto* v = attribute(n, "value")) {
+                        return string(*v);
+                    }
+                    const auto type = text_field_type(attribute(n, "type"));
+                    return string(type == "checkbox" || type == "radio" ? "on" : "");
+                }
+                case DefaultValue:
+                    return string(default_value(n));
+                case SelectionStart:
+                case SelectionEnd:
+                    if (!f) {
+                        return JS_NULL;
+                    }
+                    return JS_NewUint32(context, static_cast<std::uint32_t>(utf16_offset(
+                                                     f->value, magic == SelectionStart ? f->selection_start
+                                                                                       : f->selection_end)));
+                case SelectionDirection:
+                    // Windows has no "none": a selection without a direction goes forward (Chrome's
+                    // ShouldConsiderSelectionAsDirectional).
+                    return f ? JS_NewString(context, f->backward ? "backward" : "forward") : JS_NULL;
+                case InputType:
+                    return n.local == "textarea" ? JS_NewString(context, "textarea")
+                                                 : string(text_field_type(attribute(n, "type")));
+                case Placeholder:
+                    return attribute_text("placeholder");
+                case ReadOnly:
+                    return JS_NewBool(context, attribute(n, "readonly") != nullptr);
+                case Disabled:
+                    return JS_NewBool(context, attribute(n, "disabled") != nullptr);
+                case MaxLength: {
+                    const auto v = integer_attribute(n, "maxlength");
+                    return JS_NewInt32(context, v && *v >= 0 ? *v : -1);
+                }
+                case FieldName:
+                    return attribute_text("name");
+                case TextLength:
+                    return JS_NewUint32(context, f ? static_cast<std::uint32_t>(utf16_length(f->value)) : 0);
+                default:
+                    return JS_UNDEFINED;
+            }
+        }
+
+        void set_field_property(Node& n, int magic, JSValueConst value) {
+            switch (magic) {
+                case FieldValue: {
+                    // [LegacyNullToEmptyString]
+                    std::string text = JS_IsNull(value) ? std::string() : string_value(context, value);
+                    if (!n.field) {
+                        set_attribute(n, "value", std::move(text));
+                    } else {
+                        set_value(n, std::move(text));
+                    }
+                    return;
+                }
+                case DefaultValue: {
+                    std::string text = string_value(context, value);
+                    if (n.local == "textarea") {
+                        set_text(n, std::move(text));
+                    } else {
+                        set_attribute(n, "value", std::move(text));
+                    }
+                    return;
+                }
+                case SelectionStart:
+                case SelectionEnd:
+                case SelectionDirection: {
+                    // Conversions first: they may run script.
+                    std::uint32_t units{};
+                    std::string direction;
+                    if (magic == SelectionDirection) {
+                        direction = string_value(context, value);
+                    } else if (JS_ToUint32(context, &units, value) < 0) {
+                        throw PendingJsException{};
+                    }
+                    if (!selectable(n)) {
+                        throw_dom("InvalidStateError", "The element's type does not support selection.");
+                    }
+                    const auto& f = *n.field;
+                    auto start = f.selection_start;
+                    auto end = f.selection_end;
+                    bool backward = f.backward;
+                    const auto offset = static_cast<std::uint32_t>(byte_offset(f.value, units));
+                    if (magic == SelectionStart) {
+                        start = offset;
+                        end = std::max(end, offset);
+                    } else if (magic == SelectionEnd) {
+                        end = offset;
+                    } else {
+                        backward = direction == "backward";
+                    }
+                    set_selection_range(n, start, end, backward);
+                    return;
+                }
+                case InputType:
+                    if (n.local != "textarea") {
+                        set_attribute(n, "type", string_value(context, value));
+                    }
+                    return;
+                case Placeholder:
+                    set_attribute(n, "placeholder", string_value(context, value));
+                    return;
+                case FieldName:
+                    set_attribute(n, "name", string_value(context, value));
+                    return;
+                case ReadOnly:
+                case Disabled: {
+                    const int on = JS_ToBool(context, value);
+                    if (on < 0) {
+                        throw PendingJsException{};
+                    }
+                    const char* name = magic == ReadOnly ? "readonly" : "disabled";
+                    if (on) {
+                        set_attribute(n, name, "");
+                    } else {
+                        remove_attribute(n, name);
+                    }
+                    return;
+                }
+                case MaxLength: {
+                    std::int32_t v{};
+                    if (JS_ToInt32(context, &v, value) < 0) {
+                        throw PendingJsException{};
+                    }
+                    if (v < 0) {
+                        throw_dom("IndexSizeError", "The value provided is negative.");
+                    }
+                    set_attribute(n, "maxlength", std::to_string(v));
+                    return;
+                }
+                default:
+                    return;
+            }
+        }
+
+        // setSelectionRange(start, end, direction), select() and setRangeText(replacement, start, end, selectionMode).
+        JSValue field_method(Node& n, int magic, int argc, JSValueConst* argv) {
+            switch (magic) {
+                case SetSelectionRange: {
+                    std::uint32_t start{};
+                    std::uint32_t end{};
+                    if (JS_ToUint32(context, &start, arg(argc, argv, 0)) < 0 ||
+                        JS_ToUint32(context, &end, arg(argc, argv, 1)) < 0) {
+                        throw PendingJsException{};
+                    }
+                    const auto direction = arg(argc, argv, 2);
+                    const bool backward = !JS_IsUndefined(direction) && string_value(context, direction) == "backward";
+                    if (!selectable(n)) {
+                        throw_dom("InvalidStateError", "The element's type does not support selection.");
+                    }
+                    const auto& value = n.field->value;
+                    set_selection_range(n, static_cast<std::uint32_t>(byte_offset(value, start)),
+                                        static_cast<std::uint32_t>(byte_offset(value, end)), backward);
+                    return JS_UNDEFINED;
+                }
+                case SelectText:
+                    if (!n.field) {
+                        return JS_UNDEFINED;
+                    }
+                    set_selection_range(n, 0, static_cast<std::uint32_t>(n.field->value.size()), false);
+                    // select() focuses the field and keeps the selection (Chrome's TextControlElement::select).
+                    if (focusable(n)) {
+                        move_focus(&n, FocusType::Script, true);
+                    }
+                    return JS_UNDEFINED;
+                case SetRangeText: {
+                    if (argc < 1 || argc == 2) {
+                        JS_ThrowTypeError(context, "setRangeText: a replacement, or a replacement, start and end");
+                        throw PendingJsException{};
+                    }
+                    std::string text = string_value(context, argv[0]);
+                    std::optional<std::pair<std::uint32_t, std::uint32_t>> range;
+                    std::string mode = "preserve";
+                    if (argc >= 3) {
+                        std::uint32_t start{};
+                        std::uint32_t end{};
+                        if (JS_ToUint32(context, &start, argv[1]) < 0 || JS_ToUint32(context, &end, argv[2]) < 0) {
+                            throw PendingJsException{};
+                        }
+                        range.emplace(start, end);
+                        if (argc >= 4 && !JS_IsUndefined(argv[3])) {
+                            mode = string_value(context, argv[3]);
+                            if (mode != "select" && mode != "start" && mode != "end" && mode != "preserve") {
+                                JS_ThrowTypeError(context, "setRangeText: '%s' is not a SelectionMode", mode.c_str());
+                                throw PendingJsException{};
+                            }
+                        }
+                    }
+                    if (!selectable(n)) {
+                        throw_dom("InvalidStateError", "The element's type does not support selection.");
+                    }
+                    if (range && range->first > range->second) {
+                        throw_dom("IndexSizeError", "The start is greater than the end.");
+                    }
+                    set_range_text(n, std::move(text), range, mode);
+                    return JS_UNDEFINED;
+                }
+                default:
+                    return JS_UNDEFINED;
+            }
+        }
+
+        // HTML's set the selection range, as script sets one: start no later than end; a change fires select as a task
+        // (Chrome's ScheduleSelectEvent).
+        void set_selection_range(Node& n, std::uint32_t start, std::uint32_t end, bool backward) {
+            auto next = field_copy(n);
+            next->selection_end = boundary(next->value, end);
+            next->selection_start = std::min(boundary(next->value, start), next->selection_end);
+            next->backward = backward;
+            if (store_field(n, std::move(next))) {
+                queue_event(n, "select");
+            }
+        }
+
+        // value = text by script: the value is dirty; when it changes the caret goes to its end and a composition ends
+        // without events (Chrome's TextFieldInputType::SetValue).
+        void set_value(Node& n, std::string text) {
+            binding(n).field_dirty = true;
+            text = sanitize_value(n, std::move(text));
+            if (text == n.field->value) {
+                return;
+            }
+            auto next = field_copy(n);
+            next->value = std::move(text);
+            next->selection_start = next->selection_end = static_cast<std::uint32_t>(next->value.size());
+            next->backward = false;
+            next->composing = false;
+            store_field(n, std::move(next));
+        }
+
+        // HTML's setRangeText: [start, end) (without them, the selection) becomes text; the selection then selects it,
+        // goes to its start or end, or stays where it was in the text around it (preserve). The value is dirty; select
+        // follows as a task when the selection changed.
+        void set_range_text(Node& n, std::string text, std::optional<std::pair<std::uint32_t, std::uint32_t>> range,
+                            std::string_view mode) {
+            auto next = field_copy(n);
+            auto& f = *next;
+            text = f.multiline ? line_feeds(std::move(text)) : text;
+            if (!f.multiline) {
+                std::erase_if(text, [](char c) {
+                    return c == '\r' || c == '\n';
+                });
+            }
+            std::uint32_t start = f.selection_start;
+            std::uint32_t end = f.selection_end;
+            if (range) {
+                end = boundary(f.value, byte_offset(f.value, range->second));
+                start = std::min(boundary(f.value, byte_offset(f.value, range->first)), end);
+            }
+            const auto old_start = f.selection_start;
+            const auto old_end = f.selection_end;
+            const bool old_backward = f.backward;
+            f.value.replace(start, end - start, text);
+            const auto new_end = static_cast<std::uint32_t>(start + text.size());
+            const auto delta = static_cast<std::int64_t>(text.size()) - static_cast<std::int64_t>(end - start);
+            std::uint32_t s = start;
+            std::uint32_t e = new_end;
+            if (mode == "start") {
+                e = start;
+            } else if (mode == "end") {
+                s = new_end;
+            } else if (mode == "preserve") {
+                const auto keep = [&](std::uint32_t o, bool at_end) {
+                    if (o > end) {
+                        return static_cast<std::uint32_t>(o + delta);
+                    }
+                    return o > start ? (at_end ? new_end : start) : o;
+                };
+                s = keep(old_start, false);
+                e = keep(old_end, true);
+            }
+            f.selection_start = s;
+            f.selection_end = e;
+            f.backward = false;
+            binding(n).field_dirty = true;
+            store_field(n, std::move(next));
+            const auto& now = *n.field;
+            if (now.selection_start != old_start || now.selection_end != old_end || now.backward != old_backward) {
+                queue_event(n, "select");
+            }
+        }
+
+        // As much of text as the field's maxlength lets replace [start, end) of its value, in whole characters (lengths
+        // in UTF-16 code units, as HTML counts them).
+        std::string fit_max_length(const Node& n, const TextFieldState& f, std::uint32_t start, std::uint32_t end,
+                                   std::string text) const {
+            const auto limit = integer_attribute(n, "maxlength");
+            if (!limit || *limit < 0 || text.empty()) {
+                return text;
+            }
+            const std::string_view value(f.value);
+            const auto kept = utf16_length(value.substr(0, start)) + utf16_length(value.substr(end));
+            auto room = static_cast<std::size_t>(*limit) > kept ? static_cast<std::size_t>(*limit) - kept : 0;
+            std::size_t i = 0;
+            while (i < text.size()) {
+                const auto lead = static_cast<unsigned char>(text[i]);
+                const std::size_t bytes = lead < 0x80 ? 1 : lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : lead >= 0xC0 ? 2 : 1;
+                const std::size_t units = bytes == 4 ? 2 : 1;
+                if (units > room) {
+                    break;
+                }
+                room -= units;
+                i += bytes;
+            }
+            text.resize(std::min(i, text.size()));
+            return text;
+        }
+
+        // [start, end) of f, n's next state, becomes text with the caret after it, by the user: the value is dirty, and
+        // change compares with what it was before, unless an edit since the last change remembered that already.
+        void user_edit(Node& n, TextFieldState& f, std::uint32_t start, std::uint32_t end, std::string_view text) {
+            auto& b = binding(n);
+            if (!b.value_before_edit) {
+                b.value_before_edit = n.field->value;
+            }
+            b.field_dirty = true;
+            f.value.replace(start, end - start, text);
+            f.selection_start = f.selection_end = static_cast<std::uint32_t>(start + text.size());
+            f.backward = false;
+        }
+
+        // An edit the user makes (ScriptDom::edit_text_field).
+        TextEditResult edit_field(Node& n, std::uint32_t start, std::uint32_t end, std::string text,
+                                  std::string_view input_type, bool data) {
+            Value hold(context, JS_DupValue(context, wrapper(n)));
+            if (!dispatch_input_event(n, "beforeinput", input_type,
+                                      data ? std::optional<std::string_view>(text) : std::nullopt, false, true)) {
+                return TextEditResult::Prevented;
+            }
+            if (!n.field || !n.field->editable || !connected(n)) {
+                return TextEditResult::Refused;
+            }
+            auto next = field_copy(n);
+            auto& f = *next;
+            end = boundary(f.value, end);
+            start = std::min(boundary(f.value, start), end);
+            text = fit_max_length(n, f, start, end, std::move(text));
+            if (start == end && text.empty()) {
+                return TextEditResult::Unchanged;
+            }
+            user_edit(n, f, start, end, text);
+            f.composing = false;
+            store_field(n, std::move(next));
+            dispatch_input_event(n, "input", input_type, data ? std::optional<std::string_view>(text) : std::nullopt,
+                                 false, false);
+            return TextEditResult::Changed;
+        }
+
+        // The user selects from anchor to extent, its focus (ScriptDom::select_text_field).
+        bool select_field(Node& n, std::uint32_t anchor, std::uint32_t extent, bool select_event) {
+            if (!n.field) {
+                return false;
+            }
+            auto next = field_copy(n);
+            anchor = boundary(next->value, anchor);
+            extent = boundary(next->value, extent);
+            next->selection_start = std::min(anchor, extent);
+            next->selection_end = std::max(anchor, extent);
+            next->backward = extent < anchor;
+            const bool moved = store_field(n, std::move(next));
+            if (moved && select_event && anchor != extent) {
+                dispatch_plain_event(n, "select");
+            }
+            return moved;
+        }
+
+        // Selects the composition, as Chrome's InputMethodController does before it replaces it.
+        void select_composition(Node& n) {
+            auto next = field_copy(n);
+            next->selection_start = next->composition_start;
+            next->selection_end = next->composition_end;
+            next->backward = false;
+            store_field(n, std::move(next));
+        }
+
+        // The input method composes (ScriptDom::compose_text_field).
+        void compose_field(Node& n, std::string text, std::uint32_t selection_start, std::uint32_t selection_end,
+                           std::uint32_t clause_start, std::uint32_t clause_end) {
+            Value hold(context, JS_DupValue(context, wrapper(n)));
+            if (!n.field->composing) {
+                if (text.empty()) {
+                    return;
+                }
+                const auto& f = *n.field;
+                const std::string selected = f.value.substr(f.selection_start, f.selection_end - f.selection_start);
+                dispatch_composition_event(n, "compositionstart", selected);
+                if (!n.field || !connected(n)) {
+                    return;
+                }
+                auto next = field_copy(n);
+                next->composing = true;
+                next->composition_start = next->selection_start;
+                next->composition_end = next->selection_end;
+                store_field(n, std::move(next));
+            } else {
+                select_composition(n);
+            }
+            dispatch_composition_event(n, "compositionupdate", text);
+            dispatch_input_event(n, "beforeinput", "insertCompositionText", text, true, false);
+            if (!n.field || !n.field->composing || !connected(n)) {
+                return;
+            }
+            auto next = field_copy(n);
+            auto& f = *next;
+            const auto start = f.composition_start;
+            user_edit(n, f, start, f.composition_end, text);
+            const bool cancel = text.empty();
+            f.composing = !cancel;
+            f.composition_end = static_cast<std::uint32_t>(start + text.size());
+            const auto a = boundary(text, selection_start);
+            const auto b = boundary(text, selection_end);
+            f.selection_start = start + std::min(a, b);
+            f.selection_end = start + std::max(a, b);
+            f.clause_start = start + boundary(text, clause_start);
+            f.clause_end = start + boundary(text, clause_end);
+            store_field(n, std::move(next));
+            dispatch_input_event(n, "input", "insertCompositionText",
+                                 cancel ? std::nullopt : std::optional<std::string_view>(text), true, false);
+            if (cancel) {
+                dispatch_composition_event(n, "compositionend", "");
+            }
+        }
+
+        // The input method commits (ScriptDom::commit_text_field).
+        void commit_field(Node& n, std::string text) {
+            Value hold(context, JS_DupValue(context, wrapper(n)));
+            if (!n.field->composing) {
+                if (!text.empty()) {
+                    const auto& f = *n.field;
+                    edit_field(n, f.selection_start, f.selection_end, std::move(text), "insertText", true);
+                }
+                return;
+            }
+            select_composition(n);
+            dispatch_composition_event(n, "compositionupdate", text);
+            dispatch_input_event(n, "beforeinput", "insertCompositionText", text, true, false);
+            if (!n.field || !n.field->composing || !connected(n)) {
+                return;
+            }
+            auto next = field_copy(n);
+            auto& f = *next;
+            text = fit_max_length(n, f, f.composition_start, f.composition_end, std::move(text));
+            user_edit(n, f, f.composition_start, f.composition_end, text);
+            f.composing = false;
+            store_field(n, std::move(next));
+            dispatch_input_event(n, "input", "insertCompositionText",
+                                 text.empty() ? std::nullopt : std::optional<std::string_view>(text), true, false);
+            dispatch_composition_event(n, "compositionend", text);
+        }
+
+        // The focus leaves a composition: it ends where it is and its text stays (Chrome's FinishComposingText).
+        void finish_composition(Node& n) {
+            if (!n.field || !n.field->composing) {
+                return;
+            }
+            auto next = field_copy(n);
+            const std::string text =
+                next->value.substr(next->composition_start, next->composition_end - next->composition_start);
+            next->composing = false;
+            store_field(n, std::move(next));
+            dispatch_composition_event(n, "compositionend", text);
+        }
+
+        // Chrome's DispatchFormControlChangeEvent: change when the value differs from what it was before the user's
+        // first edit since the last change.
+        void commit_change(Node& n) {
+            auto& b = binding(n);
+            if (!b.value_before_edit) {
+                return;
+            }
+            const bool differs = n.field && *b.value_before_edit != n.field->value;
+            b.value_before_edit.reset();
+            if (differs) {
+                dispatch_plain_event(n, "change");
+            }
+        }
+
+        // A text field of the document.
+        Node* field_node(NodeIdentity element) const {
+            auto* n = resolve(element);
+            return n && connected(*n) && n->field ? n : nullptr;
+        }
+
+        // The user sets the whole value (ScriptDom::set_text_field_value).
+        void set_field_value_for_user(Node& n, std::string text) {
+            text = sanitize_value(n, std::move(text));
+            if (text == n.field->value) {
+                return;
+            }
+            auto next = field_copy(n);
+            user_edit(n, *next, 0, static_cast<std::uint32_t>(next->value.size()), text);
+            next->composing = false;
+            store_field(n, std::move(next));
+            dispatch_plain_event(n, "input");
+        }
+
+        // What a field shows that its page does not see (ScriptDom::set_text_field_view); its text scrolling fires
+        // scroll.
+        void set_field_view(Node& n, bool caret_on, float scroll_x, float scroll_y) {
+            const auto& f = *n.field;
+            const bool scrolled = f.scroll_x != scroll_x || f.scroll_y != scroll_y;
+            if (f.caret_on == caret_on && !scrolled) {
+                return;
+            }
+            auto next = field_copy(n);
+            next->caret_on = caret_on;
+            next->scroll_x = scroll_x;
+            next->scroll_y = scroll_y;
+            store_field(n, std::move(next));
+            if (scrolled) {
+                queue_scroll(n);
+            }
         }
 
         // document.__ceStorage(area, op, key, value) of the web platform: area 0 is localStorage, 1 sessionStorage;
@@ -4300,6 +5302,9 @@ Object.assign(KeyboardEvent, { DOM_KEY_LOCATION_STANDARD: 0, DOM_KEY_LOCATION_LE
             case MouseType::PointerCancel:
                 type = "pointercancel";
                 break;
+            case MouseType::DblClick:
+                type = "dblclick";
+                break;
             default:
                 throw std::invalid_argument("WEFT_MOUSE_PROFILE: unsupported event type");
         }
@@ -4307,7 +5312,7 @@ Object.assign(KeyboardEvent, { DOM_KEY_LOCATION_STANDARD: 0, DOM_KEY_LOCATION_LE
         // events' (click's) whole CSS px; detail counts the clicks of down, up and click, and is 0 for the others. A
         // simulated click (the keyboard's) has pointerId -1, no pointer type, no position and detail 0.
         const bool pointer = std::string_view(type).starts_with("pointer");
-        const bool counted = down || up || input.type == MouseType::Click;
+        const bool counted = down || up || input.type == MouseType::Click || input.type == MouseType::DblClick;
         const bool simulated = input.simulated && input.type == MouseType::Click;
         const auto position = [&](double v) {
             return simulated ? 0.0 : pointer ? v : std::floor(v);
@@ -4347,7 +5352,7 @@ Object.assign(KeyboardEvent, { DOM_KEY_LOCATION_STANDARD: 0, DOM_KEY_LOCATION_LE
             property("view", JS_GetGlobalObject(c));
             const auto* related = impl_->resolve(input.related_target);
             property("relatedTarget", related ? JS_DupValue(c, impl_->wrapper(*related)) : JS_NULL);
-            property("detail", JS_NewInt32(c, counted && !pointer && !simulated ? 1 : 0));
+            property("detail", JS_NewUint32(c, counted && !pointer && !simulated ? std::max(1u, input.clicks) : 0));
             property("button", JS_NewInt32(c, 0));
             property("buttons", JS_NewUint32(c, simulated ? 0 : input.buttons));
             property("clientX", JS_NewFloat64(c, position(input.client_x)));
@@ -4567,6 +5572,119 @@ Object.assign(KeyboardEvent, { DOM_KEY_LOCATION_STANDARD: 0, DOM_KEY_LOCATION_LE
     DomChanges ScriptDom::changes_since(std::uint64_t revision) const {
         impl_->require_runtime();
         return impl_->tree.changes_since(revision);
+    }
+
+    namespace {
+        void check_text(std::string_view text) {
+            if (text.size() > constants::input::max_text_bytes || !bridge::utf8(text)) {
+                throw std::invalid_argument("WEFT_TEXT_FIELD: UTF-8 text of at most 4096 bytes");
+            }
+        }
+    } // namespace
+
+    std::shared_ptr<const TextFieldState> ScriptDom::text_field(NodeIdentity element) const {
+        impl_->check_owner();
+        const auto* n = impl_->resolve(element);
+        return n ? n->field : nullptr;
+    }
+
+    TextEditResult ScriptDom::edit_text_field(NodeIdentity element, std::uint32_t start, std::uint32_t end,
+                                              std::string_view text, std::string_view input_type, bool data) {
+        impl_->require_runtime();
+        check_text(text);
+        auto* n = impl_->field_node(element);
+        if (!n) {
+            return TextEditResult::Refused;
+        }
+        auto result = TextEditResult::Refused;
+        impl_->execute([&] {
+            result = impl_->edit_field(*n, start, end, std::string(text), input_type, data);
+            return JS_UNDEFINED;
+        });
+        return result;
+    }
+
+    bool ScriptDom::select_text_field(NodeIdentity element, std::uint32_t anchor, std::uint32_t focus,
+                                      bool select_event) {
+        impl_->require_runtime();
+        auto* n = impl_->field_node(element);
+        if (!n) {
+            return false;
+        }
+        bool moved{};
+        impl_->execute([&] {
+            moved = impl_->select_field(*n, anchor, focus, select_event);
+            return JS_UNDEFINED;
+        });
+        return moved;
+    }
+
+    void ScriptDom::dispatch_select(NodeIdentity element) {
+        impl_->require_runtime();
+        if (auto* n = impl_->field_node(element)) {
+            impl_->execute([&] {
+                impl_->dispatch_plain_event(*n, "select");
+                return JS_UNDEFINED;
+            });
+        }
+    }
+
+    void ScriptDom::compose_text_field(NodeIdentity element, std::string_view text, std::uint32_t selection_start,
+                                       std::uint32_t selection_end, std::uint32_t clause_start,
+                                       std::uint32_t clause_end) {
+        impl_->require_runtime();
+        check_text(text);
+        if (auto* n = impl_->field_node(element)) {
+            impl_->execute([&] {
+                impl_->compose_field(*n, std::string(text), selection_start, selection_end, clause_start, clause_end);
+                return JS_UNDEFINED;
+            });
+        }
+    }
+
+    void ScriptDom::commit_text_field(NodeIdentity element, std::string_view text) {
+        impl_->require_runtime();
+        check_text(text);
+        if (auto* n = impl_->field_node(element)) {
+            impl_->execute([&] {
+                impl_->commit_field(*n, std::string(text));
+                return JS_UNDEFINED;
+            });
+        }
+    }
+
+    void ScriptDom::commit_text_field_change(NodeIdentity element) {
+        impl_->require_runtime();
+        if (auto* n = impl_->field_node(element)) {
+            impl_->execute([&] {
+                impl_->commit_change(*n);
+                return JS_UNDEFINED;
+            });
+        }
+    }
+
+    void ScriptDom::set_text_field_value(NodeIdentity element, std::string_view value) {
+        impl_->require_runtime();
+        check_text(value);
+        if (auto* n = impl_->field_node(element)) {
+            impl_->execute([&] {
+                impl_->set_field_value_for_user(*n, std::string(value));
+                return JS_UNDEFINED;
+            });
+        }
+    }
+
+    void ScriptDom::set_text_field_view(NodeIdentity element, bool caret_on, float scroll_x, float scroll_y) {
+        impl_->require_runtime();
+        if (!std::isfinite(scroll_x) || !std::isfinite(scroll_y)) {
+            throw std::invalid_argument("WEFT_TEXT_FIELD: finite scroll offsets");
+        }
+        if (auto* n = impl_->field_node(element)) {
+            impl_->execute([&] {
+                impl_->set_field_view(*n, caret_on, scroll_x, scroll_y);
+                return JS_UNDEFINED;
+            });
+        }
     }
 
 } // namespace weft

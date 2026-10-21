@@ -131,6 +131,11 @@ namespace weft {
             bool focus_visible{};
             bool focus_within{};
             bool content{};
+            // Text field state where a selector or a rule of a text field's pseudo-elements reads it: the element is a
+            // text field, one the user may edit, and one whose placeholder shows.
+            bool field{};
+            bool writable{};
+            bool placeholder{};
             std::vector<Node> children; // Element children, DOM order.
             // The subtree's nodes, which count against the document's node bound.
             std::uint32_t nodes{};
@@ -141,8 +146,9 @@ namespace weft {
                 return a.identity == b.identity && a.type == b.type && a.local_name == b.local_name &&
                        a.namespace_uri == b.namespace_uri && a.attributes == b.attributes && a.hovered == b.hovered &&
                        a.active == b.active && a.focused == b.focused && a.focus_visible == b.focus_visible &&
-                       a.focus_within == b.focus_within &&
-                       a.content == b.content && a.children == b.children && a.nodes == b.nodes;
+                       a.focus_within == b.focus_within && a.content == b.content && a.field == b.field &&
+                       a.writable == b.writable && a.placeholder == b.placeholder && a.children == b.children &&
+                       a.nodes == b.nodes;
             }
         };
 

@@ -740,13 +740,14 @@ extern "C" weft_result weft_view_pointer(weft_runtime* runtime, weft_view_handle
         return error;
     }
     if (!event || event->struct_size < sizeof(weft_pointer_event) || event->kind > WEFT_POINTER_LEAVE ||
-        event->reserved) {
+        (event->modifiers & ~weft::key_modifier::all)) {
         return WEFT_INVALID_ARGUMENT;
     }
     return guarded([&] {
         if (entry->view) {
-            const bool prevented = entry->view->pointer(
-                {weft::PointerKind(event->kind), event->x, event->y, event->buttons, event->wheel_x, event->wheel_y});
+            const bool prevented = entry->view->pointer({weft::PointerKind(event->kind), event->x, event->y,
+                                                         event->buttons, event->wheel_x, event->wheel_y,
+                                                         event->modifiers});
             if (out_prevented) {
                 *out_prevented = prevented;
             }
@@ -835,6 +836,87 @@ extern "C" weft_result weft_view_text(weft_runtime* runtime, weft_view_handle vi
             const auto handled = entry->view->text(value);
             if (out_handled) {
                 *out_handled = handled;
+            }
+        }
+        return WEFT_OK;
+    });
+}
+
+extern "C" weft_result weft_view_text_input(weft_runtime* runtime, weft_view_handle view, weft_text_input* out_input) {
+    ViewEntry* entry{};
+    if (const auto error = find_idle(runtime, view, entry); error != WEFT_OK) {
+        return error;
+    }
+    if (!out_input || out_input->struct_size < sizeof(weft_text_input)) {
+        return WEFT_INVALID_ARGUMENT;
+    }
+    const auto size = out_input->struct_size;
+    *out_input = {};
+    out_input->struct_size = size;
+    return guarded([&] {
+        if (entry->view) {
+            const auto input = entry->view->text_input();
+            out_input->active = input.active;
+            out_input->composing = input.composing;
+            out_input->password = input.password;
+            out_input->caret_x = input.caret[0];
+            out_input->caret_y = input.caret[1];
+            out_input->caret_width = input.caret[2];
+            out_input->caret_height = input.caret[3];
+            out_input->field_x = input.field[0];
+            out_input->field_y = input.field[1];
+            out_input->field_width = input.field[2];
+            out_input->field_height = input.field[3];
+        }
+        return WEFT_OK;
+    });
+}
+
+extern "C" weft_result weft_view_composition(weft_runtime* runtime, weft_view_handle view, const char* text,
+                                             size_t text_size, uint32_t selection_start, uint32_t selection_end,
+                                             uint32_t* out_taken) {
+    if (out_taken) {
+        *out_taken = 0;
+    }
+    ViewEntry* entry{};
+    if (const auto error = find_idle(runtime, view, entry); error != WEFT_OK) {
+        return error;
+    }
+    std::string_view value;
+    if (!text_arg(text, text_size, value) || value.size() > weft::constants::input::max_text_bytes ||
+        !weft::bridge::utf8(value) || selection_start > value.size() || selection_end > value.size()) {
+        return WEFT_INVALID_ARGUMENT;
+    }
+    return guarded([&] {
+        if (entry->view) {
+            const bool taken = entry->view->compose(value, selection_start, selection_end);
+            if (out_taken) {
+                *out_taken = taken;
+            }
+        }
+        return WEFT_OK;
+    });
+}
+
+extern "C" weft_result weft_view_commit_text(weft_runtime* runtime, weft_view_handle view, const char* text,
+                                             size_t text_size, uint32_t* out_taken) {
+    if (out_taken) {
+        *out_taken = 0;
+    }
+    ViewEntry* entry{};
+    if (const auto error = find_idle(runtime, view, entry); error != WEFT_OK) {
+        return error;
+    }
+    std::string_view value;
+    if (!text_arg(text, text_size, value) || value.size() > weft::constants::input::max_text_bytes ||
+        !weft::bridge::utf8(value)) {
+        return WEFT_INVALID_ARGUMENT;
+    }
+    return guarded([&] {
+        if (entry->view) {
+            const bool taken = entry->view->commit(value);
+            if (out_taken) {
+                *out_taken = taken;
             }
         }
         return WEFT_OK;

@@ -39,6 +39,8 @@ namespace weft::dom {
         bool focused{};
         bool focus_visible{};
         bool focus_within{};
+        // A text field's state (dom/text_field.hpp), replaced whole when it changes: snapshots share it.
+        std::shared_ptr<const TextFieldState> field;
         std::vector<Attribute> attributes;
         // Tree edges by identity; a null identity (generation 0) is no node.
         NodeIdentity parent;
@@ -224,5 +226,9 @@ namespace weft::dom {
         std::optional<TreeElement> next() const;
         // It has an element or text child (:empty does not match).
         bool has_content() const;
+
+        const TextFieldState* field() const {
+            return n->field.get();
+        }
     };
 } // namespace weft::dom

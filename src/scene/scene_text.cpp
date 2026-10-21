@@ -504,6 +504,19 @@ namespace weft {
                face(match.ids[match.primary]).glyph_index(character) != 0;
     }
 
+    std::pair<float, float> SceneText::field_char_widths(const SceneFont& font) {
+        impl_->require_owner();
+        const auto& match = impl_->matched(font);
+        auto& primary = face(match.ids[match.primary]);
+        float x{};
+        if (const auto glyph = primary.glyph_index(U'x')) {
+            (void)glyph;
+            const auto shaped = primary.shape("x", font.size, ShapePrecision::Fixed16_16);
+            x = shaped.advance;
+        }
+        return {x, primary.bounding_width(font.size)};
+    }
+
     SceneStrut SceneText::strut(const SceneFont& font) {
         impl_->require_owner();
         const auto& match = impl_->matched(font);

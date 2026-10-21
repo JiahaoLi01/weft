@@ -319,6 +319,11 @@ if(WIN32)
     weft_add_executable(weft_keyboard_tests SOURCES keyboard_tests.cpp
         LINK weft::view weft::scene_d2d weft::platform_win32 d2d1 windowscodecs ole32 SOURCE_DIR LARGE_STACK)
     weft_add_test(NAME keyboard_contract COMMAND weft_keyboard_tests TIMEOUT 120)
+    # Text fields: the scenarios of tests/fixtures/text_field against what Chrome did on the same page
+    # (tools/browser_text_field_reference.mjs), events, selections, scrolling and images of the fields.
+    weft_add_executable(weft_text_field_tests SOURCES text_field_tests.cpp
+        LINK weft::view weft::scene_d3d11 weft::platform_win32 windowscodecs ole32 SOURCE_DIR LARGE_STACK)
+    weft_add_test(NAME text_field_contract COMMAND weft_text_field_tests TIMEOUT 180)
     # A page's url() images: URLs against the page's base, PNG decoding and its bounds, a path read once, diagnostics,
     # and the View's scene showing the image its reader gave.
     weft_add_executable(weft_view_images_tests SOURCES view_images_tests.cpp

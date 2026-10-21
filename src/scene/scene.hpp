@@ -15,6 +15,7 @@
 #include <iterator>
 #include <map>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -32,8 +33,40 @@ namespace weft {
         std::string text;
         std::array<float, 4> rect{};
         float baseline{};
+        // A text field's line (SceneNode::field): where its text starts in the node's text, and its caret stops, the
+        // x (from the line box's left) of each character boundary in its text by byte offset, in order.
+        std::uint32_t start{};
+        std::vector<std::pair<std::uint32_t, float>> stops;
 
         friend bool operator==(const SceneLine&, const SceneLine&) = default;
+    };
+
+    // A text field (dom/text_field.hpp) as its node draws it: the field's state; whether the node's text is its
+    // placeholder; whether it has the focus (its caret, selection and composition show only then); the colors of its
+    // selected text's background and text and of its caret (CSS colors); and native: it draws Chrome's text field
+    // border, a ring of `ring` one px wide inside its border box, instead of its border (the UA style sheet's inset
+    // border). newline_width: how wide a selected line break draws (its font's space, as Chrome draws it). authored: the
+    // values of its style the field changed to lay out and draw itself (none: it had no value), which getComputedStyle
+    // reads.
+    struct SceneField {
+        std::shared_ptr<const TextFieldState> state;
+        bool placeholder{};
+        bool focused{};
+        bool native{};
+        std::string selection_background;
+        std::string selection_color;
+        std::string caret_color;
+        std::string ring;
+        float newline_width{};
+        std::vector<std::pair<PropertyId, std::optional<std::string>>> authored;
+
+        friend bool operator==(const SceneField& a, const SceneField& b) {
+            return (a.state == b.state || (a.state && b.state && *a.state == *b.state)) &&
+                   a.placeholder == b.placeholder && a.focused == b.focused && a.native == b.native &&
+                   a.selection_background == b.selection_background && a.selection_color == b.selection_color &&
+                   a.caret_color == b.caret_color && a.ring == b.ring && a.newline_width == b.newline_width &&
+                   a.authored == b.authored;
+        }
     };
 
     // A fragment of an inline element's border box on one line, in the element's own coordinates; first and last tell
@@ -344,6 +377,9 @@ namespace weft {
         // How far its scroll container moved its box (its parent's scrolled position when the box was placed), so
         // that layout can move it again from where layout put it.
         std::array<float, 2> scroll_shift{};
+        // A text field's (an input of a text type, a textarea): its text is what the field shows, its lines carry
+        // their caret stops.
+        std::shared_ptr<const SceneField> field;
 
         friend bool operator==(const SceneNode& a, const SceneNode& b) {
             return a.identity == b.identity && a.tag == b.tag && a.space == b.space && a.text == b.text &&
@@ -352,7 +388,8 @@ namespace weft {
                    (a.effect == b.effect || (a.effect && b.effect && *a.effect == *b.effect)) &&
                    a.background_image == b.background_image && a.border_image == b.border_image &&
                    a.particles == b.particles && a.anchoring == b.anchoring && a.scroll == b.scroll &&
-                   a.scrolled == b.scrolled && a.scroll_shift == b.scroll_shift && a.children == b.children;
+                   a.scrolled == b.scrolled && a.scroll_shift == b.scroll_shift &&
+                   (a.field == b.field || (a.field && b.field && *a.field == *b.field)) && a.children == b.children;
         }
     };
 
@@ -470,7 +507,8 @@ namespace weft {
                (!a.paint || a.paint->values == b.paint->values) && scene_effect_equal(a.effect, b.effect) &&
                a.background_image == b.background_image && a.border_image == b.border_image &&
                a.particles == b.particles && a.anchoring == b.anchoring && a.scroll == b.scroll &&
-               a.scrolled == b.scrolled && a.scroll_shift == b.scroll_shift;
+               a.scrolled == b.scrolled && a.scroll_shift == b.scroll_shift &&
+               (a.field == b.field || (a.field && b.field && *a.field == *b.field));
     }
 
     // Whether a node's children may stand in another order than the document's (scene_child_order): an HTML flex or
@@ -561,7 +599,7 @@ namespace weft {
             a.fragments != b.fragments || a.children.size() != b.children.size() || bool(a.paint) != bool(b.paint) ||
             (a.paint && a.paint->values != b.paint->values) || !scene_effect_equal(a.effect, b.effect) ||
             a.background_image != b.background_image || a.border_image != b.border_image ||
-            a.particles != b.particles) {
+            a.particles != b.particles || !(a.field == b.field || (a.field && b.field && *a.field == *b.field))) {
             return false;
         }
         for (std::size_t i = 0; i < a.children.size(); ++i) {

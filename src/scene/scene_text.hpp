@@ -114,6 +114,9 @@ namespace weft {
         SceneEmBox em_box(std::string_view text, const SceneStyle& style);
         // Whether the font's primary face (the first that its families match) has a glyph for a character.
         bool primary_covers(const SceneFont& font, char32_t character);
+        // What sizes a text field (Blink's LayoutTextControl): the advance of the primary face's 'x' (its average
+        // character width) and the width of its bounding box (its maximum character width).
+        std::pair<float, float> field_char_widths(const SceneFont& font);
 
         // The run's glyph outlines as one path, its origin the top left of the line box (the baseline at
         // metrics.baseline); null when a glyph comes from a color face. Kept while the cache holds it.

@@ -1,6 +1,6 @@
 # Weft 当前状态
 
-更新日期：2026 年 10 月 21 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG、键盘/IME 与移动尚未实现，仍未达到 M0 全部退出条件。
+更新日期：2026 年 10 月 22 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG、手柄与移动尚未实现（键盘与焦点、文本框与输入法已在 `input` 分支），仍未达到 M0 全部退出条件。
 
 ## 待办
 
@@ -15,6 +15,18 @@
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
+
+文本框与输入法：`<input>`（文字类型）与 `<textarea>` 的编辑、光标、选区与中文输入法的组合串（2026-10-22，`input` 分支；用户提出：键盘、输入法与手柄输入接进 weft 和两个引擎插件，行为照 Chrome，这是第二阶段：文本框（先 input 再 textarea）与输入法）。
+- **起因**：文本框只是一个盒子：没有值、光标与选区，键盘与鼠标不编辑它，`value` 是普通的属性；没有 `InputEvent`、`CompositionEvent`，宿主没法把输入法的组合串交给页面，也不知道候选窗该放在哪里。
+- **实现**（设计与 C ABI 见 [与引擎通信](engine-communication.md#8-对外-view133)“文本框与输入法”）：
+  - DOM：`TextFieldState`（`dom/text_field.hpp`：值、占位符、选区与方向、组合串与正在转换的子句、光标的闪烁相位、文字的滚动）在原生节点与快照里，变时整份替换，快照共享它；`DomSnapshot` 的相等、增量拷贝（`update_copy`、`Tree::refresh`）带上它。ScriptDom：文本框的 JS API（`value`、`defaultValue`、`selectionStart/End/Direction`、`setSelectionRange`、`select`、`setRangeText`、`type`、`placeholder`、`readOnly`、`disabled`、`maxLength`、`name`、`textLength`）挂在 input 与 textarea 的原型上；按类型清理值；脏值与 change 的基准；`InputEvent`、`CompositionEvent`；select 与 selectionchange 的任务；给 View 的编辑接口（`edit_text_field`、`select_text_field`、`compose_text_field`、`commit_text_field`、`commit_text_field_change`、`set_text_field_value`、`set_text_field_view`）；焦点离开时的 compositionend 与 change，Tab 进入 input 时全选；鼠标事件带连击数与 dblclick。
+  - 样式：`:placeholder-shown`、`:read-only`、`:read-write` 读文本框的状态（选择器的元素访问加 `field()`）；`::placeholder`、`::selection` 由层叠为文本框算出样式（`ComputedStyle::generated` 里的两个部件，不成盒子，`field_part_identity`）；`caret-color` 成为继承属性；层叠的增量输入（`StyleInput`）与缓存键带上文本框的状态。宽松页面的 UA 样式加 Chrome 的文本框样式。
+  - 场景：文本框的节点显示它的文字（值、密码的圆点或占位符），一行的 input 按 flex 在内容盒里居中，没有宽高时取 Blink 的固有大小（`SceneText::field_char_widths`、`Font::bounding_width`）；每一行带光标停靠点（`SceneLine::start`、`stops`，`scene/scene_field.hpp`），布局按文本框的滚动移动它的行；显示列表画 Chrome 原生文本框的框、选区与选中文字的颜色、组合串的下划线与光标，文字裁在内容盒（textarea 在内边距盒）。getComputedStyle 读作者的值（`SceneField::authored`）。
+  - View：文本框的键（字符、Windows 的词、可视行与整段、上下行保持列、全选、删除、search 的 Esc）、鼠标（放光标、Shift、双击选词、三击、拖选、按在选区里时等抬起）、点击计数（Windows 的双击时间与范围）、光标闪烁、滚动跟随光标（键盘与输入法时；input 失焦滚回开头）、输入法（`compose`、`commit`、`text_input`）；禁用的表单控件收不到 mousedown、mouseup、click、dblclick（`view/view_text_field.hpp` 是按字符与词移动的规则）。
+  - C ABI：`weft_view_text_input`、`weft_view_composition`、`weft_view_commit_text`；`weft_pointer_event::modifiers`（原来的 reserved）。
+  - Chrome 参考：`tools/browser_text_field_reference.mjs` 经 DevTools 驱动无头 Chrome 155，在 `tests/fixtures/text_field` 的页面上按 Windows 的方式送键、鼠标（显式的点击次数）、输入法的组合串与上屏，录下十一个场景每一步的事件、文本框的状态、读到的值与十张截图。
+- **验证**（Debug）：`text_field_contract`（新）：十一个场景与 Chrome 逐事件、逐字段一致（selectionchange 不比；鼠标选区后焦点离开时 Chrome 多发的 select 不比），每一步后所有文本框的值、选区与 scrollLeft 一致（2 px 内），读到的样式与矩形一致；十张截图由原生 D3D11 pass 画出，与 Chrome 的按亮度比较，至多 1% 的像素差得多（滚到长文字末尾那张至多 4%：Chrome 给 Segoe UI 做字距调整，weft 不做；组合串那张只比下划线与光标）；另有场景随文本框逐次变化、组合串与 maxlength、脚本改值与焦点离开结束组合、textarea 的默认值与脏值、input 换成非文字类型。`c_api_view_contract` 加 `text_input`。`keyboard_contract` 的点击彼此隔开双击时间（参考的点击次数都是 1）。全量 ctest（Debug，178 项）：除既有的 14 项（签出换行的散列校验与浏览器差异）外通过（`d3d11_warp_gallery_preview` 在 `-j 6` 下段错误一次，单独重跑通过，同以前的观察）。
+- **限制**：剪贴板（Ctrl+C、X、V）、撤销与重做、拖放文字、从右到左的文字、拼写检查、数字与日期等控件的外观与步进、自动填充、表单提交；中文按连续的汉字算一个词（Chrome 用词典分词）；textarea 不画滚动条，滚轮不滚它的文字；字距调整（Chrome 给 Segoe UI 做，weft 不做）使长文字末端差 1 px；回退字体撑高的一行在 textarea 里显示光标时，Chrome 按首选字体的行高少滚 2 px。
 
 键盘与焦点：宿主的键盘输入、Tab 导航、按钮的 Enter 与空格、键盘滚动、`:focus-visible` 与焦点环（2026-10-21，`input` 分支；用户提出：键盘、输入法与手柄输入接进 weft 和两个引擎插件，行为照 Chrome，这是第一阶段）。
 - **起因**：C ABI 只有指针输入。`KeyboardEvent`、`focus()`、`activeElement` 只在 web 平台页面里有，只能由页面自己派发；点击不改焦点，没有 Tab 导航、按钮的键盘激活与键盘滚动；`:focus-visible` 当成 `:focus`；`scrollIntoView` 是空函数。宣传页的引擎版只能由引擎读键、再给页面发滚动事件。

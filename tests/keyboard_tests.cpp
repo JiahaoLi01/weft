@@ -79,7 +79,11 @@ namespace {
             return {down, typed};
         }
 
+        // A click of its own: past the system's double-click time after the last one (the reference's clicks each have
+        // a click count of one).
         void click(float x, float y) {
+            time += 600;
+            view.advance(time);
             view.pointer({PointerKind::Move, x, y, 0});
             view.pointer({PointerKind::Down, x, y, 1});
             view.pointer({PointerKind::Up, x, y, 0});

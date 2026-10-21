@@ -142,7 +142,8 @@ namespace weft {
         PointerOut,
         PointerEnter,
         PointerLeave,
-        PointerCancel
+        PointerCancel,
+        DblClick
     };
 
     struct MouseEvent {
@@ -158,6 +159,8 @@ namespace weft {
         bool alt{};
         bool meta{};
         NodeIdentity related_target{}; // Null identity or same-epoch live node.
+        // The click count (UIEvent.detail) of mousedown, mouseup, click and dblclick: 2 for a double click's second.
+        unsigned clicks{1};
         // A click the keyboard or script asked for (Blink's simulated click): a PointerEvent with pointerId -1, an empty
         // pointerType, detail 0 and no position.
         bool simulated{};
@@ -253,6 +256,16 @@ namespace weft {
         StaleTarget,
         DefaultAllowed,
         DefaultPrevented
+    };
+
+    // What became of an edit the user made in a text field (ScriptDom::edit_text_field): a beforeinput listener
+    // prevented it, the field did not take it (it is read-only or disabled, or no longer a field), it changed nothing (a
+    // deletion at an end of the value, text maxlength left no room for), or it changed the value.
+    enum class TextEditResult : std::uint8_t {
+        Prevented,
+        Refused,
+        Unchanged,
+        Changed
     };
 
     // Every operation, including destruction, belongs to the creating thread.
@@ -378,6 +391,40 @@ namespace weft {
         EngineDelivery deliver_engine();
         DispatchResult dispatch_wheel(NodeIdentity target, double delta_x, double delta_y);
         DispatchResult dispatch_wheel(NodeIdentity target, const WheelEvent& event);
+
+        // Text fields (dom/text_field.hpp): an HTML input of a text type and a textarea. Offsets are the value's UTF-8
+        // bytes. A field's state; none for another element or a stale identity.
+        std::shared_ptr<const TextFieldState> text_field(NodeIdentity element) const;
+        // An edit the user makes in a field, as Chrome's editing commands make one: beforeinput of input_type (text its
+        // data when data, null otherwise), then, unless a listener prevented it or the field does not take edits,
+        // [start, end) of the value becomes text, as much of it as maxlength lets in, with the caret after it; then
+        // input.
+        TextEditResult edit_text_field(NodeIdentity element, std::uint32_t start, std::uint32_t end, std::string_view text,
+                                       std::string_view input_type, bool data);
+        // The user selects from anchor to focus in a field (keys, the mouse): whether the selection changed. With
+        // select_event a selection of a range fires select (Chrome's TextControlElement::SelectionChanged); the mouse's
+        // fires when its button comes up (dispatch_select).
+        bool select_text_field(NodeIdentity element, std::uint32_t anchor, std::uint32_t focus, bool select_event);
+        void dispatch_select(NodeIdentity element);
+        // The input method composes in a field (Chrome's InputMethodController::SetComposition): compositionstart when
+        // no composition goes on (its data the selected text), compositionupdate, then beforeinput and input of
+        // insertCompositionText, between which text replaces the composition (or the selection), with the selection at
+        // [selection_start, selection_end) of it and its clause [clause_start, clause_end) (empty: none). Empty text
+        // cancels the composition, which ends (compositionend).
+        void compose_text_field(NodeIdentity element, std::string_view text, std::uint32_t selection_start,
+                                std::uint32_t selection_end, std::uint32_t clause_start = 0,
+                                std::uint32_t clause_end = 0);
+        // The input method commits text: the composition ends with it (compositionupdate, beforeinput and input of
+        // insertCompositionText, compositionend); without one the text is typed (beforeinput and input of insertText).
+        void commit_text_field(NodeIdentity element, std::string_view text);
+        // The user commits the change of a field (Enter in an input; the focus leaving does it too): change when the
+        // value differs from what it was before the user's first edit since the last change.
+        void commit_text_field_change(NodeIdentity element);
+        // The user sets the whole value (a search field's Escape clears it): the value with the caret at its end, then
+        // input (an Event, not an InputEvent).
+        void set_text_field_value(NodeIdentity element, std::string_view value);
+        // What a field shows that its page does not see: the caret's blink phase, and how far the text is scrolled.
+        void set_text_field_view(NodeIdentity element, bool caret_on, float scroll_x, float scroll_y);
 
     private:
         struct Impl;

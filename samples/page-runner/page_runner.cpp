@@ -29,6 +29,10 @@
 //                                                                      gives unless "value" says; the text the key's value
 //                                                                      when one character, unless "text" says
 //   {"frame": 0, "text": "你好"}                                         text typed without a key
+//   {"frame": 0, "compose": "ni", "cursor": 2}                          an input method's composition, its caret at a UTF-8
+//                                                                      offset in it (its end without one); "" cancels it
+//   {"frame": 0, "commit": "你"}                                        an input method commits text
+//   {"frame": 0, "textInput": true}                                     prints where text input goes (weft_view_text_input)
 //   {"frame": 0, "focus": false}                                        the host's keyboard focus leaves (true: comes back)
 //   {"frame": 0, "hit": [x, y]}                                         prints what is under a point
 //   {"frame": 0, "resize": [width, height, scale]}
@@ -1438,6 +1442,30 @@ namespace {
                             weft_view_text(run.runtime, run.view, text->string.data(), text->string.size(), &handled);
                         std::printf("[text] %s -> %s%s\n", text->string.c_str(), weft_result_string(r),
                                     handled & WEFT_INPUT_DEFAULT ? " default" : "");
+                    }
+                    if (const Json* compose = step.find("compose")) {
+                        const auto& c = compose->string;
+                        const auto cursor = std::uint32_t(step.get_number("cursor", double(c.size())));
+                        std::uint32_t taken{};
+                        const weft_result r =
+                            weft_view_composition(run.runtime, run.view, c.data(), c.size(), cursor, cursor, &taken);
+                        std::printf("[compose] %s -> %s%s\n", c.c_str(), weft_result_string(r), taken ? " taken" : "");
+                    }
+                    if (const Json* commit = step.find("commit")) {
+                        std::uint32_t taken{};
+                        const weft_result r = weft_view_commit_text(run.runtime, run.view, commit->string.data(),
+                                                                    commit->string.size(), &taken);
+                        std::printf("[commit] %s -> %s%s\n", commit->string.c_str(), weft_result_string(r),
+                                    taken ? " taken" : "");
+                    }
+                    if (step.get_bool("textInput")) {
+                        weft_text_input input{};
+                        input.struct_size = sizeof(input);
+                        weft_view_text_input(run.runtime, run.view, &input);
+                        std::printf("[textInput] active=%u composing=%u password=%u caret=%g,%g,%g,%g field=%g,%g,%g,%g\n",
+                                    input.active, input.composing, input.password, input.caret_x, input.caret_y,
+                                    input.caret_width, input.caret_height, input.field_x, input.field_y,
+                                    input.field_width, input.field_height);
                     }
                     if (const Json* focus = step.find("focus")) {
                         weft_view_set_focus(run.runtime, run.view, step.get_bool("focus", true) ? 1 : 0);

@@ -1,0 +1,47 @@
+/* The text field scenarios' page (field.js): rows of fields in one font, a narrow field whose text overflows, a
+   textarea, and fields with the UA's own styles. */
+#root {
+  position: relative;
+  width: 800px;
+  height: 600px;
+  margin: 0;
+  font: 16px "Segoe UI";
+}
+
+.row {
+  height: 40px;
+}
+
+input:not(.ua) {
+  font: 16px "Segoe UI";
+  width: 240px;
+  height: 28px;
+  padding: 2px 6px;
+  border: 1px solid rgb(120, 120, 120);
+  margin: 0;
+  box-sizing: border-box;
+}
+
+input.narrow {
+  width: 120px;
+}
+
+button {
+  font: 16px "Segoe UI";
+}
+
+.row.tall {
+  height: 80px;
+}
+
+textarea.area {
+  font: 16px "Segoe UI";
+  width: 240px;
+  height: 70px;
+  padding: 2px 6px;
+  border: 1px solid rgb(120, 120, 120);
+  margin: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  resize: none;
+}

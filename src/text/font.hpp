@@ -180,6 +180,9 @@ namespace weft {
         // The face's em box as Blink takes it (NormalizedTypoAscentAndDescent): its OS/2 typo ascender and descender,
         // else its line metrics' ascent and descent, scaled to sum to pixels, the ascent rounded to a LayoutUnit.
         FontMetrics em_metrics(float pixels) const;
+        // The width of the face's bounding box (its head table's xMax - xMin) at pixels per em: Blink's maximum
+        // character width (SimpleFontData::MaxCharWidth).
+        float bounding_width(float pixels) const;
         // True when the face has COLR, CBDT, sbix or SVG color glyph data.
         bool has_color_glyphs() const;
         // Glyph of a Unicode code point, 0 when the face has none.

@@ -199,8 +199,8 @@ namespace {
         require(weft_view_pointer(r.runtime, view, &e, nullptr) == WEFT_INVALID_ARGUMENT, "a short pointer event");
         e = {sizeof(weft_pointer_event), 9, 0, 0, 0, 0, 0, 0};
         require(weft_view_pointer(r.runtime, view, &e, nullptr) == WEFT_INVALID_ARGUMENT, "an unknown pointer kind");
-        e = {sizeof(weft_pointer_event), WEFT_POINTER_MOVE, 0, 0, 0, 1, 0, 0};
-        require(weft_view_pointer(r.runtime, view, &e, nullptr) == WEFT_INVALID_ARGUMENT, "reserved pointer field");
+        e = {sizeof(weft_pointer_event), WEFT_POINTER_MOVE, 0, 0, 0, 1u << 7, 0, 0};
+        require(weft_view_pointer(r.runtime, view, &e, nullptr) == WEFT_INVALID_ARGUMENT, "unknown pointer modifiers");
         weft_hit h{};
         h.struct_size = sizeof(h) - 1;
         require(weft_view_hit_test(r.runtime, view, 0, 0, &h) == WEFT_INVALID_ARGUMENT, "a short hit");
@@ -1006,6 +1006,135 @@ namespace {
                     weft_view_set_focus(r.runtime, view, 1) == WEFT_STALE_HANDLE,
                 "a destroyed View's keyboard");
     }
+
+    weft_result compose_reentry(void* user, const void*, size_t, weft_value_writer* result) {
+        auto& calls = *static_cast<Calls*>(user);
+        calls.reentry = weft_view_composition(calls.r->runtime, calls.view, "a", 1, 1, 1, nullptr);
+        weft_text_input input{};
+        input.struct_size = sizeof(input);
+        calls.emitted = weft_view_text_input(calls.r->runtime, calls.view, &input);
+        ++calls.count;
+        return weft_value_writer_set(result, WEFT_VALUE_JSON, "1", 1);
+    }
+
+    // Text fields and input methods (weft_view_text_input, weft_view_composition, weft_view_commit_text) and the
+    // pointer's modifiers: arguments, where text input goes, a composition and its commit, text committed without one,
+    // a cancelled composition, a read-only field, Shift and a press, reentry, threads and stale handles.
+    void text_input() {
+        Runtime r;
+        const auto view = r.view();
+        weft_text_input input{};
+        input.struct_size = sizeof(input);
+        uint32_t taken = 9;
+        require(weft_view_text_input(r.runtime, view, &input) == WEFT_OK && !input.active, "no page: no text input");
+        require(weft_view_composition(r.runtime, view, "a", 1, 1, 1, &taken) == WEFT_OK && taken == 0,
+                "no page: no composition");
+        require(weft_view_commit_text(r.runtime, view, "a", 1, &taken) == WEFT_OK && taken == 0, "no page: no commit");
+        // Arguments.
+        input.struct_size = sizeof(input) - 4;
+        require(weft_view_text_input(r.runtime, view, &input) == WEFT_INVALID_ARGUMENT &&
+                    weft_view_text_input(r.runtime, view, nullptr) == WEFT_INVALID_ARGUMENT,
+                "a short text input, none");
+        input.struct_size = sizeof(input);
+        require(weft_view_composition(r.runtime, view, "ab", 2, 3, 3, nullptr) == WEFT_INVALID_ARGUMENT &&
+                    weft_view_composition(r.runtime, view, "ab", 2, 0, 3, nullptr) == WEFT_INVALID_ARGUMENT,
+                "a selection past the composition");
+        const std::string long_text(4097, 'a');
+        require(weft_view_composition(r.runtime, view, nullptr, 1, 0, 0, nullptr) == WEFT_INVALID_ARGUMENT &&
+                    weft_view_composition(r.runtime, view, "\xc3", 1, 0, 0, nullptr) == WEFT_INVALID_ARGUMENT &&
+                    weft_view_composition(r.runtime, view, long_text.data(), long_text.size(), 0, 0, nullptr) ==
+                        WEFT_INVALID_ARGUMENT &&
+                    weft_view_commit_text(r.runtime, view, nullptr, 1, nullptr) == WEFT_INVALID_ARGUMENT &&
+                    weft_view_commit_text(r.runtime, view, "\xc3", 1, nullptr) == WEFT_INVALID_ARGUMENT &&
+                    weft_view_commit_text(r.runtime, view, long_text.data(), long_text.size(), nullptr) ==
+                        WEFT_INVALID_ARGUMENT,
+                "composition and commit text: missing, no UTF-8, past 4096 bytes");
+        weft_pointer_event shifted{sizeof(weft_pointer_event), WEFT_POINTER_MOVE, 0, 0, 0, 128, 0, 0};
+        require(weft_view_pointer(r.runtime, view, &shifted, nullptr) == WEFT_INVALID_ARGUMENT,
+                "unknown pointer modifiers");
+
+        // A page: a field f and a read-only field r, with a log of its composition and input events.
+        Calls calls{&r, view};
+        require(weft_view_register_function(r.runtime, view, "compose", 7, compose_reentry, &calls) == WEFT_OK,
+                "a function");
+        require(load(r, view, inline_page(R"JS(
+            globalThis.log = [];
+            for (const id of ['f', 'r']) {
+              const n = document.createElement('input');
+              n.setAttribute('id', id);
+              if (id === 'r') n.setAttribute('readonly', '');
+              document.getElementById('root').appendChild(n);
+              for (const type of ['compositionstart', 'compositionend', 'beforeinput', 'input'])
+                n.addEventListener(type, e => log.push(type + ':' + (e.data ?? '')));
+            }
+          )JS",
+                                          "input{display:block;width:200px;height:24px;font-size:16px;padding:0;"
+                                          "border-width:0}")) == WEFT_OK,
+                "a page");
+        require(weft_view_advance(r.runtime, view, 0.016) == WEFT_OK, "advance");
+        require(weft_view_text_input(r.runtime, view, &input) == WEFT_OK && !input.active, "nothing has the focus");
+        evaluate(r, view, "document.getElementById('f').focus()");
+        require(weft_view_text_input(r.runtime, view, &input) == WEFT_OK && input.active && !input.composing &&
+                    !input.password && input.field_x == 0 && input.field_y == 0 && input.field_width == 200 &&
+                    input.field_height == 24 && input.caret_x >= 0 && input.caret_x < 2 && input.caret_height > 10,
+                "a focused field takes text input at its caret");
+        require(weft_view_composition(r.runtime, view, "ni", 2, 2, 2, &taken) == WEFT_OK && taken == 1 &&
+                    weft_view_text_input(r.runtime, view, &input) == WEFT_OK && input.composing && input.caret_x > 5,
+                "a composition, the caret after it");
+        require(weft_view_composition(r.runtime, view, "\xe4\xbd\xa0", 3, 3, 3, &taken) == WEFT_OK && taken == 1,
+                "the composition converted");
+        require(weft_view_commit_text(r.runtime, view, "\xe4\xbd\xa0", 3, &taken) == WEFT_OK && taken == 1 &&
+                    weft_view_text_input(r.runtime, view, &input) == WEFT_OK && !input.composing,
+                "its commit ends it");
+        require(weft_view_commit_text(r.runtime, view, "\xe5\xa5\xbd", 3, nullptr) == WEFT_OK, "text committed alone");
+        weft_view_composition(r.runtime, view, "x", 1, 1, 1, nullptr);
+        weft_view_composition(r.runtime, view, "", 0, 0, 0, nullptr);
+        require(evaluate(r, view, "document.getElementById('f').value") == "\xe4\xbd\xa0\xe5\xa5\xbd",
+                "the field's value");
+        require(evaluate(r, view, "log.join(' ')") ==
+                    "compositionstart: beforeinput:ni input:ni beforeinput:\xe4\xbd\xa0 input:\xe4\xbd\xa0 "
+                    "beforeinput:\xe4\xbd\xa0 input:\xe4\xbd\xa0 compositionend:\xe4\xbd\xa0 "
+                    "beforeinput:\xe5\xa5\xbd input:\xe5\xa5\xbd compositionstart: beforeinput:x input:x beforeinput: "
+                    "input: compositionend:",
+                "the events, as Chrome gives them: " + evaluate(r, view, "log.join(' ')"));
+        // Shift with a press extends the selection to it.
+        evaluate(r, view, "document.getElementById('f').setSelectionRange(0, 0)");
+        weft_view_advance(r.runtime, view, 0.032);
+        shifted = {sizeof(weft_pointer_event), WEFT_POINTER_DOWN, 190, 12, 1, WEFT_MODIFIER_SHIFT, 0, 0};
+        require(weft_view_pointer(r.runtime, view, &shifted, nullptr) == WEFT_OK, "a press with Shift");
+        shifted.kind = WEFT_POINTER_UP;
+        shifted.buttons = 0;
+        weft_view_pointer(r.runtime, view, &shifted, nullptr);
+        require(evaluate(r, view, "(f => f.selectionStart + ',' + f.selectionEnd)(document.getElementById('f'))") ==
+                    "0,2",
+                "Shift and a press select up to it");
+        // A read-only field takes no input method.
+        evaluate(r, view, "document.getElementById('r').focus()");
+        require(weft_view_text_input(r.runtime, view, &input) == WEFT_OK && !input.active &&
+                    weft_view_composition(r.runtime, view, "a", 1, 1, 1, &taken) == WEFT_OK && taken == 0,
+                "a read-only field");
+        // Without the host's focus nothing takes text input.
+        evaluate(r, view, "document.getElementById('f').focus()");
+        weft_view_set_focus(r.runtime, view, 0);
+        require(weft_view_text_input(r.runtime, view, &input) == WEFT_OK && !input.active, "the host's focus left");
+        weft_view_set_focus(r.runtime, view, 1);
+        // Reentry from a sync function is refused.
+        require(evaluate(r, view, "weft.engine.invoke('compose', 0)") == "1" && calls.count == 1 &&
+                    calls.reentry == WEFT_BUSY && calls.emitted == WEFT_BUSY,
+                "text input from a sync function waits");
+        weft_result elsewhere{};
+        std::thread([&] {
+            weft_text_input other{};
+            other.struct_size = sizeof(other);
+            elsewhere = weft_view_text_input(r.runtime, view, &other);
+        }).join();
+        require(elsewhere == WEFT_WRONG_THREAD, "text input belongs to the owner");
+        weft_view_destroy(r.runtime, view);
+        require(weft_view_text_input(r.runtime, view, &input) == WEFT_STALE_HANDLE &&
+                    weft_view_composition(r.runtime, view, "a", 1, 0, 0, nullptr) == WEFT_STALE_HANDLE &&
+                    weft_view_commit_text(r.runtime, view, "a", 1, nullptr) == WEFT_STALE_HANDLE,
+                "a destroyed View's text input");
+    }
 } // namespace
 
 int main() {
@@ -1020,6 +1149,7 @@ int main() {
         resources();
         web_storage();
         keyboard();
+        text_input();
         std::cout << "C ABI view tests passed\n";
         return 0;
     } catch (const std::exception& e) {

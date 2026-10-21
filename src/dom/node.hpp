@@ -1,8 +1,11 @@
 #pragma once
 
+#include "dom/text_field.hpp"
+
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -19,28 +22,38 @@ namespace weft {
 
     // The boxes an element's ::before and ::after generate (CSS Pseudo-Elements 4 §2), and their text, are not DOM nodes:
     // their identities are the element's with a mark in the view epoch's top bits (epochs stay far below them), so a
-    // scene keeps their state from frame to frame and a hit on one is its element's.
+    // scene keeps their state from frame to frame and a hit on one is its element's. A text field's ::placeholder and
+    // ::selection styles (field_part_identity) are marked so too.
     enum class GeneratedBox : std::uint8_t {
         Before = 1,
-        After = 2
+        After = 2,
+        Field = 3
     };
 
     inline constexpr unsigned generated_epoch_shift = 62;
     inline constexpr std::uint64_t generated_text_bit = std::uint64_t(1) << 61;
+    inline constexpr std::uint64_t generated_part_bit = std::uint64_t(1) << 60;
 
     inline NodeIdentity generated_identity(NodeIdentity element, GeneratedBox box, bool text = false) {
         element.view_epoch |= std::uint64_t(box) << generated_epoch_shift | (text ? generated_text_bit : 0);
         return element;
     }
 
-    // Whether an identity is a generated box's (or its text's).
+    // The identity of a text field's ::placeholder style, or its ::selection style.
+    inline NodeIdentity field_part_identity(NodeIdentity element, bool selection) {
+        element = generated_identity(element, GeneratedBox::Field, selection);
+        element.view_epoch |= generated_part_bit;
+        return element;
+    }
+
+    // Whether an identity is a generated box's (or its text's), or a text field part's.
     inline bool is_generated(NodeIdentity id) {
-        return id.view_epoch >= generated_text_bit;
+        return id.view_epoch >= generated_part_bit;
     }
 
     // The element a generated box belongs to; the identity itself for any other.
     inline NodeIdentity originating(NodeIdentity id) {
-        id.view_epoch &= generated_text_bit - 1;
+        id.view_epoch &= generated_part_bit - 1;
         return id;
     }
 
@@ -64,6 +77,8 @@ namespace weft {
         bool focused{};
         bool focus_visible{};
         bool focus_within{};
+        // A text field's state (dom/text_field.hpp): its value, selection and composition; none for another node.
+        std::shared_ptr<const TextFieldState> field;
         // The node's subtree revision when the DOM copied it, or 0 for a value the DOM did not produce. Copies of one
         // node with the same non-zero revision have equal content. Code that changes a copy afterwards sets revision to
         // 0 on the changed node and its ancestors in that copy.
@@ -75,7 +90,14 @@ namespace weft {
                    a.namespace_uri == b.namespace_uri && a.data == b.data && a.attributes == b.attributes &&
                    a.children == b.children && a.scroll_left == b.scroll_left && a.scroll_top == b.scroll_top &&
                    a.hovered == b.hovered && a.active == b.active && a.focused == b.focused &&
-                   a.focus_visible == b.focus_visible && a.focus_within == b.focus_within;
+                   a.focus_visible == b.focus_visible && a.focus_within == b.focus_within &&
+                   same_field(a.field, b.field);
+        }
+
+        // Equal text field states: none on both, or equal values.
+        static bool same_field(const std::shared_ptr<const TextFieldState>& a,
+                               const std::shared_ptr<const TextFieldState>& b) {
+            return a == b || (a && b && *a == *b);
         }
     };
 

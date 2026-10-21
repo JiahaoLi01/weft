@@ -20,4 +20,10 @@ namespace weft::constants::input {
     inline constexpr std::size_t max_key_bytes = 64;
     // Longest text a host may give in one call, in bytes.
     inline constexpr std::size_t max_text_bytes = 4096;
+    // Clicks (Windows' defaults, by which Chrome counts them): a press counts on from the last one when it comes within
+    // this many ms of it and this many px of it on each axis.
+    inline constexpr double double_click_ms = 500;
+    inline constexpr float double_click_px = 2;
+    // A text field's caret blinks: shown, then hidden, this many ms each (Windows' GetCaretBlinkTime default).
+    inline constexpr double caret_blink_ms = 530;
 } // namespace weft::constants::input

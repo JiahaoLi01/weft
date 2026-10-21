@@ -2,6 +2,7 @@
 
 #include "base/diagnostic.hpp"
 #include "base/result.hpp"
+#include "dom/text_field.hpp"
 
 #include <array>
 #include <concepts>
@@ -28,11 +29,12 @@ namespace weft::dom {
         // The selectors of Selectors 4 a weft document can match, for pages that take CSS as browsers do
         // (StyleProfile::forgiving): the sibling combinators + and ~; :is(), :where() and :not(); the tree-structural
         // pseudo-classes (:first-child, :nth-child(An+B [of S]) and their -of-type and last forms, :only-child, :empty);
-        // :focus, :focus-visible and :focus-within; :disabled, :enabled and :checked by attribute; :scope and
-        // :defined; the pseudo-elements ::before and ::after (and their CSS 2 one-colon spellings). Pseudo-classes and
-        // -elements of states and parts a weft document does not have (:visited, :placeholder-shown, ::placeholder,
-        // ::selection, ::backdrop, vendor-prefixed ones…) are valid and match nothing, so a selector list that names
-        // one keeps its other selectors, as in a browser.
+        // :focus, :focus-visible and :focus-within; :disabled, :enabled and :checked by attribute; :read-only,
+        // :read-write and :placeholder-shown by text field (dom/text_field.hpp); :scope and :defined; the
+        // pseudo-elements ::before and ::after (and their CSS 2 one-colon spellings), and a text field's ::placeholder
+        // and ::selection. Pseudo-classes and -elements of states and parts a weft document does not have (:visited,
+        // ::backdrop, vendor-prefixed ones…) are valid and match nothing, so a selector list that names one keeps its
+        // other selectors, as in a browser.
         bool modern{};
     };
 
@@ -61,12 +63,14 @@ namespace weft::dom {
         bool ignore_case{};
     };
 
-    // The pseudo-element a selector's subject is (the modern grammar): none, ::before, ::after, or one weft documents
-    // do not have (::placeholder, ::selection…), which matches nothing.
+    // The pseudo-element a selector's subject is (the modern grammar): none, ::before, ::after, a text field's
+    // ::placeholder or ::selection, or one weft documents do not have (::backdrop…), which matches nothing.
     enum class PseudoElement : std::uint8_t {
         None,
         Before,
         After,
+        Placeholder,
+        Selection,
         Other
     };
 
@@ -114,6 +118,10 @@ namespace weft::dom {
         bool enabled{};
         bool checked{};
         bool empty{};
+        // :read-only, :read-write and :placeholder-shown.
+        bool read_only{};
+        bool read_write{};
+        bool placeholder_shown{};
         // A pseudo-class or -element no element of a weft document has: the compound matches nothing.
         bool never{};
         std::vector<NthSelector> nth;
@@ -196,6 +204,15 @@ namespace weft::dom {
         {
             e.focus_within()
         } -> std::convertible_to<bool>;
+    };
+
+    // What :read-write and :placeholder-shown read: the element's text field state (dom/text_field.hpp), null for
+    // another element. An accessor without it has no text fields.
+    template <class E>
+    concept FieldElement = requires(const E& e) {
+        {
+            e.field()
+        } -> std::convertible_to<const TextFieldState*>;
     };
 
     namespace detail {
@@ -290,6 +307,19 @@ namespace weft::dom {
                 return false;
             }
         }
+        if (c.read_only || c.read_write || c.placeholder_shown) {
+            // A text field the user may edit is read-write (HTML's mutable text controls); every other element is
+            // read-only. Its placeholder shows while its value (with any composition) is empty.
+            const TextFieldState* field{};
+            if constexpr (FieldElement<E>) {
+                field = e.field();
+            }
+            const bool writable = field && field->editable;
+            if ((c.read_only && writable) || (c.read_write && !writable) ||
+                (c.placeholder_shown && !(field && field->value.empty() && !field->placeholder.empty()))) {
+                return false;
+            }
+        }
         if constexpr (StructuralElement<E>) {
             if (state && ((c.focus && !e.focused()) || (c.focus_visible && !e.focus_visible()) ||
                           (c.focus_within && !e.focus_within()))) {
@@ -360,11 +390,22 @@ namespace weft::dom {
     }
 
     // Whether the selector's pseudo-element (none for an element selector) belongs to the element: the element is its
-    // originating element.
+    // originating element. A text field's own pseudo-elements belong to text fields alone.
     template <SelectorElement E>
     bool matches_originating(const Selector& s, const E& e, bool state = true) {
-        return !s.parts.empty() && s.pseudo() != PseudoElement::Other &&
-               detail::matches_from(s, s.parts.size() - 1, e, state);
+        if (s.parts.empty() || s.pseudo() == PseudoElement::Other) {
+            return false;
+        }
+        if (s.pseudo() == PseudoElement::Placeholder || s.pseudo() == PseudoElement::Selection) {
+            if constexpr (FieldElement<E>) {
+                if (!e.field()) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        return detail::matches_from(s, s.parts.size() - 1, e, state);
     }
 
     template <SelectorElement E>

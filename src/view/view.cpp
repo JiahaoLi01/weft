@@ -10,6 +10,10 @@
 #include "script/script_platform.hpp"
 #include "style/values.hpp"
 #include "view/view_keys.hpp"
+#include "view/view_text_field.hpp"
+#include "constants/scene.hpp"
+#include "dom/text_field.hpp"
+#include "scene/scene_field.hpp"
 
 #include <algorithm>
 #include <array>
@@ -500,6 +504,16 @@ namespace weft {
                         for (const auto& [property, value] : n.style) {
                             s.emplace_hint(s.end(), std::string(property_name(property)), value.text());
                         }
+                        // A text field's values as its author gave them, not as it lays out and draws itself.
+                        if (n.field) {
+                            for (const auto& [property, value] : n.field->authored) {
+                                if (value) {
+                                    s[std::string(property_name(property))] = *value;
+                                } else {
+                                    s.erase(std::string(property_name(property)));
+                                }
+                            }
+                        }
                         s["width"] = number_text(n.box[2]) + "px";
                         s["height"] = number_text(n.box[3]) + "px";
                         if (!s.contains("transform") || s["transform"].empty() || s["transform"] == "none") {
@@ -767,6 +781,9 @@ namespace weft {
         // KeyboardEventManager::DefaultKeyboardEventHandler): its input_* bits, and whether it used the key, which
         // drops the text the key types.
         std::pair<unsigned, bool> keydown_default(NodeIdentity target, const KeyEvent& e) {
+            if (const auto field = field_keydown(target, e)) {
+                return *field;
+            }
             const auto* node = scene_node(target);
             const auto kind = node ? activation(*node) : Activation::None;
             const bool shift = e.modifiers & key_modifier::shift;
@@ -839,6 +856,9 @@ namespace weft {
             }
             // The default actions see what the listeners did.
             try_flush();
+            if (const auto field = field_press(target, c)) {
+                return *field;
+            }
             const auto* node = scene_node(target);
             const auto kind = node ? activation(*node) : Activation::None;
             if (c == U'\r' && kind == Activation::Button) {
@@ -872,6 +892,465 @@ namespace weft {
             }
             vm.focus(std::nullopt, FocusType::Mouse, false);
         }
+
+        // ---- Text fields (dom/text_field.hpp, SceneNode::field): keys, the mouse and the input method edit the focused
+        // one; its caret blinks, and its text scrolls to show the caret. ----
+
+        // The focused element when it is a text field, with its state.
+        std::pair<NodeIdentity, std::shared_ptr<const TextFieldState>> focused_field() {
+            if (const auto f = vm.focused()) {
+                if (auto state = vm.text_field(*f)) {
+                    return {*f, std::move(state)};
+                }
+            }
+            return {};
+        }
+
+        // A field's scene node and its map from its own px to the View's (ElementGeometry::matrix).
+        struct FieldPlace {
+            const SceneNode* node{};
+            std::array<double, 6> matrix{};
+            std::array<double, 4> rect{};
+        };
+
+        std::optional<FieldPlace> field_place(NodeIdentity id) {
+            const auto* n = scene_node(id);
+            if (!n || !n->field) {
+                return std::nullopt;
+            }
+            ensure_geometry();
+            for (const auto& e : current.elements) {
+                if (e.identity == id) {
+                    return FieldPlace{n, e.matrix, e.rect};
+                }
+            }
+            return std::nullopt;
+        }
+
+        // A point of the View in an element's px, by the inverse of its map.
+        static std::array<float, 2> to_local(const std::array<double, 6>& m, float x, float y) {
+            const double det = m[0] * m[3] - m[1] * m[2];
+            if (std::abs(det) < 1e-12) {
+                return {0, 0};
+            }
+            const double dx = x - m[4];
+            const double dy = y - m[5];
+            return {float((m[3] * dx - m[2] * dy) / det), float((-m[1] * dx + m[0] * dy) / det)};
+        }
+
+        // The value offset of the caret stop nearest a point of the View in a field.
+        std::optional<std::uint32_t> field_offset(NodeIdentity id, const TextFieldState& state, float x, float y) {
+            const auto place = field_place(id);
+            if (!place) {
+                return std::nullopt;
+            }
+            if (place->node->field->placeholder) {
+                return 0;
+            }
+            const auto local = to_local(place->matrix, x, y);
+            return scene_field_value(state, scene_field_offset_at(*place->node, local[0], local[1]));
+        }
+
+        // The value offset of the line above or below the focus at its x in a textarea (Up and Down); its start or end
+        // past its first or last line.
+        // The column Up and Down keep while they move on (Chrome's line direction point): the caret's whole px when the
+        // first of them went, until another key or the mouse moves the caret.
+        std::optional<float> field_column;
+
+        std::uint32_t field_vertical(NodeIdentity id, const TextFieldState& state, std::uint32_t focus, bool down) {
+            const auto* n = scene_node(id);
+            if (!n || !n->field || n->field->placeholder) {
+                return down ? std::uint32_t(state.value.size()) : 0;
+            }
+            const auto caret = scene_field_caret(*n, scene_field_shown(state, focus));
+            if (!caret) {
+                return down ? std::uint32_t(state.value.size()) : 0;
+            }
+            if (!field_column) {
+                field_column = std::floor(caret->x);
+            }
+            if ((!down && caret->line == 0) || (down && caret->line + 1 >= n->lines.size())) {
+                return down ? std::uint32_t(state.value.size()) : 0;
+            }
+            const auto& to = n->lines[down ? caret->line + 1 : caret->line - 1];
+            return scene_field_value(state,
+                                     scene_field_offset_at(*n, *field_column, to.rect[1] + to.rect[3] / 2));
+        }
+
+        // The start or end of the line a textarea shows the focus on (Home and End move by visual lines), from its
+        // laid-out node; its line between line feeds without one.
+        std::uint32_t field_line_end(NodeIdentity id, const TextFieldState& state, std::uint32_t focus, bool end) {
+            const auto* n = scene_node(id);
+            if (n && n->field && !n->field->placeholder) {
+                if (const auto caret = scene_field_caret(*n, scene_field_shown(state, focus))) {
+                    const auto& l = n->lines[caret->line];
+                    return scene_field_value(state, end ? l.start + std::uint32_t(l.text.size()) : l.start);
+                }
+            }
+            const auto line = line_at(state.value, focus);
+            return end ? line.second : line.first;
+        }
+
+        // What the focused field's text scrolls to show when its value or selection changes next (Chrome's
+        // RevealSelection): the focus of the selection after keys and the input method (the extent of what the user
+        // selects), nothing after the mouse (it places the caret where it points, even out of sight), else the caret or
+        // the start of a range (a focus that selects all shows the start).
+        enum class FieldReveal : std::uint8_t {
+            Selection,
+            Extent,
+            None
+        };
+        FieldReveal field_reveal{};
+
+        // A key at the focused text field (Chrome's editing commands on Windows): the caret moves by character, word
+        // (Control), line and the whole value, and Shift extends the selection from its anchor instead (select fires);
+        // Left and Right collapse a range to its start and end; Up and Down go to an input's ends, a textarea's next
+        // lines. Backspace and Delete delete the selection, else the character (Control: the word) before or after the
+        // caret. Control+A selects all; a search field's Escape empties it. A read-only field neither moves its caret
+        // nor deletes (its keys act as elsewhere), but selects all. Its input_* bits and that it used the key; none for
+        // a key it leaves alone.
+        std::optional<std::pair<unsigned, bool>> field_keydown(NodeIdentity target, const KeyEvent& e) {
+            const auto [field, state] = focused_field();
+            if (!state || field != target || (e.modifiers & (key_modifier::alt | key_modifier::meta))) {
+                return std::nullopt;
+            }
+            const auto& f = *state;
+            const bool shift = e.modifiers & key_modifier::shift;
+            const bool control = e.modifiers & key_modifier::control;
+            const std::string_view value(f.value);
+            const auto size = std::uint32_t(f.value.size());
+            const auto anchor = f.backward ? f.selection_end : f.selection_start;
+            const auto focus = f.backward ? f.selection_start : f.selection_end;
+            const bool range = f.selection_start != f.selection_end;
+            const std::pair<unsigned, bool> done{input_default, true};
+            const auto& key = e.key;
+            if (control && !shift && (key == "a" || key == "A")) {
+                field_reveal = FieldReveal::Extent;
+                vm.select_text_field(field, 0, size, true);
+                return done;
+            }
+            if (key == "Escape" && !control && !shift && f.editable && !f.multiline && !f.value.empty()) {
+                const auto* n = scene_node(field);
+                const auto type = n ? n->attributes.find("type") : AttributeMap::const_iterator{};
+                if (n && type != n->attributes.end() && text_field_type(&type->second) == "search") {
+                    field_reveal = FieldReveal::Extent;
+                    vm.set_text_field_value(field, "");
+                    return done;
+                }
+                return std::nullopt;
+            }
+            const bool left = key == "ArrowLeft";
+            const bool right = key == "ArrowRight";
+            const bool home = key == "Home";
+            const bool end = key == "End";
+            const bool up = key == "ArrowUp";
+            const bool down = key == "ArrowDown";
+            if (!up && !down) {
+                field_column.reset();
+            }
+            if (left || right || home || end || up || down) {
+                if (!f.editable) {
+                    return std::nullopt;
+                }
+                std::uint32_t to = focus;
+                if (!shift && range && !control && (left || right)) {
+                    to = left ? f.selection_start : f.selection_end;
+                } else if (left) {
+                    const auto from = shift || !range ? focus : f.selection_start;
+                    to = control ? previous_word(value, from) : previous_character(value, from);
+                } else if (right) {
+                    const auto from = shift || !range ? focus : f.selection_end;
+                    to = control ? next_word(value, from) : next_character(value, from);
+                } else if (home || end) {
+                    to = f.multiline && !control ? field_line_end(field, f, focus, end) : home ? 0 : size;
+                } else {
+                    to = f.multiline ? field_vertical(field, f, focus, down) : down ? size : 0;
+                }
+                field_reveal = FieldReveal::Extent;
+                vm.select_text_field(field, shift ? anchor : to, to, shift);
+                return done;
+            }
+            if (key == "Backspace" || key == "Delete") {
+                if (!f.editable) {
+                    return std::nullopt;
+                }
+                const bool back = key == "Backspace";
+                field_reveal = FieldReveal::Extent;
+                if (range) {
+                    vm.edit_text_field(field, f.selection_start, f.selection_end, "",
+                                       back ? "deleteContentBackward" : "deleteContentForward", false);
+                } else if (back) {
+                    const auto from = control ? previous_word(value, focus) : previous_character(value, focus);
+                    vm.edit_text_field(field, from, focus, "", control ? "deleteWordBackward" : "deleteContentBackward",
+                                       false);
+                } else {
+                    const auto to = control ? next_word(value, focus) : next_character(value, focus);
+                    vm.edit_text_field(field, focus, to, "", control ? "deleteWordForward" : "deleteContentForward",
+                                       false);
+                }
+                return done;
+            }
+            return std::nullopt;
+        }
+
+        // A character the user typed at the focused text field (its keypress nobody prevented): it replaces the
+        // selection (insertText; a read-only field's beforeinput comes and nothing more). Enter breaks a textarea's
+        // line, and in an input fires beforeinput (insertLineBreak) and commits the change (Chrome's implicit
+        // submission). Its input_* bits; none when the focus is not on a text field.
+        std::optional<unsigned> field_press(NodeIdentity target, char32_t c) {
+            const auto [field, state] = focused_field();
+            if (!state || field != target) {
+                return std::nullopt;
+            }
+            const auto& f = *state;
+            field_reveal = FieldReveal::Extent;
+            if (c == U'\r') {
+                if (f.multiline) {
+                    vm.edit_text_field(field, f.selection_start, f.selection_end, "\n", "insertLineBreak", false);
+                } else {
+                    if (f.editable) {
+                        vm.edit_text_field(field, f.selection_end, f.selection_end, "", "insertLineBreak", false);
+                    }
+                    vm.commit_text_field_change(field);
+                }
+                return input_default;
+            }
+            vm.edit_text_field(field, f.selection_start, f.selection_end, utf8_text(c), "insertText", true);
+            return input_default;
+        }
+
+        // The mouse in a text field (Blink's SelectionController): a press places the caret (Shift extends the
+        // selection to it; a press in the selection waits for the button to come up, where Chrome would start to drag
+        // the text), a double press selects a word and a triple one all of an input (a textarea's line); moving with the
+        // button down extends the selection by what the press selected; when the button comes up after the mouse made a
+        // range, select fires.
+        struct FieldDrag {
+            NodeIdentity field;
+            // 0: no press in a field; 1 by character, 2 by word, 3 by line.
+            unsigned granularity{};
+            std::uint32_t anchor_start{};
+            std::uint32_t anchor_end{};
+            std::optional<std::uint32_t> deferred;
+            bool ranged{};
+        } field_drag;
+
+        void field_mouse_down(NodeIdentity target, float x, float y, unsigned modifiers, unsigned clicks) {
+            field_drag = {};
+            field_column.reset();
+            const auto [field, state] = focused_field();
+            if (!state || field != target) {
+                return;
+            }
+            const auto offset = field_offset(field, *state, x, y);
+            if (!offset) {
+                return;
+            }
+            const auto& f = *state;
+            const std::string_view value(f.value);
+            field_reveal = FieldReveal::None;
+            if (clicks >= 3 || clicks == 2) {
+                const auto r = clicks == 2  ? word_at(value, *offset)
+                               : f.multiline ? line_at(value, *offset)
+                                             : std::pair<std::uint32_t, std::uint32_t>{0, std::uint32_t(value.size())};
+                field_drag = {field, clicks == 2 ? 2u : 3u, r.first, r.second, std::nullopt, r.first != r.second};
+                vm.select_text_field(field, r.first, r.second, false);
+                return;
+            }
+            if (modifiers & key_modifier::shift) {
+                const auto anchor = f.backward ? f.selection_end : f.selection_start;
+                field_drag = {field, 1, anchor, anchor, std::nullopt, anchor != *offset};
+                vm.select_text_field(field, anchor, *offset, false);
+                return;
+            }
+            if (f.selection_start != f.selection_end && *offset >= f.selection_start && *offset <= f.selection_end) {
+                field_drag = {field, 1, *offset, *offset, *offset, false};
+                return;
+            }
+            field_drag = {field, 1, *offset, *offset, std::nullopt, false};
+            vm.select_text_field(field, *offset, *offset, false);
+        }
+
+        void field_mouse_move(float x, float y, unsigned buttons) {
+            if (!field_drag.granularity) {
+                return;
+            }
+            const auto state = vm.text_field(field_drag.field);
+            if (!(buttons & constants::input::primary_button_mask) || !state || vm.focused() != field_drag.field) {
+                field_drag = {};
+                return;
+            }
+            const auto offset = field_offset(field_drag.field, *state, x, y);
+            if (!offset) {
+                return;
+            }
+            const std::string_view value(state->value);
+            if (field_drag.deferred) {
+                // A drag from inside the selection selects from where it started (weft drags no text).
+                field_drag.anchor_start = field_drag.anchor_end = *field_drag.deferred;
+                field_drag.deferred.reset();
+            }
+            std::uint32_t anchor = field_drag.anchor_start;
+            std::uint32_t focus = *offset;
+            if (field_drag.granularity > 1) {
+                const auto r = field_drag.granularity == 2 ? word_at(value, *offset)
+                               : state->multiline         ? line_at(value, *offset)
+                                                          : std::pair<std::uint32_t, std::uint32_t>{
+                                                       0, std::uint32_t(value.size())};
+                if (*offset < field_drag.anchor_start) {
+                    anchor = field_drag.anchor_end;
+                    focus = r.first;
+                } else {
+                    focus = std::max(r.second, field_drag.anchor_end);
+                }
+            }
+            field_reveal = FieldReveal::None;
+            vm.select_text_field(field_drag.field, anchor, focus, false);
+            field_drag.ranged = anchor != focus;
+        }
+
+        // After click (and dblclick): a press in the selection places the caret now; a range the mouse made fires
+        // select.
+        void field_mouse_up() {
+            const auto drag = std::exchange(field_drag, {});
+            if (!drag.granularity || !vm.text_field(drag.field)) {
+                return;
+            }
+            if (drag.deferred) {
+                field_reveal = FieldReveal::None;
+                vm.select_text_field(drag.field, *drag.deferred, *drag.deferred, false);
+            } else if (drag.ranged) {
+                vm.dispatch_select(drag.field);
+            }
+        }
+
+        // The caret of the focused field: its blink restarts (shown) whenever the field's value, selection or
+        // composition changes, and its text scrolls to show it (the focus of a selection the user made, else the
+        // start of a range). An input the focus left scrolls back to its start, as Chrome's does.
+        NodeIdentity caret_field;
+        std::shared_ptr<const TextFieldState> caret_seen;
+        double caret_since{};
+
+        // The scroll offsets that show offset (a value offset) in a field's content box, moving its text as little as
+        // possible, from its laid-out node.
+        std::array<float, 2> revealed(NodeIdentity field, const TextFieldState& state, std::uint32_t offset) {
+            std::array<float, 2> scroll{state.scroll_x, state.scroll_y};
+            const auto* n = scene_node(field);
+            if (!n || !n->field || n->lines.empty()) {
+                return scroll;
+            }
+            const auto& s = n->style;
+            const auto edge = [&](PropertyId k) {
+                return scene_values::len(s.text(k, "0"));
+            };
+            // An input shows its text in its content box; a textarea scrolls its padding box, as Chrome's do.
+            const bool padded = state.multiline;
+            const float left = edge(PropertyId::BorderLeftWidth) + edge(PropertyId::PaddingLeft);
+            const float right = edge(PropertyId::BorderRightWidth) + edge(PropertyId::PaddingRight);
+            const float top = edge(PropertyId::BorderTopWidth) + (padded ? 0.f : edge(PropertyId::PaddingTop));
+            const float bottom =
+                edge(PropertyId::BorderBottomWidth) + (padded ? 0.f : edge(PropertyId::PaddingBottom));
+            const float content_w = std::max(0.f, n->box[2] - left - right);
+            const float content_h = std::max(0.f, n->box[3] - top - bottom);
+            const float pad_y = padded ? edge(PropertyId::PaddingTop) + edge(PropertyId::PaddingBottom) : 0.f;
+            float text_w{};
+            for (const auto& l : n->lines) {
+                text_w = std::max(text_w, l.stops.empty() ? 0.f : l.stops.back().second);
+            }
+            const float caret_w = constants::scene::field_caret_px;
+            // The node was laid out at its own state's scroll offsets, which the DOM's may have passed since.
+            const auto& laid = *n->field->state;
+            const float max_x = std::max(0.f, text_w + caret_w - content_w);
+            const float used_x = std::clamp(laid.scroll_x, 0.f, max_x);
+            const float text_h = n->lines.back().rect[1] + n->lines.back().rect[3] - n->lines.front().rect[1];
+            const float max_y = state.multiline ? std::max(0.f, text_h + pad_y - content_h) : 0.f;
+            const float used_y = std::clamp(laid.scroll_y, 0.f, max_y);
+            const auto caret =
+                scene_field_caret(*n, n->field->placeholder ? 0 : scene_field_shown(state, offset));
+            if (!caret) {
+                return scroll;
+            }
+            const auto& l = n->lines[caret->line];
+            const float x = caret->x + used_x - left;
+            float sx = used_x;
+            if (x < sx) {
+                sx = x;
+            } else if (x + caret_w > sx + content_w) {
+                sx = x + caret_w - content_w;
+            }
+            float sy = used_y;
+            if (state.multiline) {
+                const float y = l.rect[1] + used_y - top;
+                if (y < sy) {
+                    sy = y;
+                } else if (y + l.rect[3] > sy + content_h) {
+                    sy = y + l.rect[3] - content_h;
+                }
+            }
+            return {std::clamp(sx, 0.f, max_x), std::clamp(sy, 0.f, max_y)};
+        }
+
+        void field_view() {
+            const auto [field, state] = focused_field();
+            if (caret_field.generation && caret_field != field) {
+                if (const auto left = vm.text_field(caret_field);
+                    left && !left->multiline && (left->scroll_x != 0 || left->scroll_y != 0)) {
+                    vm.set_text_field_view(caret_field, left->caret_on, 0, 0);
+                }
+                caret_field = {};
+                caret_seen.reset();
+            }
+            const auto reveal = std::exchange(field_reveal, FieldReveal::Selection);
+            if (!state) {
+                return;
+            }
+            const auto& f = *state;
+            const bool changed = field != caret_field || !caret_seen || caret_seen->value != f.value ||
+                                 caret_seen->selection_start != f.selection_start ||
+                                 caret_seen->selection_end != f.selection_end ||
+                                 caret_seen->backward != f.backward || caret_seen->composing != f.composing ||
+                                 caret_seen->composition_start != f.composition_start ||
+                                 caret_seen->composition_end != f.composition_end;
+            if (changed) {
+                caret_since = time;
+            }
+            caret_field = field;
+            std::array<float, 2> scroll{f.scroll_x, f.scroll_y};
+            if (changed && reveal != FieldReveal::None) {
+                const auto focus = f.backward ? f.selection_start : f.selection_end;
+                scroll = revealed(field, f,
+                                  f.selection_start == f.selection_end || reveal == FieldReveal::Extent
+                                      ? focus
+                                      : f.selection_start);
+            }
+            const bool on = std::fmod(time - caret_since, 2 * constants::input::caret_blink_ms) <
+                            constants::input::caret_blink_ms;
+            if (on != f.caret_on || scroll[0] != f.scroll_x || scroll[1] != f.scroll_y) {
+                vm.set_text_field_view(field, on, scroll[0], scroll[1]);
+            }
+            caret_seen = vm.text_field(field);
+        }
+
+        // What input at a text field changed reaches the scene, and the field's caret and scrolling follow.
+        void refresh_field() {
+            if (!caret_field.generation && !focused_field().second) {
+                field_reveal = FieldReveal::Selection;
+                return;
+            }
+            try {
+                if (try_flush()) {
+                    field_view();
+                }
+            } catch (const std::runtime_error& e) {
+                handle(e, ViewDiagnostic::Kind::Script);
+            }
+        }
+
+        // Click counting (Chrome's, with Windows' double-click time and area): the count of the last press, and when
+        // and where it was.
+        unsigned click_count{};
+        double click_time{};
+        float click_x{};
+        float click_y{};
     };
 
     View::View(std::shared_ptr<const FontCatalog> fonts, SceneText& text, float width, float height, float scale,
@@ -980,6 +1459,12 @@ namespace weft {
         }
         i.pump();
         if (i.try_flush()) {
+            // The focused text field's caret blinks and its text follows the caret (field_view).
+            try {
+                i.field_view();
+            } catch (const std::runtime_error& e) {
+                i.handle(e, ViewDiagnostic::Kind::Script);
+            }
             try {
                 i.vm.eval("__ceScenePlatform.deliverObservers()", "view");
             } catch (const std::runtime_error& e) {
@@ -1035,13 +1520,38 @@ namespace weft {
         const auto destination = target.generation ? target : i.root_id;
         bool prevented{};
         unsigned buttons = input.buttons;
+        // A press counts on from the last one close to it in time and place (UIEvent.detail); the release and the click
+        // carry its count.
+        if (input.kind == PointerKind::Down) {
+            const bool again = i.click_count && i.time - i.click_time <= constants::input::double_click_ms &&
+                               std::abs(x - i.click_x) <= constants::input::double_click_px &&
+                               std::abs(y - i.click_y) <= constants::input::double_click_px;
+            i.click_count = again ? i.click_count + 1 : 1;
+            i.click_time = i.time;
+            i.click_x = x;
+            i.click_y = y;
+        }
+        const unsigned clicks = std::max(1u, i.click_count);
         try {
             const auto emit = [&](NodeIdentity identity, MouseType type, NodeIdentity related = {}) {
                 if (!identity.generation) {
                     return false;
                 }
+                // A disabled form control gets no mousedown, mouseup, click or dblclick (Chrome drops them).
+                if (type == MouseType::Down || type == MouseType::Up || type == MouseType::Click ||
+                    type == MouseType::DblClick) {
+                    if (const auto* n = i.scene_node(identity);
+                        n && html(*n) && dom::disabled_control(n->tag, true, attributes_of(*n))) {
+                        return false;
+                    }
+                }
                 MouseEvent e;
                 e.type = type;
+                e.clicks = clicks;
+                e.ctrl = input.modifiers & key_modifier::control;
+                e.shift = input.modifiers & key_modifier::shift;
+                e.alt = input.modifiers & key_modifier::alt;
+                e.meta = input.modifiers & key_modifier::meta;
                 e.client_x = x;
                 e.client_y = y;
                 e.screen_x = x;
@@ -1099,6 +1609,10 @@ namespace weft {
                     i.vm.set_pressed(destination);
                     if (!down_prevented) {
                         i.mouse_focus(target);
+                        // In a text field the press places the caret or selects (field_mouse_down).
+                        if (i.try_flush()) {
+                            i.field_mouse_down(target, x, y, input.modifiers, clicks);
+                        }
                     }
                     break;
                 }
@@ -1107,17 +1621,26 @@ namespace weft {
                     prevented = emit(destination, MouseType::Up) || prevented;
                     if (target.generation && target == i.pressed) {
                         emit(target, MouseType::Click);
+                        // The second click of a double click is followed by dblclick.
+                        if (clicks == 2) {
+                            emit(target, MouseType::DblClick);
+                        }
                     }
                     i.pressed = {};
+                    i.field_mouse_up();
                     break;
                 case PointerKind::Move:
                     prevented = emit(destination, MouseType::PointerMove);
                     prevented = emit(destination, MouseType::Move) || prevented;
+                    if (i.field_drag.granularity && i.try_flush()) {
+                        i.field_mouse_move(x, y, buttons);
+                    }
                     break;
             }
         } catch (const std::runtime_error& e) {
             i.handle(e, ViewDiagnostic::Kind::Script);
         }
+        i.refresh_field();
         return prevented;
     }
 
@@ -1186,6 +1709,7 @@ namespace weft {
         } catch (const std::runtime_error& e) {
             i.handle(e, ViewDiagnostic::Kind::Script);
         }
+        i.refresh_field();
         return result;
     }
 
@@ -1215,7 +1739,102 @@ namespace weft {
         } catch (const std::runtime_error& e) {
             i.handle(e, ViewDiagnostic::Kind::Script);
         }
+        i.refresh_field();
         return result;
+    }
+
+    bool View::compose(std::string_view text, std::uint32_t selection_start, std::uint32_t selection_end) {
+        auto& i = *impl_;
+        if (i.faulted) {
+            throw ViewError("WEFT_VIEW_FAULTED: load the page again");
+        }
+        if (text.size() > constants::input::max_text_bytes || !bridge::utf8(text)) {
+            throw std::invalid_argument("WEFT_VIEW_TEXT: UTF-8 text of at most 4096 bytes");
+        }
+        if (!i.loaded || !i.try_flush()) {
+            return false;
+        }
+        const auto [field, state] = i.focused_field();
+        if (!state || !state->editable) {
+            return false;
+        }
+        try {
+            i.field_reveal = Impl::FieldReveal::Extent;
+            i.vm.compose_text_field(field, text, selection_start, selection_end);
+        } catch (const std::runtime_error& e) {
+            i.handle(e, ViewDiagnostic::Kind::Script);
+        }
+        i.refresh_field();
+        return true;
+    }
+
+    bool View::commit(std::string_view text) {
+        auto& i = *impl_;
+        if (i.faulted) {
+            throw ViewError("WEFT_VIEW_FAULTED: load the page again");
+        }
+        if (text.size() > constants::input::max_text_bytes || !bridge::utf8(text)) {
+            throw std::invalid_argument("WEFT_VIEW_TEXT: UTF-8 text of at most 4096 bytes");
+        }
+        if (!i.loaded || !i.try_flush()) {
+            return false;
+        }
+        const auto [field, state] = i.focused_field();
+        if (!state || !state->editable) {
+            return false;
+        }
+        try {
+            i.field_reveal = Impl::FieldReveal::Extent;
+            i.vm.commit_text_field(field, text);
+        } catch (const std::runtime_error& e) {
+            i.handle(e, ViewDiagnostic::Kind::Script);
+        }
+        i.refresh_field();
+        return true;
+    }
+
+    ViewTextInput View::text_input() {
+        auto& i = *impl_;
+        ViewTextInput out;
+        if (!i.loaded || i.faulted || !i.vm.page_focused() || !i.try_flush()) {
+            return out;
+        }
+        const auto [field, state] = i.focused_field();
+        if (!state || !state->editable) {
+            return out;
+        }
+        out.active = true;
+        out.composing = state->composing;
+        out.password = state->password;
+        const auto place = i.field_place(field);
+        if (!place) {
+            return out;
+        }
+        const auto& n = *place->node;
+        out.field = {float(place->rect[0]), float(place->rect[1]), float(place->rect[2]), float(place->rect[3])};
+        const auto focus = state->backward ? state->selection_start : state->selection_end;
+        const auto caret = scene_field_caret(n, n.field->placeholder ? 0 : scene_field_shown(*state, focus));
+        if (!caret) {
+            return out;
+        }
+        const auto& l = n.lines[caret->line];
+        const auto& m = place->matrix;
+        float left = std::numeric_limits<float>::infinity();
+        float top = left;
+        float right = -left;
+        float bottom = -left;
+        for (const auto& [x, y] : {std::pair{caret->x, l.rect[1]}, std::pair{caret->x + 1, l.rect[1]},
+                                   std::pair{caret->x, l.rect[1] + l.rect[3]},
+                                   std::pair{caret->x + 1, l.rect[1] + l.rect[3]}}) {
+            const float vx = float(m[0] * x + m[2] * y + m[4]);
+            const float vy = float(m[1] * x + m[3] * y + m[5]);
+            left = std::min(left, vx);
+            right = std::max(right, vx);
+            top = std::min(top, vy);
+            bottom = std::max(bottom, vy);
+        }
+        out.caret = {left, top, right - left, bottom - top};
+        return out;
     }
 
     void View::set_focus(bool focused) {

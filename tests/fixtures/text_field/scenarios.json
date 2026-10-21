@@ -1,0 +1,782 @@
+{
+  "comment": "Text field scenarios on field.js in an 800 x 600 viewport. A step presses a key (down, its text when it has one and no Control, up), holds or releases one, types text key by key, clicks an element count times at a point of its border box (at: [x, y]; its centre without), drags across it, sets an input method's composition (ime, with its selection in it) or commits one (commit), focuses or blurs by script, runs a script, reads a value, or takes an image of an element (shot). mods: C ctrl, S shift, A alt, M meta. chrome-results.json and chrome/*.png are what Chrome did (tools/browser_text_field_reference.mjs); tests/text_field_tests.cpp replays the steps in a View and compares.",
+  "width": 800,
+  "height": 600,
+  "keys": {
+    "Tab": {
+      "key": "Tab",
+      "code": "Tab",
+      "vk": 9
+    },
+    "Enter": {
+      "key": "Enter",
+      "code": "Enter",
+      "vk": 13,
+      "text": "\r"
+    },
+    "Escape": {
+      "key": "Escape",
+      "code": "Escape",
+      "vk": 27
+    },
+    "Backspace": {
+      "key": "Backspace",
+      "code": "Backspace",
+      "vk": 8
+    },
+    "Delete": {
+      "key": "Delete",
+      "code": "Delete",
+      "vk": 46
+    },
+    "ArrowLeft": {
+      "key": "ArrowLeft",
+      "code": "ArrowLeft",
+      "vk": 37
+    },
+    "ArrowRight": {
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "vk": 39
+    },
+    "ArrowUp": {
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "vk": 38
+    },
+    "ArrowDown": {
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "vk": 40
+    },
+    "Home": {
+      "key": "Home",
+      "code": "Home",
+      "vk": 36
+    },
+    "End": {
+      "key": "End",
+      "code": "End",
+      "vk": 35
+    },
+    "Space": {
+      "key": " ",
+      "code": "Space",
+      "vk": 32,
+      "text": " "
+    },
+    "KeyA": {
+      "key": "a",
+      "code": "KeyA",
+      "vk": 65,
+      "text": "a"
+    },
+    "Shift": {
+      "key": "Shift",
+      "code": "ShiftLeft",
+      "vk": 16
+    },
+    "Control": {
+      "key": "Control",
+      "code": "ControlLeft",
+      "vk": 17
+    },
+    "Process": {
+      "key": "Process",
+      "code": "KeyN",
+      "vk": 229
+    }
+  },
+  "scenarios": [
+    {
+      "name": "typing",
+      "steps": [
+        {
+          "click": "i1"
+        },
+        {
+          "type": "abc"
+        },
+        {
+          "press": "Backspace"
+        },
+        {
+          "press": "ArrowLeft"
+        },
+        {
+          "type": "X"
+        },
+        {
+          "press": "Home"
+        },
+        {
+          "type": "1"
+        },
+        {
+          "press": "End"
+        },
+        {
+          "press": "Delete"
+        },
+        {
+          "press": "ArrowLeft"
+        },
+        {
+          "press": "Delete"
+        },
+        {
+          "press": "Enter"
+        },
+        {
+          "type": "z"
+        },
+        {
+          "click": "b"
+        }
+      ]
+    },
+    {
+      "name": "selection keys",
+      "steps": [
+        {
+          "click": "i2",
+          "at": [
+            234,
+            14
+          ]
+        },
+        {
+          "press": "ArrowLeft",
+          "mods": "S"
+        },
+        {
+          "press": "ArrowLeft",
+          "mods": "S"
+        },
+        {
+          "press": "ArrowLeft",
+          "mods": "S"
+        },
+        {
+          "type": "Z"
+        },
+        {
+          "press": "ArrowLeft",
+          "mods": "C"
+        },
+        {
+          "press": "ArrowRight",
+          "mods": "CS"
+        },
+        {
+          "press": "ArrowLeft"
+        },
+        {
+          "press": "ArrowRight",
+          "mods": "S"
+        },
+        {
+          "press": "ArrowRight"
+        },
+        {
+          "press": "Backspace",
+          "mods": "C"
+        },
+        {
+          "press": "KeyA",
+          "mods": "C"
+        },
+        {
+          "press": "ArrowUp"
+        },
+        {
+          "press": "ArrowDown"
+        },
+        {
+          "press": "Home",
+          "mods": "S"
+        },
+        {
+          "press": "Delete"
+        },
+        {
+          "type": "new"
+        }
+      ]
+    },
+    {
+      "name": "mouse",
+      "steps": [
+        {
+          "click": "i2",
+          "at": [
+            7,
+            14
+          ]
+        },
+        {
+          "click": "i2",
+          "at": [
+            30,
+            14
+          ]
+        },
+        {
+          "click": "i2",
+          "at": [
+            52,
+            14
+          ]
+        },
+        {
+          "click": "i2",
+          "at": [
+            200,
+            14
+          ]
+        },
+        {
+          "click": "i2",
+          "at": [
+            60,
+            14
+          ],
+          "count": 2
+        },
+        {
+          "click": "i2",
+          "at": [
+            20,
+            14
+          ],
+          "count": 3
+        },
+        {
+          "wait": 600
+        },
+        {
+          "click": "i2",
+          "at": [
+            200,
+            14
+          ]
+        },
+        {
+          "wait": 600
+        },
+        {
+          "drag": "i2",
+          "from": [
+            10,
+            14
+          ],
+          "to": [
+            70,
+            14
+          ]
+        },
+        {
+          "wait": 600
+        },
+        {
+          "click": "i2",
+          "at": [
+            200,
+            14
+          ]
+        },
+        {
+          "wait": 600
+        },
+        {
+          "drag": "i2",
+          "from": [
+            70,
+            14
+          ],
+          "to": [
+            15,
+            14
+          ]
+        },
+        {
+          "click": "b"
+        },
+        {
+          "click": "i2",
+          "at": [
+            52,
+            14
+          ]
+        }
+      ]
+    },
+    {
+      "name": "composition",
+      "steps": [
+        {
+          "click": "i1"
+        },
+        {
+          "type": "a"
+        },
+        {
+          "ime": "n"
+        },
+        {
+          "ime": "ni"
+        },
+        {
+          "ime": "你",
+          "selection": [
+            1,
+            1
+          ]
+        },
+        {
+          "commit": "你"
+        },
+        {
+          "ime": "hao"
+        },
+        {
+          "ime": "好",
+          "selection": [
+            0,
+            1
+          ]
+        },
+        {
+          "commit": "好"
+        },
+        {
+          "ime": "x"
+        },
+        {
+          "ime": ""
+        },
+        {
+          "press": "ArrowLeft",
+          "mods": "S"
+        },
+        {
+          "ime": "ma"
+        },
+        {
+          "commit": "吗"
+        },
+        {
+          "ime": "ok"
+        },
+        {
+          "click": "b"
+        }
+      ]
+    },
+    {
+      "name": "restricted",
+      "steps": [
+        {
+          "click": "ir"
+        },
+        {
+          "type": "a"
+        },
+        {
+          "press": "Backspace"
+        },
+        {
+          "press": "ArrowLeft",
+          "mods": "S"
+        },
+        {
+          "click": "id"
+        },
+        {
+          "script": "document.getElementById('id').focus()"
+        },
+        {
+          "click": "im"
+        },
+        {
+          "type": "1234567"
+        },
+        {
+          "press": "ArrowLeft",
+          "mods": "S"
+        },
+        {
+          "type": "89"
+        },
+        {
+          "click": "ib"
+        },
+        {
+          "type": "q"
+        },
+        {
+          "press": "Backspace"
+        },
+        {
+          "ime": "w"
+        },
+        {
+          "commit": "w"
+        }
+      ]
+    },
+    {
+      "name": "overflow",
+      "steps": [
+        {
+          "click": "iw",
+          "at": [
+            110,
+            14
+          ]
+        },
+        {
+          "press": "End"
+        },
+        {
+          "type": " again"
+        },
+        {
+          "press": "Home"
+        },
+        {
+          "press": "End",
+          "mods": "S"
+        },
+        {
+          "press": "ArrowLeft"
+        },
+        {
+          "press": "ArrowRight"
+        },
+        {
+          "click": "ip"
+        },
+        {
+          "type": "x"
+        },
+        {
+          "click": "is"
+        },
+        {
+          "press": "Escape"
+        }
+      ]
+    },
+    {
+      "name": "script",
+      "steps": [
+        {
+          "script": "const f = document.getElementById('i2'); f.value = 'set by script'; f.focus();"
+        },
+        {
+          "script": "document.getElementById('i2').setSelectionRange(4, 6, 'backward')"
+        },
+        {
+          "script": "document.getElementById('i2').select()"
+        },
+        {
+          "script": "document.getElementById('i2').value = 'short'"
+        },
+        {
+          "script": "const f = document.getElementById('i2'); f.selectionStart = 2; f.selectionEnd = 1;"
+        },
+        {
+          "script": "document.getElementById('i2').setRangeText('XY', 1, 3, 'select')"
+        },
+        {
+          "script": "document.getElementById('i2').defaultValue = 'default'"
+        },
+        {
+          "script": "document.getElementById('i1').value = 'abc'; document.getElementById('i1').setSelectionRange(1, 1)"
+        },
+        {
+          "script": "document.getElementById('i1').type = 'number'"
+        }
+      ]
+    },
+    {
+      "name": "styles",
+      "steps": [
+        {
+          "read": "(s => [s.fontFamily, s.fontSize, s.lineHeight, s.paddingTop, s.paddingLeft, s.borderTopWidth, s.borderTopStyle, s.borderTopColor, s.backgroundColor, s.color, s.display, s.cursor, s.boxSizing])(getComputedStyle(document.getElementById('iu')))"
+        },
+        {
+          "read": "__field.rect('iu')"
+        },
+        {
+          "read": "getComputedStyle(document.getElementById('i1'), '::placeholder').color"
+        },
+        {
+          "read": "[getComputedStyle(document.getElementById('i1')).caretColor, getComputedStyle(document.getElementById('i1'), '::selection').backgroundColor, getComputedStyle(document.getElementById('i1'), '::selection').color]"
+        },
+        {
+          "read": "[document.getElementById('i1').matches(':placeholder-shown'), document.getElementById('i2').matches(':placeholder-shown'), document.getElementById('ir').matches(':read-only'), document.getElementById('i1').matches(':read-write'), document.getElementById('id').matches(':disabled')]"
+        },
+        {
+          "read": "__field.rect('i1')"
+        },
+        {
+          "shot": "i1-placeholder",
+          "of": "i1"
+        },
+        {
+          "shot": "iu-default",
+          "of": "iu"
+        },
+        {
+          "shot": "id-disabled",
+          "of": "id"
+        },
+        {
+          "click": "i2",
+          "at": [
+            52,
+            14
+          ]
+        },
+        {
+          "shot": "i2-caret",
+          "of": "i2"
+        },
+        {
+          "script": "document.getElementById('i2').setSelectionRange(6, 11)"
+        },
+        {
+          "shot": "i2-selection",
+          "of": "i2"
+        },
+        {
+          "click": "i1"
+        },
+        {
+          "ime": "ni hao",
+          "selection": [
+            3,
+            3
+          ]
+        },
+        {
+          "shot": "i1-composition",
+          "of": "i1"
+        },
+        {
+          "click": "ip"
+        },
+        {
+          "press": "End"
+        },
+        {
+          "shot": "ip-password",
+          "of": "ip"
+        },
+        {
+          "click": "iw",
+          "at": [
+            110,
+            14
+          ]
+        },
+        {
+          "press": "End"
+        },
+        {
+          "shot": "iw-end",
+          "of": "iw"
+        }
+      ]
+    },
+    {
+      "name": "tab",
+      "steps": [
+        {
+          "click": "b"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "press": "Tab",
+          "mods": "S"
+        },
+        {
+          "press": "Tab",
+          "mods": "S"
+        },
+        {
+          "press": "Tab",
+          "mods": "S"
+        },
+        {
+          "press": "Tab",
+          "mods": "S"
+        },
+        {
+          "press": "Tab",
+          "mods": "S"
+        },
+        {
+          "script": "document.getElementById('i2').focus()"
+        },
+        {
+          "click": "i2",
+          "at": [
+            30,
+            14
+          ]
+        },
+        {
+          "click": "b"
+        },
+        {
+          "script": "document.getElementById('i2').focus()"
+        },
+        {
+          "press": "Tab"
+        }
+      ]
+    },
+    {
+      "name": "textarea",
+      "steps": [
+        {
+          "click": "ta",
+          "at": [
+            40,
+            14
+          ]
+        },
+        {
+          "press": "End"
+        },
+        {
+          "type": "x"
+        },
+        {
+          "press": "Enter"
+        },
+        {
+          "type": "new"
+        },
+        {
+          "press": "ArrowUp"
+        },
+        {
+          "press": "ArrowDown"
+        },
+        {
+          "press": "ArrowDown"
+        },
+        {
+          "press": "Home"
+        },
+        {
+          "press": "ArrowUp",
+          "mods": "S"
+        },
+        {
+          "press": "End",
+          "mods": "CS"
+        },
+        {
+          "press": "Backspace"
+        },
+        {
+          "type": " the quick brown fox jumps over the lazy dog"
+        },
+        {
+          "press": "Home"
+        },
+        {
+          "press": "End"
+        },
+        {
+          "press": "ArrowUp"
+        },
+        {
+          "press": "Home",
+          "mods": "C"
+        },
+        {
+          "press": "End",
+          "mods": "C"
+        },
+        {
+          "ime": "ni"
+        },
+        {
+          "commit": "你"
+        },
+        {
+          "press": "Backspace",
+          "mods": "C"
+        },
+        {
+          "read": "[document.getElementById('ta').value, document.getElementById('ta').defaultValue, document.getElementById('ta').textLength, Math.round(document.getElementById('ta').scrollTop)]"
+        },
+        {
+          "click": "b"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "click": "ta",
+          "at": [
+            100,
+            30
+          ],
+          "count": 2
+        },
+        {
+          "click": "ta",
+          "at": [
+            100,
+            30
+          ],
+          "count": 3
+        }
+      ]
+    },
+    {
+      "name": "textarea styles",
+      "steps": [
+        {
+          "read": "__field.rect('tu')"
+        },
+        {
+          "read": "(s => [s.fontFamily, s.fontSize, s.paddingTop, s.borderTopWidth, s.whiteSpace, s.display])(getComputedStyle(document.getElementById('tu')))"
+        },
+        {
+          "read": "__field.rect('ta')"
+        },
+        {
+          "shot": "ta-default",
+          "of": "ta"
+        },
+        {
+          "script": "const t = document.getElementById('ta'); t.focus(); t.value = 'one\\ntwo\\nthree'; t.setSelectionRange(2, 9);"
+        },
+        {
+          "shot": "ta-selection",
+          "of": "ta"
+        },
+        {
+          "script": "document.getElementById('ta').setSelectionRange(6, 6)"
+        },
+        {
+          "shot": "ta-caret",
+          "of": "ta"
+        }
+      ]
+    }
+  ]
+}

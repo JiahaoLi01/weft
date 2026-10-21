@@ -136,7 +136,8 @@ namespace weft {
                          x.fragments != y.fragments || x.children.size() != y.children.size() ||
                          bool(x.paint) != bool(y.paint) || (x.paint && x.paint->values != y.paint->values) ||
                          !scene_effect_equal(x.effect, y.effect) || (y.effect && y.effect->program->animated) ||
-                         x.background_image != y.background_image || x.particles != y.particles;
+                         x.background_image != y.background_image || x.particles != y.particles ||
+                         !(x.field == y.field || (x.field && y.field && *x.field == *y.field));
             if (!local) {
                 for (std::size_t i = 0; i < x.children.size(); ++i) {
                     if (x.children[i].identity != y.children[i].identity) {

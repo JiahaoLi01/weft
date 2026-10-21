@@ -1,4 +1,5 @@
 #include "scene/scene_display_list.hpp"
+#include "scene/scene_field.hpp"
 #include "scene/scene_background.hpp"
 #include "scene/scene_border_image.hpp"
 #include "scene/scene_gradient.hpp"
@@ -1519,14 +1520,17 @@ namespace weft {
                 // that no solver laid out) is one line in the node's box.
                 // Its text shadows, bottom first, under each line of its text.
                 const auto text_shadows = scene_values::text_shadows(n.style);
+                // tint and text_clip: a text field's selected text, drawn again in the selection's color within the
+                // selection.
                 const auto add_text = [&](std::shared_ptr<SceneNode> source, const Matrix& at, float width,
-                                          float height, std::uint32_t part) {
+                                          float height, std::uint32_t part, const paint::Color* tint = nullptr,
+                                          const std::array<float, 4>* text_clip = nullptr) {
                     auto t = item;
                     t.kind = paint::Item::Kind::Text;
                     t.transform = at;
                     t.width = width;
                     t.height = height;
-                    t.clip = clip;
+                    t.clip = text_clip ? *text_clip : clip;
                     t.clips_begin = chain.begin;
                     t.clips_count = chain.count;
                     source->box[0] = source->box[1] = 0;
@@ -1543,8 +1547,9 @@ namespace weft {
                                c < constants::scene::printable_ascii_end;
                     });
                     if (raster.mask) {
-                        raster.tint =
-                            paint_color(constants::scene::paint_slot_color, "color", constants::default_color);
+                        raster.tint = tint ? *tint
+                                           : paint_color(constants::scene::paint_slot_color, "color",
+                                                         constants::default_color);
                         source->style[PropertyId::Color] = "#ffffff";
                         source->paint.reset();
                     }
@@ -1599,6 +1604,111 @@ namespace weft {
                     list.boxes.push_back(value);
                     list.items.push_back(shape);
                 };
+                // A text field (SceneNode::field) draws Chrome's native border where it has one, and its text clipped to
+                // its content box (a textarea's to its padding box); while it has the focus, its selection's background
+                // under the text and its selected text again over it in the selection's color, then its composition's
+                // underlines and its caret, snapped to device pixels as Chrome snaps them.
+                const auto* field = invisible ? nullptr : n.field.get();
+                const auto text_clip_before = clip;
+                const bool snapped = axis_aligned(m) && m[0] > 0 && m[3] > 0;
+                const auto snap = [&](float v, unsigned axis) {
+                    if (!snapped) {
+                        return v;
+                    }
+                    const float s = m[axis == 0 ? 0 : 3];
+                    const float o = m[axis == 0 ? 4 : 5];
+                    return (std::round((o + s * v) * scale) / scale - o) / s;
+                };
+                // A rectangle of the field's (left, top, right, bottom in its px), snapped, in a color, within the clip;
+                // what it covers once snapped.
+                const auto add_fill = [&](float left, float top, float right, float bottom, const paint::Color& c) {
+                    left = snap(left, 0);
+                    right = snap(right, 0);
+                    top = snap(top, 1);
+                    bottom = snap(bottom, 1);
+                    if (right <= left || bottom <= top || c[3] <= 0) {
+                        return std::array<float, 4>{};
+                    }
+                    paint::Box value;
+                    value.background = c;
+                    auto shape = item;
+                    shape.kind = paint::Item::Kind::Box;
+                    shape.transform = multiply(item.transform, {1, 0, 0, 1, left, top});
+                    shape.width = right - left;
+                    shape.height = bottom - top;
+                    shape.clip = clip;
+                    shape.clips_begin = chain.begin;
+                    shape.clips_count = chain.count;
+                    shape.payload = std::uint32_t(list.boxes.size());
+                    list.boxes.push_back(value);
+                    list.items.push_back(shape);
+                    return std::array<float, 4>{left, top, right, bottom};
+                };
+                // The x of a shown offset on a line of the field: its stop, the last at or before it.
+                const auto x_at = [](const SceneLine& l, std::uint32_t offset) {
+                    float x = 0;
+                    for (const auto& [o, stop] : l.stops) {
+                        if (o > offset) {
+                            break;
+                        }
+                        x = stop;
+                    }
+                    return l.rect[0] + x;
+                };
+                // The selection's rectangle on each line it covers.
+                std::vector<std::pair<std::size_t, std::array<float, 4>>> selected;
+                if (field) {
+                    const auto& state = *field->state;
+                    const auto edge = [&](PropertyId k) {
+                        return len(get(n.style, k, "0"), item.width);
+                    };
+                    const bool padding = state.multiline;
+                    const float x0 = edge(PropertyId::BorderLeftWidth) + (padding ? 0 : edge(PropertyId::PaddingLeft));
+                    const float y0 = edge(PropertyId::BorderTopWidth) + (padding ? 0 : edge(PropertyId::PaddingTop));
+                    const float x1 =
+                        item.width - edge(PropertyId::BorderRightWidth) - (padding ? 0 : edge(PropertyId::PaddingRight));
+                    const float y1 = item.height - edge(PropertyId::BorderBottomWidth) -
+                                     (padding ? 0 : edge(PropertyId::PaddingBottom));
+                    if (field->native) {
+                        paint::Box ring;
+                        const float r = constants::scene::field_native_radius_px;
+                        const float w = constants::scene::field_native_ring_px;
+                        ring.radii = {r, r, r, r};
+                        ring.widths = {w, w, w, w};
+                        const auto c = color(field->ring, n.style);
+                        ring.edges = {c, c, c, c};
+                        auto shape = item;
+                        shape.kind = paint::Item::Kind::Box;
+                        shape.payload = std::uint32_t(list.boxes.size());
+                        list.boxes.push_back(ring);
+                        list.items.push_back(shape);
+                    }
+                    clip = axis_aligned(m) ? intersect(clip, point(m, x0, y0), point(m, x1, y1))
+                                           : bound(clip, m, {x0, y0, std::max(0.f, x1 - x0), std::max(0.f, y1 - y0)});
+                    if (field->focused && state.selection_start != state.selection_end && !field->placeholder) {
+                        const auto from = scene_field_shown(state, state.selection_start);
+                        const auto to = scene_field_shown(state, state.selection_end);
+                        const auto background = color(field->selection_background, n.style);
+                        for (std::size_t at = 0; at < n.lines.size(); ++at) {
+                            const auto& l = n.lines[at];
+                            const auto begin = std::max(from, l.start);
+                            const auto line_end = l.start + std::uint32_t(l.text.size());
+                            const auto end = std::min<std::uint32_t>(to, line_end);
+                            // A line break the selection takes draws as a space after the line's text.
+                            const bool line_break = from <= line_end && to > line_end && line_end < n.text.size() &&
+                                                    n.text[line_end] == '\n';
+                            if (begin >= end && !line_break) {
+                                continue;
+                            }
+                            const auto r = add_fill(x_at(l, begin), l.rect[1],
+                                                    x_at(l, end) + (line_break ? field->newline_width : 0.f),
+                                                    l.rect[1] + l.rect[3], background);
+                            if (r[2] > r[0]) {
+                                selected.push_back({at, r});
+                            }
+                        }
+                    }
+                }
                 for (std::size_t line = 0; !invisible && line < n.lines.size(); ++line) {
                     // A line that text-overflow hides draws nothing.
                     if (n.lines[line].text.empty()) {
@@ -1619,8 +1729,60 @@ namespace weft {
                         add_band(lined, band);
                     }
                 }
+                if (field) {
+                    const auto& state = *field->state;
+                    const auto ink = color(field->selection_color, n.style);
+                    for (const auto& [line, r] : selected) {
+                        const auto within = intersect(clip, point(m, r[0], r[1]), point(m, r[2], r[3]));
+                        if (within[2] <= within[0] || within[3] <= within[1]) {
+                            continue;
+                        }
+                        auto source = std::make_shared<SceneNode>(scene_text_line(n, line));
+                        source->style[PropertyId::Color] = field->selection_color;
+                        source->paint.reset();
+                        const auto at = source->box;
+                        add_text(std::move(source), multiply(item.transform, {1, 0, 0, 1, at[0], at[1]}), at[2],
+                                 at[3], std::uint32_t(n.lines.size() + line), &ink, &within);
+                    }
+                    const auto text_ink =
+                        paint_color(constants::scene::paint_slot_color, "color", constants::default_color);
+                    if (field->focused && state.composing && state.composition_end > state.composition_start) {
+                        const auto from = scene_field_shown(state, state.composition_start);
+                        const auto to = scene_field_shown(state, state.composition_end);
+                        const auto clause_from = scene_field_shown(state, state.clause_start);
+                        const auto clause_to = scene_field_shown(state, state.clause_end);
+                        for (const auto& l : n.lines) {
+                            const auto line_end = l.start + std::uint32_t(l.text.size());
+                            const float bottom = l.rect[1] + l.rect[3];
+                            const auto begin = std::max(from, l.start);
+                            const auto end = std::min(to, line_end);
+                            if (begin < end) {
+                                add_fill(x_at(l, begin), bottom - constants::scene::field_thin_underline_px,
+                                         x_at(l, end), bottom, text_ink);
+                            }
+                            const auto thick_begin = std::max(clause_from, l.start);
+                            const auto thick_end = std::min(clause_to, line_end);
+                            if (thick_begin < thick_end) {
+                                add_fill(x_at(l, thick_begin), bottom - constants::scene::field_thick_underline_px,
+                                         x_at(l, thick_end), bottom, text_ink);
+                            }
+                        }
+                    }
+                    if (field->focused && state.caret_on && state.editable &&
+                        state.selection_start == state.selection_end) {
+                        const auto offset = field->placeholder ? 0 : scene_field_shown(state, state.selection_end);
+                        if (const auto caret = scene_field_caret(n, offset)) {
+                            const auto& l = n.lines[caret->line];
+                            const float x = snap(caret->x, 0);
+                            add_fill(x, l.rect[1], x + constants::scene::field_caret_px, l.rect[1] + l.rect[3],
+                                     color(field->caret_color, n.style));
+                        }
+                    }
+                    clip = text_clip_before;
+                }
                 // Line breaks alone (white-space: pre's newline between two elements) end a line and draw nothing.
-                if (!invisible && n.lines.empty() && n.text.find_first_not_of("\r\n") != std::string::npos) {
+                if (!invisible && !field && n.lines.empty() &&
+                    n.text.find_first_not_of("\r\n") != std::string::npos) {
                     auto source = own(n);
                     source->style.erase(PropertyId::Transform);
                     source->style.erase(PropertyId::Opacity);
