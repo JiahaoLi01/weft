@@ -1476,6 +1476,8 @@ namespace weft {
         if (forgiving) {
             // A document's head and its non-rendered elements, as a browser's UA sheet hides them.
             p.ua_stylesheet += "head,style,script,title,meta,link,template,noscript,base{display:none}";
+            // Chrome's focus ring where an element shows its focus (-webkit-focus-ring-color of a light scheme).
+            p.ua_stylesheet += ":focus-visible{outline:auto 1px #101010}";
             // Hints that change nothing a scene draws: dropped without a warning.
             p.ignored = {"-webkit-font-smoothing",
                          "-moz-osx-font-smoothing",

@@ -860,6 +860,145 @@ namespace {
         weft_view_destroy(r.runtime, view);
         require(weft_view_clear_storage(r.runtime, view) == WEFT_STALE_HANDLE, "a destroyed View's storage");
     }
+
+    weft_key_event key_event(uint32_t kind, std::string_view key, std::string_view code, uint32_t modifiers = 0,
+                             uint32_t flags = 0) {
+        return {sizeof(weft_key_event), kind, key.data(), key.size(), code.data(), code.size(), modifiers, flags, 0, 0};
+    }
+
+    std::string evaluate(const Runtime& r, weft_view_handle view, std::string_view source) {
+        std::string out;
+        require(weft_view_evaluate(
+                    r.runtime, view, source.data(), source.size(),
+                    [](void* user, uint32_t, const char* text, size_t size) {
+                        static_cast<std::string*>(user)->assign(text, size);
+                    },
+                    &out) == WEFT_OK,
+                "evaluate");
+        return out;
+    }
+
+    // A sync function that tries the keyboard calls in the middle of JS.
+    weft_result key_reentry(void* user, const void*, size_t, weft_value_writer* result) {
+        auto& calls = *static_cast<Calls*>(user);
+        const auto e = key_event(WEFT_KEY_DOWN, "a", "KeyA");
+        calls.reentry = weft_view_key(calls.r->runtime, calls.view, &e, nullptr);
+        calls.emitted = weft_view_set_focus(calls.r->runtime, calls.view, 0);
+        ++calls.count;
+        return weft_value_writer_set(result, WEFT_VALUE_JSON, "1", 1);
+    }
+
+    // Keyboard input (weft_view_key, weft_view_text, weft_view_set_focus, weft_keyboard_key): arguments, what the
+    // page did with a key, the host's focus before the first page, reentry, threads and stale handles.
+    void keyboard() {
+        Runtime r;
+        const auto view = r.view();
+        // Before a page: nothing to do, but the host's focus is kept for the page.
+        auto tab = key_event(WEFT_KEY_DOWN, "Tab", "Tab");
+        uint32_t handled = 9;
+        require(weft_view_key(r.runtime, view, &tab, &handled) == WEFT_OK && handled == 0, "a key without a page");
+        require(weft_view_text(r.runtime, view, "a", 1, &handled) == WEFT_OK && handled == 0, "text without a page");
+        require(weft_view_set_focus(r.runtime, view, 0) == WEFT_OK, "the host's focus before a page");
+        // Arguments.
+        auto e = tab;
+        e.struct_size -= 4;
+        require(weft_view_key(r.runtime, view, &e, nullptr) == WEFT_INVALID_ARGUMENT, "a short key event");
+        e = tab;
+        e.kind = 2;
+        require(weft_view_key(r.runtime, view, &e, nullptr) == WEFT_INVALID_ARGUMENT, "an unknown key kind");
+        e = tab;
+        e.reserved = 1;
+        require(weft_view_key(r.runtime, view, &e, nullptr) == WEFT_INVALID_ARGUMENT, "a reserved key field");
+        e = tab;
+        e.flags = 4;
+        require(weft_view_key(r.runtime, view, &e, nullptr) == WEFT_INVALID_ARGUMENT, "unknown key flags");
+        e = tab;
+        e.modifiers = 128;
+        require(weft_view_key(r.runtime, view, &e, nullptr) == WEFT_INVALID_ARGUMENT, "unknown modifiers");
+        e = key_event(WEFT_KEY_DOWN, "", "KeyA");
+        require(weft_view_key(r.runtime, view, &e, nullptr) == WEFT_INVALID_ARGUMENT, "no key value");
+        e = tab;
+        e.key = nullptr;
+        require(weft_view_key(r.runtime, view, &e, nullptr) == WEFT_INVALID_ARGUMENT, "a key value's text missing");
+        const std::string long_key(65, 'a');
+        e = key_event(WEFT_KEY_DOWN, long_key, "KeyA");
+        require(weft_view_key(r.runtime, view, &e, nullptr) == WEFT_INVALID_ARGUMENT, "a key value past 64 bytes");
+        e = key_event(WEFT_KEY_DOWN, "a", long_key);
+        require(weft_view_key(r.runtime, view, &e, nullptr) == WEFT_INVALID_ARGUMENT, "a code past 64 bytes");
+        e = key_event(WEFT_KEY_DOWN, "\xff", "KeyA");
+        require(weft_view_key(r.runtime, view, &e, nullptr) == WEFT_INVALID_ARGUMENT, "a key value of no UTF-8");
+        require(weft_view_key(r.runtime, view, nullptr, nullptr) == WEFT_INVALID_ARGUMENT, "no key event");
+        require(weft_view_text(r.runtime, view, nullptr, 1, nullptr) == WEFT_INVALID_ARGUMENT &&
+                    weft_view_text(r.runtime, view, "\xc3", 1, nullptr) == WEFT_INVALID_ARGUMENT &&
+                    weft_view_text(r.runtime, view, std::string(4097, 'a').data(), 4097, nullptr) ==
+                        WEFT_INVALID_ARGUMENT,
+                "text: missing, no UTF-8, past 4096 bytes");
+        require(weft_view_set_focus(r.runtime, view, 2) == WEFT_INVALID_ARGUMENT, "focus 2");
+
+        // A page: buttons a and b; b's listener prevents x.
+        Calls calls{&r, view};
+        require(weft_view_register_function(r.runtime, view, "keys", 4, key_reentry, &calls) == WEFT_OK, "a function");
+        require(load(r, view, inline_page(R"JS(
+            for (const id of ['a', 'b']) {
+              const n = document.createElement('button');
+              n.setAttribute('id', id);
+              document.getElementById('root').appendChild(n);
+            }
+            document.getElementById('b').addEventListener('keydown', e => { if (e.key === 'x') e.preventDefault(); });
+          )JS",
+                                          "button{width:20px;height:20px}")) == WEFT_OK,
+                "a page");
+        require(evaluate(r, view, "document.hasFocus()") == "false", "the host's focus kept from before the page");
+        require(weft_view_set_focus(r.runtime, view, 1) == WEFT_OK &&
+                    evaluate(r, view, "document.hasFocus()") == "true",
+                "the host's focus back");
+        require(weft_view_key(r.runtime, view, &tab, &handled) == WEFT_OK && handled == WEFT_INPUT_DEFAULT,
+                "Tab moves the focus");
+        require(evaluate(r, view, "document.activeElement.id") == "a", "a has the focus");
+        auto up = key_event(WEFT_KEY_UP, "Tab", "Tab");
+        require(weft_view_key(r.runtime, view, &up, nullptr) == WEFT_OK, "no out_handled");
+        weft_view_key(r.runtime, view, &tab, nullptr);
+        weft_view_key(r.runtime, view, &up, nullptr);
+        auto x = key_event(WEFT_KEY_DOWN, "x", "KeyX");
+        require(weft_view_key(r.runtime, view, &x, &handled) == WEFT_OK && handled == WEFT_INPUT_PREVENTED,
+                "a key b prevents");
+        require(weft_view_text(r.runtime, view, "x", 1, &handled) == WEFT_OK && handled == WEFT_INPUT_DEFAULT,
+                "its text dropped");
+        auto shift = key_event(WEFT_KEY_DOWN, "Shift", "ShiftLeft", WEFT_MODIFIER_SHIFT, WEFT_KEY_REPEAT);
+        require(weft_view_key(r.runtime, view, &shift, &handled) == WEFT_OK && handled == 0, "a repeating Shift");
+        // Reentry from a sync function is refused.
+        require(evaluate(r, view, "weft.engine.invoke('keys', 0)") == "1" && calls.count == 1 &&
+                    calls.reentry == WEFT_BUSY && calls.emitted == WEFT_BUSY,
+                "keys from a sync function wait");
+
+        // weft_keyboard_key, from any thread.
+        char key[32];
+        require(weft_keyboard_key("Enter", 5, 0, key) == WEFT_OK && std::string(key) == "Enter", "Enter's key");
+        require(weft_keyboard_key("Numpad1", 7, 0, key) == WEFT_OK && std::string(key) == "End" &&
+                    weft_keyboard_key("Numpad1", 7, WEFT_MODIFIER_NUM_LOCK, key) == WEFT_OK && std::string(key) == "1",
+                "the numeric keypad");
+        require(weft_keyboard_key("Nope", 4, 0, key) == WEFT_INVALID_ARGUMENT && key[0] == 0 &&
+                    weft_keyboard_key("KeyA", 4, 128, key) == WEFT_INVALID_ARGUMENT &&
+                    weft_keyboard_key(nullptr, 1, 0, key) == WEFT_INVALID_ARGUMENT &&
+                    weft_keyboard_key("KeyA", 4, 0, nullptr) == WEFT_INVALID_ARGUMENT,
+                "weft_keyboard_key's arguments");
+        weft_result elsewhere{};
+        std::string typed;
+        weft_result owner_key{};
+        std::thread([&] {
+            char k[32];
+            elsewhere = weft_keyboard_key("KeyQ", 4, 0, k);
+            typed = k;
+            owner_key = weft_view_key(r.runtime, view, &tab, nullptr);
+        }).join();
+        require(elsewhere == WEFT_OK && !typed.empty() && owner_key == WEFT_WRONG_THREAD,
+                "weft_keyboard_key from another thread; weft_view_key belongs to the owner");
+        weft_view_destroy(r.runtime, view);
+        require(weft_view_key(r.runtime, view, &tab, nullptr) == WEFT_STALE_HANDLE &&
+                    weft_view_text(r.runtime, view, "a", 1, nullptr) == WEFT_STALE_HANDLE &&
+                    weft_view_set_focus(r.runtime, view, 1) == WEFT_STALE_HANDLE,
+                "a destroyed View's keyboard");
+    }
 } // namespace
 
 int main() {
@@ -873,6 +1012,7 @@ int main() {
         stylesheets();
         resources();
         web_storage();
+        keyboard();
         std::cout << "C ABI view tests passed\n";
         return 0;
     } catch (const std::exception& e) {

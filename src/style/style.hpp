@@ -128,6 +128,7 @@ namespace weft {
             bool active{};
             // Focus, and whether the element has content (:empty), where a selector reads them.
             bool focused{};
+            bool focus_visible{};
             bool focus_within{};
             bool content{};
             std::vector<Node> children; // Element children, DOM order.
@@ -139,7 +140,8 @@ namespace weft {
             friend bool operator==(const Node& a, const Node& b) {
                 return a.identity == b.identity && a.type == b.type && a.local_name == b.local_name &&
                        a.namespace_uri == b.namespace_uri && a.attributes == b.attributes && a.hovered == b.hovered &&
-                       a.active == b.active && a.focused == b.focused && a.focus_within == b.focus_within &&
+                       a.active == b.active && a.focused == b.focused && a.focus_visible == b.focus_visible &&
+                       a.focus_within == b.focus_within &&
                        a.content == b.content && a.children == b.children && a.nodes == b.nodes;
             }
         };

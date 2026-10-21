@@ -158,7 +158,82 @@ namespace weft {
         bool alt{};
         bool meta{};
         NodeIdentity related_target{}; // Null identity or same-epoch live node.
+        // A click the keyboard or script asked for (Blink's simulated click): a PointerEvent with pointerId -1, an empty
+        // pointerType, detail 0 and no position.
+        bool simulated{};
     };
+
+    // KeyboardEvent.getModifierState's modifiers, as bits (the C ABI's WEFT_MODIFIER_*).
+    namespace key_modifier {
+        inline constexpr unsigned shift = 1;
+        inline constexpr unsigned control = 2;
+        inline constexpr unsigned alt = 4;
+        inline constexpr unsigned meta = 8;
+        inline constexpr unsigned alt_graph = 16;
+        inline constexpr unsigned caps_lock = 32;
+        inline constexpr unsigned num_lock = 64;
+        inline constexpr unsigned all = 127;
+    } // namespace key_modifier
+
+    enum class KeyType : std::uint8_t {
+        Down,
+        Press,
+        Up
+    };
+
+    // A keyboard event (UI Events §5.6): key and code as KeyboardEvent has them, its location, modifiers
+    // (key_modifier bits), whether it repeats and whether an input method composes, and the legacy keyCode and
+    // charCode (keyCode and which are key_code; charCode is char_code).
+    struct KeyEvent {
+        KeyType type{};
+        std::string key;
+        std::string code;
+        unsigned location{};
+        unsigned modifiers{};
+        bool repeat{};
+        bool composing{};
+        unsigned key_code{};
+        unsigned char_code{};
+        double time_ms{};
+    };
+
+    // How the focus moves: by script (focus(), blur()), the mouse, or the keyboard (Tab, and keys that move it by
+    // position). A script move changes nothing :focus-visible reads; one by the mouse hides it until a key goes down.
+    enum class FocusType : std::uint8_t {
+        Script,
+        Mouse,
+        Keyboard
+    };
+
+    // Keyboard scrolling (Blink's KeyboardEventManager and ScrollManager): the direction and how far: a line (40 px), a
+    // page (seven eighths of the scrollport) or to the end.
+    enum class ScrollDirection : std::uint8_t {
+        Up,
+        Down,
+        Left,
+        Right
+    };
+
+    enum class ScrollGranularity : std::uint8_t {
+        Line,
+        Page,
+        Document
+    };
+
+    // Where scrollIntoView puts an element in each scroll container (CSSOM View §4): its start, centre or end edge, the
+    // nearest edge when it is not in view, or (IfNeeded, as focus() scrolls) nothing when it is in view, its centre
+    // when none of it is and its nearest edge when part of it is.
+    enum class ScrollAlign : std::uint8_t {
+        Start,
+        Center,
+        End,
+        Nearest,
+        IfNeeded
+    };
+
+    // Whether an element is being rendered and visible (HTML's focusable areas): a host that knows the page's styles
+    // answers for the document as given. An element takes the focus only then; without a host every connected one may.
+    using FocusHost = std::function<bool(const DomSnapshot&, NodeIdentity)>;
 
     struct WheelEvent {
         // Owner-normalized logical pixel units.
@@ -247,8 +322,46 @@ namespace weft {
         void install_console_host(ConsoleHost);
         void install_storage(std::shared_ptr<WebStorage> local, std::shared_ptr<WebStorage> session);
         void install_media_host(MediaHost);
-        // The element that has the focus (the web platform's focus()); none when it has none or left the document.
+        // The element that has the focus; none when it has none or left the document.
         std::optional<NodeIdentity> focused() const;
+        // Moves the focus to target (none: no element has it) with blur, focusout, focus and focusin as Blink orders
+        // them; a listener that moves it elsewhere wins. Whether target has the focus afterwards. With scroll the
+        // element scrolls into view where it does not show (ScrollAlign::IfNeeded). The caller decides whether target
+        // may take the focus (focusable).
+        bool focus(std::optional<NodeIdentity> target, FocusType type, bool scroll = true);
+        // Whether target can take the focus as focus() gives it: an element of the document that HTML makes focusable
+        // (a tabindex, a link, a form control that is not disabled, an editing host) and the focus host renders.
+        bool focusable(NodeIdentity target);
+        void install_focus_host(FocusHost);
+        // The host's keyboard focus comes to the page or leaves it, as a browser window's: the focused element gets
+        // blur and focusout, then window blur (window focus, then focus and focusin when it comes back); :focus,
+        // :focus-visible and :focus-within match only while the page has it. A page starts with it; reset_document
+        // keeps it.
+        void set_page_focus(bool focused);
+        bool page_focused() const;
+        // The node a mouse button went down on last: keyboard scrolling starts there when no element has the focus,
+        // and so does sequential focus navigation.
+        void set_pressed(std::optional<NodeIdentity> node);
+        std::optional<NodeIdentity> pressed() const;
+        // Where sequential focus navigation starts (Blink's Document::SequentialFocusNavigationStartingPoint): the
+        // focused element, else the node focused or pressed last (the element before (forward) or after (backward) the
+        // place where it left the document, once it has).
+        std::optional<NodeIdentity> navigation_start(bool forward) const;
+        // The element Space made :active (a button's), which Space's keyup clicks; none clears it.
+        void set_key_active(std::optional<NodeIdentity> target);
+        std::optional<NodeIdentity> key_active() const;
+        // Dispatches a trusted keyboard event at target. A keydown without Control, Alt or Meta lets the focused
+        // element show its focus (:focus-visible).
+        DispatchResult dispatch_key(NodeIdentity target, const KeyEvent& event);
+        // Scrolls, as a key does, the scroll container nearest start (start or an ancestor) that can go further that
+        // way: whether one scrolled.
+        bool scroll_by_key(NodeIdentity start, ScrollDirection direction, ScrollGranularity granularity);
+        // Scrolls target's scroll containers, innermost first, so that it shows: by block vertically, inline_align
+        // horizontally.
+        void scroll_into_view(NodeIdentity target, ScrollAlign block, ScrollAlign inline_align);
+        // DOM queries (querySelector, matches, closest) take the selectors of Selectors 4 as a forgiving stylesheet
+        // does (:focus-visible, :is(), sibling combinators); the strict grammar otherwise. reset_document clears it.
+        void set_modern_selectors(bool modern);
         // The owner's particles: weft.emitParticles (the scene platform) hands each burst to the host, which records it
         // for the next frame and cannot enter JS; what it throws becomes the call's exception.
         void install_particle_host(ParticleHost);

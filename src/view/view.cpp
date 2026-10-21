@@ -1,10 +1,15 @@
 #include "view/view.hpp"
 
 #include "base/diagnostic.hpp"
+#include "bridge/bridge_value.hpp"
+#include "constants/input.hpp"
 #include "constants/view.hpp"
+#include "dom/focus_rules.hpp"
 #include "dom/node.hpp"
+#include "scene/scene_values.hpp"
 #include "script/script_platform.hpp"
 #include "style/values.hpp"
+#include "view/view_keys.hpp"
 
 #include <algorithm>
 #include <array>
@@ -45,6 +50,103 @@ namespace weft {
         bool valid_size(float width, float height, float scale) {
             return std::isfinite(width) && width > 0 && std::isfinite(height) && height > 0 && std::isfinite(scale) &&
                    scale > 0;
+        }
+
+        // HTML's focus rules (dom/focus_rules.hpp) on an element of the scene.
+        bool html(const SceneNode& n) {
+            return n.space.empty() || n.space == constants::xhtml_namespace_uri;
+        }
+
+        auto attributes_of(const SceneNode& n) {
+            return [&n](std::string_view name) -> const std::string* {
+                const auto it = n.attributes.find(name);
+                return it == n.attributes.end() ? nullptr : &it->second;
+            };
+        }
+
+        // What keys do to an element as their default action (Blink's HTMLElement::HandleKeyboardActivation and its
+        // input types): a button (and an input of a button's type) clicks on Enter's keypress and Space's keyup; a
+        // checkbox or radio button on Space's keyup only; a link on Enter's keydown.
+        enum class Activation : std::uint8_t {
+            None,
+            Button,
+            Checkable,
+            Link
+        };
+
+        Activation activation(const SceneNode& n) {
+            if (!html(n) || dom::disabled_control(n.tag, true, attributes_of(n))) {
+                return Activation::None;
+            }
+            if (n.tag == "button") {
+                return Activation::Button;
+            }
+            if (n.tag == "input") {
+                const auto it = n.attributes.find("type");
+                const auto type = dom::lower_ascii_copy(it == n.attributes.end() ? "" : it->second);
+                if (type == "button" || type == "submit" || type == "reset" || type == "image" || type == "color" ||
+                    type == "file") {
+                    return Activation::Button;
+                }
+                if (type == "checkbox" || type == "radio") {
+                    return Activation::Checkable;
+                }
+            }
+            if (n.tag == "a" && n.attributes.contains("href")) {
+                return Activation::Link;
+            }
+            return Activation::None;
+        }
+
+        // A scroll container the keyboard can scroll: overflow auto or scroll with content past its client box.
+        bool overflows(const SceneNode& n) {
+            ElementGeometry e;
+            e.client_width = std::max(0.f, n.box[2] - scene_values::len(n.style.text(PropertyId::BorderLeftWidth, "0")) -
+                                               scene_values::len(n.style.text(PropertyId::BorderRightWidth, "0")));
+            e.client_height =
+                std::max(0.f, n.box[3] - scene_values::len(n.style.text(PropertyId::BorderTopWidth, "0")) -
+                                  scene_values::len(n.style.text(PropertyId::BorderBottomWidth, "0")));
+            e.scroll_width = e.client_width;
+            e.scroll_height = e.client_height;
+            scene_scroll_geometry(n, e);
+            return e.wheel_x || e.wheel_y;
+        }
+
+        // A code point as UTF-8.
+        std::string utf8_text(char32_t c) {
+            std::string out;
+            if (c < 0x80) {
+                out += char(c);
+            } else if (c < 0x800) {
+                out += char(0xC0 | (c >> 6));
+                out += char(0x80 | (c & 0x3F));
+            } else if (c < 0x10000) {
+                out += char(0xE0 | (c >> 12));
+                out += char(0x80 | ((c >> 6) & 0x3F));
+                out += char(0x80 | (c & 0x3F));
+            } else {
+                out += char(0xF0 | (c >> 18));
+                out += char(0x80 | ((c >> 12) & 0x3F));
+                out += char(0x80 | ((c >> 6) & 0x3F));
+                out += char(0x80 | (c & 0x3F));
+            }
+            return out;
+        }
+
+        // The code points of UTF-8 text (validated by the caller).
+        std::vector<char32_t> code_points(std::string_view text) {
+            std::vector<char32_t> out;
+            for (std::size_t i = 0; i < text.size();) {
+                const auto b = static_cast<unsigned char>(text[i]);
+                const int n = b < 0x80 ? 1 : b < 0xE0 ? 2 : b < 0xF0 ? 3 : 4;
+                char32_t c = n == 1 ? b : n == 2 ? b & 0x1F : n == 3 ? b & 0x0F : b & 0x07;
+                for (int k = 1; k < n && i + k < text.size(); ++k) {
+                    c = (c << 6) | (static_cast<unsigned char>(text[i + k]) & 0x3F);
+                }
+                out.push_back(c);
+                i += n;
+            }
+            return out;
         }
     } // namespace
 
@@ -105,6 +207,22 @@ namespace weft {
         std::array<float, 4> hits_within{};
         NodeIdentity hovered{};
         NodeIdentity pressed{};
+        // Keyboard: after a keydown the page or a default action used, its text is dropped until the next keydown;
+        // the last keydown, whose code, location, modifiers and repeat its keypresses carry.
+        bool suppress_text{};
+        KeyEvent last_key;
+        // The scene's elements in tree order with whether each is being rendered, for the scene revision they were
+        // listed for (0 vouches for nothing).
+        struct SceneElement {
+            NodeIdentity identity;
+            const SceneNode* node{};
+            bool rendered{};
+            // The index past its subtree.
+            std::size_t end{};
+        };
+        std::vector<SceneElement> elements;
+        std::uint64_t elements_revision{};
+        bool elements_valid{};
         std::deque<ViewDiagnostic> diagnostics;
         std::size_t dropped{};
         // The host's UI shader effects.
@@ -363,6 +481,16 @@ namespace weft {
                 }
                 return current.elements;
             });
+            // An element takes the focus where the page renders it: not under display: none, and visible.
+            vm.install_focus_host([this](const DomSnapshot& document, NodeIdentity identity) {
+                sync_read(*root_of(document));
+                for (const auto& e : scene_elements()) {
+                    if (e.identity == identity) {
+                        return e.rendered;
+                    }
+                }
+                return false;
+            });
             vm.install_computed_style_host([this](const DomSnapshot& document, NodeIdentity identity) {
                 sync_read(*root_of(document));
                 const auto find = [&](auto&& self, const SceneNode& n) -> std::map<std::string, std::string> {
@@ -419,6 +547,10 @@ namespace weft {
             hovered = pressed = {};
             anchor_table = nullptr;
             hits.reset();
+            elements.clear();
+            elements_valid = false;
+            suppress_text = false;
+            last_key = {};
         }
 
         // The ancestors of id and itself in the scene, the root first; empty when the scene lacks it.
@@ -441,6 +573,304 @@ namespace weft {
                 visit(visit, current.root);
             }
             return path;
+        }
+
+        // The scene's elements in tree order (SceneElement), listed again when the scene changed.
+        const std::vector<SceneElement>& scene_elements() {
+            if (elements_valid && current.revision && elements_revision == current.revision) {
+                return elements;
+            }
+            elements.clear();
+            const auto visit = [&](auto&& self, const SceneNode& n, bool shown) -> void {
+                if (n.tag == "#text" || is_generated(n.identity)) {
+                    return;
+                }
+                const bool displayed = shown && n.style.text(PropertyId::Display, "inline") != "none";
+                const auto at = elements.size();
+                elements.push_back({n.identity, &n, displayed && !scene_values::invisible(n.style), 0});
+                for (const auto& c : n.children) {
+                    self(self, c, displayed);
+                }
+                elements[at].end = elements.size();
+            };
+            visit(visit, current.root, true);
+            elements_revision = current.revision;
+            elements_valid = true;
+            return elements;
+        }
+
+        const SceneNode* scene_node(NodeIdentity id) {
+            for (const auto& e : scene_elements()) {
+                if (e.identity == id) {
+                    return e.node;
+                }
+            }
+            return nullptr;
+        }
+
+        // An element of sequential focus navigation (Blink's ScopedFocusNavigation, over the scene): its tab index as
+        // Blink adjusts it (the tabindex attribute's, else 0 for an element that takes the focus and -1 for another)
+        // and whether Tab stops at it.
+        struct Stop {
+            NodeIdentity identity;
+            std::int32_t tab_index{};
+            bool visit{};
+        };
+
+        std::vector<Stop> navigation_stops() {
+            const auto& list = scene_elements();
+            std::vector<Stop> stops(list.size());
+            // How many stops lie at or after each index: a scroll container the keyboard can scroll takes the focus
+            // when none lies inside it (Chrome's keyboard-focusable scrollers), and its subtree comes after it.
+            std::vector<std::size_t> after(list.size() + 1);
+            for (std::size_t k = list.size(); k-- > 0;) {
+                const auto& n = *list[k].node;
+                const auto* index_text = n.attributes.contains("tabindex") ? &n.attributes.at("tabindex") : nullptr;
+                const auto index = index_text ? dom::html_integer(*index_text) : std::nullopt;
+                bool focusable = list[k].rendered && !dom::disabled_control(n.tag, html(n), attributes_of(n)) &&
+                                 (index || dom::focusable_by_default(n.tag, html(n), attributes_of(n)));
+                if (!focusable && !index && list[k].rendered && overflows(n) && after[k + 1] == after[list[k].end]) {
+                    focusable = true;
+                }
+                const std::int32_t adjusted = index ? *index : focusable ? 0 : -1;
+                stops[k] = {list[k].identity, adjusted, focusable && adjusted >= 0};
+                after[k] = after[k + 1] + (stops[k].visit ? 1 : 0);
+            }
+            return stops;
+        }
+
+        // Blink's ScopedFocusNavigation::NextFocusableElement from the stop at current (none: from the start).
+        static std::optional<std::size_t> next_stop(const std::vector<Stop>& s, std::optional<std::size_t> current) {
+            if (current) {
+                const auto t = s[*current].tab_index;
+                // An element out of the tabbing cycle goes on in tree order.
+                if (t < 0) {
+                    for (auto k = *current + 1; k < s.size(); ++k) {
+                        if (s[k].visit) {
+                            return k;
+                        }
+                    }
+                    return std::nullopt;
+                }
+                for (auto k = *current + 1; k < s.size(); ++k) {
+                    if (s[k].visit && s[k].tab_index == t) {
+                        return k;
+                    }
+                }
+                if (t == 0) {
+                    return std::nullopt;
+                }
+            }
+            // The lowest tab index above current's (above 0 from the start), first in tree order; then the first 0.
+            const std::int32_t above = current ? s[*current].tab_index : 0;
+            std::optional<std::size_t> winner;
+            for (std::size_t k = 0; k < s.size(); ++k) {
+                if (s[k].visit && s[k].tab_index > above && (!winner || s[k].tab_index < s[*winner].tab_index)) {
+                    winner = k;
+                }
+            }
+            if (winner) {
+                return winner;
+            }
+            for (std::size_t k = 0; k < s.size(); ++k) {
+                if (s[k].visit && s[k].tab_index == 0) {
+                    return k;
+                }
+            }
+            return std::nullopt;
+        }
+
+        // Blink's ScopedFocusNavigation::PreviousFocusableElement from the stop at current (none: from the end).
+        static std::optional<std::size_t> previous_stop(const std::vector<Stop>& s,
+                                                        std::optional<std::size_t> current) {
+            const std::int32_t t = current ? s[*current].tab_index : 0;
+            const std::size_t before = current ? *current : s.size();
+            if (t < 0) {
+                for (auto k = before; k-- > 0;) {
+                    if (s[k].visit) {
+                        return k;
+                    }
+                }
+                return std::nullopt;
+            }
+            for (auto k = before; k-- > 0;) {
+                if (s[k].visit && s[k].tab_index == t) {
+                    return k;
+                }
+            }
+            // The highest positive tab index below current's (any from 0 or the end), last in tree order.
+            const std::int32_t below = current && t ? t : std::numeric_limits<std::int32_t>::max();
+            std::optional<std::size_t> winner;
+            std::int32_t winning = 0;
+            for (auto k = s.size(); k-- > 0;) {
+                if (s[k].visit && s[k].tab_index < below && s[k].tab_index > winning) {
+                    winner = k;
+                    winning = s[k].tab_index;
+                }
+            }
+            return winner;
+        }
+
+        // Tab and Shift+Tab (FocusController::AdvanceFocus): the next or previous element of sequential focus
+        // navigation from where it starts. Past the last element (or before the first) the focus comes round to the
+        // first (the last), as in a Chromium embedded with no browser UI to take it. Whether an element took it.
+        bool advance_focus(bool forward) {
+            const auto stops = navigation_stops();
+            std::optional<std::size_t> from;
+            if (const auto start = vm.navigation_start(forward)) {
+                for (std::size_t k = 0; k < stops.size(); ++k) {
+                    if (stops[k].identity == *start) {
+                        from = k;
+                        break;
+                    }
+                }
+            }
+            auto found = forward ? next_stop(stops, from) : previous_stop(stops, from);
+            if (!found) {
+                found = forward ? next_stop(stops, std::nullopt) : previous_stop(stops, std::nullopt);
+            }
+            if (!found) {
+                return false;
+            }
+            vm.focus(stops[*found].identity, FocusType::Keyboard, true);
+            return true;
+        }
+
+        // Keyboard events go to the focused element, else the body.
+        NodeIdentity key_target() {
+            if (const auto f = vm.focused()) {
+                return *f;
+            }
+            return vm.node_identity("body");
+        }
+
+        // Keyboard scrolling starts at the focused element, else where the mouse went down last, else the scene's
+        // root (Blink's ScrollManager::LogicalScroll).
+        bool key_scroll(ScrollDirection direction, ScrollGranularity granularity) {
+            auto start = vm.focused();
+            if (!start) {
+                start = vm.pressed();
+            }
+            return vm.scroll_by_key(start.value_or(root_id), direction, granularity);
+        }
+
+        // The click a key asks for (Blink's DispatchSimulatedClick).
+        void click(NodeIdentity target) {
+            MouseEvent e;
+            e.type = MouseType::Click;
+            e.simulated = true;
+            e.time_ms = time;
+            vm.dispatch_mouse(target, e);
+        }
+
+        // The default actions of a keydown nobody prevented (Blink's element default handlers, then
+        // KeyboardEventManager::DefaultKeyboardEventHandler): its input_* bits, and whether it used the key, which
+        // drops the text the key types.
+        std::pair<unsigned, bool> keydown_default(NodeIdentity target, const KeyEvent& e) {
+            const auto* node = scene_node(target);
+            const auto kind = node ? activation(*node) : Activation::None;
+            const bool shift = e.modifiers & key_modifier::shift;
+            const bool control = e.modifiers & key_modifier::control;
+            const bool alt = e.modifiers & key_modifier::alt;
+            const bool meta = e.modifiers & key_modifier::meta;
+            // A button's Space makes it :active (its keyup clicks it) and leaves the key's text to its keypress.
+            if (e.key == " " && (kind == Activation::Button || kind == Activation::Checkable)) {
+                vm.set_key_active(target);
+                return {input_default, false};
+            }
+            // A focused link's Enter clicks it.
+            if (e.key == "Enter" && kind == Activation::Link && vm.focused() == target) {
+                click(target);
+                return {input_default, true};
+            }
+            if (e.key == "Tab") {
+                if (control || alt || meta) {
+                    return {0, false};
+                }
+                const bool moved = advance_focus(!shift);
+                return {moved ? input_default : 0, moved};
+            }
+            // Arrow, page, Home and End keys scroll (MapKeyCodeForScroll): not with Shift, Meta or (a system key on
+            // Windows) Alt; with Control only Home and End.
+            if (shift || meta || alt || (control && e.key != "Home" && e.key != "End")) {
+                return {0, false};
+            }
+            std::optional<std::pair<ScrollDirection, ScrollGranularity>> scroll;
+            if (e.key == "ArrowUp") {
+                scroll.emplace(ScrollDirection::Up, ScrollGranularity::Line);
+            } else if (e.key == "ArrowDown") {
+                scroll.emplace(ScrollDirection::Down, ScrollGranularity::Line);
+            } else if (e.key == "ArrowLeft") {
+                scroll.emplace(ScrollDirection::Left, ScrollGranularity::Line);
+            } else if (e.key == "ArrowRight") {
+                scroll.emplace(ScrollDirection::Right, ScrollGranularity::Line);
+            } else if (e.key == "PageUp") {
+                scroll.emplace(ScrollDirection::Up, ScrollGranularity::Page);
+            } else if (e.key == "PageDown") {
+                scroll.emplace(ScrollDirection::Down, ScrollGranularity::Page);
+            } else if (e.key == "Home") {
+                scroll.emplace(ScrollDirection::Up, ScrollGranularity::Document);
+            } else if (e.key == "End") {
+                scroll.emplace(ScrollDirection::Down, ScrollGranularity::Document);
+            }
+            if (scroll && key_scroll(scroll->first, scroll->second)) {
+                return {input_default, true};
+            }
+            return {0, false};
+        }
+
+        // A keypress of a character the last key typed at the focused element (the body without one), with its
+        // default actions: a button's Enter clicks it and its Space does nothing more; Space elsewhere scrolls a page
+        // (Shift: back). Its input_* bits.
+        unsigned press(char32_t c) {
+            const auto target = key_target();
+            KeyEvent e;
+            e.type = KeyType::Press;
+            e.key = c == U'\r' ? std::string("Enter") : utf8_text(c);
+            e.code = last_key.code;
+            e.location = last_key.location;
+            e.modifiers = last_key.modifiers;
+            e.repeat = last_key.repeat;
+            // keyCode, which and charCode: the character's first UTF-16 unit.
+            e.key_code = e.char_code = c < 0x10000 ? unsigned(c) : unsigned(0xD800 + ((c - 0x10000) >> 10));
+            e.time_ms = time;
+            if (vm.dispatch_key(target, e) == DispatchResult::DefaultPrevented) {
+                return input_prevented;
+            }
+            // The default actions see what the listeners did.
+            try_flush();
+            const auto* node = scene_node(target);
+            const auto kind = node ? activation(*node) : Activation::None;
+            if (c == U'\r' && kind == Activation::Button) {
+                click(target);
+                return input_default;
+            }
+            if (c == U' ' && (kind == Activation::Button || kind == Activation::Checkable)) {
+                return input_default;
+            }
+            if (c == U' ' && !(e.modifiers & (key_modifier::control | key_modifier::alt | key_modifier::meta))) {
+                return key_scroll(e.modifiers & key_modifier::shift ? ScrollDirection::Up : ScrollDirection::Down,
+                                  ScrollGranularity::Page)
+                           ? input_default
+                           : 0;
+            }
+            return 0;
+        }
+
+        // The mouse went down on target and nobody prevented it (Blink's MouseEventManager::HandleMouseFocus): the
+        // focus goes to it or its nearest ancestor that takes the focus, and away when none does.
+        void mouse_focus(NodeIdentity target) {
+            std::vector<NodeIdentity> path;
+            for (const auto* n : chain(target)) {
+                path.push_back(n->identity);
+            }
+            for (auto n = path.rbegin(); n != path.rend(); ++n) {
+                if (vm.focusable(*n)) {
+                    vm.focus(*n, FocusType::Mouse, false);
+                    return;
+                }
+            }
+            vm.focus(std::nullopt, FocusType::Mouse, false);
         }
     };
 
@@ -484,6 +914,8 @@ namespace weft {
         i.scene->set_effects(i.effects);
         try {
             i.install_hosts();
+            // A page that takes CSS as browsers do takes their selectors in DOM queries too.
+            i.vm.set_modern_selectors(page.forgiving_css);
             install_script_platform(i.vm, ScriptPlatformModule::WebHost);
             install_script_platform(i.vm, ScriptPlatformModule::AnimationFrame);
             install_script_platform(i.vm, ScriptPlatformModule::ScenePlatform);
@@ -656,12 +1088,20 @@ namespace weft {
                     prevented = i.vm.dispatch_wheel(destination, e) == DispatchResult::DefaultPrevented;
                     break;
                 }
-                case PointerKind::Down:
+                case PointerKind::Down: {
                     buttons = buttons ? buttons : 1;
                     prevented = emit(destination, MouseType::PointerDown);
-                    prevented = emit(destination, MouseType::Down) || prevented;
+                    const bool down_prevented = emit(destination, MouseType::Down);
+                    prevented = down_prevented || prevented;
                     i.pressed = target;
+                    // mousedown's default action: the focus moves to what the mouse went down on, and the keyboard
+                    // scrolls and navigates from there.
+                    i.vm.set_pressed(destination);
+                    if (!down_prevented) {
+                        i.mouse_focus(target);
+                    }
                     break;
+                }
                 case PointerKind::Up:
                     prevented = emit(destination, MouseType::PointerUp);
                     prevented = emit(destination, MouseType::Up) || prevented;
@@ -679,6 +1119,119 @@ namespace weft {
             i.handle(e, ViewDiagnostic::Kind::Script);
         }
         return prevented;
+    }
+
+    unsigned View::key(const KeyInput& input) {
+        auto& i = *impl_;
+        if (i.faulted) {
+            throw ViewError("WEFT_VIEW_FAULTED: load the page again");
+        }
+        if (input.key.empty() || input.key.size() > constants::input::max_key_bytes ||
+            input.code.size() > constants::input::max_key_bytes || !bridge::utf8(input.key) ||
+            !bridge::utf8(input.code) || (input.modifiers & ~key_modifier::all)) {
+            throw std::invalid_argument("WEFT_VIEW_KEY: a key of 1 to 64 bytes, a code of at most 64, of UTF-8, and modifiers");
+        }
+        if (!i.loaded || !i.try_flush()) {
+            return 0;
+        }
+        unsigned result{};
+        try {
+            KeyEvent e;
+            e.type = input.down ? KeyType::Down : KeyType::Up;
+            // A key an input method took is "Process" with keyCode 229 going down (Chrome's VK_PROCESSKEY).
+            const bool ime = input.down && input.ime;
+            e.key = ime ? std::string("Process") : input.key;
+            e.code = input.code;
+            e.location = key_location(input.code);
+            e.modifiers = input.modifiers;
+            e.repeat = input.down && input.repeat;
+            e.key_code = ime              ? constants::input::ime_process_key_code
+                         : input.key_code ? input.key_code
+                                          : windows_key_code(input.code);
+            e.time_ms = i.time;
+            const auto target = i.key_target();
+            if (input.down) {
+                i.suppress_text = false;
+                i.last_key = e;
+                if (i.vm.dispatch_key(target, e) == DispatchResult::DefaultPrevented) {
+                    i.suppress_text = true;
+                    return input_prevented;
+                }
+                if (ime) {
+                    return 0;
+                }
+                // The default actions see what the listeners did.
+                i.try_flush();
+                const auto [bits, used] = i.keydown_default(target, e);
+                result = bits;
+                i.suppress_text = used;
+                // The character Enter types ('\r') reaches the page as Enter's keypress (Chrome on Windows).
+                if (!used && e.key == "Enter" &&
+                    !(e.modifiers & (key_modifier::control | key_modifier::alt | key_modifier::meta))) {
+                    result |= i.press(U'\r');
+                }
+            } else {
+                const bool prevented = i.vm.dispatch_key(target, e) == DispatchResult::DefaultPrevented;
+                result = prevented ? input_prevented : 0;
+                // Space's keyup clicks the element its keydown made :active, if it still has the focus.
+                if (e.key == " ") {
+                    const auto active = i.vm.key_active();
+                    i.vm.set_key_active(std::nullopt);
+                    if (!prevented && active && *active == target) {
+                        i.click(target);
+                        result |= input_default;
+                    }
+                }
+            }
+        } catch (const std::runtime_error& e) {
+            i.handle(e, ViewDiagnostic::Kind::Script);
+        }
+        return result;
+    }
+
+    unsigned View::text(std::string_view text) {
+        auto& i = *impl_;
+        if (i.faulted) {
+            throw ViewError("WEFT_VIEW_FAULTED: load the page again");
+        }
+        if (text.size() > constants::input::max_text_bytes || !bridge::utf8(text)) {
+            throw std::invalid_argument("WEFT_VIEW_TEXT: UTF-8 text of at most 4096 bytes");
+        }
+        if (!i.loaded || !i.try_flush()) {
+            return 0;
+        }
+        // The key that typed it was used: its characters go with it.
+        if (i.suppress_text) {
+            return text.empty() ? 0 : input_default;
+        }
+        unsigned result{};
+        try {
+            for (const char32_t c : code_points(text)) {
+                if (c < 0x20 || c == 0x7F) {
+                    continue;
+                }
+                result |= i.press(c);
+            }
+        } catch (const std::runtime_error& e) {
+            i.handle(e, ViewDiagnostic::Kind::Script);
+        }
+        return result;
+    }
+
+    void View::set_focus(bool focused) {
+        auto& i = *impl_;
+        if (i.faulted) {
+            throw ViewError("WEFT_VIEW_FAULTED: load the page again");
+        }
+        try {
+            i.vm.set_page_focus(focused);
+        } catch (const std::runtime_error& e) {
+            i.handle(e, ViewDiagnostic::Kind::Script);
+        }
+    }
+
+    bool View::focused() const {
+        return impl_->vm.page_focused();
     }
 
     std::pair<bool, std::string> View::evaluate(std::string_view source) {

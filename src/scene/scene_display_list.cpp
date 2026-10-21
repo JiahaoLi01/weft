@@ -322,8 +322,8 @@ namespace weft {
                     }
                 }
                 if (!invisible) {
-                    if (const auto ring = scene_values::outline(n.style, n.box[2], n.box[3])) {
-                        add(ring->rect[0], ring->rect[1], ring->rect[2], ring->rect[3]);
+                    for (const auto& ring : scene_values::outline_rings(n.style, n.box[2], n.box[3])) {
+                        add(ring.rect[0], ring.rect[1], ring.rect[2], ring.rect[3]);
                     }
                     if (!n.lines.empty() || !n.text.empty()) {
                         float reach = 0;
@@ -1742,19 +1742,21 @@ namespace weft {
                     }
                     begin = end;
                 }
-                // outline: a ring outside the border box (scene_values::outline) over the element's content, in its
-                // group but outside its own overflow clip (the item's clips are its parent's).
+                // outline: rings outside the border box (scene_values::outline_rings) over the element's content, in
+                // its group but outside its own overflow clip (the item's clips are its parent's).
                 if (!invisible) {
-                    if (const auto ring = scene_values::outline(n.style, item.width, item.height)) {
+                    for (const auto& ring : scene_values::outline_rings(n.style, item.width, item.height)) {
                         paint::Box value;
-                        value.widths.fill(ring->width);
-                        value.edges.fill(color(get(n.style, PropertyId::OutlineColor, "currentcolor"), n.style));
-                        value.radii = ring->radii;
+                        value.widths.fill(ring.width);
+                        value.edges.fill(
+                            color(ring.white ? "#ffffff" : get(n.style, PropertyId::OutlineColor, "currentcolor"),
+                                  n.style));
+                        value.radii = ring.radii;
                         auto shape = item;
                         shape.kind = paint::Item::Kind::Box;
-                        shape.transform = multiply(item.transform, {1, 0, 0, 1, ring->rect[0], ring->rect[1]});
-                        shape.width = ring->rect[2];
-                        shape.height = ring->rect[3];
+                        shape.transform = multiply(item.transform, {1, 0, 0, 1, ring.rect[0], ring.rect[1]});
+                        shape.width = ring.rect[2];
+                        shape.height = ring.rect[3];
                         shape.payload = std::uint32_t(list.boxes.size());
                         list.boxes.push_back(value);
                         list.items.push_back(shape);

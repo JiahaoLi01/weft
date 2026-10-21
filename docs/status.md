@@ -16,6 +16,18 @@
 
 ## 本次已实现
 
+键盘与焦点：宿主的键盘输入、Tab 导航、按钮的 Enter 与空格、键盘滚动、`:focus-visible` 与焦点环（2026-10-21，`input` 分支；用户提出：键盘、输入法与手柄输入接进 weft 和两个引擎插件，行为照 Chrome，这是第一阶段）。
+- **起因**：C ABI 只有指针输入。`KeyboardEvent`、`focus()`、`activeElement` 只在 web 平台页面里有，只能由页面自己派发；点击不改焦点，没有 Tab 导航、按钮的键盘激活与键盘滚动；`:focus-visible` 当成 `:focus`；`scrollIntoView` 是空函数。宣传页的引擎版只能由引擎读键、再给页面发滚动事件。
+- **实现**：
+  - C ABI（`include/weft/weft.h`，[与引擎通信](engine-communication.md#8-对外-view133)“键盘与焦点”）：`weft_view_key`（`weft_key_event`：key、code、修饰键、重复、输入法吃掉的键、keyCode）、`weft_view_text`、`weft_view_set_focus`、`weft_keyboard_key`（当前布局下物理键的 key，Windows 用 `ToUnicodeEx` 不改死键状态）；`WEFT_INPUT_PREVENTED`、`WEFT_INPUT_DEFAULT` 告诉宿主这个键页面用没用。
+  - ScriptDom：原生的 `KeyboardEvent`、`FocusEvent`、`focus(options)`、`blur()`、`activeElement`、`hasFocus()`、`tabIndex`、`scrollIntoView()`，对所有页面；焦点移动照 Blink 的 `SetFocusedElement`（事件顺序、监听器中途移焦点、DOMFocusIn/Out）；焦点元素被移除、移走或被 `textContent` 清掉之前收到 blur；`:focus-visible` 照 Blink 的规则（上一次用户给焦点的方式、焦点之后有没有按键、可编辑元素）；页面焦点（宿主焦点）与 window 的 focus/blur；Tab 的起点（Blink 的 SequentialFocusNavigationStartingPoint，含移除处）；键盘滚动与滚进视野（`ElementGeometry` 加 `client_left`、`client_top`）；`dispatch_mouse` 的 click 改为 PointerEvent，鼠标事件的坐标取整、pointer 事件的 detail 为 0，同 Chrome；宽松页面的 DOM 查询用 Selectors 4。
+  - View（`src/view/view.cpp`、`view_keys.cpp`）：键的派发与 Chrome 的默认动作（Tab 顺序按 Blink 的 ScopedFocusNavigation，在 scene 上找渲染着的元素，末尾回绕；激活；滚动；Enter 的 keypress）；按下鼠标给焦点；文字的 keypress 与被用掉的键之后丢弃；keyCode 与 location 由 code 推出。
+  - 样式与绘制：`:focus-visible` 与 `:focus` 分开匹配；`:focus-within` 单独记（不用它的样式表里，焦点祖先的变化不再触发整页重新匹配：宣传页 4K 下从无焦点到聚焦一个链接，下一帧推进 90.8 → 2.0 ms，失焦 88.6 → 1.2 ms）；宽松页面的 UA 样式表按宽松文法解析，加 Chrome 的 `:focus-visible { outline: auto 1px #101010 }`；`outline-style: auto` 画 Chrome 的焦点环（`scene_values::outline_rings`：2 px 的环骑在边框盒边上、有边框时内移 1 px、外面 1 px 白环、圆角至少 3 px），显示列表与 D2D 参考光栅都画。
+  - 页面运行器：时间线的 `key`、`text`、`focus` 步骤。
+  - Chrome 参考：`tools/browser_keyboard_reference.mjs` 经 DevTools 驱动无头 Chrome，在 `tests/fixtures/keyboard` 的页面上按 Windows 的方式送键（raw keydown、char、keyup）与鼠标，录下每一步的事件与状态（`chrome-results.json`，Chrome 155）。
+- **验证**（Release）：`keyboard_contract`（新）：九个场景 153 步与 Chrome 逐事件、逐字段一致（坐标容差 1 px，滚动位置容差 1 px），两处有意不同（Tab 回绕；在文字上点击后的 Shift+Tab）；另有回绕、宿主焦点、out_handled 与丢弃的文字、输入法的键、keyCode/location/getModifierState、重入的监听器（blur 里抢焦点、keydown 里删焦点元素、祖先的移除与移动）、聚焦规则与 tabIndex、没有 web 平台的页面、焦点环的像素与 Chrome 量到的位置一致。`c_api_view_contract` 加 `keyboard`。`web_platform_contract`、`view_contract`、`incremental_contract`、scene 与样式的合同照旧通过。全量 ctest 177 项：除既有的 14 项（签出换行的散列校验与浏览器差分）外通过。
+- **限制**：文本框与 IME（下一阶段）、手柄（第三阶段）；在文字上点击后 Shift+Tab 从被点的元素算起（weft 的命中只到元素）；键盘滚动一步到位；`accesskey`、`inert`、`<dialog>`/popover 的焦点范围、焦点元素变得不可聚焦时的修正未做；右 Alt 的 key 一律是 `Alt`（不区分 AltGraph 布局）；严格页面没有默认焦点环（严格文法没有 `:focus-visible`）。
+
 展开的问题与它下面的内容：整页布局保留没变的行内格式化上下文，Yoga 在没有空间时也按内容量不滚动的盒子（2026-10-21，`weft-op` 分支；宣传页的引擎版点开常见问题时，答案的高度过渡 0.45 秒，这段时间 4K 下每帧推进 23–35 ms，展开后答案只露出第一行）。
 - **起因**：
   - 答案面板的 `height` 在过渡，每帧都把整页再布局一遍（它在文档流里，局部布局只管两轴都有偏移的绝对定位盒子）。页面运行器按宣传页的 4K（1707 × 907 CSS px、缩放 2.25）计时：一次整页布局约 21 ms，其中 10 ms 是给 427 个行内格式化上下文重新建 `SceneInlineContent`（收集、整形、切成不可断的段），2.5 ms 是它们的 968 次断行，而它们都没有变。

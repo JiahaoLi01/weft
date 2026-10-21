@@ -1091,6 +1091,10 @@ namespace weft {
                 return node().focused;
             }
 
+            bool focus_visible() const {
+                return node().focus_visible;
+            }
+
             bool focus_within() const {
                 return node().focus_within;
             }
@@ -1212,6 +1216,10 @@ namespace weft {
 
             bool focused() const {
                 return n->focused;
+            }
+
+            bool focus_visible() const {
+                return n->focus_visible;
             }
 
             bool focus_within() const {
@@ -3182,9 +3190,11 @@ namespace weft {
             bool memoize{};
             bool uses_hover{};
             bool uses_active{};
-            // What the modern grammar's selectors read: focus, an element's position among its siblings, its
+            // What the modern grammar's selectors read: focus (:focus and :focus-visible, and apart :focus-within,
+            // which every ancestor of the focused element matches), an element's position among its siblings, its
             // siblings themselves (+, ~, :nth-child(of S)), and whether it is empty.
             bool uses_focus{};
+            bool uses_focus_within{};
             bool uses_position{};
             bool uses_siblings{};
             bool uses_empty{};
@@ -3254,7 +3264,8 @@ namespace weft {
                         each_compound(rule.selector, [&](const dom::Compound& part) {
                             uses_hover |= part.hover;
                             uses_active |= part.active;
-                            uses_focus |= part.focus || part.focus_within;
+                            uses_focus |= part.focus || part.focus_visible;
+                            uses_focus_within |= part.focus_within;
                             uses_empty |= part.empty;
                             uses_position |= !part.nth.empty();
                             for (const auto& n : part.nth) {
@@ -3355,6 +3366,9 @@ namespace weft {
                 }
                 if (uses_focus) {
                     selector_path += n->focused ? 'F' : 'f';
+                    selector_path += n->focus_visible ? 'V' : 'v';
+                }
+                if (uses_focus_within) {
                     selector_path += n->focus_within ? 'W' : 'w';
                 }
                 if (uses_empty) {
@@ -3536,7 +3550,8 @@ namespace weft {
                 return a.type == b.type && a.local_name == b.local_name && a.namespace_uri == b.namespace_uri &&
                        a.attributes == b.attributes &&
                        seen_state(state_parts, a, root) == seen_state(state_parts, b, root) &&
-                       (!uses_focus || (a.focused == b.focused && a.focus_within == b.focus_within)) &&
+                       (!uses_focus || (a.focused == b.focused && a.focus_visible == b.focus_visible)) &&
+                       (!uses_focus_within || a.focus_within == b.focus_within) &&
                        (!uses_empty || has_content(a) == has_content(b));
             }
 
@@ -3545,7 +3560,8 @@ namespace weft {
             bool same_selector_input(const DomSnapshot& a, const DomSnapshot& b, bool root) const {
                 if (a.local_name != b.local_name || a.namespace_uri != b.namespace_uri ||
                     seen_state(state_parts, a, root) != seen_state(state_parts, b, root) ||
-                    (uses_focus && (a.focused != b.focused || a.focus_within != b.focus_within))) {
+                    (uses_focus && (a.focused != b.focused || a.focus_visible != b.focus_visible)) ||
+                    (uses_focus_within && a.focus_within != b.focus_within)) {
                     return false;
                 }
                 const auto read = [&](const AttributeMap& m, AttributeMap::const_iterator it) {
@@ -4542,7 +4558,9 @@ namespace weft {
             Warnings warnings;
 
             Compiled(std::string sheet, const StyleProfile& profile) {
-                ua = rules(profile.ua_stylesheet, profile);
+                // A forgiving profile's UA sheet takes its selectors (:focus-visible) as its author sheet does.
+                ua = profile.forgiving ? parse_sheet(profile.ua_stylesheet, profile).rules
+                                       : rules(profile.ua_stylesheet, profile);
                 if (!profile.forgiving) {
                     author = rules(std::move(sheet), profile);
                     return;
@@ -4602,8 +4620,10 @@ namespace weft {
         std::vector<Rule>& author;
         std::set<std::string> attributes{"id", "class", "style"};
         std::vector<dom::Compound> state_parts;
-        // What the sheet's selectors read beyond names, attributes, hover and active.
+        // What the sheet's selectors read beyond names, attributes, hover and active: the focused element (:focus,
+        // :focus-visible), the focused element's ancestors (:focus-within), emptiness.
         bool uses_focus{};
+        bool uses_focus_within{};
         bool uses_empty{};
         // A forgiving sheet's cascade context, the viewport its @media conditions read, and their outcomes there.
         ForgivingContext context;
@@ -4627,7 +4647,8 @@ namespace weft {
                         if (part.hover || part.active) {
                             state_parts.push_back(lone_state_part(part));
                         }
-                        uses_focus |= part.focus || part.focus_within;
+                        uses_focus |= part.focus || part.focus_visible;
+                        uses_focus_within |= part.focus_within;
                         uses_empty |= part.empty;
                         for (const auto& attribute : part.attributes) {
                             attributes.insert(attribute.name);
@@ -4825,7 +4846,8 @@ namespace weft {
             assign(k.hovered, hovered);
             assign(k.active, active);
             assign(k.focused, impl_->uses_focus && n.focused);
-            assign(k.focus_within, impl_->uses_focus && n.focus_within);
+            assign(k.focus_visible, impl_->uses_focus && n.focus_visible);
+            assign(k.focus_within, impl_->uses_focus_within && n.focus_within);
             assign(k.content, impl_->uses_empty && has_content(n));
             if (!same_attributes(n, k)) {
                 k.attributes.clear();
@@ -4902,7 +4924,8 @@ namespace weft {
             n.hovered = h;
             n.active = a;
             n.focused &= impl_->uses_focus;
-            n.focus_within &= impl_->uses_focus;
+            n.focus_visible &= impl_->uses_focus;
+            n.focus_within &= impl_->uses_focus_within;
             // A normalized copy no longer matches the DOM state its revision names.
             n.revision = 0;
             for (auto& child : n.children) {

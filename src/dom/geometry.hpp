@@ -14,6 +14,10 @@ namespace weft {
         std::vector<std::array<double, 4>> client_rects;
         double client_width{};
         double client_height{};
+        // The left and top border widths (clientLeft, clientTop): where the padding box, and a scroll container's
+        // scrollport, starts in the border box.
+        double client_left{};
+        double client_top{};
         double scroll_width{};
         double scroll_height{};
         double scroll_left{};

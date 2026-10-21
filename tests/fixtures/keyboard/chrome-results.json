@@ -1,0 +1,9464 @@
+{
+ "chrome": "Chrome/155.0.8059.85",
+ "scenarios": {
+  "tab-order": [
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "t1",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "t1"
+     },
+     {
+      "type": "focusin",
+      "target": "t1",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "t1"
+     },
+     {
+      "type": "keyup",
+      "target": "t1",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "t1"
+     }
+    ],
+    "state": {
+     "active": "t1",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "t1",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "t1"
+     },
+     {
+      "type": "blur",
+      "target": "t1",
+      "related": "t2",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "t1",
+      "related": "t2",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "t2",
+      "related": "t1",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "t2"
+     },
+     {
+      "type": "focusin",
+      "target": "t2",
+      "related": "t1",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "t2"
+     },
+     {
+      "type": "keyup",
+      "target": "t2",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "t2"
+     }
+    ],
+    "state": {
+     "active": "t2",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "t2",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "t2"
+     },
+     {
+      "type": "blur",
+      "target": "t2",
+      "related": "b1",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "t2",
+      "related": "b1",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "b1",
+      "related": "t2",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "focusin",
+      "target": "b1",
+      "related": "t2",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "keyup",
+      "target": "b1",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     }
+    ],
+    "state": {
+     "active": "b1",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "b1",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "blur",
+      "target": "b1",
+      "related": "a1",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "b1",
+      "related": "a1",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "a1",
+      "related": "b1",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "a1"
+     },
+     {
+      "type": "focusin",
+      "target": "a1",
+      "related": "b1",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "a1"
+     },
+     {
+      "type": "keyup",
+      "target": "a1",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "a1"
+     }
+    ],
+    "state": {
+     "active": "a1",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "a1",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "a1"
+     },
+     {
+      "type": "blur",
+      "target": "a1",
+      "related": "d0",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "a1",
+      "related": "d0",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "d0",
+      "related": "a1",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "d0"
+     },
+     {
+      "type": "focusin",
+      "target": "d0",
+      "related": "a1",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "d0"
+     },
+     {
+      "type": "keyup",
+      "target": "d0",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "d0"
+     }
+    ],
+    "state": {
+     "active": "d0",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "d0",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "d0"
+     },
+     {
+      "type": "blur",
+      "target": "d0",
+      "related": "b2",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "d0",
+      "related": "b2",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "b2",
+      "related": "d0",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "focusin",
+      "target": "b2",
+      "related": "d0",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "keyup",
+      "target": "b2",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b2"
+     }
+    ],
+    "state": {
+     "active": "b2",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "b2",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "blur",
+      "target": "b2",
+      "related": "bp",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "b2",
+      "related": "bp",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "bp",
+      "related": "b2",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "bp"
+     },
+     {
+      "type": "focusin",
+      "target": "bp",
+      "related": "b2",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "bp"
+     },
+     {
+      "type": "keyup",
+      "target": "bp",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bp"
+     }
+    ],
+    "state": {
+     "active": "bp",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bp",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bp"
+     },
+     {
+      "type": "blur",
+      "target": "bp",
+      "related": "bk",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "bp",
+      "related": "bk",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "bk",
+      "related": "bp",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "bk"
+     },
+     {
+      "type": "focusin",
+      "target": "bk",
+      "related": "bp",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "bk"
+     },
+     {
+      "type": "keyup",
+      "target": "bk",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bk"
+     }
+    ],
+    "state": {
+     "active": "bk",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bk",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bk"
+     },
+     {
+      "type": "blur",
+      "target": "bk",
+      "related": "md",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "bk",
+      "related": "md",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "md",
+      "related": "bk",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "md"
+     },
+     {
+      "type": "focusin",
+      "target": "md",
+      "related": "bk",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "md"
+     },
+     {
+      "type": "keyup",
+      "target": "md",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "md"
+     }
+    ],
+    "state": {
+     "active": "md",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "md",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "md"
+     },
+     {
+      "type": "blur",
+      "target": "md",
+      "related": "bs",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "md",
+      "related": "bs",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "bs",
+      "related": "md",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "focusin",
+      "target": "bs",
+      "related": "md",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "keyup",
+      "target": "bs",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bs",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "blur",
+      "target": "bs",
+      "related": "sc2",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "bs",
+      "related": "sc2",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "sc2",
+      "related": "bs",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "sc2"
+     },
+     {
+      "type": "focusin",
+      "target": "sc2",
+      "related": "bs",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "sc2"
+     },
+     {
+      "type": "keyup",
+      "target": "sc2",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "sc2"
+     }
+    ],
+    "state": {
+     "active": "sc2",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "focus": "b1"
+    },
+    "events": [
+     {
+      "type": "blur",
+      "target": "sc2",
+      "related": "b1",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "sc2",
+      "related": "b1",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "b1",
+      "related": "sc2",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "focusin",
+      "target": "b1",
+      "related": "sc2",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b1"
+     }
+    ],
+    "state": {
+     "active": "b1",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "down": "Shift"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "b1",
+      "key": "Shift",
+      "code": "ShiftLeft",
+      "keyCode": 16,
+      "which": 16,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     }
+    ],
+    "state": {
+     "active": "b1",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab",
+     "mods": "S"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "b1",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "blur",
+      "target": "b1",
+      "related": "t2",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "b1",
+      "related": "t2",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "t2",
+      "related": "b1",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "t2"
+     },
+     {
+      "type": "focusin",
+      "target": "t2",
+      "related": "b1",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "t2"
+     },
+     {
+      "type": "keyup",
+      "target": "t2",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "t2"
+     }
+    ],
+    "state": {
+     "active": "t2",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab",
+     "mods": "S"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "t2",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "t2"
+     },
+     {
+      "type": "blur",
+      "target": "t2",
+      "related": "t1",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "t2",
+      "related": "t1",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "t1",
+      "related": "t2",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "t1"
+     },
+     {
+      "type": "focusin",
+      "target": "t1",
+      "related": "t2",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "t1"
+     },
+     {
+      "type": "keyup",
+      "target": "t1",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "t1"
+     }
+    ],
+    "state": {
+     "active": "t1",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab",
+     "mods": "S"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "t1",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "t1"
+     },
+     {
+      "type": "blur",
+      "target": "t1",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "t1",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "blur",
+      "target": "window",
+      "related": null,
+      "visible": null,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "up": "Shift"
+    },
+    "events": [
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": "Shift",
+      "code": "ShiftLeft",
+      "keyCode": 16,
+      "which": 16,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   }
+  ],
+  "activation": [
+   {
+    "step": {
+     "focus": "b1"
+    },
+    "events": [
+     {
+      "type": "focus",
+      "target": "b1",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "focusin",
+      "target": "b1",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b1"
+     }
+    ],
+    "state": {
+     "active": "b1",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Enter"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "b1",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "which": 13,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "keypress",
+      "target": "b1",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "which": 13,
+      "charCode": 13,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "click",
+      "target": "b1",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 0,
+      "y": 0,
+      "pointerId": -1,
+      "pointerType": "",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "keyup",
+      "target": "b1",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "which": 13,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     }
+    ],
+    "state": {
+     "active": "b1",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Space"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "b1",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "keypress",
+      "target": "b1",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 32,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "keyup",
+      "target": "b1",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "click",
+      "target": "b1",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 0,
+      "y": 0,
+      "pointerId": -1,
+      "pointerType": "",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     }
+    ],
+    "state": {
+     "active": "b1",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "focus": "a1"
+    },
+    "events": [
+     {
+      "type": "blur",
+      "target": "b1",
+      "related": "a1",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "b1",
+      "related": "a1",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "a1",
+      "related": "b1",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "a1"
+     },
+     {
+      "type": "focusin",
+      "target": "a1",
+      "related": "b1",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "a1"
+     }
+    ],
+    "state": {
+     "active": "a1",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Enter"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "a1",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "which": 13,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "a1"
+     },
+     {
+      "type": "click",
+      "target": "a1",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 0,
+      "y": 0,
+      "pointerId": -1,
+      "pointerType": "",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "a1"
+     },
+     {
+      "type": "keyup",
+      "target": "a1",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "which": 13,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "a1"
+     }
+    ],
+    "state": {
+     "active": "a1",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Space"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "a1",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "a1"
+     },
+     {
+      "type": "keypress",
+      "target": "a1",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 32,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "a1"
+     },
+     {
+      "type": "keyup",
+      "target": "a1",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "a1"
+     }
+    ],
+    "state": {
+     "active": "a1",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "focus": "d0"
+    },
+    "events": [
+     {
+      "type": "blur",
+      "target": "a1",
+      "related": "d0",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "a1",
+      "related": "d0",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "d0",
+      "related": "a1",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "d0"
+     },
+     {
+      "type": "focusin",
+      "target": "d0",
+      "related": "a1",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "d0"
+     }
+    ],
+    "state": {
+     "active": "d0",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Enter"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "d0",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "which": 13,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "d0"
+     },
+     {
+      "type": "keypress",
+      "target": "d0",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "which": 13,
+      "charCode": 13,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "d0"
+     },
+     {
+      "type": "keyup",
+      "target": "d0",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "which": 13,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "d0"
+     }
+    ],
+    "state": {
+     "active": "d0",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Space"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "d0",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "d0"
+     },
+     {
+      "type": "keypress",
+      "target": "d0",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 32,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "d0"
+     },
+     {
+      "type": "keyup",
+      "target": "d0",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "d0"
+     }
+    ],
+    "state": {
+     "active": "d0",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "focus": "bp"
+    },
+    "events": [
+     {
+      "type": "blur",
+      "target": "d0",
+      "related": "bp",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "d0",
+      "related": "bp",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "bp",
+      "related": "d0",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "bp"
+     },
+     {
+      "type": "focusin",
+      "target": "bp",
+      "related": "d0",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "bp"
+     }
+    ],
+    "state": {
+     "active": "bp",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Enter"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bp",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "which": 13,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bp"
+     },
+     {
+      "type": "keyup",
+      "target": "bp",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "which": 13,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bp"
+     }
+    ],
+    "state": {
+     "active": "bp",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Space"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bp",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bp"
+     },
+     {
+      "type": "keyup",
+      "target": "bp",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bp"
+     }
+    ],
+    "state": {
+     "active": "bp",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "script": "document.getElementById('bp').addEventListener('keydown', e => { if (e.key === 'Tab') e.preventDefault(); })"
+    },
+    "events": [],
+    "state": {
+     "active": "bp",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bp",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bp"
+     },
+     {
+      "type": "keyup",
+      "target": "bp",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bp"
+     }
+    ],
+    "state": {
+     "active": "bp",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "focus": "bk"
+    },
+    "events": [
+     {
+      "type": "blur",
+      "target": "bp",
+      "related": "bk",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "bp",
+      "related": "bk",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "bk",
+      "related": "bp",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "bk"
+     },
+     {
+      "type": "focusin",
+      "target": "bk",
+      "related": "bp",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "bk"
+     }
+    ],
+    "state": {
+     "active": "bk",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Enter"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bk",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "which": 13,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bk"
+     },
+     {
+      "type": "keypress",
+      "target": "bk",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "which": 13,
+      "charCode": 13,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bk"
+     },
+     {
+      "type": "keyup",
+      "target": "bk",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "which": 13,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bk"
+     }
+    ],
+    "state": {
+     "active": "bk",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Space"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bk",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bk"
+     },
+     {
+      "type": "keypress",
+      "target": "bk",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 32,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bk"
+     },
+     {
+      "type": "keyup",
+      "target": "bk",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bk"
+     },
+     {
+      "type": "click",
+      "target": "bk",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 0,
+      "y": 0,
+      "pointerId": -1,
+      "pointerType": "",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bk"
+     }
+    ],
+    "state": {
+     "active": "bk",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "focus": "bd"
+    },
+    "events": [],
+    "state": {
+     "active": "bk",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Enter"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bk",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "which": 13,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bk"
+     },
+     {
+      "type": "keypress",
+      "target": "bk",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "which": 13,
+      "charCode": 13,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bk"
+     },
+     {
+      "type": "keyup",
+      "target": "bk",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "which": 13,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bk"
+     }
+    ],
+    "state": {
+     "active": "bk",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   }
+  ],
+  "space-away": [
+   {
+    "step": {
+     "focus": "b1"
+    },
+    "events": [
+     {
+      "type": "focus",
+      "target": "b1",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "focusin",
+      "target": "b1",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b1"
+     }
+    ],
+    "state": {
+     "active": "b1",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "down": "Space"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "b1",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "keypress",
+      "target": "b1",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 32,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     }
+    ],
+    "state": {
+     "active": "b1",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "b1",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "blur",
+      "target": "b1",
+      "related": "a1",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "b1",
+      "related": "a1",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "a1",
+      "related": "b1",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "a1"
+     },
+     {
+      "type": "focusin",
+      "target": "a1",
+      "related": "b1",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "a1"
+     },
+     {
+      "type": "keyup",
+      "target": "a1",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "a1"
+     }
+    ],
+    "state": {
+     "active": "a1",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "up": "Space"
+    },
+    "events": [
+     {
+      "type": "keyup",
+      "target": "a1",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "a1"
+     }
+    ],
+    "state": {
+     "active": "a1",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "focus": "b2"
+    },
+    "events": [
+     {
+      "type": "blur",
+      "target": "a1",
+      "related": "b2",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "a1",
+      "related": "b2",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "b2",
+      "related": "a1",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "focusin",
+      "target": "b2",
+      "related": "a1",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b2"
+     }
+    ],
+    "state": {
+     "active": "b2",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "down": "Space"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "b2",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "keypress",
+      "target": "b2",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 32,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b2"
+     }
+    ],
+    "state": {
+     "active": "b2",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "blur": true
+    },
+    "events": [
+     {
+      "type": "blur",
+      "target": "b2",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "b2",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "up": "Space"
+    },
+    "events": [
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   }
+  ],
+  "mouse-focus": [
+   {
+    "step": {
+     "click": "b1"
+    },
+    "events": [
+     {
+      "type": "pointerdown",
+      "target": "b1",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 1,
+      "x": 42,
+      "y": 14,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "mousedown",
+      "target": "b1",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 1,
+      "x": 42,
+      "y": 14,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "b1",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "focusin",
+      "target": "b1",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "pointerup",
+      "target": "b1",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 42,
+      "y": 14,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "mouseup",
+      "target": "b1",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 42,
+      "y": 14,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "click",
+      "target": "b1",
+      "cls": "PointerEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 42,
+      "y": 14,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     }
+    ],
+    "state": {
+     "active": "b1",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "click": "plain"
+    },
+    "events": [
+     {
+      "type": "pointerdown",
+      "target": "plain",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 1,
+      "x": 78.0703125,
+      "y": 35.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "mousedown",
+      "target": "plain",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 1,
+      "x": 78,
+      "y": 35,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "blur",
+      "target": "b1",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "b1",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "pointerup",
+      "target": "plain",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 78.0703125,
+      "y": 35.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "mouseup",
+      "target": "plain",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 78,
+      "y": 35,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "click",
+      "target": "plain",
+      "cls": "PointerEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 78,
+      "y": 35,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "click": "d0s"
+    },
+    "events": [
+     {
+      "type": "pointerdown",
+      "target": "d0s",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 1,
+      "x": 15.3671875,
+      "y": 103.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "mousedown",
+      "target": "d0s",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 1,
+      "x": 15,
+      "y": 103,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "d0",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "d0"
+     },
+     {
+      "type": "focusin",
+      "target": "d0",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "d0"
+     },
+     {
+      "type": "pointerup",
+      "target": "d0s",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 15.3671875,
+      "y": 103.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "d0"
+     },
+     {
+      "type": "mouseup",
+      "target": "d0s",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 15,
+      "y": 103,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "d0"
+     },
+     {
+      "type": "click",
+      "target": "d0s",
+      "cls": "PointerEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 15,
+      "y": 103,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "d0"
+     }
+    ],
+    "state": {
+     "active": "d0",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "click": "dm"
+    },
+    "events": [
+     {
+      "type": "pointerdown",
+      "target": "dm",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 1,
+      "x": 62,
+      "y": 126,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "d0"
+     },
+     {
+      "type": "mousedown",
+      "target": "dm",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 1,
+      "x": 62,
+      "y": 126,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "d0"
+     },
+     {
+      "type": "blur",
+      "target": "d0",
+      "related": "dm",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "d0",
+      "related": "dm",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "dm",
+      "related": "d0",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "focusin",
+      "target": "dm",
+      "related": "d0",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "pointerup",
+      "target": "dm",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 62,
+      "y": 126,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "mouseup",
+      "target": "dm",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 62,
+      "y": 126,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "click",
+      "target": "dm",
+      "cls": "PointerEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 62,
+      "y": 126,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "dm"
+     }
+    ],
+    "state": {
+     "active": "dm",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "click": "md"
+    },
+    "events": [
+     {
+      "type": "pointerdown",
+      "target": "md",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 1,
+      "x": 462,
+      "y": 150,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "mousedown",
+      "target": "md",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 1,
+      "x": 462,
+      "y": 150,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "pointerup",
+      "target": "md",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 462,
+      "y": 150,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "mouseup",
+      "target": "md",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 462,
+      "y": 150,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "click",
+      "target": "md",
+      "cls": "PointerEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 462,
+      "y": 150,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "dm"
+     }
+    ],
+    "state": {
+     "active": "dm",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "click": "a0"
+    },
+    "events": [
+     {
+      "type": "pointerdown",
+      "target": "a0",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 1,
+      "x": 37.59375,
+      "y": 35.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "mousedown",
+      "target": "a0",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 1,
+      "x": 37,
+      "y": 35,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "blur",
+      "target": "dm",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "dm",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "pointerup",
+      "target": "a0",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 37.59375,
+      "y": 35.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "mouseup",
+      "target": "a0",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 37,
+      "y": 35,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "click",
+      "target": "a0",
+      "cls": "PointerEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 37,
+      "y": 35,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "click": "b2"
+    },
+    "events": [
+     {
+      "type": "pointerdown",
+      "target": "b2",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 1,
+      "x": 210,
+      "y": 150,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "mousedown",
+      "target": "b2",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 1,
+      "x": 210,
+      "y": 150,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "b2",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "focusin",
+      "target": "b2",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "pointerup",
+      "target": "b2",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 210,
+      "y": 150,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "mouseup",
+      "target": "b2",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 210,
+      "y": 150,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "click",
+      "target": "b2",
+      "cls": "PointerEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 210,
+      "y": 150,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b2"
+     }
+    ],
+    "state": {
+     "active": "b2",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "click": "a1"
+    },
+    "events": [
+     {
+      "type": "pointerdown",
+      "target": "a1",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 1,
+      "x": 11.9296875,
+      "y": 35.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "mousedown",
+      "target": "a1",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 1,
+      "x": 11,
+      "y": 35,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "blur",
+      "target": "b2",
+      "related": "a1",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "b2",
+      "related": "a1",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "a1",
+      "related": "b2",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "a1"
+     },
+     {
+      "type": "focusin",
+      "target": "a1",
+      "related": "b2",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "a1"
+     },
+     {
+      "type": "pointerup",
+      "target": "a1",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 11.9296875,
+      "y": 35.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "a1"
+     },
+     {
+      "type": "mouseup",
+      "target": "a1",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 11,
+      "y": 35,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "a1"
+     },
+     {
+      "type": "click",
+      "target": "a1",
+      "cls": "PointerEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 11,
+      "y": 35,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "a1"
+     }
+    ],
+    "state": {
+     "active": "a1",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   }
+  ],
+  "scroll-keys": [
+   {
+    "step": {
+     "focus": "bs"
+    },
+    "events": [
+     {
+      "type": "focus",
+      "target": "bs",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "focusin",
+      "target": "bs",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bs",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "which": 40,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "keyup",
+      "target": "bs",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "which": 40,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 302,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bs",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "which": 40,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "keyup",
+      "target": "bs",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "which": 40,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 342,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "PageDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bs",
+      "key": "PageDown",
+      "code": "PageDown",
+      "keyCode": 34,
+      "which": 34,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "keyup",
+      "target": "bs",
+      "key": "PageDown",
+      "code": "PageDown",
+      "keyCode": 34,
+      "which": 34,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 429,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "End"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bs",
+      "key": "End",
+      "code": "End",
+      "keyCode": 35,
+      "which": 35,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "keyup",
+      "target": "bs",
+      "key": "End",
+      "code": "End",
+      "keyCode": 35,
+      "which": 35,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 524,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Home"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bs",
+      "key": "Home",
+      "code": "Home",
+      "keyCode": 36,
+      "which": 36,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "keyup",
+      "target": "bs",
+      "key": "Home",
+      "code": "Home",
+      "keyCode": 36,
+      "which": 36,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowUp"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bs",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "which": 38,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "keyup",
+      "target": "bs",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "which": 38,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "PageDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bs",
+      "key": "PageDown",
+      "code": "PageDown",
+      "keyCode": 34,
+      "which": 34,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "keyup",
+      "target": "bs",
+      "key": "PageDown",
+      "code": "PageDown",
+      "keyCode": 34,
+      "which": 34,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 87,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "PageUp"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bs",
+      "key": "PageUp",
+      "code": "PageUp",
+      "keyCode": 33,
+      "which": 33,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "keyup",
+      "target": "bs",
+      "key": "PageUp",
+      "code": "PageUp",
+      "keyCode": 33,
+      "which": 33,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Space"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bs",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "keypress",
+      "target": "bs",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 32,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "keyup",
+      "target": "bs",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "click",
+      "target": "bs",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 0,
+      "y": 0,
+      "pointerId": -1,
+      "pointerType": "",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "down": "Shift"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bs",
+      "key": "Shift",
+      "code": "ShiftLeft",
+      "keyCode": 16,
+      "which": 16,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown",
+     "mods": "S"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bs",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "which": 40,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "keyup",
+      "target": "bs",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "which": 40,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "up": "Shift"
+    },
+    "events": [
+     {
+      "type": "keyup",
+      "target": "bs",
+      "key": "Shift",
+      "code": "ShiftLeft",
+      "keyCode": 16,
+      "which": 16,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "down": "Control"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bs",
+      "key": "Control",
+      "code": "ControlLeft",
+      "keyCode": 17,
+      "which": 17,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "C",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "End",
+     "mods": "C"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bs",
+      "key": "End",
+      "code": "End",
+      "keyCode": 35,
+      "which": 35,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "C",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "keyup",
+      "target": "bs",
+      "key": "End",
+      "code": "End",
+      "keyCode": 35,
+      "which": 35,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "C",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 524,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Home",
+     "mods": "C"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bs",
+      "key": "Home",
+      "code": "Home",
+      "keyCode": 36,
+      "which": 36,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "C",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "keyup",
+      "target": "bs",
+      "key": "Home",
+      "code": "Home",
+      "keyCode": 36,
+      "which": 36,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "C",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown",
+     "mods": "C"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bs",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "which": 40,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "C",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "keyup",
+      "target": "bs",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "which": 40,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "C",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "up": "Control"
+    },
+    "events": [
+     {
+      "type": "keyup",
+      "target": "bs",
+      "key": "Control",
+      "code": "ControlLeft",
+      "keyCode": 17,
+      "which": 17,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "blur": true
+    },
+    "events": [
+     {
+      "type": "blur",
+      "target": "bs",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "bs",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "click": "sc"
+    },
+    "events": [
+     {
+      "type": "pointerdown",
+      "target": "tall1",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 1,
+      "x": 100,
+      "y": 214,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "mousedown",
+      "target": "tall1",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 1,
+      "x": 100,
+      "y": 214,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "pointerup",
+      "target": "tall1",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 100,
+      "y": 214,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "mouseup",
+      "target": "tall1",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 100,
+      "y": 214,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "click",
+      "target": "tall1",
+      "cls": "PointerEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 100,
+      "y": 214,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "which": 40,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "which": 40,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 40,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Space"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keypress",
+      "target": "body",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 32,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": " ",
+      "code": "Space",
+      "keyCode": 32,
+      "which": 32,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 127,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "PageUp"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "PageUp",
+      "code": "PageUp",
+      "keyCode": 33,
+      "which": 33,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": "PageUp",
+      "code": "PageUp",
+      "keyCode": 33,
+      "which": 33,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 40,
+     "scroll2": 0
+    }
+   }
+  ],
+  "tab-scroll": [
+   {
+    "step": {
+     "focus": "tail"
+    },
+    "events": [
+     {
+      "type": "focus",
+      "target": "tail",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "tail"
+     },
+     {
+      "type": "focusin",
+      "target": "tail",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "tail"
+     }
+    ],
+    "state": {
+     "active": "tail",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "down": "Shift"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "tail",
+      "key": "Shift",
+      "code": "ShiftLeft",
+      "keyCode": 16,
+      "which": 16,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "tail"
+     }
+    ],
+    "state": {
+     "active": "tail",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab",
+     "mods": "S"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "tail",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "tail"
+     },
+     {
+      "type": "blur",
+      "target": "tail",
+      "related": "sc2",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "tail",
+      "related": "sc2",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "sc2",
+      "related": "tail",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "sc2"
+     },
+     {
+      "type": "focusin",
+      "target": "sc2",
+      "related": "tail",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "sc2"
+     },
+     {
+      "type": "keyup",
+      "target": "sc2",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "sc2"
+     }
+    ],
+    "state": {
+     "active": "sc2",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "up": "Shift"
+    },
+    "events": [
+     {
+      "type": "keyup",
+      "target": "sc2",
+      "key": "Shift",
+      "code": "ShiftLeft",
+      "keyCode": 16,
+      "which": 16,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "sc2"
+     }
+    ],
+    "state": {
+     "active": "sc2",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "sc2",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "sc2"
+     },
+     {
+      "type": "blur",
+      "target": "sc2",
+      "related": "tail",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "sc2",
+      "related": "tail",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "tail",
+      "related": "sc2",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "tail"
+     },
+     {
+      "type": "focusin",
+      "target": "tail",
+      "related": "sc2",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "tail"
+     },
+     {
+      "type": "keyup",
+      "target": "tail",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "tail"
+     }
+    ],
+    "state": {
+     "active": "tail",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "down": "Shift"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "tail",
+      "key": "Shift",
+      "code": "ShiftLeft",
+      "keyCode": 16,
+      "which": 16,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "tail"
+     }
+    ],
+    "state": {
+     "active": "tail",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab",
+     "mods": "S"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "tail",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "tail"
+     },
+     {
+      "type": "blur",
+      "target": "tail",
+      "related": "sc2",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "tail",
+      "related": "sc2",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "sc2",
+      "related": "tail",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "sc2"
+     },
+     {
+      "type": "focusin",
+      "target": "sc2",
+      "related": "tail",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "sc2"
+     },
+     {
+      "type": "keyup",
+      "target": "sc2",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "sc2"
+     }
+    ],
+    "state": {
+     "active": "sc2",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "up": "Shift"
+    },
+    "events": [
+     {
+      "type": "keyup",
+      "target": "sc2",
+      "key": "Shift",
+      "code": "ShiftLeft",
+      "keyCode": 16,
+      "which": 16,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "sc2"
+     }
+    ],
+    "state": {
+     "active": "sc2",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "sc2",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "sc2"
+     },
+     {
+      "type": "blur",
+      "target": "sc2",
+      "related": "tail",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "sc2",
+      "related": "tail",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "tail",
+      "related": "sc2",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "tail"
+     },
+     {
+      "type": "focusin",
+      "target": "tail",
+      "related": "sc2",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "tail"
+     },
+     {
+      "type": "keyup",
+      "target": "tail",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "tail"
+     }
+    ],
+    "state": {
+     "active": "tail",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "down": "Shift"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "tail",
+      "key": "Shift",
+      "code": "ShiftLeft",
+      "keyCode": 16,
+      "which": 16,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "tail"
+     }
+    ],
+    "state": {
+     "active": "tail",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab",
+     "mods": "S"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "tail",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "tail"
+     },
+     {
+      "type": "blur",
+      "target": "tail",
+      "related": "sc2",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "tail",
+      "related": "sc2",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "sc2",
+      "related": "tail",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "sc2"
+     },
+     {
+      "type": "focusin",
+      "target": "sc2",
+      "related": "tail",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "sc2"
+     },
+     {
+      "type": "keyup",
+      "target": "sc2",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "sc2"
+     }
+    ],
+    "state": {
+     "active": "sc2",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab",
+     "mods": "S"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "sc2",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "sc2"
+     },
+     {
+      "type": "blur",
+      "target": "sc2",
+      "related": "bs",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "sc2",
+      "related": "bs",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "bs",
+      "related": "sc2",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "focusin",
+      "target": "bs",
+      "related": "sc2",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "keyup",
+      "target": "bs",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "up": "Shift"
+    },
+    "events": [
+     {
+      "type": "keyup",
+      "target": "bs",
+      "key": "Shift",
+      "code": "ShiftLeft",
+      "keyCode": 16,
+      "which": 16,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bs",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "blur",
+      "target": "bs",
+      "related": "sc2",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "bs",
+      "related": "sc2",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "sc2",
+      "related": "bs",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "sc2"
+     },
+     {
+      "type": "focusin",
+      "target": "sc2",
+      "related": "bs",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "sc2"
+     },
+     {
+      "type": "keyup",
+      "target": "sc2",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "sc2"
+     }
+    ],
+    "state": {
+     "active": "sc2",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "sc2",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "which": 40,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "sc2"
+     },
+     {
+      "type": "keyup",
+      "target": "sc2",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "which": 40,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "sc2"
+     }
+    ],
+    "state": {
+     "active": "sc2",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 40
+    }
+   },
+   {
+    "step": {
+     "press": "End"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "sc2",
+      "key": "End",
+      "code": "End",
+      "keyCode": 35,
+      "which": 35,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "sc2"
+     },
+     {
+      "type": "keyup",
+      "target": "sc2",
+      "key": "End",
+      "code": "End",
+      "keyCode": 35,
+      "which": 35,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "sc2"
+     }
+    ],
+    "state": {
+     "active": "sc2",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 240
+    }
+   },
+   {
+    "step": {
+     "click": "sc2"
+    },
+    "events": [
+     {
+      "type": "pointerdown",
+      "target": "tall3",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 1,
+      "x": 100,
+      "y": 294,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "sc2"
+     },
+     {
+      "type": "mousedown",
+      "target": "tall3",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 1,
+      "x": 100,
+      "y": 294,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "sc2"
+     },
+     {
+      "type": "blur",
+      "target": "sc2",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "sc2",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "pointerup",
+      "target": "tall3",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 100,
+      "y": 294,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "mouseup",
+      "target": "tall3",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 100,
+      "y": 294,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "click",
+      "target": "tall3",
+      "cls": "PointerEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 100,
+      "y": 294,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 262,
+     "scroll2": 240
+    }
+   },
+   {
+    "step": {
+     "click": "plain"
+    },
+    "events": [
+     {
+      "type": "pointerdown",
+      "target": "plain",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 1,
+      "x": 78.0703125,
+      "y": 35.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "mousedown",
+      "target": "plain",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 1,
+      "x": 78,
+      "y": 35,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "pointerup",
+      "target": "plain",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 78.0703125,
+      "y": 35.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "mouseup",
+      "target": "plain",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 78,
+      "y": 35,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "click",
+      "target": "plain",
+      "cls": "PointerEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 78,
+      "y": 35,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 262,
+     "scroll2": 240
+    }
+   },
+   {
+    "step": {
+     "script": "document.getElementById('sc').scrollTop = 210"
+    },
+    "events": [],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 210,
+     "scroll2": 240
+    }
+   },
+   {
+    "step": {
+     "focus": "b1"
+    },
+    "events": [
+     {
+      "type": "focus",
+      "target": "b1",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "focusin",
+      "target": "b1",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b1"
+     }
+    ],
+    "state": {
+     "active": "b1",
+     "visible": true,
+     "scroll": 210,
+     "scroll2": 240
+    }
+   },
+   {
+    "step": {
+     "focus": "bs"
+    },
+    "events": [
+     {
+      "type": "blur",
+      "target": "b1",
+      "related": "bs",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "b1",
+      "related": "bs",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "bs",
+      "related": "b1",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "focusin",
+      "target": "bs",
+      "related": "b1",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 224,
+     "scroll2": 240
+    }
+   },
+   {
+    "step": {
+     "script": "document.getElementById('sc').scrollTop = 0"
+    },
+    "events": [],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 240
+    }
+   },
+   {
+    "step": {
+     "script": "document.getElementById('bs').scrollIntoView()"
+    },
+    "events": [],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 300,
+     "scroll2": 240
+    }
+   },
+   {
+    "step": {
+     "script": "document.getElementById('bs').scrollIntoView({block: 'end'})"
+    },
+    "events": [],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 224,
+     "scroll2": 240
+    }
+   },
+   {
+    "step": {
+     "script": "document.getElementById('bs').scrollIntoView({block: 'nearest'})"
+    },
+    "events": [],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 224,
+     "scroll2": 240
+    }
+   },
+   {
+    "step": {
+     "script": "document.getElementById('sc').scrollTop = 0"
+    },
+    "events": [],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 240
+    }
+   },
+   {
+    "step": {
+     "script": "document.getElementById('bs').scrollIntoView({block: 'nearest'})"
+    },
+    "events": [],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 224,
+     "scroll2": 240
+    }
+   },
+   {
+    "step": {
+     "script": "document.getElementById('bs').scrollIntoView({block: 'center'})"
+    },
+    "events": [],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 240
+    }
+   },
+   {
+    "step": {
+     "script": "document.getElementById('bs').scrollIntoView(false)"
+    },
+    "events": [],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 224,
+     "scroll2": 240
+    }
+   },
+   {
+    "step": {
+     "script": "document.getElementById('bs').focus({preventScroll: true})"
+    },
+    "events": [],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 224,
+     "scroll2": 240
+    }
+   }
+  ],
+  "keys": [
+   {
+    "step": {
+     "press": "a"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "a",
+      "code": "KeyA",
+      "keyCode": 65,
+      "which": 65,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keypress",
+      "target": "body",
+      "key": "a",
+      "code": "KeyA",
+      "keyCode": 97,
+      "which": 97,
+      "charCode": 97,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": "a",
+      "code": "KeyA",
+      "keyCode": 65,
+      "which": 65,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "down": "Shift"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "Shift",
+      "code": "ShiftLeft",
+      "keyCode": 16,
+      "which": 16,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "A",
+     "mods": "S"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "A",
+      "code": "KeyA",
+      "keyCode": 65,
+      "which": 65,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keypress",
+      "target": "body",
+      "key": "A",
+      "code": "KeyA",
+      "keyCode": 65,
+      "which": 65,
+      "charCode": 65,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": "A",
+      "code": "KeyA",
+      "keyCode": 65,
+      "which": 65,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "!",
+     "mods": "S"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "!",
+      "code": "Digit1",
+      "keyCode": 49,
+      "which": 49,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keypress",
+      "target": "body",
+      "key": "!",
+      "code": "Digit1",
+      "keyCode": 33,
+      "which": 33,
+      "charCode": 33,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": "!",
+      "code": "Digit1",
+      "keyCode": 49,
+      "which": 49,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "up": "Shift"
+    },
+    "events": [
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": "Shift",
+      "code": "ShiftLeft",
+      "keyCode": 16,
+      "which": 16,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "1"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "1",
+      "code": "Digit1",
+      "keyCode": 49,
+      "which": 49,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keypress",
+      "target": "body",
+      "key": "1",
+      "code": "Digit1",
+      "keyCode": 49,
+      "which": 49,
+      "charCode": 49,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": "1",
+      "code": "Digit1",
+      "keyCode": 49,
+      "which": 49,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Escape"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "Escape",
+      "code": "Escape",
+      "keyCode": 27,
+      "which": 27,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": "Escape",
+      "code": "Escape",
+      "keyCode": 27,
+      "which": 27,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Backspace"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "Backspace",
+      "code": "Backspace",
+      "keyCode": 8,
+      "which": 8,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": "Backspace",
+      "code": "Backspace",
+      "keyCode": 8,
+      "which": 8,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowLeft"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "ArrowLeft",
+      "code": "ArrowLeft",
+      "keyCode": 37,
+      "which": 37,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": "ArrowLeft",
+      "code": "ArrowLeft",
+      "keyCode": 37,
+      "which": 37,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Numpad1"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "1",
+      "code": "Numpad1",
+      "keyCode": 97,
+      "which": 97,
+      "charCode": 0,
+      "location": 3,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keypress",
+      "target": "body",
+      "key": "1",
+      "code": "Numpad1",
+      "keyCode": 49,
+      "which": 49,
+      "charCode": 49,
+      "location": 3,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": "1",
+      "code": "Numpad1",
+      "keyCode": 97,
+      "which": 97,
+      "charCode": 0,
+      "location": 3,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ShiftRight"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "Shift",
+      "code": "ShiftRight",
+      "keyCode": 16,
+      "which": 16,
+      "charCode": 0,
+      "location": 2,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": "Shift",
+      "code": "ShiftRight",
+      "keyCode": 16,
+      "which": 16,
+      "charCode": 0,
+      "location": 2,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "down": "Control"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "Control",
+      "code": "ControlLeft",
+      "keyCode": 17,
+      "which": 17,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "C",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ctrl-a",
+     "mods": "C"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "a",
+      "code": "KeyA",
+      "keyCode": 65,
+      "which": 65,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "C",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": "a",
+      "code": "KeyA",
+      "keyCode": 65,
+      "which": 65,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "C",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "up": "Control"
+    },
+    "events": [
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": "Control",
+      "code": "ControlLeft",
+      "keyCode": 17,
+      "which": 17,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Enter"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "which": 13,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keypress",
+      "target": "body",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "which": 13,
+      "charCode": 13,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "which": 13,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "a",
+     "repeat": true
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "a",
+      "code": "KeyA",
+      "keyCode": 65,
+      "which": 65,
+      "charCode": 0,
+      "location": 0,
+      "repeat": true,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keypress",
+      "target": "body",
+      "key": "a",
+      "code": "KeyA",
+      "keyCode": 97,
+      "which": 97,
+      "charCode": 97,
+      "location": 0,
+      "repeat": true,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": "a",
+      "code": "KeyA",
+      "keyCode": 65,
+      "which": 65,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   }
+  ],
+  "focus-visible": [
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "t1",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "t1"
+     },
+     {
+      "type": "focusin",
+      "target": "t1",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "t1"
+     },
+     {
+      "type": "keyup",
+      "target": "t1",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "t1"
+     }
+    ],
+    "state": {
+     "active": "t1",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "click": "b2"
+    },
+    "events": [
+     {
+      "type": "pointerdown",
+      "target": "b2",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 1,
+      "x": 210,
+      "y": 150,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "t1"
+     },
+     {
+      "type": "mousedown",
+      "target": "b2",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 1,
+      "x": 210,
+      "y": 150,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "t1"
+     },
+     {
+      "type": "blur",
+      "target": "t1",
+      "related": "b2",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "t1",
+      "related": "b2",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "b2",
+      "related": "t1",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "focusin",
+      "target": "b2",
+      "related": "t1",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "pointerup",
+      "target": "b2",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 210,
+      "y": 150,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "mouseup",
+      "target": "b2",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 210,
+      "y": 150,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "click",
+      "target": "b2",
+      "cls": "PointerEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 210,
+      "y": 150,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b2"
+     }
+    ],
+    "state": {
+     "active": "b2",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "a"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "b2",
+      "key": "a",
+      "code": "KeyA",
+      "keyCode": 65,
+      "which": 65,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "keypress",
+      "target": "b2",
+      "key": "a",
+      "code": "KeyA",
+      "keyCode": 97,
+      "which": 97,
+      "charCode": 97,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "keyup",
+      "target": "b2",
+      "key": "a",
+      "code": "KeyA",
+      "keyCode": 65,
+      "which": 65,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b2"
+     }
+    ],
+    "state": {
+     "active": "b2",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "click": "b1"
+    },
+    "events": [
+     {
+      "type": "pointerdown",
+      "target": "b1",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 1,
+      "x": 42,
+      "y": 14,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "mousedown",
+      "target": "b1",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 1,
+      "x": 42,
+      "y": 14,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "blur",
+      "target": "b2",
+      "related": "b1",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "b2",
+      "related": "b1",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "b1",
+      "related": "b2",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "focusin",
+      "target": "b1",
+      "related": "b2",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "pointerup",
+      "target": "b1",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 42,
+      "y": 14,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "mouseup",
+      "target": "b1",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 42,
+      "y": 14,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "click",
+      "target": "b1",
+      "cls": "PointerEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 42,
+      "y": 14,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     }
+    ],
+    "state": {
+     "active": "b1",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "focus": "d0"
+    },
+    "events": [
+     {
+      "type": "blur",
+      "target": "b1",
+      "related": "d0",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "b1",
+      "related": "d0",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "d0",
+      "related": "b1",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "d0"
+     },
+     {
+      "type": "focusin",
+      "target": "d0",
+      "related": "b1",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "d0"
+     }
+    ],
+    "state": {
+     "active": "d0",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "d0",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "d0"
+     },
+     {
+      "type": "blur",
+      "target": "d0",
+      "related": "b2",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "d0",
+      "related": "b2",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "b2",
+      "related": "d0",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "focusin",
+      "target": "b2",
+      "related": "d0",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "keyup",
+      "target": "b2",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b2"
+     }
+    ],
+    "state": {
+     "active": "b2",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "focus": "dm"
+    },
+    "events": [
+     {
+      "type": "blur",
+      "target": "b2",
+      "related": "dm",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "b2",
+      "related": "dm",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "dm",
+      "related": "b2",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "focusin",
+      "target": "dm",
+      "related": "b2",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "dm"
+     }
+    ],
+    "state": {
+     "active": "dm",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "click": "plain"
+    },
+    "events": [
+     {
+      "type": "pointerdown",
+      "target": "plain",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 1,
+      "x": 78.0703125,
+      "y": 35.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "mousedown",
+      "target": "plain",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 1,
+      "x": 78,
+      "y": 35,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "blur",
+      "target": "dm",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "dm",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "pointerup",
+      "target": "plain",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 78.0703125,
+      "y": 35.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "mouseup",
+      "target": "plain",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 78,
+      "y": 35,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "click",
+      "target": "plain",
+      "cls": "PointerEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 78,
+      "y": 35,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "focus": "t2"
+    },
+    "events": [
+     {
+      "type": "focus",
+      "target": "t2",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "t2"
+     },
+     {
+      "type": "focusin",
+      "target": "t2",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "t2"
+     }
+    ],
+    "state": {
+     "active": "t2",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   }
+  ],
+  "start-point": [
+   {
+    "step": {
+     "click": "plain"
+    },
+    "events": [
+     {
+      "type": "pointerdown",
+      "target": "plain",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 1,
+      "x": 78.0703125,
+      "y": 35.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "mousedown",
+      "target": "plain",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 1,
+      "x": 78,
+      "y": 35,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "pointerup",
+      "target": "plain",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 78.0703125,
+      "y": 35.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "mouseup",
+      "target": "plain",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 78,
+      "y": 35,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "click",
+      "target": "plain",
+      "cls": "PointerEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 78,
+      "y": 35,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "t2",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "t2"
+     },
+     {
+      "type": "focusin",
+      "target": "t2",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "t2"
+     },
+     {
+      "type": "keyup",
+      "target": "t2",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "t2"
+     }
+    ],
+    "state": {
+     "active": "t2",
+     "visible": true,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "click": "sc"
+    },
+    "events": [
+     {
+      "type": "pointerdown",
+      "target": "tall1",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 1,
+      "x": 100,
+      "y": 214,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "t2"
+     },
+     {
+      "type": "mousedown",
+      "target": "tall1",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 1,
+      "x": 100,
+      "y": 214,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "t2"
+     },
+     {
+      "type": "blur",
+      "target": "t2",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "t2",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "pointerup",
+      "target": "tall1",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 100,
+      "y": 214,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "mouseup",
+      "target": "tall1",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 100,
+      "y": 214,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "click",
+      "target": "tall1",
+      "cls": "PointerEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 100,
+      "y": 214,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 0,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "bs",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "focusin",
+      "target": "bs",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "keyup",
+      "target": "bs",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     }
+    ],
+    "state": {
+     "active": "bs",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "click": "sc"
+    },
+    "events": [
+     {
+      "type": "pointerdown",
+      "target": "sc",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 1,
+      "x": 100,
+      "y": 214,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "mousedown",
+      "target": "sc",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 1,
+      "x": 100,
+      "y": 214,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bs"
+     },
+     {
+      "type": "blur",
+      "target": "bs",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "bs",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "pointerup",
+      "target": "sc",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 100,
+      "y": 214,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "mouseup",
+      "target": "sc",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 100,
+      "y": 214,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "click",
+      "target": "sc",
+      "cls": "PointerEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 100,
+      "y": 214,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "down": "Shift"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "Shift",
+      "code": "ShiftLeft",
+      "keyCode": 16,
+      "which": 16,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab",
+     "mods": "S"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "md",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "md"
+     },
+     {
+      "type": "focusin",
+      "target": "md",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "md"
+     },
+     {
+      "type": "keyup",
+      "target": "md",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "md"
+     }
+    ],
+    "state": {
+     "active": "md",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "up": "Shift"
+    },
+    "events": [
+     {
+      "type": "keyup",
+      "target": "md",
+      "key": "Shift",
+      "code": "ShiftLeft",
+      "keyCode": 16,
+      "which": 16,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "md"
+     }
+    ],
+    "state": {
+     "active": "md",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "click": "dm"
+    },
+    "events": [
+     {
+      "type": "pointerdown",
+      "target": "dm",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 1,
+      "x": 62,
+      "y": 126,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "md"
+     },
+     {
+      "type": "mousedown",
+      "target": "dm",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 1,
+      "x": 62,
+      "y": 126,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "md"
+     },
+     {
+      "type": "blur",
+      "target": "md",
+      "related": "dm",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "md",
+      "related": "dm",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "dm",
+      "related": "md",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "focusin",
+      "target": "dm",
+      "related": "md",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "pointerup",
+      "target": "dm",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 62,
+      "y": 126,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "mouseup",
+      "target": "dm",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 62,
+      "y": 126,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "click",
+      "target": "dm",
+      "cls": "PointerEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 62,
+      "y": 126,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "dm"
+     }
+    ],
+    "state": {
+     "active": "dm",
+     "visible": false,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "dm",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "blur",
+      "target": "dm",
+      "related": "b2",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "dm",
+      "related": "b2",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "b2",
+      "related": "dm",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "focusin",
+      "target": "b2",
+      "related": "dm",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "keyup",
+      "target": "b2",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b2"
+     }
+    ],
+    "state": {
+     "active": "b2",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "click": "dm"
+    },
+    "events": [
+     {
+      "type": "pointerdown",
+      "target": "dm",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 1,
+      "x": 62,
+      "y": 126,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "mousedown",
+      "target": "dm",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 1,
+      "x": 62,
+      "y": 126,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "blur",
+      "target": "b2",
+      "related": "dm",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "b2",
+      "related": "dm",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "dm",
+      "related": "b2",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "focusin",
+      "target": "dm",
+      "related": "b2",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "pointerup",
+      "target": "dm",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 62,
+      "y": 126,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "mouseup",
+      "target": "dm",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 62,
+      "y": 126,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "click",
+      "target": "dm",
+      "cls": "PointerEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 62,
+      "y": 126,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "dm"
+     }
+    ],
+    "state": {
+     "active": "dm",
+     "visible": false,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "down": "Shift"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "dm",
+      "key": "Shift",
+      "code": "ShiftLeft",
+      "keyCode": 16,
+      "which": 16,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "dm"
+     }
+    ],
+    "state": {
+     "active": "dm",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab",
+     "mods": "S"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "dm",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "dm"
+     },
+     {
+      "type": "blur",
+      "target": "dm",
+      "related": "d0",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "dm",
+      "related": "d0",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "d0",
+      "related": "dm",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "d0"
+     },
+     {
+      "type": "focusin",
+      "target": "d0",
+      "related": "dm",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "d0"
+     },
+     {
+      "type": "keyup",
+      "target": "d0",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "d0"
+     }
+    ],
+    "state": {
+     "active": "d0",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "up": "Shift"
+    },
+    "events": [
+     {
+      "type": "keyup",
+      "target": "d0",
+      "key": "Shift",
+      "code": "ShiftLeft",
+      "keyCode": 16,
+      "which": 16,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "d0"
+     }
+    ],
+    "state": {
+     "active": "d0",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "focus": "t2"
+    },
+    "events": [
+     {
+      "type": "blur",
+      "target": "d0",
+      "related": "t2",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "d0",
+      "related": "t2",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "t2",
+      "related": "d0",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "t2"
+     },
+     {
+      "type": "focusin",
+      "target": "t2",
+      "related": "d0",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "t2"
+     }
+    ],
+    "state": {
+     "active": "t2",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "blur": true
+    },
+    "events": [
+     {
+      "type": "blur",
+      "target": "t2",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "t2",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "b1",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "focusin",
+      "target": "b1",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b1"
+     },
+     {
+      "type": "keyup",
+      "target": "b1",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "b1"
+     }
+    ],
+    "state": {
+     "active": "b1",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "script": "document.getElementById('b2').focus(); document.getElementById('b2').remove()"
+    },
+    "events": [
+     {
+      "type": "blur",
+      "target": "b1",
+      "related": "b2",
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "b1",
+      "related": "b2",
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "b2",
+      "related": "b1",
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "focusin",
+      "target": "b2",
+      "related": "b1",
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "b2"
+     },
+     {
+      "type": "blur",
+      "target": "b2",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "b2",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "bp",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "bp"
+     },
+     {
+      "type": "focusin",
+      "target": "bp",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "bp"
+     },
+     {
+      "type": "keyup",
+      "target": "bp",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bp"
+     }
+    ],
+    "state": {
+     "active": "bp",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "click": "plain"
+    },
+    "events": [
+     {
+      "type": "pointerdown",
+      "target": "plain",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 1,
+      "x": 78.0703125,
+      "y": 35.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bp"
+     },
+     {
+      "type": "mousedown",
+      "target": "plain",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 1,
+      "x": 78,
+      "y": 35,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "bp"
+     },
+     {
+      "type": "blur",
+      "target": "bp",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focusout",
+      "target": "bp",
+      "related": null,
+      "visible": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "pointerup",
+      "target": "plain",
+      "cls": "PointerEvent",
+      "detail": 0,
+      "button": 0,
+      "buttons": 0,
+      "x": 78.0703125,
+      "y": 35.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "mouseup",
+      "target": "plain",
+      "cls": "MouseEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 78,
+      "y": 35,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "click",
+      "target": "plain",
+      "cls": "PointerEvent",
+      "detail": 1,
+      "button": 0,
+      "buttons": 0,
+      "x": 78,
+      "y": 35,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "down": "Shift"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "Shift",
+      "code": "ShiftLeft",
+      "keyCode": 16,
+      "which": 16,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": false,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab",
+     "mods": "S"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "t1",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": false,
+      "cancelable": false,
+      "trusted": true,
+      "active": "t1"
+     },
+     {
+      "type": "focusin",
+      "target": "t1",
+      "related": null,
+      "visible": true,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": false,
+      "trusted": true,
+      "active": "t1"
+     },
+     {
+      "type": "keyup",
+      "target": "t1",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "which": 9,
+      "charCode": 0,
+      "location": 0,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "S",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "t1"
+     }
+    ],
+    "state": {
+     "active": "t1",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   },
+   {
+    "step": {
+     "up": "Shift"
+    },
+    "events": [
+     {
+      "type": "keyup",
+      "target": "t1",
+      "key": "Shift",
+      "code": "ShiftLeft",
+      "keyCode": 16,
+      "which": 16,
+      "charCode": 0,
+      "location": 1,
+      "repeat": false,
+      "isComposing": false,
+      "mods": "",
+      "bubbles": true,
+      "cancelable": true,
+      "trusted": true,
+      "active": "t1"
+     }
+    ],
+    "state": {
+     "active": "t1",
+     "visible": true,
+     "scroll": 262,
+     "scroll2": 0
+    }
+   }
+  ]
+ }
+}

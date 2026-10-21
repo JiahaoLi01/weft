@@ -1,9 +1,9 @@
 // Optional platform module: the web platform pages written for browsers expect (WEFT_PAGE_WEB_PLATFORM). The console
 // writes diagnostics; localStorage and sessionStorage are the View's storage areas (localStorage kept for the host to
-// save); element.dataset, document.head and document.title; KeyboardEvent and FocusEvent; focus() and blur() with
-// document.activeElement, :focus and :focus-within; matchMedia answered as the stylesheet's @media; IntersectionObserver
-// against the viewport; requestIdleCallback; navigator and location as an embedded page has them; toLocaleString with
-// options. Install after ScenePlatform and Engine.
+// save); element.dataset, document.head and document.title; matchMedia answered as the stylesheet's @media;
+// IntersectionObserver against the viewport; requestIdleCallback; navigator and location as an embedded page has them;
+// toLocaleString with options. KeyboardEvent, FocusEvent and the focus (focus(), blur(), document.activeElement,
+// tabIndex, scrollIntoView) are every page's (src/script/script_dom.cpp). Install after ScenePlatform and Engine.
 (() => {
   if (typeof __ceScenePlatform === 'undefined' || typeof __ceWebPlatform !== 'undefined') throw new Error('WEFT_WEB_PLATFORM_INSTALL');
   Object.defineProperty(globalThis, '__ceWebPlatform', { value: true });
@@ -155,7 +155,6 @@
   p.after = function (...items) { const parent = this.parentNode, next = this.nextSibling; if (parent) for (const n of nodes(items)) parent.insertBefore(n, next); };
   p.replaceWith = function (...items) { const parent = this.parentNode; if (!parent) return; this.before(...items); parent.removeChild(this); };
   p.hasChildNodes = function () { return this.firstChild !== null; };
-  p.scrollIntoView = function () {};
 
   // ---- document.head (made on first use, hidden in any stylesheet) and document.title.
   let head = null, title = '';
@@ -171,61 +170,6 @@
   Object.defineProperty(p, 'title', { configurable: true,
     get() { return this.nodeType === 9 ? title : (this.getAttribute?.('title') ?? ''); },
     set(v) { if (this.nodeType === 9) title = String(v); else this.setAttribute('title', String(v)); } });
-
-  // ---- Keyboard and focus events; focus(), blur() and document.activeElement.
-  globalThis.KeyboardEvent = class KeyboardEvent extends UIEvent {
-    constructor(type, options = {}) {
-      super(type, options);
-      this.key = String(options.key ?? '');
-      this.code = String(options.code ?? '');
-      this.location = Number(options.location ?? 0);
-      this.repeat = !!options.repeat;
-      this.isComposing = !!options.isComposing;
-      for (const k of ['ctrlKey', 'shiftKey', 'altKey', 'metaKey']) this[k] = !!options[k];
-      // As in browsers, a page's own events keep the legacy codes it gives (0 otherwise).
-      this.keyCode = Number(options.keyCode ?? 0);
-      this.charCode = Number(options.charCode ?? 0);
-      this.which = Number(options.which ?? this.keyCode);
-    }
-    getModifierState(key) {
-      return { Control: this.ctrlKey, Shift: this.shiftKey, Alt: this.altKey, Meta: this.metaKey }[key] ?? false;
-    }
-  };
-  Object.assign(KeyboardEvent, { DOM_KEY_LOCATION_STANDARD: 0, DOM_KEY_LOCATION_LEFT: 1, DOM_KEY_LOCATION_RIGHT: 2, DOM_KEY_LOCATION_NUMPAD: 3 });
-  globalThis.FocusEvent = class FocusEvent extends UIEvent {
-    constructor(type, options = {}) { super(type, options); this.relatedTarget = options.relatedTarget ?? null; }
-  };
-  const focusableTags = new Set(['button', 'input', 'select', 'textarea', 'iframe', 'summary']);
-  const focusable = n => n.nodeType === 1 && n.isConnected && !n.hasAttribute('disabled') &&
-    (n.hasAttribute('tabindex') || focusableTags.has(n.localName) || (n.localName === 'a' && n.hasAttribute('href')) ||
-     (n.getAttribute('contenteditable') ?? 'false') !== 'false');
-  const fire = (target, type, related, bubbles) => target.dispatchEvent(new FocusEvent(type, { bubbles, relatedTarget: related }));
-  const move = to => {
-    const from = doc.__ceFocused();
-    if (from === to) return;
-    if (from) {
-      from.__ceFocus(false);
-      fire(from, 'blur', to, false);
-      fire(from, 'focusout', to, true);
-    }
-    if (to && doc.__ceFocused() === null && to.isConnected) {
-      to.__ceFocus(true);
-      fire(to, 'focus', from, false);
-      fire(to, 'focusin', from, true);
-    }
-  };
-  p.focus = function () { if (focusable(this)) move(this); };
-  p.blur = function () { if (doc.__ceFocused() === this) move(null); };
-  Object.defineProperty(p, 'activeElement', { configurable: true, get() {
-    return this.nodeType === 9 ? (doc.__ceFocused() ?? doc.body) : undefined;
-  } });
-  p.hasFocus = function () { return this.nodeType === 9; };
-  Object.defineProperty(p, 'tabIndex', { configurable: true,
-    get() {
-      const v = parseInt(this.getAttribute('tabindex') ?? '', 10);
-      return Number.isNaN(v) ? (focusableTags.has(this.localName) || (this.localName === 'a' && this.hasAttribute('href')) ? 0 : -1) : v;
-    },
-    set(v) { this.setAttribute('tabindex', String(Number(v) | 0)); } });
 
   // ---- matchMedia: the stylesheet's @media evaluation over the View's size, read when asked.
   globalThis.matchMedia = query => {

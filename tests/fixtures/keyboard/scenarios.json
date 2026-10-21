@@ -1,0 +1,643 @@
+{
+  "comment": "Keyboard and focus scenarios on keyboard.js in an 800 x 600 viewport. A step presses a key (down, its text when it has one, up), holds or releases one, clicks an element's centre, focuses or blurs by script, or runs a script. keys: key, code, Windows virtual key and the text the key types (Enter's '\\r' types no text in weft: its keypress comes from its keydown). mods: C ctrl, S shift, A alt, M meta. chrome-results.json is what Chrome did (tools/browser_keyboard_reference.mjs); tests/keyboard_tests.cpp replays the steps in a View and compares.",
+  "width": 800,
+  "height": 600,
+  "keys": {
+    "Tab": {
+      "key": "Tab",
+      "code": "Tab",
+      "vk": 9
+    },
+    "Enter": {
+      "key": "Enter",
+      "code": "Enter",
+      "vk": 13,
+      "text": "\r"
+    },
+    "Space": {
+      "key": " ",
+      "code": "Space",
+      "vk": 32,
+      "text": " "
+    },
+    "Escape": {
+      "key": "Escape",
+      "code": "Escape",
+      "vk": 27
+    },
+    "Backspace": {
+      "key": "Backspace",
+      "code": "Backspace",
+      "vk": 8
+    },
+    "ArrowUp": {
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "vk": 38
+    },
+    "ArrowDown": {
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "vk": 40
+    },
+    "ArrowLeft": {
+      "key": "ArrowLeft",
+      "code": "ArrowLeft",
+      "vk": 37
+    },
+    "PageUp": {
+      "key": "PageUp",
+      "code": "PageUp",
+      "vk": 33
+    },
+    "PageDown": {
+      "key": "PageDown",
+      "code": "PageDown",
+      "vk": 34
+    },
+    "Home": {
+      "key": "Home",
+      "code": "Home",
+      "vk": 36
+    },
+    "End": {
+      "key": "End",
+      "code": "End",
+      "vk": 35
+    },
+    "a": {
+      "key": "a",
+      "code": "KeyA",
+      "vk": 65,
+      "text": "a"
+    },
+    "A": {
+      "key": "A",
+      "code": "KeyA",
+      "vk": 65,
+      "text": "A"
+    },
+    "ctrl-a": {
+      "key": "a",
+      "code": "KeyA",
+      "vk": 65
+    },
+    "1": {
+      "key": "1",
+      "code": "Digit1",
+      "vk": 49,
+      "text": "1"
+    },
+    "!": {
+      "key": "!",
+      "code": "Digit1",
+      "vk": 49,
+      "text": "!"
+    },
+    "Numpad1": {
+      "key": "1",
+      "code": "Numpad1",
+      "vk": 97,
+      "text": "1"
+    },
+    "Shift": {
+      "key": "Shift",
+      "code": "ShiftLeft",
+      "vk": 16
+    },
+    "ShiftRight": {
+      "key": "Shift",
+      "code": "ShiftRight",
+      "vk": 16
+    },
+    "Control": {
+      "key": "Control",
+      "code": "ControlLeft",
+      "vk": 17
+    }
+  },
+  "scenarios": [
+    {
+      "name": "tab-order",
+      "steps": [
+        {
+          "press": "Tab"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "focus": "b1"
+        },
+        {
+          "down": "Shift"
+        },
+        {
+          "press": "Tab",
+          "mods": "S"
+        },
+        {
+          "press": "Tab",
+          "mods": "S"
+        },
+        {
+          "press": "Tab",
+          "mods": "S"
+        },
+        {
+          "up": "Shift"
+        }
+      ]
+    },
+    {
+      "name": "activation",
+      "steps": [
+        {
+          "focus": "b1"
+        },
+        {
+          "press": "Enter"
+        },
+        {
+          "press": "Space"
+        },
+        {
+          "focus": "a1"
+        },
+        {
+          "press": "Enter"
+        },
+        {
+          "press": "Space"
+        },
+        {
+          "focus": "d0"
+        },
+        {
+          "press": "Enter"
+        },
+        {
+          "press": "Space"
+        },
+        {
+          "focus": "bp"
+        },
+        {
+          "press": "Enter"
+        },
+        {
+          "press": "Space"
+        },
+        {
+          "script": "document.getElementById('bp').addEventListener('keydown', e => { if (e.key === 'Tab') e.preventDefault(); })"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "focus": "bk"
+        },
+        {
+          "press": "Enter"
+        },
+        {
+          "press": "Space"
+        },
+        {
+          "focus": "bd"
+        },
+        {
+          "press": "Enter"
+        }
+      ]
+    },
+    {
+      "name": "space-away",
+      "steps": [
+        {
+          "focus": "b1"
+        },
+        {
+          "down": "Space"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "up": "Space"
+        },
+        {
+          "focus": "b2"
+        },
+        {
+          "down": "Space"
+        },
+        {
+          "blur": true
+        },
+        {
+          "up": "Space"
+        }
+      ]
+    },
+    {
+      "name": "mouse-focus",
+      "steps": [
+        {
+          "click": "b1"
+        },
+        {
+          "click": "plain"
+        },
+        {
+          "click": "d0s"
+        },
+        {
+          "click": "dm"
+        },
+        {
+          "click": "md"
+        },
+        {
+          "click": "a0"
+        },
+        {
+          "click": "b2"
+        },
+        {
+          "click": "a1"
+        }
+      ]
+    },
+    {
+      "name": "scroll-keys",
+      "steps": [
+        {
+          "focus": "bs"
+        },
+        {
+          "press": "ArrowDown"
+        },
+        {
+          "press": "ArrowDown"
+        },
+        {
+          "press": "PageDown"
+        },
+        {
+          "press": "End"
+        },
+        {
+          "press": "Home"
+        },
+        {
+          "press": "ArrowUp"
+        },
+        {
+          "press": "PageDown"
+        },
+        {
+          "press": "PageUp"
+        },
+        {
+          "press": "Space"
+        },
+        {
+          "down": "Shift"
+        },
+        {
+          "press": "ArrowDown",
+          "mods": "S"
+        },
+        {
+          "up": "Shift"
+        },
+        {
+          "down": "Control"
+        },
+        {
+          "press": "End",
+          "mods": "C"
+        },
+        {
+          "press": "Home",
+          "mods": "C"
+        },
+        {
+          "press": "ArrowDown",
+          "mods": "C"
+        },
+        {
+          "up": "Control"
+        },
+        {
+          "blur": true
+        },
+        {
+          "click": "sc"
+        },
+        {
+          "press": "ArrowDown"
+        },
+        {
+          "press": "Space"
+        },
+        {
+          "press": "PageUp"
+        }
+      ]
+    },
+    {
+      "name": "tab-scroll",
+      "steps": [
+        {
+          "focus": "tail"
+        },
+        {
+          "down": "Shift"
+        },
+        {
+          "press": "Tab",
+          "mods": "S"
+        },
+        {
+          "up": "Shift"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "down": "Shift"
+        },
+        {
+          "press": "Tab",
+          "mods": "S"
+        },
+        {
+          "up": "Shift"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "down": "Shift"
+        },
+        {
+          "press": "Tab",
+          "mods": "S"
+        },
+        {
+          "press": "Tab",
+          "mods": "S"
+        },
+        {
+          "up": "Shift"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "press": "ArrowDown"
+        },
+        {
+          "press": "End"
+        },
+        {
+          "click": "sc2"
+        },
+        {
+          "click": "plain"
+        },
+        {
+          "script": "document.getElementById('sc').scrollTop = 210"
+        },
+        {
+          "focus": "b1"
+        },
+        {
+          "focus": "bs"
+        },
+        {
+          "script": "document.getElementById('sc').scrollTop = 0"
+        },
+        {
+          "script": "document.getElementById('bs').scrollIntoView()"
+        },
+        {
+          "script": "document.getElementById('bs').scrollIntoView({block: 'end'})"
+        },
+        {
+          "script": "document.getElementById('bs').scrollIntoView({block: 'nearest'})"
+        },
+        {
+          "script": "document.getElementById('sc').scrollTop = 0"
+        },
+        {
+          "script": "document.getElementById('bs').scrollIntoView({block: 'nearest'})"
+        },
+        {
+          "script": "document.getElementById('bs').scrollIntoView({block: 'center'})"
+        },
+        {
+          "script": "document.getElementById('bs').scrollIntoView(false)"
+        },
+        {
+          "script": "document.getElementById('bs').focus({preventScroll: true})"
+        }
+      ]
+    },
+    {
+      "name": "keys",
+      "steps": [
+        {
+          "press": "a"
+        },
+        {
+          "down": "Shift"
+        },
+        {
+          "press": "A",
+          "mods": "S"
+        },
+        {
+          "press": "!",
+          "mods": "S"
+        },
+        {
+          "up": "Shift"
+        },
+        {
+          "press": "1"
+        },
+        {
+          "press": "Escape"
+        },
+        {
+          "press": "Backspace"
+        },
+        {
+          "press": "ArrowLeft"
+        },
+        {
+          "press": "Numpad1"
+        },
+        {
+          "press": "ShiftRight"
+        },
+        {
+          "down": "Control"
+        },
+        {
+          "press": "ctrl-a",
+          "mods": "C"
+        },
+        {
+          "up": "Control"
+        },
+        {
+          "press": "Enter"
+        },
+        {
+          "press": "a",
+          "repeat": true
+        }
+      ]
+    },
+    {
+      "name": "focus-visible",
+      "steps": [
+        {
+          "press": "Tab"
+        },
+        {
+          "click": "b2"
+        },
+        {
+          "press": "a"
+        },
+        {
+          "click": "b1"
+        },
+        {
+          "focus": "d0"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "focus": "dm"
+        },
+        {
+          "click": "plain"
+        },
+        {
+          "focus": "t2"
+        }
+      ]
+    },
+    {
+      "name": "start-point",
+      "steps": [
+        {
+          "click": "plain"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "click": "sc"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "click": "sc"
+        },
+        {
+          "down": "Shift"
+        },
+        {
+          "press": "Tab",
+          "mods": "S"
+        },
+        {
+          "up": "Shift"
+        },
+        {
+          "click": "dm"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "click": "dm"
+        },
+        {
+          "down": "Shift"
+        },
+        {
+          "press": "Tab",
+          "mods": "S"
+        },
+        {
+          "up": "Shift"
+        },
+        {
+          "focus": "t2"
+        },
+        {
+          "blur": true
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "script": "document.getElementById('b2').focus(); document.getElementById('b2').remove()"
+        },
+        {
+          "press": "Tab"
+        },
+        {
+          "click": "plain"
+        },
+        {
+          "down": "Shift"
+        },
+        {
+          "press": "Tab",
+          "mods": "S"
+        },
+        {
+          "up": "Shift"
+        }
+      ]
+    }
+  ]
+}

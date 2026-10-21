@@ -35,8 +35,9 @@ namespace weft::dom {
         std::string data;
         bool hovered{};
         bool active{};
-        // The element has the focus, or it or a descendant has.
+        // The element has the focus (and shows it, :focus-visible), or it or a descendant has.
         bool focused{};
+        bool focus_visible{};
         bool focus_within{};
         std::vector<Attribute> attributes;
         // Tree edges by identity; a null identity (generation 0) is no node.
@@ -205,6 +206,10 @@ namespace weft::dom {
 
         bool focused() const {
             return n->focused;
+        }
+
+        bool focus_visible() const {
+            return n->focus_visible;
         }
 
         bool focus_within() const {

@@ -22,6 +22,14 @@
 //   {"frame": 0, "anchors": [{"key": 1, "x": 0, "y": 0, "scale": 1, "depth": 0, "flags": 0}]}
 //   {"frame": 0, "pointer": "move|down|up|leave", "x": 0, "y": 0, "buttons": 0}
 //   {"frame": 0, "wheel": [dx, dy], "x": 0, "y": 0}
+//   {"frame": 0, "key": "KeyA", "action": "press", "modifiers": "S", "value": "A", "text": "A", "repeat": false,
+//    "ime": false}                                                     a key by its code: down, up, or press (down, its
+//                                                                      text, up); modifiers of S(hift), C(ontrol), A(lt),
+//                                                                      M(eta), G (AltGraph); the key value weft_keyboard_key
+//                                                                      gives unless "value" says; the text the key's value
+//                                                                      when one character, unless "text" says
+//   {"frame": 0, "text": "你好"}                                         text typed without a key
+//   {"frame": 0, "focus": false}                                        the host's keyboard focus leaves (true: comes back)
 //   {"frame": 0, "hit": [x, y]}                                         prints what is under a point
 //   {"frame": 0, "resize": [width, height, scale]}
 //   {"frame": 0, "shot": "name.png"}                                    draws the frame into <out>/name.png
@@ -1365,6 +1373,74 @@ namespace {
                                                    float(wheel->items[1].number)};
                         uint32_t prevented{};
                         weft_view_pointer(run.runtime, run.view, &e, &prevented);
+                    }
+                    if (const Json* key = step.find("key")) {
+                        std::uint32_t modifiers{};
+                        for (const char m : step.get_string("modifiers")) {
+                            modifiers |= m == 'S'   ? WEFT_MODIFIER_SHIFT
+                                         : m == 'C' ? WEFT_MODIFIER_CONTROL
+                                         : m == 'A' ? WEFT_MODIFIER_ALT
+                                         : m == 'M' ? WEFT_MODIFIER_META
+                                         : m == 'G' ? WEFT_MODIFIER_ALT_GRAPH
+                                                    : 0;
+                        }
+                        std::string value = step.get_string("value");
+                        if (value.empty()) {
+                            char layout[32]{};
+                            if (weft_keyboard_key(key->string.data(), key->string.size(), modifiers, layout) != WEFT_OK) {
+                                throw Failure("key " + key->string + " is no code weft knows; give its value");
+                            }
+                            value = layout;
+                        }
+                        const std::string action = step.get_string("action", "press");
+                        // The text of a key whose value is one character (not a name such as Enter or Dead).
+                        const auto lead = value.empty() ? 0 : static_cast<unsigned char>(value[0]);
+                        const std::size_t length = lead < 0x80 ? 1 : lead < 0xE0 ? 2 : lead < 0xF0 ? 3 : 4;
+                        const auto typed = step.find("text") ? step.get_string("text")
+                                           : value.size() == length ? value
+                                                                    : std::string();
+                        const auto send = [&](std::uint32_t kind) {
+                            const weft_key_event e{sizeof(e),
+                                                   kind,
+                                                   value.data(),
+                                                   value.size(),
+                                                   key->string.data(),
+                                                   key->string.size(),
+                                                   modifiers,
+                                                   (step.get_bool("repeat") ? WEFT_KEY_REPEAT : 0u) |
+                                                       (step.get_bool("ime") ? WEFT_KEY_IME : 0u),
+                                                   0,
+                                                   0};
+                            std::uint32_t handled{};
+                            const weft_result r = weft_view_key(run.runtime, run.view, &e, &handled);
+                            std::printf("[key] %s %s %s -> %s%s%s\n", key->string.c_str(),
+                                        kind == WEFT_KEY_DOWN ? "down" : "up", value.c_str(), weft_result_string(r),
+                                        handled & WEFT_INPUT_PREVENTED ? " prevented" : "",
+                                        handled & WEFT_INPUT_DEFAULT ? " default" : "");
+                        };
+                        if (action == "down" || action == "press") {
+                            send(WEFT_KEY_DOWN);
+                            if (!typed.empty()) {
+                                std::uint32_t handled{};
+                                weft_view_text(run.runtime, run.view, typed.data(), typed.size(), &handled);
+                            }
+                        }
+                        if (action == "up" || action == "press") {
+                            send(WEFT_KEY_UP);
+                        }
+                        if (action != "down" && action != "up" && action != "press") {
+                            throw Failure("key action wants down, up or press");
+                        }
+                    }
+                    if (const Json* text = step.find("text"); text && !step.find("key")) {
+                        std::uint32_t handled{};
+                        const weft_result r =
+                            weft_view_text(run.runtime, run.view, text->string.data(), text->string.size(), &handled);
+                        std::printf("[text] %s -> %s%s\n", text->string.c_str(), weft_result_string(r),
+                                    handled & WEFT_INPUT_DEFAULT ? " default" : "");
+                    }
+                    if (const Json* focus = step.find("focus")) {
+                        weft_view_set_focus(run.runtime, run.view, step.get_bool("focus", true) ? 1 : 0);
                     }
                     if (const Json* hit = step.find("hit"); hit && hit->items.size() == 2) {
                         weft_hit h{};

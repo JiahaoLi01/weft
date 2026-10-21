@@ -204,6 +204,7 @@ namespace weft::dom {
         result.hovered = n.hovered;
         result.active = n.active;
         result.focused = n.focused;
+        result.focus_visible = n.focus_visible;
         result.focus_within = n.focus_within;
         result.revision = n.subtree_revision;
         result.attributes = snapshot_attributes(n);
@@ -234,12 +235,14 @@ namespace weft::dom {
             changed = true;
         }
         if (copy.scroll_left != n.scroll_left || copy.scroll_top != n.scroll_top || copy.hovered != n.hovered ||
-            copy.active != n.active || copy.focused != n.focused || copy.focus_within != n.focus_within) {
+            copy.active != n.active || copy.focused != n.focused || copy.focus_visible != n.focus_visible ||
+            copy.focus_within != n.focus_within) {
             copy.scroll_left = n.scroll_left;
             copy.scroll_top = n.scroll_top;
             copy.hovered = n.hovered;
             copy.active = n.active;
             copy.focused = n.focused;
+            copy.focus_visible = n.focus_visible;
             copy.focus_within = n.focus_within;
             changed = true;
         }

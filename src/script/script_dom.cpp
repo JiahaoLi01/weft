@@ -6,8 +6,10 @@
 #include "base/diagnostic.hpp"
 #include "base/owner_thread.hpp"
 #include "constants/dom.hpp"
+#include "constants/input.hpp"
 #include "constants/script.hpp"
 #include "dom/attributes.hpp"
+#include "dom/focus_rules.hpp"
 #include "dom/node_table.hpp"
 #include "dom/selector.hpp"
 #include "dom/tree.hpp"
@@ -146,6 +148,8 @@ namespace weft {
         JSValue mouse_prototype{JS_UNDEFINED};
         JSValue wheel_prototype{JS_UNDEFINED};
         JSValue event_prototype{JS_UNDEFINED};
+        JSValue keyboard_prototype{JS_UNDEFINED};
+        JSValue focus_prototype{JS_UNDEFINED};
         LayoutHost layout_host;
         ComputedStyleHost computed_style_host;
         ParticleHost particle_host;
@@ -158,13 +162,33 @@ namespace weft {
         std::map<std::array<std::uint64_t, 3>, std::map<std::string, std::string>> read_styles;
         std::size_t read_style_bytes{};
         IntegerFormatHost integer_format_host;
-        // The web platform module's hosts and storage areas (local, session), and the element that has the focus with
-        // the elements :focus-within matches (it and its ancestors when it took the focus).
+        // The web platform module's hosts and storage areas (local, session).
         ConsoleHost console_host;
         MediaHost media_host;
         std::array<std::shared_ptr<WebStorage>, 2> storage;
+        // The element that has the focus, with the elements whose focus flags it set (it and its ancestors).
         NodeIdentity focus;
         std::vector<NodeIdentity> focus_chain;
+        // What :focus-visible reads (Blink's SelectorChecker::MatchesFocusVisiblePseudoClass): how the user last
+        // moved the focus (script moves count for nothing), and whether a key went down since the mouse moved it.
+        enum class LastFocus : std::uint8_t {
+            None,
+            Mouse,
+            Other
+        };
+        LastFocus last_focus{};
+        bool had_keyboard_event{};
+        // The host's keyboard focus is in the page: the focus flags hold only then. Kept across documents.
+        bool page_focus = true;
+        FocusHost focus_host;
+        // Where sequential focus navigation starts without a focused element: the node focused or pressed last, and,
+        // once it left the document, the parent it left and the sibling that followed it (none: it was the last).
+        NodeIdentity start_node;
+        NodeIdentity start_parent;
+        NodeIdentity start_next;
+        // The node a mouse button went down on last, and the element Space made :active.
+        NodeIdentity pressed_node;
+        NodeIdentity key_active;
         bool layout_running{};
 
         // The native DOM. Each tree edge owns one reference on the neighbor's wrapper, which mark() reports, so the
@@ -1300,6 +1324,20 @@ namespace weft {
         // Removes child from its parent; the caller holds child. The edge pair's references go once the tree is
         // consistent, because releasing them may finalize nodes.
         void detach(Node& child) {
+            // Sequential navigation goes on from where a starting node inside child was (Blink keeps a Range there).
+            if (const auto* start = resolve(start_node); start && !start_parent.generation) {
+                for (const Node* n = start; n; n = parent_of(*n)) {
+                    if (n == &child) {
+                        if (const auto* parent = parent_of(child)) {
+                            const auto& siblings = parent->children;
+                            const auto it = std::find(siblings.begin(), siblings.end(), child.identity);
+                            start_parent = parent->identity;
+                            start_next = it != siblings.end() && it + 1 != siblings.end() ? *(it + 1) : NodeIdentity{};
+                        }
+                        break;
+                    }
+                }
+            }
             const auto former = tree.detach(child);
             check_journal();
             if (former.generation) {
@@ -1345,6 +1383,7 @@ namespace weft {
                 node(context, replacement.value).data = std::move(input);
                 n.children.reserve(std::max<std::size_t>(n.children.size(), 1));
             }
+            blur_within(n, false);
             while (!n.children.empty()) {
                 Node& child = node_at(n.children.back());
                 Value hold(context, JS_DupValue(context, wrapper(child)));
@@ -1363,10 +1402,15 @@ namespace weft {
             return it == n.attributes.end() ? "" : it->value;
         }
 
-        // Selector lists of DOM queries: the shared grammar with escapes and :hover/:active.
-        static std::vector<dom::Selector> selectors(std::string_view text) {
-            static const dom::SelectorGrammar grammar{true, true, Diag::DomSelector, Diag::DomUnsupportedSelector};
-            auto list = dom::parse_selector_list(text, grammar, constants::dom::max_selector_list_items);
+        // Selector lists of DOM queries: the shared grammar with escapes and :hover/:active, or Selectors 4's as the
+        // page's stylesheet takes them (modern_selectors).
+        bool modern_selectors{};
+
+        std::vector<dom::Selector> selectors(std::string_view text) const {
+            static const dom::SelectorGrammar strict{true, true, Diag::DomSelector, Diag::DomUnsupportedSelector};
+            static const dom::SelectorGrammar modern{true, true, Diag::DomSelector, Diag::DomUnsupportedSelector, true};
+            auto list =
+                dom::parse_selector_list(text, modern_selectors ? modern : strict, constants::dom::max_selector_list_items);
             if (!list) {
                 throw std::runtime_error(list.error().message);
             }
@@ -1412,7 +1456,9 @@ namespace weft {
             OffsetTop,
             OffsetWidth,
             OffsetHeight,
-            OffsetParent
+            OffsetParent,
+            ActiveElement,
+            TabIndex
         };
 
         static JSValue get_property(JSContext* c, JSValueConst self, int magic) {
@@ -1462,6 +1508,24 @@ namespace weft {
                     }
                     case Type:
                         return JS_NewInt32(c, n.type);
+                    case ActiveElement: {
+                        // document.activeElement: the focused element, else the body (the document element without
+                        // one).
+                        if (n.type != constants::document_node_type) {
+                            return JS_UNDEFINED;
+                        }
+                        if (auto* f = owner.focused_node()) {
+                            return JS_DupValue(c, owner.wrapper(*f));
+                        }
+                        std::vector<Node*> found;
+                        owner.query(n, "body", found, true);
+                        if (!found.empty()) {
+                            return JS_DupValue(c, owner.wrapper(*found.front()));
+                        }
+                        return n.children.empty() ? JS_NULL : JS_DupValue(c, owner.wrapper_at(n.children.front()));
+                    }
+                    case TabIndex:
+                        return n.type == constants::element_node_type ? JS_NewInt32(c, owner.tab_index(n)) : JS_UNDEFINED;
                     case Name: {
                         std::string name = n.type == constants::document_node_type ? "#document" : n.local;
                         if (n.space == constants::xhtml_namespace_uri) {
@@ -1595,6 +1659,17 @@ namespace weft {
                     }
                     return JS_UNDEFINED;
                 }
+                if (magic == TabIndex) {
+                    // tabIndex reflects tabindex as an integer (WebIDL long).
+                    std::int32_t v{};
+                    if (JS_ToInt32(c, &v, value) < 0) {
+                        throw PendingJsException{};
+                    }
+                    if (n.type == constants::element_node_type) {
+                        state(c).set_attribute(n, "tabindex", std::to_string(v));
+                    }
+                    return JS_UNDEFINED;
+                }
                 if (magic == ElementId) {
                     if (n.type != constants::element_node_type) {
                         throw std::runtime_error("WEFT_DOM_TYPE: id reflection requires Element");
@@ -1670,7 +1745,10 @@ namespace weft {
             Storage,
             Focus,
             Focused,
-            MatchMedia
+            MatchMedia,
+            Blur,
+            HasFocus,
+            ScrollIntoView
         };
 
         static JSValue arg(int argc, JSValueConst* argv, int index) {
@@ -2012,15 +2090,73 @@ namespace weft {
                     case Storage:
                         return owner.storage_call(argc, argv);
                     case Focus: {
-                        // focus() (on) and blur() of the web platform: the element takes or gives up the focus.
-                        const int on = JS_ToBool(c, arg(argc, argv, 0));
-                        if (on < 0) {
-                            throw PendingJsException{};
+                        // focus(options): an element that can take the focus takes it and scrolls into view where it
+                        // does not show, unless options.preventScroll; options.focusVisible says whether it shows the
+                        // focus (Chrome's FocusOptions).
+                        bool prevent_scroll{};
+                        std::optional<bool> visible;
+                        if (JSValueConst options = arg(argc, argv, 0); JS_IsObject(options)) {
+                            Value prevent(c, JS_GetPropertyStr(c, options, "preventScroll"));
+                            if (JS_IsException(prevent.value)) {
+                                throw PendingJsException{};
+                            }
+                            Value shown(c, JS_GetPropertyStr(c, options, "focusVisible"));
+                            if (JS_IsException(shown.value)) {
+                                throw PendingJsException{};
+                            }
+                            prevent_scroll = JS_ToBool(c, prevent.value) > 0;
+                            if (!JS_IsUndefined(shown.value)) {
+                                visible = JS_ToBool(c, shown.value) > 0;
+                            }
                         }
-                        if (on) {
-                            owner.set_focus(&n);
-                        } else if (owner.focus == n.identity) {
-                            owner.set_focus(nullptr);
+                        if (owner.focusable(n)) {
+                            owner.move_focus(&n, FocusType::Script, !prevent_scroll, visible);
+                        }
+                        return JS_UNDEFINED;
+                    }
+                    case Blur:
+                        if (owner.focused_node() == &n) {
+                            owner.move_focus(nullptr, FocusType::Script, false);
+                        }
+                        return JS_UNDEFINED;
+                    case HasFocus:
+                        // document.hasFocus(): whether the host's keyboard focus is in the page.
+                        return JS_NewBool(c, n.type == constants::document_node_type && owner.page_focus);
+                    case ScrollIntoView: {
+                        // scrollIntoView(alignToTop) and scrollIntoView({block, inline}): block start by default (end
+                        // for false), inline nearest.
+                        auto block = ScrollAlign::Start;
+                        auto inline_align = ScrollAlign::Nearest;
+                        const auto align = [&](JSValueConst options, const char* key, ScrollAlign& out) {
+                            Value v(c, JS_GetPropertyStr(c, options, key));
+                            if (JS_IsException(v.value)) {
+                                throw PendingJsException{};
+                            }
+                            if (JS_IsUndefined(v.value)) {
+                                return;
+                            }
+                            const auto text = string_value(c, v.value);
+                            if (text == "start") {
+                                out = ScrollAlign::Start;
+                            } else if (text == "center") {
+                                out = ScrollAlign::Center;
+                            } else if (text == "end") {
+                                out = ScrollAlign::End;
+                            } else if (text == "nearest") {
+                                out = ScrollAlign::Nearest;
+                            } else {
+                                JS_ThrowTypeError(c, "scrollIntoView: '%s' is not a ScrollLogicalPosition", text.c_str());
+                                throw PendingJsException{};
+                            }
+                        };
+                        if (JSValueConst options = arg(argc, argv, 0); JS_IsObject(options)) {
+                            align(options, "block", block);
+                            align(options, "inline", inline_align);
+                        } else if (!JS_IsUndefined(options) && JS_ToBool(c, options) == 0) {
+                            block = ScrollAlign::End;
+                        }
+                        if (n.type == constants::element_node_type && owner.connected(n)) {
+                            owner.scroll_into_view(n, block, inline_align);
                         }
                         return JS_UNDEFINED;
                     }
@@ -2073,6 +2209,15 @@ namespace weft {
                         if (magic == InsertBefore && !JS_IsNull(reference) && !JS_IsUndefined(reference)) {
                             before = &node(c, reference);
                         }
+                        Value hold(c, JS_DupValue(c, owner.wrapper(child)));
+                        Value hold_before(c, before ? JS_DupValue(c, owner.wrapper(*before)) : JS_UNDEFINED);
+                        // A focused element that moves leaves its place first, and the focus with it.
+                        if (child.parent.generation) {
+                            owner.blur_within(child);
+                        }
+                        if (before && before->parent != n.identity) {
+                            throw std::runtime_error("WEFT_NOT_FOUND: reference is not a child");
+                        }
                         owner.insert(n, child, before);
                         return JS_DupValue(c, owner.wrapper(child));
                     }
@@ -2082,6 +2227,11 @@ namespace weft {
                             throw std::runtime_error("WEFT_NOT_FOUND: child is not in parent");
                         }
                         Value hold(c, JS_DupValue(c, owner.wrapper(child)));
+                        owner.blur_within(child);
+                        // The blur's listeners may have moved it already.
+                        if (child.parent != n.identity) {
+                            throw std::runtime_error("WEFT_NOT_FOUND: child is not in parent");
+                        }
                         owner.detach(child);
                         return JS_DupValue(c, hold.value);
                     }
@@ -2481,9 +2631,14 @@ namespace weft {
                 method(prototype.value, "__ceEngineClose", EngineClose, 1);
                 method(prototype.value, "__ceConsole", Console, 2);
                 method(prototype.value, "__ceStorage", Storage, 4);
-                method(prototype.value, "__ceFocus", Focus, 1);
                 method(prototype.value, "__ceFocused", Focused, 0);
                 method(prototype.value, "__ceMatchMedia", MatchMedia, 1);
+                method(prototype.value, "focus", Focus, 1);
+                method(prototype.value, "blur", Blur, 0);
+                method(prototype.value, "hasFocus", HasFocus, 0);
+                method(prototype.value, "scrollIntoView", ScrollIntoView, 1);
+                property(prototype.value, "activeElement", ActiveElement);
+                property(prototype.value, "tabIndex", TabIndex, true);
                 JS_SetClassProto(context, node_class, JS_DupValue(context, prototype.value));
 
                 document_root = make_node(constants::document_node_type, "#document", "", {});
@@ -2526,6 +2681,34 @@ globalThis.MouseEvent = class MouseEvent extends UIEvent {
 globalThis.WheelEvent = class WheelEvent extends MouseEvent {
   constructor(type, options = {}) { super(type, options); for (const key of ['deltaX','deltaY','deltaZ','deltaMode']) this[key] = Number(options[key] ?? 0); }
 };
+globalThis.FocusEvent = class FocusEvent extends UIEvent {
+  constructor(type, options = {}) {
+    super(type, options);
+    this.relatedTarget = options.relatedTarget ?? null;
+    Object.defineProperty(this, 'isTrusted', { value: false });
+  }
+};
+globalThis.KeyboardEvent = class KeyboardEvent extends UIEvent {
+  constructor(type, options = {}) {
+    super(type, options);
+    this.key = String(options.key ?? ''); this.code = String(options.code ?? '');
+    this.location = Number(options.location ?? 0); this.repeat = !!options.repeat; this.isComposing = !!options.isComposing;
+    for (const key of ['ctrlKey','shiftKey','altKey','metaKey']) this[key] = !!options[key];
+    // As in browsers, a page's own events keep the legacy codes it gives (0 otherwise).
+    this.keyCode = Number(options.keyCode ?? 0); this.charCode = Number(options.charCode ?? 0);
+    this.which = Number(options.which ?? this.keyCode);
+    Object.defineProperty(this, '__modifiers', { value: (this.shiftKey ? 1 : 0) | (this.ctrlKey ? 2 : 0) |
+      (this.altKey ? 4 : 0) | (this.metaKey ? 8 : 0) | (options.modifierAltGraph ? 16 : 0) |
+      (options.modifierCapsLock ? 32 : 0) | (options.modifierNumLock ? 64 : 0) });
+    Object.defineProperty(this, 'isTrusted', { value: false });
+  }
+  getModifierState(key) {
+    const bit = { Shift: 1, Control: 2, Alt: 4, Meta: 8, AltGraph: 16, CapsLock: 32, NumLock: 64 }[key];
+    return bit ? (this.__modifiers & bit) !== 0 : false;
+  }
+};
+Object.assign(KeyboardEvent, { DOM_KEY_LOCATION_STANDARD: 0, DOM_KEY_LOCATION_LEFT: 1, DOM_KEY_LOCATION_RIGHT: 2,
+  DOM_KEY_LOCATION_NUMPAD: 3 });
 )JS",
                      "<event-probe-bootstrap>");
                 Value mouse(context, JS_GetPropertyStr(context, global.value, "MouseEvent"));
@@ -2538,7 +2721,12 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
                 wheel_prototype = JS_GetPropertyStr(context, wheel.value, "prototype");
                 Value event(context, JS_GetPropertyStr(context, global.value, "Event"));
                 event_prototype = JS_GetPropertyStr(context, event.value, "prototype");
-                if (JS_IsException(wheel_prototype) || JS_IsException(event_prototype)) {
+                Value keyboard(context, JS_GetPropertyStr(context, global.value, "KeyboardEvent"));
+                keyboard_prototype = JS_GetPropertyStr(context, keyboard.value, "prototype");
+                Value focus_event(context, JS_GetPropertyStr(context, global.value, "FocusEvent"));
+                focus_prototype = JS_GetPropertyStr(context, focus_event.value, "prototype");
+                if (JS_IsException(wheel_prototype) || JS_IsException(event_prototype) ||
+                    JS_IsException(keyboard_prototype) || JS_IsException(focus_prototype)) {
                     throw PendingJsException{};
                 }
             } catch (...) {
@@ -2569,6 +2757,10 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             wheel_prototype = JS_UNDEFINED;
             JS_FreeValue(context, event_prototype);
             event_prototype = JS_UNDEFINED;
+            JS_FreeValue(context, keyboard_prototype);
+            keyboard_prototype = JS_UNDEFINED;
+            JS_FreeValue(context, focus_prototype);
+            focus_prototype = JS_UNDEFINED;
             layout_host = {};
             computed_style_host = {};
             particle_host = {};
@@ -2576,8 +2768,16 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             console_host = {};
             media_host = {};
             storage = {};
+            // The document's focus state goes with it; the host's focus (page_focus) stays.
             focus = {};
             focus_chain.clear();
+            focus_visible_option.reset();
+            last_focus = LastFocus::None;
+            had_keyboard_event = false;
+            focus_host = {};
+            start_node = start_parent = start_next = {};
+            pressed_node = key_active = {};
+            modern_selectors = false;
             clear_host_reads();
             read_snapshot.reset();
             JS_FreeValue(context, canvas_prototype);
@@ -2755,6 +2955,7 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             if (!std::isfinite(time) || time < 0) {
                 throw std::invalid_argument("WEFT_HOST_TIME: finite nonnegative timestamp required");
             }
+            clock_ms = time;
             execute_result(
                 [&] {
                     JSValue argument = JS_NewFloat64(context, time);
@@ -3034,27 +3235,124 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             return {};
         }
 
-        // Gives target the focus (none: no element has it): :focus matches it, :focus-within it and its ancestors.
-        void set_focus(Node* target) {
+        // The focus option focus({focusVisible}) gave the focused element, which :focus-visible follows while it keeps
+        // the focus.
+        std::optional<bool> focus_visible_option;
+
+        // An attribute without a namespace by name; nullptr when absent.
+        static const std::string* attribute(const Node& n, std::string_view name) {
+            const auto it = std::find_if(n.attributes.begin(), n.attributes.end(), [&](const Attribute& a) {
+                return a.space.empty() && a.name == name;
+            });
+            return it == n.attributes.end() ? nullptr : &it->value;
+        }
+
+        // HTML's focus rules (dom/focus_rules.hpp) on an element of the tree.
+        static auto attributes_of(const Node& n) {
+            return [&n](std::string_view name) {
+                return attribute(n, name);
+            };
+        }
+
+        static bool editable(const Node& n) {
+            return n.type == constants::element_node_type &&
+                   dom::editable_element(n.local, n.space == constants::xhtml_namespace_uri, attributes_of(n));
+        }
+
+        static bool focusable_by_default(const Node& n) {
+            return n.type == constants::element_node_type &&
+                   dom::focusable_by_default(n.local, n.space == constants::xhtml_namespace_uri, attributes_of(n));
+        }
+
+        static bool disabled(const Node& n) {
+            return n.type == constants::element_node_type &&
+                   dom::disabled_control(n.local, n.space == constants::xhtml_namespace_uri, attributes_of(n));
+        }
+
+        static std::optional<std::int32_t> integer_attribute(const Node& n, std::string_view name) {
+            const auto* text = attribute(n, name);
+            return text ? dom::html_integer(*text) : std::nullopt;
+        }
+
+        // tabIndex: the tabindex attribute's integer, else 0 for an element focusable by default and -1 otherwise.
+        static std::int32_t tab_index(const Node& n) {
+            if (const auto v = integer_attribute(n, "tabindex")) {
+                return *v;
+            }
+            return focusable_by_default(n) ? 0 : -1;
+        }
+
+        // Whether n can take the focus by focus(): HTML's focusable areas, being rendered (the focus host).
+        bool focusable(Node& n) {
+            if (n.type != constants::element_node_type || !connected(n) || disabled(n) ||
+                (!focusable_by_default(n) && !integer_attribute(n, "tabindex"))) {
+                return false;
+            }
+            if (!focus_host) {
+                return true;
+            }
+            layout_running = true;
+
+            struct Guard {
+                Impl& owner;
+
+                ~Guard() {
+                    owner.layout_running = false;
+                }
+            } guard{*this};
+
+            return focus_host(host_snapshot(), n.identity);
+        }
+
+        // Whether the focused element n shows its focus (Blink's MatchesFocusVisiblePseudoClass): as focus() asked,
+        // else always when it is editable, else unless the mouse moved the focus last and no key went down since.
+        bool shows_focus(const Node& n) const {
+            if (focus_visible_option) {
+                return *focus_visible_option;
+            }
+            return editable(n) || last_focus != LastFocus::Mouse || had_keyboard_event;
+        }
+
+        // Brings the focus flags of the nodes up to date with the focus: :focus and :focus-visible on the focused
+        // element, :focus-within on it and its ancestors, while the page has the host's focus. Only nodes whose flags
+        // change are restyled.
+        void update_focus_flags() {
+            std::vector<NodeIdentity> chain;
+            Node* target = resolve(focus);
+            if (target && (!connected(*target) || !page_focus)) {
+                target = nullptr;
+            }
+            for (Node* p = target; p; p = parent_of(*p)) {
+                chain.push_back(p->identity);
+            }
             for (const auto id : focus_chain) {
-                if (auto* n = resolve(id)) {
-                    n->focused = false;
-                    n->focus_within = false;
+                if (std::find(chain.begin(), chain.end(), id) != chain.end()) {
+                    continue;
+                }
+                if (auto* n = resolve(id); n && (n->focused || n->focus_visible || n->focus_within)) {
+                    n->focused = n->focus_visible = n->focus_within = false;
                     changed(*n);
                 }
             }
-            focus_chain.clear();
-            focus = {};
-            if (!target) {
-                return;
+            for (const auto id : chain) {
+                Node& n = node_at(id);
+                const bool focused = &n == target;
+                const bool visible = focused && shows_focus(n);
+                if (n.focused != focused || n.focus_visible != visible || !n.focus_within) {
+                    n.focused = focused;
+                    n.focus_visible = visible;
+                    n.focus_within = true;
+                    changed(n);
+                }
             }
-            focus = target->identity;
-            target->focused = true;
-            for (Node* p = target; p; p = parent_of(*p)) {
-                p->focus_within = true;
-                changed(*p);
-                focus_chain.push_back(p->identity);
-            }
+            focus_chain = std::move(chain);
+        }
+
+        // Gives target the focus (none: no element has it) without events, as the focus fixup rule does.
+        void set_focus(Node* target, std::optional<bool> visible = {}) {
+            focus = target ? target->identity : NodeIdentity{};
+            focus_visible_option = target ? visible : std::nullopt;
+            update_focus_flags();
         }
 
         // The element that has the focus; one that left the document loses it (the focus fixup rule).
@@ -3065,6 +3363,429 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
                 return nullptr;
             }
             return n;
+        }
+
+        // The page's clock when the host last gave it (performance.now()), the time stamp of events it makes itself.
+        double clock_ms{};
+
+        // A trusted FocusEvent at target: focus and blur do not bubble, focusin, focusout and their DOM Level 2 names
+        // do; none of them is cancelable.
+        void dispatch_focus_event(Node& target, const char* type, Node* related) {
+            Value event(context, JS_NewObjectProto(context, focus_prototype));
+            if (JS_IsException(event.value)) {
+                throw PendingJsException{};
+            }
+            const std::string_view name(type);
+            event_property(event.value, "type", JS_NewString(context, type));
+            event_property(event.value, "bubbles", JS_NewBool(context, name != "focus" && name != "blur"));
+            event_property(event.value, "cancelable", JS_FALSE);
+            event_property(event.value, "composed", JS_TRUE);
+            event_property(event.value, "defaultPrevented", JS_FALSE);
+            event_property(event.value, "currentTarget", JS_NULL);
+            event_property(event.value, "eventPhase", JS_NewInt32(context, constants::script::event_phase_none));
+            event_property(event.value, "view", JS_GetGlobalObject(context));
+            event_property(event.value, "detail", JS_NewInt32(context, 0));
+            event_property(event.value, "timeStamp", JS_NewFloat64(context, clock_ms));
+            event_property(event.value, "relatedTarget",
+                           related && resolve(related->identity) ? JS_DupValue(context, wrapper(*related)) : JS_NULL);
+            if (JS_DefinePropertyValueStr(context, event.value, "isTrusted", JS_TRUE, 0) < 0) {
+                throw PendingJsException{};
+            }
+            Value result(context, dispatch(target, event.value));
+        }
+
+        // window's focus or blur, through the window target of the scene platform (nothing without it).
+        void dispatch_window_focus_event(const char* type) {
+            Value global(context, JS_GetGlobalObject(context));
+            Value function(context, JS_GetPropertyStr(context, global.value, "dispatchEvent"));
+            if (JS_IsException(function.value)) {
+                throw PendingJsException{};
+            }
+            if (!JS_IsFunction(context, function.value)) {
+                return;
+            }
+            Value event(context, JS_NewObjectProto(context, focus_prototype));
+            if (JS_IsException(event.value)) {
+                throw PendingJsException{};
+            }
+            event_property(event.value, "type", JS_NewString(context, type));
+            event_property(event.value, "bubbles", JS_FALSE);
+            event_property(event.value, "cancelable", JS_FALSE);
+            event_property(event.value, "defaultPrevented", JS_FALSE);
+            event_property(event.value, "view", JS_GetGlobalObject(context));
+            event_property(event.value, "detail", JS_NewInt32(context, 0));
+            event_property(event.value, "timeStamp", JS_NewFloat64(context, clock_ms));
+            event_property(event.value, "relatedTarget", JS_NULL);
+            if (JS_DefinePropertyValueStr(context, event.value, "isTrusted", JS_TRUE, 0) < 0) {
+                throw PendingJsException{};
+            }
+            JSValue argument = event.value;
+            Value result(context, JS_Call(context, function.value, global.value, 1, &argument));
+            if (JS_IsException(result.value)) {
+                throw PendingJsException{};
+            }
+        }
+
+        // HTML's focusing steps as Blink's Document::SetFocusedElement runs them: the old element loses the focus
+        // (activeElement is the body meanwhile) and gets blur, focusout and DOMFocusOut, related to the new one; the
+        // new one takes the focus and gets focus, focusin and DOMFocusIn. A listener that moves the focus meanwhile
+        // wins and the rest is skipped. Without the host's focus the page gets these events when it comes back. Whether
+        // `to` has the focus afterwards.
+        bool move_focus(Node* to, FocusType type, bool scroll, std::optional<bool> visible = {}) {
+            Node* from = focused_node();
+            // Listeners may drop every other reference to the two nodes.
+            Value hold_from(context, from ? JS_DupValue(context, wrapper(*from)) : JS_UNDEFINED);
+            Value hold_to(context, to ? JS_DupValue(context, wrapper(*to)) : JS_UNDEFINED);
+            if (from == to) {
+                if (to && visible != focus_visible_option) {
+                    focus_visible_option = visible;
+                    update_focus_flags();
+                }
+                if (to && scroll) {
+                    scroll_into_view(*to, ScrollAlign::IfNeeded, ScrollAlign::IfNeeded);
+                }
+                return true;
+            }
+            // The mouse moving the focus hides it until a key goes down (Blink's Element::SetFocused).
+            if (type == FocusType::Mouse) {
+                had_keyboard_event = false;
+            }
+            if (from) {
+                set_focus(nullptr);
+                if (page_focus) {
+                    dispatch_focus_event(*from, "blur", to);
+                    // focusout follows whatever blur's listeners did; it names no new element when they moved the
+                    // focus.
+                    const bool blocked = focus.generation != 0;
+                    dispatch_focus_event(*from, "focusout", blocked ? nullptr : to);
+                    dispatch_focus_event(*from, "DOMFocusOut", blocked ? nullptr : to);
+                    if (focus.generation) {
+                        return resolve(focus) == to && to;
+                    }
+                }
+            }
+            if (!to || !connected(*to)) {
+                return !to;
+            }
+            if (type != FocusType::Script) {
+                last_focus = type == FocusType::Mouse ? LastFocus::Mouse : LastFocus::Other;
+            }
+            set_focus(to, visible);
+            start_node = to->identity;
+            start_parent = start_next = {};
+            if (page_focus) {
+                const auto id = to->identity;
+                for (const char* name : {"focus", "focusin", "DOMFocusIn"}) {
+                    dispatch_focus_event(*to, name, from);
+                    if (focus != id) {
+                        return false;
+                    }
+                }
+            }
+            if (scroll) {
+                scroll_into_view(*to, ScrollAlign::IfNeeded, ScrollAlign::IfNeeded);
+            }
+            return true;
+        }
+
+        // The host's focus came to the page or left it (Blink's DispatchEventsOnWindowAndFocusedElement).
+        void set_page_focus(bool focused) {
+            if (focused == page_focus) {
+                return;
+            }
+            page_focus = focused;
+            Node* target = focused_node();
+            Value hold(context, target ? JS_DupValue(context, wrapper(*target)) : JS_UNDEFINED);
+            if (!focused) {
+                update_focus_flags();
+                if (target) {
+                    dispatch_focus_event(*target, "blur", nullptr);
+                    if (focused_node() == target) {
+                        dispatch_focus_event(*target, "focusout", nullptr);
+                    }
+                }
+                dispatch_window_focus_event("blur");
+                return;
+            }
+            dispatch_window_focus_event("focus");
+            target = focused_node();
+            update_focus_flags();
+            if (target) {
+                const auto id = target->identity;
+                dispatch_focus_event(*target, "focus", nullptr);
+                if (focus == id) {
+                    dispatch_focus_event(*target, "focusin", nullptr);
+                }
+            }
+        }
+
+        // A key went down without Control, Alt or Meta: the focused element shows its focus from now on, whoever gave
+        // it (Blink's Node::UpdateHadKeyboardEvent).
+        void note_keyboard_event() {
+            if (!had_keyboard_event) {
+                had_keyboard_event = true;
+                update_focus_flags();
+            }
+        }
+
+        // Tree order (pre-order) over the document's nodes.
+        Node* next_in_order(const Node& n, bool children = true) const {
+            if (children && !n.children.empty()) {
+                return &node_at(n.children.front());
+            }
+            for (const Node* p = &n; p; p = parent_of(*p)) {
+                const Node* parent = parent_of(*p);
+                if (!parent) {
+                    return nullptr;
+                }
+                const auto& siblings = parent->children;
+                const auto it = std::find(siblings.begin(), siblings.end(), p->identity);
+                if (it != siblings.end() && it + 1 != siblings.end()) {
+                    return &node_at(*(it + 1));
+                }
+            }
+            return nullptr;
+        }
+
+        Node* previous_in_order(const Node& n) const {
+            const Node* parent = parent_of(n);
+            if (!parent) {
+                return nullptr;
+            }
+            const auto& siblings = parent->children;
+            const auto it = std::find(siblings.begin(), siblings.end(), n.identity);
+            if (it == siblings.begin() || it == siblings.end()) {
+                return const_cast<Node*>(parent);
+            }
+            Node* last = &node_at(*(it - 1));
+            while (!last->children.empty()) {
+                last = &node_at(last->children.back());
+            }
+            return last;
+        }
+
+        // Blink's Document::SequentialFocusNavigationStartingPoint for a focus moving forward or backward.
+        std::optional<NodeIdentity> navigation_start(bool forward) {
+            if (auto* f = focused_node()) {
+                return f->identity;
+            }
+            const auto element = [](Node* n) -> std::optional<NodeIdentity> {
+                return n && n->type == constants::element_node_type ? std::optional(n->identity) : std::nullopt;
+            };
+            if (auto* start = resolve(start_node); start && connected(*start)) {
+                if (start->type == constants::element_node_type) {
+                    return start->identity;
+                }
+                // A text node: the element before it (forward) or after it (backward), else its parent.
+                for (Node* n = forward ? previous_in_order(*start) : next_in_order(*start); n;
+                     n = forward ? previous_in_order(*n) : next_in_order(*n)) {
+                    if (n->type == constants::element_node_type) {
+                        return n->identity;
+                    }
+                }
+                return element(parent_of(*start));
+            }
+            auto* parent = resolve(start_parent);
+            if (!parent || !connected(*parent)) {
+                return std::nullopt;
+            }
+            // The node at the place the starting node left: the sibling that followed it, or what follows the parent.
+            Node* at = resolve(start_next);
+            if (!at || parent_of(*at) != parent) {
+                at = next_in_order(*parent, false);
+            }
+            if (forward) {
+                for (Node* n = at ? previous_in_order(*at) : nullptr; n; n = previous_in_order(*n)) {
+                    if (n->type == constants::element_node_type) {
+                        return n->identity;
+                    }
+                }
+            }
+            for (Node* n = at; n; n = next_in_order(*n)) {
+                if (n->type == constants::element_node_type) {
+                    return n->identity;
+                }
+            }
+            return std::nullopt;
+        }
+
+        // The focused element is about to leave the document with subtree (subtree itself, or with self false only its
+        // descendants): it gets blur and focusout first, as Blink's Document::RemoveFocusedElementOfSubtree gives them.
+        void blur_within(Node& subtree, bool self = true) {
+            Node* f = focused_node();
+            if (!f || (!self && f == &subtree) || !connected(subtree)) {
+                return;
+            }
+            for (Node* p = f; p; p = parent_of(*p)) {
+                if (p == &subtree) {
+                    move_focus(nullptr, FocusType::Script, false);
+                    return;
+                }
+            }
+        }
+
+        // The element Space made :active (HTMLElement::HandleKeyboardActivation).
+        void set_key_active(Node* target) {
+            if (auto* old = resolve(key_active); old && old != target && old->active) {
+                old->active = false;
+                changed(*old);
+            }
+            key_active = target ? target->identity : NodeIdentity{};
+            if (target && !target->active) {
+                target->active = true;
+                changed(*target);
+            }
+        }
+
+        // The geometry of an element in the latest layout; none for one layout does not place.
+        static const ElementGeometry* find_geometry(const std::vector<ElementGeometry>& values, NodeIdentity id) {
+            const auto it = std::find_if(values.begin(), values.end(), [&](const ElementGeometry& g) {
+                return g.identity == id;
+            });
+            return it == values.end() ? nullptr : &*it;
+        }
+
+        // How far a scroll container moves its content so that an element shows in it as align asks, along one axis:
+        // the element's start and size and the scrollport's, in the same coordinates (CSSOM View's "scroll an
+        // element into view", and Blink's ScrollAlignment for IfNeeded).
+        static double align_delta(double start, double size, double port, double extent, ScrollAlign align) {
+            const double end = start + size;
+            const double port_end = port + extent;
+            const auto nearest = [&] {
+                // Both edges outside: nothing; the near edge in when it fits, else the far one.
+                if ((start < port && end > port_end) || (start >= port && end <= port_end)) {
+                    return 0.0;
+                }
+                if ((start < port && size <= extent) || (end > port_end && size > extent)) {
+                    return start - port;
+                }
+                return end - port_end;
+            };
+            switch (align) {
+                case ScrollAlign::Start:
+                    return start - port;
+                case ScrollAlign::End:
+                    return end - port_end;
+                case ScrollAlign::Center:
+                    return (start + size / 2) - (port + extent / 2);
+                case ScrollAlign::Nearest:
+                    return nearest();
+                case ScrollAlign::IfNeeded:
+                    if (start >= port && end <= port_end) {
+                        return 0;
+                    }
+                    if (end <= port || start >= port_end) {
+                        return (start + size / 2) - (port + extent / 2);
+                    }
+                    return nearest();
+            }
+            return 0;
+        }
+
+        // Scrolls target's scroll containers, innermost first, so that it shows (nothing without a layout host).
+        void scroll_into_view(Node& target, ScrollAlign block, ScrollAlign inline_align) {
+            if (!layout_host || target.type != constants::element_node_type || !connected(target)) {
+                return;
+            }
+            const auto values = refresh_geometry();
+            const auto* own = find_geometry(values, target.identity);
+            if (!own) {
+                return;
+            }
+            auto rect = own->rect;
+            for (Node* n = parent_of(target); n; n = parent_of(*n)) {
+                const auto* g = find_geometry(values, n->identity);
+                if (!g || (!g->scroll_x && !g->scroll_y)) {
+                    continue;
+                }
+                bool moved{};
+                if (g->scroll_y) {
+                    const double max = std::max(0.0, g->scroll_height - g->client_height);
+                    const double top = std::clamp(
+                        g->scroll_top +
+                            align_delta(rect[1], rect[3], g->rect[1] + g->client_top, g->client_height, block),
+                        0.0, max);
+                    if (top != g->scroll_top) {
+                        n->scroll_top = top;
+                        rect[1] -= top - g->scroll_top;
+                        moved = true;
+                    }
+                }
+                if (g->scroll_x) {
+                    const double max = std::max(0.0, g->scroll_width - g->client_width);
+                    const double left = std::clamp(
+                        g->scroll_left + align_delta(rect[0], rect[2], g->rect[0] + g->client_left, g->client_width,
+                                                     inline_align),
+                        0.0, max);
+                    if (left != g->scroll_left) {
+                        n->scroll_left = left;
+                        rect[0] -= left - g->scroll_left;
+                        moved = true;
+                    }
+                }
+                if (moved) {
+                    changed(*n);
+                    queue_scroll(*n);
+                }
+            }
+        }
+
+        // Keyboard scrolling (Blink's ScrollManager::LogicalScroll): the nearest user-scrollable container, from start
+        // up, that can still go that way moves a line (40 px), seven eighths of its scrollport, or to its end.
+        bool scroll_by_key(Node& start, ScrollDirection direction, ScrollGranularity granularity) {
+            if (!layout_host || !connected(start)) {
+                return false;
+            }
+            const auto values = refresh_geometry();
+            const bool vertical = direction == ScrollDirection::Up || direction == ScrollDirection::Down;
+            const double sign = direction == ScrollDirection::Up || direction == ScrollDirection::Left ? -1 : 1;
+            for (Node* n = &start; n; n = parent_of(*n)) {
+                const auto* g = find_geometry(values, n->identity);
+                if (!g || !(vertical ? g->wheel_y : g->wheel_x)) {
+                    continue;
+                }
+                const double extent = vertical ? g->client_height : g->client_width;
+                const double max = std::max(0.0, vertical ? g->scroll_height - g->client_height
+                                                          : g->scroll_width - g->client_width);
+                const double now = vertical ? g->scroll_top : g->scroll_left;
+                double next = now;
+                switch (granularity) {
+                    case ScrollGranularity::Line:
+                        next = now + sign * constants::input::keyboard_line_step;
+                        break;
+                    case ScrollGranularity::Page:
+                        next = now + sign * std::max(1.0, extent * constants::input::keyboard_page_fraction);
+                        break;
+                    case ScrollGranularity::Document:
+                        next = sign < 0 ? 0 : max;
+                        break;
+                }
+                next = std::clamp(next, 0.0, max);
+                if (next == now) {
+                    continue;
+                }
+                (vertical ? n->scroll_top : n->scroll_left) = next;
+                changed(*n);
+                queue_scroll(*n);
+                return true;
+            }
+            return false;
+        }
+
+        // Sets an attribute without a namespace (an HTML element's name in lower case).
+        void set_attribute(Node& n, const std::string& name, std::string value) {
+            auto it = std::find_if(n.attributes.begin(), n.attributes.end(), [&](const Attribute& a) {
+                return a.space.empty() && a.name == name;
+            });
+            if (it != n.attributes.end() && it->value == value) {
+                return;
+            }
+            if (it == n.attributes.end()) {
+                n.attributes.push_back({name, name, {}, std::move(value)});
+            } else {
+                it->value = std::move(value);
+            }
+            changed(n);
         }
 
         // document.__ceStorage(area, op, key, value) of the web platform: area 0 is localStorage, 1 sessionStorage;
@@ -3217,6 +3938,163 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             return std::nullopt;
         }
         return n->identity;
+    }
+
+    bool ScriptDom::focus(std::optional<NodeIdentity> target, FocusType type, bool scroll) {
+        impl_->require_runtime();
+        Impl::Node* to = nullptr;
+        if (target) {
+            to = impl_->resolve(*target);
+            if (!to || !impl_->connected(*to) || to->type != constants::element_node_type) {
+                return false;
+            }
+        }
+        bool moved{};
+        impl_->execute([&] {
+            moved = impl_->move_focus(to, type, scroll);
+            return JS_UNDEFINED;
+        });
+        return moved;
+    }
+
+    bool ScriptDom::focusable(NodeIdentity target) {
+        impl_->require_runtime();
+        auto* n = impl_->resolve(target);
+        return n && impl_->focusable(*n);
+    }
+
+    void ScriptDom::install_focus_host(FocusHost host) {
+        impl_->require_runtime();
+        impl_->focus_host = std::move(host);
+    }
+
+    void ScriptDom::set_page_focus(bool focused) {
+        impl_->require_runtime();
+        impl_->execute([&] {
+            impl_->set_page_focus(focused);
+            return JS_UNDEFINED;
+        });
+    }
+
+    bool ScriptDom::page_focused() const {
+        impl_->check_owner();
+        return impl_->page_focus;
+    }
+
+    void ScriptDom::set_pressed(std::optional<NodeIdentity> node) {
+        impl_->check_owner();
+        impl_->pressed_node = node.value_or(NodeIdentity{});
+        // Sequential navigation starts from where the mouse went down (Blink's MouseEventManager).
+        if (node) {
+            impl_->start_node = *node;
+            impl_->start_parent = impl_->start_next = {};
+        }
+    }
+
+    std::optional<NodeIdentity> ScriptDom::pressed() const {
+        impl_->check_owner();
+        auto* n = impl_->resolve(impl_->pressed_node);
+        if (!n || !impl_->connected(*n)) {
+            return std::nullopt;
+        }
+        return n->identity;
+    }
+
+    std::optional<NodeIdentity> ScriptDom::navigation_start(bool forward) const {
+        impl_->check_owner();
+        return impl_->navigation_start(forward);
+    }
+
+    void ScriptDom::set_key_active(std::optional<NodeIdentity> target) {
+        impl_->check_owner();
+        impl_->set_key_active(target ? impl_->resolve(*target) : nullptr);
+    }
+
+    std::optional<NodeIdentity> ScriptDom::key_active() const {
+        impl_->check_owner();
+        auto* n = impl_->resolve(impl_->key_active);
+        if (!n || !n->active) {
+            return std::nullopt;
+        }
+        return n->identity;
+    }
+
+    DispatchResult ScriptDom::dispatch_key(NodeIdentity identity, const KeyEvent& input) {
+        impl_->require_runtime();
+        if (!std::isfinite(input.time_ms) || input.time_ms < 0 || input.key.size() > constants::input::max_key_bytes ||
+            input.code.size() > constants::input::max_key_bytes || input.modifiers > key_modifier::all ||
+            input.location > 3) {
+            throw std::invalid_argument("WEFT_KEY_PROFILE: a key and code of at most 64 bytes, modifiers, a location");
+        }
+        auto* target = impl_->resolve(identity);
+        if (!target || !impl_->connected(*target)) {
+            return DispatchResult::StaleTarget;
+        }
+        if (input.type == KeyType::Down &&
+            !(input.modifiers & (key_modifier::control | key_modifier::alt | key_modifier::meta))) {
+            impl_->note_keyboard_event();
+        }
+        const char* type = input.type == KeyType::Down ? "keydown" : input.type == KeyType::Press ? "keypress" : "keyup";
+        const auto result = impl_->execute([&] {
+            auto* c = impl_->context;
+            Value pinned(c, JS_DupValue(c, impl_->wrapper(*target)));
+            Value event(c, JS_NewObjectProto(c, impl_->keyboard_prototype));
+            if (JS_IsException(event.value)) {
+                throw PendingJsException{};
+            }
+            auto property = [&](const char* key, JSValue value) {
+                impl_->event_property(event.value, key, value);
+            };
+            property("type", JS_NewString(c, type));
+            property("bubbles", JS_TRUE);
+            property("cancelable", JS_TRUE);
+            property("composed", JS_TRUE);
+            property("defaultPrevented", JS_FALSE);
+            property("currentTarget", JS_NULL);
+            property("eventPhase", JS_NewInt32(c, constants::script::event_phase_none));
+            property("view", JS_GetGlobalObject(c));
+            property("detail", JS_NewInt32(c, 0));
+            property("key", JS_NewStringLen(c, input.key.data(), input.key.size()));
+            property("code", JS_NewStringLen(c, input.code.data(), input.code.size()));
+            property("location", JS_NewUint32(c, input.location));
+            property("repeat", JS_NewBool(c, input.repeat));
+            property("isComposing", JS_NewBool(c, input.composing));
+            property("ctrlKey", JS_NewBool(c, input.modifiers & key_modifier::control));
+            property("shiftKey", JS_NewBool(c, input.modifiers & key_modifier::shift));
+            property("altKey", JS_NewBool(c, input.modifiers & key_modifier::alt));
+            property("metaKey", JS_NewBool(c, input.modifiers & key_modifier::meta));
+            property("keyCode", JS_NewUint32(c, input.key_code));
+            property("which", JS_NewUint32(c, input.key_code));
+            property("charCode", JS_NewUint32(c, input.char_code));
+            property("timeStamp", JS_NewFloat64(c, input.time_ms));
+            if (JS_DefinePropertyValueStr(c, event.value, "__modifiers", JS_NewUint32(c, input.modifiers), 0) < 0 ||
+                JS_DefinePropertyValueStr(c, event.value, "isTrusted", JS_TRUE, 0) < 0) {
+                throw PendingJsException{};
+            }
+            if (!impl_->connected(*target)) {
+                return JS_FALSE;
+            }
+            return impl_->dispatch(*target, event.value);
+        });
+        return result == "true" ? DispatchResult::DefaultAllowed : DispatchResult::DefaultPrevented;
+    }
+
+    bool ScriptDom::scroll_by_key(NodeIdentity start, ScrollDirection direction, ScrollGranularity granularity) {
+        impl_->require_runtime();
+        auto* n = impl_->resolve(start);
+        return n && impl_->scroll_by_key(*n, direction, granularity);
+    }
+
+    void ScriptDom::scroll_into_view(NodeIdentity target, ScrollAlign block, ScrollAlign inline_align) {
+        impl_->require_runtime();
+        if (auto* n = impl_->resolve(target)) {
+            impl_->scroll_into_view(*n, block, inline_align);
+        }
+    }
+
+    void ScriptDom::set_modern_selectors(bool modern) {
+        impl_->check_owner();
+        impl_->modern_selectors = modern;
     }
 
     DispatchResult ScriptDom::dispatch_wheel(NodeIdentity identity, double dx, double dy) {
@@ -3425,11 +4303,20 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             default:
                 throw std::invalid_argument("WEFT_MOUSE_PROFILE: unsupported event type");
         }
+        // As in Chrome: click is a PointerEvent too; the pointer events' positions are fractional and the mouse
+        // events' (click's) whole CSS px; detail counts the clicks of down, up and click, and is 0 for the others. A
+        // simulated click (the keyboard's) has pointerId -1, no pointer type, no position and detail 0.
+        const bool pointer = std::string_view(type).starts_with("pointer");
+        const bool counted = down || up || input.type == MouseType::Click;
+        const bool simulated = input.simulated && input.type == MouseType::Click;
+        const auto position = [&](double v) {
+            return simulated ? 0.0 : pointer ? v : std::floor(v);
+        };
         const auto result = impl_->execute([&] {
             auto* c = impl_->context;
             Value pinned(c, JS_DupValue(c, impl_->wrapper(*target)));
             Value prototype(c, JS_DupValue(c, impl_->mouse_prototype));
-            if (std::string_view(type).starts_with("pointer")) {
+            if (pointer || input.type == MouseType::Click) {
                 Value global(c, JS_GetGlobalObject(c));
                 Value constructor(c, JS_GetPropertyStr(c, global.value, "PointerEvent"));
                 if (JS_IsObject(constructor.value)) {
@@ -3449,10 +4336,10 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
                      JS_NewBool(c, input.type != MouseType::Enter && input.type != MouseType::Leave &&
                                        input.type != MouseType::PointerEnter && input.type != MouseType::PointerLeave));
             property("cancelable", JS_TRUE);
-            if (std::string_view(type).starts_with("pointer")) {
-                property("pointerId", JS_NewInt32(c, constants::script::mouse_pointer_id));
-                property("pointerType", JS_NewString(c, "mouse"));
-                property("isPrimary", JS_TRUE);
+            if (pointer || input.type == MouseType::Click) {
+                property("pointerId", JS_NewInt32(c, simulated ? -1 : constants::script::mouse_pointer_id));
+                property("pointerType", JS_NewString(c, simulated ? "" : "mouse"));
+                property("isPrimary", JS_NewBool(c, !simulated));
             }
             property("defaultPrevented", JS_FALSE);
             property("currentTarget", JS_NULL);
@@ -3460,13 +4347,13 @@ globalThis.WheelEvent = class WheelEvent extends MouseEvent {
             property("view", JS_GetGlobalObject(c));
             const auto* related = impl_->resolve(input.related_target);
             property("relatedTarget", related ? JS_DupValue(c, impl_->wrapper(*related)) : JS_NULL);
-            property("detail", JS_NewInt32(c, input.type == MouseType::Move ? 0 : 1));
+            property("detail", JS_NewInt32(c, counted && !pointer && !simulated ? 1 : 0));
             property("button", JS_NewInt32(c, 0));
-            property("buttons", JS_NewUint32(c, input.buttons));
-            property("clientX", JS_NewFloat64(c, input.client_x));
-            property("clientY", JS_NewFloat64(c, input.client_y));
-            property("screenX", JS_NewFloat64(c, input.screen_x));
-            property("screenY", JS_NewFloat64(c, input.screen_y));
+            property("buttons", JS_NewUint32(c, simulated ? 0 : input.buttons));
+            property("clientX", JS_NewFloat64(c, position(input.client_x)));
+            property("clientY", JS_NewFloat64(c, position(input.client_y)));
+            property("screenX", JS_NewFloat64(c, position(input.screen_x)));
+            property("screenY", JS_NewFloat64(c, position(input.screen_y)));
             property("timeStamp", JS_NewFloat64(c, input.time_ms));
             property("ctrlKey", JS_NewBool(c, input.ctrl));
             property("shiftKey", JS_NewBool(c, input.shift));

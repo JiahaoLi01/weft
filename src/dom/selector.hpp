@@ -108,6 +108,7 @@ namespace weft::dom {
         bool active{};
         // The modern grammar's pseudo-classes.
         bool focus{};
+        bool focus_visible{};
         bool focus_within{};
         bool disabled{};
         bool enabled{};
@@ -188,6 +189,9 @@ namespace weft::dom {
         } -> std::convertible_to<bool>;
         {
             e.focused()
+        } -> std::convertible_to<bool>;
+        {
+            e.focus_visible()
         } -> std::convertible_to<bool>;
         {
             e.focus_within()
@@ -287,13 +291,14 @@ namespace weft::dom {
             }
         }
         if constexpr (StructuralElement<E>) {
-            if (state && ((c.focus && !e.focused()) || (c.focus_within && !e.focus_within()))) {
+            if (state && ((c.focus && !e.focused()) || (c.focus_visible && !e.focus_visible()) ||
+                          (c.focus_within && !e.focus_within()))) {
                 return false;
             }
             if (c.empty && e.has_content()) {
                 return false;
             }
-        } else if (c.focus || c.focus_within || c.empty) {
+        } else if (c.focus || c.focus_visible || c.focus_within || c.empty) {
             return false;
         }
         for (const auto& n : c.nth) {

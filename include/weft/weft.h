@@ -285,6 +285,84 @@ typedef struct weft_hit {
 
 weft_result weft_view_hit_test(weft_runtime* runtime, weft_view_handle view, float x, float y, weft_hit* out_hit);
 
+/* ---- Keyboard input (docs/engine-communication.md, "键盘与焦点"). Owner thread unless stated. ---- */
+
+/* The modifiers held while a key event happens (KeyboardEvent.getModifierState): a modifier key's own keydown has its
+ * flag, its keyup not. */
+#define WEFT_MODIFIER_SHIFT 1u
+#define WEFT_MODIFIER_CONTROL 2u
+#define WEFT_MODIFIER_ALT 4u
+#define WEFT_MODIFIER_META 8u
+#define WEFT_MODIFIER_ALT_GRAPH 16u
+#define WEFT_MODIFIER_CAPS_LOCK 32u
+#define WEFT_MODIFIER_NUM_LOCK 64u
+
+typedef enum weft_key_kind {
+    WEFT_KEY_DOWN = 0,
+    WEFT_KEY_UP = 1
+} weft_key_kind;
+
+/* weft_key_event::flags: the key repeats (the system's auto-repeat; keydown only); an input method took the key (its
+ * keydown is key "Process" with keyCode 229 and has no default action, as Chrome gives a key Windows reports as
+ * VK_PROCESSKEY). */
+#define WEFT_KEY_REPEAT 1u
+#define WEFT_KEY_IME 2u
+
+/* A key going down or up. key and code are KeyboardEvent's values in UTF-8 (key 1 to 64 bytes, code at most 64): key is
+ * what the key types with the modifiers ("a", "A", "!", " ") or its name ("Enter", "ArrowLeft", "Shift", "F5", "Dead";
+ * weft_keyboard_key gives it for a physical key), code names the physical key ("KeyA", "Digit1", "Space",
+ * "ShiftLeft", "Numpad1"), and KeyboardEvent.location follows from code. key_code is KeyboardEvent.keyCode of keydown
+ * and keyup, the Windows virtual key; 0 takes the key's on a US keyboard. */
+typedef struct weft_key_event {
+    uint32_t struct_size;
+    uint32_t kind; /* weft_key_kind */
+    const char* key;
+    size_t key_size;
+    const char* code;
+    size_t code_size;
+    uint32_t modifiers; /* WEFT_MODIFIER_* */
+    uint32_t flags;     /* WEFT_KEY_* */
+    uint32_t key_code;
+    uint32_t reserved;
+} weft_key_event;
+
+/* What became of an input: a listener prevented its default action (WEFT_INPUT_PREVENTED); weft performed a default
+ * action, or began one a later event finishes (WEFT_INPUT_DEFAULT: the focus moved, a box scrolled, an element was
+ * clicked or a button became :active). A host gives the game a key with neither, as Chrome gives the browser the keys a
+ * page did not use. */
+#define WEFT_INPUT_PREVENTED 1u
+#define WEFT_INPUT_DEFAULT 2u
+
+/* Dispatches keydown or keyup at the focused element (the body when no element has the focus) with Chrome's default
+ * actions: Tab and Shift+Tab move the focus in sequential order (from the last element round to the first, as in an
+ * embedded Chromium), Enter and Space activate buttons and links, the arrow keys, Page Up, Page Down, Home and End
+ * scroll the scroll container of the focused element (else of the element the mouse went down on). A keydown of Enter
+ * nobody prevented dispatches Enter's keypress as well. out_handled, when given: WEFT_INPUT_* bits. */
+weft_result weft_view_key(weft_runtime* runtime, weft_view_handle view, const weft_key_event* event,
+                          uint32_t* out_handled);
+
+/* Text a key typed (UTF-8, at most 4096 bytes) after its keydown, as Windows' WM_CHAR, Slate's OnKeyChar and Unity's
+ * inputString give it: a keypress for each character (Space's scrolls a page outside a button). Characters below U+0020
+ * and U+007F are ignored: Enter, Tab and Backspace act from their keydown. After a keydown the page prevented or a
+ * default action used, the text is dropped (out_handled WEFT_INPUT_DEFAULT), as Chrome drops the characters that follow
+ * such a key. */
+weft_result weft_view_text(weft_runtime* runtime, weft_view_handle view, const char* text, size_t text_size,
+                           uint32_t* out_handled);
+
+/* The host's keyboard focus came to the View (focused 1) or left it (0), as a browser window gains and loses it: the
+ * focused element gets blur and focusout, then window blur (window focus, then focus and focusin when it comes back);
+ * :focus, :focus-visible and :focus-within match only while the View has it, and document.hasFocus() says whether it
+ * has. A View starts with it and keeps it across page loads. */
+weft_result weft_view_set_focus(weft_runtime* runtime, weft_view_handle view, uint32_t focused);
+
+/* Any thread: the KeyboardEvent.key the system's keyboard layout gives the physical key `code` with the modifiers
+ * (WEFT_MODIFIER_SHIFT, _ALT_GRAPH, _CAPS_LOCK and _NUM_LOCK count): the character it types ("a", "A", "1", "!", "é"),
+ * "Dead" for a dead key, its name for a key that types nothing ("Enter", "ArrowLeft", "F5"), "Unidentified" when the
+ * layout types nothing with it. Windows reads the layout of the foreground window's thread without changing its
+ * dead-key state, as Chromium's PlatformKeyMap does; other platforms answer for a US keyboard. out_key receives it
+ * NUL-terminated (at most 31 bytes); WEFT_INVALID_ARGUMENT for a code weft does not know. */
+weft_result weft_keyboard_key(const char* code, size_t code_size, uint32_t modifiers, char out_key[32]);
+
 /* ---- Tools. Owner thread. ---- */
 
 /* A text a tool asked for, valid during the callback; ok is 0 when it is an error's. */

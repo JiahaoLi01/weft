@@ -103,6 +103,25 @@ namespace weft {
         float wheel_y{};
     };
 
+    // Keyboard input (the C ABI's weft_key_event): a key going down or up, its KeyboardEvent key and code values, the
+    // modifiers (key_modifier bits) while it happens, whether it repeats, whether an input method took it (key
+    // "Process", keyCode 229, no default action), and its Windows virtual key (KeyboardEvent.keyCode; 0 derives it
+    // from code as a US keyboard has it).
+    struct KeyInput {
+        bool down{};
+        std::string key;
+        std::string code;
+        unsigned modifiers{};
+        bool repeat{};
+        bool ime{};
+        unsigned key_code{};
+    };
+
+    // What became of an input (the C ABI's WEFT_INPUT_*): a listener prevented its default action; weft performed one,
+    // or began one a later event finishes (it moved the focus, scrolled, clicked, made a button :active).
+    inline constexpr unsigned input_prevented = 1;
+    inline constexpr unsigned input_default = 2;
+
     // What is under a point: the topmost element that takes pointer events other than the scene's root and its
     // ancestors (none when only they are), and its cursor (the cursor property of it or its nearest ancestor that
     // declares one; "auto" when none does).
@@ -155,6 +174,17 @@ namespace weft {
         // leave as the hovered element changes, and a click when a button comes up over the element it went down
         // on. Whether a listener prevented the default action of the main event.
         bool pointer(const PointerInput& input);
+        // Keyboard input at the focused element (the body when none has the focus) with Chrome's default actions: Tab
+        // moves the focus, Enter and Space activate buttons and links, the arrow and page keys scroll. Its input_* bits.
+        unsigned key(const KeyInput& input);
+        // Text a key typed (UTF-8), after its keydown: a keypress for each character. Control characters are
+        // ignored (Enter, Tab and Backspace act from their keydown); after a keydown the page or a default action used,
+        // the text is dropped, as Chrome drops the characters that follow such a key. Its input_* bits.
+        unsigned text(std::string_view text);
+        // The host's keyboard focus came to the View or left it (ScriptDom::set_page_focus). A View starts with it,
+        // and keeps it across loads.
+        void set_focus(bool focused);
+        bool focused() const;
         ViewHit hit(float x, float y);
         // A tool's script in the page: whether it completed, and String() of its value or of what it threw.
         std::pair<bool, std::string> evaluate(std::string_view source);

@@ -128,11 +128,13 @@ namespace weft::scene_values {
 
     // An outline (CSS UI 4 §5) as the scene draws it: a ring of the outline's width whose inner edge lies outline-offset
     // outside the border box (inside for a negative offset), in the box's px; its corners round with the border's
-    // (radius + offset + width where the border rounds). Every style but none draws solid.
+    // (radius + offset + width where the border rounds). Every style but none and auto draws solid; auto draws
+    // Chrome's focus ring (outline_rings). white: the ring is white, not outline-color.
     struct OutlineRing {
         std::array<float, 4> rect{};
         float width{};
         std::array<float, 4> radii{};
+        bool white{};
     };
 
     // Unitless numbers are accepted as px; em resolves against reference; calc() takes a + b and a - b.
@@ -207,6 +209,50 @@ namespace weft::scene_values {
             ring.radii[k] = radii[k] > 0 ? std::max(0.f, radii[k] + grow) : 0.f;
         }
         return ring;
+    }
+
+    // The rings a w x h box's outline draws, back to front. outline-style auto is Chrome's focus ring (Blink's
+    // OutlinePainter::PaintFocusRing): a 2 px ring of outline-color centred on the border box moved out by
+    // outline-offset (in by 1 px when every border is at least 1 px wide), over a 2 px white ring 1 px further out, of
+    // which the outer pixel shows; corners round with the border's radii moved out the same, and at least 3 px. Any
+    // other style draws outline().
+    inline std::vector<OutlineRing> outline_rings(const Style& s, float w, float h) {
+        if (s.text(PropertyId::OutlineStyle, "none") != "auto") {
+            const auto ring = outline(s, w, h);
+            return ring ? std::vector<OutlineRing>{*ring} : std::vector<OutlineRing>{};
+        }
+        constexpr float stroke = 2;
+        constexpr float min_radius = 3;
+        const float outline_offset = len(s.text(PropertyId::OutlineOffset, "0"));
+        float offset = outline_offset;
+        float border = len(s.text(PropertyId::BorderTopWidth, "0"));
+        for (const auto id : {PropertyId::BorderRightWidth, PropertyId::BorderBottomWidth, PropertyId::BorderLeftWidth}) {
+            border = std::min(border, len(s.text(id, "0")));
+        }
+        if (border >= 1) {
+            offset -= 1;
+        }
+        const auto radii = corner_radii(s, w, h);
+        const bool rounded = radii[0] > 0 || radii[1] > 0 || radii[2] > 0 || radii[3] > 0;
+        std::vector<OutlineRing> rings;
+        // The centre lines lie `centre` outside the border box; a ring reaches a half stroke beyond it.
+        for (const auto [centre, white] : {std::pair{offset + 1, true}, std::pair{offset, false}}) {
+            const float grow = centre + stroke / 2;
+            OutlineRing ring;
+            ring.rect = {-grow, -grow, w + 2 * grow, h + 2 * grow};
+            if (!(ring.rect[2] > 0) || !(ring.rect[3] > 0)) {
+                continue;
+            }
+            ring.width = std::min(stroke, std::min(ring.rect[2], ring.rect[3]) / 2);
+            // Both rings take the border's radii moved out by outline-offset (Blink's GetFocusRingCornerRadii).
+            for (unsigned k = 0; k < 4; ++k) {
+                const float r = rounded && radii[k] > 0 ? radii[k] + outline_offset : 0.f;
+                ring.radii[k] = std::max(r, min_radius) + stroke / 2;
+            }
+            ring.white = white;
+            rings.push_back(ring);
+        }
+        return rings;
     }
 
     // The decoration bands of a text line width px wide whose baseline lies baseline below its top (TextDecorationBands).

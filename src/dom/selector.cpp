@@ -503,8 +503,10 @@ namespace weft::dom {
                     c.nth.push_back({0, 1, true, of_type, {}});
                 } else if (!function && pseudo_name == "empty") {
                     c.empty = true;
-                } else if (!function && (pseudo_name == "focus" || pseudo_name == "focus-visible")) {
+                } else if (!function && pseudo_name == "focus") {
                     c.focus = true;
+                } else if (!function && pseudo_name == "focus-visible") {
+                    c.focus_visible = true;
                 } else if (!function && pseudo_name == "focus-within") {
                     c.focus_within = true;
                 } else if (!function && pseudo_name == "disabled") {
@@ -558,7 +560,8 @@ namespace weft::dom {
                         ++s.specificity[1];
                     } else {
                         if (!c.tag.empty() || !c.ids.empty() || !c.classes.empty() || !c.attributes.empty() || c.root ||
-                            c.hover || c.active || c.never || c.focus || c.focus_within || c.disabled || c.enabled ||
+                            c.hover || c.active || c.never || c.focus || c.focus_visible || c.focus_within ||
+                            c.disabled || c.enabled ||
                             c.checked || c.empty || !c.nth.empty() || !c.alternatives.empty()) {
                             return syntax("type selector must begin compound");
                         }
@@ -575,7 +578,8 @@ namespace weft::dom {
                     }
                 }
                 if (c.tag.empty() && c.ids.empty() && c.classes.empty() && c.attributes.empty() && !c.root &&
-                    !c.hover && !c.active && !c.never && !c.focus && !c.focus_within && !c.disabled && !c.enabled &&
+                    !c.hover && !c.active && !c.never && !c.focus && !c.focus_visible && !c.focus_within &&
+                    !c.disabled && !c.enabled &&
                     !c.checked && !c.empty && c.nth.empty() && c.alternatives.empty() &&
                     c.pseudo == PseudoElement::None) {
                     return syntax("empty selector compound");

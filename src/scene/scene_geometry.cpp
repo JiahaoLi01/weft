@@ -1221,12 +1221,15 @@ namespace weft {
                         {fragment.left, fragment.top, fragment.right - fragment.left, fragment.bottom - fragment.top});
                 }
             }
-            e.client_width = std::max(0.f, n.box[2] - len(view(n.style, PropertyId::BorderLeftWidth, "0")) -
+            e.client_left = len(view(n.style, PropertyId::BorderLeftWidth, "0"));
+            e.client_top = len(view(n.style, PropertyId::BorderTopWidth, "0"));
+            e.client_width = std::max(0.f, n.box[2] - float(e.client_left) -
                                                len(view(n.style, PropertyId::BorderRightWidth, "0")));
-            e.client_height = std::max(0.f, n.box[3] - len(view(n.style, PropertyId::BorderTopWidth, "0")) -
+            e.client_height = std::max(0.f, n.box[3] - float(e.client_top) -
                                                 len(view(n.style, PropertyId::BorderBottomWidth, "0")));
             if (!n.fragments.empty()) {
                 e.client_width = e.client_height = 0;
+                e.client_left = e.client_top = 0;
             }
             e.scroll_width = e.client_width;
             e.scroll_height = e.client_height;

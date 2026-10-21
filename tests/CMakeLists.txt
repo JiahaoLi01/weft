@@ -313,6 +313,12 @@ if(WIN32)
     weft_add_executable(weft_web_platform_tests SOURCES web_platform_tests.cpp
         LINK weft::view weft::platform_win32 SOURCE_DIR LARGE_STACK)
     weft_add_test(NAME web_platform_contract COMMAND weft_web_platform_tests TIMEOUT 120)
+    # Keyboard input and the focus: the scenarios of tests/fixtures/keyboard against what Chrome did on the same page
+    # (tools/browser_keyboard_reference.mjs), Tab coming round, the host's focus, text after a used key, input method
+    # keys, keyCodes, reentrant listeners and pages without the web platform.
+    weft_add_executable(weft_keyboard_tests SOURCES keyboard_tests.cpp
+        LINK weft::view weft::scene_d2d weft::platform_win32 d2d1 windowscodecs ole32 SOURCE_DIR LARGE_STACK)
+    weft_add_test(NAME keyboard_contract COMMAND weft_keyboard_tests TIMEOUT 120)
     # A page's url() images: URLs against the page's base, PNG decoding and its bounds, a path read once, diagnostics,
     # and the View's scene showing the image its reader gave.
     weft_add_executable(weft_view_images_tests SOURCES view_images_tests.cpp

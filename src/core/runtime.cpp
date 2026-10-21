@@ -4,12 +4,14 @@
 #include <bridge/bridge_value.hpp>
 #include <constants/bridge.hpp>
 #include <constants/core.hpp>
+#include <constants/input.hpp>
 #include <constants/view.hpp>
 #include <scene/scene_effects.hpp>
 #include <scene/scene_text.hpp>
 #include <view/view.hpp>
 #include <view/view_abi.hpp>
 #include <view/view_images.hpp>
+#include <view/view_keys.hpp>
 #if defined(_WIN32)
 #include <platform/win32/system_fonts.hpp>
 #elif defined(__ANDROID__)
@@ -56,6 +58,8 @@ namespace {
         void* reader_user{};
         // A host callback (a message drain or a sync function) runs: owner operations on the View wait.
         bool busy{};
+        // The host's keyboard focus is in the View (weft_view_set_focus), for the View a first load makes.
+        bool focused = true;
     };
 
     // Marks an entry busy while a host callback runs.
@@ -678,6 +682,9 @@ extern "C" weft_result weft_view_load(weft_runtime* runtime, weft_view_handle vi
             entry->view->set_resource_reader(resource_reader(*entry));
             entry->view->set_local_storage(entry->storage);
             entry->view->set_effects(&runtime->effects);
+            if (!entry->focused) {
+                entry->view->set_focus(false);
+            }
         }
         entry->view->load(content);
         return WEFT_OK;
@@ -767,6 +774,106 @@ extern "C" weft_result weft_view_hit_test(weft_runtime* runtime, weft_view_handl
             std::memcpy(out_hit->cursor, hit.cursor.data(), size);
             out_hit->cursor[size] = 0;
         }
+        return WEFT_OK;
+    });
+}
+
+static_assert(WEFT_MODIFIER_SHIFT == weft::key_modifier::shift && WEFT_MODIFIER_CONTROL == weft::key_modifier::control &&
+              WEFT_MODIFIER_ALT == weft::key_modifier::alt && WEFT_MODIFIER_META == weft::key_modifier::meta &&
+              WEFT_MODIFIER_ALT_GRAPH == weft::key_modifier::alt_graph &&
+              WEFT_MODIFIER_CAPS_LOCK == weft::key_modifier::caps_lock &&
+              WEFT_MODIFIER_NUM_LOCK == weft::key_modifier::num_lock);
+static_assert(WEFT_INPUT_PREVENTED == weft::input_prevented && WEFT_INPUT_DEFAULT == weft::input_default);
+
+extern "C" weft_result weft_view_key(weft_runtime* runtime, weft_view_handle view, const weft_key_event* event,
+                                     uint32_t* out_handled) {
+    if (out_handled) {
+        *out_handled = 0;
+    }
+    ViewEntry* entry{};
+    if (const auto error = find_idle(runtime, view, entry); error != WEFT_OK) {
+        return error;
+    }
+    std::string_view key;
+    std::string_view code;
+    if (!event || event->struct_size < sizeof(weft_key_event) || event->kind > WEFT_KEY_UP || event->reserved ||
+        (event->flags & ~(WEFT_KEY_REPEAT | WEFT_KEY_IME)) || (event->modifiers & ~weft::key_modifier::all) ||
+        !text_arg(event->key, event->key_size, key) || !text_arg(event->code, event->code_size, code) || key.empty() ||
+        key.size() > weft::constants::input::max_key_bytes || code.size() > weft::constants::input::max_key_bytes ||
+        !weft::bridge::utf8(key) || !weft::bridge::utf8(code)) {
+        return WEFT_INVALID_ARGUMENT;
+    }
+    return guarded([&] {
+        if (entry->view) {
+            const auto handled = entry->view->key({event->kind == WEFT_KEY_DOWN, std::string(key), std::string(code),
+                                                   event->modifiers, (event->flags & WEFT_KEY_REPEAT) != 0,
+                                                   (event->flags & WEFT_KEY_IME) != 0, event->key_code});
+            if (out_handled) {
+                *out_handled = handled;
+            }
+        }
+        return WEFT_OK;
+    });
+}
+
+extern "C" weft_result weft_view_text(weft_runtime* runtime, weft_view_handle view, const char* text, size_t text_size,
+                                      uint32_t* out_handled) {
+    if (out_handled) {
+        *out_handled = 0;
+    }
+    ViewEntry* entry{};
+    if (const auto error = find_idle(runtime, view, entry); error != WEFT_OK) {
+        return error;
+    }
+    std::string_view value;
+    if (!text_arg(text, text_size, value) || value.size() > weft::constants::input::max_text_bytes ||
+        !weft::bridge::utf8(value)) {
+        return WEFT_INVALID_ARGUMENT;
+    }
+    return guarded([&] {
+        if (entry->view) {
+            const auto handled = entry->view->text(value);
+            if (out_handled) {
+                *out_handled = handled;
+            }
+        }
+        return WEFT_OK;
+    });
+}
+
+extern "C" weft_result weft_view_set_focus(weft_runtime* runtime, weft_view_handle view, uint32_t focused) {
+    ViewEntry* entry{};
+    if (const auto error = find_idle(runtime, view, entry); error != WEFT_OK) {
+        return error;
+    }
+    if (focused > 1) {
+        return WEFT_INVALID_ARGUMENT;
+    }
+    return guarded([&] {
+        entry->focused = focused != 0;
+        if (entry->view) {
+            entry->view->set_focus(entry->focused);
+        }
+        return WEFT_OK;
+    });
+}
+
+extern "C" weft_result weft_keyboard_key(const char* code, size_t code_size, uint32_t modifiers, char out_key[32]) {
+    if (!out_key) {
+        return WEFT_INVALID_ARGUMENT;
+    }
+    out_key[0] = 0;
+    std::string_view value;
+    if (!text_arg(code, code_size, value) || (modifiers & ~weft::key_modifier::all)) {
+        return WEFT_INVALID_ARGUMENT;
+    }
+    return guarded([&] {
+        const auto key = weft::layout_key(value, modifiers);
+        if (!key || key->size() > 31) {
+            return WEFT_INVALID_ARGUMENT;
+        }
+        std::memcpy(out_key, key->data(), key->size());
+        out_key[key->size()] = 0;
         return WEFT_OK;
     });
 }

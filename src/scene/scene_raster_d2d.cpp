@@ -2333,19 +2333,20 @@ namespace weft {
             if (clipped) {
                 target->PopLayer();
             }
-            // outline (scene_values::outline): over the content, outside the element's own clip, in its group; the
-            // ring stroked along its middle.
+            // outline (scene_values::outline_rings): over the content, outside the element's own clip, in its group;
+            // each ring stroked along its middle.
             if (!invisible) {
-                if (const auto ring = scene_values::outline(n.style, n.box[2], n.box[3])) {
-                    solid(color(get(n.style, PropertyId::OutlineColor, "currentcolor"), n.style));
-                    const float half = ring->width / 2;
+                for (const auto& ring : scene_values::outline_rings(n.style, n.box[2], n.box[3])) {
+                    solid(color(ring.white ? "#ffffff" : get(n.style, PropertyId::OutlineColor, "currentcolor"),
+                                n.style));
+                    const float half = ring.width / 2;
                     RoundedClip middle;
-                    middle.rect = {ring->rect[0] + half, ring->rect[1] + half, ring->rect[2] - ring->width,
-                                   ring->rect[3] - ring->width};
+                    middle.rect = {ring.rect[0] + half, ring.rect[1] + half, ring.rect[2] - ring.width,
+                                   ring.rect[3] - ring.width};
                     for (unsigned k = 0; k < 4; ++k) {
-                        middle.radius_x[k] = middle.radius_y[k] = std::max(0.f, ring->radii[k] - half);
+                        middle.radius_x[k] = middle.radius_y[k] = std::max(0.f, ring.radii[k] - half);
                     }
-                    target->DrawGeometry(rounded_rect(middle).Get(), brush.Get(), ring->width);
+                    target->DrawGeometry(rounded_rect(middle).Get(), brush.Get(), ring.width);
                 }
             }
             if (group) {

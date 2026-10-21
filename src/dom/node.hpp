@@ -60,8 +60,9 @@ namespace weft {
         double scroll_top{};
         bool hovered{};
         bool active{};
-        // The element has the focus (:focus), or it or a descendant has (:focus-within).
+        // The element has the focus (:focus) and shows it (:focus-visible), or it or a descendant has (:focus-within).
         bool focused{};
+        bool focus_visible{};
         bool focus_within{};
         // The node's subtree revision when the DOM copied it, or 0 for a value the DOM did not produce. Copies of one
         // node with the same non-zero revision have equal content. Code that changes a copy afterwards sets revision to
@@ -74,7 +75,7 @@ namespace weft {
                    a.namespace_uri == b.namespace_uri && a.data == b.data && a.attributes == b.attributes &&
                    a.children == b.children && a.scroll_left == b.scroll_left && a.scroll_top == b.scroll_top &&
                    a.hovered == b.hovered && a.active == b.active && a.focused == b.focused &&
-                   a.focus_within == b.focus_within;
+                   a.focus_visible == b.focus_visible && a.focus_within == b.focus_within;
         }
     };
 

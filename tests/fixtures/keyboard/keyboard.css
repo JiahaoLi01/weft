@@ -1,0 +1,68 @@
+#root {
+  position: relative;
+  width: 800px;
+  height: 600px;
+  font-family: Arial;
+  font-size: 13px;
+  line-height: 16px;
+  color: #000000;
+}
+
+#row0,
+#row1,
+#row2 {
+  display: block;
+  height: 28px;
+}
+
+button {
+  display: inline-block;
+  box-sizing: border-box;
+  width: 80px;
+  height: 24px;
+  margin: 2px;
+  padding: 0;
+  border: 2px solid #777777;
+  background-color: #eeeeee;
+  font-family: Arial;
+  font-size: 13px;
+  color: #000000;
+}
+
+a {
+  color: #0000ee;
+}
+
+.f {
+  display: block;
+  width: 120px;
+  height: 20px;
+  margin: 0 2px;
+  background-color: #ddddff;
+}
+
+#sc {
+  display: block;
+  width: 200px;
+  height: 100px;
+  overflow: auto;
+  background-color: #eeffee;
+}
+
+.tall {
+  display: block;
+  height: 300px;
+}
+
+#sc2 {
+  display: block;
+  width: 200px;
+  height: 60px;
+  overflow: auto;
+  background-color: #ffeeee;
+}
+
+#bs {
+  display: block;
+  margin: 0;
+}
