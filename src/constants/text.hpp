@@ -8,7 +8,13 @@
 namespace weft::constants::text {
     // Accepted font sizes are (0, max_font_pixels].
     inline constexpr int max_font_pixels = 4096;
+    // A font file is read whole. macOS keeps a family's weights in one collection: PingFang (its CJK UI font) is 75 MiB,
+    // Apple SD Gothic Neo 53 MiB; its system font list leaves out larger files (Apple Color Emoji).
+#if defined(__APPLE__)
+    inline constexpr int max_font_file_bytes = 128 * constants::bytes_per_mib;
+#else
     inline constexpr int max_font_file_bytes = 32 * constants::bytes_per_mib;
+#endif
     // Largest UTF-8 input of single-font shaping.
     inline constexpr int max_shape_input_bytes = constants::bytes_per_mib;
     // Ordered fonts of one fallback set and their total file bytes.
