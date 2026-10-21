@@ -3,12 +3,18 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string_view>
 #include <utility>
 #include <vector>
+
+// HarfBuzz's blob and face (hb.h).
+struct hb_blob_t;
+struct hb_face_t;
 
 namespace weft {
     // A face's unicode-range (CSS Fonts 4): the code points first through last. A face with none covers every one.
@@ -124,17 +130,32 @@ namespace weft {
         friend auto operator<=>(const FontFaceSource&, const FontFaceSource&) = default;
     };
 
-    // Immutable bytes of one font file, shared by the faces and instances read from it.
+    // Immutable bytes of one font file, shared by the faces and instances read from it, on any thread.
     class FontFile final {
     public:
         explicit FontFile(const std::filesystem::path& path);
+        ~FontFile();
+        FontFile(const FontFile&) = delete;
+        FontFile& operator=(const FontFile&) = delete;
+
+        // The file of a path as long as any thread's fonts hold it, else read anew: one copy of its bytes for them all.
+        static std::shared_ptr<const FontFile> open(const std::filesystem::path& path);
 
         const std::vector<char>& bytes() const noexcept {
             return bytes_;
         }
 
+        // A new reference to the HarfBuzz face of one of the file's faces, made once. HarfBuzz faces may be shared
+        // between threads, and a table is read and checked when the face first reads it: once for all the fonts of the
+        // face. Its color tables (an emoji font's COLR is megabytes) are read when it is made, not when a color glyph
+        // is first drawn.
+        hb_face_t* harfbuzz_face(std::uint32_t face_index) const;
+
     private:
         std::vector<char> bytes_;
+        mutable std::mutex faces_lock_;
+        mutable hb_blob_t* blob_{};
+        mutable std::map<std::uint32_t, hb_face_t*> faces_;
     };
 
     // M0 font adapter. Every operation and destruction belongs to its creator.

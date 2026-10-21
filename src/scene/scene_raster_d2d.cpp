@@ -1275,11 +1275,7 @@ namespace weft {
                     if (!image) {
                         fail(image.error().message);
                     }
-                    // Premultiplied RGBA to the bitmap's BGRA.
-                    auto& pixels = image->rgba;
-                    for (std::size_t i = 0; i < pixels.size(); i += 4) {
-                        std::swap(pixels[i], pixels[i + 2]);
-                    }
+                    const auto& pixels = image->bgra;
                     const auto& g = image->geometry;
                     ShadowBitmap entry;
                     entry.rect = {g.rect[0], g.rect[1], g.rect[0] + g.rect[2], g.rect[1] + g.rect[3]};

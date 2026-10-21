@@ -6,6 +6,7 @@
 #include <cmath>
 #include <iostream>
 #include <thread>
+#include <vector>
 
 namespace {
     using weft::testing::require;
@@ -76,8 +77,32 @@ int main() {
         });
         outsider.join();
         require(rejected, "font owner thread enforced");
+        // A font file is read once while fonts hold it, and the fonts of other threads read the same bytes, through the
+        // same HarfBuzz face: they shape alike, at once.
+        {
+            const auto file = weft::FontFile::open(WEFT_SOURCE_DIR "/third_party/ahem/Ahem.ttf");
+            require(weft::FontFile::open(WEFT_SOURCE_DIR "/third_party/ahem/Ahem.ttf") == file,
+                    "a font file held is not read again");
+            std::atomic<int> alike{};
+            std::vector<std::thread> shapers;
+            for (int t = 0; t < 4; ++t) {
+                shapers.emplace_back([&] {
+                    weft::Font there(file, 0);
+                    bool same = true;
+                    for (int i = 0; i < 200; ++i) {
+                        same = same && near(there.shape("XX XX", 20).advance, shaped.advance);
+                    }
+                    alike += same;
+                });
+            }
+            for (auto& shaper : shapers) {
+                shaper.join();
+            }
+            require(alike == 4, "fonts of one file on four threads shape alike");
+        }
         std::cout
-            << "PASS FreeType metrics/raster, HarfBuzz advances/clusters, scale invalidation, missing glyph and owner\n";
+            << "PASS FreeType metrics/raster, HarfBuzz advances/clusters, scale invalidation, missing glyph, owner and "
+               "shared font files\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

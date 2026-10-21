@@ -206,7 +206,7 @@ namespace {
             const auto& g = image.geometry;
             const auto col = unsigned((x - g.rect[0]) * 1);
             const auto row = unsigned((y - g.rect[1]) * 1);
-            return image.rgba[(std::size_t(row) * g.width + col) * 4 + 3];
+            return image.bgra[(std::size_t(row) * g.width + col) * 4 + 3];
         };
         require(alpha(4.5f, 5.5f) == 255 && alpha(10.5f, 1.5f) == 255 && alpha(10.5f, 8.5f) == 255 &&
                     alpha(10.5f, 5.5f) == 0 && alpha(19.5f, 5.5f) == 0 && alpha(-.5f, 5.5f) == 0 &&
@@ -220,7 +220,7 @@ namespace {
         const auto ring = weft::render::shadow_image(round, 40, 30, 1).value();
         const auto ring_alpha = [&](float x, float y) {
             const auto& g = ring.geometry;
-            return ring.rgba[(std::size_t(y - g.rect[1]) * g.width + std::size_t(x - g.rect[0])) * 4 + 3];
+            return ring.bgra[(std::size_t(y - g.rect[1]) * g.width + std::size_t(x - g.rect[0])) * 4 + 3];
         };
         // A pixel a pixel inside the hole's rounded corner (radius 10 - 6), outside a corner of radius 10.
         require(ring_alpha(7.5f, 8.5f) == 0 && ring_alpha(3.5f, 15.5f) == 255,

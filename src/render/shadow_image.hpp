@@ -18,10 +18,11 @@ namespace weft::render {
         std::uint32_t height{};
     };
 
-    // Premultiplied straight-sRGB RGBA8 rows over geometry.rect.
+    // Premultiplied straight-sRGB BGRA8 rows over geometry.rect, in the byte order of the scene targets and of Direct2D
+    // bitmaps.
     struct ShadowImage {
         ShadowGeometry geometry;
-        std::vector<std::uint8_t> rgba;
+        std::vector<std::uint8_t> bgra;
     };
 
     // The geometry of a shadow of a width x height box at a device scale.
@@ -34,4 +35,11 @@ namespace weft::render {
     // constants::scene::shadow_kernel_sigmas deviations wide and read as zero beyond the mask: the blur of the shadows
     // here and of text shadows.
     std::vector<float> gaussian_blur(const std::vector<float>& mask, unsigned w, unsigned h, float sigma);
+
+    // Coverage values as bytes: each clamped to [0, 1], times 255 and rounded half away from zero.
+    std::vector<std::uint8_t> coverage_bytes(const std::vector<float>& values);
+
+    // A coverage image of a byte per texel (w x h, rows top-down), each byte a 255th, blurred by gaussian_blur and
+    // made bytes again as coverage_bytes makes them.
+    void blur_coverage(std::vector<std::uint8_t>& coverage, unsigned w, unsigned h, float sigma);
 } // namespace weft::render

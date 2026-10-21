@@ -131,16 +131,16 @@ namespace {
         require(g.rect == std::array<float, 4>{9, -1, 22, 12} && g.width == 44 && g.height == 24,
                 "hard shadow geometry");
         const auto image = render::shadow_image(hard, 20, 10, 2).value();
-        require(image.geometry.rect == g.rect && image.rgba.size() == std::size_t(44) * 24 * 4, "hard shadow size");
+        require(image.geometry.rect == g.rect && image.bgra.size() == std::size_t(44) * 24 * 4, "hard shadow size");
         // The pixel whose center is at (x, y) in item px.
         const auto at = [](const render::ShadowImage& i, float x, float y) {
             const auto col = unsigned((x - i.geometry.rect[0]) * i.geometry.width / i.geometry.rect[2]);
             const auto row = unsigned((y - i.geometry.rect[1]) * i.geometry.height / i.geometry.rect[3]);
-            return i.rgba.data() + (std::size_t(row) * i.geometry.width + col) * 4;
+            return i.bgra.data() + (std::size_t(row) * i.geometry.width + col) * 4;
         };
         require(at(image, 15.25f, 5.25f)[3] == 0, "a shadow under its box");
         const auto* red = at(image, 25.25f, 5.25f);
-        require(red[0] == 255 && red[1] == 0 && red[2] == 0 && red[3] == 255, "a hard shadow beside its box");
+        require(red[0] == 0 && red[1] == 0 && red[2] == 255 && red[3] == 255, "a hard shadow beside its box");
         require(at(image, 30.75f, 5.25f)[3] == 0, "past a hard shadow");
         // Blurred and spread: symmetric about the box, fading with distance, wider for a larger spread.
         const paint::Shadow soft{{0, 0, 0, 1}, 0, 0, 8, 2, {4, 4, 4, 4}};
@@ -168,7 +168,7 @@ namespace {
         const auto& cg = coarse.geometry;
         require(cg.rect == render::shadow_geometry(huge, 4000, 4000, 2).rect &&
                     std::size_t(cg.width) * cg.height <= bound && cg.width < 4000 &&
-                    coarse.rgba.size() == std::size_t(cg.width) * cg.height * 4 && cg.rect[0] <= -2 - 96 &&
+                    coarse.bgra.size() == std::size_t(cg.width) * cg.height * 4 && cg.rect[0] <= -2 - 96 &&
                     cg.rect[0] + cg.rect[2] >= 4000 + 2 + 96,
                 "a shadow past the bitmap bound is made at a lower scale");
         const paint::Shadow window{{0, 0, 0, .55f}, 0, 4, 14, 0, {3, 3, 3, 3}};
@@ -270,6 +270,93 @@ namespace {
                                 (edges ? " (inked to the edges)" : ""));
                 }
             }
+            // Coverage made bytes rounds half away from zero, as std::lround does (four values at a time, then one).
+            {
+                std::vector<float> values{-1, -0.f, 0, 1, 1.5f, 2, std::nextafter(.5f / 255, 0.f)};
+                for (int k = 0; k <= 255; ++k) {
+                    for (const float d : {-1e-6f, 0.f, 1e-6f}) {
+                        values.push_back((float(k) + .5f) / 255 + d);
+                        values.push_back(float(k) / 255 + d);
+                    }
+                }
+                const auto bytes = render::coverage_bytes(values);
+                bool same = bytes.size() == values.size();
+                for (std::size_t i = 0; same && i < values.size(); ++i) {
+                    same = bytes[i] == std::uint8_t(std::lround(std::clamp(values[i], 0.f, 1.f) * 255));
+                }
+                require(same, "coverage bytes round as std::lround does");
+            }
+            // Without a blur a shadow is, pixel for pixel, what each cell's distance gives: the spread shape's coverage
+            // less the box's (outer), or the box's less the hole's (inset). The cells of a circle, a pill and uneven
+            // corners that the corners' chords leave whole or clear take no other value.
+            {
+                // The shadows' signed distance to a box with circular corners, negative inside.
+                const auto distance = [](float x, float y, float w, float h, const std::array<float, 4>& radii) {
+                    const auto r =
+                        std::min(std::min(w, h) / 2, radii[y < h / 2 ? (x < w / 2 ? 0 : 1) : (x < w / 2 ? 3 : 2)]);
+                    const auto qx = std::abs(x - w / 2) - (w / 2 - r);
+                    const auto qy = std::abs(y - h / 2) - (h / 2 - r);
+                    return std::hypot(std::max(qx, 0.f), std::max(qy, 0.f)) + std::min(std::max(qx, qy), 0.f) - r;
+                };
+                const auto cover = [&](float x, float y, float w, float h, const std::array<float, 4>& radii, float k) {
+                    return w > 0 && h > 0 ? std::clamp(.5f - distance(x, y, w, h, radii) * k, 0.f, 1.f) : 0.f;
+                };
+                const auto channel = [](float v) {
+                    return std::uint8_t(std::clamp(v * 255 + .5f, 0.f, 255.f));
+                };
+
+                struct Case {
+                    float w, h, spread;
+                    std::array<float, 4> radii;
+                };
+
+                for (const auto& c : {Case{40, 40, 2.5f, {1000, 1000, 1000, 1000}}, Case{120, 30, 0, {15, 15, 15, 15}},
+                                      Case{60, 40, -3, {12, 3, 0, 30}}}) {
+                    for (const float scale : {1.f, 2.25f}) {
+                        for (const bool inside : {false, true}) {
+                            paint::Shadow hard_shadow{{1, .5f, .25f, .8f}, 3, -2, 0, c.spread, c.radii};
+                            hard_shadow.inset = inside;
+                            const auto made = render::shadow_image(hard_shadow, c.w, c.h, scale).value();
+                            const auto& mg = made.geometry;
+                            const float grow = inside ? -c.spread : c.spread;
+                            auto shape_radii = c.radii;
+                            for (auto& r : shape_radii) {
+                                r = std::max(0.f, r + grow);
+                            }
+                            // The spread shape from the image's guard (outer), the hole offset (inset), and the box.
+                            const float first = (.5f - 2) / scale;
+                            const float hole_x = mg.rect[0] + .5f / scale - hard_shadow.x - hard_shadow.spread;
+                            const float hole_y = mg.rect[1] + .5f / scale - hard_shadow.y - hard_shadow.spread;
+                            const float box_x = mg.rect[0] + .5f / scale;
+                            const float box_y = mg.rect[1] + .5f / scale;
+                            std::size_t differ{};
+                            for (unsigned row = 0; row < mg.height; ++row) {
+                                for (unsigned col = 0; col < mg.width; ++col) {
+                                    const float shape = cover((inside ? hole_x : first) + float(col) / scale,
+                                                              (inside ? hole_y : first) + float(row) / scale,
+                                                              c.w + 2 * grow, c.h + 2 * grow, shape_radii, scale);
+                                    const float in = cover(box_x + float(col) / scale, box_y + float(row) / scale, c.w,
+                                                           c.h, c.radii, scale);
+                                    float shown{};
+                                    if (inside && in > 0 && 1 - shape > 0) {
+                                        shown = std::clamp(1 - shape, 0.f, 1.f) * in * hard_shadow.color[3];
+                                    } else if (!inside && 1 - in > 0) {
+                                        shown = shape * (1 - in) * hard_shadow.color[3];
+                                    }
+                                    const auto* p = made.bgra.data() + (std::size_t(row) * mg.width + col) * 4;
+                                    differ += p[0] != channel(hard_shadow.color[2] * shown) ||
+                                              p[1] != channel(hard_shadow.color[1] * shown) ||
+                                              p[2] != channel(hard_shadow.color[0] * shown) || p[3] != channel(shown);
+                                }
+                            }
+                            require(differ == 0, std::to_string(differ) + " pixels of a hard " +
+                                                     (inside ? "inset" : "outer") + " shadow of " +
+                                                     std::to_string(c.w) + " x " + std::to_string(c.h) + " at " +
+                                                     std::to_string(scale) + "x are not what the distance gives");
+                        }
+                    }
+                }
+            }
             const float scale = 2;
             for (const bool inset_shadow : {false, true}) {
                 paint::Shadow wide{{0, 0, 0, .8f}, 3, 5, 24, inset_shadow ? 6.f : -4.f, {12, 12, 12, 12}};
@@ -302,7 +389,7 @@ namespace {
                         const float shown = inset_shadow ? std::clamp(1 - blur, 0.f, 1.f) * in * wide.color[3]
                                                          : blur * (1 - in) * wide.color[3];
                         const int expected = int(std::clamp(shown * 255 + .5f, 0.f, 255.f));
-                        const int got = made.rgba[(std::size_t(row) * mg.width + col) * 4 + 3];
+                        const int got = made.bgra[(std::size_t(row) * mg.width + col) * 4 + 3];
                         worst = std::max(worst, std::abs(expected - got));
                     }
                 }

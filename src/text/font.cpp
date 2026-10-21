@@ -38,12 +38,73 @@ namespace weft {
         }
     }
 
+    FontFile::~FontFile() {
+        for (const auto& [index, face] : faces_) {
+            hb_face_destroy(face);
+        }
+        if (blob_) {
+            hb_blob_destroy(blob_);
+        }
+    }
+
+    std::shared_ptr<const FontFile> FontFile::open(const std::filesystem::path& path) {
+        // A file read before, while it lives and the file on disk has the size and time it had.
+        struct Kept {
+            std::weak_ptr<const FontFile> file;
+            std::uintmax_t size{};
+            std::filesystem::file_time_type time;
+        };
+
+        static std::mutex lock;
+        static std::map<std::filesystem::path, Kept> files;
+        std::error_code error;
+        const auto size = std::filesystem::file_size(path, error);
+        const auto time = error ? std::filesystem::file_time_type{} : std::filesystem::last_write_time(path, error);
+        const auto current = [&](const Kept& kept) {
+            return !error && kept.size == size && kept.time == time;
+        };
+        {
+            const std::lock_guard guard(lock);
+            const auto& kept = files[path];
+            if (auto file = kept.file.lock(); file && current(kept)) {
+                return file;
+            }
+        }
+        // Read without the lock, so that other threads open other files meanwhile; the first copy read is kept.
+        auto file = std::make_shared<const FontFile>(path);
+        const std::lock_guard guard(lock);
+        auto& kept = files[path];
+        if (auto other = kept.file.lock(); other && current(kept)) {
+            return other;
+        }
+        kept = {file, size, time};
+        return file;
+    }
+
+    hb_face_t* FontFile::harfbuzz_face(std::uint32_t face_index) const {
+        const std::lock_guard guard(faces_lock_);
+        auto& face = faces_[face_index];
+        if (!face) {
+            if (!blob_) {
+                blob_ = hb_blob_create(bytes_.data(), static_cast<unsigned>(bytes_.size()), HB_MEMORY_MODE_READONLY,
+                                       nullptr, nullptr);
+            }
+            face = hb_face_create(blob_, face_index);
+            // Its color tables, read now.
+            hb_ot_color_has_paint(face);
+            hb_ot_color_has_layers(face);
+            hb_ot_color_has_png(face);
+            hb_ot_color_has_svg(face);
+            hb_face_make_immutable(face);
+        }
+        return hb_face_reference(face);
+    }
+
     struct Font::Impl {
         OwnerThread owner;
         std::shared_ptr<const FontFile> file;
         FT_Library library{};
         FT_Face face{};
-        hb_blob_t* blob{};
         hb_face_t* hb_face{};
         hb_font_t* shape_font{};
 
@@ -70,10 +131,8 @@ namespace weft {
                 if (!face->units_per_EM) {
                     throw std::runtime_error("WEFT_FONT_FILE: non-scalable font");
                 }
-                blob = hb_blob_create(bytes.data(), static_cast<unsigned>(bytes.size()), HB_MEMORY_MODE_READONLY,
-                                      nullptr, nullptr);
-                hb_face = hb_face_create(blob, face_index);
-                if (!hb_blob_get_length(blob) || !hb_face_get_glyph_count(hb_face)) {
+                hb_face = file->harfbuzz_face(face_index);
+                if (!hb_face_get_glyph_count(hb_face)) {
                     throw std::runtime_error("WEFT_FONT_FILE: HarfBuzz rejected font");
                 }
                 shape_font = hb_font_create(hb_face);
@@ -129,9 +188,6 @@ namespace weft {
             if (hb_face) {
                 hb_face_destroy(hb_face);
             }
-            if (blob) {
-                hb_blob_destroy(blob);
-            }
             if (face) {
                 FT_Done_Face(face);
             }
@@ -146,11 +202,10 @@ namespace weft {
         }
     };
 
-    Font::Font(const std::filesystem::path& font) : Font(std::make_shared<const FontFile>(font), 0) {
+    Font::Font(const std::filesystem::path& font) : Font(FontFile::open(font), 0) {
     }
 
-    Font::Font(const FontFaceSource& source)
-        : Font(std::make_shared<const FontFile>(source.path), source.face_index, source.variations) {
+    Font::Font(const FontFaceSource& source) : Font(FontFile::open(source.path), source.face_index, source.variations) {
     }
 
     Font::Font(std::shared_ptr<const FontFile> file, std::uint32_t face_index,

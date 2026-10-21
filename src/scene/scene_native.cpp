@@ -1152,15 +1152,7 @@ namespace weft {
                 }
                 // A text shadow: the coverage blurred, in device px.
                 if (raster.blur > 0) {
-                    std::vector<float> coverage(image->pixels.size());
-                    for (std::size_t i = 0; i < coverage.size(); ++i) {
-                        coverage[i] = image->pixels[i] / float(constants::color_channel_max);
-                    }
-                    coverage = render::gaussian_blur(coverage, image->width, image->height, raster.blur * scale);
-                    for (std::size_t i = 0; i < coverage.size(); ++i) {
-                        image->pixels[i] = std::uint8_t(
-                            std::lround(std::clamp(coverage[i], 0.f, 1.f) * float(constants::color_channel_max)));
-                    }
+                    render::blur_coverage(image->pixels, image->width, image->height, raster.blur * scale);
                 }
             } else {
                 // Straight RGBA to premultiplied BGRA; a transparent pixel is zeros either way.
@@ -1218,11 +1210,7 @@ namespace weft {
         if (!image) {
             throw std::invalid_argument(image.error().message);
         }
-        // Premultiplied RGBA to BGRA.
-        auto& pixels = image->rgba;
-        for (std::size_t i = 0; i < pixels.size(); i += 4) {
-            std::swap(pixels[i], pixels[i + 2]);
-        }
+        auto& pixels = image->bgra;
         const auto bytes = pixels.size();
         if (bytes > limits::image_max_bytes) {
             throw std::invalid_argument("shadow image byte bound");
@@ -1487,17 +1475,12 @@ namespace weft {
                 }
             }
         }
-        alpha = render::gaussian_blur(alpha, w, h, sigma);
         auto result = std::make_shared<SceneImage>();
         result->id = ++next_id_;
         result->width = w;
         result->height = h;
         result->format = SceneImage::Format::Data;
-        result->pixels.resize(alpha.size());
-        for (std::size_t i = 0; i < alpha.size(); ++i) {
-            result->pixels[i] =
-                std::uint8_t(std::lround(std::clamp(alpha[i], 0.f, 1.f) * float(constants::color_channel_max)));
-        }
+        result->pixels = render::coverage_bytes(render::gaussian_blur(alpha, w, h, sigma));
         if (result->pixels.size() > limits::image_max_bytes) {
             throw std::invalid_argument("path shadow image byte bound");
         }

@@ -218,7 +218,7 @@ namespace weft {
             }
             auto& file = files[source.path];
             if (!file) {
-                file = std::make_shared<const FontFile>(source.path);
+                file = FontFile::open(source.path);
                 file_bytes += file->bytes().size();
                 if (file_bytes > constants::scene::text_font_max_bytes) {
                     throw_diagnostic(Diag::SceneRaster, "scene font file byte bound");
