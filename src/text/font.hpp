@@ -156,6 +156,9 @@ namespace weft {
         // with USE_TYPO_METRICS, otherwise Win ascent/descent and the part of the hhea line spacing that
         // exceeds them as line gap.
         FontMetrics line_metrics(float pixels) const;
+        // The face's em box as Blink takes it (NormalizedTypoAscentAndDescent): its OS/2 typo ascender and descender,
+        // else its line metrics' ascent and descent, scaled to sum to pixels, the ascent rounded to a LayoutUnit.
+        FontMetrics em_metrics(float pixels) const;
         // True when the face has COLR, CBDT, sbix or SVG color glyph data.
         bool has_color_glyphs() const;
         // Glyph of a Unicode code point, 0 when the face has none.

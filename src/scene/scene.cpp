@@ -1309,7 +1309,8 @@ namespace weft {
             "blockquote,"
             "figure,figcaption,address,hr{display:block}button{display:inline-block;text-align:center}"
             "span,b,strong{display:inline}"
-            "svg{display:inline}*{box-sizing:border-box;border-style:solid;border-width:0}rp{display:none}";
+            "svg{display:inline}*{box-sizing:border-box;border-style:solid;border-width:0}rp{display:none}"
+            "rt{line-height:normal}";
         for (const auto* k : {"display",
                               "position",
                               "width",
@@ -3297,8 +3298,12 @@ namespace weft {
 
         // A ruby element (CSS Ruby 1) laid out as an atomic inline: its content in columns, each the base text up to an
         // rt (its #text runs side by side) under the rt's text, as wide as the wider of the two, both centred
-        // (ruby-position: over, ruby-align: center). Its baseline is its bases', so the line keeps its text's and
-        // grows by the annotations. An rt of display: none annotates nothing; rp shows nothing.
+        // (ruby-position: over, ruby-align: center). Its baseline is its bases'. As Blink places them, an annotation's
+        // em box (SceneText::em_box: the font size about the baseline, split as the OS/2 typo metrics of the faces its
+        // text uses split it) stands on its bases' em box, whatever the rt's line-height, and the line makes room only
+        // for the annotation's em box: the half-leading of a line taller than its text takes it, a tighter line grows
+        // by the rest, and the part of the annotation's line box above its em box may stand above the line box (a
+        // negative top margin). An rt of display: none annotates nothing; rp shows nothing.
         SceneAtomicExtent lay_out_ruby(const SceneNode& node, SceneAtomicExtent e) {
             struct Column {
                 std::vector<const SceneNode*> base;
@@ -3323,23 +3328,40 @@ namespace weft {
             const auto shown = [](const SceneNode* a) {
                 return a && a->style.text(PropertyId::Display) != "none" && !a->text.empty();
             };
-            // The annotation row and the base row: their heights, and the bases' baseline below the base row's top.
-            float annotation_height{};
-            float base_height{};
-            float base_baseline{};
+            // The bases' line boxes on one baseline: how far they reach above and below it.
+            float base_above{};
+            float base_below{};
             std::map<const SceneNode*, SceneTextMetrics> metrics;
             for (const auto& column : columns) {
-                if (shown(column.annotation)) {
-                    const auto m = text->measure(column.annotation->text, column.annotation->style);
-                    metrics[column.annotation] = m;
-                    annotation_height = std::max(annotation_height, m.height);
-                }
                 for (const auto* b : column.base) {
                     const auto m = text->measure(b->text, b->style);
                     metrics[b] = m;
-                    base_height = std::max(base_height, m.height);
-                    base_baseline = std::max(base_baseline, m.baseline);
+                    base_above = std::max(base_above, m.baseline);
+                    base_below = std::max(base_below, m.height - m.baseline);
                 }
+            }
+            // From the baseline (y down): the top of each annotation's line box, the top of the ruby's box, and the top
+            // of the room the line makes for it.
+            std::map<const SceneNode*, float> annotation_top;
+            float top = -base_above;
+            float room = -base_above;
+            for (const auto& column : columns) {
+                if (!shown(column.annotation)) {
+                    continue;
+                }
+                // A column without base text stands its annotation on the ruby's font.
+                float base_ascent = column.base.empty() ? text->strut(scene_font(node.style)).ascent : 0;
+                for (const auto* b : column.base) {
+                    base_ascent = std::max(base_ascent, text->em_box(b->text, b->style).ascent);
+                }
+                const auto& a = *column.annotation;
+                const auto em = text->em_box(a.text, a.style);
+                const auto m = text->measure(a.text, a.style);
+                metrics[&a] = m;
+                const float baseline = -base_ascent - em.descent;
+                annotation_top[&a] = baseline - m.baseline;
+                top = std::min(top, baseline - m.baseline);
+                room = std::min(room, baseline - em.ascent);
             }
             float x{};
             for (const auto& column : columns) {
@@ -3353,7 +3375,7 @@ namespace weft {
                 for (const auto* b : column.base) {
                     const auto& m = metrics[b];
                     auto& out = laid_out(*b);
-                    out.box = {bx, annotation_height + base_baseline - m.baseline, m.width, m.height};
+                    out.box = {bx, -top - m.baseline, m.width, m.height};
                     out.lines = {{b->text, {0, 0, m.width, m.height}, m.baseline}};
                     out.fragments.clear();
                     bx += m.width;
@@ -3363,7 +3385,8 @@ namespace weft {
                     out.fragments.clear();
                     if (shown(column.annotation)) {
                         const auto& m = metrics[column.annotation];
-                        out.box = {x + (width - annotation_width) / 2, annotation_height - m.height, m.width, m.height};
+                        out.box = {x + (width - annotation_width) / 2, annotation_top[column.annotation] - top, m.width,
+                                   m.height};
                         out.lines = {{column.annotation->text, {0, 0, m.width, m.height}, m.baseline}};
                     } else {
                         out.box = {};
@@ -3374,13 +3397,15 @@ namespace weft {
             }
             auto& out = laid_out(node);
             out.box[2] = x;
-            out.box[3] = annotation_height + base_height;
+            out.box[3] = base_below - top;
             out.lines.clear();
             out.fragments.clear();
-            context_baselines[&node] = annotation_height + base_baseline;
+            context_baselines[&node] = -top;
             e.width = x;
             e.height = out.box[3];
-            e.baseline = annotation_height + base_baseline;
+            e.baseline = -top;
+            // The box above the room the line makes takes none of the line's height.
+            e.margin[0] -= room - top;
             return e;
         }
 

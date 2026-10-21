@@ -208,6 +208,28 @@ namespace weft {
         return {os2->usWinAscent * scale, os2->usWinDescent * scale, std::max(0L, spacing - win) * scale};
     }
 
+    FontMetrics Font::em_metrics(float pixels) const {
+        impl_->check(pixels);
+        float ascent{};
+        float descent{};
+        const auto* os2 = static_cast<const TT_OS2*>(FT_Get_Sfnt_Table(impl_->face, ft_sfnt_os2));
+        if (os2 && os2->version != constants::text::os2_absent_version && os2->sTypoAscender > 0 &&
+            os2->sTypoDescender <= 0) {
+            ascent = float(os2->sTypoAscender);
+            descent = -float(os2->sTypoDescender);
+        } else {
+            const auto m = line_metrics(pixels);
+            ascent = m.ascent;
+            descent = m.descent;
+        }
+        if (ascent + descent <= 0) {
+            return {pixels, 0, 0};
+        }
+        const float above = std::round(pixels * ascent / (ascent + descent) * constants::text::layout_units_per_px) /
+                            constants::text::layout_units_per_px;
+        return {above, pixels - above, 0};
+    }
+
     bool Font::has_color_glyphs() const {
         impl_->owner.require(Diag::WrongThread, "font owner");
         for (const auto tag : {HB_TAG('C', 'O', 'L', 'R'), HB_TAG('C', 'B', 'D', 'T'), HB_TAG('s', 'b', 'i', 'x'),

@@ -394,11 +394,15 @@ int main() {
         }
         // Ruby (CSS Ruby 1): a ruby is an atomic inline of columns, each its base text under its rt's text, centred
         // over each other and as wide as the wider; the bases sit on the line's baseline; an rt of display: none
-        // annotates nothing.
-        for (const bool hidden_rt : {false, true}) {
+        // annotates nothing. As in Chrome, an annotation's em box (SceneText::em_box: the font size about the baseline,
+        // split by the faces' OS/2 typo metrics, each side rounded up) stands on its base's, whatever the rt's
+        // line-height, and the line makes room only for the annotation's em box: a 30px line of 20px text grows for a
+        // 10px annotation, a 40px one does not.
+        for (const auto& [hidden_rt, line_height] : {std::pair{false, 30}, std::pair{true, 30}, std::pair{false, 40}}) {
             weft::testing::NativeScene t;
-            auto& line =
-                element(t, *t.root, "div", "width:400px;font-family:system-ui;font-size:20px;line-height:30px");
+            auto& line = element(
+                t, *t.root, "div",
+                "width:400px;font-family:system-ui;font-size:20px;line-height:" + std::to_string(line_height) + "px");
             text(t, line, "Ab ");
             auto& ruby = t.html("ruby");
             t.tree.insert(line, ruby, nullptr);
@@ -439,9 +443,26 @@ int main() {
                         "an rt of display: none annotates nothing: the bases side by side");
                 continue;
             }
-            require(first_rt.box[1] + first_rt.box[3] <= first_base.box[1] + .5f &&
+            const auto base_strut = scene_text.strut(weft::scene_font(first_base.style));
+            const auto base_em = scene_text.em_box(first_base.text, first_base.style);
+            const auto annotation_em = scene_text.em_box(first_rt.text, first_rt.style);
+            for (const auto& [em, size] : {std::pair{base_em, 20.f}, std::pair{annotation_em, 10.f}}) {
+                require(em.ascent > size / 2 && em.descent > 0 && em.ascent + em.descent > size - 1 &&
+                            em.ascent + em.descent <= size + 2,
+                        "an em box: the font size split about the baseline, each side rounded up to a whole px "
+                        "within the primary face's ascent and descent");
+            }
+            const float annotation_baseline = r->box[1] + first_rt.box[1] + first_rt.lines.at(0).baseline;
+            require(std::abs(annotation_baseline - (base_baseline - base_em.ascent - annotation_em.descent)) < .5f &&
                         std::abs(centre(first_rt) - centre(first_base)) < .5f,
-                    "an annotation over its base, centred");
+                    "an annotation's em box on its base's, centred: " + std::to_string(annotation_baseline) + " over " +
+                        std::to_string(base_baseline));
+            const float above =
+                std::max(base_strut.above, base_em.ascent + annotation_em.descent + annotation_em.ascent);
+            require(std::abs(paragraph.box[3] - (above + base_strut.below)) < .5f &&
+                        (line_height == 30) == (paragraph.box[3] > line_height + .5f),
+                    "the line makes room for the annotation's em box alone: " + std::to_string(paragraph.box[3]) +
+                        " px for a " + std::to_string(line_height) + " px line");
             require(second_rt.box[2] > second_base.box[2] && std::abs(centre(second_rt) - centre(second_base)) < .5f &&
                         std::abs(r->box[2] - (first_base.box[2] + second_rt.box[2])) < .5f,
                     "a wider annotation widens its column, the base centred under it");

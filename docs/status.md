@@ -16,6 +16,17 @@
 
 ## 本次已实现
 
+ruby 的注音按 Blink 的 em 盒子放：rt 的 line-height 默认 normal，注音的 em 盒子立在基文字的 em 盒子上，行只为注音的 em 盒子让出空间（2026-10-21，`weft-op` 分支；宣传页对话框里的拼音比 Chrome 高约 21 px，有注音的行也被撑高）。
+- **起因**：`lay_out_ruby` 把注音排成基文字整个行盒之上的一行，行高用 rt 继承来的（对话框 `line-height: 2` 下 12 px 的拼音占 24 px），基文字的行盒连半行距都在它下面，于是拼音离字远，行也比 Chrome 的高。Blink（`ruby_utils.cc` 的 `ComputeEmHeight` 与 `ComputeRelativeOffsets`）不看 rt 的 line-height：注音的 em 盒子立在基文字的 em 盒子上；em 盒子是字号按字体 OS/2 typo 上下沿的比例分在基线两侧（`NormalizedTypoAscentAndDescent`），一段文字用到的几个字体取最大、各边向上取整、不超过主字体的上下沿；行只在注音的 em 盒子伸出行盒时才长高。
+- **实现**：
+  - `Font::em_metrics`：OS/2 typo 上下沿（没有时用行度量的上下沿）按比例分出字号，上沿取 LayoutUnit。
+  - `SceneText::em_box`：一段文字所用各字体的 em 度量取最大、各边向上取整、不超过主字体的上下沿。
+  - `lay_out_ruby`：注音的基线在基文字基线之上“基文字 em 上沿 + 注音 em 下沿”处；ruby 的盒子包住注音的行盒，行只为到注音 em 上沿为止的部分让出空间（再往上的部分用负的上外边距），注音可以伸进半行距。UA 样式加 `rt{line-height:normal}`。
+- **验证**（Release）：
+  - `scene_inline_contract` 的 ruby 一段：注音的 em 盒子立在基文字的上；20 px 的文字配 10 px 的注音，30 px 的行长到刚好让出注音的 em 上沿，40 px 的行不变。把注音放回基文字行盒之上，或者让行为注音的整个行盒让空间，这两条分别失败。
+  - 与 Chrome 对照（Segoe UI 与微软雅黑，内置浏览器 150% 缩放下量）：25 px 行高 2、40 px 行高 1.6、注音比基文字宽这三种行都不变高，注音的位置与 Chrome 差 1 px 以内（Chrome 在设备像素上取整）；行高 normal 与 20 px 行高 1 时行长到 39 与 28.5 px（Chrome 38.7 与 28）。用这两个字体的 typo 度量按 Blink 的算法手算 Chrome 在 150% 下的数，四种情况都与实测一致。宣传页对话框的拼音贴在字上，两行仍是 100 px。全量 ctest 176 项：除既有的 14 项外通过。
+- **限制**：em 盒子在 CSS px 上取整（weft 的文字度量都按 1 倍取整），Chrome 在设备像素上取整，高缩放下注音可能比 Chrome 高不到 1 px；注音位置不考虑 text-emphasis 与文字装饰，没有多级注音；rt 元素的盒子是它的行盒（Chrome 的 `getBoundingClientRect` 给内容区）。
+
 `white-space: pre` 里单独一个换行的文本节点不再让原生 pass 拒绝整帧（2026-10-21，`weft-op` 分支；宣传页的 Unreal 版点开 C 的代码面板后那一块画不出来，黑着）。
 - **起因**：d506ee5 起混合内容（高亮代码：span 与它们之间的文字）在 `pre` 下保留换行，两个 span 之间只有一个换行的文本节点（注释那一行与下一行代码之间）就成了一个只有 `\n` 的 run。它在行内布局里只结束一行，没有行；显示列表把“没有行的文本”当成没经过布局的帧，按节点的盒子（0 × 0）列成一行文字，原生 pass 量出它有 7.9 × 23.6 px，比盒子大，就以 `text overflow reference` 拒绝整帧（UNSUPPORTED_FEATURE），UE 里那一帧不画。
 - **实现**：`scene_display_list.cpp`：没有行、只有换行符的文本不列出（它什么也不画）。

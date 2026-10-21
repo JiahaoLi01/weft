@@ -87,6 +87,12 @@ namespace weft {
         float below{};
     };
 
+    // A text's em box about its baseline, as Blink's em height (ComputeEmHeight) gives it.
+    struct SceneEmBox {
+        float ascent{};
+        float descent{};
+    };
+
     class SceneText {
     public:
         explicit SceneText(FontCatalog catalog);
@@ -102,6 +108,10 @@ namespace weft {
         // run's words break there: the advances of the glyphs whose cluster lies in the range, and the faces they use.
         SceneTextMetrics slice(const SceneTextRun& run, const SceneFont& font, std::uint32_t begin, std::uint32_t end);
         SceneStrut strut(const SceneFont& font);
+        // The em box of text in style: the em metrics (Font::em_metrics) of the faces its glyphs use, each side the
+        // largest of theirs rounded up to a whole px and no more than the primary face's ascent and descent. Ruby
+        // annotations stand on it.
+        SceneEmBox em_box(std::string_view text, const SceneStyle& style);
         // Whether the font's primary face (the first that its families match) has a glyph for a character.
         bool primary_covers(const SceneFont& font, char32_t character);
 

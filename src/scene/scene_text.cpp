@@ -510,6 +510,31 @@ namespace weft {
         return impl_->face_strut(match.ids[match.primary], font);
     }
 
+    SceneEmBox SceneText::em_box(std::string_view text, const SceneStyle& style) {
+        impl_->require_owner();
+        const auto font = scene_font(style);
+        const auto run = impl_->shape(text, font);
+        const auto& match = impl_->matched(font);
+        const auto primary = match.ids[match.primary];
+        std::set<std::uint32_t> used;
+        for (const auto& g : run->glyphs) {
+            used.insert(g.face);
+        }
+        if (used.empty()) {
+            used.insert(primary);
+        }
+        SceneEmBox out;
+        for (const auto id : used) {
+            const auto m = impl_->faces.at(id).font->em_metrics(font.size);
+            out.ascent = std::max(out.ascent, m.ascent);
+            out.descent = std::max(out.descent, m.descent);
+        }
+        const auto limit = impl_->faces.at(primary).font->line_metrics(font.size);
+        out.ascent = std::min(std::ceil(out.ascent), limit.ascent);
+        out.descent = std::min(std::ceil(out.descent), limit.descent);
+        return out;
+    }
+
     const FontFaceSource& SceneText::face_source(std::uint32_t face) const {
         impl_->require_owner();
         return impl_->faces.at(face).source;
