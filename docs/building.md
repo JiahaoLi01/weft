@@ -34,6 +34,28 @@ cmake --build --preset android-arm64
 
 `windows-profile` preset 构建到 `build/windows-profile`：代码生成与 Release 相同（`/O2 /Ob2`、`/OPT:REF,ICF`），另带 PDB，供采样剖析符号化（例如 `--gallery-owner-sample`，见 [交互性能](gallery-interaction-profile.md#owner-采样剖析)）。
 
+## macOS arm64（2026-10-21）
+
+不需要 Xcode：Command Line Tools 加 Homebrew 的 `cmake`、`ninja` 与 `llvm`（clang 23.1.4）。Command Line Tools 的 libc++（SDK 15.2）没有 `double` 的 `std::from_chars`（`bridge_value.cpp`），所以编译器与 libc++ 用 Homebrew LLVM 的：
+
+```sh
+brew install cmake ninja llvm
+LLVM=/opt/homebrew/opt/llvm
+cmake --preset portable-ninja -B build/portable-llvm \
+  -DCMAKE_C_COMPILER=$LLVM/bin/clang -DCMAKE_CXX_COMPILER=$LLVM/bin/clang++ \
+  "-DCMAKE_EXE_LINKER_FLAGS=-L$LLVM/lib/c++ -L$LLVM/lib/unwind -lunwind -Wl,-rpath,$LLVM/lib/c++ -Wl,-rpath,$LLVM/lib/unwind"
+cmake --build build/portable-llvm
+ctest --test-dir build/portable-llvm
+```
+
+Release 加 `-DCMAKE_BUILD_TYPE=Release`（另一个 `-B` 目录）。构建的是全部可移植模块、`weft::platform_macos` 与非 GPU 的测试和探针；没有 GPU 后端（Metal 适配器 M.3 尚未实现；`WEFT_SHADERS_METAL` 需要 Vulkan SDK 的 DXC 与 spirv-cross，未装时不生成 MSL）。Apple 上的构建差异都在 CMake 里：
+
+- 全部目标 `-ffp-contract=off`：arm64 上的 clang 默认把 `a * b + c` 合成 FMA，参考数据出自不合成的 MSVC x64（Yoga 的 flex 收缩 60 - 40 得 19.9999981）。
+- Yoga 另加 `-frtti`（`cmake/WeftThirdParty.cmake`；上游默认 `-fno-rtti -fvisibility=hidden`）：否则它的目标文件带有隐藏的标准异常 type info，静态链接后整个程序的 `catch (const std::exception&)` 都绑到这些副本，Apple 的 libc++abi 按地址比较 type info，于是什么也接不住。依赖文件与 `metadata.json` 未改。
+- 一个字体文件的上限 128 MiB（其他平台 32 MiB）：PingFang 的集合 75 MiB。
+
+系统字体由 `src/platform/macos`（CoreText 列出，FreeType 找集合里的下标与名字）提供，见其头文件。
+
 ## 固定依赖与离线构建
 
 固定 QuickJS-NG 0.17.0、Yoga 3.2.1、FreeType 2.13.3、HarfBuzz 11.2.1 与 Ahem 测试字体，源码位于各 `third_party` 目录。D3 7.9.0 原版 UMD 仅作为兼容性输入。来源、版本、commit、archive SHA256、逐文件 SHA256 与许可见 `third_party/manifest.json` 和依赖 metadata。只有 Yoga 的 CalculateLayout.cpp 有已保存的小补丁，其他上游源码未修改；构建不使用 FetchContent，也不追踪可变分支。
