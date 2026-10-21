@@ -12,6 +12,13 @@ option(WEFT_BUILD_TESTS "Build Weft behavior tests" ON)
 option(WEFT_BUILD_PROBES "Build architecture probes" ON)
 option(WEFT_BUILD_SAMPLES "Build host samples (Windows; the engine host also needs the Vulkan backend)" ON)
 
+if(APPLE)
+    # Clang contracts a * b + c into fused multiply-adds by default on arm64 (-ffp-contract=on); MSVC on x64, where the
+    # layout, geometry and pixel references were produced, rounds each operation. Keep that rounding in every target,
+    # the vendored libraries' too (Yoga's flex resolution: 60 - 40 must stay 20, not 19.9999981).
+    add_compile_options(-ffp-contract=off)
+endif()
+
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 include(WeftTargets)
 include(WeftThirdParty)
