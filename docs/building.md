@@ -67,7 +67,7 @@ cmake --build build/macos-metal
 open build/macos-metal/bin/weft_macos_demo.app
 ```
 
-`WEFT_SHADERS_METAL` 随之打开，Apple 上再构建 `weft::scene_metal` 与 `samples/macos-host`（`weft_macos_demo.app`：窗口里游戏的地面与单位上是 engine-host 的 HUD，按 1–5 换成 logo 的四个版本，R 重新载入；`--shot <png>` 无窗口画若干帧写 PNG，`--capture <png> --quit-after <s>` 把窗口 3 秒时的画面写成 PNG）。Objective-C++ 用同一个 clang；LLVM 23 的类消息存根要较新的链接器，CMake 在支持时加 `-fno-objc-msgsend-class-selector-stubs`。
+`WEFT_SHADERS_METAL` 随之打开，Apple 上再构建 `weft::scene_metal` 与 `samples/macos-host`（`weft_macos_demo.app`：窗口里游戏的地面与单位上是 engine-host 的 HUD，按 1–5 换成 logo 的四个版本，R 重新载入，V 开关垂直同步（默认关：窗口里约 260 fps，受系统合成器交还 drawable 的速度所限，全屏 F 约 450 fps），`--page` 也接受 hud、logo、color、dark、light、static；`--shot <png>` 无窗口画若干帧写 PNG，`--capture <png> --quit-after <s>` 把窗口 3 秒时的画面写成 PNG）。Objective-C++ 用同一个 clang；LLVM 23 的类消息存根要较新的链接器，CMake 在支持时加 `-fno-objc-msgsend-class-selector-stubs`。
 
 
 ## 固定依赖与离线构建
