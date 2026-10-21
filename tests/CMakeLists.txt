@@ -624,3 +624,14 @@ weft_add_python_test(NAME flow_input_browser_diff
     ARGS "${fixtures}/flow_input_browser_reference.json" "${artifacts}/flow-input-$<CONFIG>/native.json"
     "${artifacts}/flow-input-$<CONFIG>/comparison.json"
     FIXTURES_REQUIRED flow_input_report)
+
+# The native Metal pass (src/render/backends/metal, Apple platforms): the logo pages against Chrome's frames, as
+# logo_browser_reference checks the D3D11 pass.
+if(APPLE AND TARGET weft_scene_metal)
+    weft_add_executable(weft_logo_reference_metal_tests SOURCES logo_reference_metal_tests.mm
+        LINK weft::view weft::scene_metal "-framework Metal" "-framework ImageIO" "-framework CoreGraphics"
+            "-framework Foundation" SOURCE_DIR)
+    target_compile_options(weft_logo_reference_metal_tests PRIVATE -fobjc-arc)
+    weft_add_test(NAME logo_browser_reference_metal
+        COMMAND weft_logo_reference_metal_tests "${artifacts}/logo-reference-metal-$<CONFIG>" TIMEOUT 120)
+endif()

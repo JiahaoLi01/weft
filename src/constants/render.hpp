@@ -243,6 +243,18 @@ namespace weft::constants::render {
         inline constexpr int backdrop_sampler_mirror = 0;
         // The MSL version of the translation (major * 10000 + minor * 100): 2.1, macOS 10.14 and iOS 12 or later.
         inline constexpr int msl_version = 20100;
+        // Render targets are at most this many pixels wide and high (Apple GPUs' 2D textures; a Retina display's window
+        // passes Vulkan's 4096).
+        inline constexpr int max_surface_dimension = 16384;
+        // What a scene slot keeps of its recordings for its next ones, as the Vulkan backend's: buffers (a new one has
+        // room for at least spare_buffer_min_bytes, doubling past it), scratch textures by size, as many as fit in
+        // scene_slot_spare_image_bytes.
+        inline constexpr unsigned spare_buffer_min_bytes = 64u * constants::bytes_per_kib;
+        inline constexpr int scene_slot_spare_buffers = 64;
+        inline constexpr int scene_slot_spare_images = 256;
+        inline constexpr unsigned scene_slot_spare_image_bytes = 64u * constants::bytes_per_mib;
+        // Uploads stage rows of a multiple of this many bytes, at offsets of a multiple of it.
+        inline constexpr int staging_alignment = 16;
     } // namespace metal
 
     // Scene passes (scene_pass.hpp and its backends). The shader-mirrored values match the static consts at the

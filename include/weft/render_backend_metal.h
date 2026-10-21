@@ -7,8 +7,10 @@
  * so the core ABI needs no Metal header: an Objective-C object travels as a pointer bridged without a transfer of
  * ownership ((__bridge void*)object under ARC).
  *
- * Not implemented yet: the schema, the shaders' MSL and their bindings are fixed and checked on every build that
- * translates them (docs/render-backend-api.md, "Metal"), but no Metal device has run them (docs/status.md).
+ * Implemented on Apple platforms (weft::scene_metal, src/render/backends/metal): the shaders' MSL and their bindings
+ * are fixed and checked on every build that translates them, and on macOS the native pass draws View frames
+ * (docs/render-backend-api.md, "Metal"; docs/status.md). It draws into LINEAR_BGRA8 targets only, as the Vulkan
+ * backend does.
  *
  * The host passes a command buffer of the backend's device, not committed, with no command encoder open. The adapter
  * encodes the frame's uploads, copies, clears and draws into it in render and blit command encoders of its own, each
@@ -75,8 +77,8 @@ extern "C" {
 #define WEFT_RENDER_METAL_NOEXCEPT
 #endif
 
-/* Apple platforms only, and not built yet (see above). The backend and its table for weft_renderer_create; the table
- * borrows the backend. */
+/* Apple platforms only (weft::scene_metal). The backend and its table for weft_renderer_create; the table borrows the
+ * backend. */
 weft_render_result weft_render_metal_create(const weft_render_metal_desc* desc, weft_render_metal** out_backend,
                                             weft_render_backend* out_table) WEFT_RENDER_METAL_NOEXCEPT;
 /* The backend's external texture extension (render_external_texture.h) for weft_renderer_install_external_backend,
