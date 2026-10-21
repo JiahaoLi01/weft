@@ -11,6 +11,14 @@ add_library(weft_unicode_case STATIC "${PROJECT_SOURCE_DIR}/third_party/quickjs-
 target_include_directories(weft_unicode_case SYSTEM PUBLIC "${PROJECT_SOURCE_DIR}/third_party/quickjs-ng/source")
 
 add_subdirectory("${PROJECT_SOURCE_DIR}/third_party/yoga/source/yoga" third_party/yoga EXCLUDE_FROM_ALL)
+if(APPLE)
+    # Yoga's defaults (cmake/project-defaults.cmake) build it with -fexceptions -fno-rtti -fvisibility=hidden. Without
+    # RTTI clang emits the type info of the standard exceptions its code can throw (std::exception, std::logic_error,
+    # std::out_of_range) into Yoga's objects, hidden; the static link binds the whole program's catch clauses to those
+    # copies, and Apple's libc++abi matches a catch clause by type info address, so catch (const std::exception&)
+    # catches nothing libc++ or weft throws. With RTTI, Yoga refers to libc++abi's. Later options win over Yoga's.
+    target_compile_options(yogacore PRIVATE -frtti)
+endif()
 
 foreach(feature ZLIB BZIP2 PNG HARFBUZZ BROTLI)
     set(FT_DISABLE_${feature} ON CACHE BOOL "" FORCE)
