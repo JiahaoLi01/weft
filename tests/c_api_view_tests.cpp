@@ -888,8 +888,8 @@ namespace {
         return weft_value_writer_set(result, WEFT_VALUE_JSON, "1", 1);
     }
 
-    // Keyboard input (weft_view_key, weft_view_text, weft_view_set_focus, weft_keyboard_key): arguments, what the
-    // page did with a key, the host's focus before the first page, reentry, threads and stale handles.
+    // Keyboard input (weft_view_key, weft_view_text, weft_view_set_focus, weft_keyboard_key, weft_keyboard_code):
+    // arguments, what the page did with a key, the host's focus before the first page, reentry, threads and stale handles.
     void keyboard() {
         Runtime r;
         const auto view = r.view();
@@ -982,6 +982,13 @@ namespace {
                     weft_keyboard_key(nullptr, 1, 0, key) == WEFT_INVALID_ARGUMENT &&
                     weft_keyboard_key("KeyA", 4, 0, nullptr) == WEFT_INVALID_ARGUMENT,
                 "weft_keyboard_key's arguments");
+        char code[32];
+        require(weft_keyboard_code(0x0D, code) == WEFT_OK && std::string(code) == "Enter" &&
+                    weft_keyboard_code(0xA1, code) == WEFT_OK && std::string(code) == "ShiftRight",
+                "weft_keyboard_code");
+        require(weft_keyboard_code(0xFF, code) == WEFT_INVALID_ARGUMENT && code[0] == 0 &&
+                    weft_keyboard_code(0x0D, nullptr) == WEFT_INVALID_ARGUMENT,
+                "weft_keyboard_code's arguments");
         weft_result elsewhere{};
         std::string typed;
         weft_result owner_key{};

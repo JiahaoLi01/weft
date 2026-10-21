@@ -878,6 +878,22 @@ extern "C" weft_result weft_keyboard_key(const char* code, size_t code_size, uin
     });
 }
 
+extern "C" weft_result weft_keyboard_code(uint32_t virtual_key, char out_code[32]) {
+    if (!out_code) {
+        return WEFT_INVALID_ARGUMENT;
+    }
+    out_code[0] = 0;
+    return guarded([&] {
+        const auto code = weft::physical_code(virtual_key);
+        if (!code || code->size() > 31) {
+            return WEFT_INVALID_ARGUMENT;
+        }
+        std::memcpy(out_code, code->data(), code->size());
+        out_code[code->size()] = 0;
+        return WEFT_OK;
+    });
+}
+
 extern "C" weft_result weft_view_evaluate(weft_runtime* runtime, weft_view_handle view, const char* source,
                                           size_t source_size, weft_text_fn fn, void* user) {
     ViewEntry* entry{};

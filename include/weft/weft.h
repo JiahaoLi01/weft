@@ -365,6 +365,15 @@ weft_result weft_view_set_focus(weft_runtime* runtime, weft_view_handle view, ui
  * NUL-terminated (at most 31 bytes); WEFT_INVALID_ARGUMENT for a code weft does not know. */
 weft_result weft_keyboard_key(const char* code, size_t code_size, uint32_t modifiers, char out_key[32]);
 
+/* Any thread: the code of the physical key the system's keyboard layout puts a Windows virtual key on, for hosts that
+ * have virtual keys and no scan codes (Unreal's FKeyEvent): a key that types a character wherever the layout has it
+ * (Windows maps the virtual key back to its scan code: AZERTY's VK_A is "KeyQ"), the sided modifiers on their side
+ * (VK_LSHIFT "ShiftLeft"), the other keys by a US keyboard's virtual keys (VK_RETURN "Enter", VK_NUMPAD1 "Numpad1"; with
+ * Num Lock off a keypad key comes as the key it acts as, VK_END "End", where Chrome says "Numpad1"). Other platforms
+ * answer for a US keyboard. out_code receives it NUL-terminated (at most 31 bytes); WEFT_INVALID_ARGUMENT for a
+ * virtual key that is no key weft knows. */
+weft_result weft_keyboard_code(uint32_t virtual_key, char out_code[32]);
+
 /* ---- Tools. Owner thread. ---- */
 
 /* A text a tool asked for, valid during the callback; ok is 0 when it is an error's. */

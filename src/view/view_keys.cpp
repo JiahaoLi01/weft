@@ -299,6 +299,53 @@ namespace weft {
         return k->vk;
     }
 
+    std::optional<std::string_view> physical_code(unsigned virtual_key) {
+        switch (virtual_key) {
+            case 0xA0: // VK_LSHIFT
+                return "ShiftLeft";
+            case 0xA1:
+                return "ShiftRight";
+            case 0xA2: // VK_LCONTROL
+                return "ControlLeft";
+            case 0xA3:
+                return "ControlRight";
+            case 0xA4: // VK_LMENU
+                return "AltLeft";
+            case 0xA5:
+                return "AltRight";
+            default:
+                break;
+        }
+#ifdef _WIN32
+        // Digits, letters and the OEM keys type characters: they move between layouts.
+        const unsigned vk = virtual_key;
+        if ((vk >= '0' && vk <= '9') || (vk >= 'A' && vk <= 'Z') || (vk >= 0xBA && vk <= 0xC1) || (vk >= 0xDB && vk <= 0xDF) ||
+            vk == 0xE2) {
+            if (const UINT scan = MapVirtualKeyExW(vk, MAPVK_VK_TO_VSC_EX, foreground_layout())) {
+                for (const auto& k : keys) {
+                    if (k.scan == scan) {
+                        return k.code;
+                    }
+                }
+            }
+        }
+#endif
+        // A numeric keypad key only for a virtual key of its own (VK_RETURN is Enter, not NumpadEnter).
+        const KeyInfo* keypad = nullptr;
+        for (const auto& k : keys) {
+            if (k.vk != virtual_key) {
+                continue;
+            }
+            if (!k.code.starts_with("Numpad")) {
+                return k.code;
+            }
+            if (!keypad) {
+                keypad = &k;
+            }
+        }
+        return keypad ? std::optional<std::string_view>(keypad->code) : std::nullopt;
+    }
+
     std::optional<std::string> layout_key(std::string_view code, unsigned modifiers) {
         const auto* k = find(code);
         if (!k) {

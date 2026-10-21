@@ -612,6 +612,14 @@ namespace {
                     weft::layout_key_code("NumpadAdd", 0) == 107 && weft::layout_key_code("NoSuchKey", 0) == 0 &&
                     a_code >= 'A' && a_code <= 'Z',
                 "keyCodes as the system gives them");
+        const auto semicolon = weft::physical_code(0xBA);
+        const auto letter = weft::physical_code('A');
+        require(weft::physical_code(0xA0) == "ShiftLeft" && weft::physical_code(0xA5) == "AltRight" &&
+                    weft::physical_code(13) == "Enter" && weft::physical_code(97) == "Numpad1" &&
+                    weft::physical_code(35) == "End" && weft::physical_code(91) == "MetaLeft" &&
+                    weft::physical_code(32) == "Space" && letter && letter->starts_with("Key") && semicolon &&
+                    !weft::physical_code(0xFF),
+                "the physical keys of virtual keys");
         require(weft::key_location("ShiftLeft") == 1 && weft::key_location("MetaRight") == 2 &&
                     weft::key_location("Numpad0") == 3 && weft::key_location("ArrowLeft") == 0,
                 "locations");
