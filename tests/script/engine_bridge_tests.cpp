@@ -6,6 +6,7 @@
 #include "script/script_platform.hpp"
 #include "../support/check.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <cmath>
 #include <cstdint>
