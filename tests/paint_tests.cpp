@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <iostream>
 #include <limits>
 #include <numbers>
@@ -248,6 +249,26 @@ namespace {
                 }
                 require(worst <= 2, "a wide text shadow's blur on blocks is the full one's within two levels (" +
                                         std::to_string(worst) + ")");
+            }
+            // Narrower, the blur is the full one sum for sum, though it sums only what reaches a cell from the cells
+            // that are not zero: a mask inked in its middle and one inked to its edges.
+            for (const bool edges : {false, true}) {
+                const unsigned mw = 240;
+                const unsigned mh = 160;
+                std::vector<float> ink(std::size_t(mw) * mh);
+                for (unsigned row = edges ? 0 : 50; row < (edges ? mh : 110); ++row) {
+                    for (unsigned col = edges ? 0 : 70; col < (edges ? mw : 170); ++col) {
+                        ink[std::size_t(row) * mw + col] = (col * 7 + row * 3) % 5 == 0 ? 1.f : float(col % 13) / 13;
+                    }
+                }
+                for (const float sigma : {1.5f, 4.f, 11.25f}) {
+                    const auto want = exact(ink, mw, mh, sigma);
+                    const auto got = render::gaussian_blur(ink, mw, mh, sigma);
+                    require(got.size() == want.size() &&
+                                std::memcmp(got.data(), want.data(), want.size() * sizeof(float)) == 0,
+                            "a blur of " + std::to_string(sigma) + " px is the full one's, bit for bit" +
+                                (edges ? " (inked to the edges)" : ""));
+                }
             }
             const float scale = 2;
             for (const bool inset_shadow : {false, true}) {

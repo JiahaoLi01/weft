@@ -30,7 +30,10 @@ namespace weft::render {
                     std::ceil(constants::scene::shadow_kernel_sigmas * sigma) + constants::scene::shadow_guard_px};
         }
 
-        // A separable Gaussian of standard deviation sigma (px) over a w x h mask, zero beyond it.
+        // A separable Gaussian of standard deviation sigma (px) over a w x h mask, zero beyond it. Each cell sums its
+        // taps in order, tap by tap over whole rows (loops the compiler vectorizes). A zero adds nothing to the sums,
+        // so the loops' bounds leave out the taps past the mask's edges and the cells beyond the bounds of what it
+        // covers, and the result is the sum of every tap's.
         std::vector<float> blurred(const std::vector<float>& mask, unsigned w, unsigned h, float sigma) {
             if (!(sigma > 0)) {
                 return mask;
@@ -44,28 +47,53 @@ namespace weft::render {
             for (auto& v : kernel) {
                 v /= total;
             }
-            std::vector<float> temporary(mask.size());
-            std::vector<float> out(mask.size());
-            for (unsigned row = 0; row < h; ++row) {
-                for (unsigned col = 0; col < w; ++col) {
-                    float v{};
-                    for (int k = -radius; k <= radius; ++k) {
-                        if (int(col) + k >= 0 && int(col) + k < int(w)) {
-                            v += mask[std::size_t(row) * w + col + k] * kernel[k + radius];
-                        }
+            const int width = int(w);
+            const int height = int(h);
+            // The rows and columns of the cells that are not zero.
+            int top = height;
+            int bottom = -1;
+            int left = width;
+            int right = -1;
+            for (int row = 0; row < height; ++row) {
+                const float* in = mask.data() + std::size_t(row) * w;
+                for (int col = 0; col < width; ++col) {
+                    if (in[col] != 0) {
+                        top = std::min(top, row);
+                        bottom = row;
+                        left = std::min(left, col);
+                        right = std::max(right, col);
                     }
-                    temporary[std::size_t(row) * w + col] = v;
                 }
             }
-            for (unsigned row = 0; row < h; ++row) {
-                for (unsigned col = 0; col < w; ++col) {
-                    float v{};
-                    for (int k = -radius; k <= radius; ++k) {
-                        if (int(row) + k >= 0 && int(row) + k < int(h)) {
-                            v += temporary[std::size_t(int(row) + k) * w + col] * kernel[k + radius];
-                        }
+            std::vector<float> out(mask.size());
+            if (bottom < 0) {
+                return out;
+            }
+            // The columns the blur reaches.
+            const int from = std::max(0, left - radius);
+            const int to = std::min(width, right + radius + 1);
+            std::vector<float> temporary(mask.size());
+            for (int row = top; row <= bottom; ++row) {
+                const float* in = mask.data() + std::size_t(row) * w;
+                float* line = temporary.data() + std::size_t(row) * w;
+                for (int k = -radius; k <= radius; ++k) {
+                    const float weight = kernel[k + radius];
+                    const int end = std::min(to, right - k + 1);
+                    for (int col = std::max(from, left - k); col < end; ++col) {
+                        line[col] += in[col + k] * weight;
                     }
-                    out[std::size_t(row) * w + col] = v;
+                }
+            }
+            const int rows_end = std::min(height, bottom + radius + 1);
+            for (int row = std::max(0, top - radius); row < rows_end; ++row) {
+                float* line = out.data() + std::size_t(row) * w;
+                const int last = std::min(radius, bottom - row);
+                for (int k = std::max(-radius, top - row); k <= last; ++k) {
+                    const float weight = kernel[k + radius];
+                    const float* in = temporary.data() + std::size_t(row + k) * w;
+                    for (int col = from; col < to; ++col) {
+                        line[col] += in[col] * weight;
+                    }
                 }
             }
             return out;
@@ -130,19 +158,20 @@ namespace weft::render {
             return out;
         }
 
-        // A mask's value at a point of its grid's px (its first cell's center at 0), bilinear, zero beyond it.
-        float sample(const std::vector<float>& mask, unsigned w, unsigned h, float x, float y) {
-            const float fx = std::floor(x);
-            const float fy = std::floor(y);
-            const int x0 = int(fx);
-            const int y0 = int(fy);
-            const float tx = x - fx;
-            const float ty = y - fy;
+        // The mask between the cells (x0, y0) and (x0 + 1, y0 + 1), tx and ty of the way, zero beyond it.
+        float bilinear(const std::vector<float>& mask, unsigned w, unsigned h, int x0, float tx, int y0, float ty) {
             const auto at = [&](int cx, int cy) {
                 return cx < 0 || cy < 0 || cx >= int(w) || cy >= int(h) ? 0.f : mask[std::size_t(cy) * w + cx];
             };
             return (at(x0, y0) * (1 - tx) + at(x0 + 1, y0) * tx) * (1 - ty) +
                    (at(x0, y0 + 1) * (1 - tx) + at(x0 + 1, y0 + 1) * tx) * ty;
+        }
+
+        // A mask's value at a point of its grid's px (its first cell's center at 0), bilinear, zero beyond it.
+        float sample(const std::vector<float>& mask, unsigned w, unsigned h, float x, float y) {
+            const float fx = std::floor(x);
+            const float fy = std::floor(y);
+            return bilinear(mask, w, h, int(fx), x - fx, int(fy), y - fy);
         }
 
         // A box blurred by sigma device px over a grid of the image's cells, as `blurred` takes it on that grid; past
@@ -356,11 +385,55 @@ namespace weft::render {
             }
         }
         const auto soft = blurred(blocks, cw, ch, sigma / float(n));
+        // Bilinear as sample() reads it, each column's and row's coordinates found once, and only the cells whose
+        // four reads can hold more than zero: the coarse columns and rows that are not all zeros.
+        int soft_top = int(ch);
+        int soft_bottom = -1;
+        int soft_left = int(cw);
+        int soft_right = -1;
+        for (int row = 0; row < int(ch); ++row) {
+            for (int col = 0; col < int(cw); ++col) {
+                if (soft[std::size_t(row) * cw + col] != 0) {
+                    soft_top = std::min(soft_top, row);
+                    soft_bottom = row;
+                    soft_left = std::min(soft_left, col);
+                    soft_right = std::max(soft_right, col);
+                }
+            }
+        }
         std::vector<float> out(mask.size());
+        if (soft_bottom < 0) {
+            return out;
+        }
+
+        struct Tap {
+            int cell{};
+            float t{};
+        };
+
+        const auto taps = [&](unsigned count) {
+            std::vector<Tap> out_taps(count);
+            for (unsigned i = 0; i < count; ++i) {
+                const float p = (float(i) + .5f) / float(n) + .5f;
+                const float f = std::floor(p);
+                out_taps[i] = {int(f), p - f};
+            }
+            return out_taps;
+        };
+        const auto columns = taps(w);
+        const auto rows = taps(h);
         for (unsigned row = 0; row < h; ++row) {
-            const float v = (float(row) + .5f) / float(n) + .5f;
+            const auto [y0, ty] = rows[row];
+            if (y0 + 1 < soft_top || y0 > soft_bottom) {
+                continue;
+            }
+            float* line = out.data() + std::size_t(row) * w;
             for (unsigned col = 0; col < w; ++col) {
-                out[std::size_t(row) * w + col] = sample(soft, cw, ch, (float(col) + .5f) / float(n) + .5f, v);
+                const auto [x0, tx] = columns[col];
+                if (x0 + 1 < soft_left || x0 > soft_right) {
+                    continue;
+                }
+                line[col] = bilinear(soft, cw, ch, x0, tx, y0, ty);
             }
         }
         return out;

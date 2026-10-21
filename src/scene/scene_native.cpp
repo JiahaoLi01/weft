@@ -1163,8 +1163,12 @@ namespace weft {
                     }
                 }
             } else {
-                // Straight RGBA to premultiplied BGRA.
+                // Straight RGBA to premultiplied BGRA; a transparent pixel is zeros either way.
                 for (std::size_t i = 0; i < bitmap.rgba.size(); i += 4) {
+                    if (bitmap.rgba[i + 3] == 0) {
+                        bitmap.rgba[i] = bitmap.rgba[i + 1] = bitmap.rgba[i + 2] = 0;
+                        continue;
+                    }
                     std::swap(bitmap.rgba[i], bitmap.rgba[i + 2]);
                     for (unsigned c = 0; c < 3; ++c) {
                         bitmap.rgba[i + c] = std::uint8_t(

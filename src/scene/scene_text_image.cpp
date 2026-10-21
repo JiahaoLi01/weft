@@ -61,6 +61,11 @@ namespace weft {
         const auto run = text.shape(n.text, n.style);
         const auto origin = scene_text_origin(n, run->metrics);
         std::vector<float> coverage(std::size_t(w) * h);
+        // The rows and columns the glyphs reach: the pixels past them stay transparent.
+        int ink_top = int(h);
+        int ink_bottom = -1;
+        int ink_left = int(w);
+        int ink_right = -1;
         // Premultiplied colors of the color glyphs, each source over the ones before; empty without any.
         std::vector<std::array<float, 4>> painted;
         for (const auto& g : run->glyphs) {
@@ -110,6 +115,12 @@ namespace weft {
                                                            g.oblique ? constants::text::synthetic_oblique_skew : 0);
             const int left = int(ix) + glyph.left;
             const int top = int(iy) - glyph.top;
+            if (glyph.width && glyph.height) {
+                ink_top = std::min(ink_top, std::max(0, top));
+                ink_bottom = std::max(ink_bottom, std::min(int(h) - 1, top + int(glyph.height) - 1));
+                ink_left = std::min(ink_left, std::max(0, left));
+                ink_right = std::max(ink_right, std::min(int(w) - 1, left + int(glyph.width) - 1));
+            }
             for (std::uint32_t row = 0; row < glyph.height; ++row) {
                 const int y = top + int(row);
                 if (y < 0 || y >= int(h)) {
@@ -148,16 +159,23 @@ namespace weft {
             }
             return out;
         }
-        for (std::size_t i = 0; i < coverage.size(); ++i) {
-            const float alpha = coverage[i] * color[3];
-            if (alpha <= 0) {
-                continue;
+        std::array<std::uint8_t, 3> rgb{};
+        for (int c = 0; c < 3; ++c) {
+            rgb[c] = std::uint8_t(std::lround(std::clamp(color[c], 0.f, 1.f) * constants::color_channel_max));
+        }
+        for (int row = ink_top; row <= ink_bottom; ++row) {
+            for (int col = ink_left; col <= ink_right; ++col) {
+                const auto i = std::size_t(row) * w + col;
+                const float alpha = coverage[i] * color[3];
+                if (alpha <= 0) {
+                    continue;
+                }
+                auto* p = out.bitmap.rgba.data() + i * 4;
+                p[0] = rgb[0];
+                p[1] = rgb[1];
+                p[2] = rgb[2];
+                p[3] = std::uint8_t(std::lround(std::clamp(alpha, 0.f, 1.f) * constants::color_channel_max));
             }
-            auto* p = out.bitmap.rgba.data() + i * 4;
-            for (int c = 0; c < 3; ++c) {
-                p[c] = std::uint8_t(std::lround(std::clamp(color[c], 0.f, 1.f) * constants::color_channel_max));
-            }
-            p[3] = std::uint8_t(std::lround(std::clamp(alpha, 0.f, 1.f) * constants::color_channel_max));
         }
         return out;
     }

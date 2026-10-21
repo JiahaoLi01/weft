@@ -7,6 +7,9 @@
 //                    [--fps 60] [--frames N] [--out <dir>] [--warp] [--background #rrggbb] [--render-every N]
 //                    [--storage <file.json>] [--slow 100] [--effects <file.json>]
 //
+// --slow prints each frame whose advance, or whose draw (the renderer's prepare and encode on the CPU, with
+// --render-every or a shot), took longer than that many ms.
+//
 // The page is a folder as hosts load it: page.json ({"scripts": [...], "stylesheet": "...", "keyframes": "...", "root":
 // "...", "crpgBridge": false, "forgivingCss": false, "webPlatform": false}, paths relative to the folder), or page.js
 // with page.css and keyframes.css. Its base (for url() images) is the stylesheet's path; the runner reads those files
@@ -1422,8 +1425,13 @@ namespace {
             }
             std::vector<std::uint8_t> pixels;
             unsigned width{}, height{};
-            if (d->draw(run.runtime, run.view, unsigned(n), shot.empty() ? nullptr : &pixels, &width, &height) &&
-                !shot.empty()) {
+            const auto drawn = d->render_ms().size();
+            const bool done =
+                d->draw(run.runtime, run.view, unsigned(n), shot.empty() ? nullptr : &pixels, &width, &height);
+            if (d->render_ms().size() > drawn && d->render_ms().back() > slow_ms) {
+                std::printf("[slow] frame %ld: render %.1f ms\n", n, d->render_ms().back());
+            }
+            if (done && !shot.empty()) {
                 const auto path = o.out / utf8_path(shot);
                 write_png(path, width, height, pixels);
                 std::printf("[shot] frame %ld -> %s (%ux%u)\n", n, utf8(path).c_str(), width, height);
