@@ -1147,7 +1147,7 @@ namespace weft {
             e.repeat = input.down && input.repeat;
             e.key_code = ime              ? constants::input::ime_process_key_code
                          : input.key_code ? input.key_code
-                                          : windows_key_code(input.code);
+                                          : layout_key_code(input.code);
             e.time_ms = i.time;
             const auto target = i.key_target();
             if (input.down) {

@@ -605,6 +605,11 @@ namespace {
         require(weft::windows_key_code("KeyA") == 65 && weft::windows_key_code("Semicolon") == 186 &&
                     weft::windows_key_code("NumpadEnter") == 13 && weft::windows_key_code("NoSuchKey") == 0,
                 "keyCodes");
+        const auto a_code = weft::layout_key_code("KeyA");
+        require(weft::layout_key_code("Enter") == 13 && weft::layout_key_code("ArrowLeft") == 37 &&
+                    weft::layout_key_code("Numpad1") == 97 && weft::layout_key_code("NoSuchKey") == 0 && a_code >= 'A' &&
+                    a_code <= 'Z',
+                "keyCodes in the system's layout");
         require(weft::key_location("ShiftLeft") == 1 && weft::key_location("MetaRight") == 2 &&
                     weft::key_location("Numpad0") == 3 && weft::key_location("ArrowLeft") == 0,
                 "locations");

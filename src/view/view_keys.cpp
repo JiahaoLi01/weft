@@ -211,10 +211,14 @@ namespace weft {
             }
         }
 
+        HKL foreground_layout() {
+            return GetKeyboardLayout(GetWindowThreadProcessId(GetForegroundWindow(), nullptr));
+        }
+
         // What the foreground window's keyboard layout types with the key (Chromium's PlatformKeyMap asks ToUnicodeEx
         // the same way); none when the layout types nothing with it.
         std::optional<std::string> layout_text(const KeyInfo& k, unsigned modifiers) {
-            const HKL layout = GetKeyboardLayout(GetWindowThreadProcessId(GetForegroundWindow(), nullptr));
+            const HKL layout = foreground_layout();
             // A numeric keypad key's virtual key depends on Num Lock, not on its scan code.
             const UINT vk = k.code.starts_with("Numpad") ? k.vk : MapVirtualKeyExW(k.scan, MAPVK_VSC_TO_VK_EX, layout);
             if (!vk) {
@@ -275,6 +279,21 @@ namespace weft {
     unsigned windows_key_code(std::string_view code) {
         const auto* k = find(code);
         return k ? k->vk : 0;
+    }
+
+    unsigned layout_key_code(std::string_view code) {
+        const auto* k = find(code);
+        if (!k) {
+            return 0;
+        }
+#ifdef _WIN32
+        if (!k->us.empty() && !k->code.starts_with("Numpad")) {
+            if (const UINT vk = MapVirtualKeyExW(k->scan, MAPVK_VSC_TO_VK_EX, foreground_layout())) {
+                return vk;
+            }
+        }
+#endif
+        return k->vk;
     }
 
     std::optional<std::string> layout_key(std::string_view code, unsigned modifiers) {
