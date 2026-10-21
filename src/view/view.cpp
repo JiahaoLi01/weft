@@ -1683,6 +1683,10 @@ namespace weft {
                          : input.key_code ? input.key_code
                                           : layout_key_code(input.code, input.modifiers);
             e.time_ms = i.time;
+            // isComposing: a composition goes on in the focused text field as the key comes (Blink asks the input
+            // method controller).
+            const auto state = i.focused_field().second;
+            e.composing = state && state->composing;
             const auto target = i.key_target();
             if (input.down) {
                 i.suppress_text = false;

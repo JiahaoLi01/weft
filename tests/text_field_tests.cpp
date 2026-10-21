@@ -808,6 +808,17 @@ namespace {
         require(press("F2", "F2") == 0, "nor does F2");
         f.eval("document.getElementById('b').readOnly = true");
         require(press("w", "KeyW") == 0, "a read-only field takes no text");
+        // isComposing: the keys that come while a composition goes on (the first, which begins it, not).
+        f.eval("document.getElementById('a').focus(); globalThis.keys = [];"
+               "for (const type of ['keydown', 'keyup']) document.addEventListener(type, e => keys.push(type + ':' + e.key + ':' + e.isComposing))");
+        f.view.key({true, "n", "KeyN", 0, false, true, 0});
+        f.view.compose("n", 1, 1);
+        f.view.key({false, "n", "KeyN", 0, false, false, 0});
+        f.view.key({true, " ", "Space", 0, false, true, 0});
+        f.view.commit("\xe4\xbd\xa0");
+        f.view.key({false, " ", "Space", 0, false, false, 0});
+        const auto keys = f.eval("keys.join(' ')");
+        require(keys == "keydown:Process:false keyup:n:true keydown:Process:true keyup: :false", "isComposing: " + keys);
     }
 } // namespace
 
