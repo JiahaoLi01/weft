@@ -17,6 +17,14 @@
 
 ## 本次已实现
 
+macOS 上构建与运行可移植部分（2026-10-21，`metal` 分支在 main 上变基之后；Apple M4 Pro，macOS 27.0.1，Homebrew LLVM 23.1.4，没有 Xcode）。命令见 [构建](building.md#macos-arm642026-10-21)。
+- **变基**：M.2 的编排接上 main 之后的两项：读背景的效果的 Copy 步骤（一条只有拷贝、没有滤镜的链，效果以 `Image::Backdrop` 采样它；读不了的目标清空它，计入 `unreadable_copies`）与 CSS filter 的图像（`ScenePrepared::filters` 由 Image 项绘制）；D3D12 与 Vulkan 的 `record()` 照旧执行编排，`backdrop_copies` 与不可读的原因由编排的计数给出。`scene_schedule_contract` 加手写的 Copy 用例与随机的 Copy/filter 步骤（2,000 个随机 pass 中 4,642 个拷贝，646 个读不了目标）；三个编排变异都被发现。D3D12 与 Vulkan 这次没有编译（没有 Windows）。
+- **可移植性修正**：公开头 `render_backend.h` 缺 `<stddef.h>`，另两处缺 `<string>`、`<algorithm>`；Apple 上 Yoga 加 `-frtti`、全部目标 `-ffp-contract=off`、字体文件上限 128 MiB（原因见构建文档）；`style_input_differential` 的随机序列依赖实参求值顺序（MSVC 自右向左、clang 自左向右），改为分开的语句，取 MSVC 的顺序。
+- **系统字体**：新的 `weft::platform_macos`（CoreText 列出字体，FreeType 按 PostScript 名找集合中的下标并读族名），运行时与 `view_benchmark` 在 macOS 上使用；1,915 个字体、486 个族，首次约 0.3 s，之后进程内复用。泛型族照 Chrome 的 macOS 默认（Times、Helvetica、Courier、system-ui 为 SF），回退为 UI 字体与 CoreText 的 cascade 列表（隐藏的中日韩 UI 字体换成已安装的 PingFang SC/TC/HK/MO、Hiragino Sans、Apple SD Gothic Neo）。
+- **验证**：Debug 与 Release 的 `ctest` 各 66/74；其余 8 项是夹具与浏览器输入的散列校验（签出的换行，与 Windows 上一样不过）。
+- **未验证**：任何 GPU 绘制（没有 Metal 适配器）；与 Chrome on macOS 的文字几何对照（scene 文字测试只在 Windows 构建）；Apple Color Emoji（183 MiB，且 FreeType 未开 PNG）不在字体列表里；`paint_tests` 与 `scene_contract_tests` 里还有两处实参中的 `next()`，在 macOS 上通过，但序列与 Windows 不同；Android 是否有同样的 type info 与 FMA 问题未查。
+- **下一步**：M.3，Metal 适配器（Objective-C++，运行时以 `newLibraryWithSource` 编 MSL，不需要 Xcode）。
+
 展开的问题与它下面的内容：整页布局保留没变的行内格式化上下文，Yoga 在没有空间时也按内容量不滚动的盒子（2026-10-21，`weft-op` 分支；宣传页的引擎版点开常见问题时，答案的高度过渡 0.45 秒，这段时间 4K 下每帧推进 23–35 ms，展开后答案只露出第一行）。
 - **起因**：
   - 答案面板的 `height` 在过渡，每帧都把整页再布局一遍（它在文档流里，局部布局只管两轴都有偏移的绝对定位盒子）。页面运行器按宣传页的 4K（1707 × 907 CSS px、缩放 2.25）计时：一次整页布局约 21 ms，其中 10 ms 是给 427 个行内格式化上下文重新建 `SceneInlineContent`（收集、整形、切成不可断的段），2.5 ms 是它们的 968 次断行，而它们都没有变。
