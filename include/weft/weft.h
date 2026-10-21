@@ -312,8 +312,9 @@ typedef enum weft_key_kind {
  * what the key types with the modifiers ("a", "A", "!", " ") or its name ("Enter", "ArrowLeft", "Shift", "F5", "Dead";
  * weft_keyboard_key gives it for a physical key), code names the physical key ("KeyA", "Digit1", "Space",
  * "ShiftLeft", "Numpad1"), and KeyboardEvent.location follows from code. key_code is KeyboardEvent.keyCode of keydown
- * and keyup, the Windows virtual key; 0 takes the one the system's layout gives the key (Windows maps a key that
- * types a character by the foreground window's layout, as the keys Chrome is given; other platforms a US keyboard's). */
+ * and keyup, the Windows virtual key; 0 takes the one the system gives the key: a numeric keypad key's with Num Lock
+ * off is what it is then (Numpad1 is End, 35), and Windows maps a key that types a character by the foreground window's
+ * layout, as the keys Chrome is given (other platforms take a US keyboard's). */
 typedef struct weft_key_event {
     uint32_t struct_size;
     uint32_t kind; /* weft_key_kind */

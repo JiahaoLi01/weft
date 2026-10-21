@@ -605,11 +605,13 @@ namespace {
         require(weft::windows_key_code("KeyA") == 65 && weft::windows_key_code("Semicolon") == 186 &&
                     weft::windows_key_code("NumpadEnter") == 13 && weft::windows_key_code("NoSuchKey") == 0,
                 "keyCodes");
-        const auto a_code = weft::layout_key_code("KeyA");
-        require(weft::layout_key_code("Enter") == 13 && weft::layout_key_code("ArrowLeft") == 37 &&
-                    weft::layout_key_code("Numpad1") == 97 && weft::layout_key_code("NoSuchKey") == 0 && a_code >= 'A' &&
-                    a_code <= 'Z',
-                "keyCodes in the system's layout");
+        constexpr auto num_lock = weft::key_modifier::num_lock;
+        const auto a_code = weft::layout_key_code("KeyA", num_lock);
+        require(weft::layout_key_code("Enter", 0) == 13 && weft::layout_key_code("ArrowLeft", 0) == 37 &&
+                    weft::layout_key_code("Numpad1", num_lock) == 97 && weft::layout_key_code("Numpad1", 0) == 35 &&
+                    weft::layout_key_code("NumpadAdd", 0) == 107 && weft::layout_key_code("NoSuchKey", 0) == 0 &&
+                    a_code >= 'A' && a_code <= 'Z',
+                "keyCodes as the system gives them");
         require(weft::key_location("ShiftLeft") == 1 && weft::key_location("MetaRight") == 2 &&
                     weft::key_location("Numpad0") == 3 && weft::key_location("ArrowLeft") == 0,
                 "locations");

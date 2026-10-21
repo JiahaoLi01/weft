@@ -281,10 +281,13 @@ namespace weft {
         return k ? k->vk : 0;
     }
 
-    unsigned layout_key_code(std::string_view code) {
+    unsigned layout_key_code(std::string_view code, unsigned modifiers) {
         const auto* k = find(code);
         if (!k) {
             return 0;
+        }
+        if (k->vk_num_off && !(modifiers & key_modifier::num_lock)) {
+            return k->vk_num_off;
         }
 #ifdef _WIN32
         if (!k->us.empty() && !k->code.starts_with("Numpad")) {
