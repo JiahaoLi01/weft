@@ -1,5 +1,6 @@
 #ifndef WEFT_RENDER_BACKEND_H
 #define WEFT_RENDER_BACKEND_H
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
