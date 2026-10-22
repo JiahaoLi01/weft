@@ -27,7 +27,8 @@
 //                                                                      text, up); modifiers of S(hift), C(ontrol), A(lt),
 //                                                                      M(eta), G (AltGraph); the key value weft_keyboard_key
 //                                                                      gives unless "value" says; the text the key's value
-//                                                                      when one character, unless "text" says
+//                                                                      when one character, unless "text" says (none
+//                                                                      for a key the input method took, "ime")
 //   {"frame": 0, "text": "你好"}                                         text typed without a key
 //   {"frame": 0, "compose": "ni", "cursor": 2}                          an input method's composition, its caret at a UTF-8
 //                                                                      offset in it (its end without one); "" cancels it
@@ -1397,10 +1398,12 @@ namespace {
                             value = layout;
                         }
                         const std::string action = step.get_string("action", "press");
-                        // The text of a key whose value is one character (not a name such as Enter or Dead).
+                        // The text of a key whose value is one character (not a name such as Enter or Dead); a key the
+                        // input method took types nothing.
                         const auto lead = value.empty() ? 0 : static_cast<unsigned char>(value[0]);
                         const std::size_t length = lead < 0x80 ? 1 : lead < 0xE0 ? 2 : lead < 0xF0 ? 3 : 4;
-                        const auto typed = step.find("text") ? step.get_string("text")
+                        const auto typed = step.find("text")        ? step.get_string("text")
+                                           : step.get_bool("ime")   ? std::string()
                                            : value.size() == length ? value
                                                                     : std::string();
                         const auto send = [&](std::uint32_t kind) {
