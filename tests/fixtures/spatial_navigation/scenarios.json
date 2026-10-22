@@ -1,0 +1,153 @@
+{
+  "comment": "Spatial navigation scenarios on spatnav.js in an 800 x 600 viewport: Chrome with --enable-spatial-navigation, weft with WEFT_PAGE_SPATIAL_NAVIGATION. A step presses a key (down, its text when it has one, up), holds or releases one, clicks an element's centre, focuses or blurs by script. keys: key, code, Windows virtual key and the text the key types (Enter's '\\r' types no text in weft: its keypress comes from its keydown). chrome-results.json is what Chrome did (tools/browser_spatial_navigation_reference.mjs); tests/spatial_navigation_tests.cpp replays the steps in a View and compares.",
+  "width": 800,
+  "height": 600,
+  "keys": {
+    "Tab": {"key": "Tab", "code": "Tab", "vk": 9},
+    "Enter": {"key": "Enter", "code": "Enter", "vk": 13, "text": "\r"},
+    "Escape": {"key": "Escape", "code": "Escape", "vk": 27},
+    "ArrowUp": {"key": "ArrowUp", "code": "ArrowUp", "vk": 38},
+    "ArrowDown": {"key": "ArrowDown", "code": "ArrowDown", "vk": 40},
+    "ArrowLeft": {"key": "ArrowLeft", "code": "ArrowLeft", "vk": 37},
+    "ArrowRight": {"key": "ArrowRight", "code": "ArrowRight", "vk": 39}
+  },
+  "scenarios": [
+    {
+      "name": "grid",
+      "steps": [
+        {"focus": "g00"},
+        {"press": "ArrowRight"},
+        {"press": "ArrowRight"},
+        {"press": "ArrowDown"},
+        {"press": "ArrowLeft"},
+        {"press": "ArrowLeft"},
+        {"press": "ArrowDown"},
+        {"press": "ArrowRight"},
+        {"press": "ArrowUp"},
+        {"press": "ArrowUp"},
+        {"press": "ArrowUp"}
+      ]
+    },
+    {
+      "name": "nothing-focused",
+      "steps": [
+        {"press": "ArrowDown"},
+        {"press": "ArrowRight"},
+        {"blur": true},
+        {"press": "ArrowUp"},
+        {"blur": true},
+        {"press": "ArrowLeft"}
+      ]
+    },
+    {
+      "name": "links",
+      "steps": [
+        {"focus": "l1"},
+        {"press": "ArrowLeft"},
+        {"press": "ArrowRight"},
+        {"press": "ArrowRight"},
+        {"press": "ArrowUp"},
+        {"press": "ArrowDown"},
+        {"press": "ArrowDown"}
+      ]
+    },
+    {
+      "name": "panels",
+      "steps": [
+        {"focus": "g02"},
+        {"press": "ArrowRight"},
+        {"press": "ArrowRight"},
+        {"press": "ArrowDown"},
+        {"press": "ArrowDown"},
+        {"press": "ArrowLeft"},
+        {"press": "ArrowUp"}
+      ]
+    },
+    {
+      "name": "scroll-container",
+      "steps": [
+        {"focus": "s0"},
+        {"press": "ArrowDown"},
+        {"press": "ArrowDown"},
+        {"press": "ArrowDown"},
+        {"press": "ArrowDown"},
+        {"press": "ArrowDown"},
+        {"press": "ArrowDown"},
+        {"press": "ArrowDown"},
+        {"press": "ArrowUp"},
+        {"press": "ArrowUp"},
+        {"press": "ArrowUp"},
+        {"press": "ArrowRight"}
+      ]
+    },
+    {
+      "name": "text-field",
+      "steps": [
+        {"focus": "in"},
+        {"press": "ArrowLeft"},
+        {"press": "ArrowRight"},
+        {"press": "ArrowRight"},
+        {"press": "ArrowRight"},
+        {"press": "ArrowRight"},
+        {"press": "ArrowRight"},
+        {"press": "ArrowDown"},
+        {"focus": "in"},
+        {"press": "ArrowUp"}
+      ]
+    },
+    {
+      "name": "textarea",
+      "steps": [
+        {"focus": "ta"},
+        {"press": "ArrowDown"},
+        {"press": "ArrowDown"},
+        {"press": "ArrowDown"},
+        {"focus": "ta"},
+        {"press": "ArrowUp"},
+        {"press": "ArrowUp"},
+        {"press": "ArrowUp"}
+      ]
+    },
+    {
+      "name": "overlap",
+      "steps": [
+        {"focus": "under"},
+        {"press": "ArrowRight"},
+        {"press": "ArrowLeft"},
+        {"press": "ArrowDown"},
+        {"press": "ArrowUp"}
+      ]
+    },
+    {
+      "name": "enter-escape",
+      "steps": [
+        {"focus": "g11"},
+        {"down": "Enter"},
+        {"up": "Enter"},
+        {"press": "Escape"},
+        {"press": "ArrowDown"},
+        {"press": "Escape"},
+        {"press": "Escape"},
+        {"press": "Tab"}
+      ]
+    },
+    {
+      "name": "listener",
+      "steps": [
+        {"focus": "jump"},
+        {"press": "ArrowRight"},
+        {"press": "ArrowDown"}
+      ]
+    },
+    {
+      "name": "far",
+      "steps": [
+        {"focus": "over"},
+        {"press": "ArrowDown"},
+        {"press": "ArrowRight"},
+        {"press": "ArrowDown"},
+        {"press": "ArrowLeft"}
+      ]
+    }
+  ]
+}

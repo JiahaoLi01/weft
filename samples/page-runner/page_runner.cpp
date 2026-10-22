@@ -11,7 +11,8 @@
 // --render-every or a shot), took longer than that many ms.
 //
 // The page is a folder as hosts load it: page.json ({"scripts": [...], "stylesheet": "...", "keyframes": "...", "root":
-// "...", "crpgBridge": false, "forgivingCss": false, "webPlatform": false}, paths relative to the folder), or page.js
+// "...", "crpgBridge": false, "forgivingCss": false, "webPlatform": false, "spatialNavigation": false}, paths relative to
+// the folder), or page.js
 // with page.css and keyframes.css. Its base (for url() images) is the stylesheet's path; the runner reads those files
 // from disk. --storage names a JSON object of strings: the View's localStorage before the page loads, written back
 // when the page changed it.
@@ -35,6 +36,12 @@
 //   {"frame": 0, "commit": "你"}                                        an input method commits text
 //   {"frame": 0, "textInput": true}                                     prints where text input goes (weft_view_text_input)
 //   {"frame": 0, "focus": false}                                        the host's keyboard focus leaves (true: comes back)
+//   {"frame": 0, "gamepad": 0, "buttons": ["a", "down"], "axes": [0, -0.8, 0, 0], "connected": true, "id": "..."}
+//                                                                      a gamepad's state in a slot from then on, given
+//                                                                      every frame as hosts do: the standard buttons
+//                                                                      pressed (a b x y lb rb lt rt back start ls rs up
+//                                                                      down left right home), the sticks' axes; connected
+//                                                                      false: it goes
 //   {"frame": 0, "hit": [x, y]}                                         prints what is under a point
 //   {"frame": 0, "resize": [width, height, scale]}
 //   {"frame": 0, "shot": "name.png"}                                    draws the frame into <out>/name.png
@@ -662,6 +669,7 @@ namespace {
         bool crpg_bridge{};
         bool forgiving_css{};
         bool web_platform{};
+        bool spatial_navigation{};
     };
 
     Page read_page(const std::filesystem::path& dir) {
@@ -686,6 +694,7 @@ namespace {
             page.crpg_bridge = json.get_bool("crpgBridge");
             page.forgiving_css = json.get_bool("forgivingCss");
             page.web_platform = json.get_bool("webPlatform");
+            page.spatial_navigation = json.get_bool("spatialNavigation");
         } else {
             page.scripts.emplace_back("page.js", read(dir / "page.js"));
             if (std::filesystem::exists(dir / "page.css")) {
@@ -961,10 +970,17 @@ namespace {
         double slow_ms = 100;
     };
 
-    // The engine of the run: the runtime, the View and what the page sent.
+    // A gamepad the timeline connected: its id (the state's points into it) and its latest state.
+    struct Gamepad {
+        std::string id;
+        weft_gamepad_state state{};
+    };
+
+    // The engine of the run: the runtime, the View, its gamepads and what the page sent.
     struct Run {
         weft_runtime* runtime{};
         weft_view_handle view{};
+        std::array<std::unique_ptr<Gamepad>, WEFT_GAMEPAD_SLOTS> gamepads;
         const Json* replies{};
         unsigned diagnostics{};
         unsigned messages{};
@@ -1226,7 +1242,8 @@ namespace {
         weft_page_desc desc{sizeof(desc)};
         desc.flags = (page.crpg_bridge ? WEFT_PAGE_CRPG_BRIDGE : 0u) |
                      (page.forgiving_css ? WEFT_PAGE_FORGIVING_CSS : 0u) |
-                     (page.web_platform ? WEFT_PAGE_WEB_PLATFORM : 0u);
+                     (page.web_platform ? WEFT_PAGE_WEB_PLATFORM : 0u) |
+                     (page.spatial_navigation ? WEFT_PAGE_SPATIAL_NAVIGATION : 0u);
         desc.scripts = scripts.data();
         desc.script_count = std::uint32_t(scripts.size());
         desc.stylesheet = page.stylesheet.data();
@@ -1473,6 +1490,49 @@ namespace {
                     if (const Json* focus = step.find("focus")) {
                         weft_view_set_focus(run.runtime, run.view, step.get_bool("focus", true) ? 1 : 0);
                     }
+                    if (const Json* slot = step.find("gamepad")) {
+                        const auto index = std::size_t(slot->number);
+                        if (slot->kind != Json::Kind::Number || index >= WEFT_GAMEPAD_SLOTS) {
+                            throw Failure("gamepad wants a slot of 0 to 3");
+                        }
+                        auto pad = std::make_unique<Gamepad>();
+                        pad->id = step.get_string("id", "Xbox 360 Controller (XInput STANDARD GAMEPAD)");
+                        auto& s = pad->state;
+                        s.struct_size = sizeof(s);
+                        s.index = std::uint32_t(index);
+                        s.connected = step.get_bool("connected", true) ? 1 : 0;
+                        s.id = pad->id.data();
+                        s.id_size = pad->id.size();
+                        static constexpr std::array<std::string_view, WEFT_GAMEPAD_BUTTONS> names{
+                            "a",     "b",  "x",  "y",  "lb", "rb",   "lt",   "rt",   "back",
+                            "start", "ls", "rs", "up", "down", "left", "right", "home"};
+                        std::string pressed;
+                        if (const Json* buttons = step.find("buttons")) {
+                            for (const Json& b : buttons->items) {
+                                const auto it = std::find(names.begin(), names.end(), b.string);
+                                if (it == names.end()) {
+                                    throw Failure("gamepad button " + b.string + " is none of the standard ones");
+                                }
+                                const auto k = std::size_t(it - names.begin());
+                                s.buttons[k] = 1;
+                                s.pressed |= 1u << k;
+                                s.touched |= 1u << k;
+                                pressed += (pressed.empty() ? "" : ",") + b.string;
+                            }
+                        }
+                        if (const Json* axes = step.find("axes")) {
+                            for (std::size_t k = 0; k < axes->items.size() && k < WEFT_GAMEPAD_AXES; ++k) {
+                                s.axes[k] = std::clamp(float(axes->items[k].number), -1.0f, 1.0f);
+                            }
+                        }
+                        std::uint32_t handled{};
+                        const weft_result r = weft_view_gamepad(run.runtime, run.view, &s, &handled);
+                        std::printf("[gamepad] %zu %s%s axes=%g,%g,%g,%g -> %s%s%s\n", index,
+                                    s.connected ? "" : "gone ", pressed.c_str(), s.axes[0], s.axes[1], s.axes[2],
+                                    s.axes[3], weft_result_string(r), handled & WEFT_INPUT_PREVENTED ? " prevented" : "",
+                                    handled & WEFT_INPUT_DEFAULT ? " default" : "");
+                        run.gamepads[index] = s.connected ? std::move(pad) : nullptr;
+                    }
                     if (const Json* hit = step.find("hit"); hit && hit->items.size() == 2) {
                         weft_hit h{};
                         h.struct_size = sizeof(h);
@@ -1501,6 +1561,12 @@ namespace {
                         loaded = load(run, page);
                         status = loaded ? status : 1;
                     }
+                }
+            }
+            // A host gives each connected gamepad's state every frame.
+            for (const auto& pad : run.gamepads) {
+                if (pad) {
+                    weft_view_gamepad(run.runtime, run.view, &pad->state, nullptr);
                 }
             }
             const auto start = std::chrono::steady_clock::now();

@@ -1,0 +1,3582 @@
+{
+ "chrome": "Chrome/155.0.8059.85",
+ "scenarios": {
+  "grid": [
+   {
+    "step": {
+     "focus": "g00"
+    },
+    "events": [
+     {
+      "type": "focus",
+      "target": "g00",
+      "related": null,
+      "active": "g00"
+     }
+    ],
+    "state": {
+     "active": "g00",
+     "visible": true,
+     "hover": null,
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowRight"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "g00",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "g00"
+     },
+     {
+      "type": "blur",
+      "target": "g00",
+      "related": "g01",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "g01",
+      "related": "g00",
+      "active": "g01"
+     },
+     {
+      "type": "mouseover",
+      "target": "g01",
+      "related": null,
+      "active": "g01"
+     },
+     {
+      "type": "keyup",
+      "target": "g01",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "g01"
+     }
+    ],
+    "state": {
+     "active": "g01",
+     "visible": true,
+     "hover": "g01",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowRight"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "g01",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "g01"
+     },
+     {
+      "type": "blur",
+      "target": "g01",
+      "related": "g02",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "g02",
+      "related": "g01",
+      "active": "g02"
+     },
+     {
+      "type": "mouseout",
+      "target": "g01",
+      "related": "g02",
+      "active": "g02"
+     },
+     {
+      "type": "mouseover",
+      "target": "g02",
+      "related": "g01",
+      "active": "g02"
+     },
+     {
+      "type": "keyup",
+      "target": "g02",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "g02"
+     }
+    ],
+    "state": {
+     "active": "g02",
+     "visible": true,
+     "hover": "g02",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "g02",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "g02"
+     },
+     {
+      "type": "blur",
+      "target": "g02",
+      "related": "g12",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "g12",
+      "related": "g02",
+      "active": "g12"
+     },
+     {
+      "type": "mouseout",
+      "target": "g02",
+      "related": "g12",
+      "active": "g12"
+     },
+     {
+      "type": "mouseover",
+      "target": "g12",
+      "related": "g02",
+      "active": "g12"
+     },
+     {
+      "type": "keyup",
+      "target": "g12",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "g12"
+     }
+    ],
+    "state": {
+     "active": "g12",
+     "visible": true,
+     "hover": "g12",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowLeft"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "g12",
+      "key": "ArrowLeft",
+      "code": "ArrowLeft",
+      "keyCode": 37,
+      "active": "g12"
+     },
+     {
+      "type": "blur",
+      "target": "g12",
+      "related": "g11",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "g11",
+      "related": "g12",
+      "active": "g11"
+     },
+     {
+      "type": "mouseout",
+      "target": "g12",
+      "related": "g11",
+      "active": "g11"
+     },
+     {
+      "type": "mouseover",
+      "target": "g11",
+      "related": "g12",
+      "active": "g11"
+     },
+     {
+      "type": "keyup",
+      "target": "g11",
+      "key": "ArrowLeft",
+      "code": "ArrowLeft",
+      "keyCode": 37,
+      "active": "g11"
+     }
+    ],
+    "state": {
+     "active": "g11",
+     "visible": true,
+     "hover": "g11",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowLeft"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "g11",
+      "key": "ArrowLeft",
+      "code": "ArrowLeft",
+      "keyCode": 37,
+      "active": "g11"
+     },
+     {
+      "type": "blur",
+      "target": "g11",
+      "related": "g10",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "g10",
+      "related": "g11",
+      "active": "g10"
+     },
+     {
+      "type": "mouseout",
+      "target": "g11",
+      "related": "g10",
+      "active": "g10"
+     },
+     {
+      "type": "mouseover",
+      "target": "g10",
+      "related": "g11",
+      "active": "g10"
+     },
+     {
+      "type": "keyup",
+      "target": "g10",
+      "key": "ArrowLeft",
+      "code": "ArrowLeft",
+      "keyCode": 37,
+      "active": "g10"
+     }
+    ],
+    "state": {
+     "active": "g10",
+     "visible": true,
+     "hover": "g10",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "g10",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "g10"
+     },
+     {
+      "type": "blur",
+      "target": "g10",
+      "related": "g20",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "g20",
+      "related": "g10",
+      "active": "g20"
+     },
+     {
+      "type": "mouseout",
+      "target": "g10",
+      "related": "g20",
+      "active": "g20"
+     },
+     {
+      "type": "mouseover",
+      "target": "g20",
+      "related": "g10",
+      "active": "g20"
+     },
+     {
+      "type": "keyup",
+      "target": "g20",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "g20"
+     }
+    ],
+    "state": {
+     "active": "g20",
+     "visible": true,
+     "hover": "g20",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowRight"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "g20",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "g20"
+     },
+     {
+      "type": "blur",
+      "target": "g20",
+      "related": "g21",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "g21",
+      "related": "g20",
+      "active": "g21"
+     },
+     {
+      "type": "mouseout",
+      "target": "g20",
+      "related": "g21",
+      "active": "g21"
+     },
+     {
+      "type": "mouseover",
+      "target": "g21",
+      "related": "g20",
+      "active": "g21"
+     },
+     {
+      "type": "keyup",
+      "target": "g21",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "g21"
+     }
+    ],
+    "state": {
+     "active": "g21",
+     "visible": true,
+     "hover": "g21",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowUp"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "g21",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "g21"
+     },
+     {
+      "type": "blur",
+      "target": "g21",
+      "related": "g11",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "g11",
+      "related": "g21",
+      "active": "g11"
+     },
+     {
+      "type": "mouseout",
+      "target": "g21",
+      "related": "g11",
+      "active": "g11"
+     },
+     {
+      "type": "mouseover",
+      "target": "g11",
+      "related": "g21",
+      "active": "g11"
+     },
+     {
+      "type": "keyup",
+      "target": "g11",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "g11"
+     }
+    ],
+    "state": {
+     "active": "g11",
+     "visible": true,
+     "hover": "g11",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowUp"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "g11",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "g11"
+     },
+     {
+      "type": "blur",
+      "target": "g11",
+      "related": "g01",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "g01",
+      "related": "g11",
+      "active": "g01"
+     },
+     {
+      "type": "mouseout",
+      "target": "g11",
+      "related": "g01",
+      "active": "g01"
+     },
+     {
+      "type": "mouseover",
+      "target": "g01",
+      "related": "g11",
+      "active": "g01"
+     },
+     {
+      "type": "keyup",
+      "target": "g01",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "g01"
+     }
+    ],
+    "state": {
+     "active": "g01",
+     "visible": true,
+     "hover": "g01",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowUp"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "g01",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "g01"
+     },
+     {
+      "type": "keyup",
+      "target": "g01",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "g01"
+     }
+    ],
+    "state": {
+     "active": "g01",
+     "visible": true,
+     "hover": "g01",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   }
+  ],
+  "nothing-focused": [
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "panel",
+      "related": null,
+      "active": "panel"
+     },
+     {
+      "type": "mouseover",
+      "target": "panel",
+      "related": null,
+      "active": "panel"
+     },
+     {
+      "type": "keyup",
+      "target": "panel",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "panel"
+     }
+    ],
+    "state": {
+     "active": "panel",
+     "visible": true,
+     "hover": "panel",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowRight"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "panel",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "panel"
+     },
+     {
+      "type": "blur",
+      "target": "panel",
+      "related": "pb",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "pb",
+      "related": "panel",
+      "active": "pb"
+     },
+     {
+      "type": "mouseout",
+      "target": "panel",
+      "related": "pb",
+      "active": "pb"
+     },
+     {
+      "type": "mouseover",
+      "target": "pb",
+      "related": "panel",
+      "active": "pb"
+     },
+     {
+      "type": "keyup",
+      "target": "pb",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "pb"
+     }
+    ],
+    "state": {
+     "active": "pb",
+     "visible": true,
+     "hover": "pb",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "blur": true
+    },
+    "events": [
+     {
+      "type": "blur",
+      "target": "pb",
+      "related": null,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": null,
+     "hover": "pb",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowUp"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "far",
+      "related": null,
+      "active": "far"
+     },
+     {
+      "type": "mouseout",
+      "target": "pb",
+      "related": "far",
+      "active": "far"
+     },
+     {
+      "type": "mouseover",
+      "target": "far",
+      "related": "pb",
+      "active": "far"
+     },
+     {
+      "type": "keyup",
+      "target": "far",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "far"
+     }
+    ],
+    "state": {
+     "active": "far",
+     "visible": true,
+     "hover": "far",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "blur": true
+    },
+    "events": [
+     {
+      "type": "blur",
+      "target": "far",
+      "related": null,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": null,
+     "hover": "far",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowLeft"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "ArrowLeft",
+      "code": "ArrowLeft",
+      "keyCode": 37,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "far",
+      "related": null,
+      "active": "far"
+     },
+     {
+      "type": "keyup",
+      "target": "far",
+      "key": "ArrowLeft",
+      "code": "ArrowLeft",
+      "keyCode": 37,
+      "active": "far"
+     }
+    ],
+    "state": {
+     "active": "far",
+     "visible": true,
+     "hover": "far",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   }
+  ],
+  "links": [
+   {
+    "step": {
+     "focus": "l1"
+    },
+    "events": [
+     {
+      "type": "focus",
+      "target": "l1",
+      "related": null,
+      "active": "l1"
+     }
+    ],
+    "state": {
+     "active": "l1",
+     "visible": true,
+     "hover": null,
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowLeft"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "l1",
+      "key": "ArrowLeft",
+      "code": "ArrowLeft",
+      "keyCode": 37,
+      "active": "l1"
+     },
+     {
+      "type": "blur",
+      "target": "l1",
+      "related": "l0",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "l0",
+      "related": "l1",
+      "active": "l0"
+     },
+     {
+      "type": "mouseover",
+      "target": "l0",
+      "related": null,
+      "active": "l0"
+     },
+     {
+      "type": "keyup",
+      "target": "l0",
+      "key": "ArrowLeft",
+      "code": "ArrowLeft",
+      "keyCode": 37,
+      "active": "l0"
+     }
+    ],
+    "state": {
+     "active": "l0",
+     "visible": true,
+     "hover": "l0",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowRight"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "l0",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "l0"
+     },
+     {
+      "type": "blur",
+      "target": "l0",
+      "related": "l1",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "l1",
+      "related": "l0",
+      "active": "l1"
+     },
+     {
+      "type": "mouseout",
+      "target": "l0",
+      "related": "l1",
+      "active": "l1"
+     },
+     {
+      "type": "mouseover",
+      "target": "l1",
+      "related": "l0",
+      "active": "l1"
+     },
+     {
+      "type": "keyup",
+      "target": "l1",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "l1"
+     }
+    ],
+    "state": {
+     "active": "l1",
+     "visible": true,
+     "hover": "l1",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowRight"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "l1",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "l1"
+     },
+     {
+      "type": "blur",
+      "target": "l1",
+      "related": "l2",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "l2",
+      "related": "l1",
+      "active": "l2"
+     },
+     {
+      "type": "mouseout",
+      "target": "l1",
+      "related": "l2",
+      "active": "l2"
+     },
+     {
+      "type": "mouseover",
+      "target": "l2",
+      "related": "l1",
+      "active": "l2"
+     },
+     {
+      "type": "keyup",
+      "target": "l2",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "l2"
+     }
+    ],
+    "state": {
+     "active": "l2",
+     "visible": true,
+     "hover": "l2",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowUp"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "l2",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "l2"
+     },
+     {
+      "type": "blur",
+      "target": "l2",
+      "related": "g22",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "g22",
+      "related": "l2",
+      "active": "g22"
+     },
+     {
+      "type": "mouseout",
+      "target": "l2",
+      "related": "g22",
+      "active": "g22"
+     },
+     {
+      "type": "mouseover",
+      "target": "g22",
+      "related": "l2",
+      "active": "g22"
+     },
+     {
+      "type": "keyup",
+      "target": "g22",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "g22"
+     }
+    ],
+    "state": {
+     "active": "g22",
+     "visible": true,
+     "hover": "g22",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "g22",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "g22"
+     },
+     {
+      "type": "blur",
+      "target": "g22",
+      "related": "l1",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "l1",
+      "related": "g22",
+      "active": "l1"
+     },
+     {
+      "type": "mouseout",
+      "target": "g22",
+      "related": "l1",
+      "active": "l1"
+     },
+     {
+      "type": "mouseover",
+      "target": "l1",
+      "related": "g22",
+      "active": "l1"
+     },
+     {
+      "type": "keyup",
+      "target": "l1",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "l1"
+     }
+    ],
+    "state": {
+     "active": "l1",
+     "visible": true,
+     "hover": "l1",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "l1",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "l1"
+     },
+     {
+      "type": "blur",
+      "target": "l1",
+      "related": "in",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "in",
+      "related": "l1",
+      "active": "in"
+     },
+     {
+      "type": "mouseout",
+      "target": "l1",
+      "related": "in",
+      "active": "in"
+     },
+     {
+      "type": "mouseover",
+      "target": "in",
+      "related": "l1",
+      "active": "in"
+     },
+     {
+      "type": "keyup",
+      "target": "in",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "in"
+     }
+    ],
+    "state": {
+     "active": "in",
+     "visible": true,
+     "hover": "in",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   }
+  ],
+  "panels": [
+   {
+    "step": {
+     "focus": "g02"
+    },
+    "events": [
+     {
+      "type": "focus",
+      "target": "g02",
+      "related": null,
+      "active": "g02"
+     }
+    ],
+    "state": {
+     "active": "g02",
+     "visible": true,
+     "hover": null,
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowRight"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "g02",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "g02"
+     },
+     {
+      "type": "blur",
+      "target": "g02",
+      "related": "panel",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "panel",
+      "related": "g02",
+      "active": "panel"
+     },
+     {
+      "type": "mouseover",
+      "target": "panel",
+      "related": null,
+      "active": "panel"
+     },
+     {
+      "type": "keyup",
+      "target": "panel",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "panel"
+     }
+    ],
+    "state": {
+     "active": "panel",
+     "visible": true,
+     "hover": "panel",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowRight"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "panel",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "panel"
+     },
+     {
+      "type": "blur",
+      "target": "panel",
+      "related": "pb",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "pb",
+      "related": "panel",
+      "active": "pb"
+     },
+     {
+      "type": "mouseout",
+      "target": "panel",
+      "related": "pb",
+      "active": "pb"
+     },
+     {
+      "type": "mouseover",
+      "target": "pb",
+      "related": "panel",
+      "active": "pb"
+     },
+     {
+      "type": "keyup",
+      "target": "pb",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "pb"
+     }
+    ],
+    "state": {
+     "active": "pb",
+     "visible": true,
+     "hover": "pb",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "pb",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "pb"
+     },
+     {
+      "type": "blur",
+      "target": "pb",
+      "related": "bb",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "bb",
+      "related": "pb",
+      "active": "bb"
+     },
+     {
+      "type": "mouseout",
+      "target": "pb",
+      "related": "bb",
+      "active": "bb"
+     },
+     {
+      "type": "mouseover",
+      "target": "bb",
+      "related": "pb",
+      "active": "bb"
+     },
+     {
+      "type": "keyup",
+      "target": "bb",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "bb"
+     }
+    ],
+    "state": {
+     "active": "bb",
+     "visible": true,
+     "hover": "bb",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "bb",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "bb"
+     },
+     {
+      "type": "blur",
+      "target": "bb",
+      "related": "under",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "under",
+      "related": "bb",
+      "active": "under"
+     },
+     {
+      "type": "mouseout",
+      "target": "bb",
+      "related": "under",
+      "active": "under"
+     },
+     {
+      "type": "mouseover",
+      "target": "under",
+      "related": "bb",
+      "active": "under"
+     },
+     {
+      "type": "keyup",
+      "target": "under",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "under"
+     }
+    ],
+    "state": {
+     "active": "under",
+     "visible": true,
+     "hover": "under",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowLeft"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "under",
+      "key": "ArrowLeft",
+      "code": "ArrowLeft",
+      "keyCode": 37,
+      "active": "under"
+     },
+     {
+      "type": "blur",
+      "target": "under",
+      "related": "in",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "in",
+      "related": "under",
+      "active": "in"
+     },
+     {
+      "type": "mouseout",
+      "target": "under",
+      "related": "in",
+      "active": "in"
+     },
+     {
+      "type": "mouseover",
+      "target": "in",
+      "related": "under",
+      "active": "in"
+     },
+     {
+      "type": "keyup",
+      "target": "in",
+      "key": "ArrowLeft",
+      "code": "ArrowLeft",
+      "keyCode": 37,
+      "active": "in"
+     }
+    ],
+    "state": {
+     "active": "in",
+     "visible": true,
+     "hover": "in",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowUp"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "in",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "in"
+     },
+     {
+      "type": "keyup",
+      "target": "in",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "in"
+     }
+    ],
+    "state": {
+     "active": "in",
+     "visible": true,
+     "hover": "in",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   }
+  ],
+  "scroll-container": [
+   {
+    "step": {
+     "focus": "s0"
+    },
+    "events": [
+     {
+      "type": "focus",
+      "target": "s0",
+      "related": null,
+      "active": "s0"
+     }
+    ],
+    "state": {
+     "active": "s0",
+     "visible": true,
+     "hover": null,
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "s0",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "s0"
+     },
+     {
+      "type": "blur",
+      "target": "s0",
+      "related": "s1",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "s1",
+      "related": "s0",
+      "active": "s1"
+     },
+     {
+      "type": "mouseover",
+      "target": "s1",
+      "related": null,
+      "active": "s1"
+     },
+     {
+      "type": "keyup",
+      "target": "s1",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "s1"
+     }
+    ],
+    "state": {
+     "active": "s1",
+     "visible": true,
+     "hover": "s1",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "s1",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "s1"
+     },
+     {
+      "type": "blur",
+      "target": "s1",
+      "related": "s2",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "s2",
+      "related": "s1",
+      "active": "s2"
+     },
+     {
+      "type": "mouseout",
+      "target": "s1",
+      "related": "s2",
+      "active": "s2"
+     },
+     {
+      "type": "mouseover",
+      "target": "s2",
+      "related": "s1",
+      "active": "s2"
+     },
+     {
+      "type": "keyup",
+      "target": "s2",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "s2"
+     }
+    ],
+    "state": {
+     "active": "s2",
+     "visible": true,
+     "hover": "s2",
+     "pressed": null,
+     "scroll": 20,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "s2",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "s2"
+     },
+     {
+      "type": "keyup",
+      "target": "s2",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "s2"
+     }
+    ],
+    "state": {
+     "active": "s2",
+     "visible": true,
+     "hover": "s2",
+     "pressed": null,
+     "scroll": 60,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "s2",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "s2"
+     },
+     {
+      "type": "blur",
+      "target": "s2",
+      "related": "s3",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "s3",
+      "related": "s2",
+      "active": "s3"
+     },
+     {
+      "type": "mouseout",
+      "target": "s2",
+      "related": "s3",
+      "active": "s3"
+     },
+     {
+      "type": "mouseover",
+      "target": "s3",
+      "related": "s2",
+      "active": "s3"
+     },
+     {
+      "type": "keyup",
+      "target": "s3",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "s3"
+     }
+    ],
+    "state": {
+     "active": "s3",
+     "visible": true,
+     "hover": "s3",
+     "pressed": null,
+     "scroll": 60,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "s3",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "s3"
+     },
+     {
+      "type": "keyup",
+      "target": "s3",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "s3"
+     }
+    ],
+    "state": {
+     "active": "s3",
+     "visible": true,
+     "hover": "s3",
+     "pressed": null,
+     "scroll": 100,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "s3",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "s3"
+     },
+     {
+      "type": "blur",
+      "target": "s3",
+      "related": "s4",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "s4",
+      "related": "s3",
+      "active": "s4"
+     },
+     {
+      "type": "mouseout",
+      "target": "s3",
+      "related": "s4",
+      "active": "s4"
+     },
+     {
+      "type": "mouseover",
+      "target": "s4",
+      "related": "s3",
+      "active": "s4"
+     },
+     {
+      "type": "keyup",
+      "target": "s4",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "s4"
+     }
+    ],
+    "state": {
+     "active": "s4",
+     "visible": true,
+     "hover": "s4",
+     "pressed": null,
+     "scroll": 100,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "s4",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "s4"
+     },
+     {
+      "type": "keyup",
+      "target": "s4",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "s4"
+     }
+    ],
+    "state": {
+     "active": "s4",
+     "visible": true,
+     "hover": "s4",
+     "pressed": null,
+     "scroll": 140,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowUp"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "s4",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "s4"
+     },
+     {
+      "type": "blur",
+      "target": "s4",
+      "related": "s3",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "s3",
+      "related": "s4",
+      "active": "s3"
+     },
+     {
+      "type": "mouseout",
+      "target": "s4",
+      "related": "s3",
+      "active": "s3"
+     },
+     {
+      "type": "mouseover",
+      "target": "s3",
+      "related": "s4",
+      "active": "s3"
+     },
+     {
+      "type": "keyup",
+      "target": "s3",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "s3"
+     }
+    ],
+    "state": {
+     "active": "s3",
+     "visible": true,
+     "hover": "s3",
+     "pressed": null,
+     "scroll": 130,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowUp"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "s3",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "s3"
+     },
+     {
+      "type": "keyup",
+      "target": "s3",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "s3"
+     }
+    ],
+    "state": {
+     "active": "s3",
+     "visible": true,
+     "hover": "s3",
+     "pressed": null,
+     "scroll": 90,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowUp"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "s3",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "s3"
+     },
+     {
+      "type": "blur",
+      "target": "s3",
+      "related": "s2",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "s2",
+      "related": "s3",
+      "active": "s2"
+     },
+     {
+      "type": "mouseout",
+      "target": "s3",
+      "related": "s2",
+      "active": "s2"
+     },
+     {
+      "type": "mouseover",
+      "target": "s2",
+      "related": "s3",
+      "active": "s2"
+     },
+     {
+      "type": "keyup",
+      "target": "s2",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "s2"
+     }
+    ],
+    "state": {
+     "active": "s2",
+     "visible": true,
+     "hover": "s2",
+     "pressed": null,
+     "scroll": 90,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowRight"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "s2",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "s2"
+     },
+     {
+      "type": "blur",
+      "target": "s2",
+      "related": "in",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "in",
+      "related": "s2",
+      "active": "in"
+     },
+     {
+      "type": "mouseout",
+      "target": "s2",
+      "related": "in",
+      "active": "in"
+     },
+     {
+      "type": "mouseover",
+      "target": "in",
+      "related": "s2",
+      "active": "in"
+     },
+     {
+      "type": "keyup",
+      "target": "in",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "in"
+     }
+    ],
+    "state": {
+     "active": "in",
+     "visible": true,
+     "hover": "in",
+     "pressed": null,
+     "scroll": 90,
+     "caret": 0,
+     "area": 0
+    }
+   }
+  ],
+  "text-field": [
+   {
+    "step": {
+     "focus": "in"
+    },
+    "events": [
+     {
+      "type": "focus",
+      "target": "in",
+      "related": null,
+      "active": "in"
+     }
+    ],
+    "state": {
+     "active": "in",
+     "visible": true,
+     "hover": null,
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowLeft"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "in",
+      "key": "ArrowLeft",
+      "code": "ArrowLeft",
+      "keyCode": 37,
+      "active": "in"
+     },
+     {
+      "type": "blur",
+      "target": "in",
+      "related": "s0",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "s0",
+      "related": "in",
+      "active": "s0"
+     },
+     {
+      "type": "mouseover",
+      "target": "s0",
+      "related": null,
+      "active": "s0"
+     },
+     {
+      "type": "keyup",
+      "target": "s0",
+      "key": "ArrowLeft",
+      "code": "ArrowLeft",
+      "keyCode": 37,
+      "active": "s0"
+     }
+    ],
+    "state": {
+     "active": "s0",
+     "visible": true,
+     "hover": "s0",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowRight"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "s0",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "s0"
+     },
+     {
+      "type": "blur",
+      "target": "s0",
+      "related": "in",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "in",
+      "related": "s0",
+      "active": "in"
+     },
+     {
+      "type": "mouseout",
+      "target": "s0",
+      "related": "in",
+      "active": "in"
+     },
+     {
+      "type": "mouseover",
+      "target": "in",
+      "related": "s0",
+      "active": "in"
+     },
+     {
+      "type": "keyup",
+      "target": "in",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "in"
+     }
+    ],
+    "state": {
+     "active": "in",
+     "visible": true,
+     "hover": "in",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowRight"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "in",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "in"
+     },
+     {
+      "type": "keyup",
+      "target": "in",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "in"
+     }
+    ],
+    "state": {
+     "active": "in",
+     "visible": true,
+     "hover": "in",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 4,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowRight"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "in",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "in"
+     },
+     {
+      "type": "blur",
+      "target": "in",
+      "related": "under",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "under",
+      "related": "in",
+      "active": "under"
+     },
+     {
+      "type": "mouseout",
+      "target": "in",
+      "related": "under",
+      "active": "under"
+     },
+     {
+      "type": "mouseover",
+      "target": "under",
+      "related": "in",
+      "active": "under"
+     },
+     {
+      "type": "keyup",
+      "target": "under",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "under"
+     }
+    ],
+    "state": {
+     "active": "under",
+     "visible": true,
+     "hover": "under",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 4,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowRight"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "under",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "under"
+     },
+     {
+      "type": "blur",
+      "target": "under",
+      "related": "over",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "over",
+      "related": "under",
+      "active": "over"
+     },
+     {
+      "type": "mouseout",
+      "target": "under",
+      "related": "over",
+      "active": "over"
+     },
+     {
+      "type": "mouseover",
+      "target": "over",
+      "related": "under",
+      "active": "over"
+     },
+     {
+      "type": "keyup",
+      "target": "over",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "over"
+     }
+    ],
+    "state": {
+     "active": "over",
+     "visible": true,
+     "hover": "over",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 4,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowRight"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "over",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "over"
+     },
+     {
+      "type": "blur",
+      "target": "over",
+      "related": "ta",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "ta",
+      "related": "over",
+      "active": "ta"
+     },
+     {
+      "type": "mouseout",
+      "target": "over",
+      "related": "ta",
+      "active": "ta"
+     },
+     {
+      "type": "mouseover",
+      "target": "ta",
+      "related": "over",
+      "active": "ta"
+     },
+     {
+      "type": "keyup",
+      "target": "ta",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "ta"
+     }
+    ],
+    "state": {
+     "active": "ta",
+     "visible": true,
+     "hover": "ta",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 4,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "ta",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "ta"
+     },
+     {
+      "type": "keyup",
+      "target": "ta",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "ta"
+     }
+    ],
+    "state": {
+     "active": "ta",
+     "visible": true,
+     "hover": "ta",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 4,
+     "area": 4
+    }
+   },
+   {
+    "step": {
+     "focus": "in"
+    },
+    "events": [
+     {
+      "type": "blur",
+      "target": "ta",
+      "related": "in",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "in",
+      "related": "ta",
+      "active": "in"
+     }
+    ],
+    "state": {
+     "active": "in",
+     "visible": true,
+     "hover": "ta",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 4,
+     "area": 4
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowUp"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "in",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "in"
+     },
+     {
+      "type": "keyup",
+      "target": "in",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "in"
+     }
+    ],
+    "state": {
+     "active": "in",
+     "visible": true,
+     "hover": "ta",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 4
+    }
+   }
+  ],
+  "textarea": [
+   {
+    "step": {
+     "focus": "ta"
+    },
+    "events": [
+     {
+      "type": "focus",
+      "target": "ta",
+      "related": null,
+      "active": "ta"
+     }
+    ],
+    "state": {
+     "active": "ta",
+     "visible": true,
+     "hover": null,
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "ta",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "ta"
+     },
+     {
+      "type": "keyup",
+      "target": "ta",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "ta"
+     }
+    ],
+    "state": {
+     "active": "ta",
+     "visible": true,
+     "hover": null,
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 4
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "ta",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "ta"
+     },
+     {
+      "type": "keyup",
+      "target": "ta",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "ta"
+     }
+    ],
+    "state": {
+     "active": "ta",
+     "visible": true,
+     "hover": null,
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 7
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "ta",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "ta"
+     },
+     {
+      "type": "blur",
+      "target": "ta",
+      "related": "over",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "over",
+      "related": "ta",
+      "active": "over"
+     },
+     {
+      "type": "mouseover",
+      "target": "over",
+      "related": null,
+      "active": "over"
+     },
+     {
+      "type": "keyup",
+      "target": "over",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "over"
+     }
+    ],
+    "state": {
+     "active": "over",
+     "visible": true,
+     "hover": "over",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 7
+    }
+   },
+   {
+    "step": {
+     "focus": "ta"
+    },
+    "events": [
+     {
+      "type": "blur",
+      "target": "over",
+      "related": "ta",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "ta",
+      "related": "over",
+      "active": "ta"
+     }
+    ],
+    "state": {
+     "active": "ta",
+     "visible": true,
+     "hover": "over",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 7
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowUp"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "ta",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "ta"
+     },
+     {
+      "type": "keyup",
+      "target": "ta",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "ta"
+     }
+    ],
+    "state": {
+     "active": "ta",
+     "visible": true,
+     "hover": "over",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowUp"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "ta",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "ta"
+     },
+     {
+      "type": "blur",
+      "target": "ta",
+      "related": "panel",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "panel",
+      "related": "ta",
+      "active": "panel"
+     },
+     {
+      "type": "mouseout",
+      "target": "over",
+      "related": "panel",
+      "active": "panel"
+     },
+     {
+      "type": "mouseover",
+      "target": "panel",
+      "related": "over",
+      "active": "panel"
+     },
+     {
+      "type": "keyup",
+      "target": "panel",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "panel"
+     }
+    ],
+    "state": {
+     "active": "panel",
+     "visible": true,
+     "hover": "panel",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowUp"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "panel",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "panel"
+     },
+     {
+      "type": "blur",
+      "target": "panel",
+      "related": "pb",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "pb",
+      "related": "panel",
+      "active": "pb"
+     },
+     {
+      "type": "mouseout",
+      "target": "panel",
+      "related": "pb",
+      "active": "pb"
+     },
+     {
+      "type": "mouseover",
+      "target": "pb",
+      "related": "panel",
+      "active": "pb"
+     },
+     {
+      "type": "keyup",
+      "target": "pb",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "pb"
+     }
+    ],
+    "state": {
+     "active": "pb",
+     "visible": true,
+     "hover": "pb",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   }
+  ],
+  "overlap": [
+   {
+    "step": {
+     "focus": "under"
+    },
+    "events": [
+     {
+      "type": "focus",
+      "target": "under",
+      "related": null,
+      "active": "under"
+     }
+    ],
+    "state": {
+     "active": "under",
+     "visible": true,
+     "hover": null,
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowRight"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "under",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "under"
+     },
+     {
+      "type": "blur",
+      "target": "under",
+      "related": "over",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "over",
+      "related": "under",
+      "active": "over"
+     },
+     {
+      "type": "mouseover",
+      "target": "over",
+      "related": null,
+      "active": "over"
+     },
+     {
+      "type": "keyup",
+      "target": "over",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "over"
+     }
+    ],
+    "state": {
+     "active": "over",
+     "visible": true,
+     "hover": "over",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowLeft"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "over",
+      "key": "ArrowLeft",
+      "code": "ArrowLeft",
+      "keyCode": 37,
+      "active": "over"
+     },
+     {
+      "type": "blur",
+      "target": "over",
+      "related": "under",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "under",
+      "related": "over",
+      "active": "under"
+     },
+     {
+      "type": "mouseout",
+      "target": "over",
+      "related": "under",
+      "active": "under"
+     },
+     {
+      "type": "mouseover",
+      "target": "under",
+      "related": "over",
+      "active": "under"
+     },
+     {
+      "type": "keyup",
+      "target": "under",
+      "key": "ArrowLeft",
+      "code": "ArrowLeft",
+      "keyCode": 37,
+      "active": "under"
+     }
+    ],
+    "state": {
+     "active": "under",
+     "visible": true,
+     "hover": "under",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "under",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "under"
+     },
+     {
+      "type": "blur",
+      "target": "under",
+      "related": "over",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "over",
+      "related": "under",
+      "active": "over"
+     },
+     {
+      "type": "mouseout",
+      "target": "under",
+      "related": "over",
+      "active": "over"
+     },
+     {
+      "type": "mouseover",
+      "target": "over",
+      "related": "under",
+      "active": "over"
+     },
+     {
+      "type": "keyup",
+      "target": "over",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "over"
+     }
+    ],
+    "state": {
+     "active": "over",
+     "visible": true,
+     "hover": "over",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowUp"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "over",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "over"
+     },
+     {
+      "type": "blur",
+      "target": "over",
+      "related": "under",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "under",
+      "related": "over",
+      "active": "under"
+     },
+     {
+      "type": "mouseout",
+      "target": "over",
+      "related": "under",
+      "active": "under"
+     },
+     {
+      "type": "mouseover",
+      "target": "under",
+      "related": "over",
+      "active": "under"
+     },
+     {
+      "type": "keyup",
+      "target": "under",
+      "key": "ArrowUp",
+      "code": "ArrowUp",
+      "keyCode": 38,
+      "active": "under"
+     }
+    ],
+    "state": {
+     "active": "under",
+     "visible": true,
+     "hover": "under",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   }
+  ],
+  "enter-escape": [
+   {
+    "step": {
+     "focus": "g11"
+    },
+    "events": [
+     {
+      "type": "focus",
+      "target": "g11",
+      "related": null,
+      "active": "g11"
+     }
+    ],
+    "state": {
+     "active": "g11",
+     "visible": true,
+     "hover": null,
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "down": "Enter"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "g11",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "active": "g11"
+     },
+     {
+      "type": "keypress",
+      "target": "g11",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "active": "g11"
+     },
+     {
+      "type": "click",
+      "target": "g11",
+      "active": "g11"
+     }
+    ],
+    "state": {
+     "active": "g11",
+     "visible": true,
+     "hover": null,
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "up": "Enter"
+    },
+    "events": [
+     {
+      "type": "keyup",
+      "target": "g11",
+      "key": "Enter",
+      "code": "Enter",
+      "keyCode": 13,
+      "active": "g11"
+     }
+    ],
+    "state": {
+     "active": "g11",
+     "visible": true,
+     "hover": null,
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Escape"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "g11",
+      "key": "Escape",
+      "code": "Escape",
+      "keyCode": 27,
+      "active": "g11"
+     },
+     {
+      "type": "blur",
+      "target": "g11",
+      "related": null,
+      "active": "body"
+     },
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": "Escape",
+      "code": "Escape",
+      "keyCode": 27,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": null,
+     "hover": null,
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "panel",
+      "related": null,
+      "active": "panel"
+     },
+     {
+      "type": "mouseover",
+      "target": "panel",
+      "related": null,
+      "active": "panel"
+     },
+     {
+      "type": "keyup",
+      "target": "panel",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "panel"
+     }
+    ],
+    "state": {
+     "active": "panel",
+     "visible": true,
+     "hover": "panel",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Escape"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "panel",
+      "key": "Escape",
+      "code": "Escape",
+      "keyCode": 27,
+      "active": "panel"
+     },
+     {
+      "type": "blur",
+      "target": "panel",
+      "related": null,
+      "active": "body"
+     },
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": "Escape",
+      "code": "Escape",
+      "keyCode": 27,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": null,
+     "hover": "panel",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Escape"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "Escape",
+      "code": "Escape",
+      "keyCode": 27,
+      "active": "body"
+     },
+     {
+      "type": "mouseout",
+      "target": "panel",
+      "related": null,
+      "active": "body"
+     },
+     {
+      "type": "keyup",
+      "target": "body",
+      "key": "Escape",
+      "code": "Escape",
+      "keyCode": 27,
+      "active": "body"
+     }
+    ],
+    "state": {
+     "active": "body",
+     "visible": null,
+     "hover": null,
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "Tab"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "body",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "pb",
+      "related": null,
+      "active": "pb"
+     },
+     {
+      "type": "keyup",
+      "target": "pb",
+      "key": "Tab",
+      "code": "Tab",
+      "keyCode": 9,
+      "active": "pb"
+     }
+    ],
+    "state": {
+     "active": "pb",
+     "visible": true,
+     "hover": null,
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   }
+  ],
+  "listener": [
+   {
+    "step": {
+     "focus": "jump"
+    },
+    "events": [
+     {
+      "type": "focus",
+      "target": "jump",
+      "related": null,
+      "active": "jump"
+     }
+    ],
+    "state": {
+     "active": "jump",
+     "visible": true,
+     "hover": null,
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowRight"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "jump",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "jump"
+     },
+     {
+      "type": "blur",
+      "target": "jump",
+      "related": "g22",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "g22",
+      "related": "jump",
+      "active": "g22"
+     },
+     {
+      "type": "keyup",
+      "target": "g22",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "g22"
+     }
+    ],
+    "state": {
+     "active": "g22",
+     "visible": true,
+     "hover": null,
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "g22",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "g22"
+     },
+     {
+      "type": "blur",
+      "target": "g22",
+      "related": "l1",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "l1",
+      "related": "g22",
+      "active": "l1"
+     },
+     {
+      "type": "mouseover",
+      "target": "l1",
+      "related": null,
+      "active": "l1"
+     },
+     {
+      "type": "keyup",
+      "target": "l1",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "l1"
+     }
+    ],
+    "state": {
+     "active": "l1",
+     "visible": true,
+     "hover": "l1",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   }
+  ],
+  "far": [
+   {
+    "step": {
+     "focus": "over"
+    },
+    "events": [
+     {
+      "type": "focus",
+      "target": "over",
+      "related": null,
+      "active": "over"
+     }
+    ],
+    "state": {
+     "active": "over",
+     "visible": true,
+     "hover": null,
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "over",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "over"
+     },
+     {
+      "type": "blur",
+      "target": "over",
+      "related": "far",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "far",
+      "related": "over",
+      "active": "far"
+     },
+     {
+      "type": "mouseover",
+      "target": "far",
+      "related": null,
+      "active": "far"
+     },
+     {
+      "type": "keyup",
+      "target": "far",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "far"
+     }
+    ],
+    "state": {
+     "active": "far",
+     "visible": true,
+     "hover": "far",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowRight"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "far",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "far"
+     },
+     {
+      "type": "keyup",
+      "target": "far",
+      "key": "ArrowRight",
+      "code": "ArrowRight",
+      "keyCode": 39,
+      "active": "far"
+     }
+    ],
+    "state": {
+     "active": "far",
+     "visible": true,
+     "hover": "far",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowDown"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "far",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "far"
+     },
+     {
+      "type": "keyup",
+      "target": "far",
+      "key": "ArrowDown",
+      "code": "ArrowDown",
+      "keyCode": 40,
+      "active": "far"
+     }
+    ],
+    "state": {
+     "active": "far",
+     "visible": true,
+     "hover": "far",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   },
+   {
+    "step": {
+     "press": "ArrowLeft"
+    },
+    "events": [
+     {
+      "type": "keydown",
+      "target": "far",
+      "key": "ArrowLeft",
+      "code": "ArrowLeft",
+      "keyCode": 37,
+      "active": "far"
+     },
+     {
+      "type": "blur",
+      "target": "far",
+      "related": "jump",
+      "active": "body"
+     },
+     {
+      "type": "focus",
+      "target": "jump",
+      "related": "far",
+      "active": "jump"
+     },
+     {
+      "type": "mouseout",
+      "target": "far",
+      "related": "jump",
+      "active": "jump"
+     },
+     {
+      "type": "mouseover",
+      "target": "jump",
+      "related": "far",
+      "active": "jump"
+     },
+     {
+      "type": "keyup",
+      "target": "jump",
+      "key": "ArrowLeft",
+      "code": "ArrowLeft",
+      "keyCode": 37,
+      "active": "jump"
+     }
+    ],
+    "state": {
+     "active": "jump",
+     "visible": true,
+     "hover": "jump",
+     "pressed": null,
+     "scroll": 0,
+     "caret": 0,
+     "area": 0
+    }
+   }
+  ]
+ }
+}

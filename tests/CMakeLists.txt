@@ -319,6 +319,12 @@ if(WIN32)
     weft_add_executable(weft_keyboard_tests SOURCES keyboard_tests.cpp
         LINK weft::view weft::scene_d2d weft::platform_win32 d2d1 windowscodecs ole32 SOURCE_DIR LARGE_STACK)
     weft_add_test(NAME keyboard_contract COMMAND weft_keyboard_tests TIMEOUT 120)
+    # Spatial navigation and gamepads: the scenarios of tests/fixtures/spatial_navigation against what Chrome with
+    # --enable-spatial-navigation did on the same page (tools/browser_spatial_navigation_reference.mjs), the page
+    # without it, navigator.getGamepads() and its events, and a gamepad's keys.
+    weft_add_executable(weft_spatial_navigation_tests SOURCES spatial_navigation_tests.cpp
+        LINK weft::view weft::platform_win32 SOURCE_DIR LARGE_STACK)
+    weft_add_test(NAME spatial_navigation_contract COMMAND weft_spatial_navigation_tests TIMEOUT 120)
     # Text fields: the scenarios of tests/fixtures/text_field against what Chrome did on the same page
     # (tools/browser_text_field_reference.mjs), events, selections, scrolling and images of the fields.
     weft_add_executable(weft_text_field_tests SOURCES text_field_tests.cpp

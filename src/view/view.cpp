@@ -10,6 +10,7 @@
 #include "script/script_platform.hpp"
 #include "style/values.hpp"
 #include "view/view_keys.hpp"
+#include "view/view_spatial_navigation.hpp"
 #include "view/view_text_field.hpp"
 #include "constants/scene.hpp"
 #include "dom/text_field.hpp"
@@ -22,10 +23,16 @@
 #include <deque>
 #include <limits>
 #include <stdexcept>
+#include <unordered_map>
 #include <utility>
 
 namespace weft {
     namespace {
+        // What a gamepad's D-pad and left stick, A and B are on a page with spatial navigation (View::gamepad): the
+        // arrow keys, Enter and Escape, with their Windows virtual keys (KeyboardEvent.keyCode).
+        constexpr std::array<std::pair<const char*, unsigned>, 6> gamepad_keys{
+            {{"ArrowUp", 38}, {"ArrowDown", 40}, {"ArrowLeft", 37}, {"ArrowRight", 39}, {"Enter", 13}, {"Escape", 27}}};
+
         // A number as JS reads it back exactly.
         std::string number_text(double value) {
             char buffer[32];
@@ -215,6 +222,15 @@ namespace weft {
         // the last keydown, whose code, location, modifiers and repeat its keypresses carry.
         bool suppress_text{};
         KeyEvent last_key;
+        // Spatial navigation (ViewPage::spatial_navigation), and where the pointer goes after it moved the focus
+        // (Blink's DispatchMouseMoveAt: View::key moves it there; off the View to take it off the page).
+        bool spatial_navigation{};
+        std::optional<std::array<float, 2>> nav_pointer;
+        // A gamepad's keys on such a page (View::gamepad): which of the arrow keys, Enter and Escape each slot holds
+        // down, and the direction that repeats (its slot and key) and when it next does.
+        std::array<std::array<bool, 6>, constants::input::gamepad_slots> gamepad_held{};
+        std::optional<std::pair<unsigned, std::size_t>> gamepad_repeat;
+        double gamepad_repeat_at{};
         // The scene's elements in tree order with whether each is being rendered, for the scene revision they were
         // listed for (0 vouches for nothing).
         struct SceneElement {
@@ -777,6 +793,147 @@ namespace weft {
             vm.dispatch_mouse(target, e);
         }
 
+        // ---- Spatial navigation (view_spatial_navigation.hpp over the scene). ----
+
+        // The scene's elements as spatial navigation sees them, in scene_elements' order: their padding boxes in the
+        // View clipped by their ancestors' overflow, which take the keyboard's focus, which the user can scroll.
+        std::vector<NavElement> nav_elements() {
+            ensure_geometry();
+            const auto& list = scene_elements();
+            const auto stops = navigation_stops();
+            std::unordered_map<std::uint64_t, const ElementGeometry*> boxes;
+            const auto key = [](NodeIdentity id) { return std::uint64_t(id.slot) << 32 | id.generation; };
+            for (const auto& g : current.elements) {
+                if (!is_generated(g.identity)) {
+                    boxes.emplace(key(g.identity), &g);
+                }
+            }
+            std::vector<NavElement> out(list.size());
+            std::vector<std::size_t> open;
+            for (std::size_t k = 0; k < list.size(); ++k) {
+                while (!open.empty() && list[open.back()].end <= k) {
+                    open.pop_back();
+                }
+                auto& e = out[k];
+                e.parent = open.empty() ? nav_document : open.back();
+                e.end = list[k].end;
+                const auto found = boxes.find(key(list[k].identity));
+                if (found != boxes.end()) {
+                    const auto& g = *found->second;
+                    // Blink's NodeRectInRootFrame: the box inset by its border, mapped to the View.
+                    const std::array<std::array<double, 2>, 4> corners{{{g.client_left, g.client_top},
+                                                                        {g.client_left + g.client_width, g.client_top},
+                                                                        {g.client_left, g.client_top + g.client_height},
+                                                                        {g.client_left + g.client_width,
+                                                                         g.client_top + g.client_height}}};
+                    const auto& m = g.matrix;
+                    double left = std::numeric_limits<double>::infinity();
+                    double top = left;
+                    double right = -left;
+                    double bottom = -left;
+                    for (const auto& [x, y] : corners) {
+                        const double vx = m[0] * x + m[2] * y + m[4];
+                        const double vy = m[1] * x + m[3] * y + m[5];
+                        left = std::min(left, vx);
+                        top = std::min(top, vy);
+                        right = std::max(right, vx);
+                        bottom = std::max(bottom, vy);
+                    }
+                    e.rect = {left, top, right - left, bottom - top};
+                    e.scrolls_x = g.wheel_x;
+                    e.scrolls_y = g.wheel_y;
+                    e.scroll_left = g.scroll_left;
+                    e.scroll_top = g.scroll_top;
+                    e.max_left = std::max(0.0, g.scroll_width - g.client_width);
+                    e.max_top = std::max(0.0, g.scroll_height - g.client_height);
+                }
+                // What an ancestor's overflow clips does not show.
+                for (auto p = e.parent; p != nav_document; p = out[p].parent) {
+                    const auto* n = list[p].node;
+                    if (n && n->style.text(PropertyId::Overflow, "visible") != "visible") {
+                        e.rect = intersection(e.rect, out[p].rect);
+                        break;
+                    }
+                }
+                const auto* n = list[k].node;
+                e.candidate = k > 0 && list[k].rendered && stops[k].visit;
+                const auto tabindex = n && n->attributes.contains("tabindex") ? dom::html_integer(n->attributes.at("tabindex"))
+                                                                             : std::nullopt;
+                e.skippable = !(tabindex && *tabindex >= 0) &&
+                              !(n && n->attributes.contains("contenteditable") &&
+                                n->attributes.at("contenteditable") != "false");
+                open.push_back(k);
+            }
+            return out;
+        }
+
+        // An arrow key's spatial navigation (SpatialNavigationController::Advance): the focus moves to the best
+        // candidate its way (the pointer to it), or a container scrolls a line. Whether either happened.
+        bool spatial_advance(NavDirection direction) {
+            const auto nav = nav_elements();
+            const auto& list = scene_elements();
+            std::optional<std::size_t> focus;
+            if (const auto f = vm.focused()) {
+                for (std::size_t k = 0; k < list.size(); ++k) {
+                    if (list[k].identity == *f) {
+                        focus = k;
+                        break;
+                    }
+                }
+            }
+            const NavRect viewport{0, 0, width, height};
+            // Blink's IsUnobscured: a hit test of the candidate's visible part finds it or something inside it.
+            const auto unobscured = [&](std::size_t k) {
+                const auto shown = intersection(nav[k].rect, viewport);
+                if (shown.empty()) {
+                    return false;
+                }
+                const float inset = 0.5f;
+                const std::array<std::array<double, 2>, 5> points{{{shown.x + shown.width / 2, shown.y + shown.height / 2},
+                                                                   {shown.x + inset, shown.y + inset},
+                                                                   {shown.right() - inset, shown.y + inset},
+                                                                   {shown.x + inset, shown.bottom() - inset},
+                                                                   {shown.right() - inset, shown.bottom() - inset}}};
+                for (const auto& [x, y] : points) {
+                    const auto hit = hit_test(float(x), float(y));
+                    for (std::size_t h = k; h < list[k].end; ++h) {
+                        if (list[h].identity == hit) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            };
+            const auto result = weft::spatial_navigation(nav, focus, viewport, direction, unobscured);
+            if (result.kind == NavResult::Kind::Scroll) {
+                const auto d = direction == NavDirection::Up     ? ScrollDirection::Up
+                               : direction == NavDirection::Down ? ScrollDirection::Down
+                               : direction == NavDirection::Left ? ScrollDirection::Left
+                                                                 : ScrollDirection::Right;
+                return vm.scroll_by_key(list[result.element].identity, d, ScrollGranularity::Line);
+            }
+            if (result.kind != NavResult::Kind::Focus) {
+                return false;
+            }
+            const auto target = list[result.element].identity;
+            vm.focus(target, FocusType::Keyboard, true);
+            // The pointer goes to where the element shows now (its focus may have scrolled it into view).
+            if (try_flush()) {
+                const auto moved = nav_elements();
+                const auto& now = scene_elements();
+                for (std::size_t k = 0; k < now.size(); ++k) {
+                    if (now[k].identity == target) {
+                        const auto shown = intersection(moved[k].rect, viewport);
+                        if (!shown.empty()) {
+                            nav_pointer = {{float(shown.x + 1), float(shown.y + 1)}};
+                        }
+                        break;
+                    }
+                }
+            }
+            return true;
+        }
+
         // The default actions of a keydown nobody prevented (Blink's element default handlers, then
         // KeyboardEventManager::DefaultKeyboardEventHandler): its input_* bits, and whether it used the key, which
         // drops the text the key types.
@@ -800,12 +957,34 @@ namespace weft {
                 click(target);
                 return {input_default, true};
             }
+            // Spatial navigation's Escape blurs the focused element, or takes the pointer off the page
+            // (HandleEscapeKeyboardEvent).
+            if (spatial_navigation && e.key == "Escape") {
+                if (vm.focused()) {
+                    vm.focus(std::nullopt, FocusType::Script, false);
+                    return {input_default, true};
+                }
+                nav_pointer = {{constants::view::outside, constants::view::outside}};
+                return {0, false};
+            }
             if (e.key == "Tab") {
                 if (control || alt || meta) {
                     return {0, false};
                 }
                 const bool moved = advance_focus(!shift);
                 return {moved ? input_default : 0, moved};
+            }
+            // Spatial navigation takes an arrow key without Shift, Control or Meta, unless a listener already moved the
+            // focus (HandleArrowKeyboardEvent); when it finds nothing to do the key scrolls as ever.
+            if (spatial_navigation && !shift && !control && !meta && (!vm.focused() || vm.focused() == target)) {
+                const auto direction = e.key == "ArrowUp"      ? NavDirection::Up
+                                       : e.key == "ArrowDown"  ? NavDirection::Down
+                                       : e.key == "ArrowLeft"  ? NavDirection::Left
+                                       : e.key == "ArrowRight" ? NavDirection::Right
+                                                               : NavDirection::None;
+                if (direction != NavDirection::None && spatial_advance(direction)) {
+                    return {input_default, true};
+                }
             }
             // Arrow, page, Home and End keys scroll (MapKeyCodeForScroll): not with Shift, Meta or (a system key on
             // Windows) Alt; with Control only Home and End.
@@ -1065,6 +1244,12 @@ namespace weft {
                     to = f.multiline && !control ? field_line_end(field, f, focus, end) : home ? 0 : size;
                 } else {
                     to = f.multiline ? field_vertical(field, f, focus, down) : down ? size : 0;
+                }
+                // With spatial navigation a key that cannot move the caret (nothing selected, the caret already where
+                // the key goes) is not the field's: SelectionModifier::Modify leaves it to spatial navigation, or to
+                // scrolling.
+                if (spatial_navigation && !shift && !range && to == focus) {
+                    return std::nullopt;
                 }
                 field_reveal = FieldReveal::Extent;
                 vm.select_text_field(field, shift ? anchor : to, to, shift);
@@ -1384,6 +1569,9 @@ namespace weft {
         i.loaded = false;
         i.faulted = false;
         i.root_selector = page.root.empty() ? "#root" : page.root;
+        i.spatial_navigation = page.spatial_navigation;
+        i.gamepad_held = {};
+        i.gamepad_repeat.reset();
         try {
             i.scene = std::make_unique<SceneSolver>(page.stylesheet, page.keyframes, i.text, true, page.forgiving_css);
         } catch (const DiagnosticError& e) {
@@ -1446,6 +1634,17 @@ namespace weft {
         i.time = time_ms;
         if (!i.loaded) {
             return;
+        }
+        // A gamepad's held direction repeats its arrow key (View::gamepad).
+        if (i.gamepad_repeat && i.time >= i.gamepad_repeat_at) {
+            const auto k = i.gamepad_repeat->second;
+            // After a long frame the repeats go on from now, not in a burst.
+            i.gamepad_repeat_at += constants::input::gamepad_repeat_interval_ms;
+            if (i.gamepad_repeat_at <= i.time) {
+                i.gamepad_repeat_at = i.time + constants::input::gamepad_repeat_interval_ms;
+            }
+            const auto& [name, code] = gamepad_keys[k];
+            key({true, name, name, 0, true, false, code});
         }
         i.take_anchors();
         try {
@@ -1703,6 +1902,10 @@ namespace weft {
                 const auto [bits, used] = i.keydown_default(target, e);
                 result = bits;
                 i.suppress_text = used;
+                // Spatial navigation moved the pointer to the element it focused (or off the page).
+                if (const auto at = std::exchange(i.nav_pointer, std::nullopt)) {
+                    pointer({PointerKind::Move, (*at)[0], (*at)[1]});
+                }
                 // The character Enter types ('\r') reaches the page as Enter's keypress (Chrome on Windows).
                 if (!used && e.key == "Enter" &&
                     !(e.modifiers & (key_modifier::control | key_modifier::alt | key_modifier::meta))) {
@@ -1862,6 +2065,69 @@ namespace weft {
         } catch (const std::runtime_error& e) {
             i.handle(e, ViewDiagnostic::Kind::Script);
         }
+        // A page without the focus gets no keyups for the gamepad's keys, as none for the keyboard's.
+        if (!focused) {
+            i.gamepad_held = {};
+            i.gamepad_repeat.reset();
+        }
+    }
+
+    unsigned View::gamepad(const GamepadState& input) {
+        auto& i = *impl_;
+        if (i.faulted) {
+            throw ViewError("WEFT_VIEW_FAULTED: load the page again");
+        }
+        const bool valid_values =
+            std::ranges::all_of(input.buttons, [](float v) { return v >= 0 && v <= 1; }) &&
+            std::ranges::all_of(input.axes, [](float v) { return v >= -1 && v <= 1; });
+        if (input.index >= constants::input::gamepad_slots || input.id.size() > constants::input::max_gamepad_id_bytes ||
+            !bridge::utf8(input.id) || (input.pressed | input.touched) >> constants::input::gamepad_buttons ||
+            !valid_values) {
+            throw std::invalid_argument("WEFT_VIEW_GAMEPAD: a slot of 0 to 3, an id of at most 128 bytes of UTF-8, "
+                                        "button values of 0 to 1, axes of -1 to 1");
+        }
+        if (!i.loaded || !i.try_flush()) {
+            return 0;
+        }
+        try {
+            i.vm.set_gamepad(input, i.time);
+        } catch (const std::runtime_error& e) {
+            i.handle(e, ViewDiagnostic::Kind::Script);
+        }
+        // On a page with spatial navigation that has the host's focus: the D-pad and the left stick (past half, by
+        // its larger axis) are the arrow keys, A Enter and B Escape.
+        auto& held = i.gamepad_held[input.index];
+        std::array<bool, 6> now{};
+        if (input.connected && i.spatial_navigation && i.vm.page_focused()) {
+            const auto pressed = [&](unsigned b) { return (input.pressed >> b & 1) != 0; };
+            const float x = input.axes[0];
+            const float y = input.axes[1];
+            const bool stick = std::max(std::abs(x), std::abs(y)) > constants::input::gamepad_axis_gesture;
+            const bool across = std::abs(x) > std::abs(y);
+            now = {pressed(12) || (stick && !across && y < 0), pressed(13) || (stick && !across && y > 0),
+                   pressed(14) || (stick && across && x < 0),  pressed(15) || (stick && across && x > 0),
+                   pressed(0),                                 pressed(1)};
+        }
+        // What comes up goes before what goes down (a stick turning from right to down: ArrowRight's keyup, then
+        // ArrowDown's keydown); a direction repeats while it is held.
+        unsigned result{};
+        for (const bool down : {false, true}) {
+            for (std::size_t k = 0; k < now.size(); ++k) {
+                if (now[k] != down || held[k] == down) {
+                    continue;
+                }
+                held[k] = down;
+                if (k < 4 && down) {
+                    i.gamepad_repeat = std::pair{input.index, k};
+                    i.gamepad_repeat_at = i.time + constants::input::gamepad_repeat_delay_ms;
+                } else if (k < 4 && i.gamepad_repeat == std::pair{input.index, k}) {
+                    i.gamepad_repeat.reset();
+                }
+                const auto& [name, code] = gamepad_keys[k];
+                result |= key({down, name, name, 0, false, false, code});
+            }
+        }
+        return result;
     }
 
     bool View::focused() const {

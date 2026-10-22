@@ -1,0 +1,214 @@
+/* Spatial navigation scenarios: every element that may take the focus at a place and size of its own, with borders of
+   its own (spatial navigation measures boxes inside their borders, and weft's controls have none by default), so that
+   Chrome and weft lay them out alike; the page does not scroll (it fits the 800 x 600 viewport). */
+#root {
+  position: relative;
+  width: 800px;
+  height: 600px;
+  margin: 0;
+  overflow: hidden;
+  font: 14px Arial;
+}
+
+button,
+a,
+input,
+textarea {
+  position: absolute;
+  box-sizing: border-box;
+  margin: 0;
+  border: 2px solid #888;
+  font: 14px Arial;
+}
+
+.cell {
+  width: 80px;
+  height: 30px;
+}
+
+.r0 {
+  top: 20px;
+}
+
+.r1 {
+  top: 70px;
+}
+
+.r2 {
+  top: 120px;
+}
+
+.r0.c0,
+.r2.c0 {
+  left: 20px;
+}
+
+.r0.c1,
+.r2.c1 {
+  left: 120px;
+}
+
+.r0.c2,
+.r2.c2 {
+  left: 220px;
+}
+
+.r1.c0 {
+  left: 60px;
+}
+
+.r1.c1 {
+  left: 160px;
+}
+
+.r1.c2 {
+  left: 260px;
+}
+
+.link {
+  display: block;
+  top: 180px;
+  height: 20px;
+}
+
+#l0 {
+  left: 20px;
+  width: 60px;
+}
+
+#l1 {
+  left: 100px;
+  width: 160px;
+}
+
+#l2 {
+  left: 280px;
+  width: 80px;
+}
+
+.panel {
+  position: absolute;
+  left: 400px;
+  width: 200px;
+  border: 1px solid #888;
+}
+
+#panel {
+  top: 20px;
+  height: 120px;
+}
+
+#box {
+  top: 160px;
+  height: 60px;
+}
+
+.inner {
+  left: 20px;
+  width: 100px;
+  height: 30px;
+}
+
+#pb {
+  top: 40px;
+}
+
+#bb {
+  top: 15px;
+}
+
+#sc {
+  position: absolute;
+  left: 20px;
+  top: 240px;
+  width: 200px;
+  height: 100px;
+  overflow: auto;
+}
+
+.item {
+  left: 10px;
+  width: 160px;
+  height: 30px;
+}
+
+#s0 {
+  top: 10px;
+}
+
+#s1 {
+  top: 50px;
+}
+
+#s2 {
+  top: 90px;
+}
+
+#s3 {
+  top: 130px;
+}
+
+#s4 {
+  top: 170px;
+}
+
+#s5 {
+  top: 210px;
+}
+
+#in {
+  left: 260px;
+  top: 260px;
+  width: 150px;
+  height: 24px;
+}
+
+#ta {
+  left: 640px;
+  top: 180px;
+  width: 120px;
+  height: 56px;
+}
+
+#under {
+  left: 450px;
+  top: 260px;
+  width: 120px;
+  height: 40px;
+}
+
+#over {
+  left: 480px;
+  top: 280px;
+  width: 120px;
+  height: 40px;
+}
+
+#off {
+  left: 640px;
+  top: 100px;
+  width: 80px;
+  height: 30px;
+}
+
+#hid {
+  left: 640px;
+  top: 40px;
+  width: 80px;
+  height: 30px;
+  visibility: hidden;
+}
+
+#far {
+  left: 690px;
+  top: 540px;
+  width: 80px;
+  height: 30px;
+}
+
+#jump {
+  left: 20px;
+  top: 400px;
+  width: 80px;
+  height: 30px;
+}

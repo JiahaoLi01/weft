@@ -3512,6 +3512,48 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
             Value result(context, dispatch(target, event.value));
         }
 
+        // A gamepad's state to the scene platform's __ceGamepad (index, connected, id, values, pressed, touched, axes,
+        // time), which keeps what navigator.getGamepads() shows and fires the gamepad events.
+        void gamepad(const GamepadState& state, double time_ms) {
+            Value global(context, JS_GetGlobalObject(context));
+            Value function(context, JS_GetPropertyStr(context, global.value, "__ceGamepad"));
+            if (JS_IsException(function.value)) {
+                throw PendingJsException{};
+            }
+            if (!JS_IsFunction(context, function.value)) {
+                return;
+            }
+            const auto numbers = [&](const auto& values, Value& array) {
+                array.value = JS_NewArray(context);
+                if (JS_IsException(array.value)) {
+                    throw PendingJsException{};
+                }
+                for (std::size_t k = 0; k < values.size(); ++k) {
+                    if (JS_SetPropertyUint32(context, array.value, std::uint32_t(k), JS_NewFloat64(context, values[k])) <
+                        0) {
+                        throw PendingJsException{};
+                    }
+                }
+            };
+            Value id(context, JS_NewStringLen(context, state.id.data(), state.id.size()));
+            Value buttons(context, JS_UNDEFINED);
+            Value axes(context, JS_UNDEFINED);
+            numbers(state.buttons, buttons);
+            numbers(state.axes, axes);
+            JSValue args[]{JS_NewUint32(context, state.index),
+                           JS_NewBool(context, state.connected),
+                           id.value,
+                           buttons.value,
+                           JS_NewUint32(context, state.pressed),
+                           JS_NewUint32(context, state.touched),
+                           axes.value,
+                           JS_NewFloat64(context, time_ms)};
+            Value result(context, JS_Call(context, function.value, global.value, 8, args));
+            if (JS_IsException(result.value)) {
+                throw PendingJsException{};
+            }
+        }
+
         // window's focus or blur, through the window target of the scene platform (nothing without it).
         void dispatch_window_focus_event(const char* type) {
             Value global(context, JS_GetGlobalObject(context));
@@ -4981,6 +5023,14 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
     bool ScriptDom::page_focused() const {
         impl_->check_owner();
         return impl_->page_focus;
+    }
+
+    void ScriptDom::set_gamepad(const GamepadState& state, double time_ms) {
+        impl_->require_runtime();
+        impl_->execute([&] {
+            impl_->gamepad(state, time_ms);
+            return JS_UNDEFINED;
+        });
     }
 
     void ScriptDom::set_pressed(std::optional<NodeIdentity> node) {

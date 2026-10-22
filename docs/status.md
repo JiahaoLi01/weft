@@ -1,6 +1,6 @@
 # Weft 当前状态
 
-更新日期：2026 年 10 月 22 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG、手柄与移动尚未实现（键盘与焦点、文本框与输入法已在 `input` 分支），仍未达到 M0 全部退出条件。
+更新日期：2026 年 10 月 22 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG 与移动尚未实现（键盘与焦点、文本框与输入法、手柄与空间导航已在 `input` 分支），仍未达到 M0 全部退出条件。
 
 ## 待办
 
@@ -15,6 +15,18 @@
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
+
+手柄与空间导航：Gamepad API、Blink 的空间导航与手柄的方向、确认、返回键（2026-10-22，`input` 分支；用户提出：键盘、输入法与手柄输入接进 weft 和两个引擎插件，行为照 Chrome，这是第三阶段：手柄；用户 2026-10-21 定：手柄导航用页面标志开启）。
+- **起因**：页面读不到手柄（没有 `navigator.getGamepads()`），宿主只能自己把手柄翻成页面的事件；方向键只滚动，焦点只能按 Tab 的顺序走，手柄没法在界面里上下左右地选。
+- **实现**（设计与 C ABI 见 [与引擎通信](engine-communication.md#8-对外-view133)“手柄与空间导航”）：
+  - C ABI：`weft_view_gamepad`（`weft_gamepad_state`：槽、连接、id、17 个标准按钮的值与按下、触摸的位、4 个轴），页面标志 `WEFT_PAGE_SPATIAL_NAVIGATION`（8）；`ViewPage::spatial_navigation`、`View::gamepad`、`ScriptDom::set_gamepad`。
+  - 页面：场景平台的引导脚本里的 Gamepad API（所有页面），宿主的状态经 `__ceGamepad` 进来：用户手势之前不显示、gamepadconnected/disconnected、快照与它的 timestamp。
+  - 空间导航：`src/view/view_spatial_navigation.cpp` 照 Blink 的 `spatial_navigation.cc` 与 `SpatialNavigationController` 移植（方向判定、出入点、距离、对齐、重叠优先、搜索起点、逐层的滚动容器、可跳过的候选、平局给容器）；View 给它元素去掉边框后的盒子（祖先的 overflow 裁掉的不算）、Tab 能到的候选与命中测试的遮挡判断，把结果做成键盘焦点与指针移动，或滚一行；文本框里光标动不了的方向键交给它；Escape 失焦或把指针移出页面。
+  - 手柄的键：D-pad、左摇杆、A、B 在空间导航的页面上、View 有宿主焦点时是方向键、Enter、Escape，先抬后按，按住的方向在推进里重复。
+  - Chrome 参考：`tools/browser_spatial_navigation_reference.mjs` 经 DevTools 驱动开了 `--enable-spatial-navigation` 的无头 Chrome 155，在 `tests/fixtures/spatial_navigation` 的页面上录下十一个场景每一步的事件与状态（焦点、`:focus-visible`、`:hover`、`:active`、滚动位置、两个文本框的光标）。夹具给所有控件写了 2 px 边框：空间导航量的是去掉边框后的盒子，weft 的控件缺省没有边框。
+  - 页面运行器：page.json 的 `spatialNavigation`，时间线的 `gamepad` 步骤。
+- **验证**（Debug）：`spatial_navigation_contract`（新）：十一个场景 82 步与 Chrome 逐事件、逐字段一致；没开空间导航的同一页；Gamepad API（手势、快照与时间、断开与重连、接口、重新加载、拒绝的状态）；手柄的键（D-pad 与重复、太长的一帧、摇杆的方向与先抬后按、右摇杆、A 与 B、宿主焦点、断开）。`c_api_view_contract` 加 `gamepads`，未知页面标志改为 16。全量 ctest（Debug，179 项）：除既有的 14 项（签出换行的散列校验与浏览器差异）外通过；最后一处改动（按下或值大于 0 的按钮算 touched，同 Blink）之后重新构建，重跑受影响的十项（含 `incremental_contract`、`keyboard_contract`、`text_field_contract`）通过。
+- **限制**：Blink 给弹出层的优先级、行内元素按行盒收缩与多片段、iframe、`focusgroup`、css-nav-1 的脚本 API 没有移植；手柄没有震动（`vibrationActuator` 为 null）与触摸板，只有标准布局；Chrome 不把手柄变成键，这是 weft 在页面标志下的选择。
 
 文本框与输入法：`<input>`（文字类型）与 `<textarea>` 的编辑、光标、选区与中文输入法的组合串（2026-10-22，`input` 分支；用户提出：键盘、输入法与手柄输入接进 weft 和两个引擎插件，行为照 Chrome，这是第二阶段：文本框（先 input 再 textarea）与输入法）。
 - **起因**：文本框只是一个盒子：没有值、光标与选区，键盘与鼠标不编辑它，`value` 是普通的属性；没有 `InputEvent`、`CompositionEvent`，宿主没法把输入法的组合串交给页面，也不知道候选窗该放在哪里。

@@ -25,7 +25,26 @@
   });
   Object.defineProperty(svgPrototype,'ownerSVGElement',{get(){let n=this.parentNode;while(n && !(n instanceof SVGSVGElement))n=n.parentNode;return n;}});
   p.remove = function(){this.parentNode?.removeChild(this);};
-  globalThis.navigator = Object.freeze({maxTouchPoints:0}); // Current primary mouse host.
+  // Gamepads, as the Gamepad API is in Chrome (the host's states come through __ceGamepad): navigator.getGamepads()
+  // shows four slots, null where none is, and none at all until a gamepad's button is pressed or one of its axes is
+  // past half (Chrome's user gesture); then gamepadconnected for each connected one, for one that connects later, and
+  // gamepaddisconnected for one that goes. Each call makes Gamepad objects of the latest states (snapshots, as
+  // Chrome's); a Gamepad's timestamp is the page's clock when its state last changed. A button pressed or above 0 is
+  // touched too (Blink's GamepadButton).
+  const pads=[null,null,null,null],gamepadToken=Symbol('gamepad'),gamepadState=new WeakMap();let gamepadGesture=false;
+  globalThis.GamepadButton=class GamepadButton{constructor(t,pressed,touched,value){if(t!==gamepadToken)throw new TypeError('Illegal constructor');gamepadState.set(this,[pressed,touched,value]);}get pressed(){return gamepadState.get(this)[0];}get touched(){return gamepadState.get(this)[1];}get value(){return gamepadState.get(this)[2];}};
+  globalThis.Gamepad=class Gamepad{constructor(t,s,connected){if(t!==gamepadToken)throw new TypeError('Illegal constructor');gamepadState.set(this,{s,connected,axes:Object.freeze(s.axes.slice()),buttons:Object.freeze(s.values.map((v,i)=>new GamepadButton(gamepadToken,!!(s.pressed>>>i&1),!!((s.pressed|s.touched)>>>i&1)||v>0,v)))});}get id(){return gamepadState.get(this).s.id;}get index(){return gamepadState.get(this).s.index;}get connected(){return gamepadState.get(this).connected;}get timestamp(){return gamepadState.get(this).s.time;}get mapping(){return 'standard';}get axes(){return gamepadState.get(this).axes;}get buttons(){return gamepadState.get(this).buttons;}get vibrationActuator(){return null;}};
+  globalThis.GamepadEvent=class GamepadEvent extends Event{constructor(type,options){if(!options||!(options.gamepad instanceof Gamepad))throw new TypeError("GamepadEvent: the gamepad is required");super(type,options);this.gamepad=options.gamepad;}};
+  const gamepadEvent=(type,s,connected)=>{const e=new GamepadEvent(type,{gamepad:new Gamepad(gamepadToken,s,connected)});Object.defineProperty(e,'isTrusted',{value:true});dispatchEvent(e);};
+  globalThis.__ceGamepad=(index,connected,id,values,pressed,touched,axes,time)=>{
+    const was=pads[index];
+    if(!connected){pads[index]=null;if(was&&gamepadGesture)gamepadEvent('gamepaddisconnected',was,false);return;}
+    const same=was&&was.id===id&&was.pressed===pressed&&was.touched===touched&&was.values.every((v,i)=>v===values[i])&&was.axes.every((v,i)=>v===axes[i]);
+    const s={index,id,values,pressed,touched,axes,time:same?was.time:time};pads[index]=s;
+    if(gamepadGesture){if(!was)gamepadEvent('gamepadconnected',s,true);return;}
+    if(pressed||axes.some(v=>Math.abs(v)>0.5)){gamepadGesture=true;for(const p of pads)if(p)gamepadEvent('gamepadconnected',p,true);}
+  };
+  globalThis.navigator = Object.freeze({maxTouchPoints:0,getGamepads(){return pads.map(s=>s&&gamepadGesture?new Gamepad(gamepadToken,s,true):null);}}); // Current primary mouse host.
   // UI particles (docs/architecture.md, "粒子"): a burst of the host's registered particles from an element at the next
   // frame, options.count of them (1 by default) over options.duration seconds, flying to options.target (an element's
   // centre, or {x, y} in viewport px) when given. Throws without a particle host, for an unknown name, a bad count or

@@ -212,6 +212,11 @@ typedef struct weft_script {
  * document.activeElement and :focus, matchMedia answered as the stylesheet's @media, IntersectionObserver,
  * requestIdleCallback, navigator and location, toLocaleString with options. */
 #define WEFT_PAGE_WEB_PLATFORM 4u
+/* Blink's spatial navigation (Chrome's --enable-spatial-navigation): an arrow key moves the focus to the nearest
+ * focusable element in its direction that shows (a scroll container scrolls a line when it has none; a text field's
+ * caret moves first), Escape blurs it; the pointer follows the focus (hover). A gamepad's D-pad and left stick, its A
+ * and B buttons are the arrow keys, Enter and Escape while the View has the host's focus (weft_view_gamepad). */
+#define WEFT_PAGE_SPATIAL_NAVIGATION 8u
 
 /* A page: scripts evaluated in order after the platform modules (DOM host, animation frames, the scene platform,
  * weft.engine), the scene's stylesheet and keyframes, the selector of the scene's root ("#id" or a tag name; NULL
@@ -418,6 +423,42 @@ weft_result weft_view_composition(weft_runtime* runtime, weft_view_handle view, 
  * out_taken as for weft_view_composition. */
 weft_result weft_view_commit_text(weft_runtime* runtime, weft_view_handle view, const char* text, size_t text_size,
                                   uint32_t* out_taken);
+
+/* ---- Gamepads (docs/engine-communication.md, "手柄与空间导航"). Owner thread. ---- */
+
+#define WEFT_GAMEPAD_SLOTS 4u
+#define WEFT_GAMEPAD_BUTTONS 17u
+#define WEFT_GAMEPAD_AXES 4u
+
+/* A gamepad's state in the Gamepad API's standard mapping. index: its slot, 0 to WEFT_GAMEPAD_SLOTS - 1, which
+ * navigator.getGamepads() shows it in. connected: 0 as it goes. id: Gamepad.id (UTF-8, at most 128 bytes; Chrome's for
+ * an XInput pad is "Xbox 360 Controller (XInput STANDARD GAMEPAD)"). buttons: the standard buttons' values, 0 to 1 (A,
+ * B, X, Y, the bumpers, the triggers, back, start, the stick presses, the D-pad up, down, left, right, the guide
+ * button); pressed and touched: bit i for button i (Chrome presses an XInput trigger from 30/255; a button pressed or
+ * above 0 is touched without its bit, as Blink's). axes: the left and
+ * the right stick, x then y, -1 to 1, y down. */
+typedef struct weft_gamepad_state {
+    uint32_t struct_size;
+    uint32_t index;
+    uint32_t connected;
+    uint32_t pressed;
+    uint32_t touched;
+    uint32_t reserved;
+    const char* id;
+    size_t id_size;
+    float buttons[WEFT_GAMEPAD_BUTTONS];
+    float axes[WEFT_GAMEPAD_AXES];
+} weft_gamepad_state;
+
+/* A gamepad's state: each frame while it is connected, and once with connected 0 as it goes. The page reads it through
+ * navigator.getGamepads(), as Chrome's pages do: no gamepad shows until one has a button pressed or an axis past half,
+ * then gamepadconnected fires for each, and gamepaddisconnected for one that goes. On a page with
+ * WEFT_PAGE_SPATIAL_NAVIGATION, while the View has the host's focus, the D-pad and the left stick (past half) are the
+ * arrow keys, A Enter and B Escape (keydown as it goes down, repeats of a held direction after 0.5 s every 0.1 s,
+ * keyup as it comes up or the gamepad goes); out_handled, when given, has their WEFT_INPUT_* bits, as weft_view_key's:
+ * the host keeps from the game what the page used. */
+weft_result weft_view_gamepad(weft_runtime* runtime, weft_view_handle view, const weft_gamepad_state* state,
+                              uint32_t* out_handled);
 
 /* ---- Tools. Owner thread. ---- */
 

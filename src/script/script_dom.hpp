@@ -200,6 +200,19 @@ namespace weft {
         double time_ms{};
     };
 
+    // A gamepad's state for navigator.getGamepads() (the C ABI's weft_gamepad_state): its slot, whether it is
+    // connected, its id, its standard buttons' values (0 to 1) with which are pressed and touched (bits), and its axes
+    // (-1 to 1; x to the right, y down).
+    struct GamepadState {
+        unsigned index{};
+        bool connected{};
+        std::string id;
+        std::array<float, 17> buttons{};
+        std::uint32_t pressed{};
+        std::uint32_t touched{};
+        std::array<float, 4> axes{};
+    };
+
     // How the focus moves: by script (focus(), blur()), the mouse, or the keyboard (Tab, and keys that move it by
     // position). A script move changes nothing :focus-visible reads; one by the mouse hides it until a key goes down.
     enum class FocusType : std::uint8_t {
@@ -352,6 +365,9 @@ namespace weft {
         // keeps it.
         void set_page_focus(bool focused);
         bool page_focused() const;
+        // A gamepad's state at time_ms (the page's clock) for navigator.getGamepads(), through the scene platform's
+        // __ceGamepad (nothing without it): gamepadconnected and gamepaddisconnected as Chrome fires them.
+        void set_gamepad(const GamepadState& state, double time_ms);
         // The node a mouse button went down on last: keyboard scrolling starts there when no element has the focus,
         // and so does sequential focus navigation.
         void set_pressed(std::optional<NodeIdentity> node);

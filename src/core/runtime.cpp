@@ -636,7 +636,9 @@ extern "C" weft_result weft_view_load(weft_runtime* runtime, weft_view_handle vi
     // A page of an earlier ABI ends before base.
     const bool based = page && page->struct_size >= sizeof(weft_page_desc);
     if (!page || (!based && page->struct_size != offsetof(weft_page_desc, base)) ||
-        (page->flags & ~(WEFT_PAGE_CRPG_BRIDGE | WEFT_PAGE_FORGIVING_CSS | WEFT_PAGE_WEB_PLATFORM)) || page->reserved ||
+        (page->flags &
+         ~(WEFT_PAGE_CRPG_BRIDGE | WEFT_PAGE_FORGIVING_CSS | WEFT_PAGE_WEB_PLATFORM | WEFT_PAGE_SPATIAL_NAVIGATION)) ||
+        page->reserved ||
         (!page->scripts && page->script_count)) {
         return WEFT_INVALID_ARGUMENT;
     }
@@ -671,6 +673,7 @@ extern "C" weft_result weft_view_load(weft_runtime* runtime, weft_view_handle vi
         content.crpg_bridge = page->flags & WEFT_PAGE_CRPG_BRIDGE;
         content.forgiving_css = page->flags & WEFT_PAGE_FORGIVING_CSS;
         content.web_platform = page->flags & WEFT_PAGE_WEB_PLATFORM;
+        content.spatial_navigation = page->flags & WEFT_PAGE_SPATIAL_NAVIGATION;
         if (!entry->view) {
             freeze_fonts(*runtime);
             entry->view =
@@ -917,6 +920,51 @@ extern "C" weft_result weft_view_commit_text(weft_runtime* runtime, weft_view_ha
             const bool taken = entry->view->commit(value);
             if (out_taken) {
                 *out_taken = taken;
+            }
+        }
+        return WEFT_OK;
+    });
+}
+
+extern "C" weft_result weft_view_gamepad(weft_runtime* runtime, weft_view_handle view, const weft_gamepad_state* state,
+                                         uint32_t* out_handled) {
+    if (out_handled) {
+        *out_handled = 0;
+    }
+    ViewEntry* entry{};
+    if (const auto error = find_idle(runtime, view, entry); error != WEFT_OK) {
+        return error;
+    }
+    std::string_view id;
+    if (!state || state->struct_size != sizeof(weft_gamepad_state) || state->index >= WEFT_GAMEPAD_SLOTS ||
+        state->connected > 1 || state->reserved || (state->pressed | state->touched) >> WEFT_GAMEPAD_BUTTONS ||
+        !text_arg(state->id, state->id_size, id) || id.size() > weft::constants::input::max_gamepad_id_bytes ||
+        !weft::bridge::utf8(id)) {
+        return WEFT_INVALID_ARGUMENT;
+    }
+    weft::GamepadState input;
+    for (std::size_t k = 0; k < WEFT_GAMEPAD_BUTTONS; ++k) {
+        if (!(state->buttons[k] >= 0 && state->buttons[k] <= 1)) {
+            return WEFT_INVALID_ARGUMENT;
+        }
+        input.buttons[k] = state->buttons[k];
+    }
+    for (std::size_t k = 0; k < WEFT_GAMEPAD_AXES; ++k) {
+        if (!(state->axes[k] >= -1 && state->axes[k] <= 1)) {
+            return WEFT_INVALID_ARGUMENT;
+        }
+        input.axes[k] = state->axes[k];
+    }
+    input.index = state->index;
+    input.connected = state->connected;
+    input.id = id;
+    input.pressed = state->pressed;
+    input.touched = state->touched;
+    return guarded([&] {
+        if (entry->view) {
+            const unsigned handled = entry->view->gamepad(input);
+            if (out_handled) {
+                *out_handled = handled;
             }
         }
         return WEFT_OK;

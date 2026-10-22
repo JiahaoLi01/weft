@@ -182,7 +182,7 @@ namespace {
         d.struct_size = sizeof(d) - 8;
         require(weft_view_load(r.runtime, view, &d) == WEFT_INVALID_ARGUMENT, "a short page descriptor");
         d = page.desc();
-        d.flags = 8;
+        d.flags = 16;
         require(weft_view_load(r.runtime, view, &d) == WEFT_INVALID_ARGUMENT, "unknown page flags");
         d = page.desc();
         d.reserved = 1;
@@ -1135,6 +1135,110 @@ namespace {
                     weft_view_commit_text(r.runtime, view, "a", 1, nullptr) == WEFT_STALE_HANDLE,
                 "a destroyed View's text input");
     }
+
+    weft_gamepad_state gamepad_state(std::string_view id = "Xbox 360 Controller (XInput STANDARD GAMEPAD)") {
+        weft_gamepad_state s{};
+        s.struct_size = sizeof(s);
+        s.connected = 1;
+        s.id = id.data();
+        s.id_size = id.size();
+        return s;
+    }
+
+    // A sync function that tries weft_view_gamepad in the middle of JS.
+    weft_result gamepad_reentry(void* user, const void*, size_t, weft_value_writer* result) {
+        auto& calls = *static_cast<Calls*>(user);
+        const auto s = gamepad_state();
+        calls.reentry = weft_view_gamepad(calls.r->runtime, calls.view, &s, nullptr);
+        ++calls.count;
+        return weft_value_writer_set(result, WEFT_VALUE_JSON, "1", 1);
+    }
+
+    // Gamepads (weft_view_gamepad): arguments, a state before a page, navigator.getGamepads(), the D-pad as an arrow
+    // key on a page with WEFT_PAGE_SPATIAL_NAVIGATION, reentry, threads and stale handles.
+    void gamepads() {
+        Runtime r;
+        const auto view = r.view();
+        auto s = gamepad_state();
+        uint32_t handled = 9;
+        require(weft_view_gamepad(r.runtime, view, &s, &handled) == WEFT_OK && handled == 0, "a state without a page");
+        const auto rejects = [&](const weft_gamepad_state& bad, const char* what) {
+            handled = 9;
+            require(weft_view_gamepad(r.runtime, view, &bad, &handled) == WEFT_INVALID_ARGUMENT && handled == 0, what);
+        };
+        auto e = s;
+        e.struct_size -= 4;
+        rejects(e, "a short state");
+        e = s;
+        e.index = WEFT_GAMEPAD_SLOTS;
+        rejects(e, "a fifth slot");
+        e = s;
+        e.connected = 2;
+        rejects(e, "connected 2");
+        e = s;
+        e.reserved = 1;
+        rejects(e, "a reserved field");
+        e = s;
+        e.pressed = 1u << WEFT_GAMEPAD_BUTTONS;
+        rejects(e, "an eighteenth button pressed");
+        e = s;
+        e.touched = 1u << WEFT_GAMEPAD_BUTTONS;
+        rejects(e, "an eighteenth button touched");
+        e = s;
+        e.id = nullptr;
+        rejects(e, "an id's text missing");
+        const std::string long_id(129, 'x');
+        rejects(gamepad_state(long_id), "an id past 128 bytes");
+        rejects(gamepad_state("\xff"), "an id of no UTF-8");
+        e = s;
+        e.buttons[3] = 1.5f;
+        rejects(e, "a button past 1");
+        e = s;
+        e.buttons[3] = std::numeric_limits<float>::quiet_NaN();
+        rejects(e, "a button of NaN");
+        e = s;
+        e.axes[1] = -1.25f;
+        rejects(e, "an axis past -1");
+        require(weft_view_gamepad(r.runtime, view, nullptr, nullptr) == WEFT_INVALID_ARGUMENT, "no state");
+        e = gamepad_state({});
+        require(weft_view_gamepad(r.runtime, view, &e, nullptr) == WEFT_OK, "an empty id");
+
+        // A page with spatial navigation: buttons a and b, one under the other.
+        Calls calls{&r, view};
+        require(weft_view_register_function(r.runtime, view, "pad", 3, gamepad_reentry, &calls) == WEFT_OK,
+                "a function");
+        auto page = inline_page(R"JS(
+            for (const id of ['a', 'b']) {
+              const n = document.createElement('button');
+              n.setAttribute('id', id);
+              document.getElementById('root').appendChild(n);
+            }
+            document.getElementById('a').focus();
+          )JS",
+                                "button{display:block;width:40px;height:20px;margin:10px}");
+        page.flags = WEFT_PAGE_SPATIAL_NAVIGATION;
+        require(load(r, view, page) == WEFT_OK, "a page with spatial navigation");
+        weft_view_advance(r.runtime, view, 0.016);
+        s.buttons[13] = 1;
+        s.pressed = s.touched = 1u << 13;
+        require(weft_view_gamepad(r.runtime, view, &s, &handled) == WEFT_OK && handled == WEFT_INPUT_DEFAULT,
+                "the D-pad's down moves the focus");
+        require(evaluate(r, view, "document.activeElement.id + ' ' + navigator.getGamepads()[0].id") ==
+                    "b Xbox 360 Controller (XInput STANDARD GAMEPAD)",
+                "b has the focus; the gamepad shows");
+        s.buttons[13] = 0;
+        s.pressed = s.touched = 0;
+        require(weft_view_gamepad(r.runtime, view, &s, &handled) == WEFT_OK && handled == 0, "the D-pad comes up");
+        // Reentry from a sync function is refused.
+        require(evaluate(r, view, "weft.engine.invoke('pad', 0)") == "1" && calls.count == 1 &&
+                    calls.reentry == WEFT_BUSY,
+                "a gamepad from a sync function waits");
+        weft_result elsewhere{};
+        std::thread([&] { elsewhere = weft_view_gamepad(r.runtime, view, &s, nullptr); }).join();
+        require(elsewhere == WEFT_WRONG_THREAD, "gamepads belong to the owner");
+        weft_view_destroy(r.runtime, view);
+        require(weft_view_gamepad(r.runtime, view, &s, nullptr) == WEFT_STALE_HANDLE, "a destroyed View's gamepad");
+    }
 } // namespace
 
 int main() {
@@ -1150,6 +1254,7 @@ int main() {
         web_storage();
         keyboard();
         text_input();
+        gamepads();
         std::cout << "C ABI view tests passed\n";
         return 0;
     } catch (const std::exception& e) {

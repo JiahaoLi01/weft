@@ -26,4 +26,15 @@ namespace weft::constants::input {
     inline constexpr float double_click_px = 2;
     // A text field's caret blinks: shown, then hidden, this many ms each (Windows' GetCaretBlinkTime default).
     inline constexpr double caret_blink_ms = 530;
+    // Gamepads as the Gamepad API's standard mapping has them (Chrome: four slots), and the longest id a host may give.
+    inline constexpr unsigned gamepad_slots = 4;
+    inline constexpr std::size_t gamepad_buttons = 17;
+    inline constexpr std::size_t gamepad_axes = 4;
+    inline constexpr std::size_t max_gamepad_id_bytes = 128;
+    // A gamepad's input is a user gesture (Chrome's GamepadHasUserGesture) when a button is pressed or an axis is past
+    // this; on a page with spatial navigation, the left stick past it is a direction.
+    inline constexpr float gamepad_axis_gesture = 0.5f;
+    // A held direction of a gamepad repeats its arrow key after this many ms, then every this many.
+    inline constexpr double gamepad_repeat_delay_ms = 500;
+    inline constexpr double gamepad_repeat_interval_ms = 100;
 } // namespace weft::constants::input

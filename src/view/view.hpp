@@ -42,6 +42,11 @@ namespace weft {
         // The web platform pages written for browsers expect (WEFT_PAGE_WEB_PLATFORM, ScriptPlatformModule::WebPlatform):
         // the console as diagnostics, the View's storage areas as localStorage and sessionStorage, focus, matchMedia.
         bool web_platform{};
+        // Blink's spatial navigation (WEFT_PAGE_SPATIAL_NAVIGATION, Chrome's --enable-spatial-navigation): the arrow
+        // keys move the focus to the nearest focusable element their way and the pointer with it, Escape blurs it; and
+        // a gamepad's D-pad and left stick, A and B are the arrow keys, Enter and Escape while the View has the host's
+        // focus.
+        bool spatial_navigation{};
     };
 
     // A frame a View published: its scene (never changed again), the View's size in CSS px and its device scale, the
@@ -204,6 +209,10 @@ namespace weft {
         bool commit(std::string_view text);
         // Where text input goes now.
         ViewTextInput text_input();
+        // A gamepad's state (each frame while it is connected, and once as it goes): what navigator.getGamepads()
+        // shows of it (ScriptDom::set_gamepad), and on a page with spatial navigation while the View has the host's
+        // focus, its D-pad and left stick, A and B as the arrow keys, Enter and Escape. Its input_* bits.
+        unsigned gamepad(const GamepadState& input);
         // The host's keyboard focus came to the View or left it (ScriptDom::set_page_focus). A View starts with it,
         // and keeps it across loads.
         void set_focus(bool focused);
