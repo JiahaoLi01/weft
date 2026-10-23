@@ -288,8 +288,15 @@ fragment float4 world_fs(Out in [[stage_in]], constant World& w [[buffer(0)]]) {
                 if (encoded == WEFT_RENDER_OK) {
                     encoded_ui = true;
                 } else {
-                    // The world's picture is committed without the UI this frame.
-                    std::fprintf(stderr, "weft encode: render result %d\n", int(encoded));
+                    // The world's picture is committed without the UI this frame; the renderer says why.
+                    std::string why;
+                    weft_renderer_last_failure(
+                        renderer,
+                        [](void* user, const char* text, size_t size) {
+                            static_cast<std::string*>(user)->assign(text, size);
+                        },
+                        &why);
+                    std::fprintf(stderr, "weft encode: render result %d: %s\n", int(encoded), why.c_str());
                     if (use.generation) {
                         weft_renderer_discard_encoded(renderer, use);
                     }

@@ -82,6 +82,17 @@ SVG 文字的几何跟着它的每一个字体值变（2026-10-31，`text-line-n
   - 全量 ctest（180 项）：除既有的 14 项（签出换行的散列校验与浏览器差异）外通过，与修改前的基线相同。
 - **限制**：映射着的字体文件在 Windows 上可改名、删除，不能就地改写或截短，宿主加的字体文件在运行时持有它时也是这样（此前读完即关闭）；Android 用 `mmap`，只编译过、没在设备上运行。列出系统字体仍在第一个页面载入时（页面运行器约 10 ms，UE 里约 73 ms，几乎都是建 DirectWrite 工厂）；挪到别的时刻（建 runtime 时，或宿主提前调用一个列出字体的接口）是产品上的取舍，没做。第一次要回退的帧仍要建参考光栅。
 
+场景着色器：纯色的盒子不走通用路径（2026-10-23，`ios-host` 分支；iPhone Air（A19 Pro），iOS 26.6，Release；Apple M5 的 macOS 26.6 作像素对照）。
+- **起因**：iPhone 上 logo 页每帧 GPU 约 5.2 ms，几乎都在 weft 唯一的 render pass 的片元阶段。同一页面、同一大小（776 × 400 pt，3x）在 macOS 上导出的 draw 列表：27 个记录里第一个是铺满屏幕的背景盒，2,807,728 px，占片元着色像素的约 68%；它没有圆角、旋转、边框、渐变与图像，却和别的盒子一样算圆角距离、它的精细导数（`ddx_fine`、`ddy_fine`）与四条边框的楔形。另外：Apple 的 GPU 没有 draw 之间的时间戳（计数器只能在 stage 边界采样），逐 draw 的时间要 Xcode 的 GPU 帧捕获在界面里重放，这次没有用；Metal System Trace 录制时把 GPU 锁在最低性能状态（`is-induced`），App 自己的统计与之相近，说明平时 GPU 也在低频下就能满足 120 Hz：这里的“每帧 GPU 时间”是低频下的工作量，不是 GPU 跑满。
+- **实现**：`scene.hlsl` 的 `ps_main`：没有圆角与旋转（`rectangular`）、四条边框宽度都不大于 0、没有渐变（`size.z <= 0`）的盒子，在计算距离之前返回 `premult(background) × 覆盖份额 × 不透明度 × 裁剪覆盖`，即通用路径对这种盒子的结果（编码空间的份额是 `overlap`，线性空间是像素中心是否在盒内）。所有后端共用这份着色器。
+- **验证**：
+  - iPhone Air，Metal System Trace（GPU 同在最低性能状态）：logo/color 的 `weft out` 片元 5.18 → 3.77 ms，每帧 GPU 合计 5.23 → 3.81 ms（−27%）；HUD 的 `weft out` 片元 2.40 → 2.48 ms（HUD 几乎没有大的纯色盒子，在误差内）。App 自己的统计（不开 Instruments，20 s）：logo/color 119.8 fps，GPU 5.22 → 3.80 ms，CPU 0.19 ms，没有帧没显示。
+  - 像素（macOS，`weft_macos_demo --shot`，改前改后逐像素比较）：HUD 与 logo 的四个版本（2328 × 1200）、一个盒子测试页的 2x 完全相同；同一测试页 1x 有 19 px、3x 有 62 px 差 1 级，都在小数位置的抗锯齿边上（0.4 px 的竖线、半透明盒子、小数宽度的竖条）：Metal 运行时以 fast math 编译 MSL，两条路径的运算顺序与融合可以不同。测试页包括整数与小数位置、半透明背景、`opacity`、0.4 px 宽、平移小数、`scale`、等宽与不等宽边框、圆角、圆角加边框、线性渐变、旋转、圆角 `overflow: hidden` 里的裁剪、文字。
+  - macOS `ctest`（Debug）68/76，同前；`render_metal_shader_contract`、`scene_schedule_contract`、`logo_browser_reference_metal` 通过。
+  - 另外发现：严格场景页面里 `hsl()` 的颜色载入时没有诊断，每帧编码却失败（`WEFT_RENDER_UNSUPPORTED_FEATURE`，“WEFT_STYLE_PROFILE: color outside #rrggbb/transparent/rgb/rgba profile”）；示例现在把渲染器的 `weft_renderer_last_failure` 一起打印。
+- **未验证**：D3D11（fxc）、D3D12 与 Vulkan 的编译与像素（着色器共用，这次没有 Windows）；Windows 上与 D2D 参考光栅、Chrome 的对照测试；logo 页上那一次 20.8 ms 的显示间隔（改前改后都有）。
+- **下一步**：在 Windows 上跑全量 `ctest`；`hsl()` 这类载入时就能知道的样式问题改成载入诊断；其余着色成本（路径图像的遮罩、HUD 的文字）要看 GPU 帧捕获。
+
 iOS 真机：iPhone Air 上的示例、Release 的帧时间与 GPU 剖析（2026-10-23，`ios-host` 分支；iPhone Air（A19 Pro），iOS 26.6，免费个人团队签名；Xcode 27.1）。命令见 [构建](building.md#ios-arm642026-10-23)。
 - **实现**：示例每秒的统计加上最慢一帧的 CPU、GPU 时间，显示上两帧之间的最长间隔（`addPresentedHandler`），以及没显示出来的帧；触点写到 stdout（行缓冲）。示例的引擎没有世界可画时（HUD 以外的页面）不再单独开一个清屏的 pass，由 View 的 pass 清（`weft_render_metal_pass::clear_target`）；View 没有帧或编码失败时补一个清屏。Metal 后端的编码器带标签（`weft out`、`weft group`、`weft backdrop chain`、`weft backdrop copy`、`weft backdrop filter`、`weft filter`、`weft uploads`），给剖析工具看。另修了示例刚加的显示回调：它在 lambda 里按引用捕获了 `__weak` 指针，Release 下 SIGSEGV。
 - **验证**（Xcode 生成器签名，`devicectl` 安装与 `--console` 启动，`xctrace` 的 Metal System Trace；横屏 2328 × 1200 px）：

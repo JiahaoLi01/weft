@@ -833,12 +833,23 @@ float4 ps_main(Vertex v) : SV_Target {
         // channels all equal its alpha.
         return (p.extra.w == FlagEnabled ? premult(p.background) * sample.r : sample) * p.extra.y * coverage;
     }
-    float sd = distanceRound(position, p.size.xy, p.radii);
-    float aa = max(pixelWidth(sd), MinimumAntialiasWidth);
-    float outer = saturate(.5 - sd / aa);
     bool rectangular = all(p.radii == 0) && p.invX.y == 0 && p.invY.x == 0;
     // A device pixel's extent in the box's px.
     float2 footprint = max(float2(abs(p.invX.x), abs(p.invY.y)) / pixels, MinimumAntialiasWidth);
+    if (rectangular && all(p.widths <= 0) && p.size.z <= 0) {
+        // A plain box, without corners, rotation, borders or gradient (a page's background: most of its pixels): its
+        // color over its share of the pixel, as the general path below computes it, without the distance, its
+        // derivatives and the border wedges.
+#if SPACE_LINEAR
+        float share = all(position >= 0) && all(position < p.size.xy) ? 1 : 0;
+#else
+        float share = overlap(position, footprint, 0, p.size.xy);
+#endif
+        return premult(p.background) * share * p.extra.y * coverage;
+    }
+    float sd = distanceRound(position, p.size.xy, p.radii);
+    float aa = max(pixelWidth(sd), MinimumAntialiasWidth);
+    float outer = saturate(.5 - sd / aa);
 #if SPACE_LINEAR
     // A document box without corners or rotation covers the pixels whose centers it contains, as the rasterizer
     // covers a quad, rather than a distance band that leaks past its corners.
