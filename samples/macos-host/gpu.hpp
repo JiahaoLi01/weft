@@ -14,6 +14,7 @@
 #include <weft/render_external_texture.h>
 
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <functional>
 
@@ -207,31 +208,45 @@ fragment float4 world_fs(Out in [[stage_in]], constant World& w [[buffer(0)]]) {
                 const auto [x, y] = engine.place(i, t);
                 drawn[i] = {{x, y}, 14, engine.health[i]};
             }
-            MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
-            pass.colorAttachments[0].texture = target;
-            pass.colorAttachments[0].loadAction = MTLLoadActionClear;
-            // Other pages than the HUD run over a plain backdrop.
-            pass.colorAttachments[0].clearColor = MTLClearColorMake(0.06, 0.07, 0.09, 1);
-            pass.colorAttachments[0].storeAction = MTLStoreActionStore;
-            id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:pass];
-            const MTLViewport viewport{0, 0, double(width), double(height), 0, 1};
-            [encoder setViewport:viewport];
-            [encoder setRenderPipelineState:world];
-            [encoder setVertexBytes:&constants length:sizeof(constants) atIndex:0];
-            [encoder setFragmentBytes:&constants length:sizeof(constants) atIndex:0];
-            [encoder setVertexBytes:drawn.data() length:sizeof(drawn) atIndex:1];
-            if (engine.hud) {
-                [encoder drawPrimitives:MTLPrimitiveTypeTriangle
-                            vertexStart:0
-                            vertexCount:6
-                          instanceCount:demo::units + 1];
+            // Other pages than the HUD run over a plain backdrop (encoded, as the target holds it).
+            constexpr std::array<double, 3> backdrop{0.06, 0.07, 0.09};
+            const auto world_pass = [&] {
+                MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
+                pass.colorAttachments[0].texture = target;
+                pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+                pass.colorAttachments[0].clearColor = MTLClearColorMake(backdrop[0], backdrop[1], backdrop[2], 1);
+                pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+                id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:pass];
+                encoder.label = @"engine world";
+                const MTLViewport viewport{0, 0, double(width), double(height), 0, 1};
+                [encoder setViewport:viewport];
+                [encoder setRenderPipelineState:world];
+                [encoder setVertexBytes:&constants length:sizeof(constants) atIndex:0];
+                [encoder setFragmentBytes:&constants length:sizeof(constants) atIndex:0];
+                [encoder setVertexBytes:drawn.data() length:sizeof(drawn) atIndex:1];
+                if (engine.hud) {
+                    [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                                vertexStart:0
+                                vertexCount:6
+                              instanceCount:demo::units + 1];
+                }
+                [encoder endEncoding];
+            };
+            // The View's frame, if it has one. Without a world to draw, the View's pass clears the target itself:
+            // on a tiled GPU (Apple's) every render pass writes the whole target out and the next reads it back in,
+            // each about 0.9 ms a frame at 2328 x 1200 on an iPhone Air.
+            weft_view_frame* frame{};
+            const bool ui = weft_view_acquire_frame(engine.runtime, engine.view, &frame) == WEFT_OK;
+            const bool world_first = engine.hud || !ui;
+            if (world_first) {
+                world_pass();
             }
-            [encoder endEncoding];
             // The minimap's texels for this frame, after the last frame's UI read it.
             id<MTLBuffer> texels = staging[frames++ % staging.size()];
             const auto map = engine.minimap(t);
             std::memcpy(texels.contents, map.data(), map.size());
             id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
+            blit.label = @"engine minimap";
             [blit copyFromBuffer:texels
                        sourceOffset:0
                   sourceBytesPerRow:map_width * 4
@@ -242,23 +257,27 @@ fragment float4 world_fs(Out in [[stage_in]], constant World& w [[buffer(0)]]) {
                    destinationLevel:0
                   destinationOrigin:MTLOriginMake(0, 0, 0)];
             [blit endEncoding];
-            // The View's frame over the world, with the minimap bound to its name.
+            // The View's frame over the world, with the minimap bound to its name, or over the backdrop it clears to
+            // (linear premultiplied, as the pass takes it).
             weft_render_handle use{};
             bool encoded_ui{};
-            weft_view_frame* frame{};
-            if (weft_view_acquire_frame(engine.runtime, engine.view, &frame) == WEFT_OK) {
+            if (ui) {
                 const weft_render_scene_texture texture{"minimap", 7, 0, minimap_lease};
                 const weft_render_scene_frame scene{sizeof(scene), WEFT_RENDER_ABI_VERSION, frame, 0, 1, &texture};
                 weft_render_handle prepared{};
                 check(weft_renderer_prepare_scene(renderer, &scene, &prepared), "prepare the View's frame");
                 weft_view_frame_release(frame);
+                const auto linear = [](double encoded) {
+                    return float(encoded <= 0.04045 ? encoded / 12.92 : std::pow((encoded + 0.055) / 1.055, 2.4));
+                };
                 const weft_render_metal_pass payload{sizeof(payload),
                                                      WEFT_RENDER_ABI_VERSION,
                                                      (__bridge void*)command,
                                                      (__bridge void*)target,
+                                                     world_first ? 0u : 1u,
                                                      0,
-                                                     0,
-                                                     {0, 0, 0, 0}};
+                                                     {linear(backdrop[0]), linear(backdrop[1]), linear(backdrop[2]),
+                                                      1}};
                 const weft_render_pass render{sizeof(render), WEFT_RENDER_ABI_VERSION,
                                               info.identity,  width,
                                               height,         WEFT_RENDER_TARGET_LINEAR_BGRA8,
@@ -275,6 +294,10 @@ fragment float4 world_fs(Out in [[stage_in]], constant World& w [[buffer(0)]]) {
                         weft_renderer_discard_encoded(renderer, use);
                     }
                 }
+            }
+            if (!encoded_ui && !world_first) {
+                // The View's pass did not clear the target: the backdrop does.
+                world_pass();
             }
             if (before_commit) {
                 before_commit(command);

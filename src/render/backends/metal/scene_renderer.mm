@@ -344,6 +344,7 @@ namespace weft::render::metal {
         auto& staging = buffer(total);
         id<MTLBlitCommandEncoder> blit = [command_buffer_ blitCommandEncoder];
         ensure(blit != nil, "a blit command encoder");
+        blit.label = @"weft uploads";
         for (std::size_t i = 0; i < pending.size(); ++i) {
             const auto& image = *pending[i];
             const auto& s = staged[i];
@@ -445,6 +446,7 @@ namespace weft::render::metal {
             id<MTLRenderCommandEncoder> encoder =
                 begin(over.texture, over.width, over.height,
                       step.over ? std::nullopt : std::optional<paint::Color>(paint::Color{}));
+            encoder.label = @"weft filter";
             [encoder setRenderPipelineState:backdrop_pipelines_.at(std::size_t(step.shader))];
             [encoder setFragmentBytes:&step.constants
                                length:sizeof(BackdropConstants)

@@ -97,7 +97,18 @@ cmake -G Xcode -B build/ios-xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT
 open build/ios-xcode/Weft.xcodeproj                                  # scheme weft_ios_demo，目标选那台 iPhone，Run
 ```
 
-`samples/ios-host`（`weft_ios_demo.app`）：与 macOS 示例共用引擎、Metal 与页面的部分（`samples/macos-host` 的 `engine.hpp`、`gpu.hpp`、`page.hpp`），UIKit 场景里的 CAMetalLayer 随 CADisplayLink 绘制（ProMotion 上最高 120 Hz），View 占屏幕的安全区，手机横屏。一个触点是指针：移到触点、按下、抬起，然后离开（点过不留悬停）；被系统取消的触点只离开，不点击。页面在那里没有可交互元素时，触点伤害那里的单位。右上的 Next page 依次换成 logo 的四个版本；左上一行是页面、帧率与每帧 CPU、GPU 时间，stdout 每秒同样打印（Xcode 的控制台或 `simctl launch --console-pty`）。页面随包复制到 `examples/`（真机读不到源码目录）。系统字体与 macOS 一样经 CoreText 列出（`weft::platform_macos` 在 iOS 上也构建）。
+不开 Xcode 也行（`<UDID>` 见 `xcrun devicectl list devices`；第一次构建由 `-allowProvisioningUpdates` 建开发证书、描述文件并登记设备）。免费团队装上之后要在手机的 设置 → 通用 → VPN 与设备管理 里信任一次开发者，描述文件 7 天后过期，重新构建安装即可：
+
+```sh
+xcodebuild -project build/ios-xcode/Weft.xcodeproj -scheme weft_ios_demo -configuration Release \
+  -destination id=<UDID> -allowProvisioningUpdates -allowProvisioningDeviceRegistration build
+xcrun devicectl device install app --device <UDID> build/ios-xcode/bin/Release/weft_ios_demo.app
+xcrun devicectl device process launch --device <UDID> --console <bundle id> --page color   # stdout 到这里
+xcrun xctrace record --template 'Metal System Trace' --device <UDID> --time-limit 8s \
+  --output logo.trace --launch -- <bundle id> --page color                                 # 手机要解锁
+```
+
+`samples/ios-host`（`weft_ios_demo.app`）：与 macOS 示例共用引擎、Metal 与页面的部分（`samples/macos-host` 的 `engine.hpp`、`gpu.hpp`、`page.hpp`），UIKit 场景里的 CAMetalLayer 随 CADisplayLink 绘制（ProMotion 上最高 120 Hz），View 占屏幕的安全区，手机横屏。一个触点是指针：移到触点、按下、抬起，然后离开（点过不留悬停）；被系统取消的触点只离开，不点击。页面在那里没有可交互元素时，触点伤害那里的单位。右上的 Next page 依次换成 logo 的四个版本；左上一行是页面、帧率、每帧 CPU 与 GPU 时间和这一秒里显示上最长的帧间隔；stdout 每秒打印这些、最慢一帧的 CPU 与 GPU 时间和没显示出来的帧，以及每个触点（Xcode 的控制台、`simctl launch --console-pty` 或 `devicectl device process launch --console`）。HUD 以外的页面没有引擎的世界，示例不单独清屏，由 View 的 pass 清（`clear_target`）：苹果的分块 GPU 上每个 render pass 都把整个目标写出、下一个再读回。Metal 后端的编码器带标签（`weft out`、`weft group`、`weft uploads` 等），在 Metal System Trace 与 GPU 帧捕获里按名字看。页面随包复制到 `examples/`（真机读不到源码目录）。系统字体与 macOS 一样经 CoreText 列出（`weft::platform_macos` 在 iOS 上也构建）。
 
 
 ## 固定依赖与离线构建

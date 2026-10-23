@@ -82,6 +82,17 @@ SVG 文字的几何跟着它的每一个字体值变（2026-10-31，`text-line-n
   - 全量 ctest（180 项）：除既有的 14 项（签出换行的散列校验与浏览器差异）外通过，与修改前的基线相同。
 - **限制**：映射着的字体文件在 Windows 上可改名、删除，不能就地改写或截短，宿主加的字体文件在运行时持有它时也是这样（此前读完即关闭）；Android 用 `mmap`，只编译过、没在设备上运行。列出系统字体仍在第一个页面载入时（页面运行器约 10 ms，UE 里约 73 ms，几乎都是建 DirectWrite 工厂）；挪到别的时刻（建 runtime 时，或宿主提前调用一个列出字体的接口）是产品上的取舍，没做。第一次要回退的帧仍要建参考光栅。
 
+iOS 真机：iPhone Air 上的示例、Release 的帧时间与 GPU 剖析（2026-10-23，`ios-host` 分支；iPhone Air（A19 Pro），iOS 26.6，免费个人团队签名；Xcode 27.1）。命令见 [构建](building.md#ios-arm642026-10-23)。
+- **实现**：示例每秒的统计加上最慢一帧的 CPU、GPU 时间，显示上两帧之间的最长间隔（`addPresentedHandler`），以及没显示出来的帧；触点写到 stdout（行缓冲）。示例的引擎没有世界可画时（HUD 以外的页面）不再单独开一个清屏的 pass，由 View 的 pass 清（`weft_render_metal_pass::clear_target`）；View 没有帧或编码失败时补一个清屏。Metal 后端的编码器带标签（`weft out`、`weft group`、`weft backdrop chain`、`weft backdrop copy`、`weft backdrop filter`、`weft filter`、`weft uploads`），给剖析工具看。另修了示例刚加的显示回调：它在 lambda 里按引用捕获了 `__weak` 指针，Release 下 SIGSEGV。
+- **验证**（Xcode 生成器签名，`devicectl` 安装与 `--console` 启动，`xctrace` 的 Metal System Trace；横屏 2328 × 1200 px）：
+  - 功能：画面与文字正常（真机沙盒里能读 iOS 系统字体），120 Hz。用户手动点了按钮、切了页，报告正常；但 Debug 那次 App 自己的日志里回合一直是 1、只记到一次切页，原因未查清；Release 加了触点日志之后没有再手动核对。
+  - Debug：HUD 116.8 fps，每帧 CPU 2.9 ms、GPU 3.4 ms；logo/color 119.3 fps，CPU 2.7 ms、GPU 6.1 ms。
+  - Release（每秒的统计，第一秒之后）：HUD 30 s 119.9 fps，CPU 0.38 ms（最慢一帧 2.99 ms）、GPU 3.37 ms（3.68 ms），显示上最长的帧间隔 12.5 ms，没有帧没显示。logo/color：改动前 18 s 119.9 fps，CPU 0.22 ms、GPU 6.06 ms；改动后 16 s CPU 0.19 ms、GPU 5.22 ms（最慢 5.28 ms），最长帧间隔 20.8 ms（一次），没有帧没显示。第一秒约 86 fps、约 20 帧没显示（字体列表、管线与页面载入）。
+  - Metal System Trace（稳定后每帧 GPU）：logo/color 改动前 `weft out` fragment 5.28 ms、`engine world` 0.86 ms（只清屏）、其余 0.24 ms，合计 6.39 ms；改动后 `weft out` 5.18 ms，合计 5.23 ms。HUD：`weft out` 2.40 ms、`engine world` 1.07 ms，合计 3.54 ms。每帧只有一个 weft 的 render pass（没有 group 与背景拷贝），时间在场景着色器的逐像素着色：logo 页的背景盒铺满屏幕，每个像素都走通用的 `ps_main`（读 Paint、裁剪、圆角距离与抗锯齿、四条边框）。Metal 编译后的 `ps_main` 约 12.9 KB（引擎的 `world_fs` 约 0.9 KB）。默认模板在这台设备上只采到一个 GPU 计数器（RT Unit Active），没有瓶颈计数器。
+  - macOS：`render_metal_shader_contract`、`scene_schedule_contract`、`logo_browser_reference_metal` 照旧通过；`--shot` 的 HUD、logo/color、logo/dark 零诊断。
+- **未验证**：哪个 draw、着色器的哪一段占 GPU 时间（要 Xcode 的 GPU 帧捕获）；真机上的触点日志；20.8 ms 那一次的原因；长时间运行的温度与降频；iPad。
+- **下一步**：逐 draw 的 GPU 剖析，再按结果给常见的纯色、无边框、无圆角的盒子一条轻的着色路径（或用函数常量去掉不用的分支）；第一秒的卡顿（字体列表与管线编译放到第一帧之前）。
+
 iOS：构建、模拟器上的 Metal 测试、示例 App 与 iOS 上的系统字体（2026-10-23，`ios-host` 分支，基于 `metal`；Apple M5，macOS 26.6，Xcode 27.1（Apple clang 21，iOS 27.1 SDK），Vulkan SDK 1.4.363.0；模拟器 iPhone 18 Pro，iOS 27.0）。命令见 [构建](building.md#ios-arm642026-10-23)。
 - **实现**：`samples/ios-host`（`weft_ios_demo.app`）：只用公开头文件，与 macOS 示例共用引擎、Metal 与页面的部分（`load_page` 与可切换的页面从 macOS 示例的 `main.mm` 移到 `samples/macos-host/page.hpp`）；UIKit 场景、CAMetalLayer 随 CADisplayLink 绘制（最高 120 Hz）、View 占安全区、手机横屏；一个触点是指针（移到、按下、抬起、离开；系统取消的触点只离开），页面没有可交互元素处的触点伤害单位；Next page 换 logo 页面；后台停帧、回到前台继续；页面随包复制。CMake：iOS 上构建 `samples/ios-host`；`WEFT_IOS_BUNDLE_ID`、`WEFT_IOS_DEVELOPMENT_TEAM` 给 Xcode 生成器签名。系统字体：`weft::platform_macos` 在 iOS 上也构建，运行时在 `TARGET_OS_IOS` 上同 macOS 用它（同样的 CoreText 调用；泛型族与回退照 macOS 的 Chrome，没有与 iOS 上的浏览器对照）。
 - **验证**：

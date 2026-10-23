@@ -189,8 +189,11 @@ namespace weft::render::metal {
                         // A backdrop chain's texture, cleared over all of it (transparent unless given).
                         const auto& image = chains.at(b->target.index).at(b->target.image);
                         encoder = begin(image.texture, image.width, image.height, b->clear.value_or(paint::Color{}));
+                        encoder.label = @"weft backdrop chain";
                     } else {
                         encoder = begin(texture_of(b->target), prepared.width, prepared.height, b->clear);
+                        const bool group = b->target.kind == SceneSchedule::Target::Kind::Group;
+                        encoder.label = group ? @"weft group" : @"weft out";
                         bind(encoder);
                     }
                 } else if (std::get_if<SceneSchedule::End>(&step)) {
@@ -274,6 +277,7 @@ namespace weft::render::metal {
                     const auto& to = chains.at(copy->chain).front();
                     id<MTLBlitCommandEncoder> blit = [command_buffer_ blitCommandEncoder];
                     ensure(blit != nil, "a blit command encoder");
+                    blit.label = @"weft backdrop copy";
                     [blit copyFromTexture:texture_of(copy->from)
                                sourceSlice:0
                                sourceLevel:0
@@ -291,6 +295,7 @@ namespace weft::render::metal {
                     const auto& filtering = schedule.chains.at(f->chain).passes.at(f->pass);
                     id<MTLRenderCommandEncoder> pass_encoder =
                         begin(over.texture, over.width, over.height, paint::Color{});
+                    pass_encoder.label = @"weft backdrop filter";
                     [pass_encoder setRenderPipelineState:backdrop_pipelines_.at(std::size_t(filtering.first))];
                     [pass_encoder setFragmentBytes:&filtering.second
                                             length:sizeof(BackdropConstants)

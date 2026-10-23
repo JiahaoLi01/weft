@@ -6,8 +6,9 @@
 // button calls the engine, which answers; the minimap is a texture the engine draws every frame. One touch is the
 // pointer: it moves to the touch, goes down and up, then leaves (a tap leaves no hover); a touch the system cancels
 // leaves without going up, so it clicks nothing. A touch on the world where the page has nothing to interact with
-// damages the unit there. A line at the top shows the page, frame rate and frame times, which stdout prints every
-// second (Xcode's console, or xcrun simctl launch --console).
+// damages the unit there. A line at the top shows the page, frame rate, frame times and the slowest frame on the
+// display; stdout prints them every second, and each touch (Xcode's console, xcrun simctl launch --console, or xcrun
+// devicectl device process launch --console).
 //
 //   weft_ios_demo [--page <page>]          hud (the default), logo (logo/color), color, dark, light or static
 #import <Metal/Metal.h>
@@ -77,12 +78,20 @@ namespace {
     UITouch* _touch;
     unsigned _frames_this_second;
     double _advance_ms;
-    // This second's frame times: the CPU's (the View's advance, encoding and committing), the wait for a drawable,
-    // and the GPU's (from Metal's completed command buffers, on the main thread).
+    // This second's frame times, their sums and slowest frames: the CPU's (the View's advance, encoding and
+    // committing), the wait for a drawable, and the GPU's (from Metal's completed command buffers, on the main thread).
     double _cpu_ms;
+    double _cpu_max_ms;
     double _wait_ms;
     double _gpu_ms;
+    double _gpu_max_ms;
     unsigned _gpu_frames;
+    // This second's presentation: the longest interval between two frames reaching the display (the slowest frame as
+    // seen) and the frames never shown. _presented: when the last frame shown reached the display (0: none since the
+    // frames resumed).
+    double _interval_max_ms;
+    unsigned _dropped;
+    CFTimeInterval _presented;
 }
 
 + (Class)layerClass {
@@ -139,6 +148,7 @@ namespace {
     if (_link || !_engine) {
         return;
     }
+    _presented = 0;
     _link = [CADisplayLink displayLinkWithTarget:self selector:@selector(tick)];
     _link.preferredFrameRateRange = CAFrameRateRangeMake(60, 120, 120);
     [_link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
@@ -179,9 +189,18 @@ namespace {
         dispatch_semaphore_t inflight = _inflight;
         std::weak_ptr<demo::Gpu> gpu = _gpu;
         __weak WeftView* view = self;
+        // When the display shows the frame (0: never shown). Made here, not in the lambda below: a block made there
+        // would capture the lambda's reference to view, a stack slot gone when the frame is shown.
+        void (^presented)(id<MTLDrawable>) = ^(id<MTLDrawable> shown) {
+          const CFTimeInterval at = shown.presentedTime;
+          dispatch_async(dispatch_get_main_queue(), ^{
+            [view presentedAt:at];
+          });
+        };
         _gpu->frame(
             *_engine, t, drawable.texture, unsigned(drawable.texture.width), unsigned(drawable.texture.height),
             [&](id<MTLCommandBuffer> command) {
+                [drawable addPresentedHandler:presented];
                 [command presentDrawable:drawable];
             },
             [inflight, gpu, view](std::uint64_t serial, double gpu_ms) {
@@ -194,7 +213,9 @@ namespace {
                   [view frameTookGpu:gpu_ms];
                 });
             });
-        _cpu_ms += std::chrono::duration<double, std::milli>(Clock::now() - acquired).count() + _advance_ms;
+        const double cpu = std::chrono::duration<double, std::milli>(Clock::now() - acquired).count() + _advance_ms;
+        _cpu_ms += cpu;
+        _cpu_max_ms = std::max(_cpu_max_ms, cpu);
     } catch (const std::exception& e) {
         dispatch_semaphore_signal(_inflight);
         [self fail:std::string("frame failed: ") + e.what()];
@@ -211,17 +232,18 @@ namespace {
         const long width = long(_layer.drawableSize.width);
         const long height = long(_layer.drawableSize.height);
         if (self.onStatus) {
-            self.onStatus([NSString stringWithFormat:@"%s · %.0f fps · %ld×%ld px · CPU %.2f ms · GPU %.2f ms",
+            self.onStatus([NSString stringWithFormat:@"%s · %.0f fps · %ld×%ld px · CPU %.2f ms · GPU %.2f ms · "
+                                                     @"slowest %.1f ms",
                                                      _engine->page_name.c_str(), _frames_this_second / seconds, width,
-                                                     height, cpu, gpu],
+                                                     height, cpu, gpu, _interval_max_ms],
                           NO);
         }
-        std::printf("%s: %.0f fps, %ldx%ld px; per frame CPU %.2f ms (View %.2f), GPU %.2f ms, waiting for a drawable "
-                    "%.2f ms; turn %u\n",
-                    _engine->page_name.c_str(), _frames_this_second / seconds, width, height, cpu, _advance_ms, gpu,
-                    wait, _engine->turn);
-        _cpu_ms = _wait_ms = _gpu_ms = 0;
-        _gpu_frames = 0;
+        std::printf("%s: %.0f fps, %ldx%ld px; per frame CPU %.2f ms (max %.2f, View %.2f), GPU %.2f ms (max %.2f), "
+                    "waiting for a drawable %.2f ms; slowest frame on the display %.1f ms, %u not shown; turn %u\n",
+                    _engine->page_name.c_str(), _frames_this_second / seconds, width, height, cpu, _cpu_max_ms,
+                    _advance_ms, gpu, _gpu_max_ms, wait, _interval_max_ms, _dropped, _engine->turn);
+        _cpu_ms = _cpu_max_ms = _wait_ms = _gpu_ms = _gpu_max_ms = _interval_max_ms = 0;
+        _gpu_frames = _dropped = 0;
         std::fflush(stdout);
         _frames_this_second = 0;
         _second = now;
@@ -230,7 +252,20 @@ namespace {
 
 - (void)frameTookGpu:(double)ms {
     _gpu_ms += ms;
+    _gpu_max_ms = std::max(_gpu_max_ms, ms);
     ++_gpu_frames;
+}
+
+// A frame reached the display at time at (s), or never did (0).
+- (void)presentedAt:(CFTimeInterval)at {
+    if (at <= 0) {
+        ++_dropped;
+        return;
+    }
+    if (_presented > 0) {
+        _interval_max_ms = std::max(_interval_max_ms, (at - _presented) * 1000);
+    }
+    _presented = at;
 }
 
 - (void)pointer:(weft_pointer_kind)kind at:(CGPoint)p buttons:(std::uint32_t)buttons {
@@ -249,13 +284,16 @@ namespace {
     const CGPoint p = [_touch locationInView:self];
     try {
         const auto hit = _engine->hit(float(p.x), float(p.y));
+        const bool page = hit.element && std::string(hit.cursor) == "pointer";
+        std::printf("touch down at %.0f, %.0f: %s\n", p.x, p.y, page ? "the page's" : "the world's");
         [self pointer:WEFT_POINTER_MOVE at:p buttons:0];
         [self pointer:WEFT_POINTER_DOWN at:p buttons:1];
-        if (!hit.element || std::string(hit.cursor) != "pointer") {
+        if (!page) {
             // The world's: the unit under the touch takes damage.
             const double t = std::chrono::duration<double>(Clock::now() - _start).count();
             if (const int unit = _engine->unit_at(float(p.x), float(p.y), t); unit >= 0) {
                 _engine->damage(unsigned(unit), 25);
+                std::printf("unit %d takes 25\n", unit + 1);
             }
         }
     } catch (const std::exception& e) {
@@ -271,7 +309,9 @@ namespace {
 
 - (void)touchesEnded:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
     if (_touch && [touches containsObject:_touch]) {
-        [self pointer:WEFT_POINTER_UP at:[_touch locationInView:self] buttons:0];
+        const CGPoint p = [_touch locationInView:self];
+        std::printf("touch up at %.0f, %.0f\n", p.x, p.y);
+        [self pointer:WEFT_POINTER_UP at:p buttons:0];
         [self pointer:WEFT_POINTER_LEAVE at:CGPointZero buttons:0];
         _touch = nil;
     }
@@ -279,6 +319,7 @@ namespace {
 
 - (void)touchesCancelled:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
     if (_touch && [touches containsObject:_touch]) {
+        std::printf("touch cancelled\n");
         [self pointer:WEFT_POINTER_LEAVE at:CGPointZero buttons:0];
         _touch = nil;
     }
@@ -442,6 +483,8 @@ namespace {
 @end
 
 int main(int argc, char** argv) {
+    // Each line as it is printed: a console attached over USB shows the touches when they happen.
+    std::setvbuf(stdout, nullptr, _IOLBF, 0);
     @autoreleasepool {
         for (int i = 1; i < argc; ++i) {
             // Other arguments are the system's and Xcode's (-NS..., -Apple...).
