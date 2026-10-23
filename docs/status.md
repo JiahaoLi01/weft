@@ -82,6 +82,15 @@ SVG 文字的几何跟着它的每一个字体值变（2026-10-31，`text-line-n
   - 全量 ctest（180 项）：除既有的 14 项（签出换行的散列校验与浏览器差异）外通过，与修改前的基线相同。
 - **限制**：映射着的字体文件在 Windows 上可改名、删除，不能就地改写或截短，宿主加的字体文件在运行时持有它时也是这样（此前读完即关闭）；Android 用 `mmap`，只编译过、没在设备上运行。列出系统字体仍在第一个页面载入时（页面运行器约 10 ms，UE 里约 73 ms，几乎都是建 DirectWrite 工厂）；挪到别的时刻（建 runtime 时，或宿主提前调用一个列出字体的接口）是产品上的取舍，没做。第一次要回退的帧仍要建参考光栅。
 
+iOS 真机：iPhone Duo（2026-10-23，`ios-host` 分支，同一个 Release 构建；iPhone19,4，GPU A20 Pro，iOS 27.1，当天发售；Xcode 27.1 还只认作“iPhone”）。
+- **设备**：两块屏，都是 3x：主屏 1398 × 2034 px（约 3.04 × 4.42 英寸），另一块 1878 × 2670 px（约 4.37 × 6.21 英寸）；这次只在主屏上跑，另一块没有点亮。示例横屏的安全区 594 × 432 pt（1782 × 1296 px）。免费团队的描述文件由 `-allowProvisioningDeviceRegistration` 加进这台设备，装上之后在手机上信任一次开发者。
+- **验证**（每秒的统计，第一秒之后；Metal System Trace 不固定 GPU 档，两台都由 iOS 调频放在 state 1）：
+  - HUD：31 s 120.0 fps，CPU 0.34 ms（最慢 2.86 ms），GPU 1.75 ms（最慢 2.25 ms），显示上最长的帧间隔 8.3 ms，没有帧没显示。头几秒每帧等 drawable 约 8 ms，之后平均 0.71 ms。
+  - logo/color：20 s 119.8 fps，CPU 0.17 ms，GPU 1.43 ms，最长帧间隔 12.5 ms（一次）。Trace：`weft out` 片元 1.41 ms，GPU 忙 24.8%（iPhone Air 同档 3.77 ms、54.5%）；按像素约 0.61 ns，iPhone Air 约 1.35 ns。
+  - 第一秒 77–87 fps，2–14 帧没显示（同 iPhone Air，字体、管线与页面载入）。
+  - 画面：HUD 正常；logo 页的图形约 660 pt 宽，比 594 pt 的安全区宽，居中后两边被裁掉（页面固定大小，不随宽度缩放，不是渲染问题）。
+- **未验证**：另一块屏（App 移到大屏或两块屏之间切换时的改大小与安全区）；触点；长时间运行；logo 页的窄屏布局。
+
 场景着色器：纯色的盒子不走通用路径（2026-10-23，`ios-host` 分支；iPhone Air（A19 Pro），iOS 26.6，Release；Apple M5 的 macOS 26.6 作像素对照）。
 - **起因**：iPhone 上 logo 页每帧 GPU 约 5.2 ms，几乎都在 weft 唯一的 render pass 的片元阶段。同一页面、同一大小（776 × 400 pt，3x）在 macOS 上导出的 draw 列表：27 个记录里第一个是铺满屏幕的背景盒，2,807,728 px，占片元着色像素的约 68%；它没有圆角、旋转、边框、渐变与图像，却和别的盒子一样算圆角距离、它的精细导数（`ddx_fine`、`ddy_fine`）与四条边框的楔形。另外：Apple 的 GPU 没有 draw 之间的时间戳（计数器只能在 stage 边界采样），逐 draw 的时间要 Xcode 的 GPU 帧捕获在界面里重放，这次没有用；这些录制没有固定 GPU 的性能状态（`gpu-performance-state-info` 的 `consistent-state-enabled` 为 No），是 iOS 自己的调频把 GPU 放在低档（`gpu-performance-device-state-intervals`：工作时都在 state 1，想要的是 state 0），App 自己的统计（不开 Instruments）与之相近：这里的“每帧 GPU 时间”是低频下的工作量，不是 GPU 跑满。用 Xcode 的 Debug → Induce Device Conditions → GPU Performance State → Maximum 固定到最高档（state 3）后，同样的工作见下方“验证”。
 - **实现**：`scene.hlsl` 的 `ps_main`：没有圆角与旋转（`rectangular`）、四条边框宽度都不大于 0、没有渐变（`size.z <= 0`）的盒子，在计算距离之前返回 `premult(background) × 覆盖份额 × 不透明度 × 裁剪覆盖`，即通用路径对这种盒子的结果（编码空间的份额是 `overlap`，线性空间是像素中心是否在盒内）。所有后端共用这份着色器。
