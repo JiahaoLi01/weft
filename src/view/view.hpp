@@ -194,6 +194,10 @@ namespace weft {
         // scene; publishes a frame when what it shows changed. Exceptions of the page become diagnostics.
         void advance(double time_ms);
         void resize(float width, float height, float scale);
+        // The viewport's safe area in logical px, top, right, bottom and left, which CSS reads as
+        // env(safe-area-inset-*): 0 on every side until set, kept across page loads. The next advance lays out the
+        // values that read it again. Throws std::invalid_argument for an inset that is negative or not finite.
+        void set_safe_area(float top, float right, float bottom, float left);
         // Dispatches the pointer events of input at the latest scene: pointer and mouse events, over, out, enter and
         // leave as the hovered element changes, and a click when a button comes up over the element it went down
         // on. Whether a listener prevented the default action of the main event.

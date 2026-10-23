@@ -166,6 +166,12 @@ namespace demo {
             check(weft_view_resize(runtime, view, w, h, scale), "resize");
         }
 
+        // The display's safe area in the View's px, which the page reads as env(safe-area-inset-*): a host whose View
+        // covers the whole display (samples/ios-host) gives it; one that keeps the View clear of the edges leaves 0.
+        void safe_area(float top, float right, float bottom, float left) {
+            check(weft_view_set_safe_area(runtime, view, top, right, bottom, left), "safe area");
+        }
+
         // Unit i takes amount damage: the view model's health and a damage number; a unit near death heals.
         void damage(unsigned i, unsigned amount) {
             health[i] = health[i] > 0.2f ? health[i] - float(amount) / 100 : 1;

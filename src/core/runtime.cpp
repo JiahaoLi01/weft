@@ -66,6 +66,8 @@ namespace {
         bool busy{};
         // The host's keyboard focus is in the View (weft_view_set_focus), for the View a first load makes.
         bool focused = true;
+        // The host's safe area (weft_view_set_safe_area), top, right, bottom and left, for the View a first load makes.
+        std::array<float, 4> safe_area{};
     };
 
     // Marks an entry busy while a host callback runs.
@@ -696,6 +698,8 @@ extern "C" weft_result weft_view_load(weft_runtime* runtime, weft_view_handle vi
             if (!entry->focused) {
                 entry->view->set_focus(false);
             }
+            const auto& [top, right, bottom, left] = entry->safe_area;
+            entry->view->set_safe_area(top, right, bottom, left);
         }
         entry->view->load(content);
         return WEFT_OK;
@@ -737,6 +741,26 @@ extern "C" weft_result weft_view_resize(weft_runtime* runtime, weft_view_handle 
         entry->info.logical_width = logical_width;
         entry->info.logical_height = logical_height;
         entry->info.device_scale = device_scale;
+        return WEFT_OK;
+    });
+}
+
+extern "C" weft_result weft_view_set_safe_area(weft_runtime* runtime, weft_view_handle view, float top, float right,
+                                               float bottom, float left) {
+    ViewEntry* entry{};
+    if (const auto error = find_idle(runtime, view, entry); error != WEFT_OK) {
+        return error;
+    }
+    for (const auto inset : {top, right, bottom, left}) {
+        if (!std::isfinite(inset) || inset < 0 || inset > weft::constants::scene::max_viewport_dimension) {
+            return WEFT_INVALID_ARGUMENT;
+        }
+    }
+    return guarded([&] {
+        if (entry->view) {
+            entry->view->set_safe_area(top, right, bottom, left);
+        }
+        entry->safe_area = {top, right, bottom, left};
         return WEFT_OK;
     });
 }

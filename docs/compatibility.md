@@ -163,6 +163,11 @@ CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后�
   - `vw`、`vh`、`vmin`、`vmax` 及其 `s`/`l`/`d` 前缀形式（scene 只有一个视口，三种相同），按帧的视口换算成 px；
   - 视口变化而 DOM 不变时，只重新展开用到它们的元素；
   - 关键帧里的视口长度报诊断（关键帧只解析一次）。
+- 环境变量 `env()`（CSS Environment Variables 1，2026-10-23）：
+  - `env(safe-area-inset-top)`、`-right`、`-bottom`、`-left` 按宿主给的安全区换算成 px（`weft_view_set_safe_area`，View 的逻辑 px；宿主没有设时为 0）；可以写在任何值里，包括 `calc()` 与 `padding` 这类简写；
+  - 名字区分大小写；别的名字（`safe-area-max-inset-*`、`keyboard-inset-*`、`viewport-segment-*` 等）用第二个参数的后备值，后备值里也可以再写 `env()`；没有后备值时报诊断；
+  - 安全区变化而 DOM 不变时，只重新展开用到它们的元素；关键帧里的 `env()` 报诊断；
+  - 与浏览器的区别：浏览器只在页面声明 `viewport-fit=cover` 时给出非零的安全区，weft 由宿主决定（宿主让 View 铺满屏幕时才设）。
 - `overflow-x`、`overflow-y`：
   - scene 只能两轴一起裁剪，所以一轴裁剪即整体裁剪；
   - 如 CSS，与裁剪轴并存的 `visible` 计为 `auto`，内容须能放下；

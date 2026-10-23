@@ -1,8 +1,9 @@
 // A game engine's side of weft on iOS (Objective-C++, ARC), through the public headers only (include/weft): the HUD
-// page of examples/engine-host (the Next page button steps through the logo pages of examples/logo) in the screen's
-// safe area, over the engine's own picture of its world, drawn by weft's Metal backend into a CAMetalLayer at the
-// display's rate (up to 120 Hz on ProMotion), as samples/macos-host does in a window: units walk and the engine writes
-// their positions as anchors, their health to the view model and damage to hud.damage events; the page's end-turn
+// page of examples/engine-host (the Next page button steps through the logo pages of examples/logo) over the whole
+// screen, clear of its edges by env(safe-area-inset-*), over the engine's own picture of its world to the edges, drawn
+// by weft's Metal backend into a CAMetalLayer at the display's rate (up to 120 Hz on ProMotion), as samples/macos-host
+// does in a window: units walk and the engine writes their positions as anchors, their health to the view model and
+// damage to hud.damage events; the page's end-turn
 // button calls the engine, which answers; the minimap is a texture the engine draws every frame. One touch is the
 // pointer: it moves to the touch, goes down and up, then leaves (a tap leaves no hover); a touch the system cancels
 // leaves without going up, so it clicks nothing. A touch on the world where the page has nothing to interact with
@@ -120,7 +121,9 @@ namespace {
     return self;
 }
 
-// The View takes the bounds' size in logical px (points) at the screen's scale; the first layout makes it.
+// The View takes the bounds' size in logical px (points) at the screen's scale, and the bounds' safe area (the
+// sensor housing, rounded corners and home indicator they reach) for env(safe-area-inset-*); the first layout makes
+// it.
 - (void)layoutSubviews {
     [super layoutSubviews];
     const CGSize size = self.bounds.size;
@@ -138,9 +141,17 @@ namespace {
                                                      float(size.height), float(scale));
             [self resume];
         }
+        const UIEdgeInsets safe = self.safeAreaInsets;
+        _engine->safe_area(float(safe.top), float(safe.right), float(safe.bottom), float(safe.left));
     } catch (const std::exception& e) {
         [self fail:std::string("layout: ") + e.what()];
     }
+}
+
+// Turning the phone or moving to another display moves the safe area.
+- (void)safeAreaInsetsDidChange {
+    [super safeAreaInsetsDidChange];
+    [self setNeedsLayout];
 }
 
 // Frames at the display's rate while the app is in the foreground.
@@ -189,18 +200,23 @@ namespace {
         dispatch_semaphore_t inflight = _inflight;
         std::weak_ptr<demo::Gpu> gpu = _gpu;
         __weak WeftView* view = self;
+#if !TARGET_OS_SIMULATOR
         // When the display shows the frame (0: never shown). Made here, not in the lambda below: a block made there
-        // would capture the lambda's reference to view, a stack slot gone when the frame is shown.
+        // would capture the lambda's reference to view, a stack slot gone when the frame is shown. The simulator's
+        // drawables do not say when they are shown: there the slowest frame on the display stays 0.
         void (^presented)(id<MTLDrawable>) = ^(id<MTLDrawable> shown) {
           const CFTimeInterval at = shown.presentedTime;
           dispatch_async(dispatch_get_main_queue(), ^{
             [view presentedAt:at];
           });
         };
+#endif
         _gpu->frame(
             *_engine, t, drawable.texture, unsigned(drawable.texture.width), unsigned(drawable.texture.height),
             [&](id<MTLCommandBuffer> command) {
+#if !TARGET_OS_SIMULATOR
                 [drawable addPresentedHandler:presented];
+#endif
                 [command presentDrawable:drawable];
             },
             [inflight, gpu, view](std::uint64_t serial, double gpu_ms) {
@@ -349,8 +365,9 @@ namespace {
 
 @end
 
-// The screen: the weft View in the safe area (clear of the sensor housing and the home indicator), the line of frame
-// statistics over its top left and the Next page button over its top right.
+// The screen: the weft View over all of it, the world to its edges and the page clear of the sensor housing and the
+// home indicator by env(safe-area-inset-*); the line of frame statistics and the Next page button in the safe area's
+// top left and top right.
 @interface DemoController : UIViewController
 @property(nonatomic, readonly) WeftView* weft;
 @end
@@ -386,10 +403,10 @@ namespace {
         _weft.translatesAutoresizingMaskIntoConstraints = NO;
         [root addSubview:_weft];
         [NSLayoutConstraint activateConstraints:@[
-            [_weft.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor],
-            [_weft.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor],
-            [_weft.topAnchor constraintEqualToAnchor:safe.topAnchor],
-            [_weft.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
+            [_weft.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
+            [_weft.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
+            [_weft.topAnchor constraintEqualToAnchor:root.topAnchor],
+            [_weft.bottomAnchor constraintEqualToAnchor:root.bottomAnchor],
         ]];
         UILabel* status = _status;
         _weft.onStatus = ^(NSString* text, BOOL failed) {

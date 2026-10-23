@@ -468,6 +468,11 @@ const player = weft.engine.model('player');      // {value, subscribe}
 - 绘制：图片像 `-weft-texture()` 那样按 CSS 铺排（`background-size`、`-position`、`-repeat`、`-origin`、`-clip`），自然大小是它的像素；显示列表里是列表自己的资产（`paint::Image::fitted`），pass 把它当作整张纹理（不进图集；不透明的是 sRGB 纹理，半透明的是线性预乘浮点，Vulkan 与 D3D12 上设备不能过滤浮点纹理时整帧回退，同效果纹理），着色器用宿主纹理的铺排代码。显示这种背景的元素在 pass 里画，不做缓存的图层。D2D 参考光栅同样画。
 - 测试：`view_images_contract`（URL 解析、各种 PNG、超界、每个路径一次、诊断、View 的场景）；`c_api_view_contract` 的 `resources`（基准、回调、重入、写入参数、旧的结构大小）；`scene_texture_contract`（`url()` 的语法、诊断、显示列表）；`scene_background_contract`（同样九种铺排的半透明图片，D3D11 原生 pass 与参考光栅逐像素至多差 2 级）；`scene_paint_reference` 把四个纹理用例再用 `url()` 画一遍，与 Chrome 的截图（Chrome 画的就是同样的 PNG）误差与宿主纹理相同，Vulkan 与 D3D11 至多差 2 级。
 
+安全区（2026-10-23，`ios-host` 分支；用户提出：iPhone 上 HUD 下方留着 Home 条的黑边，画面应铺满全屏，只让按钮避开屏幕边缘）：
+- `weft_view_set_safe_area(runtime, view, top, right, bottom, left)`，owner 线程：View 的安全区，单位是它的逻辑 px，即屏幕的上、右、下、左边各有多宽要让开（摄像头开孔、圆角、Home 条）。页面用 CSS 的 `env(safe-area-inset-top)`、`-right`、`-bottom`、`-left` 读它（见 [兼容性](compatibility.md)）。宿主没有设时四边为 0，等于宿主自己把 View 放在安全区里；设了之后跨页面加载保留，下一次推进按新值重新布局用到它的元素。每个值须有限且不小于 0，否则 `WEFT_INVALID_ARGUMENT`。
+- 宿主的用法：让 View 铺满整块屏幕，把系统给的安全区（iOS 的 `safeAreaInsets`、Android 的 `WindowInsets`）换成 View 的逻辑 px 传进来，在旋转、换屏、改大小时再传一次；页面的背景与画面铺到边缘，按钮、文字用 `env()` 让开。`samples/ios-host` 是这样做的，HUD（`examples/engine-host/hud.css`）用 `env()` 给小地图、标题与结束回合按钮留边。
+- 测试：`c_api_view_contract` 的 `safe_area`（第一个页面之前与之后设、改了之后重新布局、跨加载保留、`calc()` 与 `padding` 简写里的 `env()` 与写成 px 的相同、后备值与嵌套、名字区分大小写、无后备值的未知名字与关键帧里的 `env()` 报诊断、错误的值与过期的句柄）；`c_api_smoke` 从 C 调用。
+
 ## 9. JS API 草案
 
 ```ts

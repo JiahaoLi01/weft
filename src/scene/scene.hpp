@@ -8,6 +8,7 @@
 #include "scene/scene_particles.hpp"
 #include "scene/scene_text.hpp"
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <functional>
@@ -636,6 +637,11 @@ namespace weft {
         virtual std::shared_ptr<const paint::Asset> image(std::string_view url) = 0;
     };
 
+    // The safe area of a scene's viewport in its px, top, right, bottom and left: how far in from each edge the
+    // display keeps content clear (a sensor housing, rounded corners, a home indicator). CSS reads it as
+    // env(safe-area-inset-top), -right, -bottom and -left.
+    using SceneSafeArea = std::array<float, 4>;
+
     class SceneSolver {
     public:
         // Text is shaped and laid out in lines by `text`, which outlives the solver.
@@ -667,6 +673,10 @@ namespace weft {
         // The effects background-image: -weft-effect(name) names; the host keeps them alive. Without them such a
         // background is a scene profile diagnostic.
         void set_effects(const SceneEffects* effects);
+        // The viewport's safe area, 0 on every side at first. The next update expands the values that read it with
+        // env() again, as a new viewport does viewport lengths. Throws DiagnosticError (Diag::SceneProfile) for an
+        // inset that is negative, not finite, or larger than constants::scene::max_viewport_dimension.
+        void set_safe_area(const SceneSafeArea& safe_area);
         // The images background-image: url() names; the host keeps them alive. Without them such a background is a
         // scene profile diagnostic.
         void set_images(SceneImages* images);
