@@ -12,7 +12,7 @@
   - 低优先级，暂不做。
 - **与引擎通信**（2026-10-14 起，第 13 步，[计划](refactoring-plan.md#第-13-步计划2026-10-14与引擎通信)，[技术路线](engine-communication.md)）：血条这类每帧变位置的元素不靠每帧推 JSON（锚点在渲染线程取最新值），双向事件、带 Promise 的引擎调用与视图模型，C ABI 与 CRPG UI 的兼容层。基线：200 个血条每帧约 13 ms，页面自己算出同样的值（零传输）也一样慢，瓶颈在逐个改 DOM 之后的样式、布局与场景更新。13.1 已完成（2026-10-14）：400 个名牌只移动时 UI 线程每帧约 0.005 ms、渲染 CPU 约 0.02–0.04 ms（推 JSON 时分别约 23 ms 与 4 ms）。13.2 已完成（2026-10-14）：带类型的值、双向事件、调用与 Promise、同步函数、视图模型与 CRPG 兼容层；每秒约 1,000 个 10 KB 的事件时 UI 线程每帧 0.79 ms（CRPG 的拼脚本求值约 4.5 ms）。13.3 已完成（[计划](refactoring-plan.md#第-13-步记录2026-10-14)）：13.3a 对外 View 与它的 C ABI、13.3b 渲染 C ABI 接 View 的帧与模拟引擎的宿主样例（2026-10-14），13.3c 页面显示引擎的纹理（2026-10-15，用户提出，如 UE 的 render target）。13.4 已完成（2026-10-15）：CRPG 原样的浮动 UI 跑在 scene 上，200 个单位时锚点方式的 UI 线程每帧 p50 29 ms、推 JSON 191 ms（剩下的是动画每帧改 DOM 后按整个文档的计算，13.5）。引擎纹理的限制已做（下一条）。13.5 增量管线已完成（2026-10-15）：13.5a owner 侧只处理变化的节点，13.5b 渲染侧只重做变化的子树，13.5c 每个元素的开销与局部布局。400 个单位（约 1,600 个节点）每帧改 1 个时 owner p50 / p99 5.3 / 12.1 → 0.111 / 0.194 ms，渲染 CPU 4.1 → 0.043 / 0.078 ms；400 个只移动 owner p99 3.7 ms；锚点加 20 个血条改宽度 owner 10.7 → 0.91 ms。
 - **引擎纹理的限制**（13.3c 之后，用户 2026-10-15 定为中优先级）：2026-10-15 做了铺排（`background-size`、`-position`、`-repeat`、`-origin`、`-clip`）、sRGB 与 BGRA 视图、mip、D2D 参考光栅、Vulkan 的目标别名检查、D3D11 上别的设备或 API 共享的纹理（见下方“本次已实现”）。剩下：文档页面（整体没有背景图片）、Vulkan 的跨 API 导入（未测）、UE 插件（M5；2026-10-15 起在 `unreal` 分支与 weft-unreal 仓库做，D3D12 后端已完成，2026-10-17 合入 main，见下方“本次已实现”）。
-- **Metal 的设备端**（2026-10-17，`metal` 分支）：着色器的 MSL 与 C ABI 已定（M.1），录制的编排与 Vulkan、D3D12 共用（M.2），适配器本身（M.3）要在 Mac 上写与验证；macOS 与 iOS 的配置、编译、链接、Metal 编译 MSL、绘制与性能都未验证。
+- **Metal 的设备端**（2026-10-17，`metal` 分支）：着色器的 MSL 与 C ABI（M.1）、与 Vulkan、D3D12 共用的编排（M.2）、macOS 上的适配器与窗口示例（M.3，2026-10-21）已完成；iOS 的构建、模拟器上的 Metal 测试与示例 App 见下方“本次已实现”（2026-10-23）。剩下：效果、背景滤镜、粒子、平面、图层与 CSS filter 在 Metal 上的像素对照，iOS 真机的功能与性能，设备丢失。
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
@@ -81,6 +81,16 @@ SVG 文字的几何跟着它的每一个字体值变（2026-10-31，`text-line-n
   - D3D12 的样例（`weft_engine_host --d3d12`）：后端第一次建场景渲染器约 15 ms，着色器改过、驱动的着色器缓存还没有它时约 107 ms。
   - 全量 ctest（180 项）：除既有的 14 项（签出换行的散列校验与浏览器差异）外通过，与修改前的基线相同。
 - **限制**：映射着的字体文件在 Windows 上可改名、删除，不能就地改写或截短，宿主加的字体文件在运行时持有它时也是这样（此前读完即关闭）；Android 用 `mmap`，只编译过、没在设备上运行。列出系统字体仍在第一个页面载入时（页面运行器约 10 ms，UE 里约 73 ms，几乎都是建 DirectWrite 工厂）；挪到别的时刻（建 runtime 时，或宿主提前调用一个列出字体的接口）是产品上的取舍，没做。第一次要回退的帧仍要建参考光栅。
+
+iOS：构建、模拟器上的 Metal 测试、示例 App 与 iOS 上的系统字体（2026-10-23，`ios-host` 分支，基于 `metal`；Apple M5，macOS 26.6，Xcode 27.1（Apple clang 21，iOS 27.1 SDK），Vulkan SDK 1.4.363.0；模拟器 iPhone 18 Pro，iOS 27.0）。命令见 [构建](building.md#ios-arm642026-10-23)。
+- **实现**：`samples/ios-host`（`weft_ios_demo.app`）：只用公开头文件，与 macOS 示例共用引擎、Metal 与页面的部分（`load_page` 与可切换的页面从 macOS 示例的 `main.mm` 移到 `samples/macos-host/page.hpp`）；UIKit 场景、CAMetalLayer 随 CADisplayLink 绘制（最高 120 Hz）、View 占安全区、手机横屏；一个触点是指针（移到、按下、抬起、离开；系统取消的触点只离开），页面没有可交互元素处的触点伤害单位；Next page 换 logo 页面；后台停帧、回到前台继续；页面随包复制。CMake：iOS 上构建 `samples/ios-host`；`WEFT_IOS_BUNDLE_ID`、`WEFT_IOS_DEVELOPMENT_TEAM` 给 Xcode 生成器签名。系统字体：`weft::platform_macos` 在 iOS 上也构建，运行时在 `TARGET_OS_IOS` 上同 macOS 用它（同样的 CoreText 调用；泛型族与回退照 macOS 的 Chrome，没有与 iOS 上的浏览器对照）。
+- **验证**：
+  - 配置、编译、链接：模拟器 SDK（Ninja，库、示例与 Metal 测试）、真机 SDK（Ninja，库与示例，未签名）、Xcode 生成器（`xcodebuild` 模拟器，ad-hoc 签名，15 个页面文件封入签名）均通过；Xcode 默认的 519 条警告全在 `third_party`（FreeType、QuickJS、libunibreak）。
+  - 模拟器里的 Metal 测试（`simctl spawn`）：`render_metal_shader_contract`、`scene_schedule_contract`、`logo_browser_reference_metal`（40 帧与 Chrome 对照，超过 32 级差的像素至多 0.039%，同 macOS）通过。
+  - 模拟器里的示例：横屏 750 × 382 pt（2250 × 1146 px，3x）60 fps（模拟器的上限），每帧 CPU 0.6–2.0 ms（View 推进 0.1–0.5 ms）、GPU 0.1–0.2 ms，第一秒 482 ms（字体列表与管线）；HUD 的文字用 iOS 系统字体画出；点 End turn 后页面调用引擎、引擎回答，页面显示第 2 回合；Next page 与 `--page dark`、`--page light` 的 logo 完整；Home 键后无帧、回到前台同一进程继续 60 fps；系统日志里没有示例自己的错误。
+  - macOS：重新构建全部目标，`ctest`（Debug）68/76，同前（8 项签出换行的散列校验）；`weft_macos_demo --shot` 的 HUD 与 `--page dark` 零诊断、结束回合得到回答。
+- **未验证**：iOS 真机（签名、安装、功能、120 Hz 与性能、沙盒里能否读系统字体文件）；触点点中世界里移动的单位（模拟器里没有点中）；iPad 与竖屏；与 iOS 上浏览器的文字几何；设备丢失。
+- **下一步**：真机运行与性能剖析（Xcode 生成器，用户的团队与 bundle ID）。
 
 空间导航让“看起来能点”的元素拿焦点，Enter 与空格按下它们（2026-10-23，`input` 分支；第三阶段的补充：宣传页自己模拟了这两条，原会话提出补进 weft）。
 - **起因**：Chrome 开了空间导航时，有 click 等监听器或自己设了 `cursor: pointer` 的元素也能拿焦点（Blink 的 `Element::SupportsSpatialNavigationFocus`），Enter 与空格按下它们；weft 只有 Tab 本来能到的元素，宣传页只好给队员与“显示元素边框”开关写 `tabIndex = 0` 与 Enter 的处理。

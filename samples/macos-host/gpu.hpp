@@ -1,9 +1,10 @@
 #pragma once
 
-// The macOS host sample's Metal side (Objective-C++, ARC): the engine's device and queue, its picture of the world
-// (a ground grid and the units, drawn by a pipeline of its own), the minimap texture it writes every frame and imports
-// into weft once as a live texture, and the View's frames drawn over its picture by the built-in Metal backend
-// (include/weft/render_backend_metal.h), committed by the engine and reported submitted and completed.
+// The Apple host samples' Metal side (Objective-C++, ARC; samples/macos-host, and samples/ios-host, which includes
+// it): the engine's device and queue, its picture of the world (a ground grid and the units, drawn by a pipeline of
+// its own), the minimap texture it writes every frame and imports into weft once as a live texture, and the View's
+// frames drawn over its picture by the built-in Metal backend (include/weft/render_backend_metal.h), committed by the
+// engine and reported submitted and completed.
 #import <Metal/Metal.h>
 
 #include "engine.hpp"

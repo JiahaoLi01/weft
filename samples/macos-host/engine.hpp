@@ -1,10 +1,10 @@
 #pragma once
 
-// The game side of the macOS host sample, through the public C header only (include/weft/weft.h): a runtime and a View
-// that runs the HUD page of examples/engine-host, as samples/engine-host drives it on Windows. The engine's units walk
-// circles in the world (the View's logical px); it writes their screen positions as anchors, their health to the view
-// model "health" and damage to hud.damage events, registers the page's sync function loc.get, and answers the page's
-// hud.endTurn call.
+// The game side of the Apple host samples (samples/macos-host, and samples/ios-host, which includes it), through the
+// public C header only (include/weft/weft.h): a runtime and a View that runs the HUD page of examples/engine-host, as
+// samples/engine-host drives it on Windows. The engine's units walk circles in the world (the View's logical px); it
+// writes their screen positions as anchors, their health to the view model "health" and damage to hud.damage events,
+// registers the page's sync function loc.get, and answers the page's hud.endTurn call.
 #include <weft/weft.h>
 
 #include <algorithm>

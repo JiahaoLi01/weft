@@ -33,7 +33,8 @@ typedef enum weft_result {
     WEFT_FAULTED = 11
 } weft_result;
 
-/* Runtime flags: the platform's installed fonts (Windows, Android) with its generic families and fallbacks. */
+/* Runtime flags: the platform's installed fonts (Windows, Android, macOS, iOS) with its generic families and
+ * fallbacks. */
 #define WEFT_RUNTIME_SYSTEM_FONTS 1u
 
 typedef struct weft_runtime_desc {

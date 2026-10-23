@@ -18,7 +18,7 @@
 #include <platform/android/system_fonts.hpp>
 #elif defined(__APPLE__)
 #include <TargetConditionals.h>
-#if TARGET_OS_OSX
+#if TARGET_OS_OSX || TARGET_OS_IOS
 #include <platform/macos/system_fonts.hpp>
 #define WEFT_MACOS_FONTS 1
 #endif
