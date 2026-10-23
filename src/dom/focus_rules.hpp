@@ -3,6 +3,7 @@
 #include "constants/common.hpp"
 #include "dom/selector.hpp"
 
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -94,4 +95,12 @@ namespace weft::dom {
     bool disabled_control(std::string_view local, bool html, Attribute&& attribute) {
         return html && detail::form_control(local) && attribute("disabled");
     }
+
+    // With spatial navigation an element meant to respond to the user takes the focus too (Blink's
+    // Element::SupportsSpatialNavigationFocus): one with a script listener for these events, or an SVG element with one
+    // for its focus events; or one that sets cursor: pointer itself (the top of a tree of them, which the host's styles
+    // tell).
+    inline constexpr std::array<std::string_view, 6> spatial_navigation_events{"click",   "keydown",   "keypress",
+                                                                               "keyup",   "mouseover", "mouseenter"};
+    inline constexpr std::array<std::string_view, 4> svg_focus_events{"focus", "blur", "focusin", "focusout"};
 } // namespace weft::dom

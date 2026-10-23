@@ -1,10 +1,11 @@
 {
-  "comment": "Spatial navigation scenarios on spatnav.js in an 800 x 600 viewport: Chrome with --enable-spatial-navigation, weft with WEFT_PAGE_SPATIAL_NAVIGATION. A step presses a key (down, its text when it has one, up), holds or releases one, clicks an element's centre, focuses or blurs by script. keys: key, code, Windows virtual key and the text the key types (Enter's '\\r' types no text in weft: its keypress comes from its keydown). chrome-results.json is what Chrome did (tools/browser_spatial_navigation_reference.mjs); tests/spatial_navigation_tests.cpp replays the steps in a View and compares.",
+  "comment": "Spatial navigation scenarios on spatnav.js in an 800 x 600 viewport: Chrome with --enable-spatial-navigation, weft with WEFT_PAGE_SPATIAL_NAVIGATION. A step presses a key (down, its text when it has one, up; mods S holds Shift), holds or releases one, clicks an element's centre, focuses or blurs by script. keys: key, code, Windows virtual key and the text the key types (Enter's '\\r' types no text in weft: its keypress comes from its keydown). chrome-results.json is what Chrome did (tools/browser_spatial_navigation_reference.mjs); tests/spatial_navigation_tests.cpp replays the steps in a View and compares.",
   "width": 800,
   "height": 600,
   "keys": {
     "Tab": {"key": "Tab", "code": "Tab", "vk": 9},
     "Enter": {"key": "Enter", "code": "Enter", "vk": 13, "text": "\r"},
+    "Space": {"key": " ", "code": "Space", "vk": 32, "text": " "},
     "Escape": {"key": "Escape", "code": "Escape", "vk": 27},
     "ArrowUp": {"key": "ArrowUp", "code": "ArrowUp", "vk": 38},
     "ArrowDown": {"key": "ArrowDown", "code": "ArrowDown", "vk": 40},
@@ -147,6 +148,71 @@
         {"press": "ArrowRight"},
         {"press": "ArrowDown"},
         {"press": "ArrowLeft"}
+      ]
+    },
+    {
+      "name": "listeners",
+      "steps": [
+        {"focus": "clicky"},
+        {"down": "Enter"},
+        {"up": "Enter"},
+        {"press": "Space"},
+        {"press": "ArrowRight"},
+        {"press": "Enter"},
+        {"press": "ArrowRight"},
+        {"press": "ArrowLeft"},
+        {"press": "ArrowLeft"},
+        {"press": "ArrowUp"},
+        {"press": "ArrowDown"},
+        {"press": "ArrowDown"}
+      ]
+    },
+    {
+      "name": "pointer",
+      "steps": [
+        {"focus": "card"},
+        {"down": "Enter"},
+        {"up": "Enter"},
+        {"press": "Tab"},
+        {"press": "Space"},
+        {"click": "label"},
+        {"click": "hover"},
+        {"press": "Enter"}
+      ]
+    },
+    {
+      "name": "tab-order",
+      "steps": [
+        {"focus": "far"},
+        {"press": "Tab"},
+        {"press": "Tab"},
+        {"press": "Tab"},
+        {"press": "Tab"},
+        {"press": "Tab"},
+        {"press": "Tab", "mods": "S"},
+        {"press": "Tab", "mods": "S"},
+        {"press": "Tab", "mods": "S"},
+        {"press": "Tab", "mods": "S"}
+      ]
+    },
+    {
+      "name": "enter-active",
+      "steps": [
+        {"down": "Enter"},
+        {"up": "Enter"},
+        {"focus": "in"},
+        {"down": "Enter"},
+        {"up": "Enter"},
+        {"focus": "ta"},
+        {"down": "Enter"},
+        {"up": "Enter"},
+        {"focus": "panel"},
+        {"press": "Enter"},
+        {"press": "Space"},
+        {"focus": "l0"},
+        {"press": "Space"},
+        {"down": "Enter"},
+        {"up": "Enter"}
       ]
     }
   ]

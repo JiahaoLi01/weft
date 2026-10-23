@@ -17,8 +17,9 @@
 // Spatial navigation and gamepads (WEFT_PAGE_SPATIAL_NAVIGATION, View::gamepad). The scenarios of
 // tests/fixtures/spatial_navigation run in a View of a page with spatial navigation and match, event by event, what
 // Chrome with --enable-spatial-navigation did on the same page (tools/browser_spatial_navigation_reference.mjs). Then
-// what Chrome cannot show: the page without spatial navigation, navigator.getGamepads() and its events from a host's
-// states, and a gamepad's keys (the D-pad and the left stick, A and B, a held direction's repeats) and when it has none.
+// what Chrome cannot show: the page without spatial navigation, what lets an element take the focus with it,
+// navigator.getGamepads() and its events from a host's states, and a gamepad's keys (the D-pad and the left stick, A
+// and B, a held direction's repeats) and when it has none.
 namespace {
     using weft::GamepadState;
     using weft::testing::JsonValue;
@@ -66,6 +67,15 @@ namespace {
             const auto down = view.key({true, key, key, 0, false, false, key_code});
             view.key({false, key, key, 0, false, false, key_code});
             return down;
+        }
+
+        // A click of its own: past the system's double-click time after the last one (the reference's clicks each have
+        // a click count of one).
+        void click(float x, float y) {
+            advance(600);
+            view.pointer({weft::PointerKind::Move, x, y, 0});
+            view.pointer({weft::PointerKind::Down, x, y, 1});
+            view.pointer({weft::PointerKind::Up, x, y, 0});
         }
     };
 
@@ -142,12 +152,21 @@ namespace {
         }
     }
 
-    // Plays a step of scenarios.json as a host gives it to a View: a key's keydown, its text, its keyup; focus() and
-    // blur().
+    // Plays a step of scenarios.json as a host gives it to a View: a key's keydown, its text, its keyup (with the step's
+    // modifiers); a click at an element's centre (a move, a press, a release); focus() and blur().
     void play(Fixture& f, const JsonValue& keys, const JsonValue& step) {
+        unsigned modifiers{};
+        if (const auto* mods = step.find("mods")) {
+            for (const char m : mods->string) {
+                modifiers |= m == 'S'   ? weft::key_modifier::shift
+                             : m == 'C' ? weft::key_modifier::control
+                             : m == 'A' ? weft::key_modifier::alt
+                                        : weft::key_modifier::meta;
+            }
+        }
         const auto key = [&](bool down, const std::string& name) {
             const auto& k = keys[name];
-            f.view.key({down, k["key"].string, k["code"].string, 0, false, false, unsigned(k["vk"].number)});
+            f.view.key({down, k["key"].string, k["code"].string, modifiers, false, false, unsigned(k["vk"].number)});
             // A host gives every character, Enter's '\r' too; weft takes Enter's keypress from its keydown.
             if (const auto* text = k.find("text"); down && text) {
                 f.view.text(text->string);
@@ -160,6 +179,11 @@ namespace {
             key(true, down->string);
         } else if (const auto* up = step.find("up")) {
             key(false, up->string);
+        } else if (const auto* id = step.find("click")) {
+            const auto centre = parse_json(f.eval("JSON.stringify((r => [r.left + r.width / 2, r.top + r.height / 2])("
+                                                  "document.getElementById('" +
+                                                  id->string + "').getBoundingClientRect()))"));
+            f.click(float(centre[0].number), float(centre[1].number));
         } else if (const auto* focus = step.find("focus")) {
             f.eval("document.getElementById('" + focus->string + "').focus()");
         } else if (step.find("blur")) {
@@ -196,7 +220,7 @@ namespace {
                 ++steps;
             }
         }
-        require(steps > 80, "the scenarios ran");
+        require(steps > 120, "the scenarios ran");
     }
 
     // A standard gamepad in a slot, nothing pressed.
@@ -232,6 +256,71 @@ namespace {
                     "keydown@g00 keyup@g00 keydown@g00 keyup@g00 keydown@g00 keyup@g00",
                 "the keys' events alone");
         require(f.eval("navigator.getGamepads()[0].buttons[13].pressed") == "true", "the gamepad shows");
+        // The elements with listeners and the card take no focus: focus() leaves it, Tab passes them (from Jump round to
+        // the first button); Enter on the panel neither makes it :active nor clicks it.
+        f.eval("document.getElementById('clicky').focus(); document.getElementById('card').focus()");
+        require(f.eval("document.activeElement.id") == "g00", "clicky and the card take no focus");
+        f.eval("document.getElementById('jump').focus()");
+        f.press("Tab", 9);
+        require(f.eval("document.activeElement.id") == "g00", "Tab passes them");
+        f.eval("document.getElementById('panel').focus(); __spatnav.take()");
+        f.view.key({true, "Enter", "Enter", 0, false, false, 13});
+        require(f.eval("String(__spatnav.state().pressed)") == "null", "Enter makes nothing :active");
+        f.view.key({false, "Enter", "Enter", 0, false, false, 13});
+        require(f.eval("__spatnav.take().map(e => e.type + '@' + e.target).join(' ')") ==
+                    "keydown@panel keypress@panel keyup@panel",
+                "Enter clicks no panel");
+    }
+
+    // What lets an element take the focus with spatial navigation, past Chrome's scenarios: a listener of the events
+    // (keyup here) but not one removed again; cursor: pointer set on the element, not inherited (cursor: initial in
+    // between), and as the keyword after a list of images; an SVG element's focus listener. Without spatial navigation
+    // none of them. (An explicit cursor: inherit counts as set: the cascade keeps the parent's value, not the keyword.)
+    void spatial_focus_rules() {
+        for (const bool spatial : {true, false}) {
+            Fixture f;
+            f.load(R"JS(
+                const root = document.getElementById('root');
+                const add = (id, parent, tag) => {
+                  const n = tag ? document.createElementNS('http://www.w3.org/2000/svg', tag)
+                                : document.createElement('div');
+                  n.setAttribute('id', id);
+                  (parent || root).appendChild(n);
+                  return n;
+                };
+                const handler = () => {};
+                const gone = add('gone');
+                gone.addEventListener('click', handler);
+                gone.removeEventListener('click', handler);
+                add('keys').addEventListener('keyup', () => {});
+                add('images', add('initial', add('plain', add('hand'))));
+                const shape = add('shape', add('svg', null, 'svg'), 'rect');
+                shape.setAttribute('width', '20');
+                shape.setAttribute('height', '20');
+                shape.addEventListener('focus', () => {});
+              )JS",
+                   "#root{position:relative;width:100%;height:100%}"
+                   "div{width:40px;height:20px;margin:4px}"
+                   "#hand{cursor:pointer}#initial{cursor:initial}#images{cursor:url(hand.png) 4 4,Pointer}"
+                   "svg{display:block;width:40px;height:40px}",
+                   spatial);
+            const std::string where = spatial ? "with spatial navigation: " : "without: ";
+            std::string taken;
+            for (const std::string id : {"gone", "keys", "hand", "plain", "initial", "images", "shape"}) {
+                f.eval("document.activeElement.blur(); document.getElementById('" + id + "').focus()");
+                if (f.eval("document.activeElement.id") == id) {
+                    taken += id + " ";
+                }
+            }
+            require(taken == (spatial ? "keys hand images shape " : ""), where + "focus() focuses " + taken);
+            f.eval("document.activeElement.blur()");
+            std::string order;
+            for (int k = 0; k < 4; ++k) {
+                f.press("Tab", 9);
+                order += f.eval("document.activeElement.id") + " ";
+            }
+            require(order == (spatial ? "keys hand images shape " : "    "), where + "Tab: " + order);
+        }
     }
 
     // The log of a page made by log_script: the key, click and focus events window sees in its capture phase, as
@@ -471,6 +560,7 @@ int main() {
     try {
         chrome_scenarios();
         without_spatial_navigation();
+        spatial_focus_rules();
         gamepad_api();
         gamepad_keys();
         std::cout << "spatial_navigation_contract passed\n";

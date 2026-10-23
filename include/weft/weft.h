@@ -214,8 +214,11 @@ typedef struct weft_script {
 #define WEFT_PAGE_WEB_PLATFORM 4u
 /* Blink's spatial navigation (Chrome's --enable-spatial-navigation): an arrow key moves the focus to the nearest
  * focusable element in its direction that shows (a scroll container scrolls a line when it has none; a text field's
- * caret moves first), Escape blurs it; the pointer follows the focus (hover). A gamepad's D-pad and left stick, its A
- * and B buttons are the arrow keys, Enter and Escape while the View has the host's focus (weft_view_gamepad). */
+ * caret moves first), Escape blurs it; the pointer follows the focus (hover). Elements meant to respond to the user (a
+ * script listener for click, keys or the mouse coming over, cursor: pointer set on the element) take the focus too,
+ * Tab's as well; Enter makes the focused element :active while it is down, and Enter's or Space's keypress clicks it
+ * unless it takes the key itself. A gamepad's D-pad and left stick, its A and B buttons are the arrow keys, Enter and
+ * Escape while the View has the host's focus (weft_view_gamepad). */
 #define WEFT_PAGE_SPATIAL_NAVIGATION 8u
 
 /* A page: scripts evaluated in order after the platform modules (DOM host, animation frames, the scene platform,

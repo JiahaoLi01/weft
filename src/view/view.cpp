@@ -109,6 +109,16 @@ namespace weft {
             return Activation::None;
         }
 
+        // Whether an element sets cursor: pointer itself rather than inheriting it (Blink's CursorIsInherited, which
+        // spatial navigation reads: the top of a tree of pointers takes the focus, not each element under it). The scene
+        // keeps an element's own cursor (View::hit looks up its ancestors'); a list of images ends with its keyword.
+        bool pointer_cursor(const SceneNode& n) {
+            const auto value = n.style.text(PropertyId::Cursor);
+            const auto comma = value.rfind(',');
+            return dom::lower_ascii_copy(css::trim(comma == std::string_view::npos ? value : value.substr(comma + 1))) ==
+                   "pointer";
+        }
+
         // A scroll container the keyboard can scroll: overflow auto or scroll with content past its client box.
         bool overflows(const SceneNode& n) {
             ElementGeometry e;
@@ -501,15 +511,16 @@ namespace weft {
                 }
                 return current.elements;
             });
-            // An element takes the focus where the page renders it: not under display: none, and visible.
+            // An element takes the focus where the page renders it: not under display: none, and visible; spatial
+            // navigation asks whether it sets cursor: pointer itself.
             vm.install_focus_host([this](const DomSnapshot& document, NodeIdentity identity) {
                 sync_read(*root_of(document));
                 for (const auto& e : scene_elements()) {
                     if (e.identity == identity) {
-                        return e.rendered;
+                        return FocusPlace{e.rendered, pointer_cursor(*e.node)};
                     }
                 }
-                return false;
+                return FocusPlace{};
             });
             vm.install_computed_style_host([this](const DomSnapshot& document, NodeIdentity identity) {
                 sync_read(*root_of(document));
@@ -647,6 +658,13 @@ namespace weft {
             bool visit{};
         };
 
+        // An element spatial navigation lets take the focus as meant to respond to the user (Blink's
+        // Element::SupportsSpatialNavigationFocus): one with a script listener for click, a key or the mouse coming
+        // over, or one that sets cursor: pointer itself.
+        bool spatial_focus(const SceneNode& n) {
+            return vm.spatial_navigation_listener(n.identity) || pointer_cursor(n);
+        }
+
         std::vector<Stop> navigation_stops() {
             const auto& list = scene_elements();
             std::vector<Stop> stops(list.size());
@@ -658,7 +676,8 @@ namespace weft {
                 const auto* index_text = n.attributes.contains("tabindex") ? &n.attributes.at("tabindex") : nullptr;
                 const auto index = index_text ? dom::html_integer(*index_text) : std::nullopt;
                 bool focusable = list[k].rendered && !dom::disabled_control(n.tag, html(n), attributes_of(n)) &&
-                                 (index || dom::focusable_by_default(n.tag, html(n), attributes_of(n)));
+                                 (index || dom::focusable_by_default(n.tag, html(n), attributes_of(n)) ||
+                                  (spatial_navigation && spatial_focus(n)));
                 if (!focusable && !index && list[k].rendered && overflows(n) && after[k + 1] == after[list[k].end]) {
                     focusable = true;
                 }
@@ -784,8 +803,11 @@ namespace weft {
             return vm.scroll_by_key(start.value_or(root_id), direction, granularity);
         }
 
-        // The click a key asks for (Blink's DispatchSimulatedClick).
+        // The click a key asks for (Blink's DispatchSimulatedClick): the element stops being :active first.
         void click(NodeIdentity target) {
+            if (vm.key_active() == target) {
+                vm.set_key_active(std::nullopt);
+            }
             MouseEvent e;
             e.type = MouseType::Click;
             e.simulated = true;
@@ -957,6 +979,12 @@ namespace weft {
                 click(target);
                 return {input_default, true};
             }
+            // Spatial navigation's Enter makes the element with the focus (else the body) :active until its keyup, or a
+            // click before that (SpatialNavigationController::HandleEnterKeyboardEvent); its keypress follows.
+            if (spatial_navigation && e.key == "Enter") {
+                vm.set_key_active(key_target());
+                return {0, false};
+            }
             // Spatial navigation's Escape blurs the focused element, or takes the pointer off the page
             // (HandleEscapeKeyboardEvent).
             if (spatial_navigation && e.key == "Escape") {
@@ -1045,6 +1073,14 @@ namespace weft {
                 return input_default;
             }
             if (c == U' ' && (kind == Activation::Button || kind == Activation::Checkable)) {
+                return input_default;
+            }
+            // With spatial navigation Enter and Space click the focused element unless it takes them itself, as a form
+            // control or an editable element does (Blink's HTMLElement::HandleKeypressEvent).
+            if (spatial_navigation && (c == U'\r' || c == U' ') && node && html(*node) && vm.focused() == target &&
+                node->tag != "button" && node->tag != "input" && node->tag != "select" && node->tag != "textarea" &&
+                !dom::editable_element(node->tag, true, attributes_of(*node))) {
+                click(target);
                 return input_default;
             }
             if (c == U' ' && !(e.modifiers & (key_modifier::control | key_modifier::alt | key_modifier::meta))) {
@@ -1594,6 +1630,7 @@ namespace weft {
             i.install_hosts();
             // A page that takes CSS as browsers do takes their selectors in DOM queries too.
             i.vm.set_modern_selectors(page.forgiving_css);
+            i.vm.set_spatial_navigation(page.spatial_navigation);
             install_script_platform(i.vm, ScriptPlatformModule::WebHost);
             install_script_platform(i.vm, ScriptPlatformModule::AnimationFrame);
             install_script_platform(i.vm, ScriptPlatformModule::ScenePlatform);
@@ -1922,6 +1959,10 @@ namespace weft {
                         i.click(target);
                         result |= input_default;
                     }
+                }
+                // Spatial navigation's Enter: the element with the focus now (else the body) is :active no more.
+                if (i.spatial_navigation && e.key == "Enter" && !prevented && i.vm.key_active() == i.key_target()) {
+                    i.vm.set_key_active(std::nullopt);
                 }
             }
         } catch (const std::runtime_error& e) {

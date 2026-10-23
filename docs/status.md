@@ -1,6 +1,6 @@
 # Weft 当前状态
 
-更新日期：2026 年 10 月 22 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG 与移动尚未实现（键盘与焦点、文本框与输入法、手柄与空间导航已在 `input` 分支），仍未达到 M0 全部退出条件。
+更新日期：2026 年 10 月 23 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG 与移动尚未实现（键盘与焦点、文本框与输入法、手柄与空间导航已在 `input` 分支），仍未达到 M0 全部退出条件。
 
 ## 待办
 
@@ -15,6 +15,15 @@
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
+
+空间导航让“看起来能点”的元素拿焦点，Enter 与空格按下它们（2026-10-23，`input` 分支；第三阶段的补充：宣传页自己模拟了这两条，原会话提出补进 weft）。
+- **起因**：Chrome 开了空间导航时，有 click 等监听器或自己设了 `cursor: pointer` 的元素也能拿焦点（Blink 的 `Element::SupportsSpatialNavigationFocus`），Enter 与空格按下它们；weft 只有 Tab 本来能到的元素，宣传页只好给队员与“显示元素边框”开关写 `tabIndex = 0` 与 Enter 的处理。
+- **实现**（见 [与引擎通信](engine-communication.md#8-对外-view133)“手柄与空间导航”）：
+  - 拿焦点：`ScriptDom::set_spatial_navigation`、`ScriptDom::spatial_navigation_listener`（click、keydown、keypress、keyup、mouseover、mouseenter 的脚本监听器，SVG 元素的 focus、blur、focusin、focusout；`dom::spatial_navigation_events`），`FocusHost` 改为回答 `FocusPlace`（是否渲染、元素自己是否设了 `cursor: pointer`）；View 的 Tab 顺序、空间导航的候选、鼠标给焦点与 `focus()` 都用它们，`tabIndex` 照旧。
+  - Enter 与空格：Enter 的 keydown 让焦点元素（没有焦点时是 body）`:active`，keyup 时恢复（`SpatialNavigationController::HandleEnterKeyboardEvent`）；Enter 与空格的 keypress 点击不自己处理这些键的焦点元素（`HTMLElement::HandleKeypressEvent`）；键要的点击先取消 `:active`（`DispatchSimulatedClick`）。早先的 Blink 在 Enter 的 keyup 时点击（宣传页照的是那一版），Chrome 155 的源码（分支 8059）与录制都是 keypress 时点击、keyup 只取消 `:active`，weft 照 Chrome 155。
+  - 夹具：加了有 click、mouseenter、mouseleave 监听器的 div 与设了手形光标的卡片（标签继承光标，角标自己又设），放在滚动容器与 Jump 按钮之间那一条：按距离公式不影响其他场景，重录后原来十一个场景的结果与之前逐字节相同；场景加了空格键、Shift+Tab 与鼠标点击，测试的重放跟着支持。
+- **验证**（Debug）：`spatial_navigation_contract`：十五个场景 127 步与 Chrome 155 逐事件、逐字段一致（新加四个：有监听器的元素、手形光标的卡片与角标、Tab 顺序、Enter 的 `:active`）；没开空间导航时这些元素不拿焦点、Enter 不点击面板；拿焦点的规则（移除了的监听器、`cursor: initial` 隔开的手形、图片列表之后的关键字、SVG 元素的 focus 监听器）。全量 ctest（Debug，179 项）：除既有的 14 项（签出换行的散列校验与浏览器差异）外通过，`keyboard_contract`、`text_field_contract`、`c_api_view_contract` 照旧通过。
+- **限制**：body 与 html 不在场景里，有监听器也不拿焦点、Enter 与空格不点击它们（Chrome 会）；显式的 `cursor: inherit` 算元素自己设的（weft 的层叠只留下父元素的值，不留关键字）。
 
 手柄与空间导航：Gamepad API、Blink 的空间导航与手柄的方向、确认、返回键（2026-10-22，`input` 分支；用户提出：键盘、输入法与手柄输入接进 weft 和两个引擎插件，行为照 Chrome，这是第三阶段：手柄；用户 2026-10-21 定：手柄导航用页面标志开启）。
 - **起因**：页面读不到手柄（没有 `navigator.getGamepads()`），宿主只能自己把手柄翻成页面的事件；方向键只滚动，焦点只能按 Tab 的顺序走，手柄没法在界面里上下左右地选。

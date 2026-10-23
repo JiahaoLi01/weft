@@ -43,9 +43,11 @@ namespace weft {
         // the console as diagnostics, the View's storage areas as localStorage and sessionStorage, focus, matchMedia.
         bool web_platform{};
         // Blink's spatial navigation (WEFT_PAGE_SPATIAL_NAVIGATION, Chrome's --enable-spatial-navigation): the arrow
-        // keys move the focus to the nearest focusable element their way and the pointer with it, Escape blurs it; and
-        // a gamepad's D-pad and left stick, A and B are the arrow keys, Enter and Escape while the View has the host's
-        // focus.
+        // keys move the focus to the nearest focusable element their way and the pointer with it, Escape blurs it;
+        // elements meant to respond to the user (a listener for click, keys or the mouse coming over, cursor: pointer)
+        // take the focus, Enter makes the focused one :active while it is down and Enter's or Space's keypress clicks
+        // it; and a gamepad's D-pad and left stick, A and B are the arrow keys, Enter and Escape while the View has the
+        // host's focus.
         bool spatial_navigation{};
     };
 

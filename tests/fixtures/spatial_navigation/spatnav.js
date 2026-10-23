@@ -42,6 +42,15 @@
   jump.addEventListener('keydown', e => {
     if (e.key === 'ArrowRight') document.getElementById('g22').focus();
   });
+  // What spatial navigation lets take the focus besides (Element::SupportsSpatialNavigationFocus): a div with a click
+  // listener, one with a mouseenter listener, and a card that sets cursor: pointer, whose label inherits it and whose
+  // badge sets it again; a div with only a mouseleave listener takes none.
+  element('div', {id: 'leave', class: 'extra'}, 'Leave').addEventListener('mouseleave', () => {});
+  element('div', {id: 'clicky', class: 'extra'}, 'Click').addEventListener('click', () => {});
+  element('div', {id: 'hover', class: 'extra'}, 'Over').addEventListener('mouseenter', () => {});
+  const card = element('div', {id: 'card', class: 'extra'});
+  element('span', {id: 'label'}, 'Card', card);
+  element('span', {id: 'badge'}, '!', card);
 
   const name = n => !n ? null : n === window ? 'window' : n === document ? 'document' :
     n === document.body ? 'body' : n.id || n.localName || n.nodeName;

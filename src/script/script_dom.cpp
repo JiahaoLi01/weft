@@ -191,6 +191,8 @@ namespace weft {
         // The host's keyboard focus is in the page: the focus flags hold only then. Kept across documents.
         bool page_focus = true;
         FocusHost focus_host;
+        // Spatial navigation's elements take the focus too (ScriptDom::set_spatial_navigation).
+        bool spatial_navigation{};
         // Where sequential focus navigation starts without a focused element: the node focused or pressed last, and,
         // once it left the document, the parent it left and the sibling that followed it (none: it was the last).
         NodeIdentity start_node;
@@ -2893,6 +2895,7 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
             last_focus = LastFocus::None;
             had_keyboard_event = false;
             focus_host = {};
+            spatial_navigation = false;
             start_node = start_parent = start_next = {};
             pressed_node = key_active = {};
             modern_selectors = false;
@@ -3400,14 +3403,34 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
             return focusable_by_default(n) ? 0 : -1;
         }
 
-        // Whether n can take the focus by focus(): HTML's focusable areas, being rendered (the focus host).
+        // A script listener that lets spatial navigation focus n (Blink's HasJSBasedEventListeners in
+        // Element::HasSpatialNavigationFocusHeuristics).
+        bool spatial_listener(const Node& n) const {
+            const bool svg = n.space == constants::svg_namespace_uri;
+            for (const Listener& l : bindings[n.identity.slot].listeners) {
+                const auto in = [&](const auto& types) {
+                    return std::find(types.begin(), types.end(), l.type) != types.end();
+                };
+                if (in(dom::spatial_navigation_events) || (svg && in(dom::svg_focus_events))) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Whether n can take the focus by focus(): HTML's focusable areas, or with spatial navigation an element meant to
+        // respond to the user (a listener, the focus host's pointer), being rendered (the focus host).
         bool focusable(Node& n) {
-            if (n.type != constants::element_node_type || !connected(n) || disabled(n) ||
-                (!focusable_by_default(n) && !integer_attribute(n, "tabindex"))) {
+            if (n.type != constants::element_node_type || !connected(n) || disabled(n)) {
+                return false;
+            }
+            const bool rule = focusable_by_default(n) || integer_attribute(n, "tabindex");
+            const bool listening = !rule && spatial_navigation && spatial_listener(n);
+            if (!rule && !listening && !spatial_navigation) {
                 return false;
             }
             if (!focus_host) {
-                return true;
+                return rule || listening;
             }
             layout_running = true;
 
@@ -3419,7 +3442,8 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
                 }
             } guard{*this};
 
-            return focus_host(host_snapshot(), n.identity);
+            const auto place = focus_host(host_snapshot(), n.identity);
+            return place.rendered && (rule || listening || place.pointer);
         }
 
         // Whether the focused element n shows its focus (Blink's MatchesFocusVisiblePseudoClass): as focus() asked,
@@ -5010,6 +5034,17 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
     void ScriptDom::install_focus_host(FocusHost host) {
         impl_->require_runtime();
         impl_->focus_host = std::move(host);
+    }
+
+    void ScriptDom::set_spatial_navigation(bool on) {
+        impl_->check_owner();
+        impl_->spatial_navigation = on;
+    }
+
+    bool ScriptDom::spatial_navigation_listener(NodeIdentity target) const {
+        impl_->check_owner();
+        const auto* n = impl_->resolve(target);
+        return n && n->type == constants::element_node_type && impl_->spatial_listener(*n);
     }
 
     void ScriptDom::set_page_focus(bool focused) {

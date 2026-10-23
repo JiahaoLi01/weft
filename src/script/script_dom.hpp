@@ -247,9 +247,15 @@ namespace weft {
         IfNeeded
     };
 
-    // Whether an element is being rendered and visible (HTML's focusable areas): a host that knows the page's styles
-    // answers for the document as given. An element takes the focus only then; without a host every connected one may.
-    using FocusHost = std::function<bool(const DomSnapshot&, NodeIdentity)>;
+    // How an element shows (HTML's focusable areas): whether it is being rendered and visible, and whether it sets
+    // cursor: pointer itself rather than inheriting it (spatial navigation lets the top of such a tree take the focus). A
+    // host that knows the page's styles answers for the document as given. An element takes the focus only when
+    // rendered; without a host every connected one may.
+    struct FocusPlace {
+        bool rendered{};
+        bool pointer{};
+    };
+    using FocusHost = std::function<FocusPlace(const DomSnapshot&, NodeIdentity)>;
 
     struct WheelEvent {
         // Owner-normalized logical pixel units.
@@ -356,9 +362,16 @@ namespace weft {
         // may take the focus (focusable).
         bool focus(std::optional<NodeIdentity> target, FocusType type, bool scroll = true);
         // Whether target can take the focus as focus() gives it: an element of the document that HTML makes focusable
-        // (a tabindex, a link, a form control that is not disabled, an editing host) and the focus host renders.
+        // (a tabindex, a link, a form control that is not disabled, an editing host), or with spatial navigation one
+        // with such a listener (spatial_navigation_listener) or the focus host's pointer, and the focus host renders.
         bool focusable(NodeIdentity target);
         void install_focus_host(FocusHost);
+        // Spatial navigation (Chrome's --enable-spatial-navigation) lets elements meant to respond to the user take the
+        // focus (Blink's Element::SupportsSpatialNavigationFocus). reset_document turns it off.
+        void set_spatial_navigation(bool on);
+        // Whether target has a script listener that makes it such an element (dom::spatial_navigation_events, an SVG
+        // element's dom::svg_focus_events; Blink's HasJSBasedEventListeners).
+        bool spatial_navigation_listener(NodeIdentity target) const;
         // The host's keyboard focus comes to the page or leaves it, as a browser window's: the focused element gets
         // blur and focusout, then window blur (window focus, then focus and focusin when it comes back); :focus,
         // :focus-visible and :focus-within match only while the page has it. A page starts with it; reset_document
@@ -376,7 +389,8 @@ namespace weft {
         // focused element, else the node focused or pressed last (the element before (forward) or after (backward) the
         // place where it left the document, once it has).
         std::optional<NodeIdentity> navigation_start(bool forward) const;
-        // The element Space made :active (a button's), which Space's keyup clicks; none clears it.
+        // The element a key made :active: a button's Space, which its keyup clicks, or spatial navigation's Enter; none
+        // clears it.
         void set_key_active(std::optional<NodeIdentity> target);
         std::optional<NodeIdentity> key_active() const;
         // Dispatches a trusted keyboard event at target. A keydown without Control, Alt or Meta lets the focused
