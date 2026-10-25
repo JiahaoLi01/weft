@@ -404,6 +404,13 @@ if(WIN32)
     endif()
     weft_add_test(NAME scene_paint_reference COMMAND weft_scene_paint_reference_tests
         "${artifacts}/scene-paint-reference-$<CONFIG>" "${scene_paint_cases_sha256}" TIMEOUT 180)
+    # Gradient backgrounds whose box ends inside a device pixel, against Chrome's screenshots of the same cases.
+    set(scene_gradient_edge_cases "${fixtures}/scene-gradient-edge-reference/cases.json")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${scene_gradient_edge_cases}")
+    file(SHA256 "${scene_gradient_edge_cases}" scene_gradient_edge_cases_sha256)
+    weft_add_test(NAME scene_gradient_edge_reference COMMAND weft_scene_paint_reference_tests
+        "${artifacts}/scene-gradient-edge-reference-$<CONFIG>" "${scene_gradient_edge_cases_sha256}"
+        "${fixtures}/scene-gradient-edge-reference" TIMEOUT 180)
     # UI shader effects in the native scene passes: D3D11 on WARP, and Vulkan on this machine's device when built.
     set(scene_effect_links weft::scene_d3d11 weft::platform_win32 weft_test_effects)
     if(WEFT_RENDER_VULKAN)

@@ -5,9 +5,13 @@
 // and svg attributes. Host textures (-weft-texture(name), the cases' textures, straight sRGB RGBA8) are PNG images in
 // url(), whose background layout CSS gives as it gives the scene's. Writes one screenshot per case and a manifest of the
 // browser, its GPU and the hash of the cases. Offline: each page is a data URL; fonts are this machine's installed
-// fonts, as for the scene's text.
+// fonts, as for the scene's text. Other sets of cases in the same format (tests/fixtures/scene-gradient-edge-reference:
+// gradient backgrounds whose box ends inside a device pixel) are recorded into their own folder, from the cases.json in
+// it.
 //
-//   node tools/browser_scene_paint_reference.mjs [output directory] [chrome.exe]
+//   node tools/browser_scene_paint_reference.mjs [output directory] [chrome.exe] [cases.json]
+//
+// Without cases.json: the output directory's, else tests/fixtures/scene-paint-reference's.
 import {spawn} from 'node:child_process';
 import {deflateSync} from 'node:zlib';
 import {readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync} from 'node:fs';
@@ -18,7 +22,8 @@ import {repo, sha} from './gallery_runtime.mjs';
 const output = resolve(process.argv[2] ?? resolve(repo, 'tests/fixtures/scene-paint-reference'));
 const executable = process.argv[3] ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 if (!existsSync(executable)) throw new Error('Provide a local Chromium executable as the second argument');
-const casesPath = resolve(repo, 'tests/fixtures/scene-paint-reference/cases.json');
+const casesPath = resolve(process.argv[4] ?? (existsSync(join(output, 'cases.json')) ? join(output, 'cases.json')
+  : resolve(repo, 'tests/fixtures/scene-paint-reference/cases.json')));
 const casesText = readFileSync(casesPath, 'utf8');
 const spec = JSON.parse(casesText);
 

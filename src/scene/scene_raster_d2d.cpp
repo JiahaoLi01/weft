@@ -1374,7 +1374,7 @@ namespace weft {
             };
             for (unsigned y = 0; y < ih; ++y) {
                 for (unsigned x = 0; x < iw; ++x) {
-                    const auto c = scene_gradient_color(g, (x + .5f) / scale, (y + .5f) / scale);
+                    const auto c = scene_gradient_color(g, (x + .5f) / scale, (y + .5f) / scale, w, h);
                     auto p = pixels.data() + (std::size_t(y) * iw + x) * 4;
                     p[0] = channel(c[2] * c[3]);
                     p[1] = channel(c[1] * c[3]);

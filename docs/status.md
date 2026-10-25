@@ -16,6 +16,12 @@
 
 ## 本次已实现
 
+渐变盒子边上的那一列取盒子在这条边上的颜色（2026-10-25，`timeline-fixes` 分支；CaseGinkgo 的窗口时间轴页面发现，用户提出：左端渐隐的盒子右边有一道暗线）。
+- **起因**：`src/render/shaders/scene.hlsl` 的 `gradient()` 按瓦片取模定位（`q - floor(q / tile) * tile`）。盒子按小数位置的覆盖率画边，右边（或下边）落在设备像素中间时，边上那一列像素的中心在盒子外或正在边上，取模回到下一块瓦片的开头：从不透明渐隐到透明的盒子，最后一列画成接近不透明的颜色（1 倍、右边在 110.5 px：Chrome 254，weft 128）。左边、上边的那一列反过来取到末色，丢了抗锯齿。D2D 参考光栅（色标不全不透明时的逐像素位图）同样回绕。
+- **实现**：着色器与 `scene_gradient_color`（D2D 参考光栅用，加了盒子的宽高）把位置钳进盒子，瓦片取盒子里离边 1/64 px 的点所在的那一块（`GradientEdgeInset`、`constants::scene::gradient_edge_inset`），边在瓦片边界上时结束那一块；盒子里的瓦片接缝不变。
+- **验证**（Release）：`scene_gradient_edge_reference`（新，与 `scene_paint_reference` 同一测试程序与录制工具，夹具 `tests/fixtures/scene-gradient-edge-reference`，`node tools/browser_scene_paint_reference.mjs tests/fixtures/scene-gradient-edge-reference`）：1 倍与 1.5 倍两个用例（右边在半个像素与 0.3 个像素、下边在半个像素、末色不透明、时间轴的渐隐色）与 Chrome 156 截图对照，原生 D3D11 WARP 平均差 0.34 / 0.05 级、差 32 级以上的像素 0、5 × 5 平均后最大差 3 / 1 级，D2D 参考光栅 0.31 / 0.08、0、3 / 1 级，Vulkan 与 D3D11 最多差 1 级；换回取模时 5 × 5 最大差 25 / 26 级，两个用例都超限。`scene_floating_css_contract` 加边上的取色：两端、竖直方向、盒子里的瓦片接缝、边在瓦片边界上。全量 ctest（182 项）：除既有的 14 项（签出换行的散列校验与浏览器差异）外通过，与修改前的基线相同。Debug 的全量 ctest 失败的也只是这 14 项。
+- **限制**：盒子的边仍按小数位置的覆盖率画（Chrome 先对齐整像素，见兼容表），落在像素中间的左边、上边那一列比 Chrome 多一点覆盖。
+
 没给宽度的绝对定位盒子按 CSS 2 §10.3.7 收缩适配（2026-10-25，`timeline-fixes` 分支；CaseGinkgo 的窗口时间轴页面发现，用户提出）。
 - **起因**：宽度为 auto、水平方向至多一侧有 inset 的绝对定位盒子，Yoga 给它做 fit-content 的可用宽是包含块的整个宽度，只在父元素主轴是列、包含块有宽度时才约束，不减 inset；适配器的文字测量函数在这个模式下返回 min(可用宽, 最大内容宽)，可以比最小内容宽还窄。窗口时间轴把标签与事件组放在随时间移动的 1px 宽条带里：`white-space: nowrap` 的中文标签只有 1px 宽，字溢出盒子；`right` 定位、`left` 为 auto 的事件组宽 1px，里面的 inline-block 从盒子左边往右排。CSS 2 §10.3.7 的收缩适配是 min(max(最小内容宽, 可用宽), 最大内容宽)，可用宽是包含块的宽减去已给的 inset 与外边距；Chrome 在两种情况都收缩到内容宽，后者靠右。
 - **实现**：Yoga 的第三个补丁 `third_party/yoga/patches/0003-absolute-shrink-to-fit.patch`（原因、反例、哈希与退出条件见 metadata、`third_party/manifest.json` 与 [布局探针](layout-text-probes.md)）用包含块的宽减去 inset（不小于 0）做 fit-content，在行与列里一样，可用宽为 0 时也约束；`src/layout/flex.cpp` 的测量函数在 fit-content 下比最小内容宽窄时取最小内容宽，并在这个宽度上排行。
