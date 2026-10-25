@@ -16,6 +16,12 @@
 
 ## 本次已实现
 
+没给宽度的绝对定位盒子按 CSS 2 §10.3.7 收缩适配（2026-10-25，`timeline-fixes` 分支；CaseGinkgo 的窗口时间轴页面发现，用户提出）。
+- **起因**：宽度为 auto、水平方向至多一侧有 inset 的绝对定位盒子，Yoga 给它做 fit-content 的可用宽是包含块的整个宽度，只在父元素主轴是列、包含块有宽度时才约束，不减 inset；适配器的文字测量函数在这个模式下返回 min(可用宽, 最大内容宽)，可以比最小内容宽还窄。窗口时间轴把标签与事件组放在随时间移动的 1px 宽条带里：`white-space: nowrap` 的中文标签只有 1px 宽，字溢出盒子；`right` 定位、`left` 为 auto 的事件组宽 1px，里面的 inline-block 从盒子左边往右排。CSS 2 §10.3.7 的收缩适配是 min(max(最小内容宽, 可用宽), 最大内容宽)，可用宽是包含块的宽减去已给的 inset 与外边距；Chrome 在两种情况都收缩到内容宽，后者靠右。
+- **实现**：Yoga 的第三个补丁 `third_party/yoga/patches/0003-absolute-shrink-to-fit.patch`（原因、反例、哈希与退出条件见 metadata、`third_party/manifest.json` 与 [布局探针](layout-text-probes.md)）用包含块的宽减去 inset（不小于 0）做 fit-content，在行与列里一样，可用宽为 0 时也约束；`src/layout/flex.cpp` 的测量函数在 fit-content 下比最小内容宽窄时取最小内容宽，并在这个宽度上排行。
+- **验证**（Release）：`scene_absolute_browser_contract`（新，`tools/browser_scene_absolute_reference.mjs` 录 `tests/fixtures/scene_absolute_reference.json`）：一页 29 个元素的 client rect 与 Chrome 156 一致（1/64 px 内）：1px 的条带里 `left`、`right` 定位的 nowrap 中文与 inline-block、可换行文字的最小内容宽，宽包含块里 `left`、`right` 的 inset、横向 flex 父元素、外边距内边距与边框、百分比 inset、块子元素、`max-width` 与 `min-width`，以及不变的静态位置盒子与两侧 inset 的盒子。只去掉 Yoga 补丁时 5 个元素不同，只去掉测量函数的下限时 11 个不同。`box_layout_contract` 加不依赖字体的同一规则（按词换行的文字模型），两种变异各自失败。`dependency_integrity` 通过（Yoga 的 500 个锁定文件）。全量 ctest（181 项）：除既有的 14 项（签出换行的散列校验与浏览器差异）外通过，与修改前的基线相同。
+- **限制**：四边 inset 都是 auto 的盒子的静态位置仍是包含块内边距盒的起点，不在它之前的流内兄弟之后（Chrome 在之后），与这次无关，没改；从右到左未做。
+
 页面的第一次载入与第一帧：系统字体从字体集合列出，字体在文字第一次用到时才打开并映射，参考光栅等要回退时才建（2026-10-25，`timeline-fixes` 分支；CaseGinkgo 的窗口时间轴页面在 UE 里发现，用户提出：每个进程第一次载入页面约 0.6 s，第一帧游戏线程还要等渲染线程约 0.17 s）。
 - **起因**：
   - 游戏线程：UE 里每个进程第一次 `weft_view_load` 约 0.55–0.63 s，之后每次约 5 ms，空脚本加几乎空的样式表也一样。页面运行器在本机复现（Release，热缓存，下同）：空页面第一次 514 ms，其中 `system_font_catalog()` 507–513 ms，是对 1,432 个字体逐个 `IDWriteFontFamily::GetFont` 并 `CreateFontFace`（打开并映射每个字体文件，436–441 ms）；页面本身 2–3 ms。其次是字体文件：匹配一个 font-family 时，列表与回退列表里的字体一起打开并整份读进内存。窗口时间轴页面第一次载入读了 8 个字体文件约 42 ms（雅黑 UI Bold 16.9 MB 10 ms，Noto Sans SC 可变字体 17.8 MB 11.5 ms，Segoe UI Emoji 读 7.9 ms 加检查颜色表 7.6 ms），它的文字只用到其中 3 个。

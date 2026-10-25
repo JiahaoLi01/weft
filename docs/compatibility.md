@@ -82,6 +82,9 @@ CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后�
 
 ## 样式和布局
 
+2026-10-25：绝对定位盒子的收缩适配（CaseGinkgo 的窗口时间轴发现）。
+- 绝对定位、宽度为 auto、水平方向至多一侧有 inset 的盒子，按 CSS 2 §10.3.7 收缩适配：min(max(最小内容宽, 可用宽), 最大内容宽)，可用宽是包含块的宽减去已给的 inset 与外边距（auto 的 inset 当 0），在块里与在横向 flex 容器里一样；可用宽不大于 0 时取最小内容宽（nowrap 的文字就是整段的宽）。此前可用宽是包含块的整个宽度，不减 inset，横向 flex 容器里不约束，盒子最窄只到可用宽：1px 宽的包含块（随时间轴移动的条带）里的盒子只有 1px，nowrap 的文字溢出盒子，`right` 定位的盒子的内容从左边排起；宽包含块里靠 inset 的文字不在 inset 处换行，`right` 定位的盒子伸出包含块的左边。与 Chrome 156 的 29 个元素 client rect 一致（1/64 px 内，`tools/browser_scene_absolute_reference.mjs`）。仍不同：四边 inset 都是 auto 的盒子的静态位置取包含块内边距盒的起点，不在它之前的流内兄弟之后（Chrome 在之后）。
+
 2026-10-11 重构第 9.2 步：DOM 查询与样式层叠共用一个选择器引擎（`src/dom/selector`）。
 - JS 的 querySelector/querySelectorAll/matches 新增：子代组合子 `>`；属性选择器（存在、`=`、`~=`、`|=`、`^=`、`$=`、`*=`，值可以加引号）；ASCII 范围的 CSS 转义；`:root`、`:hover`、`:active`。逗号列表按引号外的逗号切分。
 - 样式随之接受上述全部属性运算符；非 scene 的样式仍不接受转义和 `:hover`/`:active`。

@@ -291,6 +291,10 @@ if(WIN32)
     weft_add_executable(weft_scene_fixed_tests SOURCES scene_fixed_tests.cpp
         LINK weft::scene_d3d11 weft::platform_win32 SOURCE_DIR)
     weft_add_test(NAME scene_fixed_browser_contract COMMAND weft_scene_fixed_tests TIMEOUT 120)
+    # Absolutely positioned boxes of auto width (shrink-to-fit) against Chrome's geometry.
+    weft_add_executable(weft_scene_absolute_tests SOURCES scene_absolute_tests.cpp
+        LINK weft::scene weft::platform_win32 SOURCE_DIR)
+    weft_add_test(NAME scene_absolute_browser_contract COMMAND weft_scene_absolute_tests TIMEOUT 120)
     # The transition shorthand and the pairing of the transition lists against Chrome
     # (tools/browser_scene_transition_reference.mjs) and a model of random lists; their diagnostics.
     weft_add_executable(weft_scene_transition_tests SOURCES scene_transition_tests.cpp

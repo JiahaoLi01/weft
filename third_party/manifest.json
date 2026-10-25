@@ -282,7 +282,8 @@
       "archive_sha256": "1f5bcee29cbc843791d2ef43a4be1e163009060eb304a92e78451141995a75d0",
       "license_file": "source/LICENSE",
       "modified_files": [
-        "yoga/algorithm/CalculateLayout.cpp"
+        "yoga/algorithm/CalculateLayout.cpp",
+        "yoga/algorithm/AbsoluteLayout.cpp"
       ],
       "retrieved_date": "2026-10-07",
       "patches": [
@@ -303,6 +304,15 @@
           "reason": "A box that does not scroll keeps its content's size when its parent gives it no room (measureNodeWithFixedSize gave it its padding): a block in a block of no height, and a column flex item that may not shrink below its content. Boxes that scroll keep the shortcut.",
           "upstream_issue": "No upstream issue filed; local fixed browser counterexamples retained.",
           "exit_condition": "Drop when a fixed upstream release lays out a box in a parent of no height at its content's height."
+        },
+        {
+          "file": "patches/0003-absolute-shrink-to-fit.patch",
+          "original_file_sha256": "a14c889ae93db155b826aa605bfeb8151f5573373555c67dc66aa11e2ba4d0dd",
+          "patched_file_sha256": "dd8a5c39630a611c9900757abe6678799e564c409600d1b103d073e0590c41c3",
+          "sha256": "2814a7c431bc85f106e478526f902c50b2ae82acb4107d3b1c187f0d7f76b943",
+          "reason": "An absolutely positioned box of auto width shrinks to fit the width its containing block leaves beside its insets (CSS 2 10.3.7), in a row as in a column. Yoga gave it the containing block's whole width, only in a column and only when it had some width, so its text wrapped past the containing block's edge or not at all. The adapter's measure function keeps such a box at least its min-content width.",
+          "upstream_issue": "No upstream issue filed; local fixed browser counterexamples retained.",
+          "exit_condition": "Drop when a fixed upstream release sizes an absolutely positioned box of auto width with at most one horizontal inset to its containing block's width less the inset, in rows and columns."
         }
       ],
       "build_options": {
@@ -314,10 +324,11 @@
       },
       "source_dir": "third_party/yoga",
       "files": {
-        "metadata.json": "4f34f0656aa6f2d7838d1710f2390eb291e0def4bed6ebd56c1d141685a9507b",
+        "metadata.json": "862b75c887bb63675f1293f95ad0d703dd932c5e6a3acc0504079ed91a10d01a",
         "patches/0001-definite-flex-basis.patch": "629bbb8d6aa960ef0b539702729a6fbfe552e06d12fc93897932cc5a5669c8b0",
         "patches/0002-fit-content-without-room.patch": "4bf9888b074a93b2aad00f9ff6ad0b9dec949ecc6f916f8d8e34037773c007de",
-        "README.md": "cb8a6ab290662d7a4479ef9e96392884074e4e1ab2780ed733a8a2c271088511",
+        "patches/0003-absolute-shrink-to-fit.patch": "2814a7c431bc85f106e478526f902c50b2ae82acb4107d3b1c187f0d7f76b943",
+        "README.md": "d8723a58d34b4123c43abf41e973290b8b3fa0690b4a6d599223968025b30334",
         "source/.clang-format": "6456c652bba1b036ec30e31079853ef7f136bc34d4a2de7e6de0ba6b84f8f117",
         "source/.clang-tidy": "df4ce9d78e52896b839085cfe016fa492b0662e2ac895297625330c48348ef61",
         "source/.editorconfig": "49a7e1155be4548026ce1e540cc2b7f63ad8f58ada4c2083ff10a698347e3b13",
@@ -736,7 +747,7 @@
         "source/website/static/img/undraw_docusaurus_tree.svg": "09704d88ef849647bf2ee02a4cb1b1b413f000de059a8d794019238ef2c5e4a7",
         "source/website/tsconfig.json": "387bb7e5dbf733c235bd5db22eaf8cf84779d90d254aec160966a5f5584a4adb",
         "source/yarn.lock": "ee12b5a9fe9f4336dba3b2bc4910db4ee640d72d58f6d1af729bda41bcc2d963",
-        "source/yoga/algorithm/AbsoluteLayout.cpp": "a14c889ae93db155b826aa605bfeb8151f5573373555c67dc66aa11e2ba4d0dd",
+        "source/yoga/algorithm/AbsoluteLayout.cpp": "dd8a5c39630a611c9900757abe6678799e564c409600d1b103d073e0590c41c3",
         "source/yoga/algorithm/AbsoluteLayout.h": "9f9637dce062ba6c24c02cb8e22ae0a963d8a65262fb26e887467e3214d85f86",
         "source/yoga/algorithm/Align.h": "005a951f3cff63ef023ebcf702ccf5a369aabd63d7738c30d49e415821ee474e",
         "source/yoga/algorithm/Baseline.cpp": "2a6bc7ebd65c4d05c0e48d9c301dec86dc16d01ef3ea78f2d824a4c223d2ebdb",

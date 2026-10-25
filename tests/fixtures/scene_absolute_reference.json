@@ -1,0 +1,365 @@
+{
+ "browser": "Chrome/156.0.8078.47",
+ "width": 600,
+ "height": 400,
+ "tree": {
+  "tag": "div",
+  "style": "position:relative;width:600px;height:400px;background-color:#101010;color:#e0e0e0;font-family:system-ui;font-size:14px;line-height:20px;",
+  "children": [
+   {
+    "tag": "div",
+    "style": "position:absolute;left:300px;top:10px;width:1px;height:40px;background-color:#ff0000",
+    "children": [
+     {
+      "tag": "div",
+      "style": "position:absolute;left:4px;top:0;white-space:nowrap;background-color:#4a3020",
+      "children": [
+       "窗口时间轴 滑铲"
+      ]
+     },
+     {
+      "tag": "div",
+      "style": "position:absolute;right:4px;top:20px;white-space:nowrap;background-color:#203048",
+      "children": [
+       {
+        "tag": "span",
+        "style": "display:inline-block;width:30px;height:16px;margin-left:4px;background-color:#3366cc",
+        "children": []
+       },
+       {
+        "tag": "span",
+        "style": "display:inline-block;width:30px;height:16px;margin-left:4px;background-color:#3366cc",
+        "children": []
+       },
+       {
+        "tag": "span",
+        "style": "display:inline-block;width:30px;height:16px;margin-left:4px;background-color:#3366cc",
+        "children": []
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "tag": "div",
+    "style": "position:absolute;left:300px;top:60px;width:1px;height:60px;background-color:#ff0000",
+    "children": [
+     {
+      "tag": "div",
+      "style": "position:absolute;left:4px;top:0;background-color:#204020",
+      "children": [
+       "窗口 slide track"
+      ]
+     },
+     {
+      "tag": "div",
+      "style": "position:absolute;right:4px;top:40px;white-space:nowrap;background-color:#402040",
+      "children": [
+       "校正 3 cm"
+      ]
+     }
+    ]
+   },
+   {
+    "tag": "div",
+    "style": "position:absolute;left:0px;top:130px;width:300px;height:60px;background-color:#202020",
+    "children": [
+     {
+      "tag": "div",
+      "style": "position:absolute;left:230px;top:0;background-color:#4a3020",
+      "children": [
+       "Window timeline track"
+      ]
+     }
+    ]
+   },
+   {
+    "tag": "div",
+    "style": "position:absolute;left:0px;top:200px;width:300px;height:60px;background-color:#202020",
+    "children": [
+     {
+      "tag": "div",
+      "style": "position:absolute;right:230px;top:0;background-color:#203048",
+      "children": [
+       "Window timeline track"
+      ]
+     }
+    ]
+   },
+   {
+    "tag": "div",
+    "style": "position:absolute;left:0px;top:270px;width:300px;height:60px;display:flex;background-color:#202020",
+    "children": [
+     {
+      "tag": "div",
+      "style": "position:absolute;left:230px;top:0;background-color:#204020",
+      "children": [
+       "Window timeline track"
+      ]
+     }
+    ]
+   },
+   {
+    "tag": "div",
+    "style": "position:absolute;left:0px;top:340px;width:300px;height:60px;background-color:#202020",
+    "children": [
+     {
+      "tag": "div",
+      "style": "position:absolute;left:230px;top:0;margin-left:10px;padding:0 5px;border:2px solid #888888;background-color:#402040",
+      "children": [
+       "Window timeline track"
+      ]
+     }
+    ]
+   },
+   {
+    "tag": "div",
+    "style": "position:absolute;left:320px;top:130px;width:200px;height:60px;background-color:#202020",
+    "children": [
+     {
+      "tag": "div",
+      "style": "position:absolute;left:50%;top:0;background-color:#4a3020",
+      "children": [
+       "Window timeline track and more"
+      ]
+     }
+    ]
+   },
+   {
+    "tag": "div",
+    "style": "position:absolute;left:320px;top:200px;width:200px;height:40px;background-color:#202020",
+    "children": [
+     {
+      "tag": "div",
+      "style": "position:absolute;left:150px;top:0;background-color:#203048",
+      "children": [
+       {
+        "tag": "div",
+        "style": "white-space:nowrap;background-color:#305070",
+        "children": [
+         "Nested block"
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "tag": "div",
+    "style": "position:absolute;left:320px;top:250px;width:1px;height:40px;background-color:#ff0000",
+    "children": [
+     {
+      "tag": "div",
+      "style": "position:absolute;left:4px;top:0;max-width:40px;white-space:nowrap;background-color:#204020",
+      "children": [
+       "窗口时间轴"
+      ]
+     },
+     {
+      "tag": "div",
+      "style": "position:absolute;left:4px;top:20px;min-width:120px;background-color:#402040",
+      "children": [
+       "short"
+      ]
+     }
+    ]
+   },
+   {
+    "tag": "div",
+    "style": "position:absolute;left:320px;top:300px;width:200px;height:90px;background-color:#202020",
+    "children": [
+     {
+      "tag": "div",
+      "style": "position:absolute;background-color:#4a3020",
+      "children": [
+       "Window timeline track at its static place"
+      ]
+     },
+     {
+      "tag": "div",
+      "style": "position:absolute;left:10px;right:10px;top:50px;background-color:#203048",
+      "children": [
+       "Window timeline track"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "rects": [
+  [
+   0,
+   0,
+   600,
+   400
+  ],
+  [
+   300,
+   10,
+   1,
+   40
+  ],
+  [
+   304,
+   10,
+   102.15625,
+   20
+  ],
+  [
+   195,
+   30,
+   102,
+   21
+  ],
+  [
+   199,
+   30,
+   30,
+   16
+  ],
+  [
+   233,
+   30,
+   30,
+   16
+  ],
+  [
+   267,
+   30,
+   30,
+   16
+  ],
+  [
+   300,
+   60,
+   1,
+   60
+  ],
+  [
+   304,
+   60,
+   32.9375,
+   60
+  ],
+  [
+   232.359375,
+   100,
+   64.640625,
+   20
+  ],
+  [
+   0,
+   130,
+   300,
+   60
+  ],
+  [
+   230,
+   130,
+   70,
+   60
+  ],
+  [
+   0,
+   200,
+   300,
+   60
+  ],
+  [
+   0,
+   200,
+   70,
+   60
+  ],
+  [
+   0,
+   270,
+   300,
+   60
+  ],
+  [
+   230,
+   270,
+   70,
+   60
+  ],
+  [
+   0,
+   340,
+   300,
+   60
+  ],
+  [
+   240,
+   340,
+   69.515625,
+   64
+  ],
+  [
+   320,
+   130,
+   200,
+   60
+  ],
+  [
+   420,
+   130,
+   100,
+   60
+  ],
+  [
+   320,
+   200,
+   200,
+   40
+  ],
+  [
+   470,
+   200,
+   88.15625,
+   20
+  ],
+  [
+   470,
+   200,
+   88.15625,
+   20
+  ],
+  [
+   320,
+   250,
+   1,
+   40
+  ],
+  [
+   324,
+   250,
+   40,
+   20
+  ],
+  [
+   324,
+   270,
+   120,
+   20
+  ],
+  [
+   320,
+   300,
+   200,
+   90
+  ],
+  [
+   320,
+   300,
+   200,
+   40
+  ],
+  [
+   330,
+   350,
+   180,
+   20
+  ]
+ ]
+}
