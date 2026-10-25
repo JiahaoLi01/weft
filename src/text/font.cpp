@@ -22,7 +22,14 @@
 #include <thread>
 
 namespace weft {
-    FontFile::FontFile(const std::filesystem::path& path) {
+    FontFile::FontFile(const std::filesystem::path& path) : mapped_(MappedFile::open(path)) {
+        if (mapped_) {
+            bytes_ = mapped_->bytes();
+            if (bytes_.size() > static_cast<std::size_t>(constants::text::max_font_file_bytes)) {
+                throw std::runtime_error("WEFT_FONT_FILE: invalid font byte size");
+            }
+            return;
+        }
         std::ifstream file(path, std::ios::binary | std::ios::ate);
         if (!file) {
             throw std::runtime_error("WEFT_FONT_FILE: cannot open font");
@@ -31,11 +38,12 @@ namespace weft {
         if (size <= 0 || size > constants::text::max_font_file_bytes) {
             throw std::runtime_error("WEFT_FONT_FILE: invalid font byte size");
         }
-        bytes_.resize(static_cast<std::size_t>(size));
+        read_.resize(static_cast<std::size_t>(size));
         file.seekg(0);
-        if (!file.read(bytes_.data(), static_cast<std::streamsize>(bytes_.size()))) {
+        if (!file.read(read_.data(), static_cast<std::streamsize>(read_.size()))) {
             throw std::runtime_error("WEFT_FONT_FILE: truncated font");
         }
+        bytes_ = read_;
     }
 
     FontFile::~FontFile() {
@@ -70,7 +78,7 @@ namespace weft {
                 return file;
             }
         }
-        // Read without the lock, so that other threads open other files meanwhile; the first copy read is kept.
+        // Opened without the lock, so that other threads open other files meanwhile; the first copy opened is kept.
         auto file = std::make_shared<const FontFile>(path);
         const std::lock_guard guard(lock);
         auto& kept = files[path];
@@ -868,13 +876,26 @@ namespace weft {
         if (!roles.empty() && roles.size() != fonts.size()) {
             throw std::invalid_argument("WEFT_FONT_SET: one role per font");
         }
-        if (!ranges.empty() && ranges.size() != fonts.size()) {
+        const auto font = [&](std::uint32_t i) -> Font& {
+            return *fonts[i];
+        };
+        const auto role = [&](std::uint32_t i) {
+            return roles[i];
+        };
+        return shape_with_fallback(FallbackFonts{fonts.size(), font, role, !roles.empty()}, text, pixels, precision,
+                                   features, ranges);
+    }
+
+    FallbackText shape_with_fallback(const FallbackFonts& fonts, std::string_view text, float pixels,
+                                     ShapePrecision precision, std::span<const FontFeature> features,
+                                     std::span<const std::vector<UnicodeRange>> ranges) {
+        if (!ranges.empty() && ranges.size() != fonts.count) {
             throw std::invalid_argument("WEFT_FONT_SET: one unicode-range per font");
         }
-        if (fonts.empty() || fonts.size() > constants::text::max_fallback_fonts) {
+        if (fonts.count == 0 || fonts.count > constants::text::max_fallback_fonts) {
             throw std::invalid_argument("WEFT_FONT_SET: expected 1..8 ordered fonts");
         }
-        (void)fonts.front()->metrics(pixels);
+        (void)fonts.font(0).metrics(pixels);
         if (text.size() > constants::max_text_bytes) {
             throw std::invalid_argument("WEFT_FONT_SET: 64 KiB text bound");
         }
@@ -929,7 +950,7 @@ namespace weft {
             }
             return true;
         };
-        auto primary = fonts.front()->shape(text, pixels, precision, features);
+        auto primary = fonts.font(0).shape(text, pixels, precision, features);
         FallbackText result;
         if (primary.glyphs.empty()) {
             return result;
@@ -965,25 +986,26 @@ namespace weft {
                 const auto cluster = text.substr(i->first, end - i->first);
                 const auto covers = [&](std::uint32_t f) {
                     return in_range(f, i->first, end) &&
-                           !fonts[f]->shape(cluster, pixels, precision, features).missing_glyph;
+                           !fonts.font(f).shape(cluster, pixels, precision, features).missing_glyph;
                 };
                 // The fallback fonts this cluster prefers: any, the monochrome ones or the color ones.
                 auto preferred = FontRole::Listed;
-                if (!roles.empty()) {
+                if (fonts.roles) {
                     const auto presentation = cluster_presentation(cluster);
                     preferred = presentation == EmojiPresentation::Text    ? FontRole::FallbackText
                                 : presentation == EmojiPresentation::Emoji ? FontRole::FallbackColor
                                                                            : FontRole::Listed;
                 }
                 bool found{};
-                for (std::uint32_t f = 1; !found && f < fonts.size(); ++f) {
-                    if ((preferred == FontRole::Listed || roles[f] == FontRole::Listed || roles[f] == preferred) &&
+                for (std::uint32_t f = 1; !found && f < fonts.count; ++f) {
+                    if ((preferred == FontRole::Listed || fonts.role(f) == FontRole::Listed ||
+                         fonts.role(f) == preferred) &&
                         covers(f)) {
                         selected = f;
                         found = true;
                     }
                 }
-                for (std::uint32_t f = 1; !found && f < fonts.size(); ++f) {
+                for (std::uint32_t f = 1; !found && f < fonts.count; ++f) {
                     if (covers(f)) {
                         selected = f;
                         found = true;
@@ -997,8 +1019,8 @@ namespace weft {
             }
         }
         for (const auto& span : spans) {
-            auto shaped =
-                fonts[span.font]->shape(text.substr(span.start, span.end - span.start), pixels, precision, features);
+            auto shaped = fonts.font(span.font).shape(text.substr(span.start, span.end - span.start), pixels, precision,
+                                                      features);
             result.shaped.missing_glyph |= shaped.missing_glyph;
             result.shaped.advance += shaped.advance;
             for (auto g : shaped.glyphs) {
@@ -1006,7 +1028,8 @@ namespace weft {
                 g.utf8_cluster += span.start;
                 result.shaped.glyphs.push_back(g);
             }
-            result.runs.push_back({span.font, span.start, span.end - span.start, fonts[span.font]->metrics(pixels)});
+            result.runs.push_back(
+                {span.font, span.start, span.end - span.start, fonts.font(span.font).metrics(pixels)});
         }
         return result;
     }

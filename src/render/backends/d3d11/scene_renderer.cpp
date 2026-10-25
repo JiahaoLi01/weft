@@ -43,11 +43,14 @@ namespace weft::render::d3d11 {
 
     SceneRenderer::SceneRenderer(ID3D11Device* device, SceneText& text, SceneCacheBounds bounds)
         : device_(device),
-          reference_(text),
+          reference_text_(text),
           preparer_(
               text, *this, std::uint32_t(constants::render::d3d11::max_surface_dimension),
               [this](const SceneFrame& frame, float scale) {
-                  return reference_.raster(frame, scale);
+                  if (!reference_) {
+                      reference_.emplace(reference_text_);
+                  }
+                  return reference_->raster(frame, scale);
               },
               bounds) {
         ensure(device_ != nullptr, "a D3D11 device");

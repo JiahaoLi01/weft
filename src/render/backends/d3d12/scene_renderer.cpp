@@ -80,11 +80,14 @@ namespace weft::render::d3d12 {
 
     SceneRenderer::SceneRenderer(Device& device, SceneText& text, SceneCacheBounds bounds)
         : gpu(device),
-          reference_(text),
+          reference_text_(text),
           preparer_(
               text, *this, std::uint32_t(limits::max_surface_dimension),
               [this](const SceneFrame& frame, float scale) {
-                  return reference_.raster(frame, scale);
+                  if (!reference_) {
+                      reference_.emplace(reference_text_);
+                  }
+                  return reference_->raster(frame, scale);
               },
               bounds) {
         try {

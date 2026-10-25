@@ -1,10 +1,13 @@
 #include "text/font.hpp"
 #include "support/check.hpp"
+#include "support/files.hpp"
 #include "test_constants/style_text.hpp"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -100,9 +103,31 @@ int main() {
             }
             require(alike == 4, "fonts of one file on four threads shape alike");
         }
+        // A font file is mapped, not read whole: its bytes are the file's, and while fonts hold it the file can be
+        // renamed and deleted (a new one saved in its place), and they shape on from the bytes they mapped.
+        {
+            const std::filesystem::path original = WEFT_SOURCE_DIR "/third_party/ahem/Ahem.ttf";
+            const auto copy = std::filesystem::temp_directory_path() / "weft-text-tests-mapped.ttf";
+            const auto moved = std::filesystem::temp_directory_path() / "weft-text-tests-moved.ttf";
+            std::filesystem::remove(copy);
+            std::filesystem::remove(moved);
+            std::filesystem::copy_file(original, copy);
+            {
+                const auto file = weft::FontFile::open(copy);
+                const auto bytes = weft::testing::read_file(original);
+                require(std::string_view(file->bytes().data(), file->bytes().size()) == bytes,
+                        "a mapped font file's bytes are the file's");
+                weft::Font held(file, 0);
+                std::filesystem::rename(copy, moved);
+                std::filesystem::remove(moved);
+                require(!std::filesystem::exists(moved) && near(held.shape("XX XX", 20).advance, shaped.advance),
+                        "a font shapes on after its mapped file is renamed and deleted");
+            }
+            require(!std::filesystem::exists(copy) && !std::filesystem::exists(moved), "the font file's copy is gone");
+        }
         std::cout
-            << "PASS FreeType metrics/raster, HarfBuzz advances/clusters, scale invalidation, missing glyph, owner and "
-               "shared font files\n";
+            << "PASS FreeType metrics/raster, HarfBuzz advances/clusters, scale invalidation, missing glyph, owner, "
+               "shared and mapped font files\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

@@ -2,9 +2,11 @@
 #include "support/check.hpp"
 #include "constants/text.hpp"
 #include "test_constants/style_text.hpp"
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <iostream>
+#include <memory>
 #include <span>
 #include <stdexcept>
 #include <thread>
@@ -66,6 +68,108 @@ namespace {
                 (void)shape_with_fallback(fonts, dagger, 16, ShapePrecision::Fixed26_6, {}, one);
             },
             "WEFT_FONT_SET:");
+    }
+
+    // Fonts asked for as shaping needs them shape every text as the whole list does, glyph for glyph, and a later font
+    // opens only when a cluster reaches it: Latin text opens the first font alone, Chinese the CJK font too, and no
+    // text opens a font that the list holds after the one that renders it. Roboto and Noto Sans CJK SC listed, then the
+    // installed Segoe UI, Segoe UI Emoji and Segoe UI Symbol as the system's fallback.
+    void fonts_open_when_needed() {
+        const std::filesystem::path installed = "C:/Windows/Fonts";
+        const std::vector<std::filesystem::path> paths{
+            WEFT_SOURCE_DIR "/third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf",
+            WEFT_SOURCE_DIR "/third_party/noto-cjk/source/NotoSansCJKsc-Regular.otf", installed / "segoeui.ttf",
+            installed / "seguiemj.ttf", installed / "seguisym.ttf"};
+        if (!std::all_of(paths.begin(), paths.end(), [](const std::filesystem::path& p) {
+                return std::filesystem::exists(p);
+            })) {
+            std::cout << "skip fonts opened when needed: no Segoe UI, Segoe UI Emoji and Segoe UI Symbol\n";
+            return;
+        }
+        std::vector<std::unique_ptr<Font>> all;
+        std::vector<Font*> list;
+        for (const auto& p : paths) {
+            list.push_back(all.emplace_back(std::make_unique<Font>(p)).get());
+        }
+        const std::array roles{FontRole::Listed, FontRole::Listed, FontRole::FallbackText, FontRole::FallbackColor,
+                               FontRole::FallbackText};
+        const auto same = [](const FallbackText& a, const FallbackText& b) {
+            const auto glyph = [](const Glyph& x, const Glyph& y) {
+                return x.glyph_id == y.glyph_id && x.utf8_cluster == y.utf8_cluster && x.advance_x == y.advance_x &&
+                       x.advance_y == y.advance_y && x.offset_x == y.offset_x && x.offset_y == y.offset_y &&
+                       x.font_id == y.font_id;
+            };
+            const auto run = [](const FontRun& x, const FontRun& y) {
+                return x.font_id == y.font_id && x.utf8_start == y.utf8_start && x.utf8_length == y.utf8_length &&
+                       x.metrics.ascent == y.metrics.ascent && x.metrics.descent == y.metrics.descent &&
+                       x.metrics.line_gap == y.metrics.line_gap;
+            };
+            return a.shaped.advance == b.shaped.advance && a.shaped.missing_glyph == b.shaped.missing_glyph &&
+                   std::equal(a.shaped.glyphs.begin(), a.shaped.glyphs.end(), b.shaped.glyphs.begin(),
+                              b.shaped.glyphs.end(), glyph) &&
+                   std::equal(a.runs.begin(), a.runs.end(), b.runs.begin(), b.runs.end(), run);
+        };
+        const std::vector<std::string> texts{"Hello, world 123",
+                                             "进度 42%",
+                                             "A仓B",
+                                             "Level 7 · 战斗",
+                                             "ｶﾀｶﾅ ひらがな",
+                                             "한국어",
+                                             "κόσμε Привет",
+                                             "\xE2\x98\xA0\xEF\xB8\x8F",
+                                             "\xF0\x9F\x97\xA1",
+                                             "\xF0\x9F\x97\xA1\xEF\xB8\x8F",
+                                             "\xF0\x9F\x93\x9C",
+                                             "\xF0\x9F\x93\x9C\xEF\xB8\x8E",
+                                             "\xE2\x98\x85 \xE2\x86\x90 \xE2\x99\xAA",
+                                             "mixed 战斗 \xE2\x98\xA0\xEF\xB8\x8F end",
+                                             " "};
+        std::size_t opened_in_all{};
+        for (const auto& text : texts) {
+            for (const bool with_roles : {true, false}) {
+                const auto whole =
+                    shape_with_fallback(list, text, 16, ShapePrecision::Fixed16_16, {},
+                                        with_roles ? std::span<const FontRole>(roles) : std::span<const FontRole>());
+                std::vector<std::unique_ptr<Font>> opened(paths.size());
+                const auto font = [&](std::uint32_t i) -> Font& {
+                    if (!opened[i]) {
+                        opened[i] = std::make_unique<Font>(paths[i]);
+                    }
+                    return *opened[i];
+                };
+                const auto role = [&](std::uint32_t i) {
+                    return roles[i];
+                };
+                const auto asked = shape_with_fallback(FallbackFonts{paths.size(), font, role, with_roles}, text, 16,
+                                                       ShapePrecision::Fixed16_16);
+                require(same(asked, whole), "fonts asked for as needed shape as the whole list: " + text);
+                std::size_t count{};
+                std::uint32_t last{};
+                for (std::uint32_t i = 0; i < opened.size(); ++i) {
+                    if (opened[i]) {
+                        ++count;
+                        last = i;
+                    }
+                }
+                std::uint32_t used{};
+                for (const auto& r : whole.runs) {
+                    used = std::max(used, r.font_id);
+                }
+                // A font after every font the text uses is never reached, but an emoji that prefers a later role
+                // passes over fonts it does not ask to shape it.
+                require(last >= used && (with_roles || last == used),
+                        "a font after the ones the text uses was opened: " + text);
+                opened_in_all += count;
+                if (text == "Hello, world 123") {
+                    require(count == 1, "Latin text opened a fallback font");
+                }
+                if (text == "进度 42%") {
+                    require(count == 2 && opened[1], "Chinese text opened more than its CJK font");
+                }
+            }
+        }
+        std::cout << "  fonts opened when needed: " << opened_in_all << " of " << texts.size() * 2 * paths.size()
+                  << " for " << texts.size() * 2 << " shapings\n";
     }
 } // namespace
 
@@ -208,8 +312,10 @@ int main() {
         other.join();
         require(owner_rejected, "font owner violation");
         emoji_presentation();
+        fonts_open_when_needed();
         std::cout
-            << "PASS real CJK fallback, source clusters, combining cluster, Latin ligatures, emoji presentation, missing glyph, UTF8/script/owner/resource diagnostics\n";
+            << "PASS real CJK fallback, source clusters, combining cluster, Latin ligatures, emoji presentation, fonts "
+               "opened when needed, missing glyph, UTF8/script/owner/resource diagnostics\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL " << e.what() << '\n';

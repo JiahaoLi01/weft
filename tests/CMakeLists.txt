@@ -260,6 +260,9 @@ if(WIN32)
         ARGS "${artifacts}/scene-gallery-$<CONFIG>" "${fixtures}/scene-gallery-reference"
         DEPENDS scene_gallery_original)
 
+    # The installed faces listed from the families' font sets versus a font face made for each font.
+    weft_add_executable(weft_system_fonts_tests SOURCES system_fonts_tests.cpp LINK weft::platform_win32)
+    weft_add_test(NAME system_fonts_contract COMMAND weft_system_fonts_tests)
     # Portable scene text on the installed fonts versus Chrome's metrics and face choices.
     weft_add_executable(weft_scene_text_tests SOURCES scene_text_tests.cpp LINK weft::scene weft::platform_win32)
     weft_add_test(NAME scene_text_metrics

@@ -10,6 +10,7 @@
 #include <deque>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <span>
 #include <unordered_map>
@@ -169,7 +170,10 @@ namespace weft::render::d3d12 {
                 effects;
         };
 
-        SceneRaster reference_;
+        // The reference raster draws the frames the native pass cannot, made for the first of them: its Direct2D factory
+        // took some 165 ms on the render thread of a game's process, before a page's first frame that never needed it.
+        SceneText& reference_text_;
+        std::optional<SceneRaster> reference_;
         ScenePreparer preparer_;
         std::string last_failure_;
         ComPtr<ID3D12RootSignature> root_;
