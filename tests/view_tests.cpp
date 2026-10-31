@@ -452,6 +452,49 @@ namespace {
         require(row("row0")->box[1] == -100, "clamped to the content");
     }
 
+    // SVG text's geometry follows each font value it is measured with (scene_font): a text inside an svg, where no
+    // layout runs, reads at once as a text made with its new font does.
+    void svg_text_geometry() {
+        Fixture f;
+        f.view.load(inline_page(R"JS(
+            const NS = 'http://www.w3.org/2000/svg';
+            const svg = document.createElementNS(NS, 'svg');
+            svg.setAttribute('width', '400');
+            svg.setAttribute('height', '200');
+            document.getElementById('root').appendChild(svg);
+            const font = 'font-family:Segoe UI Light;font-size:28px;';
+            const make = (y, style) => {
+              const t = document.createElementNS(NS, 'text');
+              t.setAttribute('x', '10');
+              t.setAttribute('y', String(y));
+              t.setAttribute('style', font + style);
+              t.textContent = '1111';
+              svg.appendChild(t);
+              return t;
+            };
+            const size = t => { const r = t.getBoundingClientRect(); return r.width + 'x' + r.height; };
+            // 'follows' when a text read before it takes value reads after as a text made with value does, a size
+            // value changes; otherwise the three sizes.
+            globalThis.follows = value => {
+              const changed = make(50, '');
+              const before = size(changed);
+              changed.setAttribute('style', font + value);
+              const after = size(changed);
+              const made = make(150, value);
+              const wanted = size(made);
+              changed.remove();
+              made.remove();
+              return after === wanted && before !== wanted ? 'follows'
+                                                           : before + ' then ' + after + ', made with it ' + wanted;
+            };
+          )JS"));
+        for (const auto* value : {"font-size:40px", "letter-spacing:2px", "font-style:italic",
+                                  "font-variant-numeric:tabular-nums", "line-height:60px"}) {
+            const auto got = f.view.script().eval(std::string("follows('") + value + "')");
+            require(got == "follows", std::string("svg text geometry after ") + value + ": " + got);
+        }
+    }
+
     // Equal scenes but for node identities, which each VM numbers by its own epoch.
     bool same_scene(const weft::SceneNode& a, const weft::SceneNode& b) {
         if (a.tag != b.tag || a.space != b.space || a.text != b.text || a.attributes != b.attributes ||
@@ -521,6 +564,7 @@ int main() {
         frames();
         observers();
         scrolling();
+        svg_text_geometry();
         like_the_session();
         std::cout << "view tests passed\n";
         return 0;

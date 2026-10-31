@@ -564,11 +564,13 @@ namespace weft {
             }
             return true;
         };
+        // The font values are every value scene_font reads: the adapter measures SVG text with them.
         static constexpr PropertyId styles[]{
             PropertyId::Transform,         PropertyId::TransformOrigin,  PropertyId::Position,
             PropertyId::BorderLeftWidth,   PropertyId::BorderRightWidth, PropertyId::BorderTopWidth,
             PropertyId::BorderBottomWidth, PropertyId::FontSize,         PropertyId::FontWeight,
-            PropertyId::FontFamily,        PropertyId::LetterSpacing,    PropertyId::TextAnchor,
+            PropertyId::FontFamily,        PropertyId::FontStyle,        PropertyId::FontVariantNumeric,
+            PropertyId::LetterSpacing,     PropertyId::LineHeight,       PropertyId::TextAnchor,
             PropertyId::DominantBaseline};
         static constexpr const char* attrs[]{"transform", "width", "height", "viewBox", "preserveAspectRatio",
                                              "x",         "y",     "dy",     "x1",      "y1",
