@@ -1,6 +1,6 @@
 # Weft 当前状态
 
-更新日期：2026 年 10 月 23 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG 与移动尚未实现（键盘与焦点、文本框与输入法、手柄与空间导航已在 `input` 分支），仍未达到 M0 全部退出条件。
+更新日期：2026 年 10 月 31 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG 与移动尚未实现（键盘与焦点、文本框与输入法、手柄与空间导航已在 `input` 分支），仍未达到 M0 全部退出条件。
 
 ## 待办
 
@@ -15,6 +15,12 @@
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
+
+画字的每一行带上元素的 `font-variant-numeric`：`tabular-nums` 的数字在原生 pass 上画得出，也是等宽的（2026-10-31，`text-line-numeric` 分支；CaseGinkgo 的武器 HUD 发现：弹仓数用了 `tabular-nums`，游戏里整帧不画）。
+- **起因**：原生 pass 与 D2D 参考光栅一行一行地画字，每一行是另建的单行 `#text` 节点（`scene_text_line`，`src/scene/scene_inline.cpp`），只抄了颜色、`font-family`、`font-size`、`font-weight`、`font-style`、`letter-spacing`、`line-height` 与 `pointer-events`，没抄 `font-variant-numeric`。排版按元素的样式塑形（`scene_font` 读它，`tnum` 等特性也在塑形缓存的键里），画的那一行却按默认的数字重新塑形。Segoe UI Light 的数字默认是比例的：28 px 的“4”默认宽 14.875 px，等宽的 14.4375 px。原生 pass 准备文字图像时量出的宽比盒子宽 0.44 px，超过 `limits::text_fit_tolerance`（0.01 px），抛“text overflow reference”，整帧不画（UE 里是 `LogWeft: a frame did not draw (3): the native pass cannot draw the frame: text overflow reference`）。默认的数字更窄时不抛，但画出来的仍是比例数字；参考光栅不量，直接画成比例数字。排版本来就对（与 Chrome 对照的 `scene_inline_browser_contract` 有 `tabular-nums`），所以 Chrome 里看不出来。
+- **实现**：`scene_text_line` 也抄 `font-variant-numeric`，注释写明要抄 `scene_font` 读的每一项。`scene_font` 读的七项（`font-family`、`font-size`、`font-weight`、`font-style`、`font-variant-numeric`、`letter-spacing`、`line-height`）就是 weft 所有的字体属性。别处从元素取样式去量、去画字的地方都核对过，不缺：匿名行内文字（`text_run`，抄 `inherited_properties`，七项都在）、继承与重排的判断（`same_inherited` 用同一张表，`same_layout_style` 只略过绘制属性）、文本框（`scene_font(out.style)`）、行内排版（`scene_font(owner.style)`）、显式层与原生 pass 的检查（量节点自己的样式）、文字阴影与文本框里选中的文字（复制行节点）、SVG 文字与节点的光栅源（整份样式）、D2D 的绘制程序（绘制参数之外的整份样式）、文字图像缓存的键（`scene_paint_source_key`，整份样式）。
+- **验证**（Release）：`scene_text_style_contract` 加一例：Segoe UI Light 28 px、`tabular-nums` 的三行“4”“14”“44”。每行按画的那一行的样式量出的宽与排版的行宽相同（14.4375、28.859375、28.859375 px）；原生 D3D11 pass（WARP）画得出这一帧；参考光栅与原生 pass 上，“1”后面的“4”与“4”后面的“4”都止于第 32 列。先查字体本身：默认的“4”比等宽的宽、也比默认的“1”（9.98 px）宽，等宽的“1”与“4”一样宽。修改前这一例失败：量出 14.875、24.84、29.73 px，原生 pass 报“text overflow reference”，参考光栅上分别止于第 28、32 列。全量 ctest（Release，179 项）：除既有的 14 项外通过，与 fb7ef67 记下的基线相同；这 14 项都在核对输入文件的散列时就失败（签出的换行，或过期的散列），没跑到绘制与比较。其中 `scene_cluster_browser_contract` 的比较部分（画廊的 30 个用例）跳过散列另跑：210 个状态、210 份 DOM、4,408 个 HTML 几何字段与浏览器一致（最大差 2.02 px，在各用例的限内）。
+- **未验证**：UE 里没有跑（CaseGinkgo 的子模块指针与 weft.dll 没动）；武器 HUD 绕开的写法（不用 `font-variant-numeric`、给数字最小宽度）在指针跟进之后可以改回。
 
 空间导航让“看起来能点”的元素拿焦点，Enter 与空格按下它们（2026-10-23，`input` 分支；第三阶段的补充：宣传页自己模拟了这两条，原会话提出补进 weft）。
 - **起因**：Chrome 开了空间导航时，有 click 等监听器或自己设了 `cursor: pointer` 的元素也能拿焦点（Blink 的 `Element::SupportsSpatialNavigationFocus`），Enter 与空格按下它们；weft 只有 Tab 本来能到的元素，宣传页只好给队员与“显示元素边框”开关写 `tabIndex = 0` 与 Enter 的处理。

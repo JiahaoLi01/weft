@@ -1,5 +1,6 @@
 #include "base/diagnostic.hpp"
 #include "scene/scene.hpp"
+#include "scene/scene_inline.hpp"
 #include "scene/scene_text.hpp"
 #include "support/check.hpp"
 #include "support/d3d11_scene.hpp"
@@ -20,8 +21,9 @@
 
 // Scene text styles and the CSS around them (11.3c), beyond Chrome's line geometry (scene_inline_browser_contract
 // covers text-transform, italics and numeric variants there): the slant of a synthetic oblique against Chrome's
-// pixels on the reference raster and the native D3D11 pass, a face's own italics left upright, Unicode's case mappings,
-// viewport lengths following the viewport, overflow axes, -webkit-user-select, and the diagnostics.
+// pixels on the reference raster and the native D3D11 pass, tabular digits on the lines both draw, a face's own
+// italics left upright, Unicode's case mappings, viewport lengths following the viewport, overflow axes,
+// -webkit-user-select, and the diagnostics.
 namespace {
     using weft::testing::require;
 
@@ -160,6 +162,84 @@ int main() {
                     "a synthetic oblique slants as Chrome's");
         }
 
+        // Numeric variants on the lines the reference raster and the native pass draw (scene_text_line): Segoe UI
+        // Light's digits are proportional unless tabular-nums asks otherwise, and its default 4 is wider than its
+        // tabular one. Each line measures as wide as layout made it (the native pass refuses text wider than its box),
+        // and a 4 after a 1 ends where a 4 after a 4 does.
+        {
+            const weft::SceneStyle proportional{{"font-family", "Segoe UI Light"}, {"font-size", "28px"}};
+            auto tabular = proportional;
+            tabular[weft::PropertyId::FontVariantNumeric] = "tabular-nums";
+            const float four = scene_text.measure("4", proportional).width;
+            const float one = scene_text.measure("1", proportional).width;
+            const float tabular_four = scene_text.measure("4", tabular).width;
+            require(four - tabular_four > .25f && four - one > 1 &&
+                        scene_text.measure("1", tabular).width == tabular_four,
+                    "Segoe UI Light: a default 4 wider than a tabular 4 and than a default 1, tabular 1 and 4 alike");
+            constexpr unsigned width = 64;
+            constexpr unsigned height = 136;
+            const std::vector<std::string> texts{"4", "14", "44"};
+            weft::testing::NativeScene s;
+            s.set(*s.root, "style", "position:relative;overflow:hidden;background-color:#000000");
+            for (std::size_t i = 0; i < texts.size(); ++i) {
+                auto& l = element(s, *s.root,
+                                  "position:absolute;left:4px;top:" + std::to_string(4 + 44 * i) +
+                                      "px;white-space:nowrap;color:#ffffff;font-family:Segoe UI Light;font-size:28px;"
+                                      "font-variant-numeric:tabular-nums");
+                text(s, l, texts[i]);
+            }
+            weft::SceneSolver solver("", "", scene_text);
+            const auto frame = solver.frame(s.tree.snapshot(*s.root), float(width), float(height), 0);
+            std::string widths;
+            bool fits = true;
+            for (std::size_t i = 0; i < texts.size(); ++i) {
+                const auto& n = frame.root.children.at(i);
+                require(n.lines.size() == 1, "one line of " + texts[i]);
+                const auto line = weft::scene_text_line(n, 0);
+                const float measured = scene_text.measure(line.text, line.style).width;
+                widths += ' ' + texts[i] + ' ' + std::to_string(measured) + '/' + std::to_string(n.lines[0].rect[2]);
+                fits = fits && measured == n.lines[0].rect[2];
+            }
+            weft::SceneRaster raster(scene_text);
+            const auto reference = raster.raster(frame, 1);
+            weft::testing::D3D11Scene d3d11(width, height);
+            std::vector<std::uint8_t> native;
+            std::string refused;
+            try {
+                native = d3d11.draw(frame);
+            } catch (const std::exception& e) {
+                refused = e.what();
+            }
+            // The last column with ink in the rows of line i; -1 for none.
+            const auto ink_end = [&](const std::vector<std::uint8_t>& pixels, std::size_t i) {
+                const auto& box = frame.root.children.at(i).box;
+                int last = -1;
+                for (auto y = unsigned(box[1]); !pixels.empty() && y < unsigned(box[1] + box[3]) && y < height; ++y) {
+                    for (unsigned x = 0; x < width; ++x) {
+                        if (pixels[(std::size_t(y) * width + x) * 4 + 1] > 0) {
+                            last = std::max(last, int(x));
+                        }
+                    }
+                }
+                return last;
+            };
+            std::cout << "Segoe UI Light 28px: 4 " << four << " px, tabular " << tabular_four << ", 1 " << one
+                      << "; measured/laid out" << widths << "; a 4 ends at column " << ink_end(reference.rgba, 1)
+                      << " after a 1 and " << ink_end(reference.rgba, 2) << " after a 4 on the reference raster, "
+                      << (refused.empty() ? std::to_string(ink_end(native, 1)) + " and " +
+                                                std::to_string(ink_end(native, 2)) + " on the native pass"
+                                          : refused)
+                      << '\n';
+            require(fits, "tabular digits measure as wide as layout made their lines");
+            require(refused.empty(), "the native pass draws tabular digits: " + refused);
+            d3d11.gpu.check_debug_messages();
+            require(
+                ink_end(reference.rgba, 1) > 0 && ink_end(reference.rgba, 1) == ink_end(reference.rgba, 2) &&
+                    ink_end(native, 1) > 0 && ink_end(native, 1) == ink_end(native, 2),
+                "tabular digits: a 4 after a 1 ends where a 4 after a 4 does, on the reference raster and the native "
+                "pass");
+        }
+
         // Viewport lengths: px of the frame's viewport, again when only the viewport changes.
         {
             weft::testing::NativeScene s;
@@ -273,8 +353,8 @@ int main() {
             refused("font-variant-numeric:lining-nums oldstyle-nums", "font-variant-numeric");
             refused("font-variant-numeric:tabular-nums sparkly", "font-variant-numeric");
         }
-        std::cout << "PASS scene text styles: synthetic oblique, case mappings, viewport lengths, overflow axes, "
-                     "diagnostics\n";
+        std::cout << "PASS scene text styles: synthetic oblique, tabular digits, case mappings, viewport lengths, "
+                     "overflow axes, diagnostics\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

@@ -279,9 +279,10 @@ namespace weft {
         const float top = whole ? 0 : std::floor(r[1]);
         out.box = whole ? std::array<float, 4>{0, 0, n.box[2], n.box[3]}
                         : std::array<float, 4>{left, top, std::ceil(r[0] + r[2]) - left, std::ceil(r[1] + r[3]) - top};
-        for (const auto id :
-             {PropertyId::Color, PropertyId::FontFamily, PropertyId::FontSize, PropertyId::FontWeight,
-              PropertyId::FontStyle, PropertyId::LetterSpacing, PropertyId::LineHeight, PropertyId::PointerEvents}) {
+        // Every value scene_font reads, so the line shapes as layout shaped it, and its color and pointer-events.
+        for (const auto id : {PropertyId::Color, PropertyId::FontFamily, PropertyId::FontSize, PropertyId::FontWeight,
+                              PropertyId::FontStyle, PropertyId::FontVariantNumeric, PropertyId::LetterSpacing,
+                              PropertyId::LineHeight, PropertyId::PointerEvents}) {
             if (const auto* v = n.style.find(id)) {
                 out.style.set(id, *v);
             }

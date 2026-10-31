@@ -279,8 +279,8 @@ if(WIN32)
     weft_add_test(NAME logo_browser_reference
         COMMAND weft_logo_reference_tests "${artifacts}/logo-reference-$<CONFIG>" TIMEOUT 120)
     weft_add_python_test(NAME logo_fixture_integrity SCRIPT tools/verify_logo_fixture.py)
-    # Scene text styles and the CSS around them: synthetic oblique against Chrome's pixels, case mappings, viewport
-    # lengths, overflow axes and diagnostics.
+    # Scene text styles and the CSS around them: synthetic oblique against Chrome's pixels, tabular digits on the
+    # reference raster and the native pass, case mappings, viewport lengths, overflow axes and diagnostics.
     weft_add_executable(weft_scene_text_style_tests SOURCES scene_text_style_tests.cpp
         LINK weft::scene_d3d11 weft::platform_win32 windowscodecs ole32 SOURCE_DIR)
     weft_add_test(NAME scene_text_style_contract COMMAND weft_scene_text_style_tests TIMEOUT 120)
