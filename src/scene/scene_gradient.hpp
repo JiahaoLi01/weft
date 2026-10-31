@@ -22,7 +22,9 @@ namespace weft {
     // (nothing to paint). std::invalid_argument for a gradient outside this profile.
     std::optional<paint::Gradient> scene_gradient(const StyleValues& style, float width, float height);
 
-    // The straight color of a gradient at a point of its item, as the scene shader evaluates it: in the tile the
-    // point repeats into, between the stops its gradient line reaches there, interpolated premultiplied.
-    paint::Color scene_gradient_color(const paint::Gradient& gradient, float x, float y);
+    // The straight color of a gradient at a point of its width x height item, as the scene shader evaluates it: in the
+    // tile the point repeats into, between the stops its gradient line reaches there, interpolated premultiplied. A
+    // point outside the item (the center of a pixel its edge crosses) takes the item's color at that edge, from the
+    // tile the edge bounds in the item, which an edge on a tile's boundary ends.
+    paint::Color scene_gradient_color(const paint::Gradient& gradient, float x, float y, float width, float height);
 } // namespace weft

@@ -401,7 +401,7 @@ const player = weft.engine.model('player');      // {value, subscribe}
 - 命中（`weft_view_hit_test`，取代草案的 `weft_view_hit_interactive`）：某点下最上层接收指针事件的元素是否是场景根以外的元素，以及它的 `cursor`（它或最近一个声明了 `cursor` 的祖先的值，没有时是 auto）。CRPG 现在按光标是否在可交互元素上把点击交给 UI，否则交给游戏的射线检测（`UUltralightWidget::NativeOnMouseButtonDown`），宿主可以照做。
 - 帧（`weft_view_acquire_frame`，任意线程）：引用计数的不可变帧，内容是场景树（不含元素几何）、View 的大小与缩放、布局用的字体目录与 View 的锚点通道；View 销毁后仍可用。渲染器经 `weft_renderer_prepare_scene` 画它（13.3b，见下文）。
 - 线程：加载、推进、输入、命中、取消息、注册函数、取诊断、调整大小只在 Runtime 的 owner 线程；写锚点、发事件、完成调用、设置视图模型、取帧可在任意线程，经 Runtime 里加锁的表找到 View 的共享部分，与销毁并发时返回 `WEFT_STALE_HANDLE`。宿主的回调（取消息、同步函数、取诊断）里对同一 View 的 owner 操作返回 `WEFT_BUSY`，任意线程的操作照常。owner 线程要至少 8 MiB 的栈（React 与 D3 的包递归很深）。
-- 字体：Runtime 一份字体目录：`WEFT_RUNTIME_SYSTEM_FONTS`（空描述符时默认开）用平台的系统字体，宿主再加字体文件、通用族与回退族；第一个页面加载时固定（之后 `WEFT_BUSY`），owner 建一个 SceneText，帧带着目录，渲染线程据此建自己的 SceneText。
+- 字体：Runtime 一份字体目录：`WEFT_RUNTIME_SYSTEM_FONTS`（空描述符时默认开）用平台的系统字体，宿主再加字体文件、通用族与回退族；第一个页面加载时固定（之后 `WEFT_BUSY`），owner 建一个 SceneText，帧带着目录，渲染线程据此建自己的 SceneText。系统字体在固定时列出（Windows 上读系统字体集合，1,400 个字体约 10 ms，含第一次建 DirectWrite 工厂）；一个字体在文字第一次用到它时才打开，文件映射进内存，只读它用到的部分。
 - 同步函数（`weft_view_register_function`）：在 JS 执行当中调用，参数是 MessagePack，结果写进 `weft_value_writer`（MessagePack 或 JSON），返回其他结果即 `invoke` 的异常；注册在页面加载前也可以，跨加载保留。
 
 键盘与焦点（2026-10-21，`input` 分支；用户提出：两个引擎里的页面都能收到键盘事件，行为照 Chrome）：

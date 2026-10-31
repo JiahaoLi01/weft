@@ -2,6 +2,7 @@
 #include "constants/layout.hpp"
 #include "support/check.hpp"
 #include "test_constants/layout.hpp"
+#include <algorithm>
 #include <array>
 #include <deque>
 #include <iostream>
@@ -21,6 +22,8 @@ namespace {
         std::deque<weft::StyleValues> styles;
         std::vector<weft::LayoutBox> boxes;
         std::vector<std::string> texts;
+        // Text breaks between its words, separated by single spaces, where the width available ends.
+        bool wrapping{};
 
         std::size_t add(std::size_t parent, weft::StyleValues style, std::string text = {}) {
             styles.push_back(std::move(style));
@@ -41,17 +44,49 @@ namespace {
             return i;
         }
 
+        // The widths of a text's words.
+        std::vector<float> words(std::size_t i) const {
+            std::vector<float> out;
+            std::size_t from{};
+            while (from <= texts[i].size()) {
+                const auto end = std::min(texts[i].find(' ', from), texts[i].size());
+                out.push_back(float(end - from) * limits::box_text_char_width_px);
+                from = end + 1;
+            }
+            return out;
+        }
+
         std::vector<weft::BoxGeometry> layout(std::optional<std::array<float, 2>> viewport = std::nullopt) const {
-            // Text never wraps: one line, as wide as its characters.
-            const auto lines = [&](std::size_t i, float) {
-                return weft::TextMetrics{float(texts[i].size()) * limits::box_text_char_width_px,
-                                         limits::box_text_line_height_px, limits::box_text_baseline_px, 1};
+            // Text never wraps unless it is wrapping text: one line, as wide as its characters.
+            const auto lines = [&](std::size_t i, float available) {
+                if (!wrapping) {
+                    return weft::TextMetrics{float(texts[i].size()) * limits::box_text_char_width_px,
+                                             limits::box_text_line_height_px, limits::box_text_baseline_px, 1};
+                }
+                float widest{};
+                float line{};
+                std::size_t count{};
+                for (const float word : words(i)) {
+                    if (count && line + limits::box_text_char_width_px + word <= available) {
+                        line += limits::box_text_char_width_px + word;
+                        continue;
+                    }
+                    widest = std::max(widest, line);
+                    line = word;
+                    ++count;
+                }
+                return weft::TextMetrics{std::max(widest, line), float(count) * limits::box_text_line_height_px,
+                                         limits::box_text_baseline_px, count};
             };
             const auto min_content = [&](std::size_t i) {
-                return float(texts[i].size()) * limits::box_text_char_width_px;
+                if (!wrapping) {
+                    return float(texts[i].size()) * limits::box_text_char_width_px;
+                }
+                const auto w = words(i);
+                return *std::max_element(w.begin(), w.end());
             };
-            const auto wraps = [](std::size_t) {
-                return false;
+            const auto wraps = [&](std::size_t) {
+                return wrapping;
             };
             weft::LayoutOptions options;
             options.viewport = viewport;
@@ -250,6 +285,46 @@ namespace {
         }
     }
 
+    // An absolutely positioned box of auto width shrinks to fit the width its containing block leaves beside its insets
+    // (CSS 2 10.3.7), and is no narrower than its text's min-content width, its lines laid out at the width it takes:
+    // in a containing block 1px wide (a strip that moves along a timeline), at a left inset and at a right one; and in
+    // a wide containing block at an inset that leaves less than the text's max-content width, in a block and in a row
+    // flex container. Between two insets it stays as wide as they leave.
+    void absolute_boxes_shrink_to_fit() {
+        constexpr float c = limits::box_text_char_width_px;
+        constexpr float line = limits::box_text_line_height_px;
+        Tree t;
+        t.wrapping = true;
+        const auto root =
+            t.add(none, {{"display", "block"}, {"position", "relative"}, {"width", "300px"}, {"height", "200px"}});
+        const auto strip = t.add(
+            root, {{"position", "absolute"}, {"left", "100px"}, {"top", "0px"}, {"width", "1px"}, {"height", "40px"}});
+        const auto word = t.add(strip, {{"position", "absolute"}, {"left", "4px"}, {"top", "0px"}}, "abcdefghij");
+        const auto right = t.add(strip, {{"position", "absolute"}, {"right", "4px"}, {"top", "0px"}}, "abcdefghij");
+        const auto words = t.add(strip, {{"position", "absolute"}, {"left", "4px"}, {"top", "0px"}}, "ab cdef gh");
+        const auto wide = t.add(
+            root, {{"position", "absolute"}, {"left", "0px"}, {"top", "50px"}, {"width", "300px"}, {"height", "60px"}});
+        const auto inset = t.add(wide, {{"position", "absolute"}, {"left", "230px"}, {"top", "0px"}}, "abc defgh ijk");
+        const auto between = t.add(
+            wide, {{"position", "absolute"}, {"left", "10px"}, {"right", "10px"}, {"top", "0px"}}, "abc defgh ijk");
+        const auto row = t.add(root, {{"display", "flex"},
+                                      {"position", "absolute"},
+                                      {"left", "0px"},
+                                      {"top", "120px"},
+                                      {"width", "300px"},
+                                      {"height", "60px"}});
+        const auto in_row = t.add(row, {{"position", "absolute"}, {"right", "230px"}, {"top", "0px"}}, "abc defgh ijk");
+        const auto g = t.layout();
+        require(g[word].width == 10 * c && g[word].x == 104, "a word in a containing block 1px wide");
+        require(g[right].width == 10 * c && g[right].x == 101 - 4 - 10 * c, "a word at a right inset in the strip");
+        require(g[words].width == 4 * c && g[words].height == 3 * line,
+                "wrapping text in the strip at its min-content width, a line for each word");
+        require(g[inset].width == 70 && g[inset].height == 3 * line, "text at an inset wraps in the width it leaves");
+        require(g[between].width == 280 && g[between].height == line, "a box between two insets");
+        require(g[in_row].width == 70 && g[in_row].x == 0 && g[in_row].height == 3 * line,
+                "a row flex container's absolute child at a right inset");
+    }
+
     // A display:none box and its subtree have empty geometry at the origin.
     void hidden_subtrees_are_empty() {
         Tree t;
@@ -303,12 +378,14 @@ int main() {
         inline_children_share_a_line();
         svg_sizes_from_attributes_and_ratio();
         transform_forms_containing_block();
+        absolute_boxes_shrink_to_fit();
         hidden_subtrees_are_empty();
         viewport_sizes_root();
         input_contract();
         std::cout
             << "PASS shared Yoga adapter: block, flex minimums, grid and its diagnostics, unknown sizes in px boxes, "
-               "inline row, svg, containing block, hidden boxes, viewport and input diagnostics\n";
+               "inline row, svg, containing block, absolute shrink-to-fit, hidden boxes, viewport and input "
+               "diagnostics\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

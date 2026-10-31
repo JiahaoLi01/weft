@@ -260,6 +260,9 @@ if(WIN32)
         ARGS "${artifacts}/scene-gallery-$<CONFIG>" "${fixtures}/scene-gallery-reference"
         DEPENDS scene_gallery_original)
 
+    # The installed faces listed from the families' font sets versus a font face made for each font.
+    weft_add_executable(weft_system_fonts_tests SOURCES system_fonts_tests.cpp LINK weft::platform_win32)
+    weft_add_test(NAME system_fonts_contract COMMAND weft_system_fonts_tests)
     # Portable scene text on the installed fonts versus Chrome's metrics and face choices.
     weft_add_executable(weft_scene_text_tests SOURCES scene_text_tests.cpp LINK weft::scene weft::platform_win32)
     weft_add_test(NAME scene_text_metrics
@@ -288,6 +291,10 @@ if(WIN32)
     weft_add_executable(weft_scene_fixed_tests SOURCES scene_fixed_tests.cpp
         LINK weft::scene_d3d11 weft::platform_win32 SOURCE_DIR)
     weft_add_test(NAME scene_fixed_browser_contract COMMAND weft_scene_fixed_tests TIMEOUT 120)
+    # Absolutely positioned boxes of auto width (shrink-to-fit) against Chrome's geometry.
+    weft_add_executable(weft_scene_absolute_tests SOURCES scene_absolute_tests.cpp
+        LINK weft::scene weft::platform_win32 SOURCE_DIR)
+    weft_add_test(NAME scene_absolute_browser_contract COMMAND weft_scene_absolute_tests TIMEOUT 120)
     # The transition shorthand and the pairing of the transition lists against Chrome
     # (tools/browser_scene_transition_reference.mjs) and a model of random lists; their diagnostics.
     weft_add_executable(weft_scene_transition_tests SOURCES scene_transition_tests.cpp
@@ -397,6 +404,13 @@ if(WIN32)
     endif()
     weft_add_test(NAME scene_paint_reference COMMAND weft_scene_paint_reference_tests
         "${artifacts}/scene-paint-reference-$<CONFIG>" "${scene_paint_cases_sha256}" TIMEOUT 180)
+    # Gradient backgrounds whose box ends inside a device pixel, against Chrome's screenshots of the same cases.
+    set(scene_gradient_edge_cases "${fixtures}/scene-gradient-edge-reference/cases.json")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${scene_gradient_edge_cases}")
+    file(SHA256 "${scene_gradient_edge_cases}" scene_gradient_edge_cases_sha256)
+    weft_add_test(NAME scene_gradient_edge_reference COMMAND weft_scene_paint_reference_tests
+        "${artifacts}/scene-gradient-edge-reference-$<CONFIG>" "${scene_gradient_edge_cases_sha256}"
+        "${fixtures}/scene-gradient-edge-reference" TIMEOUT 180)
     # UI shader effects in the native scene passes: D3D11 on WARP, and Vulkan on this machine's device when built.
     set(scene_effect_links weft::scene_d3d11 weft::platform_win32 weft_test_effects)
     if(WEFT_RENDER_VULKAN)

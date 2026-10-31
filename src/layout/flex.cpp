@@ -1901,8 +1901,18 @@ namespace weft {
                 try {
                     ++n.measure_calls;
                     const auto& text = n.engine->text;
-                    const auto measured = text.layout(n.index, wm == YGMeasureModeUndefined ? unbounded : width);
+                    // At most `width` wide, a text box fits its content (CSS Sizing 3 fit-content): no wider than its
+                    // max-content width and no narrower than its min-content width, its widest unbreakable run, which
+                    // overflows a narrower width (an absolutely positioned box in a containing block too narrow for
+                    // it). Its lines are laid out at the width it takes.
                     const float natural_width = text.layout(n.index, unbounded).width;
+                    if (wm == YGMeasureModeAtMost) {
+                        if (const float minimum = std::min(text.min_content(n.index), natural_width); width < minimum) {
+                            return {minimum,
+                                    hm == YGMeasureModeExactly ? height : text.layout(n.index, minimum).height};
+                        }
+                    }
+                    const auto measured = text.layout(n.index, wm == YGMeasureModeUndefined ? unbounded : width);
                     // A text box is as tall as its lines; it overflows a smaller available height.
                     return {wm == YGMeasureModeExactly  ? width
                             : wm == YGMeasureModeAtMost ? std::min(width, natural_width)

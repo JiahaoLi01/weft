@@ -28,6 +28,36 @@ SVG 文字的几何跟着它的每一个字体值变（2026-10-31，`text-line-n
 - **验证**（Release）：`scene_text_style_contract` 加一例：Segoe UI Light 28 px、`tabular-nums` 的三行“4”“14”“44”。每行按画的那一行的样式量出的宽与排版的行宽相同（14.4375、28.859375、28.859375 px）；原生 D3D11 pass（WARP）画得出这一帧；参考光栅与原生 pass 上，“1”后面的“4”与“4”后面的“4”都止于第 32 列。先查字体本身：默认的“4”比等宽的宽、也比默认的“1”（9.98 px）宽，等宽的“1”与“4”一样宽。修改前这一例失败：量出 14.875、24.84、29.73 px，原生 pass 报“text overflow reference”，参考光栅上分别止于第 28、32 列。全量 ctest（Release，179 项）：除既有的 14 项外通过，与 fb7ef67 记下的基线相同；这 14 项都在核对输入文件的散列时就失败（签出的换行，或过期的散列），没跑到绘制与比较。其中 `scene_cluster_browser_contract` 的比较部分（画廊的 30 个用例）跳过散列另跑：210 个状态、210 份 DOM、4,408 个 HTML 几何字段与浏览器一致（最大差 2.02 px，在各用例的限内）。
 - **未验证**：UE 里没有跑（CaseGinkgo 的子模块指针与 weft.dll 没动）；武器 HUD 绕开的写法（不用 `font-variant-numeric`、给数字最小宽度）在指针跟进之后可以改回。
 
+渐变盒子边上的那一列取盒子在这条边上的颜色（2026-10-25，`timeline-fixes` 分支；CaseGinkgo 的窗口时间轴页面发现，用户提出：左端渐隐的盒子右边有一道暗线）。
+- **起因**：`src/render/shaders/scene.hlsl` 的 `gradient()` 按瓦片取模定位（`q - floor(q / tile) * tile`）。盒子按小数位置的覆盖率画边，右边（或下边）落在设备像素中间时，边上那一列像素的中心在盒子外或正在边上，取模回到下一块瓦片的开头：从不透明渐隐到透明的盒子，最后一列画成接近不透明的颜色（1 倍、右边在 110.5 px：Chrome 254，weft 128）。左边、上边的那一列反过来取到末色，丢了抗锯齿。D2D 参考光栅（色标不全不透明时的逐像素位图）同样回绕。
+- **实现**：着色器与 `scene_gradient_color`（D2D 参考光栅用，加了盒子的宽高）把位置钳进盒子，瓦片取盒子里离边 1/64 px 的点所在的那一块（`GradientEdgeInset`、`constants::scene::gradient_edge_inset`），边在瓦片边界上时结束那一块；盒子里的瓦片接缝不变。
+- **验证**（Release）：`scene_gradient_edge_reference`（新，与 `scene_paint_reference` 同一测试程序与录制工具，夹具 `tests/fixtures/scene-gradient-edge-reference`，`node tools/browser_scene_paint_reference.mjs tests/fixtures/scene-gradient-edge-reference`）：1 倍与 1.5 倍两个用例（右边在半个像素与 0.3 个像素、下边在半个像素、末色不透明、时间轴的渐隐色）与 Chrome 156 截图对照，原生 D3D11 WARP 平均差 0.34 / 0.05 级、差 32 级以上的像素 0、5 × 5 平均后最大差 3 / 1 级，D2D 参考光栅 0.31 / 0.08、0、3 / 1 级，Vulkan 与 D3D11 最多差 1 级；换回取模时 5 × 5 最大差 25 / 26 级，两个用例都超限。`scene_floating_css_contract` 加边上的取色：两端、竖直方向、盒子里的瓦片接缝、边在瓦片边界上。全量 ctest（182 项）：除既有的 14 项（签出换行的散列校验与浏览器差异）外通过，与修改前的基线相同。Debug 的全量 ctest 失败的也只是这 14 项。
+- **限制**：盒子的边仍按小数位置的覆盖率画（Chrome 先对齐整像素，见兼容表），落在像素中间的左边、上边那一列比 Chrome 多一点覆盖。
+
+没给宽度的绝对定位盒子按 CSS 2 §10.3.7 收缩适配（2026-10-25，`timeline-fixes` 分支；CaseGinkgo 的窗口时间轴页面发现，用户提出）。
+- **起因**：宽度为 auto、水平方向至多一侧有 inset 的绝对定位盒子，Yoga 给它做 fit-content 的可用宽是包含块的整个宽度，只在父元素主轴是列、包含块有宽度时才约束，不减 inset；适配器的文字测量函数在这个模式下返回 min(可用宽, 最大内容宽)，可以比最小内容宽还窄。窗口时间轴把标签与事件组放在随时间移动的 1px 宽条带里：`white-space: nowrap` 的中文标签只有 1px 宽，字溢出盒子；`right` 定位、`left` 为 auto 的事件组宽 1px，里面的 inline-block 从盒子左边往右排。CSS 2 §10.3.7 的收缩适配是 min(max(最小内容宽, 可用宽), 最大内容宽)，可用宽是包含块的宽减去已给的 inset 与外边距；Chrome 在两种情况都收缩到内容宽，后者靠右。
+- **实现**：Yoga 的第三个补丁 `third_party/yoga/patches/0003-absolute-shrink-to-fit.patch`（原因、反例、哈希与退出条件见 metadata、`third_party/manifest.json` 与 [布局探针](layout-text-probes.md)）用包含块的宽减去 inset（不小于 0）做 fit-content，在行与列里一样，可用宽为 0 时也约束；`src/layout/flex.cpp` 的测量函数在 fit-content 下比最小内容宽窄时取最小内容宽，并在这个宽度上排行。
+- **验证**（Release）：`scene_absolute_browser_contract`（新，`tools/browser_scene_absolute_reference.mjs` 录 `tests/fixtures/scene_absolute_reference.json`）：一页 29 个元素的 client rect 与 Chrome 156 一致（1/64 px 内）：1px 的条带里 `left`、`right` 定位的 nowrap 中文与 inline-block、可换行文字的最小内容宽，宽包含块里 `left`、`right` 的 inset、横向 flex 父元素、外边距内边距与边框、百分比 inset、块子元素、`max-width` 与 `min-width`，以及不变的静态位置盒子与两侧 inset 的盒子。只去掉 Yoga 补丁时 5 个元素不同，只去掉测量函数的下限时 11 个不同。`box_layout_contract` 加不依赖字体的同一规则（按词换行的文字模型），两种变异各自失败。`dependency_integrity` 通过（Yoga 的 500 个锁定文件）。全量 ctest（181 项）：除既有的 14 项（签出换行的散列校验与浏览器差异）外通过，与修改前的基线相同。
+- **限制**：四边 inset 都是 auto 的盒子的静态位置仍是包含块内边距盒的起点，不在它之前的流内兄弟之后（Chrome 在之后），与这次无关，没改；从右到左未做。
+
+页面的第一次载入与第一帧：系统字体从字体集合列出，字体在文字第一次用到时才打开并映射，参考光栅等要回退时才建（2026-10-25，`timeline-fixes` 分支；CaseGinkgo 的窗口时间轴页面在 UE 里发现，用户提出：每个进程第一次载入页面约 0.6 s，第一帧游戏线程还要等渲染线程约 0.17 s）。
+- **起因**：
+  - 游戏线程：UE 里每个进程第一次 `weft_view_load` 约 0.55–0.63 s，之后每次约 5 ms，空脚本加几乎空的样式表也一样。页面运行器在本机复现（Release，热缓存，下同）：空页面第一次 514 ms，其中 `system_font_catalog()` 507–513 ms，是对 1,432 个字体逐个 `IDWriteFontFamily::GetFont` 并 `CreateFontFace`（打开并映射每个字体文件，436–441 ms）；页面本身 2–3 ms。其次是字体文件：匹配一个 font-family 时，列表与回退列表里的字体一起打开并整份读进内存。窗口时间轴页面第一次载入读了 8 个字体文件约 42 ms（雅黑 UI Bold 16.9 MB 10 ms，Noto Sans SC 可变字体 17.8 MB 11.5 ms，Segoe UI Emoji 读 7.9 ms 加检查颜色表 7.6 ms），它的文字只用到其中 3 个。
+  - 渲染线程：D3D12 与 D3D11 的场景渲染器构造时就建 D2D 参考光栅（原生 pass 画不了一帧时整帧回退用），其中 `D2D1CreateFactory` 在 UE 进程的渲染线程上要 163–168 ms；6 个管线状态对象只有约 4 ms（驱动的着色器缓存命中时）。
+- **实现**：
+  - `system_font_catalog()`（`src/platform/win32/system_fonts.cpp`）从系统字体集合每个族自己的字体集合（`IDWriteFontFamily2::GetFontSet`）取字体面引用、属性与轴值，这些都来自系统字体缓存，不为每个字体建字体对象与字体面。系统也给静态字体轴值和轴范围，所以只有某个轴范围跨着值的字体面才可能是可变字体的命名实例，按文件与序号建一次 `IDWriteFontResource` 读它可变的轴（本机 31 个）。没有这些接口的系统（Windows 10 1903 以前）照旧逐个建字体面；`SystemFontListing` 可指定其中一种。
+  - 字体按需打开：`SceneText` 的匹配只记字体来源，第一个可用字体立即打开，其余在塑形第一次用到时才打开（`shape_with_fallback` 新的 `FallbackFonts` 形式按序号要字体与角色，原来的列表形式包装它）；表情字簇要回退字体的角色时才打开它，看有没有彩色字形。
+  - `FontFile` 把字体文件映射进内存（`text/mapped_file.hpp`：Windows 的 `MapViewOfFile`，其他系统 `mmap`），只读字体面用到的页；映射不了时照旧整份读入。
+  - D3D11 与 D3D12 的场景渲染器在第一次要回退的帧才建参考光栅（`std::optional<SceneRaster>`）。
+- **验证**（Release）：
+  - `system_fonts_contract`（新）：本机 956 个条目，从字体集合列出的与逐个建字体面列出的逐项、逐顺序相同（同名、同字重与风格的字体面按顺序取第一个，所以顺序也比），其中 295 个是可变字体的命名实例，带轴值；字体集合约 12 ms，逐个建字体面约 530 ms。
+  - `font_fallback_contract` 加：15 段文字（拉丁、中日韩、希腊与西里尔、表情的文字与表情呈现、VS15 与 VS16、符号）各有角色、无角色两次，按需取字体与一次给出全部字体逐字形、逐片段相同；拉丁文字只打开第一个字体，中文只多打开 CJK 字体，30 次塑形共打开 74 个字体（一次给出全部是 150 个）。`text_font_probe` 加：映射的字节与文件逐字节相同，字体持有期间文件可改名、删除，字体照常塑形。与 Chrome 对照的 `scene_text_metrics`、`scene_text_browser_diff`（852 个文字段的字体选择、宽度与基线）照旧通过。
+  - 页面运行器 A/B（`weft_page_runner --page <目录> --timeline <载入三次>`，fb7ef67 与本分支交替各 5 轮，中位数）：空页面第一次 514.3 → 13.3 ms，中文的小页面 544.3 → 14.3 ms，窗口时间轴页面（1920 × 1080）552.9 → 16.5 ms；之后每次分别是 2.3、2.3、3.8 ms，两边相同。第一次比之后多的约 12 ms 是列出系统字体（约 10 ms，其中第一次建 DirectWrite 工厂约 5 ms）与第一次用到的字体。
+  - UE（CaseGinkgo 的 `-game`，D3D12，RTX 5090，1920 × 1080，窗口时间轴页面，插件里临时的计时，没有提交；fb7ef67 两次与本分支三次）：游戏线程第一次载入 613.5、600.1 → 80.8、80.3、78.4 ms，之后都是 4–5 ms；渲染线程第一次录制的 prepare 178.4、170.2 → 3.7、4.2、3.4 ms，编码都是约 3 ms，之后每帧 prepare 约 0、编码约 0.1 ms。本分支剩下的 78–81 ms 里约 69 ms 是 `DWriteCreateFactory` 第一次建共享工厂（`dwrite.dll` 已由 UE 载入，`LoadLibrary` 0.2 ms；启动 600 帧之后再载入也一样，页面运行器里约 5 ms），页面本身 6–9 ms。
+  - D3D12 的样例（`weft_engine_host --d3d12`）：后端第一次建场景渲染器约 15 ms，着色器改过、驱动的着色器缓存还没有它时约 107 ms。
+  - 全量 ctest（180 项）：除既有的 14 项（签出换行的散列校验与浏览器差异）外通过，与修改前的基线相同。
+- **限制**：映射着的字体文件在 Windows 上可改名、删除，不能就地改写或截短，宿主加的字体文件在运行时持有它时也是这样（此前读完即关闭）；Android 用 `mmap`，只编译过、没在设备上运行。列出系统字体仍在第一个页面载入时（页面运行器约 10 ms，UE 里约 73 ms，几乎都是建 DirectWrite 工厂）；挪到别的时刻（建 runtime 时，或宿主提前调用一个列出字体的接口）是产品上的取舍，没做。第一次要回退的帧仍要建参考光栅。
+
 空间导航让“看起来能点”的元素拿焦点，Enter 与空格按下它们（2026-10-23，`input` 分支；第三阶段的补充：宣传页自己模拟了这两条，原会话提出补进 weft）。
 - **起因**：Chrome 开了空间导航时，有 click 等监听器或自己设了 `cursor: pointer` 的元素也能拿焦点（Blink 的 `Element::SupportsSpatialNavigationFocus`），Enter 与空格按下它们；weft 只有 Tab 本来能到的元素，宣传页只好给队员与“显示元素边框”开关写 `tabIndex = 0` 与 Enter 的处理。
 - **实现**（见 [与引擎通信](engine-communication.md#8-对外-view133)“手柄与空间导航”）：

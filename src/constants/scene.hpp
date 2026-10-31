@@ -196,6 +196,9 @@ namespace weft::constants::scene {
     inline constexpr int shadow_cache_max_bytes = 16 * constants::bytes_per_mib;
     // A linear gradient tile within this of the box still uses the native brush.
     inline constexpr float gradient_tile_epsilon = .001f;
+    // A pixel a box's edge crosses takes its gradient tile from a point this far inside the box (px, a LayoutUnit), so
+    // that an edge on a tile's boundary ends that tile (scene.hlsl's GradientEdgeInset).
+    inline constexpr float gradient_edge_inset = 1.f / 64;
     inline constexpr int gradient_cache_max_entries = 32;
     inline constexpr int gradient_cache_max_bytes = 32 * constants::bytes_per_mib;
     // Largest software backing, gradient or projected bitmap.

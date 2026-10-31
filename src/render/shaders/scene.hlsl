@@ -38,6 +38,9 @@ static const float ImageModeTexture = 5;
 static const float SdfByteMax = 255.0;
 static const float SdfZeroByte = 128.0;
 static const float MinimumRadius = 1e-6;
+// How far inside a box's edge (its px) the point lies whose gradient tile an edge pixel takes (gradient()): a
+// LayoutUnit, as constants::scene::gradient_edge_inset.
+static const float GradientEdgeInset = 1.0 / 64;
 // Instance bounds reach this many device px past an item for its antialiasing (record_bounds_outset).
 static const float RecordBoundsOutset = 2;
 // The smallest anchor scale whose outset the bounds make up for; a hidden element's corners lie here.
@@ -223,9 +226,13 @@ float offset(Paint p, uint i) {
     return p.offsets[i / StopsPerOffsetVector][i % StopsPerOffsetVector];
 }
 
+// A pixel that a box's edge crosses can have its center outside the box: it takes the box's color at that edge, from
+// the tile the edge bounds in the box, not from the next tile, which the box clips away. The tile is that of a point a
+// little inside the box, so an edge on a tile's boundary ends that tile.
 float4 gradient(Paint p, float2 position) {
-    float2 q = position - p.tile.zw;
-    q = q - floor(q / p.tile.xy) * p.tile.xy;
+    float2 inside = clamp(position, 0, p.size.xy);
+    float2 tiles = floor((clamp(position, GradientEdgeInset, p.size.xy - GradientEdgeInset) - p.tile.zw) / p.tile.xy);
+    float2 q = inside - p.tile.zw - tiles * p.tile.xy;
     float angle = p.extra.x * DegreesToRadians;
     float2 d = float2(sin(angle), -cos(angle));
     float extent = dot(p.tile.xy, abs(d));

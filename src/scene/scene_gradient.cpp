@@ -178,12 +178,16 @@ namespace weft {
             return {center[0], center[1], rx, ry};
         }
 
-        float gradient_t(const paint::Gradient& g, float x, float y) {
+        // As the scene shader's gradient(): a point outside the width x height box (the center of a pixel its edge
+        // crosses) takes the box's edge, in the tile the edge bounds in the box.
+        float gradient_t(const paint::Gradient& g, float x, float y, float width, float height) {
             const auto& tile = g.tile;
-            float qx = x - tile[2];
-            float qy = y - tile[3];
-            qx -= std::floor(qx / tile[0]) * tile[0];
-            qy -= std::floor(qy / tile[1]) * tile[1];
+            const float inset = constants::scene::gradient_edge_inset;
+            const auto tiles = [&](float v, float size, float origin, float length) {
+                return std::floor((std::min(std::max(v, inset), size - inset) - origin) / length);
+            };
+            const float qx = std::clamp(x, 0.f, width) - tile[2] - tiles(x, width, tile[2], tile[0]) * tile[0];
+            const float qy = std::clamp(y, 0.f, height) - tile[3] - tiles(y, height, tile[3], tile[1]) * tile[1];
             const float angle = g.angle * std::numbers::pi_v<float> / constants::degrees_per_half_turn;
             if (g.kind == GradientKind::Linear) {
                 const float dx = std::sin(angle);
@@ -346,8 +350,8 @@ namespace weft {
         return g;
     }
 
-    paint::Color scene_gradient_color(const paint::Gradient& g, float x, float y) {
-        float t = gradient_t(g, x, y);
+    paint::Color scene_gradient_color(const paint::Gradient& g, float x, float y, float width, float height) {
+        float t = gradient_t(g, x, y, width, height);
         const auto& stops = g.stops;
         if (g.repeating) {
             const float first = stops.front().offset;

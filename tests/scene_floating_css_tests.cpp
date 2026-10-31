@@ -105,10 +105,10 @@ namespace {
                     about(stripes.stops[3].offset, .1f),
                 "repeating stops along the gradient line");
         // In the first stripe, the second, and the first again a span later.
-        require(weft::scene_gradient_color(stripes, 2.5f, 15)[0] == 1 &&
-                    weft::scene_gradient_color(stripes, 7.5f, 15)[2] == 1 &&
-                    weft::scene_gradient_color(stripes, 12.5f, 15)[0] == 1 &&
-                    weft::scene_gradient_color(stripes, 97.5f, 15)[2] == 1,
+        require(weft::scene_gradient_color(stripes, 2.5f, 15, 100, 30)[0] == 1 &&
+                    weft::scene_gradient_color(stripes, 7.5f, 15, 100, 30)[2] == 1 &&
+                    weft::scene_gradient_color(stripes, 12.5f, 15, 100, 30)[0] == 1 &&
+                    weft::scene_gradient_color(stripes, 97.5f, 15, 100, 30)[2] == 1,
                 "repeating stripes");
         const auto flat = *weft::scene_gradient(
             style({{"background-image", "repeating-linear-gradient(#f00 5px, #00f 5px)"}}), 100, 30);
@@ -117,9 +117,9 @@ namespace {
                 "repeating stops that span nothing: the last stop's color");
         const auto rings = *weft::scene_gradient(
             style({{"background-image", "repeating-radial-gradient(circle 20px, #f00 0 5px, #00f 5px 10px)"}}), 40, 40);
-        require(rings.repeating && weft::scene_gradient_color(rings, 20, 22.5f)[0] == 1 &&
-                    weft::scene_gradient_color(rings, 20, 27.5f)[2] == 1 &&
-                    weft::scene_gradient_color(rings, 20, 32.5f)[0] == 1,
+        require(rings.repeating && weft::scene_gradient_color(rings, 20, 22.5f, 40, 40)[0] == 1 &&
+                    weft::scene_gradient_color(rings, 20, 27.5f, 40, 40)[2] == 1 &&
+                    weft::scene_gradient_color(rings, 20, 32.5f, 40, 40)[0] == 1,
                 "repeating rings");
         require(about(radial("linear-gradient(to right, #000, #fff)", 10, 10).angle, 90) &&
                     about(radial("linear-gradient(to bottom, #000, #fff)", 10, 10).angle, 180),
@@ -130,11 +130,42 @@ namespace {
                         10, 10),
                 "an empty tile paints nothing");
         const auto ellipse = radial("radial-gradient(#000, #fff)", 200, 40);
-        require(weft::scene_gradient_color(ellipse, 100, 20)[0] == 0 &&
-                    weft::scene_gradient_color(ellipse, 0, 0)[0] == 1 &&
-                    about(weft::scene_gradient_color(ellipse, 100 + 50 * root2, 20)[0], .5f, 1e-3f) &&
-                    about(weft::scene_gradient_color(ellipse, 100, 20 + 10 * root2)[0], .5f, 1e-3f),
+        require(weft::scene_gradient_color(ellipse, 100, 20, 200, 40)[0] == 0 &&
+                    weft::scene_gradient_color(ellipse, 0, 0, 200, 40)[0] == 1 &&
+                    about(weft::scene_gradient_color(ellipse, 100 + 50 * root2, 20, 200, 40)[0], .5f, 1e-3f) &&
+                    about(weft::scene_gradient_color(ellipse, 100, 20 + 10 * root2, 200, 40)[0], .5f, 1e-3f),
                 "an elliptical gradient line");
+        // A pixel the box's edge crosses, its center on the edge or past it: the box's color at that edge, not the
+        // next tile's (a half pixel at the right of the box drew the opaque start of a fade there, a dark line).
+        const auto alpha = [](const weft::paint::Gradient& g, float x, float y, float w, float h) {
+            return weft::scene_gradient_color(g, x, y, w, h)[3];
+        };
+        const auto fade = [&](const char* image, float w, float h, const char* size = "100% 100%") {
+            return *weft::scene_gradient(style({{"background-image", image}, {"background-size", size}}), w, h);
+        };
+        const auto across = fade("linear-gradient(90deg, #000 0%, transparent 100%)", 100.5f, 30);
+        require(about(alpha(across, 100.5f, 15, 100.5f, 30), 0, 1e-5f) &&
+                    about(alpha(across, 100.8f, 15, 100.5f, 30), 0, 1e-5f) &&
+                    about(alpha(across, -.3f, 15, 100.5f, 30), 1, 1e-5f) &&
+                    about(alpha(across, 0, 15, 100.5f, 30), 1, 1e-5f) &&
+                    about(alpha(across, 50.25f, 15, 100.5f, 30), .5f, 1e-5f),
+                "a fade's ends at and past the box's edges");
+        const auto down = fade("linear-gradient(180deg, #000 0%, transparent 100%)", 30, 40.5f);
+        require(about(alpha(down, 15, 40.5f, 30, 40.5f), 0, 1e-5f) &&
+                    about(alpha(down, 15, 40.9f, 30, 40.5f), 0, 1e-5f) &&
+                    about(alpha(down, 15, -.2f, 30, 40.5f), 1, 1e-5f),
+                "a vertical fade's ends at and past the box's edges");
+        // Tiles inside the box still repeat: past the last whole tile, the box's sliver of the next one starts the fade
+        // again; an edge on a tile's boundary ends the last tile.
+        const auto tiled = fade("linear-gradient(90deg, #000 0%, transparent 100%)", 100.5f, 30, "25px 100%");
+        require(about(alpha(tiled, 75, 15, 100.5f, 30), 1, 1e-5f) &&
+                    about(alpha(tiled, 100.5f, 15, 100.5f, 30), .98f, 1e-5f) &&
+                    about(alpha(tiled, 100.8f, 15, 100.5f, 30), .98f, 1e-5f),
+                "the sliver of the next tile in the box");
+        const auto whole = fade("linear-gradient(90deg, #000 0%, transparent 100%)", 100, 30, "25px 100%");
+        require(about(alpha(whole, 100, 15, 100, 30), 0, 1e-5f) && about(alpha(whole, 100.3f, 15, 100, 30), 0, 1e-5f) &&
+                    about(alpha(whole, 50, 15, 100, 30), 1, 1e-5f),
+                "an edge on a tile's boundary ends the tile");
     }
 
     void shadows() {

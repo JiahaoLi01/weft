@@ -1,5 +1,7 @@
 #pragma once
+#include "base/function_ref.hpp"
 #include "constants/text.hpp"
+#include "text/mapped_file.hpp"
 #include <array>
 #include <cstdint>
 #include <filesystem>
@@ -130,7 +132,9 @@ namespace weft {
         friend auto operator<=>(const FontFaceSource&, const FontFaceSource&) = default;
     };
 
-    // Immutable bytes of one font file, shared by the faces and instances read from it, on any thread.
+    // Immutable bytes of one font file, shared by the faces and instances read from it, on any thread: the file mapped
+    // into memory (text/mapped_file.hpp), so that only what its faces read of it is read from disk (a CJK font is tens
+    // of MB), else read whole.
     class FontFile final {
     public:
         explicit FontFile(const std::filesystem::path& path);
@@ -138,10 +142,10 @@ namespace weft {
         FontFile(const FontFile&) = delete;
         FontFile& operator=(const FontFile&) = delete;
 
-        // The file of a path as long as any thread's fonts hold it, else read anew: one copy of its bytes for them all.
+        // The file of a path as long as any thread's fonts hold it, else opened anew: one copy of its bytes for them all.
         static std::shared_ptr<const FontFile> open(const std::filesystem::path& path);
 
-        const std::vector<char>& bytes() const noexcept {
+        std::span<const char> bytes() const noexcept {
             return bytes_;
         }
 
@@ -152,7 +156,10 @@ namespace weft {
         hb_face_t* harfbuzz_face(std::uint32_t face_index) const;
 
     private:
-        std::vector<char> bytes_;
+        // The mapped file, or the bytes read in its place; bytes_ views one of them.
+        std::unique_ptr<const MappedFile> mapped_;
+        std::vector<char> read_;
+        std::span<const char> bytes_;
         mutable std::mutex faces_lock_;
         mutable hb_blob_t* blob_{};
         mutable std::map<std::uint32_t, hb_face_t*> faces_;
@@ -252,6 +259,23 @@ namespace weft {
     FallbackText shape_with_fallback(const std::vector<Font*>& fonts, std::string_view utf8, float pixels,
                                      ShapePrecision precision = ShapePrecision::Fixed26_6,
                                      std::span<const FontFeature> features = {}, std::span<const FontRole> roles = {},
+                                     std::span<const std::vector<UnicodeRange>> ranges = {});
+
+    // The fonts of a fallback list as shaping asks for them, so that a font no cluster reaches need not be opened:
+    // `count` fonts, font(i) the i-th, and role(i) its role when roles is set (one per font as above).
+    struct FallbackFonts {
+        std::size_t count{};
+        FunctionRef<Font&(std::uint32_t)> font;
+        FunctionRef<FontRole(std::uint32_t)> role;
+        bool roles{};
+    };
+
+    // shape_with_fallback over fonts asked for as they are needed: the first font always, a later one only when a
+    // cluster no earlier font renders (or prefers) reaches it, its role only for a cluster whose emoji presentation
+    // chooses between fallback fonts.
+    FallbackText shape_with_fallback(const FallbackFonts& fonts, std::string_view utf8, float pixels,
+                                     ShapePrecision precision = ShapePrecision::Fixed26_6,
+                                     std::span<const FontFeature> features = {},
                                      std::span<const std::vector<UnicodeRange>> ranges = {});
 
     // Whether a code point lies in a unicode-range (an empty one is every code point).

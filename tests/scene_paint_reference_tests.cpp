@@ -40,7 +40,9 @@
 // more or less before an ellipsis, a shadow's offset or blur, a gradient's shape). Where Vulkan is built, the native
 // Vulkan pass on this machine's device draws each case within 2 levels of the D3D11 one (skipped without a device).
 // The host texture cases draw again with url() images of the same texels (the scene's images, as a page's files), which
-// Chrome's capture of the same PNG images shows alike.
+// Chrome's capture of the same PNG images shows alike. Another folder of cases in the same format can be given instead
+// (tests/fixtures/scene-gradient-edge-reference: gradient backgrounds whose box ends inside a device pixel, where the
+// pixel that the edge crosses took the start of the next tile).
 namespace {
     using weft::testing::JsonValue;
     using weft::testing::require;
@@ -82,6 +84,10 @@ namespace {
             // d3-sankey's svg (tests/fixtures/d3_sankey_probe.js): wide translucent strokes of cubic curves over each
             // other and rects (their edges' antialiasing), and small labels (glyph edges).
             {"sankey", {{{1.5, .03, 44}, {1.5, .03, 56}}}},
+            // Gradient fades whose box ends inside a device pixel (scene-gradient-edge-reference): the edge pixel takes
+            // the fade's end color, as Chrome's does; it took the start's, a dark line 25 levels deep over 5 x 5 pixels.
+            {"fade-edges", {{{.5, .005, 6}, {.5, .005, 6}}}},
+            {"fade-edges-scaled", {{{.5, .005, 6}, {.5, .005, 6}}}},
         };
         return cases;
     }
@@ -201,12 +207,14 @@ namespace {
 
 int main(int argc, char** argv) {
     try {
-        require(argc == 3, "usage: weft_scene_paint_reference_tests <artifact folder> <cases.json sha256>");
+        require(argc == 3 || argc == 4,
+                "usage: weft_scene_paint_reference_tests <artifact folder> <cases.json sha256> [fixture folder]");
         const std::filesystem::path folder = argv[1];
         std::filesystem::create_directories(folder);
         require(SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED)), "COM init");
         const std::filesystem::path fixtures =
-            std::filesystem::path(WEFT_SOURCE_DIR) / "tests/fixtures/scene-paint-reference";
+            argc == 4 ? std::filesystem::path(argv[3])
+                      : std::filesystem::path(WEFT_SOURCE_DIR) / "tests/fixtures/scene-paint-reference";
         const auto spec = weft::testing::parse_json(weft::testing::read_file((fixtures / "cases.json").string()));
         // Chrome's captures are of these cases: the manifest records the hash of the cases they were taken from, and
         // one capture for each case, at its scale.

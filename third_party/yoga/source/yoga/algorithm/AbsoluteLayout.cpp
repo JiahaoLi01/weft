@@ -237,7 +237,6 @@ void layoutAbsoluteChild(
   const FlexDirection mainAxis =
       resolveDirection(node->style().flexDirection(), direction);
   const FlexDirection crossAxis = resolveCrossDirection(mainAxis, direction);
-  const bool isMainAxisRow = isRow(mainAxis);
 
   float childWidth = YGUndefined;
   float childHeight = YGUndefined;
@@ -353,14 +352,28 @@ void layoutAbsoluteChild(
         ? SizingMode::MaxContent
         : SizingMode::StretchFit;
 
-    // If the size of the owner is defined then try to constrain the absolute
-    // child to that size as well. This allows text within the absolute child
-    // to wrap to the size of its owner. This is the same behavior as many
-    // browsers implement.
-    if (!isMainAxisRow && yoga::isUndefined(childWidth) &&
-        widthMode != SizingMode::MaxContent &&
-        yoga::isDefined(containingBlockWidth) && containingBlockWidth > 0) {
-      childWidth = containingBlockWidth;
+    // A child of auto width shrinks to fit the width that its containing block
+    // leaves it beside its insets, an auto inset taken as 0 (CSS 2 10.3.7),
+    // in a row as in a column. With no width left, it fits its content, which
+    // takes at least its min-content width.
+    if (yoga::isUndefined(childWidth) && widthMode != SizingMode::MaxContent &&
+        yoga::isDefined(containingBlockWidth)) {
+      float insets = 0.0f;
+      if (child->style().isFlexStartPositionDefined(
+              FlexDirection::Row, direction) &&
+          !child->style().isFlexStartPositionAuto(
+              FlexDirection::Row, direction)) {
+        insets += child->style().computeFlexStartPosition(
+            FlexDirection::Row, direction, containingBlockWidth);
+      }
+      if (child->style().isFlexEndPositionDefined(
+              FlexDirection::Row, direction) &&
+          !child->style().isFlexEndPositionAuto(
+              FlexDirection::Row, direction)) {
+        insets += child->style().computeFlexEndPosition(
+            FlexDirection::Row, direction, containingBlockWidth);
+      }
+      childWidth = yoga::maxOrDefined(0.0f, containingBlockWidth - insets);
       childWidthSizingMode = SizingMode::FitContent;
     }
 

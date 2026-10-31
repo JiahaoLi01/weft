@@ -1,0 +1,49 @@
+{
+ "format": "weft-scene-paint-reference-v1",
+ "browser": "Chrome/156.0.8078.47",
+ "gpu": {
+  "devices": [
+   {
+    "name": "NVIDIA GeForce RTX 5090",
+    "driver": "32.0.16.2101"
+   },
+   {
+    "name": "AMD Radeon(TM) Graphics",
+    "driver": "32.0.21042.62"
+   },
+   {
+    "name": "Microsoft Basic Render Driver",
+    "driver": "10.0.26100.9711"
+   }
+  ],
+  "features": {
+   "2d_canvas": "enabled",
+   "direct_rendering_display_compositor": "disabled_off_ok",
+   "gpu_compositing": "enabled",
+   "multiple_raster_threads": "enabled_on",
+   "opengl": "enabled_on",
+   "rasterization": "enabled",
+   "raw_draw": "disabled_off_ok",
+   "skia_graphite": "disabled_off",
+   "trees_in_viz": "disabled_off",
+   "video_decode": "enabled",
+   "video_encode": "enabled",
+   "webgl": "enabled",
+   "webgpu": "enabled",
+   "webnn": "disabled_off"
+  }
+ },
+ "cases_sha256": "2f6b51ecbb1c0f198cdcacc9a2a7100a9ebc51db998cf0e9b26e1a5d9670c3c0",
+ "captures": [
+  {
+   "name": "fade-edges",
+   "scale": 1,
+   "sha256": "00af38ca834251507a7a23cd11d90b441c2fcd18573efe70b28d5bd9c5610b3a"
+  },
+  {
+   "name": "fade-edges-scaled",
+   "scale": 1.5,
+   "sha256": "d81fcdcebc1c98136fbc70f9fcece16d411d52af63f8b0b19965487da484144a"
+  }
+ ]
+}
