@@ -1,0 +1,20 @@
+/* The rows of formulas on white. A display row's padding keeps the 1em margins of .katex-display inside it, as the
+   scene lays block margins out (they do not collapse through a box's top). */
+#root {
+  background-color: #ffffff;
+  color: #1a1a1a;
+  font-family: "Segoe UI";
+  font-size: 16px;
+  padding: 8px 12px;
+}
+
+.row {
+  display: block;
+  height: 44px;
+  white-space: nowrap;
+}
+
+.display-row {
+  height: 84px;
+  padding-top: 1px;
+}

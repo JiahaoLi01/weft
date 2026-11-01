@@ -95,11 +95,16 @@ namespace weft {
                                                     PropertyId::TextDecorationThickness,
                                                     PropertyId::OverflowWrap,
                                                     PropertyId::WordBreak,
-                                                    PropertyId::CaretColor};
+                                                    PropertyId::CaretColor,
+                                                    PropertyId::BorderCollapse,
+                                                    PropertyId::BorderSpacing,
+                                                    PropertyId::EmptyCells,
+                                                    PropertyId::StrokeMiterlimit};
 
         // The text a computed content value gives a generated box (CSS Generated Content 3 §1): its strings (with their
-        // escapes) and attr(name), the element's attribute, in order; quotes, counters and images give nothing.
-        std::string generated_text(std::string_view v, const AttributeMap& attributes) {
+        // escapes) and attr(name), the element's attribute, in order; quotes and images give nothing, and so do counters
+        // (CSS Lists 3 counters are not kept), which problem then names.
+        std::string generated_text(std::string_view v, const AttributeMap& attributes, std::string& problem) {
             std::string out;
             const auto utf8 = [&](std::uint32_t cp) {
                 if (cp == 0 || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
@@ -149,6 +154,10 @@ namespace weft {
                         }
                     }
                     ++i;
+                } else if (v.substr(i).starts_with("counter(") || v.substr(i).starts_with("counters(")) {
+                    problem = "content " + std::string(v) + " outside scene profile (counters give nothing)";
+                    const auto close = v.find(')', i);
+                    i = close == v.npos ? v.size() : close + 1;
                 } else if (v.substr(i).starts_with("attr(")) {
                     const auto close = v.find(')', i);
                     auto name = trim(v.substr(i + 5, (close == v.npos ? v.size() : close) - i - 5));
@@ -165,15 +174,17 @@ namespace weft {
         }
 
         // The DOM stand-in of a generated box (ComputedStyle::generated) for a scene build: an element of its local
-        // name and identity whose one child is the text its content gives, of the element's attributes for attr().
-        DomSnapshot generated_dom(const ComputedStyle& g, const AttributeMap& attributes) {
+        // name and identity whose one child is the text its content gives, of the element's attributes for attr(), and
+        // what of its content the scene does not take (generated_text).
+        DomSnapshot generated_dom(const ComputedStyle& g, const AttributeMap& attributes, std::string& problem) {
             DomSnapshot n;
             n.identity = g.identity;
             n.type = constants::element_node_type;
             n.local_name = g.local_name;
             n.namespace_uri = constants::xhtml_namespace_uri;
             const auto* content = g.values.find(PropertyId::Content);
-            if (auto text = generated_text(content ? content->text() : std::string_view{}, attributes); !text.empty()) {
+            if (auto text = generated_text(content ? content->text() : std::string_view{}, attributes, problem);
+                !text.empty()) {
                 DomSnapshot t;
                 t.identity = g.identity;
                 t.identity.view_epoch |= generated_text_bit;
@@ -1397,7 +1408,10 @@ namespace weft {
                               "filter",
                               "vertical-align",
                               "will-change",
-                              "order"}) {
+                              "order",
+                              "table-layout",
+                              "clip-path",
+                              "-webkit-clip-path"}) {
             p.properties[k] = {"", false, CssGrammar::Tokens, {}};
         }
         // Inherited. The text-decoration longhands too: the scene propagates an element's decorations to its
@@ -1435,9 +1449,22 @@ namespace weft {
                               "text-decoration-thickness",
                               "overflow-wrap",
                               "word-break",
-                              "caret-color"}) {
+                              "caret-color",
+                              "border-collapse",
+                              "border-spacing",
+                              "empty-cells",
+                              "stroke-miterlimit"}) {
             p.properties[k] = {"", true, CssGrammar::Tokens, {}};
         }
+        // Tables (lay_out_table).
+        p.properties["table-layout"].initial = "auto";
+        p.properties["border-collapse"].initial = "separate";
+        p.properties["border-spacing"].initial = "0";
+        p.properties["empty-cells"].initial = "show";
+        // Validated where an element has them (build_own): clip-path none only; stroke-miterlimit the stroker's 4.
+        p.properties["clip-path"].initial = "none";
+        p.properties["-webkit-clip-path"].initial = "none";
+        p.properties["stroke-miterlimit"].initial = "4";
         p.properties["caret-color"].initial = "auto";
         p.properties["visibility"].initial = "visible";
         p.properties["pointer-events"] = {"auto", true, CssGrammar::Tokens, {}};
@@ -1498,75 +1525,23 @@ namespace weft {
                 "input:focus-visible,textarea:focus-visible{outline-offset:0}"
                 "::placeholder{color:#757575}";
             // Hints that change nothing a scene draws: dropped without a warning.
-            p.ignored = {"-webkit-font-smoothing",
-                         "-moz-osx-font-smoothing",
-                         "text-rendering",
-                         "-webkit-text-size-adjust",
-                         "-moz-text-size-adjust",
-                         "text-size-adjust",
-                         "tab-size",
-                         "-moz-tab-size",
-                         "-webkit-tap-highlight-color",
-                         "font-feature-settings",
-                         "font-variation-settings",
-                         "font-synthesis",
-                         "font-kerning",
-                         "font-optical-sizing",
-                         "appearance",
-                         "-webkit-appearance",
-                         "-moz-appearance",
-                         "resize",
-                         "accent-color",
-                         "scrollbar-width",
-                         "scrollbar-color",
-                         "scrollbar-gutter",
-                         "scroll-behavior",
-                         "overscroll-behavior",
-                         "overscroll-behavior-x",
-                         "overscroll-behavior-y",
-                         "-webkit-overflow-scrolling",
-                         "print-color-adjust",
-                         "-webkit-print-color-adjust",
-                         "color-scheme",
-                         "forced-color-adjust",
-                         "border-collapse",
-                         "border-spacing",
-                         "table-layout",
-                         "caption-side",
-                         "empty-cells",
-                         "list-style",
-                         "list-style-type",
-                         "list-style-position",
-                         "list-style-image",
-                         "quotes",
-                         "hyphens",
-                         "-webkit-hyphens",
-                         "orphans",
-                         "widows",
-                         "break-inside",
-                         "break-before",
-                         "break-after",
-                         "page-break-inside",
-                         "box-decoration-break",
-                         "-webkit-box-decoration-break",
-                         "contain",
-                         "content-visibility",
-                         "contain-intrinsic-size",
-                         "-webkit-backdrop-filter",
-                         "speak",
-                         "text-indent",
-                         "-webkit-text-decoration",
-                         "unicode-bidi",
-                         "direction",
-                         "writing-mode",
-                         "image-rendering",
-                         "shape-rendering",
-                         "text-wrap",
-                         "text-wrap-mode",
-                         "text-wrap-style",
-                         "font-display",
-                         "src",
-                         "unicode-range"};
+            p.ignored = {
+                "-webkit-font-smoothing", "-moz-osx-font-smoothing", "text-rendering", "-webkit-text-size-adjust",
+                "-moz-text-size-adjust", "text-size-adjust", "tab-size", "-moz-tab-size", "-webkit-tap-highlight-color",
+                "font-feature-settings", "font-variation-settings", "font-synthesis", "font-kerning",
+                "font-optical-sizing", "appearance", "-webkit-appearance", "-moz-appearance", "resize", "accent-color",
+                "scrollbar-width", "scrollbar-color", "scrollbar-gutter", "scroll-behavior", "overscroll-behavior",
+                "overscroll-behavior-x", "overscroll-behavior-y", "-webkit-overflow-scrolling", "print-color-adjust",
+                "-webkit-print-color-adjust", "color-scheme", "forced-color-adjust", "caption-side",
+                // Counters draw nothing themselves; counter() in content is a diagnostic (generated_text).
+                "counter-reset", "counter-increment", "counter-set", "list-style", "list-style-type",
+                "list-style-position", "list-style-image", "quotes", "hyphens", "-webkit-hyphens", "orphans", "widows",
+                "break-inside", "break-before", "break-after", "page-break-inside", "box-decoration-break",
+                "-webkit-box-decoration-break", "contain", "content-visibility", "contain-intrinsic-size",
+                "-webkit-backdrop-filter", "speak", "text-indent", "-webkit-text-decoration", "unicode-bidi",
+                "direction", "writing-mode", "image-rendering", "shape-rendering", "text-wrap", "text-wrap-mode",
+                "text-wrap-style", "font-display", "src", "unicode-range"};
+            p.ignored_prefixes = {"-ms-", "-moz-", "-o-"};
         }
         return p;
     }
@@ -1655,9 +1630,11 @@ namespace weft {
         std::uint64_t frame_particles{};
         std::vector<SceneId> flights;
         // While a frame is laid out: the extents of the atomic inlines measured, by node and available width, and
-        // the last line's baseline of each inline formatting context root placed, from its border box top.
+        // the last and the first line's baseline of each inline formatting context root placed, from its border box
+        // top (a table cell's baseline is its first line's).
         std::map<std::pair<const SceneNode*, float>, SceneAtomicExtent> atomic_memo;
         std::map<const SceneNode*, float> context_baselines;
+        std::map<const SceneNode*, float> context_first_baselines;
 
         // An inline formatting context: its content (shaped and broken once), its lines by available width (the most
         // recent last) and its min-content width.
@@ -1780,6 +1757,18 @@ namespace weft {
             }
         }
 
+        // What the scene draws without (a value it does not take, problem): a forgiving page's warning, a strict page's
+        // error. Nothing when problem is empty.
+        void undrawn(std::string problem) {
+            if (problem.empty()) {
+                return;
+            }
+            if (!forgiving) {
+                fail(problem);
+            }
+            warn(std::move(problem));
+        }
+
         // A forgiving page's filter the scene cannot draw is dropped with a warning, as CSS drops what it does not
         // take, instead of failing every frame that shows it: one on an SVG element inside svg, and one of functions
         // the scene does not take (scene_filter), its url() filters looked up in the document the update reads.
@@ -1874,6 +1863,7 @@ namespace weft {
             field->state = d.field;
             field->focused = d.focused;
             out.text = scene_field_text(f, field->placeholder);
+            out.text_breaks.clear();
             // A value the field changes, its authored one kept for getComputedStyle.
             const auto keep = [&](PropertyId k) {
                 if (std::none_of(field->authored.begin(), field->authored.end(), [&](const auto& a) {
@@ -2044,8 +2034,12 @@ namespace weft {
                     fail("SVG text stroke outside scene profile");
                 }
             }
+            out.text_breaks.clear();
             for (const auto& t : d.children) {
                 if (t.type == constants::text_node_type) {
+                    if (!out.text.empty() && !t.data.empty()) {
+                        out.text_breaks.push_back(std::uint32_t(out.text.size()));
+                    }
                     out.text += t.data;
                 }
             }
@@ -2092,7 +2086,12 @@ namespace weft {
                 }
             }
             resolve_font_relative(out.style, parent);
+            const auto untransformed = out.text.size();
             out.text = transformed(std::move(out.text), out.style);
+            if (out.text.size() != untransformed) {
+                // A case mapping that changed the length moved the boundaries; the text lays out as one run.
+                out.text_breaks.clear();
+            }
             if ((out.tag == "b" || out.tag == "strong") &&
                 std::find(c.specified_properties.begin(), c.specified_properties.end(), "font-weight") ==
                     c.specified_properties.end()) {
@@ -2353,6 +2352,21 @@ namespace weft {
             }
             const bool shown = !hidden && get(out.style, PropertyId::Display) != "none";
             emit(out, st, id, c, shown);
+            // clip-path: none (an SVG element's clip-path attribute is its own, scene_display_list); the element of
+            // another draws unclipped. stroke-miterlimit: the stroker's 4 (a miter longer than 4 times the stroke width
+            // is beveled).
+            for (const auto clip : {PropertyId::ClipPath, PropertyId::WebkitClipPath}) {
+                if (const auto v = trim(get(out.style, clip, "none")); v != "none") {
+                    undrawn(std::string(property_name(clip)) + " " + std::string(v) +
+                            " outside scene profile (drawn unclipped)");
+                }
+            }
+            if (const auto v = trim(get(out.style, PropertyId::StrokeMiterlimit, "4")); v != "4") {
+                const auto n = css::parse_number<double>(std::string(v));
+                if (!n || *n != 4) {
+                    undrawn("stroke-miterlimit " + std::string(v) + " outside scene profile (the miter limit is 4)");
+                }
+            }
             // backdrop-filter: the functions the scene takes, on an HTML element or an svg root.
             if (const auto* filter = out.style.find(PropertyId::BackdropFilter)) {
                 const auto parsed = scene_backdrop_filter(filter->text());
@@ -2381,7 +2395,8 @@ namespace weft {
                     const auto display = values.text(PropertyId::Display, "inline");
                     const auto position = values.text(PropertyId::Position, "static");
                     if (display != "none" && position != "absolute" && position != "fixed" && display != "inline" &&
-                        display != "inline-block" && display != "inline-flex" && display != "inline-grid") {
+                        display != "inline-block" && display != "inline-flex" && display != "inline-grid" &&
+                        display != "inline-table") {
                         inline_context = false;
                     }
                 }
@@ -2395,7 +2410,8 @@ namespace weft {
                     const auto display = g.values.text(PropertyId::Display, "inline");
                     const auto position = g.values.text(PropertyId::Position, "static");
                     if (display != "none" && position != "absolute" && position != "fixed" && display != "inline" &&
-                        display != "inline-block" && display != "inline-flex" && display != "inline-grid") {
+                        display != "inline-block" && display != "inline-flex" && display != "inline-grid" &&
+                        display != "inline-table") {
                         inline_context = false;
                     }
                 }
@@ -2405,18 +2421,21 @@ namespace weft {
             if (mixed) {
                 out.text.clear();
             }
+            if (out.text.empty()) {
+                out.text_breaks.clear();
+            }
             if (d.field) {
                 field_own(out, d, c);
             }
             work.geometry_changed |= !scene_geometry_own_equal(last, out);
-            work.paint_changed |= last.identity != out.identity || last.tag != out.tag || last.space != out.space ||
-                                  last.text != out.text || last.attributes != out.attributes ||
-                                  last.style != out.style || bool(last.paint) != bool(out.paint) ||
-                                  (last.paint && out.paint && last.paint->values != out.paint->values) ||
-                                  !scene_effect_equal(last.effect, out.effect) ||
-                                  last.background_image != out.background_image ||
-                                  last.border_image != out.border_image || last.particles != out.particles ||
-                                  !same_field(last.field, out.field);
+            work.paint_changed |=
+                last.identity != out.identity || last.tag != out.tag || last.space != out.space ||
+                last.text != out.text || last.text_breaks != out.text_breaks || last.attributes != out.attributes ||
+                last.style != out.style || bool(last.paint) != bool(out.paint) ||
+                (last.paint && out.paint && last.paint->values != out.paint->values) ||
+                !scene_effect_equal(last.effect, out.effect) || last.background_image != out.background_image ||
+                last.border_image != out.border_image || last.particles != out.particles ||
+                !same_field(last.field, out.field);
             return {shown, inline_context, mixed};
         }
 
@@ -2471,7 +2490,9 @@ namespace weft {
             const auto generated_child = [&](const char* name) {
                 for (const auto& g : c.generated) {
                     if (g.local_name == name && !d.field) {
-                        auto stand_in = generated_dom(g, d.attributes);
+                        std::string problem;
+                        auto stand_in = generated_dom(g, d.attributes, problem);
+                        undrawn(problem);
                         const auto at = find_child(prior, stand_in.identity, out.children.size());
                         out.children.push_back(at < prior.size() ? prior[at] : SceneNode{});
                         build_into(out.children.edit_back(), stand_in, g, &out.style);
@@ -2690,7 +2711,9 @@ namespace weft {
                     if (g.local_name != name || d.field) {
                         continue;
                     }
-                    auto stand_in = generated_dom(g, d.attributes);
+                    std::string problem;
+                    auto stand_in = generated_dom(g, d.attributes, problem);
+                    undrawn(problem);
                     const auto gid = identity(stand_in.identity);
                     const auto at = fresh ? prior.size() : find_child(prior, stand_in.identity, next.size());
                     const Handle kept = at < prior.size() ? prior.handle(at) : nullptr;
@@ -3180,6 +3203,8 @@ namespace weft {
             // their parent's coordinates: each box with its parent's.
             std::deque<SceneStyle> fixed_styles;
             std::vector<std::pair<std::size_t, std::size_t>> fixed;
+            // The values the run's top box is laid out with instead of its own (a table cell's at its column's width).
+            const SceneStyle* top_style{};
         };
 
         // A box that contains its fixed descendants (and absolute ones): one with a transform, a backdrop filter or a
@@ -3314,9 +3339,14 @@ namespace weft {
                 out.lines.clear();
                 out.fragments.clear();
             }
+            // Tables are inline tables, laid out as atomic inlines (lay_out_table); the run of a cell lays it out.
+            if (const auto d = n.style.text(PropertyId::Display, "inline");
+                d == "table" || (d.starts_with("table-") && !(parent == LayoutBox::root && run.top_style))) {
+                fail("display " + std::string(d) + " outside an inline table outside scene profile");
+            }
             const auto index = run.boxes.size();
             LayoutBox box;
-            box.style = &n.style;
+            box.style = parent == LayoutBox::root && run.top_style ? run.top_style : &n.style;
             box.parent = parent;
             // A fixed box is an absolute box of its containing block. Away from its parent, a static position (both
             // insets of an axis auto) would be the parent's: outside the profile.
@@ -3474,19 +3504,26 @@ namespace weft {
             }
         }
 
-        // An edge length of a box in px: px, em of its font size, or a percentage of `base`.
+        // A computed length as Blink takes it into layout: whole LayoutUnits, truncated toward zero.
+        static float layout_unit(float px) {
+            return std::trunc(px * constants::layout_units_per_px) / constants::layout_units_per_px;
+        }
+
+        // An edge length of a box in px: px, em of its font size, or a percentage of `base`; in whole LayoutUnits,
+        // truncated, as layout takes it (layout_boxes, and Blink).
         static float edge_length(const SceneStyle& s, PropertyId id, float base) {
             const auto v = css::trim(s.text(id, "0"));
             if (v == "auto") {
                 return 0;
             }
             if (v.ends_with('%')) {
-                return float(length(v, base));
+                return layout_unit(float(length(v, base)));
             }
             const auto [digits, unit] = css::split_unit(v, {.px = true, .em = true});
             const auto n = float(number(digits));
-            return unit == css::Unit::Em ? n * float(length(s.text(PropertyId::FontSize, constants::default_font_size)))
-                                         : n;
+            return layout_unit(unit == css::Unit::Em
+                                   ? n * float(length(s.text(PropertyId::FontSize, constants::default_font_size)))
+                                   : n);
         }
 
         // A laid-out box's baseline from its border box top: the last line box of its content (CSS 2.1 10.8.1; a flex
@@ -3637,6 +3674,440 @@ namespace weft {
             return e;
         }
 
+        // The first in-flow line box's baseline in a laid-out box, from its border box top (CSS 2.1 §17.5.3, a table
+        // cell's baseline): its own lines' first, else its first in-flow child's that has one; none without lines.
+        std::optional<float> first_baseline_of(const SceneNode& n) const {
+            if (n.space == constants::svg_namespace_uri) {
+                return std::nullopt;
+            }
+            if (const auto it = context_first_baselines.find(&n); it != context_first_baselines.end()) {
+                return it->second;
+            }
+            for (const auto& c : n.children) {
+                if (c.tag == "#text" || c.style.text(PropertyId::Display) == "none" || out_of_flow(c)) {
+                    continue;
+                }
+                if (const auto b = first_baseline_of(c)) {
+                    return box_of(c)[1] + *b;
+                }
+            }
+            return std::nullopt;
+        }
+
+        // A side's border width in px: none when its style is none or hidden.
+        static float border_width(const SceneStyle& s, std::size_t side, float base) {
+            const auto style = s.text(border_style_edges[side], "solid");
+            return style == "none" || style == "hidden" ? 0.f
+                                                        : layout_unit(edge_length(s, border_width_edges[side], base));
+        }
+
+        // A px length a table's property states with its box's padding and borders when it sizes the content box (a
+        // percentage is a diagnostic); none for auto and none.
+        static std::optional<float> table_length(const SceneStyle& s, PropertyId id, float base, float edges,
+                                                 std::string_view what) {
+            const auto v = css::trim(s.text(id, "auto"));
+            if (v == "auto" || v == "none") {
+                return std::nullopt;
+            }
+            if (v.ends_with('%')) {
+                fail("percentage " + std::string(property_name(id)) + " of a " + std::string(what) +
+                     " outside scene profile");
+            }
+            const bool content_box = css::trim(s.text(PropertyId::BoxSizing, "content-box")) == "content-box";
+            return layout_unit(edge_length(s, id, base)) + (content_box ? edges : 0.f);
+        }
+
+        // CSS Tables 3 §3.10.4: the columns' widths for the width they share, from their min-content and max-content
+        // widths and whether a cell's px width constrains them. Up to the min-content-specified guess (constrained
+        // columns at their max-content widths, the others at their min-content ones) each column moves from its
+        // min-content width toward its guess in proportion; then from the guess toward its max-content width; past
+        // the max-content widths the rest goes to the unconstrained columns by their max-content widths (equally when
+        // those are all 0), else to the constrained ones by theirs, else to all equally.
+        static std::vector<float> distribute_columns(const std::vector<float>& min, const std::vector<float>& max,
+                                                     const std::vector<bool>& fixed, float target) {
+            const auto n = min.size();
+            std::vector<float> guess(n);
+            float sum_min{};
+            float sum_guess{};
+            float sum_max{};
+            for (std::size_t k = 0; k < n; ++k) {
+                guess[k] = fixed[k] ? max[k] : min[k];
+                sum_min += min[k];
+                sum_guess += guess[k];
+                sum_max += max[k];
+            }
+            std::vector<float> out = min;
+            if (target <= sum_min || n == 0) {
+                return out;
+            }
+            const auto between = [&](const std::vector<float>& from, const std::vector<float>& to, float from_sum,
+                                     float to_sum) {
+                const float t = to_sum > from_sum ? (target - from_sum) / (to_sum - from_sum) : 1.f;
+                for (std::size_t k = 0; k < n; ++k) {
+                    out[k] = from[k] + (to[k] - from[k]) * t;
+                }
+            };
+            if (target <= sum_guess) {
+                between(min, guess, sum_min, sum_guess);
+                return out;
+            }
+            if (target <= sum_max) {
+                between(guess, max, sum_guess, sum_max);
+                return out;
+            }
+            out = max;
+            const float excess = target - sum_max;
+            const auto share = [&](auto&& take, bool proportional) {
+                float total{};
+                std::size_t count{};
+                for (std::size_t k = 0; k < n; ++k) {
+                    if (take(k)) {
+                        total += max[k];
+                        ++count;
+                    }
+                }
+                if (!count || (proportional && total <= 0)) {
+                    return false;
+                }
+                for (std::size_t k = 0; k < n; ++k) {
+                    if (take(k)) {
+                        out[k] += proportional ? excess * max[k] / total : excess / float(count);
+                    }
+                }
+                return true;
+            };
+            if (share(
+                    [&](std::size_t k) {
+                        return !fixed[k] && max[k] > 0;
+                    },
+                    true) ||
+                share(
+                    [&](std::size_t k) {
+                        return !fixed[k];
+                    },
+                    false) ||
+                share(
+                    [&](std::size_t k) {
+                        return fixed[k] && max[k] > 0;
+                    },
+                    true)) {
+                return out;
+            }
+            share(
+                [](std::size_t) {
+                    return true;
+                },
+                false);
+            return out;
+        }
+
+        // Lays out a table (display: inline-table) as an atomic inline, shrunk to fit an available width, and returns
+        // its extents; its box is placed later. CSS 2.1 §17 with CSS Tables 3's sizing, as Chrome lays tables out, for
+        // a table of table-row children whose children are table-cells:
+        // - a cell's min-content width is its content's (with its padding and borders) or its min-width, whichever is
+        //   wider; its max-content width is its content's (no wider than its max-width), or its px width, which
+        //   constrains its column; a px width is no floor: under a min-content constraint the cell is as narrow as
+        //   its content;
+        // - a column takes its cells' widest of each; an auto-width table fits the available width between its
+        //   columns' summed min-content and max-content widths (with its spacing, padding and borders), a px width at
+        //   least the min-content one, and its columns share it (distribute_columns);
+        // - each cell is laid out at its column's width; a row is as tall as its tallest cell and its baseline-aligned
+        //   cells' extents about their baselines (cell and row heights are floors); its cells are as tall as it, their
+        //   content placed by their vertical-align: top, middle, bottom, or baseline (any other value);
+        // - a row's baseline is its baseline-aligned cells' (their first lines'), or without one the lowest bottom of
+        //   its cells' content boxes; an inline table's is its first row's;
+        // - separate borders space the columns and rows by border-spacing; collapsed borders have no spacing and no
+        //   table padding.
+        // Captions, columns, row groups, cell spans, anonymous table boxes, borders of rows (and any border when
+        // collapsed), percentage widths and heights, min- and max-heights, fixed layout of a set width and table
+        // heights are diagnostics.
+        SceneAtomicExtent lay_out_table(const SceneNode& table, float available, SceneAtomicExtent e) {
+            const auto& ts = table.style;
+            const float base = std::isfinite(available) ? available : 0;
+
+            struct Cell {
+                const SceneNode* node{};
+                float min{};
+                float max{};
+                bool fixed{};
+                std::string align;
+                float height{};
+                float specified_height{};
+                std::optional<float> baseline;
+                float bottom_edge{};
+            };
+
+            struct Row {
+                const SceneNode* node{};
+                std::vector<Cell> cells;
+                float height{};
+                float baseline{};
+                float y{};
+            };
+
+            const bool collapse = css::trim(ts.text(PropertyId::BorderCollapse, "separate")) == "collapse";
+            const auto no_border = [&](const SceneStyle& s, std::string_view what) {
+                for (std::size_t side = 0; side < border_width_edges.size(); ++side) {
+                    if (border_width(s, side, base) > 0) {
+                        fail("border of a " + std::string(what) + " outside scene profile");
+                    }
+                }
+            };
+            const auto no_vertical_bounds = [&](const SceneStyle& s, std::string_view what) {
+                for (const auto id : {PropertyId::MinHeight, PropertyId::MaxHeight}) {
+                    const auto v = css::trim(s.text(id, "auto"));
+                    if (v != "auto" && v != "none" && v != "0" && v != "0px") {
+                        fail(std::string(property_name(id)) + " of a " + std::string(what) + " outside scene profile");
+                    }
+                }
+            };
+            if (collapse) {
+                no_border(ts, "table with collapsed borders");
+            }
+            if (css::trim(ts.text(PropertyId::Height, "auto")) != "auto") {
+                fail("height of a table outside scene profile");
+            }
+            std::vector<Row> rows;
+            for (const auto& r : table.children) {
+                if (r.tag == "#text") {
+                    fail("text in a table outside scene profile (anonymous table cells)");
+                }
+                const auto d = r.style.text(PropertyId::Display, "inline");
+                if (d == "none") {
+                    continue;
+                }
+                if (out_of_flow(r)) {
+                    fail("positioned child of a table outside scene profile");
+                }
+                if (d != "table-row") {
+                    fail("display " + std::string(d) + " in a table outside scene profile (rows only)");
+                }
+                if (!r.text.empty()) {
+                    fail("text in a table row outside scene profile (anonymous table cells)");
+                }
+                no_border(r.style, "table row");
+                no_vertical_bounds(r.style, "table row");
+                auto& row = rows.emplace_back();
+                row.node = &r;
+                for (const auto& c : r.children) {
+                    if (c.tag == "#text") {
+                        fail("text in a table row outside scene profile (anonymous table cells)");
+                    }
+                    const auto cd = c.style.text(PropertyId::Display, "inline");
+                    if (cd == "none") {
+                        continue;
+                    }
+                    if (out_of_flow(c)) {
+                        fail("positioned child of a table row outside scene profile");
+                    }
+                    if (cd != "table-cell") {
+                        fail("display " + std::string(cd) + " in a table row outside scene profile (cells only)");
+                    }
+                    if (c.attributes.find("colspan") != c.attributes.end() ||
+                        c.attributes.find("rowspan") != c.attributes.end()) {
+                        fail("table cell spans outside scene profile");
+                    }
+                    if (collapse) {
+                        no_border(c.style, "table cell with collapsed borders");
+                    }
+                    no_vertical_bounds(c.style, "table cell");
+                    if (css::trim(c.style.text(PropertyId::EmptyCells, "show")) != "show") {
+                        fail("empty-cells " + std::string(c.style.text(PropertyId::EmptyCells)) +
+                             " outside scene profile");
+                    }
+                    row.cells.push_back({&c});
+                }
+            }
+            // The table's edges: borders, and padding with separate borders.
+            std::array<float, 4> edges{};
+            for (std::size_t side = 0; side < edges.size(); ++side) {
+                static constexpr std::array<PropertyId, 4> padding{PropertyId::PaddingTop, PropertyId::PaddingRight,
+                                                                   PropertyId::PaddingBottom, PropertyId::PaddingLeft};
+                edges[side] =
+                    border_width(ts, side, base) + (collapse ? 0.f : layout_unit(edge_length(ts, padding[side], base)));
+            }
+            std::array<float, 2> spacing{};
+            if (!collapse) {
+                const auto words = split(ts.text(PropertyId::BorderSpacing, "0"));
+                if (words.empty() || words.size() > spacing.size()) {
+                    fail("border-spacing " + std::string(ts.text(PropertyId::BorderSpacing)) +
+                         " outside scene profile");
+                }
+                const float size = float(length(ts.text(PropertyId::FontSize, constants::default_font_size)));
+                spacing[0] = std::max(0.f, layout_unit(scene_values::len(words[0], size)));
+                spacing[1] =
+                    words.size() > 1 ? std::max(0.f, layout_unit(scene_values::len(words[1], size))) : spacing[0];
+            }
+            // Columns: the cells' intrinsic widths, their content's with their own width auto.
+            std::size_t columns{};
+            for (const auto& r : rows) {
+                columns = std::max(columns, r.cells.size());
+            }
+            std::vector<float> col_min(columns);
+            std::vector<float> col_max(columns);
+            std::vector<bool> col_fixed(columns);
+            for (auto& r : rows) {
+                for (std::size_t k = 0; k < r.cells.size(); ++k) {
+                    auto& cell = r.cells[k];
+                    const auto& cs = cell.node->style;
+                    // A cell lays its content out as a block container does (a block formatting context).
+                    SceneStyle measured = cs;
+                    for (const auto id :
+                         {PropertyId::Width, PropertyId::MinWidth, PropertyId::MaxWidth, PropertyId::Height}) {
+                        measured.erase(id);
+                    }
+                    measured[PropertyId::Display] = "block";
+                    const auto content = intrinsic_widths(*cell.node, measured);
+                    const float h_edges = border_width(cs, 1, base) + border_width(cs, 3, base) +
+                                          layout_unit(edge_length(cs, PropertyId::PaddingLeft, base)) +
+                                          layout_unit(edge_length(cs, PropertyId::PaddingRight, base));
+                    const auto width = table_length(cs, PropertyId::Width, base, h_edges, "table cell");
+                    const auto min_width = table_length(cs, PropertyId::MinWidth, base, h_edges, "table cell");
+                    const auto max_width = table_length(cs, PropertyId::MaxWidth, base, h_edges, "table cell");
+                    cell.fixed = width.has_value();
+                    cell.min = std::max(content.min, min_width.value_or(0.f));
+                    cell.max = std::max(
+                        cell.min,
+                        width ? *width
+                              : std::min(content.max, max_width.value_or(std::numeric_limits<float>::infinity())));
+                    col_min[k] = std::max(col_min[k], cell.min);
+                    col_max[k] = std::max(col_max[k], cell.max);
+                    col_fixed[k] = col_fixed[k] || cell.fixed;
+                }
+            }
+            // The table's width, and its columns'.
+            const float spacing_x = columns ? spacing[0] * float(columns + 1) : 0.f;
+            const float around = spacing_x + edges[1] + edges[3];
+            float grid_min = around;
+            float grid_max = around;
+            for (std::size_t k = 0; k < columns; ++k) {
+                grid_min += col_min[k];
+                grid_max += col_max[k];
+            }
+            float used{};
+            if (const auto w = table_length(ts, PropertyId::Width, base, edges[1] + edges[3], "table")) {
+                if (css::trim(ts.text(PropertyId::TableLayout, "auto")) == "fixed") {
+                    fail("table-layout: fixed outside scene profile");
+                }
+                used = std::max(*w, grid_min);
+            } else {
+                used = std::max(grid_min, std::min(std::max(0.f, available - e.margin[1] - e.margin[3]), grid_max));
+            }
+            const auto widths = distribute_columns(col_min, col_max, col_fixed, used - around);
+            std::vector<float> column_x(columns);
+            float x = edges[3] + spacing[0];
+            for (std::size_t k = 0; k < columns; ++k) {
+                column_x[k] = x;
+                x += widths[k] + spacing[0];
+            }
+            // Each cell at its column's width, its height auto; then the rows.
+            for (auto& r : rows) {
+                const auto row_height = table_length(r.node->style, PropertyId::Height, base, 0, "table row");
+                float above{};
+                float below{};
+                bool aligned{};
+                r.height = row_height.value_or(0.f);
+                for (std::size_t k = 0; k < r.cells.size(); ++k) {
+                    auto& cell = r.cells[k];
+                    const auto& cs = cell.node->style;
+                    SceneStyle sized = cs;
+                    for (const auto id : {PropertyId::MinWidth, PropertyId::MaxWidth, PropertyId::Height}) {
+                        sized.erase(id);
+                    }
+                    sized[PropertyId::Display] = "block";
+                    sized[PropertyId::Width] = px_text(widths[k]);
+                    sized[PropertyId::BoxSizing] = "border-box";
+                    LayoutOptions options;
+                    options.fit_width = widths[k];
+                    layout_run(*cell.node, options, false, &sized);
+                    cell.height = box_of(*cell.node)[3];
+                    cell.baseline = first_baseline_of(*cell.node);
+                    const float v_edges = border_width(cs, 0, base) + border_width(cs, 2, base) +
+                                          layout_unit(edge_length(cs, PropertyId::PaddingTop, base)) +
+                                          layout_unit(edge_length(cs, PropertyId::PaddingBottom, base));
+                    cell.bottom_edge =
+                        border_width(cs, 2, base) + layout_unit(edge_length(cs, PropertyId::PaddingBottom, base));
+                    cell.specified_height =
+                        table_length(cs, PropertyId::Height, base, v_edges, "table cell").value_or(0.f);
+                    cell.align = std::string(css::trim(cs.text(PropertyId::VerticalAlign, "baseline")));
+                    r.height = std::max({r.height, cell.height, cell.specified_height});
+                    if (cell.align != "top" && cell.align != "middle" && cell.align != "bottom") {
+                        const float b = cell.baseline.value_or(cell.height - cell.bottom_edge);
+                        above = std::max(above, b);
+                        below = std::max(below, cell.height - b);
+                        aligned = true;
+                    }
+                }
+                r.height = std::max(r.height, above + below);
+                if (aligned) {
+                    r.baseline = above;
+                } else {
+                    for (const auto& cell : r.cells) {
+                        r.baseline = std::max(r.baseline, r.height - cell.bottom_edge);
+                    }
+                    if (r.cells.empty()) {
+                        r.baseline = r.height;
+                    }
+                }
+            }
+            float y = edges[0] + (rows.empty() ? 0.f : spacing[1]);
+            for (auto& r : rows) {
+                r.y = y;
+                y += r.height + spacing[1];
+            }
+            const float height = y + edges[2];
+            // The boxes: rows across the columns, cells as tall as their row, each cell's content where its
+            // vertical-align puts it.
+            const float row_x = edges[3] + spacing[0];
+            const float row_w = columns ? column_x.back() + widths.back() - row_x : 0.f;
+            for (auto& r : rows) {
+                auto& row_out = laid_out(*r.node);
+                row_out.box = {row_x, r.y, row_w, r.height};
+                row_out.shift = {};
+                row_out.lines.clear();
+                row_out.fragments.clear();
+                for (std::size_t k = 0; k < r.cells.size(); ++k) {
+                    const auto& cell = r.cells[k];
+                    const float free = r.height - cell.height;
+                    float offset{};
+                    if (cell.align == "middle") {
+                        offset = std::floor(free / 2 * constants::text::layout_units_per_px) /
+                                 constants::text::layout_units_per_px;
+                    } else if (cell.align == "bottom") {
+                        offset = free;
+                    } else if (cell.align != "top") {
+                        offset = r.baseline - cell.baseline.value_or(cell.height - cell.bottom_edge);
+                    }
+                    auto& out = laid_out(*cell.node);
+                    out.box = {column_x[k] - row_x, 0, widths[k], r.height};
+                    out.shift = {};
+                    if (offset != 0) {
+                        for (auto& line : out.lines) {
+                            line.rect[1] += offset;
+                        }
+                        for (const auto& c : cell.node->children) {
+                            if (c.style.text(PropertyId::Display) == "none" || out_of_flow(c)) {
+                                continue;
+                            }
+                            laid_out(c).box[1] += offset;
+                        }
+                    }
+                }
+            }
+            auto& out = laid_out(table);
+            out.box[2] = used;
+            out.box[3] = height;
+            out.lines.clear();
+            out.fragments.clear();
+            const float baseline = rows.empty() ? height + e.margin[2] : rows.front().y + rows.front().baseline;
+            context_baselines[&table] = baseline;
+            context_first_baselines[&table] = baseline;
+            e.width = used;
+            e.height = height;
+            e.baseline = baseline;
+            return e;
+        }
+
         // Lays out an atomic inline's subtree, shrunk to fit the available width, and returns its extents; its box
         // is placed later.
         SceneAtomicExtent lay_out_atomic(const SceneNode& node, float available) {
@@ -3648,6 +4119,9 @@ namespace weft {
                         edge_length(node.style, PropertyId::MarginLeft, base)};
             if (scene_ruby(node)) {
                 return lay_out_ruby(node, e);
+            }
+            if (node.style.text(PropertyId::Display, "inline") == "inline-table") {
+                return lay_out_table(node, available, e);
             }
             LayoutOptions options;
             if (std::isfinite(available)) {
@@ -3731,9 +4205,26 @@ namespace weft {
                     }
                     auto& out = laid_out(c);
                     out.shift = {};
+                    // A relatively positioned inline-level box moves with its content.
+                    const auto relative = [&] {
+                        if (c.style.text(PropertyId::Position, "static") != "relative") {
+                            return;
+                        }
+                        if (c.style.text(PropertyId::Left, "auto") != "auto") {
+                            out.box[0] += edge_length(c.style, PropertyId::Left, available);
+                        } else if (c.style.text(PropertyId::Right, "auto") != "auto") {
+                            out.box[0] -= edge_length(c.style, PropertyId::Right, available);
+                        }
+                        if (c.style.text(PropertyId::Top, "auto") != "auto") {
+                            out.box[1] += edge_length(c.style, PropertyId::Top, available);
+                        } else if (c.style.text(PropertyId::Bottom, "auto") != "auto") {
+                            out.box[1] -= edge_length(c.style, PropertyId::Bottom, available);
+                        }
+                    };
                     if (scene_atomic_inline(c)) {
                         out.box[0] = at[0] - px;
                         out.box[1] = at[1] - py;
+                        relative();
                         continue;
                     }
                     out.box = {at[0] - px, at[1] - py, at[2], at[3]};
@@ -3751,17 +4242,7 @@ namespace weft {
                             out.fragments.push_back(fragment);
                         }
                     }
-                    // A relatively positioned inline element moves with its content.
-                    if (c.style.text(PropertyId::Position, "static") == "relative") {
-                        const auto left = c.style.text(PropertyId::Left, "auto");
-                        const auto top = c.style.text(PropertyId::Top, "auto");
-                        if (left != "auto") {
-                            out.box[0] += edge_length(c.style, PropertyId::Left, available);
-                        }
-                        if (top != "auto") {
-                            out.box[1] += edge_length(c.style, PropertyId::Top, available);
-                        }
-                    }
+                    relative();
                     self(self, c, at[0], at[1]);
                 }
             };
@@ -3815,11 +4296,11 @@ namespace weft {
             }
         }
 
-        // Lays out the subtree of `top` and writes the boxes, lines and fragments of its nodes; options size `top`.
-        // `scene_root`: top is the scene's root, the containing block of fixed boxes without a transformed ancestor.
-        void layout_run(const SceneNode& top, const LayoutOptions& options, bool scene_root = false) {
-            LayoutRun run;
-            collect_boxes(top, LayoutBox::root, run, scene_root ? std::optional<std::size_t>(0) : std::nullopt);
+        // The adapter's text system for a run's inline contexts: each context's content (kept for its root's storage,
+        // else its own), its lines at each width asked (memoized), its min-content width and whether it wraps. f gets
+        // the measurer and the lines of a context at a width.
+        template <class F>
+        decltype(auto) with_text(LayoutRun& run, F&& f) {
             const auto atomic = [&](const SceneNode& node, float available) {
                 return atomic_extent(node, available);
             };
@@ -3867,7 +4348,36 @@ namespace weft {
             const auto wraps = [&](std::size_t i) {
                 return content(i).content->breakable();
             };
-            const auto geometry = layout_boxes(run.boxes, {lines, min_content, wraps}, options);
+            return f(TextMeasurer{lines, min_content, wraps}, at);
+        }
+
+        // The min-content and max-content widths of a node's border box, laid out with `style` (a table cell's, its
+        // width auto): percentages in its content resolve against nothing.
+        IntrinsicWidths intrinsic_widths(const SceneNode& node, const SceneStyle& style) {
+            LayoutRun run;
+            run.top_style = &style;
+            collect_boxes(node, LayoutBox::root, run, std::nullopt);
+            return with_text(run, [&](const TextMeasurer& measurer, const auto&) {
+                return layout_intrinsic_widths(run.boxes, measurer);
+            });
+        }
+
+        // Lays out the subtree of `top` and writes the boxes, lines and fragments of its nodes; options size `top`.
+        // `scene_root`: top is the scene's root, the containing block of fixed boxes without a transformed ancestor.
+        // `top_style`: the values top is laid out with, instead of its own (a table cell at its column's width).
+        void layout_run(const SceneNode& top, const LayoutOptions& options, bool scene_root = false,
+                        const SceneStyle* top_style = nullptr) {
+            LayoutRun run;
+            run.top_style = top_style;
+            collect_boxes(top, LayoutBox::root, run, scene_root ? std::optional<std::size_t>(0) : std::nullopt);
+            with_text(run, [&](const TextMeasurer& measurer, const auto& at) {
+                place_run(run, layout_boxes(run.boxes, measurer, options), at);
+            });
+        }
+
+        // Writes a laid-out run's boxes, and places its contexts' lines at their final widths.
+        template <class At>
+        void place_run(LayoutRun& run, const std::vector<BoxGeometry>& geometry, const At& at) {
             for (std::size_t i = 0; i < run.boxes.size(); ++i) {
                 if (const auto* n = run.targets[i]) {
                     const auto& g = geometry[i];
@@ -3939,6 +4449,7 @@ namespace weft {
                 origin[1] += shift_y;
                 if (layout.lines) {
                     context_baselines[&root] = origin[1] + layout.last_baseline;
+                    context_first_baselines[&root] = origin[1] + layout.baseline;
                 }
                 place(root, layout, origin, available);
             }
@@ -4041,6 +4552,7 @@ namespace weft {
         void layout_frame(SceneNode& root, float w, float h, std::vector<ElementGeometry>& elements) {
             atomic_memo.clear();
             context_baselines.clear();
+            context_first_baselines.clear();
             laid.clear();
             LayoutOptions options;
             options.viewport = std::array{w, h};
@@ -4065,6 +4577,7 @@ namespace weft {
             }
             laid.clear();
             context_baselines.clear();
+            context_first_baselines.clear();
             std::vector<std::array<float, 4>> clips;
             check_fixed_clips(root, {0, 0}, clips, {0, 0, w, h});
             atomic_memo.clear();
@@ -4208,6 +4721,7 @@ namespace weft {
             }
             atomic_memo.clear();
             context_baselines.clear();
+            context_first_baselines.clear();
             laid.clear();
             try {
                 for (const auto& part : outer) {
@@ -4255,6 +4769,7 @@ namespace weft {
             }
             laid.clear();
             context_baselines.clear();
+            context_first_baselines.clear();
             // The fixed boxes and the clips between them and their containing blocks lie outside the parts, as they
             // were (check_fixed_clips held for them).
             atomic_memo.clear();
@@ -4374,6 +4889,15 @@ namespace weft {
         } else {
             impl_->keyframes = parse_keyframes(std::move(k));
         }
+        impl_->text = &text;
+    }
+
+    const std::vector<FontFaceRule>& SceneSolver::font_faces() const {
+        return impl_->compiled->font_faces();
+    }
+
+    void SceneSolver::set_text(SceneText& text) {
+        impl_->owner.require(Diag::SceneOwner);
         impl_->text = &text;
     }
 

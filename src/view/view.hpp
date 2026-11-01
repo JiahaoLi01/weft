@@ -59,7 +59,10 @@ namespace weft {
         float width{};
         float height{};
         float scale{};
+        // The fonts its text was laid out with: the runtime's, or its page's (@font-face faces over the runtime's).
         std::shared_ptr<const FontCatalog> fonts;
+        // The runtime's fonts, whatever the page's: one runtime's frames carry the same, which a renderer checks.
+        std::shared_ptr<const FontCatalog> runtime_fonts;
         std::shared_ptr<SceneAnchorChannel> anchors;
     };
 
@@ -250,6 +253,8 @@ namespace weft {
         double time() const;
         // The owner's scene and VM, for tests and diagnostics.
         const SceneFrame& scene() const;
+        // The fonts its frames carry: the runtime's, or its page's catalog (@font-face).
+        std::shared_ptr<const FontCatalog> fonts() const;
         ScriptDom& script();
 
     private:

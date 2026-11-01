@@ -12,6 +12,7 @@
 #include <limits>
 #include <numbers>
 #include <stdexcept>
+#include <vector>
 
 namespace weft::vector {
     namespace {
@@ -320,6 +321,72 @@ namespace weft::vector {
             b.out.end();
             return std::move(b.out);
         }
+
+        // Whether two contours of an outline may cover one pixel together: their bounds meet, and they wind the same
+        // way (under even-odd, either way). FreeType's coverage of a pixel adds what each edge covers of it, so where
+        // nonzero winding counts a pixel's area once (two coincident edges of one direction: KaTeX's square root draws
+        // its bar twice), the sum counts it twice; even-odd folds it. Contours of no area wind neither way.
+        bool overlapping(const FT_Outline& o, bool evenodd) {
+            struct Contour {
+                FT_BBox box;
+                int winding;
+            };
+
+            std::vector<Contour> contours;
+            std::size_t start{};
+            for (std::size_t c = 0; c < o.n_contours; ++c) {
+                const std::size_t end = o.contours[c];
+                FT_BBox box{o.points[start].x, o.points[start].y, o.points[start].x, o.points[start].y};
+                double area{};
+                for (auto i = start; i <= end; ++i) {
+                    const auto& p = o.points[i];
+                    const auto& q = o.points[i == end ? start : i + 1];
+                    area += double(p.x) * double(q.y) - double(q.x) * double(p.y);
+                    box.xMin = std::min(box.xMin, p.x);
+                    box.yMin = std::min(box.yMin, p.y);
+                    box.xMax = std::max(box.xMax, p.x);
+                    box.yMax = std::max(box.yMax, p.y);
+                }
+                if (area != 0) {
+                    contours.push_back({box, area > 0 ? 1 : -1});
+                }
+                start = end + 1;
+            }
+            std::sort(contours.begin(), contours.end(), [](const Contour& a, const Contour& b) {
+                return a.box.xMin < b.box.xMin;
+            });
+            for (std::size_t i = 0; i < contours.size(); ++i) {
+                const auto& a = contours[i];
+                for (auto j = i + 1; j < contours.size() && contours[j].box.xMin < a.box.xMax; ++j) {
+                    const auto& b = contours[j];
+                    if (b.box.yMin < a.box.yMax && a.box.yMin < b.box.yMax && (evenodd || a.winding == b.winding)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        // Spans of an outline drawn overlap_subpixels times larger: each subpixel's coverage, averaged into its
+        // pixel's row of the mask (ft_smooth_overlap_spans). A pixel's subpixels add up to 256, held at 255.
+        struct Oversampled {
+            std::uint8_t* rows{};
+            std::uint32_t width{};
+        };
+
+        void oversampled_spans(int y, int count, const FT_Span* spans, void* user) {
+            const auto& target = *static_cast<const Oversampled*>(user);
+            constexpr unsigned subpixels = limits::overlap_subpixels * limits::overlap_subpixels;
+            auto* row = target.rows + std::size_t(y / limits::overlap_subpixels) * target.width;
+            for (; count--; ++spans) {
+                const unsigned cover = (spans->coverage + subpixels / 2) / subpixels;
+                for (unsigned x = 0; x < spans->len; ++x) {
+                    auto& pixel = row[(spans->x + x) / limits::overlap_subpixels];
+                    const unsigned sum = pixel + cover;
+                    pixel = std::uint8_t(sum - (sum >> 8));
+                }
+            }
+        }
     } // namespace
 
     std::array<std::int32_t, 4> mask_bounds(const paint::PathPaint& paint, const paint::Affine& device,
@@ -581,6 +648,32 @@ namespace weft::vector {
             return make_diagnostic(Diag::PaintList, "path outline bound");
         }
         auto source = lines.view(flags);
+        // Overlapping contours of a fill: the outline overlap_subpixels times larger, its spans averaged into the
+        // mask (FreeType's rendering of FT_OUTLINE_OVERLAP outlines), where its spans' x and points reach.
+        if (!paint.stroke && overlapping(source, paint.path->evenodd) &&
+            mask.width * limits::overlap_subpixels <= unsigned(limits::freetype_max_span_x)) {
+            FT_BBox box;
+            FT_Outline_Get_CBox(&source, &box);
+            constexpr long reach = limits::freetype_max_outline_coordinate / limits::overlap_subpixels;
+            if (box.xMin > -reach && box.yMin > -reach && box.xMax < reach && box.yMax < reach) {
+                for (auto& p : lines.points) {
+                    p.x *= limits::overlap_subpixels;
+                    p.y *= limits::overlap_subpixels;
+                }
+                auto larger = lines.view(flags);
+                Oversampled target{mask.coverage.data(), mask.width};
+                FT_Raster_Params params{};
+                params.flags = FT_RASTER_FLAG_AA | FT_RASTER_FLAG_DIRECT | FT_RASTER_FLAG_CLIP;
+                params.gray_spans = oversampled_spans;
+                params.user = &target;
+                params.clip_box = {0, 0, FT_Pos(mask.width) * limits::overlap_subpixels,
+                                   FT_Pos(mask.height) * limits::overlap_subpixels};
+                if (FT_Outline_Render(impl_->library, &larger, &params)) {
+                    return make_diagnostic(Diag::PaintList, "path raster");
+                }
+                return mask;
+            }
+        }
         // Rows top-down: a negative pitch puts FreeType's y = 0 row first, and outline y grows down like device y.
         FT_Bitmap target{};
         target.rows = mask.height;

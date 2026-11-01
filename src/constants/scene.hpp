@@ -122,6 +122,13 @@ namespace weft::constants::scene {
     // Layouts of one inline formatting context kept per frame layout, by available width (the widths Yoga measures it
     // at, and the final one).
     inline constexpr int inline_layout_memo_entries = 8;
+    // vertical-align: sub lowers a box by its parent's font size over this, plus 1px; super raises it by the font size
+    // over the other, plus 1px (Blink's InlineLayoutStateStack::ApplyBaselineShift).
+    inline constexpr int subscript_font_size_divisor = 5;
+    // Device px within which a border width that is a whole number of device pixels in exact arithmetic (2px at 1.5)
+    // counts as one when it snaps down.
+    inline constexpr float border_snap_epsilon = 1e-4f;
+    inline constexpr int superscript_font_size_divisor = 3;
     // Room around italic and oblique text's images, in ems of its font size: a synthetic oblique's top leans a quarter
     // of the ascent right, and italic faces overhang as far.
     inline constexpr float italic_overhang_em = .35f;

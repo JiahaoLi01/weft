@@ -345,6 +345,9 @@ namespace weft {
         std::string tag;
         std::string space;
         std::string text;
+        // Where in text a DOM text node of the element starts after another (byte offsets, increasing): Chrome lays
+        // each text node out as a run of its own, whose advances snap to a LayoutUnit apart from its neighbours'.
+        std::vector<std::uint32_t> text_breaks;
         AttributeMap attributes;
         SceneStyle style;
         std::array<float, 4> box{}; // Parent-local border box, before transform.
@@ -383,8 +386,8 @@ namespace weft {
 
         friend bool operator==(const SceneNode& a, const SceneNode& b) {
             return a.identity == b.identity && a.tag == b.tag && a.space == b.space && a.text == b.text &&
-                   a.attributes == b.attributes && a.style == b.style && a.box == b.box && a.lines == b.lines &&
-                   a.fragments == b.fragments &&
+                   a.text_breaks == b.text_breaks && a.attributes == b.attributes && a.style == b.style &&
+                   a.box == b.box && a.lines == b.lines && a.fragments == b.fragments &&
                    (a.effect == b.effect || (a.effect && b.effect && *a.effect == *b.effect)) &&
                    a.background_image == b.background_image && a.border_image == b.border_image &&
                    a.particles == b.particles && a.anchoring == b.anchoring && a.scroll == b.scroll &&
@@ -540,8 +543,9 @@ namespace weft {
     // Exact dependency projection for the current geometry adapter. Paint color,
     // opacity and pseudo state do not change geometry; transforms still do.
     inline bool scene_geometry_own_equal(const SceneNode& a, const SceneNode& b, bool identical_style = false) {
-        if (a.identity != b.identity || a.tag != b.tag || a.space != b.space || a.text != b.text || a.box != b.box ||
-            a.fragments != b.fragments || a.anchoring != b.anchoring) {
+        if (a.identity != b.identity || a.tag != b.tag || a.space != b.space || a.text != b.text ||
+            a.text_breaks != b.text_breaks || a.box != b.box || a.fragments != b.fragments ||
+            a.anchoring != b.anchoring) {
             return false;
         }
         auto equal_keys = [](const auto& x, const auto& y, const auto& keys) {
@@ -643,6 +647,11 @@ namespace weft {
         SceneSolver(const SceneSolver&) = delete;
         SceneSolver& operator=(const SceneSolver&) = delete;
         SceneFrame frame(const DomSnapshot&, float width, float height, double time_ms);
+        // The @font-face rules of a forgiving stylesheet, in order.
+        const std::vector<FontFaceRule>& font_faces() const;
+        // The text system the frames lay text out with from now on (a View's page with @font-face faces takes its own);
+        // before the first frame.
+        void set_text(SceneText& text);
         // Owner-local retained scene; unchanged branches keep their owned values.
         // Publish a separate immutable snapshot before crossing threads. On error
         // discard the output and reset this solver before using it again.

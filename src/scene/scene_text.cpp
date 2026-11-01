@@ -167,12 +167,23 @@ namespace weft {
         if (!std::isfinite(font.size) || font.size <= 0 || font.size > constants::text::max_font_pixels) {
             throw_diagnostic(Diag::SceneRaster, "font-size out of range");
         }
+        // The faces' size (line-height and letter-spacing above took the computed one).
+        if (const float platform = float(static_cast<unsigned>(font.size * constants::text::font_size_precision)) /
+                                   constants::text::font_size_precision;
+            platform > 0) {
+            font.size = platform;
+        }
         return font;
     }
 
     struct SceneText::Impl {
         OwnerThread owner;
-        FontCatalog catalog;
+        // The catalog in use and its number; the numbers of the catalogs used before (an expired one takes a new
+        // number if its address comes back).
+        std::shared_ptr<const FontCatalog> catalog;
+        std::uint64_t catalog_id{};
+        std::map<const FontCatalog*, std::pair<std::weak_ptr<const FontCatalog>, std::uint64_t>> catalog_ids;
+        std::uint64_t next_catalog_id{};
 
         struct Face {
             FontFaceSource source;
@@ -184,7 +195,8 @@ namespace weft {
 
         std::vector<Face> faces;
         std::map<FontFaceSource, std::uint32_t> face_ids;
-        std::map<std::filesystem::path, std::shared_ptr<const FontFile>> files;
+        // By path, and for bytes in memory by the bytes too (their path only names them).
+        std::map<std::pair<std::filesystem::path, const std::vector<char>*>, std::shared_ptr<const FontFile>> files;
         std::size_t file_bytes{};
 
         // A font-family list's faces in fallback order: their sources and unicode-ranges, how many come from the list
@@ -217,8 +229,11 @@ namespace weft {
                                            : FontRole::FallbackText;
         }
 
-        std::map<std::tuple<std::string, int, bool>, Match> matches;
-        using RunKey = std::tuple<std::string, std::string, float, int, bool, std::uint8_t, float, float>;
+        // By catalog, families, weight and style.
+        std::map<std::tuple<std::uint64_t, std::string, int, bool>, Match> matches;
+        // By catalog, text and font.
+        using RunKey =
+            std::tuple<std::uint64_t, std::string, std::string, float, int, bool, std::uint8_t, float, float>;
         std::map<RunKey, std::shared_ptr<const SceneTextRun>> runs;
         std::size_t run_bytes{};
         // Run outlines by the run's key; null for runs with color glyphs.
@@ -235,9 +250,9 @@ namespace weft {
             if (const auto i = face_ids.find(source); i != face_ids.end()) {
                 return i->second;
             }
-            auto& file = files[source.path];
+            auto& file = files[{source.path, source.data.get()}];
             if (!file) {
-                file = FontFile::open(source.path);
+                file = FontFile::of(source);
                 file_bytes += file->bytes().size();
                 if (file_bytes > constants::scene::text_font_max_bytes) {
                     throw_diagnostic(Diag::SceneRaster, "scene font file byte bound");
@@ -248,7 +263,7 @@ namespace weft {
             }
             auto font = std::make_unique<Font>(file, source.face_index, source.variations);
             const bool color = font->has_color_glyphs();
-            const bool italic = std::any_of(catalog.faces.begin(), catalog.faces.end(), [&](const FontFaceEntry& e) {
+            const bool italic = std::any_of(catalog->faces.begin(), catalog->faces.end(), [&](const FontFaceEntry& e) {
                 return e.italic && e.source == source;
             });
             faces.push_back({source, std::move(font), color, italic});
@@ -258,13 +273,13 @@ namespace weft {
         }
 
         Match& matched(const SceneFont& f) {
-            auto key = std::tuple{f.families, f.weight, f.italic};
+            auto key = std::tuple{catalog_id, f.families, f.weight, f.italic};
             if (auto i = matches.find(key); i != matches.end()) {
                 return i->second;
             }
             std::size_t listed{};
             std::vector<std::vector<UnicodeRange>> ranges;
-            auto sources = match_font_faces(catalog, f.families, f.weight, f.italic, &listed, &ranges);
+            auto sources = match_font_faces(*catalog, f.families, f.weight, f.italic, &listed, &ranges);
             if (sources.empty()) {
                 throw_diagnostic(Diag::SceneRaster, "no font for font-family " + f.families);
             }
@@ -328,8 +343,8 @@ namespace weft {
             if (text.size() > constants::max_text_bytes) {
                 throw_diagnostic(Diag::SceneRaster, "scene text byte bound");
             }
-            RunKey key{std::string(text), f.families, f.size,           f.weight,
-                       f.italic,          f.numeric,  f.letter_spacing, f.line_height.value_or(-1)};
+            RunKey key{catalog_id,       std::string(text),         f.families, f.size, f.weight, f.italic, f.numeric,
+                       f.letter_spacing, f.line_height.value_or(-1)};
             if (auto i = runs.find(key); i != runs.end()) {
                 ++hits;
                 return i->second;
@@ -400,8 +415,9 @@ namespace weft {
     std::shared_ptr<const paint::Path> SceneText::outline(std::string_view text, const SceneStyle& style) {
         impl_->require_owner();
         const auto f = scene_font(style);
-        Impl::RunKey key{std::string(text), f.families, f.size,           f.weight,
-                         f.italic,          f.numeric,  f.letter_spacing, f.line_height.value_or(-1)};
+        Impl::RunKey key{
+            impl_->catalog_id, std::string(text),         f.families, f.size, f.weight, f.italic, f.numeric,
+            f.letter_spacing,  f.line_height.value_or(-1)};
         if (auto i = impl_->outlines.find(key); i != impl_->outlines.end()) {
             return i->second;
         }
@@ -481,8 +497,37 @@ namespace weft {
         return result;
     }
 
-    SceneText::SceneText(FontCatalog catalog) : impl_(std::make_unique<Impl>()) {
-        impl_->catalog = std::move(catalog);
+    SceneText::SceneText(FontCatalog catalog) : SceneText(std::make_shared<const FontCatalog>(std::move(catalog))) {
+    }
+
+    SceneText::SceneText(std::shared_ptr<const FontCatalog> catalog) : impl_(std::make_unique<Impl>()) {
+        use(catalog);
+    }
+
+    void SceneText::use(const std::shared_ptr<const FontCatalog>& catalog) {
+        impl_->require_owner();
+        if (!catalog) {
+            throw std::invalid_argument("WEFT_SCENE_TEXT: no font catalog");
+        }
+        if (catalog == impl_->catalog) {
+            return;
+        }
+        // Catalogs no longer held number nothing.
+        std::erase_if(impl_->catalog_ids, [&](const auto& e) {
+            return e.first != catalog.get() && e.second.first.expired();
+        });
+        auto& [held, id] = impl_->catalog_ids[catalog.get()];
+        if (held.lock() != catalog) {
+            held = catalog;
+            id = impl_->next_catalog_id++;
+        }
+        impl_->catalog = catalog;
+        impl_->catalog_id = id;
+    }
+
+    std::uint64_t SceneText::catalog_id() const {
+        impl_->require_owner();
+        return impl_->catalog_id;
     }
 
     SceneText::~SceneText() {
@@ -542,6 +587,12 @@ namespace weft {
         impl_->require_owner();
         auto& match = impl_->matched(font);
         return impl_->face_strut(impl_->id(match, match.primary), font);
+    }
+
+    float SceneText::x_height(const SceneFont& font) {
+        impl_->require_owner();
+        auto& match = impl_->matched(font);
+        return impl_->faces.at(impl_->id(match, match.primary)).font->x_height(font.size);
     }
 
     SceneEmBox SceneText::em_box(std::string_view text, const SceneStyle& style) {

@@ -1,6 +1,6 @@
 # Weft 当前状态
 
-更新日期：2026 年 10 月 31 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG 与移动尚未实现（键盘与焦点、文本框与输入法、手柄与空间导航已在 `input` 分支），仍未达到 M0 全部退出条件。
+更新日期：2026 年 11 月 1 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG 与移动尚未实现（键盘与焦点、文本框与输入法、手柄与空间导航已在 `input` 分支），仍未达到 M0 全部退出条件。
 
 ## 待办
 
@@ -15,6 +15,22 @@
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
+
+KaTeX 0.16.47 的 HTML 输出（2026-11-01，`katex` 分支；CaseGinkgo 的相机调参面板要用 KaTeX 写公式，用户提出：weft 不支持 KaTeX 就让它支持）。
+- **起因**：原样的 `katex.min.js` 与 `katex.css` 在 weft 上一步也走不通：没有 `document.compatMode`，KaTeX 当作怪异模式拒绝渲染；`katex.css` 的 `@font-face` 被丢弃，字全是回退字体；`vertical-align: -0.25em` 这类长度、`width: min-content`、`display: inline-table` 与其中的行和单元格、svg 的 `width="400em"` 都整帧报错；`max-width: none` 报 `WEFT_UNSUPPORTED_UNIT`；宽松样式表里 `-ms-`、`-moz-` 前缀与 `counter-reset` 各报一条诊断。
+- **实现**（范围、诊断与已知差别见 [兼容表](compatibility.md) 2026-11-01 一条）：
+  - 页面字体：`src/view/view_fonts.*`（新：来源的选择、诊断、页面字族遮住安装字体）、`src/style`（宽松样式表的 `@font-face`）、`src/text/font.*`（内存里的字体字节、x 高度）、`src/scene/scene_text.*`（按帧换字体目录，目录的身份进塑形与文字图像的键）、`src/view/view.*`（有 `@font-face` 的页面自己的目录与文字系统，帧带着它）、D3D11、D3D12、Vulkan 的 View 后端（按帧的目录画；一个渲染器只接一个运行时的帧）、D2D 参考光栅（DirectWrite 的内存字体）；C ABI 的资源回调说明加上字体（`include/weft/weft.h`、[与引擎通信](engine-communication.md) 的“页面的文件”）。
+  - 排版：`src/scene/scene_inline.*`（`vertical-align` 的全部值、行内表格作原子内联、每个文字节点的宽）、`src/scene/scene.cpp`（行内表格的列宽与行、LayoutUnit、原子内联的相对偏移）、`src/layout/flex.*`（尺寸关键词、LayoutUnit、`max-width: none`、表现属性的 em）。
+  - 绘制：边框宽度对齐设备像素（`scene_values.hpp`、显示列表、D2D）；细于一个像素的边框的覆盖（`scene.hlsl`）；同向重叠的路径轮廓按 4 × 4 子像素光栅化（`src/vector/path_raster.cpp`，FreeType 对 `FT_OUTLINE_OVERLAP` 轮廓的做法）。
+  - CSS 范围：宽松样式表的前缀、计数器、`clip-path`、`stroke-miterlimit` 与表格属性（`src/scene/scene.cpp`、`src/style/style.cpp`、`properties.inc`）；严格样式表对 `@font-face` 这类不嵌套的 at-rule 报 at-rule 的诊断。`document.compatMode`（`src/script/script_dom.cpp`）。
+  - 依赖与夹具：`third_party/katex`（npm 包原样的 `katex.min.js`、`katex.css`、LICENSE 与 20 个 TrueType 字体，MIT；来源、散列见 `metadata.json` 与 `third_party/manifest.json`），示例页 `examples/katex`（面板的 10 个公式、希腊字母、上下标与关系符，行内与 display 各一遍），录制工具 `tools/browser_katex_reference.mjs`（Chrome 156，1 倍与 2 倍的截图与每个元素的 rect，灰度文字 `--disable-lcd-text`），夹具 `tests/fixtures/katex-reference`。
+- **验证**（Release）：
+  - `katex_browser_reference`（新）：零诊断，只读 20 个 .ttf；2351 个元素的 client rect 全部在一个 LayoutUnit 内（最大差 0.015625 px）；原生 D3D11 pass（WARP）的每一行在 1 倍与 2 倍都在文字参照的阈值内（平均 RGB 差 3、差 32 级以上的像素 6%、5 × 5 平均后 56 级），最差行 1 倍 2.20 / 2.8% / 32，2 倍 1.15 / 1.4% / 50。Chrome 在设备像素里排版，它自己 2 倍的 rect 与 1 倍差到 0.5 CSS px（个别 2.4 px），24 行里 9 行的多数元素低 1 个设备像素；2 倍因此按 Chrome 2 倍的 rect 逐行对齐（参考里记了两种缩放的 rect），不对齐时第 7、10 行超限（5 × 5 60、平均 3.25）。页面加载加第一帧约 230 ms（KaTeX 的脚本、48 次渲染、读 20 个字体）。`katex_fixture_integrity`（新）核对输入的散列与两种缩放的截图、rect。
+  - `view_fonts_contract`（新）：来源按提示与文件开头选、每个来源的原因、`unicode-range`、页面字族遮住同名安装字体、每个 View 与每次加载的目录、加载缺字体的诊断、严格样式表的拒绝、`compatMode`。`view_css_profile_contract`（新）：前缀与计数器属性静默，`clip-path`、`stroke-miterlimit`、`counter()` 各诊断一次、照常画，严格页面拒绝。`vector_raster_contract` 加重叠轮廓（同一横线画两遍，四分之一像素上的边覆盖 191 级，修改前 255）与反向的洞（照旧按面积）。`render_d3d12_view_contract` 加 `page_fonts`：同一运行时的两个 View（一个页面有 `@font-face`）交替经同一个 D3D12 渲染器画，三帧都与 D3D11 后端逐像素相同，两种字体画得不同（UE 插件走 D3D12 后端）。`style_forgiving_contract`（`@font-face` 的解析）、`scene_inline_contract`、`scene_border_browser_contract` 与流窗口探针按 LayoutUnit 改了期望值。
+  - 全量 ctest（Release，186 项）：除既有的 14 项（签出换行的散列校验与浏览器差异，同 5a81b74a）外通过；`scene_cluster_browser_contract` 的比较部分跳过散列另跑：210 个状态、210 份 DOM、4,408 个 HTML 几何字段在各用例的限内。
+- **实验，没有合入**：文字图像按 Chrome 的规则落到设备像素（实测 Chrome 把字形基线取整到设备像素、横向按 1/4 设备像素量化），1 倍最差行的平均差 2.26 → 1.64，2 倍不变；要改文字图像的缓存键与摆放。
+- **未验证**：UE 里没跑（CaseGinkgo 的子模块指针与 weft.dll 没动）；Debug 的全量 ctest 没跑；Vulkan 与 D2D 参考光栅上 KaTeX 的像素没有与 Chrome 对照（Vulkan 的 View 后端与 D3D11、D3D12 同样按帧换目录，`render_view_contract` 通过）；超过 16 MiB 的字体文件（资源回调的上限）读不到；`output: 'mathml'` 不画。
+- **下一步**（待用户定）：文字按 Chrome 的规则落到设备像素（上面的实验）；设备缩放下要不要照 Chrome 在设备像素里排版；盒子要不要先对齐像素（分数线画成一行实的，但小数位置的动画会一像素一像素地跳）；WOFF2。
 
 SVG 文字的几何跟着它的每一个字体值变（2026-10-31，`text-line-numeric` 分支；核对下一条时发现）。
 - **起因**：svg 里的元素不排版，样式变了以后几何要不要重算只看 `scene_geometry_own_equal`（`src/scene/scene.hpp`）比的那些属性。几何适配器用 `SceneText::measure` 量 SVG 文字，读 `scene_font` 的七项，表里却只有 `font-size`、`font-weight`、`font-family`、`letter-spacing`。svg 里的文字只改 `font-style`、`font-variant-numeric` 或 `line-height` 时，View 留着旧的几何，`getBoundingClientRect` 等几何读取读到旧的大小：Segoe UI Light 28 px 的“1111”改成 `tabular-nums` 后仍读 39.92 px 宽（新建的同样的字 57.70 px），`italic` 39.92 对 45.72 px，`line-height: 60px` 高 37 对 60 px。HTML 元素不受影响：这些值变了就重排，重排时几何一并重算；svg 元素自己或它外面的元素改的也一样。

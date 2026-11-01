@@ -1029,6 +1029,9 @@ namespace weft {
             source.append(reinterpret_cast<const char*>(&scale), sizeof scale);
             source.append(reinterpret_cast<const char*>(&margin), sizeof margin);
             source.append(reinterpret_cast<const char*>(&raster.blur), sizeof raster.blur);
+            // The catalog its fonts came from (a View's page may define a family another View's does not).
+            const auto catalog = text_.catalog_id();
+            source.append(reinterpret_cast<const char*>(&catalog), sizeof catalog);
             if (const auto* cached = texts_.find(source)) {
                 ++work_.text_reuses;
                 return {*cached, nullptr};

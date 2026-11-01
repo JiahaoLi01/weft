@@ -282,6 +282,14 @@ if(WIN32)
     weft_add_test(NAME logo_browser_reference
         COMMAND weft_logo_reference_tests "${artifacts}/logo-reference-$<CONFIG>" TIMEOUT 120)
     weft_add_python_test(NAME logo_fixture_integrity SCRIPT tools/verify_logo_fixture.py)
+    # KaTeX's HTML output (examples/katex with third_party/katex: inline tables, vertical-align, min-content widths,
+    # svg viewBox, @font-face) in a View against Chrome's geometry and pixels at 1x and 2x
+    # (tools/browser_katex_reference.mjs, tests/fixtures/katex-reference).
+    weft_add_executable(weft_katex_reference_tests SOURCES katex_reference_tests.cpp
+        LINK weft::view weft::scene_d3d11 weft::platform_win32 windowscodecs ole32 SOURCE_DIR LARGE_STACK)
+    weft_add_test(NAME katex_browser_reference
+        COMMAND weft_katex_reference_tests "${artifacts}/katex-reference-$<CONFIG>" TIMEOUT 300)
+    weft_add_python_test(NAME katex_fixture_integrity SCRIPT tools/verify_katex_fixture.py)
     # Scene text styles and the CSS around them: synthetic oblique against Chrome's pixels, tabular digits on the
     # reference raster and the native pass, case mappings, viewport lengths, overflow axes and diagnostics.
     weft_add_executable(weft_scene_text_style_tests SOURCES scene_text_style_tests.cpp
@@ -342,6 +350,16 @@ if(WIN32)
     weft_add_executable(weft_view_images_tests SOURCES view_images_tests.cpp
         LINK weft::view weft::platform_win32 LARGE_STACK)
     weft_add_test(NAME view_images_contract COMMAND weft_view_images_tests)
+    # A page's @font-face fonts: sources by format() hint and by their bytes, every source's reason in one diagnostic,
+    # a page's family over an installed one, a catalog per View and page load, and the document's no-quirks mode.
+    weft_add_executable(weft_view_fonts_tests SOURCES view_fonts_tests.cpp
+        LINK weft::view weft::platform_win32 SOURCE_DIR LARGE_STACK)
+    weft_add_test(NAME view_fonts_contract COMMAND weft_view_fonts_tests)
+    # A forgiving page's CSS that the scene drops silently (other engines' prefixes, counter properties) or with a note,
+    # drawing without it (clip-path, stroke-miterlimit, counter()); a strict page refuses those.
+    weft_add_executable(weft_view_css_profile_tests SOURCES view_css_profile_tests.cpp
+        LINK weft::view weft::platform_win32 LARGE_STACK)
+    weft_add_test(NAME view_css_profile_contract COMMAND weft_view_css_profile_tests)
     weft_add_executable(weft_scene_anchor_tests SOURCES scene_anchor_tests.cpp
         LINK weft::scene_native weft::scene_d2d weft::platform_win32 d2d1 windowscodecs ole32)
     weft_add_test(NAME scene_anchor_contract COMMAND weft_scene_anchor_tests)
@@ -493,7 +511,7 @@ if(WIN32)
     # installed), against the D3D11 backend drawing the same frames.
     weft_add_executable(weft_render_d3d12_view_tests SOURCES render_d3d12_view_tests.cpp
         LINK weft::core weft::view weft::scene_d3d11 weft::scene_d3d12 weft_test_effects d3d11 d3d12 dxgi ole32
-            LARGE_STACK)
+            SOURCE_DIR LARGE_STACK)
     weft_add_test(NAME render_d3d12_view_contract COMMAND weft_render_d3d12_view_tests TIMEOUT 180)
     set_tests_properties(render_d3d12_view_contract PROPERTIES SKIP_RETURN_CODE 77)
     # The CRPG UI's smoke as a UI shader effect against the original's tick on the CPU, on both scene passes.

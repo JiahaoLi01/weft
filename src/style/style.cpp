@@ -819,7 +819,11 @@ namespace weft {
                     key = "overflow-wrap";
                 }
                 if (profile.forgiving && !custom(key)) {
-                    if (std::find(profile.ignored.begin(), profile.ignored.end(), key) != profile.ignored.end()) {
+                    if (std::find(profile.ignored.begin(), profile.ignored.end(), key) != profile.ignored.end() ||
+                        std::any_of(profile.ignored_prefixes.begin(), profile.ignored_prefixes.end(),
+                                    [&](const std::string& prefix) {
+                                        return key.starts_with(prefix);
+                                    })) {
                         return;
                     }
                     if (const auto* physical = logical_longhands(key)) {
@@ -1385,6 +1389,7 @@ namespace weft {
         struct Sheet {
             std::vector<Rule> rules;
             std::string keyframes;
+            std::vector<FontFaceRule> font_faces;
             std::map<std::string, Registered> registered;
             // Some rule holds under a @media condition on the viewport.
             bool sized_media{};
@@ -2028,13 +2033,110 @@ namespace weft {
                 } else if (name == "property") {
                     property(prelude, body);
                 } else if (name == "font-face") {
-                    warn("@font-face is outside the profile: the host registers a page's fonts "
-                         "(weft_runtime_add_font)");
+                    font_face(body);
                 } else if (name == "container" || name == "scope" || name == "starting-style") {
                     warn("@" + name + " is outside the profile; its rules were dropped");
                 } else {
                     warn("@" + name + " is outside the profile");
                 }
+            }
+
+            // @font-face { font-family: ...; src: ...; font-weight: ...; font-style: ...; unicode-range: ... }: a family
+            // the page defines (its sources load with the page, View::load). font-display changes nothing (the page's
+            // fonts are there before its first frame); other descriptors are dropped with a warning, and a rule without
+            // a family or a source is dropped.
+            void font_face(std::string_view body) {
+                FontFaceRule rule;
+                const auto unquoted = [](std::string_view raw) {
+                    auto v = trim(raw);
+                    if (v.size() >= 2 && (v.front() == '"' || v.front() == '\'') && v.back() == v.front()) {
+                        v = v.substr(1, v.size() - 2);
+                    }
+                    return v;
+                };
+                // A function's argument: url(x), url("x"), format("truetype"), local(Name).
+                const auto argument = [&](std::string_view raw, std::string_view name) -> std::optional<std::string> {
+                    const auto call = trim(raw);
+                    if (call.size() < name.size() + 2 || lower(call.substr(0, name.size())) != name ||
+                        call[name.size()] != '(' || call.back() != ')') {
+                        return std::nullopt;
+                    }
+                    return unquoted(std::string_view(call).substr(name.size() + 1, call.size() - name.size() - 2));
+                };
+                for (const auto& part : css::split(body, ';', {.quotes = true, .brackets = true}).parts) {
+                    const auto colon = part.find(':');
+                    if (colon == std::string::npos) {
+                        continue;
+                    }
+                    const auto key = lower(trim(part.substr(0, colon)));
+                    const auto value = trim(part.substr(colon + 1));
+                    if (key == "font-family") {
+                        // One family: a string, or identifiers with single spaces between them.
+                        if (value.find(',') != std::string::npos) {
+                            warn("@font-face font-family " + excerpt(value) + ": one family");
+                            return;
+                        }
+                        std::string family;
+                        for (const auto& word : css::split(unquoted(value), ' ').parts) {
+                            family += (family.empty() ? "" : " ") + std::string(trim(word));
+                        }
+                        rule.family = std::move(family);
+                    } else if (key == "src") {
+                        for (const auto& item : css::split(value, ',', {.quotes = true}).parts) {
+                            FontFaceRule::Source source;
+                            auto words = css::split(item, ' ', {.quotes = true}).parts;
+                            if (words.empty()) {
+                                continue;
+                            }
+                            if (auto local = argument(words[0], "local")) {
+                                source.local = std::move(*local);
+                            } else if (auto url = argument(words[0], "url")) {
+                                source.url = std::move(*url);
+                                for (std::size_t k = 1; k < words.size(); ++k) {
+                                    if (auto format = argument(words[k], "format")) {
+                                        for (const auto& f : css::split(*format, ',', {.quotes = true}).parts) {
+                                            source.formats.push_back(lower(unquoted(f)));
+                                        }
+                                    } else if (!argument(words[k], "tech")) {
+                                        warn("@font-face src " + excerpt(item) + ": not a source");
+                                    }
+                                }
+                            } else {
+                                warn("@font-face src " + excerpt(item) + ": not a source");
+                                continue;
+                            }
+                            rule.sources.push_back(std::move(source));
+                        }
+                    } else if (key == "font-weight") {
+                        const auto v = lower(std::string(value));
+                        if (v == "normal") {
+                            rule.weight = 400;
+                        } else if (v == "bold") {
+                            rule.weight = 700;
+                        } else if (const auto n = css::parse_number<double>(v); n && *n >= 1 && *n <= 1000) {
+                            rule.weight = int(std::lround(*n));
+                        } else {
+                            warn("@font-face font-weight " + excerpt(value) + " is outside the profile (one weight)");
+                        }
+                    } else if (key == "font-style") {
+                        const auto v = lower(std::string(value));
+                        if (v == "italic" || v == "oblique") {
+                            rule.italic = true;
+                        } else if (v != "normal") {
+                            warn("@font-face font-style " + excerpt(value) + " is outside the profile");
+                        }
+                    } else if (key == "unicode-range") {
+                        rule.unicode_range = value;
+                    } else if (key != "font-display" &&
+                               !(key == "font-stretch" && lower(std::string(value)) == "normal")) {
+                        warn("@font-face " + key + " is outside the profile");
+                    }
+                }
+                if (rule.family.empty() || rule.sources.empty()) {
+                    warn("@font-face without a font-family and a src was dropped");
+                    return;
+                }
+                out.font_faces.push_back(std::move(rule));
             }
 
             // @property --name { syntax: ...; inherits: ...; initial-value: ... }
@@ -2130,6 +2232,11 @@ namespace weft {
                 }
                 if (e == text.size()) {
                     fail("unclosed rule");
+                }
+                // An at-rule without nested rules (@font-face, @page) is no selector either: at-rules are a forgiving
+                // sheet's.
+                if (const auto prelude = trim(text.substr(p, b - p)); !prelude.empty() && prelude[0] == '@') {
+                    fail("at-rule/nested rule outside profile");
                 }
                 auto decl = declarations(text.substr(b + 1, e - b - 1), profile);
                 for (auto s : split(text.substr(p, b - p), ',')) {
@@ -4610,6 +4717,7 @@ namespace weft {
             std::unique_ptr<RuleIndex> index;
             std::map<std::string, Registered> registered;
             std::string keyframes;
+            std::vector<FontFaceRule> font_faces;
             bool sized_media{};
             Warnings warnings;
 
@@ -4625,6 +4733,7 @@ namespace weft {
                 author = std::move(parsed.rules);
                 registered = std::move(parsed.registered);
                 keyframes = std::move(parsed.keyframes);
+                font_faces = std::move(parsed.font_faces);
                 sized_media = parsed.sized_media;
                 warnings = std::move(parsed.warnings);
                 index = std::make_unique<RuleIndex>(author);
@@ -4750,6 +4859,10 @@ namespace weft {
 
     const std::string& CompiledStyle::keyframes() const {
         return impl_->compiled->keyframes;
+    }
+
+    const std::vector<FontFaceRule>& CompiledStyle::font_faces() const {
+        return impl_->compiled->font_faces;
     }
 
     bool CompiledStyle::set_viewport(float width, float height) {

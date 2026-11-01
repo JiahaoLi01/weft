@@ -5,6 +5,7 @@
 #include <yoga/Yoga.h>
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <exception>
@@ -27,6 +28,12 @@ namespace weft {
             return css::parse_number<float>(std::string(input),
                                             static_cast<float>(constants::layout::max_flex_number_magnitude))
                 .value();
+        }
+
+        // A computed length in px as Blink takes it into layout: whole LayoutUnits, truncated toward zero
+        // (LayoutUnit(float)). An em length computes to a px value between them.
+        float layout_unit(float px) {
+            return std::trunc(px * constants::layout_units_per_px) / constants::layout_units_per_px;
         }
 
         // A parsed number within the adapter's bound; nullopt sends the value through its text, which reports it.
@@ -53,13 +60,38 @@ namespace weft {
             bool automatic{};
         };
 
+        // An intrinsic sizing keyword of a width (CSS Sizing 3 §3.2), or one of Chrome's -webkit- aliases of them.
+        enum class Sizing : std::uint8_t {
+            None,
+            MinContent,
+            MaxContent,
+            FitContent,
+        };
+
+        Sizing sizing_keyword(std::string_view v) {
+            v = css::trim(v);
+            if (v.starts_with("-webkit-")) {
+                v.remove_prefix(std::string_view("-webkit-").size());
+            }
+            return v == "min-content"   ? Sizing::MinContent
+                   : v == "max-content" ? Sizing::MaxContent
+                   : v == "fit-content" ? Sizing::FitContent
+                                        : Sizing::None;
+        }
+
+        Sizing sizing_keyword(const CssValue* v) {
+            return v ? sizing_keyword(v->text()) : Sizing::None;
+        }
+
+        // A length, or auto for auto, none (max-width and max-height) and the sizing keywords, which take a box's
+        // intrinsic sizes once they are known (Engine::resolve_sizing).
         Length length(std::string_view input) {
-            if (input.empty() || input == "auto") {
+            if (input.empty() || input == "auto" || input == "none" || sizing_keyword(input) != Sizing::None) {
                 return {0, false, true};
             }
             const auto [digits, unit] = css::split_unit(input);
             if (unit == css::Unit::Px) {
-                return {number(digits)};
+                return {layout_unit(number(digits))};
             }
             if (unit == css::Unit::Percent) {
                 return {number(digits), true};
@@ -106,20 +138,29 @@ namespace weft {
             }
             if (const auto* d = v->dimension(); d && (d->unit == Unit::Px || d->unit == Unit::Percent)) {
                 if (const auto f = bounded(*d)) {
-                    return {*f, d->unit == Unit::Percent};
+                    return {d->unit == Unit::Percent ? *f : layout_unit(*f), d->unit == Unit::Percent};
                 }
             }
             return length(v->text());
         }
 
-        // An svg width or height attribute: a length whose unitless numbers are px.
-        Length presentation(std::string_view input) {
+        // An svg width or height attribute: a length whose unitless numbers are px, and whose em are the element's
+        // font size (style: its computed values).
+        Length presentation(std::string_view input, const Style& style) {
             const auto text = css::trim(input);
             if (text.empty() || text == "auto") {
                 return {0, false, true};
             }
             if (text.ends_with('%')) {
                 return {number(std::string_view(text).substr(0, text.size() - 1)), true};
+            }
+            if (text.ends_with("em") && !text.ends_with("rem")) {
+                const auto* size = style.find(P::FontSize);
+                const auto l = size ? length(size) : Length{float(constants::default_font_size_px)};
+                if (l.automatic || l.percent) {
+                    throw std::invalid_argument("WEFT_CSS_VALUE: font-size of an svg sized in em");
+                }
+                return {number(std::string_view(text).substr(0, text.size() - 2)) * l.value};
             }
             return {number(text.ends_with("px") ? std::string_view(text).substr(0, text.size() - 2) : text)};
         }
@@ -389,6 +430,8 @@ namespace weft {
             std::optional<float> known_height;
             // A grid's values, children and placement (prepare_grids).
             std::unique_ptr<GridState> grid;
+            // Its values with the intrinsic sizing keywords of its widths resolved to px (resolve_sizing).
+            std::unique_ptr<Style> resolved;
             // A grid child's own Yoga root, a column flex box that holds it: as large as its grid area (or the grid's
             // padding box, for an absolutely positioned child), so that Yoga sizes, stretches and aligns it there.
             YGNodeRef area{};
@@ -671,7 +714,7 @@ namespace weft {
                     } else if (id == P::Height) {
                         dim(YGNodeStyleSetHeight, YGNodeStyleSetHeightPercent, YGNodeStyleSetHeightAuto);
                     } else if (id == P::MinWidth) {
-                        if (v != "auto") {
+                        if (v != "auto" && sizing_keyword(v) == Sizing::None) {
                             dim(YGNodeStyleSetMinWidth, YGNodeStyleSetMinWidthPercent);
                         }
                     } else if (id == P::MinHeight) {
@@ -679,9 +722,13 @@ namespace weft {
                             dim(YGNodeStyleSetMinHeight, YGNodeStyleSetMinHeightPercent);
                         }
                     } else if (id == P::MaxWidth) {
-                        dim(YGNodeStyleSetMaxWidth, YGNodeStyleSetMaxWidthPercent);
+                        dim(YGNodeStyleSetMaxWidth, YGNodeStyleSetMaxWidthPercent, [](YGNodeRef node) {
+                            YGNodeStyleSetMaxWidth(node, YGUndefined);
+                        });
                     } else if (id == P::MaxHeight) {
-                        dim(YGNodeStyleSetMaxHeight, YGNodeStyleSetMaxHeightPercent);
+                        dim(YGNodeStyleSetMaxHeight, YGNodeStyleSetMaxHeightPercent, [](YGNodeRef node) {
+                            YGNodeStyleSetMaxHeight(node, YGUndefined);
+                        });
                     } else if (id == P::FlexDirection) {
                         if (v == "row") {
                             YGNodeStyleSetFlexDirection(y, YGFlexDirectionRow);
@@ -937,7 +984,7 @@ namespace weft {
                     const auto attribute = width ? box.replaced_width : box.replaced_height;
                     const auto l = attribute.empty() ? Length{width ? constants::layout::default_object_width_px
                                                                     : constants::layout::default_object_height_px}
-                                                     : presentation(attribute);
+                                                     : presentation(attribute, s);
                     if (l.automatic) {
                         continue;
                     }
@@ -1142,7 +1189,7 @@ namespace weft {
                         const auto l = v                   ? length(v)
                                        : attribute.empty() ? Length{width ? constants::layout::default_object_width_px
                                                                           : constants::layout::default_object_height_px}
-                                                           : presentation(attribute);
+                                                           : presentation(attribute, s);
                         return l;
                     };
                     const auto w = size(true);
@@ -1160,7 +1207,7 @@ namespace weft {
                         // max-content (CSS Sizing 3 §5.2.2), which a grid's tracks read; flex keeps the diagnostic.
                         const auto natural = n.box->replaced_width.empty()
                                                  ? Length{constants::layout::default_object_width_px}
-                                                 : presentation(n.box->replaced_width);
+                                                 : presentation(n.box->replaced_width, s);
                         n.min_width = edges;
                         n.max_width =
                             (natural.automatic || natural.percent ? float(constants::layout::default_object_width_px)
@@ -1220,16 +1267,19 @@ namespace weft {
                             return;
                         }
                         ++flow_count;
+                        // A child contributes its margin box (CSS Sizing 3 §5.1), negative margins too; auto and
+                        // percentage margins are 0 here.
+                        const float margins = intrinsic_margins(*c.style, true);
                         if (row && nowrap) {
-                            n.min_width += c.min_width;
+                            n.min_width += c.min_width + margins;
                         } else {
-                            n.min_width = std::max(n.min_width, c.min_width);
+                            n.min_width = std::max(n.min_width, c.min_width + margins);
                         }
                         if (row) {
-                            n.max_width += c.max_width;
+                            n.max_width += c.max_width + margins;
                             n.intrinsic_height = std::max(n.intrinsic_height, c.intrinsic_height);
                         } else {
-                            n.max_width = std::max(n.max_width, c.max_width);
+                            n.max_width = std::max(n.max_width, c.max_width + margins);
                             n.intrinsic_height += c.intrinsic_height;
                         }
                         pass_unknowns(c, unknown_w, unknown_h);
@@ -1247,8 +1297,9 @@ namespace weft {
                             n.intrinsic_height += float(flow_count - 1) * gap;
                         }
                     }
-                    n.min_width += edges;
-                    n.max_width += edges;
+                    // Negative margins never make a content size negative.
+                    n.min_width = std::max(0.f, n.min_width) + edges;
+                    n.max_width = std::max(0.f, n.max_width) + edges;
                     n.intrinsic_height += edges_v;
                 }
                 const auto specified = length(s.find(P::Width));
@@ -1262,6 +1313,61 @@ namespace weft {
                 if (!specified_height.automatic && !specified_height.percent) {
                     n.intrinsic_height = specified_height.value + (content_box ? edges_v : 0);
                 }
+                resolve_sizing(n);
+            }
+
+            // The intrinsic sizing keywords of a box's widths, now that its intrinsic widths are known: min-content
+            // and max-content make the width (or min-width, max-width) that border-box width, for Yoga and for every
+            // read after (the box's values, resolved); fit-content is the shrink-to-fit of auto where a box shrinks to
+            // fit (the root of an atomic inline, an absolutely positioned box), else a diagnostic.
+            void resolve_sizing(Node& n) {
+                const auto& s = *n.style;
+                const std::array<std::pair<PropertyId, Sizing>, 3> keywords{
+                    {{P::Width, sizing_keyword(s.find(P::Width))},
+                     {P::MinWidth, sizing_keyword(s.find(P::MinWidth))},
+                     {P::MaxWidth, sizing_keyword(s.find(P::MaxWidth))}}};
+                if (std::all_of(keywords.begin(), keywords.end(), [](const auto& k) {
+                        return k.second == Sizing::None;
+                    })) {
+                    return;
+                }
+                const bool content_box = s.text(P::BoxSizing, "content-box") == "content-box";
+                auto resolved = std::make_unique<Style>(s);
+                const float content_min = n.min_width;
+                const float content_max = n.max_width;
+                for (const auto& [id, keyword] : keywords) {
+                    if (keyword == Sizing::None) {
+                        continue;
+                    }
+                    if (keyword == Sizing::FitContent) {
+                        if (n.index && s.text(P::Position) != "absolute") {
+                            throw std::invalid_argument("WEFT_UNSUPPORTED_UNIT: fit-content " +
+                                                        std::string(property_name(id)) + " of a box in flow");
+                        }
+                        resolved->erase(id);
+                        continue;
+                    }
+                    const float border = keyword == Sizing::MinContent ? content_min : content_max;
+                    const float value = std::max(0.f, content_box ? border - horizontal(s) : border);
+                    char buffer[32];
+                    const auto written = std::to_chars(buffer, buffer + sizeof(buffer), value);
+                    resolved->set(id, std::string(buffer, written.ptr) + "px");
+                    if (id == P::Width) {
+                        YGNodeStyleSetWidth(n.yoga, value);
+                        n.min_width = border;
+                        n.max_width = border;
+                    } else if (id == P::MinWidth) {
+                        YGNodeStyleSetMinWidth(n.yoga, value);
+                        n.min_width = std::max(n.min_width, border);
+                        n.max_width = std::max(n.max_width, border);
+                    } else {
+                        YGNodeStyleSetMaxWidth(n.yoga, value);
+                        n.min_width = std::min(n.min_width, border);
+                        n.max_width = std::min(n.max_width, border);
+                    }
+                }
+                n.resolved = std::move(resolved);
+                n.style = n.resolved.get();
             }
 
             // Whether a flex item's basis is auto: no flex-basis or flex-basis: auto, and no flex shorthand other
@@ -1981,6 +2087,24 @@ namespace weft {
                 }
             }
 
+            IntrinsicWidths root_intrinsic() {
+                link();
+                classify();
+                create();
+                prepare_grids();
+                known_heights();
+                for (auto i = nodes.size(); i-- > 0;) {
+                    intrinsic(nodes[i]);
+                }
+                if (callback_error) {
+                    std::rethrow_exception(callback_error);
+                }
+                if (!nodes[0].unknown_width.empty()) {
+                    throw std::invalid_argument(nodes[0].unknown_width);
+                }
+                return {nodes[0].min_width, nodes[0].max_width};
+            }
+
             std::vector<BoxGeometry> run() {
                 link();
                 classify();
@@ -2053,6 +2177,11 @@ namespace weft {
                                           const LayoutOptions& options) {
         Engine engine(boxes, text, options);
         return engine.run();
+    }
+
+    IntrinsicWidths layout_intrinsic_widths(std::span<const LayoutBox> boxes, const TextMeasurer& text) {
+        Engine engine(boxes, text, {});
+        return engine.root_intrinsic();
     }
 
     namespace {

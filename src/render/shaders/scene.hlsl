@@ -864,11 +864,38 @@ float4 ps_main(Vertex v) : SV_Target {
     // A pixel whose center lies just outside the box (its antialiased edge) takes the side it is beside, under a
     // rotation or round corners too: otherwise it lies in no side's wedge and the edge loses its antialiasing.
     float2 sided = clamp(position, 0, p.size.xy);
+    // A rectangular box's pixel takes the side whose band covers most of it when its center lies in no wedge of a side
+    // that has a width: a thin side's band (a border-bottom thinner than a pixel, whose padding-box edge lies inside the
+    // pixel) covers part of a pixel whose center is above it, in the wedge of a side of no width.
+    uint chosen = QuadCorners;
+#if !SPACE_LINEAR
+    if (rectangular) {
+        float4 bands = float4(overlap(position, footprint, float2(0, 0), float2(p.size.x, p.widths.x)),
+                              overlap(position, footprint, float2(p.size.x - p.widths.y, 0), p.size.xy),
+                              overlap(position, footprint, float2(0, p.size.y - p.widths.z), p.size.xy),
+                              overlap(position, footprint, float2(0, 0), float2(p.widths.w, p.size.y)));
+        float most = 0;
+        [unroll]
+        for (uint side = 0; side < QuadCorners; side++) {
+            if (p.widths[side] > 0 && bands[side] > most) {
+                most = bands[side];
+                chosen = side;
+            }
+        }
+    }
+#endif
+    [unroll]
+    for (uint wedged = 0; wedged < QuadCorners; wedged++) {
+        if (p.widths[wedged] > 0 && wedge(sided, equal ? p.size.xy * .5 : inner[wedged], corners[wedged],
+                                          corners[(wedged + 1) % QuadCorners],
+                                          equal ? p.size.xy * .5 : inner[(wedged + 1) % QuadCorners])) {
+            chosen = wedged;
+            break;
+        }
+    }
     [unroll]
     for (uint i = 0; i < QuadCorners; i++) {
-        if (p.widths[i] > 0 && wedge(sided, equal ? p.size.xy * .5 : inner[i], corners[i],
-                                     corners[(i + 1) % QuadCorners],
-                                     equal ? p.size.xy * .5 : inner[(i + 1) % QuadCorners])) {
+        if (i == chosen) {
             float coverage = saturate(.5 + (sd + p.widths[i]) / aa);
 #if !SPACE_LINEAR
             // The share of the box's part of the pixel that lies outside the padding box.

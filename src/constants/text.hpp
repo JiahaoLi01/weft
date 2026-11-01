@@ -20,13 +20,20 @@ namespace weft::constants::text {
     // FreeType FT_Fixed variation coordinates are 16.16 fixed point.
     inline constexpr int fixed_16_16_one = 65536;
     // Blink keeps inline geometry in LayoutUnit, 1/64 px.
-    inline constexpr float layout_units_per_px = 64;
+    inline constexpr float layout_units_per_px = constants::layout_units_per_px;
+    // Blink makes a platform font at the size its FontCache key holds: px times this, truncated to an integer (its
+    // FontCacheKey precision multiplier), so glyphs, advances and line metrics at 13.552px are those of 13.55px.
+    inline constexpr float font_size_precision = 100;
     // At 72 dpi FreeType character sizes in points equal pixels.
     inline constexpr int freetype_pixel_dpi = 72;
     // FreeType reports this OS/2 version when the font has no usable OS/2 table.
     inline constexpr int os2_absent_version = 0xffff;
     // OS/2 fsSelection bit 7: USE_TYPO_METRICS.
     inline constexpr int os2_use_typo_metrics = 128;
+    // The first OS/2 table version with sxHeight.
+    inline constexpr int os2_x_height_version = 2;
+    // Blink's x-height for a face that reports none (SimpleFontData::PlatformInit): this share of the ascent.
+    inline constexpr float guessed_x_height_share = .56f;
     // num_grays of FreeType's 8-bit coverage renderer and of its SDF renderer.
     inline constexpr int coverage_num_grays = 256;
     // A synthetic oblique's slant, as Chrome draws italic text in a face without italics (Skia's fake italic): x

@@ -584,16 +584,18 @@ typedef struct weft_resource_writer weft_resource_writer;
 /* The file's bytes, copied; at most 16 MiB. */
 weft_result weft_resource_writer_set(weft_resource_writer* writer, const void* bytes, size_t size);
 
-/* Reads a file a page names: a scene page's background-image url() (a PNG image), by its path, the URL resolved against
- * weft_page_desc::base (its "." and ".." segments removed; a URL with a scheme or one that starts with '/' as written,
- * without a query or fragment). It runs on the owner thread while the View lays its scene out, once for a path each
- * page load, and must not call into the View (WEFT_BUSY). A file it does not write, a result other than WEFT_OK, or
- * bytes that are no PNG image within the bounds (docs/engine-communication.md) is a scene diagnostic, and the image
- * shows nothing. */
+/* Reads a file a page names: a scene page's background-image url() (a PNG image), or a font of its @font-face rules (a
+ * forgiving page's: a TrueType or OpenType file), by its path, the URL resolved against weft_page_desc::base (its "."
+ * and ".." segments removed; a URL with a scheme or one that starts with '/' as written, without a query or fragment).
+ * It runs on the owner thread while the View loads its page (fonts) or lays its scene out (images), once for a path
+ * each page load, and must not call into the View (WEFT_BUSY). A file it does not write, a result other than WEFT_OK,
+ * or bytes that are no PNG image within the bounds (docs/engine-communication.md) is a scene diagnostic, and the image
+ * shows nothing; a font none of whose rule's sources reads is one too (WEFT_FONT_FACE), and its text falls to other
+ * fonts. */
 typedef weft_result (*weft_resource_fn)(void* user, const char* path, size_t path_size, weft_resource_writer* file);
 
-/* Owner thread. Kept across page loads, for paths the page has not read yet; fn NULL removes it (url() images are
- * then diagnostics). */
+/* Owner thread. Kept across page loads, for paths the page has not read yet; fn NULL removes it (url() images and
+ * @font-face fonts are then diagnostics). */
 weft_result weft_view_set_resource_reader(weft_runtime* runtime, weft_view_handle view, weft_resource_fn fn,
                                           void* user);
 

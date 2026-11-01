@@ -1,0 +1,143 @@
+{
+  "name": "katex",
+  "version": "0.16.47",
+  "purpose": "Unmodified upstream KaTeX (HTML output) for the math typesetting reference page and its Chrome differential fixture; test and example dependency only",
+  "metadata_url": "https://registry.npmjs.org/katex/0.16.47",
+  "archive_url": "https://registry.npmjs.org/katex/-/katex-0.16.47.tgz",
+  "archive_sha256": "ad2d1ab2f7fcc227019784320e8a2c5218ff6bb333b36df4136d10365ae29375",
+  "registry_integrity": "sha512-Eeo8Ys1doU1z+x8AZsPpQu+p/QcZBI5PeOo7QGQdy2x2m0MU/hYagBbGOmXwr5KVbEfVuWv9LpnQWeehogurjg==",
+  "registry_shasum": "0a13a42c2deb4f74e61f162d440b9165a548030f",
+  "registry_integrity_verified": true,
+  "registry_shasum_verified": true,
+  "upstream_repository": {
+    "type": "git",
+    "url": "git+https://github.com/KaTeX/KaTeX.git"
+  },
+  "license": "MIT",
+  "released": "2026-05-16",
+  "retrieved_date": "2026-11-01",
+  "files": {
+    "fonts/KaTeX_AMS-Regular.ttf": {
+      "sha256": "68534840bcfdd2bffb6f0e8deb48684dd01e7f04ea2813267577afb906de1d13",
+      "bytes": 63632,
+      "archive_path": "package/dist/fonts/KaTeX_AMS-Regular.ttf"
+    },
+    "fonts/KaTeX_Caligraphic-Bold.ttf": {
+      "sha256": "07d8e303ce4fc12b4bb54f1004170dd190a1f3db45d400fe68060df3e0897268",
+      "bytes": 12368,
+      "archive_path": "package/dist/fonts/KaTeX_Caligraphic-Bold.ttf"
+    },
+    "fonts/KaTeX_Caligraphic-Regular.ttf": {
+      "sha256": "ed0b74372feefcbb9c0666b2e210da37b7e49fa7fbbf3eeb11db5f693dacfbb7",
+      "bytes": 12344,
+      "archive_path": "package/dist/fonts/KaTeX_Caligraphic-Regular.ttf"
+    },
+    "fonts/KaTeX_Fraktur-Bold.ttf": {
+      "sha256": "9163df9c7122432e6495b4229fa9071cf9ae86a758ae5efc4924ec2e1a6dbce1",
+      "bytes": 19584,
+      "archive_path": "package/dist/fonts/KaTeX_Fraktur-Bold.ttf"
+    },
+    "fonts/KaTeX_Fraktur-Regular.ttf": {
+      "sha256": "1e6f9579e90e2cac37f8f60a597c436e075c114385652b7cbeb0dec0421291b3",
+      "bytes": 19572,
+      "archive_path": "package/dist/fonts/KaTeX_Fraktur-Regular.ttf"
+    },
+    "fonts/KaTeX_Main-Bold.ttf": {
+      "sha256": "138ac28d1663b3037e9c5f52371fa5c63d8324f4a38d22cd573e6ea3a3fd0cf8",
+      "bytes": 51336,
+      "archive_path": "package/dist/fonts/KaTeX_Main-Bold.ttf"
+    },
+    "fonts/KaTeX_Main-BoldItalic.ttf": {
+      "sha256": "70ee1f64a20f2048c21940ef46d0144fd215baa953ca69afd1e31e98544f708f",
+      "bytes": 32968,
+      "archive_path": "package/dist/fonts/KaTeX_Main-BoldItalic.ttf"
+    },
+    "fonts/KaTeX_Main-Italic.ttf": {
+      "sha256": "0d85ae7cc30f23790a7f1a58c4a112fdca8aae769b6ba11429af1d98b1b6cb3a",
+      "bytes": 33580,
+      "archive_path": "package/dist/fonts/KaTeX_Main-Italic.ttf"
+    },
+    "fonts/KaTeX_Main-Regular.ttf": {
+      "sha256": "d0332f52868370fd83ae7fa46470f90c8f2eab2fcf12bc4f88080b340c95a830",
+      "bytes": 53580,
+      "archive_path": "package/dist/fonts/KaTeX_Main-Regular.ttf"
+    },
+    "fonts/KaTeX_Math-BoldItalic.ttf": {
+      "sha256": "f9377ab0271cda59af24bcffbd46a4d0c8a3572ffafdbb38de2ad5ea7b0d5ee5",
+      "bytes": 31196,
+      "archive_path": "package/dist/fonts/KaTeX_Math-BoldItalic.ttf"
+    },
+    "fonts/KaTeX_Math-Italic.ttf": {
+      "sha256": "08ce98e51b04d58945a301e639e02b6998af29fdfd61a7b8afdd07bbfc479d4a",
+      "bytes": 31308,
+      "archive_path": "package/dist/fonts/KaTeX_Math-Italic.ttf"
+    },
+    "fonts/KaTeX_SansSerif-Bold.ttf": {
+      "sha256": "1ece03f79f95277d57dc7f6b435a74e1379b0d46104a8530286b60ff49369ea0",
+      "bytes": 24504,
+      "archive_path": "package/dist/fonts/KaTeX_SansSerif-Bold.ttf"
+    },
+    "fonts/KaTeX_SansSerif-Italic.ttf": {
+      "sha256": "3931dd81faed86ba021bb2bbdc36f5bed9a38d6b4f4077aca59b265aa1b02083",
+      "bytes": 22364,
+      "archive_path": "package/dist/fonts/KaTeX_SansSerif-Italic.ttf"
+    },
+    "fonts/KaTeX_SansSerif-Regular.ttf": {
+      "sha256": "f36ea897e19f4a2e571d1e900e4e3710e438deb05a842486045ba0a3e616a4ad",
+      "bytes": 19436,
+      "archive_path": "package/dist/fonts/KaTeX_SansSerif-Regular.ttf"
+    },
+    "fonts/KaTeX_Script-Regular.ttf": {
+      "sha256": "1c67f068fea8bb09bf099c088b1cf64bd27516a6e07f4684344873564bb66a67",
+      "bytes": 16648,
+      "archive_path": "package/dist/fonts/KaTeX_Script-Regular.ttf"
+    },
+    "fonts/KaTeX_Size1-Regular.ttf": {
+      "sha256": "95b6d2f1a50173bfedb8c63e1d1c99b10427d0a4df4201cb44513b226951a22b",
+      "bytes": 12228,
+      "archive_path": "package/dist/fonts/KaTeX_Size1-Regular.ttf"
+    },
+    "fonts/KaTeX_Size2-Regular.ttf": {
+      "sha256": "a6b2099fb555c60e3a0db3a08842ebf1d732c6eb4e4bf44913613bed4fc4e39b",
+      "bytes": 11508,
+      "archive_path": "package/dist/fonts/KaTeX_Size2-Regular.ttf"
+    },
+    "fonts/KaTeX_Size3-Regular.ttf": {
+      "sha256": "500e04d54f0d51666332c9d2089aa803be22aa878eca539e59fa53c6e522b082",
+      "bytes": 7588,
+      "archive_path": "package/dist/fonts/KaTeX_Size3-Regular.ttf"
+    },
+    "fonts/KaTeX_Size4-Regular.ttf": {
+      "sha256": "c647367d1dd4e162468717d020e1fc0f1dc5c26ebfdffbe55261713bf88c5877",
+      "bytes": 10364,
+      "archive_path": "package/dist/fonts/KaTeX_Size4-Regular.ttf"
+    },
+    "fonts/KaTeX_Typewriter-Regular.ttf": {
+      "sha256": "f01f3e87d9c6a61c0c081ceb577abd864eb00a612f7ac1620dd6915fad2ef5aa",
+      "bytes": 27556,
+      "archive_path": "package/dist/fonts/KaTeX_Typewriter-Regular.ttf"
+    },
+    "katex.css": {
+      "sha256": "0001e5e3f0a1ff9b156d15c38ceac09cd363cff1aaf628898cafa0cdfb08c949",
+      "bytes": 32131,
+      "archive_path": "package/dist/katex.css"
+    },
+    "katex.min.js": {
+      "sha256": "a29d2961d3146de5949d78ac7c1a9d93ae54955bad22a6db4fbe836e88e8bf48",
+      "bytes": 272537,
+      "archive_path": "package/dist/katex.min.js"
+    },
+    "LICENSE": {
+      "sha256": "766ccc1f306c885aa45542a9846bbd0a505b27a0374f146778171c2254ce18e3",
+      "bytes": 1107,
+      "archive_path": "package/LICENSE"
+    },
+    "upstream-package.json": {
+      "sha256": "940355baf91a1b07d0b42c15e38edb25704cd5a7020b2d1aceeca37708e35b29",
+      "bytes": 6430,
+      "archive_path": "package/package.json"
+    }
+  },
+  "modifications": "None: original bytes from the package tarball. Only the TrueType fonts of dist/fonts are kept (weft reads TrueType and OpenType; katex.css lists woff2 and woff first, which weft passes over as a browser passes over a format it lacks).",
+  "build_options": "No build. Pages load katex.min.js as a script and katex.css as (part of) their stylesheet, whose @font-face url()s name fonts/*.ttf beside it."
+}

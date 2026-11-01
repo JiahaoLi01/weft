@@ -1469,6 +1469,7 @@ namespace weft {
             DocumentElement,
             Body,
             DefaultView,
+            CompatMode,
             IsConnected,
             Data,
             ElementId,
@@ -1656,6 +1657,10 @@ namespace weft {
                     }
                     case DefaultView:
                         return n.type == constants::document_node_type ? JS_GetGlobalObject(c) : JS_UNDEFINED;
+                    // Documents are in no-quirks mode: the scene's CSS is the standard's (libraries such as KaTeX
+                    // refuse to render in quirks mode).
+                    case CompatMode:
+                        return n.type == constants::document_node_type ? JS_NewString(c, "CSS1Compat") : JS_UNDEFINED;
                     case IsConnected: {
                         const Node* p = &n;
                         while (const Node* next = owner.parent_of(*p)) {
@@ -2657,6 +2662,7 @@ namespace weft {
                 property(prototype.value, "documentElement", DocumentElement);
                 property(prototype.value, "body", Body);
                 property(prototype.value, "defaultView", DefaultView);
+                property(prototype.value, "compatMode", CompatMode);
                 property(prototype.value, "isConnected", IsConnected);
                 method(prototype.value, "appendChild", Append, 1);
                 method(prototype.value, "insertBefore", InsertBefore, 2);

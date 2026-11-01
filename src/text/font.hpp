@@ -127,6 +127,9 @@ namespace weft {
         std::filesystem::path path;
         std::uint32_t face_index{};
         std::vector<FontVariation> variations;
+        // The file's bytes when they come from memory (a page's @font-face source, which the host's reader gave): the
+        // path then only names them.
+        std::shared_ptr<const std::vector<char>> data;
 
         friend bool operator==(const FontFaceSource&, const FontFaceSource&) = default;
         friend auto operator<=>(const FontFaceSource&, const FontFaceSource&) = default;
@@ -142,8 +145,13 @@ namespace weft {
         FontFile(const FontFile&) = delete;
         FontFile& operator=(const FontFile&) = delete;
 
+        // Bytes in memory (a page's @font-face source): held as they are, not copied.
+        explicit FontFile(std::shared_ptr<const std::vector<char>> data);
+
         // The file of a path as long as any thread's fonts hold it, else opened anew: one copy of its bytes for them all.
         static std::shared_ptr<const FontFile> open(const std::filesystem::path& path);
+        // The file of a face's source: its bytes in memory, or its path's (open).
+        static std::shared_ptr<const FontFile> of(const FontFaceSource& source);
 
         std::span<const char> bytes() const noexcept {
             return bytes_;
@@ -156,9 +164,10 @@ namespace weft {
         hb_face_t* harfbuzz_face(std::uint32_t face_index) const;
 
     private:
-        // The mapped file, or the bytes read in its place; bytes_ views one of them.
+        // The mapped file, the bytes read in its place, or bytes held in memory; bytes_ views one of them.
         std::unique_ptr<const MappedFile> mapped_;
         std::vector<char> read_;
+        std::shared_ptr<const std::vector<char>> held_;
         std::span<const char> bytes_;
         mutable std::mutex faces_lock_;
         mutable hb_blob_t* blob_{};
@@ -190,6 +199,10 @@ namespace weft {
         // The width of the face's bounding box (its head table's xMax - xMin) at pixels per em: Blink's maximum
         // character width (SimpleFontData::MaxCharWidth).
         float bounding_width(float pixels) const;
+        // The x-height at pixels per em, as DirectWrite (and Chrome on Windows) gives it: the OS/2 sxHeight of a
+        // version 2 or later table, else the top of the face's 'x', else Blink's guess for a face that reports none
+        // (a share of the ascent).
+        float x_height(float pixels) const;
         // True when the face has COLR, CBDT, sbix or SVG color glyph data.
         bool has_color_glyphs() const;
         // Glyph of a Unicode code point, 0 when the face has none.

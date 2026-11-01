@@ -44,6 +44,9 @@ namespace weft {
         // Properties a forgiving sheet drops without a warning: hints that have no effect in a scene (font
         // smoothing, tab size...).
         std::vector<std::string> ignored;
+        // Prefixes of other engines' properties (-ms-, -moz-), which Chrome drops as unknown too: a forgiving sheet
+        // drops them without a warning.
+        std::vector<std::string> ignored_prefixes;
     };
 
     // The custom properties an element's children inherit, as the cascade resolved them (opaque).
@@ -163,6 +166,23 @@ namespace weft {
         friend class CompiledStyle;
     };
 
+    // An @font-face rule of a forgiving sheet (CSS Fonts 4 §4): the family it defines, its sources in order (a url() with
+    // its format() hints, lowercased, or a local() name), its faces' weight (1 to 1000) and style, and its unicode-range
+    // as written (empty: every code point).
+    struct FontFaceRule {
+        struct Source {
+            std::string url;
+            std::vector<std::string> formats;
+            std::string local;
+        };
+
+        std::string family;
+        std::vector<Source> sources;
+        int weight{400};
+        bool italic{};
+        std::string unicode_range;
+    };
+
     class CompiledStyle {
     public:
         CompiledStyle(std::string author_stylesheet, StyleProfile profile);
@@ -200,6 +220,8 @@ namespace weft {
         std::vector<std::string> take_warnings() const;
         // The @keyframes rules of a forgiving sheet, as their text.
         const std::string& keyframes() const;
+        // The @font-face rules of a forgiving sheet, in order.
+        const std::vector<FontFaceRule>& font_faces() const;
         // The viewport @media conditions read (CSS px). True when a condition of the sheet changed its outcome: the
         // next cascade is to start over (without a previous document), as the rules that match changed.
         bool set_viewport(float width, float height);

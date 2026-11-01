@@ -55,6 +55,18 @@ namespace weft {
         }
     }
 
+    FontFile::FontFile(std::shared_ptr<const std::vector<char>> data) : held_(std::move(data)) {
+        if (!held_ || held_->empty() ||
+            held_->size() > static_cast<std::size_t>(constants::text::max_font_file_bytes)) {
+            throw std::runtime_error("WEFT_FONT_FILE: invalid font byte size");
+        }
+        bytes_ = std::span<const char>(*held_);
+    }
+
+    std::shared_ptr<const FontFile> FontFile::of(const FontFaceSource& source) {
+        return source.data ? std::make_shared<const FontFile>(source.data) : open(source.path);
+    }
+
     std::shared_ptr<const FontFile> FontFile::open(const std::filesystem::path& path) {
         // A file read before, while it lives and the file on disk has the size and time it had.
         struct Kept {
@@ -213,7 +225,7 @@ namespace weft {
     Font::Font(const std::filesystem::path& font) : Font(FontFile::open(font), 0) {
     }
 
-    Font::Font(const FontFaceSource& source) : Font(FontFile::open(source.path), source.face_index, source.variations) {
+    Font::Font(const FontFaceSource& source) : Font(FontFile::of(source), source.face_index, source.variations) {
     }
 
     Font::Font(std::shared_ptr<const FontFile> file, std::uint32_t face_index,
@@ -240,6 +252,22 @@ namespace weft {
         impl_->check(pixels);
         const auto* face = impl_->face;
         return float(face->bbox.xMax - face->bbox.xMin) * pixels / float(face->units_per_EM);
+    }
+
+    float Font::x_height(float pixels) const {
+        impl_->check(pixels);
+        auto* face = impl_->face;
+        const auto scale = pixels / face->units_per_EM;
+        const auto* os2 = static_cast<const TT_OS2*>(FT_Get_Sfnt_Table(face, ft_sfnt_os2));
+        if (os2 && os2->version != constants::text::os2_absent_version &&
+            os2->version >= constants::text::os2_x_height_version && os2->sxHeight > 0) {
+            return float(os2->sxHeight) * scale;
+        }
+        if (const auto glyph = FT_Get_Char_Index(face, 'x');
+            glyph && FT_Load_Glyph(face, glyph, FT_LOAD_NO_SCALE) == FT_Err_Ok) {
+            return float(face->glyph->metrics.horiBearingY) * scale;
+        }
+        return line_metrics(pixels).ascent * constants::text::guessed_x_height_share;
     }
 
     FontMetrics Font::inline_metrics(float pixels) const {

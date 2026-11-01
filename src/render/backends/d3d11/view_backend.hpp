@@ -105,7 +105,8 @@ namespace weft::render::d3d11 {
 
         ComPtr<ID3D11Device> device_;
         weft_render_backend table_{};
-        std::shared_ptr<const FontCatalog> fonts_;
+        // The runtime whose frames it draws (its fonts), and the text system that shapes them again.
+        std::shared_ptr<const FontCatalog> runtime_fonts_;
         std::unique_ptr<SceneText> text_;
         std::unique_ptr<SceneRenderer> renderer_;
         std::unordered_map<std::uint64_t, Prepared> prepared_;

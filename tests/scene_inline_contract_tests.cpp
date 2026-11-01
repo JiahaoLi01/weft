@@ -742,7 +742,9 @@ int main() {
         refused("overflow-wrap:wobble", "", "overflow-wrap wobble outside scene profile");
         refused("word-break:auto-phrase", "", "word-break auto-phrase outside scene profile");
         refused("text-align:justify", "", "text-align justify outside scene profile");
-        refused("", "vertical-align:middle", "vertical-align middle outside scene profile");
+        // Every CSS 2.1 vertical-align value lays out (scene_vertical_align_reference); Blink's own value does not.
+        refused("", "vertical-align:-webkit-baseline-middle",
+                "vertical-align -webkit-baseline-middle outside scene profile");
         {
             weft::testing::NativeScene t;
             auto& b = element(t, *t.root, "div", "");

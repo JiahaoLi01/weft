@@ -33,7 +33,8 @@
 namespace weft {
     struct SceneNode;
 
-    // An atomic inline (inline-block, inline-flex, inline-grid or a replaced svg) laid out at an available width:
+    // An atomic inline (inline-block, inline-flex, inline-grid, inline-table or a replaced svg) laid out at an
+    // available width:
     // its border box, its baseline from the border box top, and its margins (top, right, bottom, left).
     struct SceneAtomicExtent {
         float width{};
@@ -82,7 +83,7 @@ namespace weft {
     using SceneAtomicLayout = FunctionRef<SceneAtomicExtent(const SceneNode& atomic, float available)>;
 
     // Whether an in-flow child of an inline formatting context is an atomic inline rather than an inline box: an
-    // inline-block, inline-flex or inline-grid element, or an svg element.
+    // inline-block, inline-flex, inline-grid or inline-table element, or an svg element.
     bool scene_atomic_inline(const SceneNode& n);
 
     // Whether an element is a ruby (CSS Ruby 1) the scene lays out as an atomic inline of base and annotation columns:

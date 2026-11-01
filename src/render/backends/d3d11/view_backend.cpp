@@ -106,15 +106,16 @@ namespace weft::render::d3d11 {
                                                   std::uint64_t& out) {
         out = 0;
         const auto& held = frame.frame->frame;
-        if (!held || !held->scene || !held->fonts || !held->anchors) {
+        if (!held || !held->scene || !held->fonts || !held->runtime_fonts || !held->anchors) {
             return WEFT_RENDER_INVALID_ARGUMENT;
         }
-        // One runtime's fonts: its Views lay text out with them, the pass shapes it with them again.
-        if (!fonts_) {
-            fonts_ = held->fonts;
-            text_ = std::make_unique<SceneText>(*fonts_);
+        // One runtime's frames: its Views lay text out with its fonts or a page's over them (@font-face), the pass
+        // shapes each View's text again with the catalog its frame carries (encode).
+        if (!text_) {
+            runtime_fonts_ = held->runtime_fonts;
+            text_ = std::make_unique<SceneText>(held->fonts);
             renderer_ = std::make_unique<SceneRenderer>(device_.Get(), *text_);
-        } else if (held->fonts != fonts_) {
+        } else if (held->runtime_fonts != runtime_fonts_) {
             return WEFT_RENDER_INVALID_ARGUMENT;
         }
         // Views that are gone: their slots retire, the renderer forgets them.
@@ -222,6 +223,8 @@ namespace weft::render::d3d11 {
         if (p.clear_target) {
             start.clear = encoded(p.clear_linear_premultiplied);
         }
+        // The View's fonts: the catalog its frame carries.
+        text_->use(frame.fonts);
         bool drawn{};
         try {
             drawn = renderer_->paint(state.slot, *frame.scene, target, prepared.scale, pass.width, pass.height,

@@ -30,6 +30,8 @@ namespace weft {
     // Typed font properties of a scene text node's computed style.
     struct SceneFont {
         std::string families;
+        // The size its faces are made at: the computed font-size truncated to Blink's platform font precision
+        // (constants::text::font_size_precision).
         float size{16};
         int weight{400};
         bool italic{};
@@ -96,6 +98,15 @@ namespace weft {
     class SceneText {
     public:
         explicit SceneText(FontCatalog catalog);
+        explicit SceneText(std::shared_ptr<const FontCatalog> catalog);
+        // The catalog that matches font-family lists from now on (a View's: the runtime's fonts and its page's
+        // @font-face faces): a renderer draws the frames of Views of several catalogs with one SceneText. Faces are
+        // shared between catalogs by source; what a catalog matched and shaped stays apart. The constructor's catalog
+        // is the first.
+        void use(const std::shared_ptr<const FontCatalog>& catalog);
+        // The catalog in use, as a number that no other catalog this SceneText used takes (caches outside it key on
+        // it: a renderer's text images).
+        std::uint64_t catalog_id() const;
         ~SceneText();
         SceneText(const SceneText&) = delete;
         SceneText& operator=(const SceneText&) = delete;
@@ -108,6 +119,8 @@ namespace weft {
         // run's words break there: the advances of the glyphs whose cluster lies in the range, and the faces they use.
         SceneTextMetrics slice(const SceneTextRun& run, const SceneFont& font, std::uint32_t begin, std::uint32_t end);
         SceneStrut strut(const SceneFont& font);
+        // The x-height of the font's primary face (Font::x_height): vertical-align: middle centers on half of it.
+        float x_height(const SceneFont& font);
         // The em box of text in style: the em metrics (Font::em_metrics) of the faces its glyphs use, each side the
         // largest of theirs rounded up to a whole px and no more than the primary face's ascent and descent. Ruby
         // annotations stand on it.

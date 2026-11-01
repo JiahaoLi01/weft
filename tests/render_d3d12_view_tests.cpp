@@ -9,6 +9,7 @@
 #include "effects/effect_backdrop_shift.hpp"
 #include "render/srgb.hpp"
 #include "support/check.hpp"
+#include "support/files.hpp"
 
 #include <d3d11.h>
 #include <d3d12.h>
@@ -24,6 +25,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <functional>
 #include <iostream>
 #include <limits>
@@ -1093,6 +1095,93 @@ namespace {
         ok(weft_renderer_release_prepared(reference.renderer, theirs), "release");
         std::cout << "PASS D3D12 effects that read their backdrop as D3D11 draws them\n";
     }
+
+    // A file a page names, from the disk by its path; none for a missing file.
+    weft_result read_resource(void*, const char* path, size_t size, weft_resource_writer* file) {
+        const std::filesystem::path name(std::u8string(path, path + size));
+        if (!std::filesystem::is_regular_file(name)) {
+            return WEFT_OK;
+        }
+        const auto bytes = weft::testing::read_file(name);
+        return weft_resource_writer_set(file, bytes.data(), bytes.size());
+    }
+
+    // A page's fonts (a forgiving page's @font-face; the fonts are KaTeX's): two Views of one runtime draw through one
+    // renderer, each in the fonts of its own page, which its frames carry. One page defines KaTeX's math italic for its
+    // text, the other leaves the same text to the runtime's sans serif; drawn one after the other and back, each as the
+    // D3D11 backend draws it (the renderer's text system takes each frame's catalog, its text images the catalog's).
+    void page_fonts(D3D12& gpu) {
+        D3D11 reference;
+        Backend d3d12(gpu);
+        weft_runtime* runtime{};
+        ok(weft_runtime_create(nullptr, &runtime), "runtime");
+        const weft_view_desc desc{sizeof(desc), 0, float(width), float(height), 1, 0};
+        constexpr std::string_view script = "const e = document.createElement('div');"
+                                            "e.className = 'math';"
+                                            "e.textContent = 'xyz + abc';"
+                                            "document.getElementById('root').appendChild(e);";
+        const std::string rules = "#root{position:relative;width:100%;height:100%}"
+                                  ".math{position:absolute;left:20px;top:20px;font-family:'Page Math',sans-serif;"
+                                  "font-size:40px;line-height:48px;color:#ffffff}";
+        const std::array<std::string, 2> sheets{"@font-face{font-family:'Page Math';"
+                                                "src:url(KaTeX_Math-Italic.woff2) format('woff2'),"
+                                                "url(KaTeX_Math-Italic.ttf) format('truetype')}" +
+                                                    rules,
+                                                rules};
+        const auto base = weft::testing::source_path("third_party/katex/fonts/page.css").generic_string();
+        std::array<weft_view_handle, 2> views{};
+        for (std::size_t i = 0; i < views.size(); ++i) {
+            ok(weft_view_create(runtime, &desc, &views[i]), "view");
+            ok(weft_view_set_resource_reader(runtime, views[i], read_resource, nullptr), "reader");
+            const weft_script s{"page.js", 7, script.data(), script.size()};
+            const weft_page_desc page{sizeof(page),
+                                      WEFT_PAGE_FORGIVING_CSS,
+                                      &s,
+                                      1,
+                                      0,
+                                      sheets[i].data(),
+                                      sheets[i].size(),
+                                      nullptr,
+                                      0,
+                                      nullptr,
+                                      0,
+                                      base.data(),
+                                      base.size()};
+            ok(weft_view_load(runtime, views[i], &page), "load");
+        }
+        const auto draw = [&](std::size_t i, double time, const char* what) {
+            ok(weft_view_advance(runtime, views[i], time), "advance");
+            std::string said;
+            ok(weft_view_drain_diagnostics(
+                   runtime, views[i],
+                   [](void* user, weft_view_handle, const weft_diagnostic* d) {
+                       *static_cast<std::string*>(user) += "\n  " + std::string(d->message, d->message_size);
+                   },
+                   &said, nullptr),
+               "diagnostics");
+            require(said.empty(), std::string(what) + ": no diagnostic" + said);
+            weft_view_frame* f{};
+            ok(weft_view_acquire_frame(runtime, views[i], &f), "frame");
+            const auto ours = prepare(d3d12.renderer, f);
+            const auto theirs = prepare(reference.renderer, f);
+            weft_view_frame_release(f);
+            auto target = gpu.target();
+            auto drawn = d3d12.draw(ours, target.Get());
+            same(drawn, reference.draw(theirs), what);
+            ok(weft_renderer_release_prepared(d3d12.renderer, ours), "release");
+            ok(weft_renderer_release_prepared(reference.renderer, theirs), "release");
+            return drawn;
+        };
+        const auto math = draw(0, 0.016, "the page's font");
+        const auto sans = draw(1, 0.016, "the runtime's font");
+        require(difference(math, sans) > 128, "the page's text in its own font, the other View's in the runtime's");
+        require(difference(draw(0, 0.032, "the page's font again"), math) == 0, "the page's font again");
+        for (const auto view : views) {
+            weft_view_destroy(runtime, view);
+        }
+        weft_runtime_destroy(runtime);
+        std::cout << "PASS D3D12 Views in the fonts of their own pages as D3D11 draws them\n";
+    }
 } // namespace
 
 int main() {
@@ -1105,6 +1194,7 @@ int main() {
         frames(gpu);
         textures(gpu);
         effects(gpu);
+        page_fonts(gpu);
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL " << e.what() << "\n";

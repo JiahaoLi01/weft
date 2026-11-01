@@ -317,6 +317,12 @@ namespace weft::constants::render {
         // FreeType points per pixel (26.6 fixed point) and the unit of its 16.16 miter limit.
         inline constexpr int freetype_subpixels = 64;
         inline constexpr int freetype_fixed_one = 65536;
+        // A fill whose contours overlap rasterizes at this many subpixels per pixel along each axis (FreeType's
+        // FT_OUTLINE_OVERLAP rendering), where its spans' x (16 bits) and its outline's points (FT_Outline_Render's
+        // bound, in 26.6) reach.
+        inline constexpr int overlap_subpixels = 4;
+        inline constexpr int freetype_max_span_x = 0x7fff;
+        inline constexpr long freetype_max_outline_coordinate = 0x1000000;
     } // namespace path
 
     // Rounded clip probe work bounds.

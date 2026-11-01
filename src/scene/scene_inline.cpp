@@ -69,14 +69,16 @@ namespace weft {
                 return true;
             }
             const auto d = display(n);
-            return d == "inline" || d == "inline-block" || d == "inline-flex" || d == "inline-grid";
+            return d == "inline" || d == "inline-block" || d == "inline-flex" || d == "inline-grid" ||
+                   d == "inline-table";
         }
 
         bool collapsible(char c) {
             return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f';
         }
 
-        // An edge length of a box: px, em of its font size, or a percentage of the containing block's width.
+        // An edge length of a box: px, em of its font size, or a percentage of the containing block's width; in whole
+        // LayoutUnits, truncated, as layout takes it.
         float edge(const SceneStyle& s, PropertyId id, float percent_base) {
             const auto v = s.text(id, "0");
             if (v == "auto") {
@@ -85,10 +87,9 @@ namespace weft {
             const auto size = scene_values::len(s.text(PropertyId::FontSize, constants::default_font_size),
                                                 constants::default_font_size_px);
             const auto trimmed = css::trim(v);
-            if (trimmed.ends_with('%')) {
-                return scene_values::len(trimmed, percent_base);
-            }
-            return scene_values::len(trimmed, size);
+            const float px =
+                trimmed.ends_with('%') ? scene_values::len(trimmed, percent_base) : scene_values::len(trimmed, size);
+            return std::trunc(px * layout_units_per_px) / layout_units_per_px;
         }
 
         // word-break (CSS Text 3 §5.2) of a text: its legacy break-word is normal, with overflow-wrap: anywhere.
@@ -106,13 +107,100 @@ namespace weft {
             Anywhere,
         };
 
+        // vertical-align (CSS 2.1 §10.8.1) of an inline-level box: a keyword, a length that raises it (px), or a
+        // percentage of its own line-height that raises it.
+        struct Align {
+            enum class Kind : std::uint8_t {
+                Baseline,
+                Sub,
+                Super,
+                TextTop,
+                TextBottom,
+                Middle,
+                Top,
+                Bottom,
+                Length,
+                Percent,
+            };
+
+            Kind kind{};
+            float value{};
+        };
+
+        Align vertical_align(const SceneStyle& s) {
+            using K = Align::Kind;
+            const auto v = css::trim(s.text(PropertyId::VerticalAlign, "baseline"));
+            static constexpr std::array<std::pair<std::string_view, K>, 8> keywords{{{"baseline", K::Baseline},
+                                                                                     {"sub", K::Sub},
+                                                                                     {"super", K::Super},
+                                                                                     {"text-top", K::TextTop},
+                                                                                     {"text-bottom", K::TextBottom},
+                                                                                     {"middle", K::Middle},
+                                                                                     {"top", K::Top},
+                                                                                     {"bottom", K::Bottom}}};
+            for (const auto& [name, kind] : keywords) {
+                if (v == name) {
+                    return {kind, 0};
+                }
+            }
+            const auto [digits, unit] = css::split_unit(v, {.px = true, .percent = true, .em = true});
+            const auto n =
+                css::parse_number<float>(std::string(digits), float(constants::scene::max_numeric_magnitude));
+            if (!n || (unit == css::Unit::None && *n != 0)) {
+                fail("vertical-align " + std::string(v) + " outside scene profile");
+            }
+            if (unit == css::Unit::Percent) {
+                return {K::Percent, *n};
+            }
+            const float size = scene_values::len(s.text(PropertyId::FontSize, constants::default_font_size),
+                                                 constants::default_font_size_px);
+            return {K::Length, unit == css::Unit::Em ? *n * size : *n};
+        }
+
+        // A box's extent about its baseline (Blink's FontHeight): how far it reaches above and below it; empty until
+        // something is united into it.
+        struct Extent {
+            float ascent = -std::numeric_limits<float>::infinity();
+            float descent = -std::numeric_limits<float>::infinity();
+
+            void unite(const Extent& e) {
+                ascent = std::max(ascent, e.ascent);
+                descent = std::max(descent, e.descent);
+            }
+
+            // Its baseline moved down by shift.
+            void move(float shift) {
+                ascent -= shift;
+                descent += shift;
+            }
+
+            bool empty() const {
+                return !std::isfinite(ascent) || !std::isfinite(descent);
+            }
+        };
+
+        // A computed font-size in px.
+        float computed_font_size(const SceneStyle& s) {
+            return scene_values::len(s.text(PropertyId::FontSize, constants::default_font_size),
+                                     constants::default_font_size_px);
+        }
+
+        // Px from LayoutUnits rounded as Blink rounds a float into one (LayoutUnit::FromFloatRound).
+        float rounded_units(float px) {
+            return std::round(px * layout_units_per_px) / layout_units_per_px;
+        }
+
         // The inline-direction edges and the vertical padding and borders of an inline element.
         struct Box {
             const SceneNode* node{};
             // The inline box around this one; none at the root.
             std::size_t parent{};
             std::size_t depth{};
+            SceneFont font;
+            // Its computed font-size (vertical-align: sub and super of its children).
+            float font_size{};
             SceneStrut strut;
+            Align align;
             float margin_start{};
             float margin_end{};
             // Border and padding.
@@ -147,6 +235,8 @@ namespace weft {
             std::size_t begin{};
             // Open and Close: the box; text and atomic: the innermost inline box around it, none at the root.
             std::size_t box{none};
+            // Atomic: its vertical-align.
+            Align align;
         };
 
         // An unbreakable part of the content: a text item's bytes [begin, end), or one other item.
@@ -159,6 +249,7 @@ namespace weft {
             // Or one that overflow-wrap gives (no soft one): the unit starts a grapheme cluster inside a word.
             Emergency emergency{};
         };
+
     } // namespace
 
     bool scene_atomic_inline(const SceneNode& n) {
@@ -166,7 +257,7 @@ namespace weft {
             return true;
         }
         const auto d = display(n);
-        return d == "inline-block" || d == "inline-flex" || d == "inline-grid" || scene_ruby(n);
+        return d == "inline-block" || d == "inline-flex" || d == "inline-grid" || d == "inline-table" || scene_ruby(n);
     }
 
     bool scene_ruby(const SceneNode& n) {
@@ -397,7 +488,8 @@ namespace weft {
             return v == "break-word" ? Emergency::BreakWord : Emergency::None;
         }
 
-        // A text node's text: its runs between preserved newlines as text items, each such newline a forced break.
+        // A text node's text: its runs between preserved newlines as text items, each such newline a forced break,
+        // and each of the element's DOM text nodes (SceneNode::text_breaks) a run of its own, as Chrome lays them out.
         void add_text(const SceneNode& owner, std::size_t box) {
             const auto mode = white_space(owner.style);
             std::string run;
@@ -407,7 +499,13 @@ namespace weft {
                     run.clear();
                 }
             };
-            for (const char c : owner.text) {
+            auto next_break = owner.text_breaks.begin();
+            for (std::size_t at = 0; at < owner.text.size(); ++at) {
+                const char c = owner.text[at];
+                if (next_break != owner.text_breaks.end() && *next_break == at) {
+                    flush();
+                    ++next_break;
+                }
                 if (mode.keep_newlines && (c == '\n' || c == '\r')) {
                     if (c == '\r') {
                         continue;
@@ -495,9 +593,7 @@ namespace weft {
                 item.node = &c;
                 item.box = box;
                 item.begin = paragraph.size();
-                if (const auto align = c.style.text(PropertyId::VerticalAlign, "baseline"); align != "baseline") {
-                    fail("vertical-align " + std::string(align) + " outside scene profile");
-                }
+                item.align = vertical_align(c.style);
                 if (c.tag == "br") {
                     item.kind = Item::Kind::Break;
                     paragraph += '\n';
@@ -513,7 +609,10 @@ namespace weft {
                     b.node = &c;
                     b.parent = box;
                     b.depth = box == none ? 1 : boxes[box].depth + 1;
-                    b.strut = text.strut(scene_font(c.style));
+                    b.font = scene_font(c.style);
+                    b.font_size = computed_font_size(c.style);
+                    b.strut = text.strut(b.font);
+                    b.align = item.align;
                     wraps(c.style);
                     const auto index = boxes.size();
                     boxes.push_back(b);
@@ -861,6 +960,8 @@ namespace weft {
             float below{};
             float top{};
             float height{};
+            // How far its baseline lies below the line's (vertical-align).
+            float shift{};
             std::size_t item{none};
             std::size_t begin{};
             std::size_t end{};
@@ -939,6 +1040,111 @@ namespace weft {
                 return e;
             }
             return std::nullopt;
+        }
+
+        // A box aligned top or bottom (with its subtree) that waits for the extent of its nearest ancestor aligned so,
+        // or of the line box: its pieces and fragments [first, end), its extent about its baseline, and its own such
+        // descendants.
+        struct Pending {
+            Align::Kind kind{};
+            Extent extent;
+            std::size_t first_piece{};
+            std::size_t end_piece{};
+            std::size_t first_fragment{};
+            std::size_t end_fragment{};
+            std::vector<Pending> pending;
+        };
+
+        // An inline-level box while a line is placed, as Blink's InlineLayoutStateStack keeps it: the line's root
+        // (box none, node null), an inline box, or an atomic inline (box none). Its extent about its own baseline holds
+        // its strut and the content aligned with it so far; its pieces and fragments are those from first_piece and
+        // first_fragment on when it closes.
+        struct Level {
+            std::size_t box{none};
+            const SceneNode* node{};
+            Align align;
+            Extent extent;
+            std::size_t first_piece{};
+            std::size_t first_fragment{};
+            std::vector<Pending> pending;
+        };
+
+        // The font and strut of a level's box: the root's for the root.
+        const SceneFont& level_font(const Level& l) const {
+            return l.box == none ? root_font : boxes[l.box].font;
+        }
+
+        const SceneStrut& level_strut(const Level& l) const {
+            return l.box == none ? root_strut : boxes[l.box].strut;
+        }
+
+        // How far a box's baseline lies below its parent's (Blink's ApplyBaselineShift), in LayoutUnits as Blink takes
+        // them; none for top and bottom, which wait for the extent of a box around. own: the box's extent, its
+        // content's included; line_height: its computed line-height (percentages).
+        std::optional<float> baseline_shift(const Align& a, const Extent& own, float line_height, const Level& parent) {
+            using K = Align::Kind;
+            const auto& font = level_font(parent);
+            const auto& strut = level_strut(parent);
+            const float computed = parent.box == none ? computed_font_size(root.style) : boxes[parent.box].font_size;
+            const auto size = Units(std::lround(computed * layout_units_per_px));
+            const auto one = Units(layout_units_per_px);
+            switch (a.kind) {
+                case K::Baseline:
+                    return 0.f;
+                case K::Sub:
+                    return pixels(size / constants::scene::subscript_font_size_divisor + one);
+                case K::Super:
+                    return -pixels(size / constants::scene::superscript_font_size_divisor + one);
+                case K::Length:
+                    return -pixels(to_units(a.value));
+                case K::Percent:
+                    return -pixels(to_units(line_height * a.value / float(constants::percent_scale)));
+                case K::Middle:
+                    return pixels((exact(own.ascent) - exact(own.descent)) / 2) -
+                           rounded_units(text.x_height(font) / 2);
+                case K::TextTop:
+                    return own.ascent - strut.ascent;
+                case K::TextBottom:
+                    return strut.descent - own.descent;
+                case K::Top:
+                case K::Bottom:
+                    return std::nullopt;
+            }
+            return 0.f;
+        }
+
+        // A box's computed line-height in px: its line-height, or its primary font's normal line spacing.
+        float line_height_of(const SceneNode& node) {
+            const auto font = scene_font(node.style);
+            if (font.line_height) {
+                return *font.line_height;
+            }
+            const auto strut = text.strut(font);
+            return strut.above + strut.below;
+        }
+
+        static void move(std::vector<Placed>& placed, std::vector<float>& fragment_shift, std::size_t first_piece,
+                         std::size_t end_piece, std::size_t first_fragment, std::size_t end_fragment, float shift) {
+            for (auto k = first_piece; k < end_piece; ++k) {
+                placed[k].shift += shift;
+            }
+            for (auto k = first_fragment; k < end_fragment; ++k) {
+                fragment_shift[k] += shift;
+            }
+        }
+
+        // Aligns a box that waited for the extent of the box around (its top with that one's top, or its bottom with
+        // its bottom), after its own waiting descendants, and unites it into that extent.
+        static void align_pending(Pending& p, Extent& around, std::vector<Placed>& placed,
+                                  std::vector<float>& fragment_shift) {
+            for (auto& d : p.pending) {
+                align_pending(d, p.extent, placed, fragment_shift);
+            }
+            const float shift =
+                p.kind == Align::Kind::Top ? p.extent.ascent - around.ascent : around.descent - p.extent.descent;
+            move(placed, fragment_shift, p.first_piece, p.end_piece, p.first_fragment, p.end_fragment, shift);
+            p.extent.move(shift);
+            around.unite(p.extent);
         }
 
         // intrinsic: the lines that give the min-content width, which overflow-wrap: break-word does not narrow.
@@ -1022,17 +1228,60 @@ namespace weft {
                 };
 
                 std::vector<Fragment> fragments;
+                std::vector<Placed> placed;
+                // Each fragment's baseline offset from the line's.
+                std::vector<float> fragment_shift;
+                // The boxes open on the line, the root first; each starts with its strut.
+                const auto strut_extent = [](const SceneStrut& strut) {
+                    Extent e;
+                    e.ascent = strut.above;
+                    e.descent = strut.below;
+                    return e;
+                };
+                std::vector<Level> levels;
+                levels.push_back({none, nullptr, {}, strut_extent(root_strut), 0, 0, {}});
                 // Fragments of the boxes that continue from the line before start at the line's start.
                 std::vector<std::size_t> stack;
                 for (const auto b : open) {
+                    levels.push_back({b,
+                                      boxes[b].node,
+                                      boxes[b].align,
+                                      strut_extent(boxes[b].strut),
+                                      placed.size(),
+                                      fragments.size(),
+                                      {}});
                     stack.push_back(fragments.size());
                     fragments.push_back({b, 0, 0, false, false});
+                    fragment_shift.push_back(0);
                 }
-
-                std::vector<Placed> placed;
+                // Closes the innermost level: shifts its baseline from its parent's as its vertical-align says and
+                // unites its extent into its parent's, or leaves it to wait (top, bottom) for its nearest ancestor
+                // aligned so, or for the line box.
+                const auto close_level = [&] {
+                    Level child = std::move(levels.back());
+                    levels.pop_back();
+                    auto& parent = levels.back();
+                    const float line_height =
+                        child.align.kind == Align::Kind::Percent && child.node ? line_height_of(*child.node) : 0.f;
+                    if (const auto shift = baseline_shift(child.align, child.extent, line_height, parent)) {
+                        for (auto& d : child.pending) {
+                            align_pending(d, child.extent, placed, fragment_shift);
+                        }
+                        move(placed, fragment_shift, child.first_piece, placed.size(), child.first_fragment,
+                             fragments.size(), *shift);
+                        child.extent.move(*shift);
+                        parent.extent.unite(child.extent);
+                        return;
+                    }
+                    auto at = levels.size() - 1;
+                    while (at > 0 && levels[at].align.kind != Align::Kind::Top &&
+                           levels[at].align.kind != Align::Kind::Bottom) {
+                        --at;
+                    }
+                    levels[at].pending.push_back({child.align.kind, child.extent, child.first_piece, placed.size(),
+                                                  child.first_fragment, fragments.size(), std::move(child.pending)});
+                };
                 Units x{};
-                float above = root_strut.above;
-                float below = root_strut.below;
                 // The text fragment being collected: its item, first byte and raw advances.
                 std::size_t fragment_item = none;
                 std::size_t fragment_begin{};
@@ -1060,8 +1309,10 @@ namespace weft {
                         p.above = p.top = m.baseline;
                         p.below = m.height - m.baseline;
                         p.height = m.height;
-                        above = std::max(above, p.above);
-                        below = std::max(below, p.below);
+                        Extent e;
+                        e.ascent = p.above;
+                        e.descent = p.below;
+                        levels.back().extent.unite(e);
                         placed.push_back(std::move(p));
                     }
                     x = fragment_x + w;
@@ -1098,8 +1349,11 @@ namespace weft {
                     if (item.kind == Item::Kind::Open) {
                         const auto& b = boxes[item.box];
                         x += to_units(b.margin_start);
+                        levels.push_back(
+                            {item.box, b.node, b.align, strut_extent(b.strut), placed.size(), fragments.size(), {}});
                         stack.push_back(fragments.size());
                         fragments.push_back({item.box, x, x, true, false});
+                        fragment_shift.push_back(0);
                         x += to_units(b.inner_start);
                         reach(x);
                         open.push_back(item.box);
@@ -1108,11 +1362,17 @@ namespace weft {
                         x += to_units(b.inner_end);
                         reach(x);
                         if (!stack.empty()) {
+                            // The box ends where its end edge lies, which the negative margin of an atomic inline
+                            // in it may have taken back past content.
+                            fragments[stack.back()].end = x;
                             fragments[stack.back()].last = true;
                             stack.pop_back();
                         }
                         if (!open.empty()) {
                             open.pop_back();
+                        }
+                        if (levels.size() > 1) {
+                            close_level();
                         }
                         x += to_units(b.margin_end);
                     } else if (item.kind == Item::Kind::Atomic) {
@@ -1127,20 +1387,30 @@ namespace weft {
                         p.below = e.margin[0] + e.height + e.margin[2] - p.above;
                         p.top = e.baseline;
                         p.height = e.height;
-                        above = std::max(above, p.above);
-                        below = std::max(below, p.below);
+                        Extent margin_box;
+                        margin_box.ascent = p.above;
+                        margin_box.descent = p.below;
                         x += p.w;
                         reach(x);
                         x += to_units(e.margin[1]);
+                        levels.push_back(
+                            {none, item.node, item.align, margin_box, placed.size(), fragments.size(), {}});
                         placed.push_back(std::move(p));
+                        close_level();
                     }
                 }
                 flush();
-                // Every inline box on the line adds its strut.
-                for (const auto& f : fragments) {
-                    above = std::max(above, boxes[f.box].strut.above);
-                    below = std::max(below, boxes[f.box].strut.below);
+                // The boxes that continue on the next line close here; then the boxes aligned top or bottom take their
+                // places in the line box.
+                while (levels.size() > 1) {
+                    close_level();
                 }
+                auto& line = levels.front();
+                for (auto& d : line.pending) {
+                    align_pending(d, line.extent, placed, fragment_shift);
+                }
+                const float above = line.extent.ascent;
+                const float below = line.extent.descent;
                 // The ellipsis sits on the line's baseline without changing its height, and the line keeps its width.
                 if (!ellipsis.empty() && bounded && x > limit) {
                     if (auto e = truncate(placed, limit)) {
@@ -1157,19 +1427,20 @@ namespace weft {
                 }
                 const float baseline = top + above;
                 for (auto& p : placed) {
-                    p.piece.rect = {pixels(offset + p.x), baseline - p.top, pixels(p.w), p.height};
+                    p.piece.rect = {pixels(offset + p.x), baseline + p.shift - p.top, pixels(p.w), p.height};
                     p.piece.baseline = p.top;
                     out.pieces.push_back(std::move(p.piece));
                 }
-                for (const auto& f : fragments) {
+                for (std::size_t k = 0; k < fragments.size(); ++k) {
+                    const auto& f = fragments[k];
                     const auto& b = boxes[f.box];
                     SceneInlinePiece piece;
                     piece.kind = SceneInlinePiece::Kind::Box;
                     piece.node = b.node;
                     piece.first = f.first;
                     piece.last = f.last;
-                    piece.rect = {pixels(offset + f.start), baseline - b.strut.ascent - b.top, pixels(f.end - f.start),
-                                  b.strut.ascent + b.strut.descent + b.top + b.bottom};
+                    piece.rect = {pixels(offset + f.start), baseline + fragment_shift[k] - b.strut.ascent - b.top,
+                                  pixels(f.end - f.start), b.strut.ascent + b.strut.descent + b.top + b.bottom};
                     out.pieces.push_back(std::move(piece));
                 }
                 if (!out.lines) {

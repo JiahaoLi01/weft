@@ -1053,7 +1053,8 @@ namespace weft {
                     if (!scene_border_style(get(n.style, (prefix + "-style").c_str(), "solid"), styles[k])) {
                         throw std::invalid_argument("border style");
                     }
-                    const float width = len(get(n.style, (prefix + "-width").c_str(), "0"));
+                    const float width =
+                        scene_values::snapped_border_width(len(get(n.style, (prefix + "-width").c_str(), "0")), scale);
                     const bool stroked = styles[k] == SceneBorderStyle::Dotted || styles[k] == SceneBorderStyle::Dashed;
                     box.widths[k] = styles[k] == SceneBorderStyle::None ? 0 : width;
                     dashed_widths[k] = stroked ? width : 0;

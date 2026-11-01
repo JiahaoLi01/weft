@@ -390,8 +390,11 @@ namespace probes {
             auto expect_x = [&](double expected) {
                 require(std::abs(live_x() - expected) < weft::probe_constants::scroll_tolerance_px,
                         "motion must follow elapsed time, not tick count");
+                // Layout takes the inset in whole LayoutUnits, truncated, as Chrome does.
                 require(script.eval("Math.abs(document.getElementById('ce-motion-live').getBoundingClientRect().x-" +
-                                    std::to_string(104 + expected) + ")<.002") == "true",
+                                    std::to_string(104 + expected) + ")<" +
+                                    std::to_string(1.0 / weft::constants::layout_units_per_px +
+                                                   weft::probe_constants::scroll_tolerance_px)) == "true",
                         "animated inline style must reach fresh native layout");
             };
             step(10);

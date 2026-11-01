@@ -29,6 +29,8 @@ namespace weft::constants {
     inline constexpr int color_channel_max = 255;
     // CSS percentages are hundredths of the reference length.
     inline constexpr int percent_scale = 100;
+    // Blink keeps layout geometry in LayoutUnits, 1/64 px.
+    inline constexpr float layout_units_per_px = 64;
 
     // DOM Node.nodeType values.
     inline constexpr int element_node_type = 1;

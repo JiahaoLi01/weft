@@ -160,6 +160,16 @@ namespace weft::scene_values {
         return n * (unit == css::Unit::Em ? reference : 1);
     }
 
+    // A border side's width as Chrome paints it (CSS Values 4 snaps a border width to device pixels): under one device
+    // pixel to one, else down to whole device pixels; scale is device pixels per px. Layout keeps the width it computed.
+    inline float snapped_border_width(float width, float scale) {
+        if (!(width > 0) || !(scale > 0)) {
+            return std::max(0.f, width);
+        }
+        const float device = width * scale;
+        return (device < 1 ? 1.f : std::floor(device + constants::scene::border_snap_epsilon)) / scale;
+    }
+
     // Corner radii of a w x h box as the scene paints them, top-left first and clockwise: circular, percentages of
     // the shorter side, reduced together so that adjacent corners never overlap.
     inline std::array<float, 4> corner_radii(const Style& s, float w, float h) {

@@ -10,9 +10,9 @@
 #include <stdexcept>
 #include <string>
 
-// Paths as coverage: fills cover their geometry's area, fill rules differ on overlaps, strokes reach their width with
-// the caps and joins each style names, dashes alternate from their offset and restart per subpath, a map stretches a
-// stroke, and the mask bounds hold every covered pixel.
+// Paths as coverage: fills cover their geometry's area, fill rules differ on overlaps, overlapping contours cover a
+// pixel once, strokes reach their width with the caps and joins each style names, dashes alternate from their offset
+// and restart per subpath, a map stretches a stroke, and the mask bounds hold every covered pixel.
 namespace {
     using weft::testing::require;
     namespace paint = weft::paint;
@@ -137,6 +137,43 @@ namespace {
         reopened.verbs.push_back(Verb::Line);
         reopened.points.push_back({-10, 10});
         require(draw(r, fill(reopened)).at(-2, 8) == 255, "subpath restarts at the closed start");
+    }
+
+    // Contours that overlap cover a pixel once, as nonzero winding counts it: a bar drawn twice the same way (KaTeX's
+    // square root draws its bar in the radical's outline and again as a rectangle of its own) covers what one bar
+    // covers, where adding each contour's coverage would cover the bar's partial rows twice. Such a fill is drawn at
+    // 4 x 4 subpixels: exact for edges on quarter pixels, within an eighth of a pixel's coverage (32 levels) for others.
+    void overlaps(weft::vector::Rasterizer& r) {
+        const auto bar = [](float top, float bottom) {
+            return polyline({{10, top}, {40, top}, {40, bottom}, {10, bottom}}, true);
+        };
+        const auto twice = [&](float top, float bottom) {
+            auto p = bar(top, bottom);
+            append(p, bar(top, bottom));
+            return p;
+        };
+        const auto quarters = draw(r, fill(twice(20.25f, 21.5f)));
+        require(close_to(quarters.at(20, 20), 191, 1) && close_to(quarters.at(20, 21), 128, 1) &&
+                    quarters.at(20, 22) == 0 && quarters.at(20, 19) == 0,
+                "a bar drawn twice on quarter pixels: " + std::to_string(quarters.at(20, 20)) + ", " +
+                    std::to_string(quarters.at(20, 21)));
+        // Edges between quarters (in 26.6 points): the twice covered subpixel row of each edge covers a sixteenth of
+        // its pixel too much, where adding the contours' coverage would fill the top row (255).
+        const auto once = draw(r, fill(bar(20.3125f, 21.0625f)));
+        const auto drawn = draw(r, fill(twice(20.3125f, 21.0625f)));
+        require(close_to(once.at(20, 20), 175, 2) && close_to(once.at(20, 21), 16, 2),
+                "one bar's partial rows: " + std::to_string(once.at(20, 20)) + ", " + std::to_string(once.at(20, 21)));
+        require(close_to(drawn.at(20, 20), once.at(20, 20), 32) && close_to(drawn.at(20, 21), once.at(20, 21), 32),
+                "a bar drawn twice: " + std::to_string(drawn.at(20, 20)) + ", " + std::to_string(drawn.at(20, 21)) +
+                    " where one covers " + std::to_string(once.at(20, 20)) + ", " + std::to_string(once.at(20, 21)));
+        // A hole wound the other way does not overlap what surrounds it: FreeType's area coverage, as before (its edge
+        // pixel 159 of 159.375, where 4 x 4 subpixels would cover 160).
+        auto ring = polyline({{.25f, .25f}, {20.25f, .25f}, {20.25f, 20.25f}, {.25f, 20.25f}}, true);
+        append(ring, polyline({{5.625f, 5.625f}, {5.625f, 15.625f}, {15.625f, 15.625f}, {15.625f, 5.625f}}, true));
+        const auto holed = draw(r, fill(ring));
+        require(close_to(holed.area(), 400 - 100, .3) && holed.at(5, 10) == 159 && holed.at(10, 10) == 0,
+                "a hole wound the other way: area " + std::to_string(holed.area()) + ", its edge " +
+                    std::to_string(holed.at(5, 10)));
     }
 
     void strokes(weft::vector::Rasterizer& r) {
@@ -343,12 +380,13 @@ int main() {
     try {
         weft::vector::Rasterizer rasterizer;
         fills(rasterizer);
+        overlaps(rasterizer);
         strokes(rasterizer);
         dashes(rasterizer);
         bounds(rasterizer);
         random_paths(rasterizer);
-        std::cout << "PASS vector raster: fill areas and rules, caps, joins and miter limit, stretched strokes, "
-                     "dashes and dots, bounds and clips, 1500 random paths, 200 polygon areas\n";
+        std::cout << "PASS vector raster: fill areas and rules, overlapping contours, caps, joins and miter limit, "
+                     "stretched strokes, dashes and dots, bounds and clips, 1500 random paths, 200 polygon areas\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL: " << e.what() << '\n';

@@ -380,7 +380,8 @@ int main(int argc, char** argv) {
         // Off the pixel grid (where Chrome would snap the box): the native pass covers each pixel by the share of it
         // that the border box, its border and its padding box take, as a box filter does, corners included. The
         // background does not show under the antialiased outer edge of the border (Chrome avoids that bleed for
-        // rounded boxes, the only ones it paints off the grid).
+        // rounded boxes, the only ones it paints off the grid). Layout takes the insets in whole LayoutUnits, truncated
+        // as Chrome takes them: left 10.6px is 10.59375, top 10.3px is 10.296875.
         {
             weft::testing::NativeScene t;
             t.set(*t.root, "style", "position:relative;background-color:#101010");
@@ -407,8 +408,8 @@ int main(int argc, char** argv) {
                 int worst{};
                 for (unsigned y = 0; y < 40 * scale; ++y) {
                     for (unsigned x = 0; x < 60 * scale; ++x) {
-                        const double outer = share(x, y, 10.6, 10.3, 41.1, 30.55);
-                        const double padding = share(x, y, 12.6, 12.3, 39.1, 28.55);
+                        const double outer = share(x, y, 10.59375, 10.296875, 41.09375, 30.546875);
+                        const double padding = share(x, y, 12.59375, 12.296875, 39.09375, 28.546875);
                         Rgb expected{};
                         for (std::size_t c = 0; c < 3; ++c) {
                             expected[c] = int(std::lround(page[c] * (1 - outer) + border[c] * (outer - padding) +

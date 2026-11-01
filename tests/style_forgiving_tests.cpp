@@ -484,7 +484,8 @@ namespace {
                                   ".bad:has(.x) { width: 8px } .ok { height: 9px }"
                                   "@container (min-width: 1px) { .k { width: 1px } }"
                                   "@keyframes spin { to { transform: rotate(360deg) } }"
-                                  "@font-face { font-family: X; src: url(x.ttf) }";
+                                  "@font-face { font-family: X; src: url(x.woff2) format('woff2'), url(\"x.ttf\") }"
+                                  "@font-face { font-family: Y }";
         CompiledStyle compiled(sheet, scene_style_profile(true));
         const auto warnings = compiled.take_warnings();
         const auto says = [&](const std::string& part) {
@@ -495,7 +496,13 @@ namespace {
         require(says("column-count"), "a dropped property is a warning");
         require(says(":has"), "a dropped rule names its selector");
         require(says("@container"), "a dropped at-rule");
-        require(says("@font-face"), "@font-face is the host's");
+        // @font-face defines a family the page loads (view_fonts); one without a source is dropped with a warning.
+        require(compiled.font_faces().size() == 1 && compiled.font_faces()[0].family == "X" &&
+                    compiled.font_faces()[0].sources.size() == 2 &&
+                    compiled.font_faces()[0].sources[0].formats == std::vector<std::string>{"woff2"} &&
+                    compiled.font_faces()[0].sources[1].url == "x.ttf",
+                "@font-face: its family and its sources, in order");
+        require(says("@font-face without a font-family and a src"), "@font-face without a source");
         require(compiled.keyframes().find("@keyframes spin") != std::string::npos, "@keyframes kept for the scene");
         require(compiled.take_warnings().empty(), "warnings are taken once");
         const auto r = cascade(sheet, el("html", "root", "", {el("div", "k", "k"), el("div", "ok", "ok")}));

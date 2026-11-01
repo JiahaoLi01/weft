@@ -93,6 +93,17 @@ namespace weft {
     std::vector<BoxGeometry> layout_boxes(std::span<const LayoutBox> boxes, const TextMeasurer& text,
                                           const LayoutOptions& options = {});
 
+    // The root's border-box min-content and max-content widths (CSS Sizing 3 §5), as layout_boxes sizes a root that
+    // shrinks to fit: from its content, its padding and borders; a px width property of its own bounds them as
+    // layout_boxes takes it (a table cell's sizing passes a root of auto width). Percentages in the content resolve
+    // against nothing, as intrinsic sizes take them.
+    struct IntrinsicWidths {
+        float min{};
+        float max{};
+    };
+
+    IntrinsicWidths layout_intrinsic_widths(std::span<const LayoutBox> boxes, const TextMeasurer& text);
+
     // A box tree that owns its styles and text, laid out with the document text system: the flex fixtures, the
     // probes and the document formatter. Font size and line height (px) are inherited down the tree.
     struct FlexNode {

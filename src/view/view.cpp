@@ -9,6 +9,7 @@
 #include "scene/scene_values.hpp"
 #include "script/script_platform.hpp"
 #include "style/values.hpp"
+#include "view/view_fonts.hpp"
 #include "view/view_keys.hpp"
 #include "view/view_spatial_navigation.hpp"
 #include "view/view_text_field.hpp"
@@ -191,14 +192,18 @@ namespace weft {
 
     struct View::Impl {
         View& view;
+        // The runtime's fonts and text system; a page that defines @font-face faces lays its text out with a catalog
+        // and a text system of its own (load_fonts), whose catalog its frames carry.
+        std::shared_ptr<const FontCatalog> runtime_fonts;
+        SceneText& runtime_text;
         std::shared_ptr<const FontCatalog> fonts;
-        SceneText& text;
+        std::unique_ptr<SceneText> page_text;
         ScriptDom vm{{constants::view::vm_stack_bytes, constants::view::execution_budget_ms}};
         std::unique_ptr<SceneSolver> scene;
         // The host's reader of the files the page names, and the page load's images it read.
         ViewResourceReader reader;
         std::unique_ptr<ViewImages> images;
-        SceneGeometry geometry;
+        std::unique_ptr<SceneGeometry> geometry;
         SceneFrame current;
         float width{};
         float height{};
@@ -267,12 +272,33 @@ namespace weft {
 
         Impl(View& owner, std::shared_ptr<const FontCatalog> catalog, SceneText& scene_text, float w, float h, float s)
             : view(owner),
+              runtime_fonts(catalog),
+              runtime_text(scene_text),
               fonts(std::move(catalog)),
-              text(scene_text),
-              geometry(scene_text),
+              geometry(std::make_unique<SceneGeometry>(scene_text)),
               width(w),
               height(h),
               scale(s) {
+        }
+
+        // The fonts of the page just compiled: its stylesheet's @font-face faces (view_fonts.hpp) in a catalog over the
+        // runtime's, with a text system of its own; else the runtime's.
+        void load_fonts(const std::string& base) {
+            auto faces = view_font_faces(scene->font_faces(), base, reader, [this](std::string message) {
+                diagnose(ViewDiagnostic::Kind::Scene, std::move(message));
+            });
+            if (faces.empty()) {
+                fonts = runtime_fonts;
+                geometry = std::make_unique<SceneGeometry>(runtime_text);
+                scene->set_text(runtime_text);
+                page_text.reset();
+                return;
+            }
+            fonts = std::make_shared<const FontCatalog>(view_page_catalog(*runtime_fonts, std::move(faces)));
+            auto text = std::make_unique<SceneText>(*fonts);
+            geometry = std::make_unique<SceneGeometry>(*text);
+            scene->set_text(*text);
+            page_text = std::move(text);
         }
 
         void diagnose(ViewDiagnostic::Kind kind, std::string message) {
@@ -321,13 +347,13 @@ namespace weft {
         NodeIdentity hit_test(float x, float y) {
             const auto* table = anchors();
             if (!(x >= 0 && y >= 0 && x <= width && y <= height)) {
-                return geometry.hit_map(current, table).hit(x, y);
+                return geometry->hit_map(current, table).hit(x, y);
             }
             const std::uint64_t serial = table ? table->serial() : 0;
             const std::array<float, 4> within{0, 0, width, height};
             if (!hits || !current.revision || hits_revision != current.revision || hits_anchors != serial ||
                 hits_within != within) {
-                hits = geometry.hit_map(current, table, &within);
+                hits = geometry->hit_map(current, table, &within);
                 hits_revision = current.revision;
                 hits_anchors = serial;
                 hits_within = within;
@@ -404,7 +430,7 @@ namespace weft {
         // The scene's element geometry, which only geometry reads need: computed when one asks after a change.
         void ensure_geometry() {
             if (!geometry_valid) {
-                current.elements = geometry.geometry(current, true);
+                current.elements = geometry->geometry(current, true);
                 geometry_valid = true;
             }
         }
@@ -460,7 +486,7 @@ namespace weft {
             scene_copy->time_ms = current.time_ms;
             scene_copy->revision = current.revision;
             view.shared_->publish(std::make_shared<const ViewFrame>(
-                ViewFrame{std::move(scene_copy), width, height, scale, fonts, view.shared_->anchors()}));
+                ViewFrame{std::move(scene_copy), width, height, scale, fonts, runtime_fonts, view.shared_->anchors()}));
             published_revision = current.revision;
             published_size = size;
             published = true;
@@ -507,7 +533,7 @@ namespace weft {
                 sync_read(*root_of(document));
                 ensure_geometry();
                 if (const auto* table = anchors()) {
-                    return geometry.geometry(current, true, table);
+                    return geometry->geometry(current, true, table);
                 }
                 return current.elements;
             });
@@ -546,7 +572,7 @@ namespace weft {
                         if (!s.contains("transform") || s["transform"].empty() || s["transform"] == "none") {
                             s["transform"] = "none";
                         } else {
-                            const auto m = geometry.transform_matrix(n);
+                            const auto m = geometry->transform_matrix(n);
                             s["transform"] = "matrix(";
                             for (unsigned i = 0; i < 6; ++i) {
                                 s["transform"] += (i ? "," : "") + number_text(m[i]);
@@ -1609,7 +1635,8 @@ namespace weft {
         i.gamepad_held = {};
         i.gamepad_repeat.reset();
         try {
-            i.scene = std::make_unique<SceneSolver>(page.stylesheet, page.keyframes, i.text, true, page.forgiving_css);
+            i.scene = std::make_unique<SceneSolver>(page.stylesheet, page.keyframes, i.runtime_text, true,
+                                                    page.forgiving_css);
         } catch (const DiagnosticError& e) {
             // A stylesheet or keyframes outside the scene profile: the page does not load, as when its script
             // throws, and the diagnostic says why.
@@ -1626,6 +1653,8 @@ namespace weft {
         });
         i.scene->set_images(i.images.get());
         i.scene->set_effects(i.effects);
+        // Its fonts anew each load too.
+        i.load_fonts(page.base);
         try {
             i.install_hosts();
             // A page that takes CSS as browsers do takes their selectors in DOM queries too.
@@ -2276,6 +2305,10 @@ namespace weft {
 
     const SceneFrame& View::scene() const {
         return impl_->current;
+    }
+
+    std::shared_ptr<const FontCatalog> View::fonts() const {
+        return impl_->fonts;
     }
 
     ScriptDom& View::script() {

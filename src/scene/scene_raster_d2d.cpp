@@ -179,8 +179,10 @@ namespace weft {
         ComPtr<ID2D1Factory> factory;
         ComPtr<IWICImagingFactory> wic;
         ComPtr<IDWriteFactory> write;
-        // DirectWrite faces of SceneText faces, for drawing glyph runs.
+        // DirectWrite faces of SceneText faces, for drawing glyph runs; the loader of faces whose bytes are in memory (a
+        // page's @font-face fonts), registered with the factory while the raster lives.
         std::map<std::uint32_t, ComPtr<IDWriteFontFace>> dwrite_faces;
+        ComPtr<IDWriteInMemoryFontFileLoader> memory_loader;
         ComPtr<IWICBitmap> backing;
         unsigned backing_width{};
         unsigned backing_height{};
@@ -223,8 +225,28 @@ namespace weft {
                                       reinterpret_cast<IUnknown**>(write.GetAddressOf())));
         }
 
+        Impl(const Impl&) = delete;
+        Impl& operator=(const Impl&) = delete;
+
+        ~Impl() {
+            // The shared factory outlives the raster: its faces go first, then the loader they read from.
+            dwrite_faces.clear();
+            if (memory_loader) {
+                write->UnregisterFontFileLoader(memory_loader.Get());
+            }
+        }
+
         SceneTextMetrics measure(std::string_view value, const Style& s) {
             return text.measure(value, s);
+        }
+
+        // A side's border width as the raster paints it: snapped to device pixels (scene_values::snapped_border_width).
+        float snapped_width(const SceneNode& n, const std::string& property) const {
+            return scene_values::snapped_border_width(len(get(n.style, property, "0")), scale);
+        }
+
+        float snapped_width(const SceneNode& n, PropertyId property) const {
+            return scene_values::snapped_border_width(len(get(n.style, property, "0")), scale);
         }
 
         // A DirectWrite face over the same file, collection index and axis values as the SceneText face: the
@@ -235,7 +257,19 @@ namespace weft {
             }
             const auto& source = text.face_source(id);
             ComPtr<IDWriteFontFile> file;
-            check(write->CreateFontFileReference(source.path.c_str(), nullptr, &file));
+            if (source.data) {
+                // A copy of the bytes for DirectWrite (no owner object keeps them).
+                if (!memory_loader) {
+                    ComPtr<IDWriteFactory5> factory5;
+                    check(write.As(&factory5));
+                    check(factory5->CreateInMemoryFontFileLoader(&memory_loader));
+                    check(write->RegisterFontFileLoader(memory_loader.Get()));
+                }
+                check(memory_loader->CreateInMemoryFontFileReference(write.Get(), source.data->data(),
+                                                                     UINT32(source.data->size()), nullptr, &file));
+            } else {
+                check(write->CreateFontFileReference(source.path.c_str(), nullptr, &file));
+            }
             ComPtr<IDWriteFontFace> face;
             if (source.variations.empty()) {
                 BOOL supported{};
@@ -533,7 +567,7 @@ namespace weft {
             std::array<float, 12> key{n.box[2], n.box[3], radii[0], radii[1], radii[2], radii[3], width, float(side)};
             unsigned k = 8;
             for (const auto* edge : {"top", "right", "bottom", "left"}) {
-                key[k++] = len(get(n.style, std::string("border-") + edge + "-width", "0"));
+                key[k++] = snapped_width(n, std::string("border-") + edge + "-width");
             }
             if (auto i = border_fills.find(key); i != border_fills.end()) {
                 ++work.border_geometry_reuses;
@@ -578,10 +612,10 @@ namespace weft {
             float h = n.box[3];
             std::array<float, 7> key{w,
                                      h,
-                                     len(get(n.style, PropertyId::BorderTopWidth, "0")),
-                                     len(get(n.style, PropertyId::BorderRightWidth, "0")),
-                                     len(get(n.style, PropertyId::BorderBottomWidth, "0")),
-                                     len(get(n.style, PropertyId::BorderLeftWidth, "0")),
+                                     snapped_width(n, PropertyId::BorderTopWidth),
+                                     snapped_width(n, PropertyId::BorderRightWidth),
+                                     snapped_width(n, PropertyId::BorderBottomWidth),
+                                     snapped_width(n, PropertyId::BorderLeftWidth),
                                      float(index)};
             if (auto i = border_wedges.find(key); i != border_wedges.end()) {
                 return i->second;
@@ -1862,7 +1896,7 @@ namespace weft {
             i = 0;
             for (const auto* edge : {"top", "right", "bottom", "left"}) {
                 const auto k = std::string("border-") + edge;
-                p->widths[i] = len(get(n.style, k + "-width", "0"));
+                p->widths[i] = snapped_width(n, k + "-width");
                 p->solid_edges[i] = get(n.style, k + "-style", "solid") == "solid";
                 p->has_border = p->has_border || p->widths[i] > 0;
                 ++i;
@@ -2180,8 +2214,8 @@ namespace weft {
                         SceneBorderStyle style{};
                         if (scene_border_style(get(n.style, key + "-style", "solid"), style) &&
                             (style == SceneBorderStyle::Dotted || style == SceneBorderStyle::Dashed)) {
-                            const auto dashes = scene_dashed_side(
-                                {n.box[2], n.box[3]}, side, len(get(n.style, key + "-width", "0")), style, device);
+                            const auto dashes = scene_dashed_side({n.box[2], n.box[3]}, side,
+                                                                  snapped_width(n, key + "-width"), style, device);
                             if (!dashes.empty()) {
                                 solid(paint_color(n, constants::scene::paint_slot_border_color + side,
                                                   get(n.style, key + "-color", "currentcolor")));
@@ -2218,7 +2252,7 @@ namespace weft {
                 bool has_border = commands ? commands->has_border : false;
                 if (!commands) {
                     for (const auto* edge : {"top", "right", "bottom", "left"}) {
-                        has_border = has_border || len(get(n.style, std::string("border-") + edge + "-width", "0")) > 0;
+                        has_border = has_border || snapped_width(n, std::string("border-") + edge + "-width") > 0;
                     }
                 }
                 const auto current = matrix();
@@ -2233,12 +2267,11 @@ namespace weft {
                     }
                     bool uniform = gpu_target;
                     const auto border_width =
-                        commands ? commands->widths[0] : len(get(n.style, PropertyId::BorderTopWidth, "0"));
+                        commands ? commands->widths[0] : snapped_width(n, PropertyId::BorderTopWidth);
                     const auto border_color = get(n.style, PropertyId::BorderTopColor, "currentcolor");
                     for (const auto* edge : {"top", "right", "bottom", "left"}) {
                         uniform =
-                            uniform &&
-                            len(get(n.style, std::string("border-") + edge + "-width", "0")) == border_width &&
+                            uniform && snapped_width(n, std::string("border-") + edge + "-width") == border_width &&
                             get(n.style, std::string("border-") + edge + "-color", "currentcolor") == border_color &&
                             get(n.style, std::string("border-") + edge + "-style", "solid") == "solid";
                     }
@@ -2257,7 +2290,7 @@ namespace weft {
                         unsigned index{};
                         for (const auto* side : {"top", "right", "bottom", "left"}) {
                             auto key = std::string("border-") + side;
-                            float width = commands ? commands->widths[index] : len(get(n.style, key + "-width", "0"));
+                            float width = commands ? commands->widths[index] : snapped_width(n, key + "-width");
                             if (width <= 0 || (commands ? !commands->solid_edges[index]
                                                         : get(n.style, key + "-style", "solid") != "solid")) {
                                 ++index;
