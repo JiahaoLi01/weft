@@ -44,6 +44,9 @@ namespace weft {
         // Images the reference raster drew: text whose color glyphs are images (PNG or SVG), and nothing else.
         std::size_t reference_builds{};
         std::size_t text_reuses{};
+        // Text items drawn on the device's pixels: still text (paint::Raster::still) on a translation of the target,
+        // without an anchor.
+        std::size_t text_on_pixels{};
         std::size_t layer_builds{};
         std::size_t layer_reuses{};
         std::size_t shadow_builds{};
@@ -398,8 +401,17 @@ namespace weft {
         std::uint64_t next_id_{};
         // SVG elements' values between passes.
         SceneDisplayCache svg_;
-        // Text images by paint source (scene_paint_source_key), scale and margin, whatever node they come from.
-        SceneImageCache<std::string, std::shared_ptr<const SceneImage>> texts_;
+
+        // A text image, and whether it goes on the device's pixels: drawn from portable glyphs for its item's place
+        // across them (not by the reference raster, whose text lies where its line puts it).
+        struct Text {
+            std::shared_ptr<const SceneImage> image;
+            bool on_pixels{};
+        };
+
+        // Text images by paint source (scene_paint_source_key), scale and margin, whatever node they come from, and for
+        // still text where it lies across a device pixel.
+        SceneImageCache<std::string, Text> texts_;
         // Layer images by view and node identity.
         SceneImageCache<std::array<std::uint64_t, 5>, Layer> layers_;
         // Shadow images by value: offset, blur, spread, color, radii, box size, scale and whether they are inset.
@@ -466,6 +478,8 @@ namespace weft {
         struct Built {
             std::shared_ptr<const SceneImage> text;
             std::shared_ptr<const SceneLayerImage> layer;
+            // How far (target px) the item's record moves to put still text on the device's pixels.
+            std::array<float, 2> shift{};
         };
 
         // A text or layer item's image, from the cache while its source and scale stay the same.

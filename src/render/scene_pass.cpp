@@ -458,6 +458,17 @@ namespace weft::render {
         }
     } // namespace
 
+    void move_scene_record(SceneRecord& r, float dx, float dy) {
+        r.inv_x[2] -= r.inv_x[0] * dx + r.inv_x[1] * dy;
+        r.inv_y[2] -= r.inv_y[0] * dx + r.inv_y[1] * dy;
+        const float x0 = r.bounds[0] + std::min(dx, 0.f);
+        const float y0 = r.bounds[1] + std::min(dy, 0.f);
+        r.bounds[2] += std::abs(dx);
+        r.bounds[3] += std::abs(dy);
+        r.bounds[0] = x0;
+        r.bounds[1] = y0;
+    }
+
     Result<SceneClip> plan_scene_clip(const RoundedClip& c) {
         try {
             const auto n = normalize_rounded(c);

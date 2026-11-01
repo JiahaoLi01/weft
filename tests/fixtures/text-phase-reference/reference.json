@@ -1,0 +1,13 @@
+{
+ "browser": "Chrome/156.0.8078.76",
+ "width": 680,
+ "height": 110,
+ "scales": [
+  1,
+  2
+ ],
+ "inputs": {
+  "tests/fixtures/text-phase-reference/page.js": "8e9c3acf5ee81cf96d9537659f970d574dadf625dde29318b1a9cfca0ab261dd",
+  "tests/fixtures/text-phase-reference/page.css": "73c1e6c90e903c0c756dfb662f818a92a2d68e13a47f48c4a37d45b59e8f0307"
+ }
+}

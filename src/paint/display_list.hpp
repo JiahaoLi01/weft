@@ -151,6 +151,10 @@ namespace weft::paint {
         // A text shadow (text-shadow): the mask is the text's coverage (color glyphs' too) blurred by a Gaussian of
         // this standard deviation, in item px; 0 for none.
         float blur{};
+        // Text still where its layout puts it: no transform, scroll position or anchor moves it or an element around
+        // it. A renderer may draw it on the device's pixels, as Chrome draws text; other text moves smoothly between
+        // them, as Chrome draws a moving layer.
+        bool still{};
     };
 
     // A box-shadow of the item's box [0, width] x [0, height]. An outer one: the box grown by spread on each side (its

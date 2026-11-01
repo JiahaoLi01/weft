@@ -50,7 +50,8 @@ namespace weft {
 
     // What the visit of one element put in a display list (scene_display_list), and the context it was visited in: its
     // parent's map to target px, the clip rectangle, the run of rounded clips it inherited (list.clips[chain_begin,
-    // chain_begin + chain_count)) and the depth of opacity groups around it; and the ranges [begin, end) it added to
+    // chain_begin + chain_count)), the depth of opacity groups around it and whether no transform, scroll position or
+    // anchor around it moves its text (paint::Raster::still); and the ranges [begin, end) it added to
     // each part of the list (Part: the items, the rounded clips and the payload lists, and with deferred anchors the
     // list's anchors and runs). An element its visit skips (display: none, no box) adds empty ranges.
     struct SceneListSpan {
@@ -80,6 +81,7 @@ namespace weft {
         unsigned groups{};
         std::array<std::uint32_t, Parts> begin{};
         std::array<std::uint32_t, Parts> end{};
+        bool still{};
     };
 
     // The spans of the elements a list visited, by node: nodes of the frame the list was built from, which must

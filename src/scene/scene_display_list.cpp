@@ -87,6 +87,16 @@ namespace weft {
             return {m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]};
         }
 
+        // Whether the node has a transform of its own: its compiled transform (an animation's sample), else its
+        // property, other than none.
+        bool transformed(const SceneNode& n) {
+            if (n.paint && n.paint->values[constants::scene::paint_slot_transform]) {
+                const auto& t = *n.paint->values[constants::scene::paint_slot_transform];
+                return t.kind != PaintValue::Transform || !t.operations.empty();
+            }
+            return css::trim(get(n.style, PropertyId::Transform, "none")) != "none";
+        }
+
         // The node's compiled transform (an animation sample keeps full precision there), else its property, about
         // its transform-origin and placed at its box (at the origin for an anchored element, which its anchor places).
         Matrix matrix(const SceneNode& n, bool at_origin = false) {
@@ -843,12 +853,13 @@ namespace weft {
             };
 
             // framed: n is a node of the frame, not a piece of one (a fragment of an inline box, its content without
-            // its box).
+            // its box). still: no transform, scroll position or anchor around n moves it (paint::Raster::still).
             auto visit = [&](auto&& self, const SceneNode& n, Matrix parent, std::array<float, 4> clip, Chain chain,
-                             bool framed) -> void {
+                             bool still, bool framed) -> void {
                 Spanned spanned{framed ? build.spans : nullptr, &n, out, {}};
                 if (spanned.spans) {
                     spanned.span = {parent, clip, chain.begin, chain.count, groups, scene_list_sizes(out), {}};
+                    spanned.span.still = still;
                 }
                 // A box of no area paints nothing of its own; what overflows it still shows (scene_shows_overflow).
                 const bool empty = n.box[2] <= 0 || n.box[3] <= 0;
@@ -930,9 +941,9 @@ namespace weft {
                 // An inline element in lines: its box a fragment at a time, then its text and children.
                 if (!n.fragments.empty() && filter_ops.empty()) {
                     for (const auto& box : scene_fragment_boxes(n)) {
-                        self(self, box, parent, clip, chain, false);
+                        self(self, box, parent, clip, chain, still, false);
                     }
-                    self(self, scene_without_box(n), parent, clip, chain, false);
+                    self(self, scene_without_box(n), parent, clip, chain, still, false);
                     return;
                 }
                 // A perspective plane, as the reference raster draws it: the subtree flat in the node's own px, then
@@ -1007,6 +1018,10 @@ namespace weft {
                     throw std::invalid_argument("SVG reference");
                 }
                 const auto dropped = path_shadow ? scene_values::drop_shadow(n.style) : std::nullopt;
+                // Its text and its children's are still where nothing moves them: no anchor, no transform of its own and
+                // no scroll position (its lines and children lie in its scrolled content).
+                const bool inner_still =
+                    still && !n.anchoring && !transformed(n) && n.scrolled[0] == 0 && n.scrolled[1] == 0;
                 paint::Item item;
                 item.transform = multiply(parent, matrix(n, bool(n.anchoring)));
                 item.clip = clip;
@@ -1537,6 +1552,7 @@ namespace weft {
                     source->box[0] = source->box[1] = 0;
                     paint::Raster raster;
                     raster.part = part;
+                    raster.still = inner_still;
                     const auto style = source->style.text(PropertyId::FontStyle, "normal");
                     if (style == "italic" || style.starts_with("oblique")) {
                         raster.overhang =
@@ -1567,6 +1583,7 @@ namespace weft {
                         }
                         paint::Raster shadow;
                         shadow.source = white;
+                        shadow.still = inner_still;
                         shadow.mask = true;
                         shadow.tint = layer.color;
                         shadow.part = part;
@@ -1883,7 +1900,7 @@ namespace weft {
                 for (auto i : order) {
                     const auto first = std::uint32_t(list.items.size());
                     const auto before = out.anchors.size();
-                    self(self, n.children[i], item.transform, clip, chain, true);
+                    self(self, n.children[i], item.transform, clip, chain, inner_still, true);
                     if (anchors.deferred) {
                         members.push_back({first, std::uint32_t(list.items.size()), anchor_of(before, n.children[i]),
                                            std::uint32_t(i)});
@@ -1945,11 +1962,11 @@ namespace weft {
                 list.clips.assign(build.whole->clips.begin() + span.chain_begin,
                                   build.whole->clips.begin() + span.chain_begin + span.chain_count);
                 groups = span.groups;
-                visit(visit, *build.part, span.parent, span.clip, Chain{0, span.chain_count}, true);
+                visit(visit, *build.part, span.parent, span.clip, Chain{0, span.chain_count}, span.still, true);
             } else {
                 visit(visit, f.root, {1, 0, 0, 1, 0, 0},
                       build.unclipped ? unclipped : std::array<float, 4>{0, 0, f.root.box[2], f.root.box[3]}, Chain{},
-                      true);
+                      true, true);
             }
             if (list.items.size() > constants::scene::max_display_list_items) {
                 throw std::invalid_argument("native command bound");

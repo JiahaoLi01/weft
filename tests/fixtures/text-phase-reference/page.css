@@ -1,0 +1,16 @@
+/* "H" in cells at 16 phases of a CSS px (page.js), black on white. */
+#root {
+  background-color: #ffffff;
+  color: #000000;
+  font-family: "Segoe UI";
+  font-size: 20px;
+}
+
+.cell {
+  position: absolute;
+  display: block;
+  width: 30px;
+  height: 30px;
+  line-height: 30px;
+  white-space: nowrap;
+}

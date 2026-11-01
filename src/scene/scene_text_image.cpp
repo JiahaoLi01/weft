@@ -35,7 +35,25 @@ namespace weft {
         return {x, y};
     }
 
-    SceneTextImage scene_text_image(SceneText& text, const SceneNode& n, float scale, float margin) {
+    SceneTextPlace scene_text_place(std::array<float, 2> corner, float baseline) {
+        constexpr float steps = constants::text::text_phase_steps;
+        float x = std::floor(corner[0]);
+        float step = std::floor((corner[0] - x) * steps + .5f);
+        if (step == steps) {
+            x += 1;
+            step = 0;
+        }
+        const float y = std::floor(corner[1] + baseline + .5f) - std::floor(baseline + .5f);
+        return {{x, y}, step / steps};
+    }
+
+    float scene_text_baseline(SceneText& text, const SceneNode& n, float scale, float margin) {
+        const auto run = text.shape(n.text, n.style);
+        return (margin + scene_text_origin(n, run->metrics)[1] + run->metrics.baseline) * scale;
+    }
+
+    SceneTextImage scene_text_image(SceneText& text, const SceneNode& n, float scale, float margin,
+                                    std::optional<float> phase) {
         if (!std::isfinite(scale) || scale <= 0 || scale > constants::scene::max_raster_scale) {
             scene_values::fail("raster scale");
         }
@@ -79,8 +97,15 @@ namespace weft {
                 }
                 return std::pair{whole, fraction};
             };
-            const auto [ix, fx] = split((margin + origin[0] + g.x) * scale);
-            const auto [iy, fy] = split((margin + origin[1] + run->metrics.baseline + g.y) * scale);
+            float pen_x = (margin + origin[0] + g.x) * scale;
+            float pen_y = (margin + origin[1] + run->metrics.baseline + g.y) * scale;
+            if (phase) {
+                constexpr float positions = constants::text::glyph_subpixel_positions;
+                pen_x = std::floor((pen_x + *phase) * positions + .5f) / positions;
+                pen_y = std::floor(pen_y + .5f);
+            }
+            const auto [ix, fx] = split(pen_x);
+            const auto [iy, fy] = split(pen_y);
             if (text.color_face(g.face)) {
                 const auto glyph =
                     text.face(g.face).rasterize_color(g.glyph_id, run->size * scale, fx, fy, color,

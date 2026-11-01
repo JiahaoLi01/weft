@@ -16,6 +16,13 @@
 
 ## 本次已实现
 
+静止的文字落到设备像素，照 Chrome 的规则（2026-11-01，`katex` 分支，接着 KaTeX 那一条；用户定：只对齐静止上下文里的文字）。
+- **起因**：weft 把一行文字画进位图，再按节点的小数位置双线性采样，小数位置上的字比 Chrome 软（KaTeX 的上下标、居中在半像素上的标签）。Chrome 156 实测：横排字形的基线取整到设备像素，笔位量化到 1/4 设备像素，都是 0.5 进位，1 倍与 2 倍相同。
+- **先试过、没用的**：按“与上一帧同一位置才对齐，移动中照旧”做（Chrome 合成层的做法），破坏 weft 的不变量：补丁出来的帧不等于重新准备的帧，同一帧在历史不同的后端上画得不同，锚点牌子与同一处排出来的牌子不同（全量多失败 7 项）。不看历史、一律对齐，又会让滚动与动画里的文字相对按小数位置连续移动的盒子跳半个像素；用户在三种做法里定了“只对齐静止上下文里的文字”。
+- **实现**：显示列表标出静止的文字（`paint::Raster::still`：它和外面的元素都没有 transform、滚动位置与锚点；`SceneListSpan::still` 让补丁按原来的上下文重列）。`ScenePreparer::image` 对静止、只有平移、没有锚点的文字用 `scene_text_place`：位图放在整设备像素上，基线的行由位置给出，横向相位以 1/16 像素为步长进缓存键；`scene_text_image` 按相位把每个字形的笔位取 1/4 像素、基线放在位图的整行上；记录按位图的整像素位置平移（`render::move_scene_record`）。参考光栅画出的彩色位图字形不平移。D2D 参考光栅跟踪同样的静止规则，静止文字的基线取整、阴影照原生 pass 摆放。常量：`constants::text::glyph_subpixel_positions`、`text_phase_steps`；计数 `SceneNativeWork::text_on_pixels`。
+- **验证**（Release）：`text_phase_reference`（新，`tools/browser_text_phase_reference.mjs` 录 `tests/fixtures/text-phase-reference`，`text_phase_fixture_integrity` 核对输入）：原生 pass 与参考光栅画得一模一样的格子正是 Chrome 的（1 倍、2 倍，纵向与横向），原生 pass 的墨迹重心与 Chrome 差至多 0.095 / 0.043 设备像素；只有静止的标签落到像素；横向移动的位图有界（40 帧 9 张，再走一遍 0 张），纵向移动不重画；同一帧在新旧渲染器上逐像素相同。修改前原生 pass 的 16 格各不相同（双线性），参考光栅纵向也是。`katex_browser_reference` 最差行 1 倍 2.20 / 2.8% / 32 → 1.55 / 1.9% / 30，2 倍 1.15 / 1.4% / 50 → 0.82 / 1.0% / 56（56 是 Chrome 的 2 倍排版在一行里单独上移的一个元素：以前 weft 的字是糊的，差被摊开）。全量 ctest（Release，188 项）：除既有的 14 项外通过，曾因“按历史判断”失败的 7 项（`incremental_contract`、`scene_glass_page`、`scene_paint_reference`、`render_scene_anchor_contract`、`render_view_contract`、`render_vulkan_scene_contract`、`d3d11_warp_scene_native`）都过；`scene_cluster_browser_contract` 的比较部分跳过散列另跑：210 / 210 / 4,408 通过。
+- **限制**：用 `left`/`top` 逐帧移动的静止文字纵向一格一格跳，盒子仍连续移动；显式图层里的文字在图层自己的像素上对齐；横向相位的 1/16 量化让个别字形的笔位与 Chrome 差 1/4 像素；D2D 在 1/4 像素上的字形与 Chrome 的不同（重心差到 0.28 像素，原有）。
+
 KaTeX 0.16.47 的 HTML 输出（2026-11-01，`katex` 分支；CaseGinkgo 的相机调参面板要用 KaTeX 写公式，用户提出：weft 不支持 KaTeX 就让它支持）。
 - **起因**：原样的 `katex.min.js` 与 `katex.css` 在 weft 上一步也走不通：没有 `document.compatMode`，KaTeX 当作怪异模式拒绝渲染；`katex.css` 的 `@font-face` 被丢弃，字全是回退字体；`vertical-align: -0.25em` 这类长度、`width: min-content`、`display: inline-table` 与其中的行和单元格、svg 的 `width="400em"` 都整帧报错；`max-width: none` 报 `WEFT_UNSUPPORTED_UNIT`；宽松样式表里 `-ms-`、`-moz-` 前缀与 `counter-reset` 各报一条诊断。
 - **实现**（范围、诊断与已知差别见 [兼容表](compatibility.md) 2026-11-01 一条）：
@@ -28,9 +35,9 @@ KaTeX 0.16.47 的 HTML 输出（2026-11-01，`katex` 分支；CaseGinkgo 的相�
   - `katex_browser_reference`（新）：零诊断，只读 20 个 .ttf；2351 个元素的 client rect 全部在一个 LayoutUnit 内（最大差 0.015625 px）；原生 D3D11 pass（WARP）的每一行在 1 倍与 2 倍都在文字参照的阈值内（平均 RGB 差 3、差 32 级以上的像素 6%、5 × 5 平均后 56 级），最差行 1 倍 2.20 / 2.8% / 32，2 倍 1.15 / 1.4% / 50。Chrome 在设备像素里排版，它自己 2 倍的 rect 与 1 倍差到 0.5 CSS px（个别 2.4 px），24 行里 9 行的多数元素低 1 个设备像素；2 倍因此按 Chrome 2 倍的 rect 逐行对齐（参考里记了两种缩放的 rect），不对齐时第 7、10 行超限（5 × 5 60、平均 3.25）。页面加载加第一帧约 230 ms（KaTeX 的脚本、48 次渲染、读 20 个字体）。`katex_fixture_integrity`（新）核对输入的散列与两种缩放的截图、rect。
   - `view_fonts_contract`（新）：来源按提示与文件开头选、每个来源的原因、`unicode-range`、页面字族遮住同名安装字体、每个 View 与每次加载的目录、加载缺字体的诊断、严格样式表的拒绝、`compatMode`。`view_css_profile_contract`（新）：前缀与计数器属性静默，`clip-path`、`stroke-miterlimit`、`counter()` 各诊断一次、照常画，严格页面拒绝。`vector_raster_contract` 加重叠轮廓（同一横线画两遍，四分之一像素上的边覆盖 191 级，修改前 255）与反向的洞（照旧按面积）。`render_d3d12_view_contract` 加 `page_fonts`：同一运行时的两个 View（一个页面有 `@font-face`）交替经同一个 D3D12 渲染器画，三帧都与 D3D11 后端逐像素相同，两种字体画得不同（UE 插件走 D3D12 后端）。`style_forgiving_contract`（`@font-face` 的解析）、`scene_inline_contract`、`scene_border_browser_contract` 与流窗口探针按 LayoutUnit 改了期望值。
   - 全量 ctest（Release，186 项）：除既有的 14 项（签出换行的散列校验与浏览器差异，同 5a81b74a）外通过；`scene_cluster_browser_contract` 的比较部分跳过散列另跑：210 个状态、210 份 DOM、4,408 个 HTML 几何字段在各用例的限内。
-- **实验，没有合入**：文字图像按 Chrome 的规则落到设备像素（实测 Chrome 把字形基线取整到设备像素、横向按 1/4 设备像素量化），1 倍最差行的平均差 2.26 → 1.64，2 倍不变；要改文字图像的缓存键与摆放。
+- 文字图像落到设备像素：后来做了，只对静止上下文里的文字（上一条）。
 - **未验证**：UE 里没跑（CaseGinkgo 的子模块指针与 weft.dll 没动）；Debug 的全量 ctest 没跑；Vulkan 与 D2D 参考光栅上 KaTeX 的像素没有与 Chrome 对照（Vulkan 的 View 后端与 D3D11、D3D12 同样按帧换目录，`render_view_contract` 通过）；超过 16 MiB 的字体文件（资源回调的上限）读不到；`output: 'mathml'` 不画。
-- **下一步**（待用户定）：文字按 Chrome 的规则落到设备像素（上面的实验）；设备缩放下要不要照 Chrome 在设备像素里排版；盒子要不要先对齐像素（分数线画成一行实的，但小数位置的动画会一像素一像素地跳）；WOFF2。
+- **下一步**（待用户定）：设备缩放下要不要照 Chrome 在设备像素里排版；盒子要不要先对齐像素（分数线画成一行实的，但小数位置的动画会一像素一像素地跳）；WOFF2。
 
 SVG 文字的几何跟着它的每一个字体值变（2026-10-31，`text-line-numeric` 分支；核对下一条时发现）。
 - **起因**：svg 里的元素不排版，样式变了以后几何要不要重算只看 `scene_geometry_own_equal`（`src/scene/scene.hpp`）比的那些属性。几何适配器用 `SceneText::measure` 量 SVG 文字，读 `scene_font` 的七项，表里却只有 `font-size`、`font-weight`、`font-family`、`letter-spacing`。svg 里的文字只改 `font-style`、`font-variant-numeric` 或 `line-height` 时，View 留着旧的几何，`getBoundingClientRect` 等几何读取读到旧的大小：Segoe UI Light 28 px 的“1111”改成 `tabular-nums` 后仍读 39.92 px 宽（新建的同样的字 57.70 px），`italic` 39.92 对 45.72 px，`line-height: 60px` 高 37 对 60 px。HTML 元素不受影响：这些值变了就重排，重排时几何一并重算；svg 元素自己或它外面的元素改的也一样。

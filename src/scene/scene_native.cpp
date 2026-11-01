@@ -775,6 +775,9 @@ namespace weft {
                     if (item.kind == Kind::Text && shows) {
                         auto made = image(item, built.list.rasters[item.payload], scale, view_index);
                         out.image = std::move(made.text);
+                        if (made.shift[0] != 0 || made.shift[1] != 0) {
+                            render::move_scene_record(out.record, made.shift[0], made.shift[1]);
+                        }
                     } else if (item.kind == Kind::Filter) {
                         out.filter = filter(built.list.filters[item.payload], view_index);
                     } else if (item.kind == Kind::Shadow && shows) {
@@ -1014,6 +1017,8 @@ namespace weft {
                                               unsigned view_index) {
         const auto& n = *raster.source;
         const float margin = limits::image_margin + raster.overhang;
+        std::optional<float> phase;
+        std::array<float, 2> shift{};
         // A layer by its node; text by its source alone, so that the same text of another node shares the image.
         std::array<std::uint64_t, 5> id{view_index, n.identity.view_epoch, n.identity.slot, n.identity.generation,
                                         raster.part};
@@ -1032,9 +1037,26 @@ namespace weft {
             // The catalog its fonts came from (a View's page may define a family another View's does not).
             const auto catalog = text_.catalog_id();
             source.append(reinterpret_cast<const char*>(&catalog), sizeof catalog);
+            // Still text on a translation of the target, without an anchor, on the device's pixels as Chrome draws it:
+            // its baseline on the pixel row nearest where its line puts it, which the image's place gives (the image
+            // keeps the baseline on a row of its own wherever the item lies), and each glyph's pen on a quarter of a
+            // pixel, from where the item lies across a pixel in steps of text_phase_steps (scene_text_place).
+            const auto& m = item.transform;
+            if (raster.still && m[0] == 1 && m[1] == 0 && m[2] == 0 && m[3] == 1 && !item.anchor) {
+                const std::array<float, 2> corner{(m[4] - margin) * scale, (m[5] - margin) * scale};
+                const auto place = scene_text_place(corner, scene_text_baseline(text_, n, scale, margin));
+                phase = place.phase;
+                shift = {(place.corner[0] - corner[0]) / scale, (place.corner[1] - corner[1]) / scale};
+                source.push_back('\1');
+                source.append(reinterpret_cast<const char*>(&place.phase), sizeof place.phase);
+            }
             if (const auto* cached = texts_.find(source)) {
                 ++work_.text_reuses;
-                return {*cached, nullptr};
+                if (!cached->on_pixels) {
+                    shift = {};
+                }
+                work_.text_on_pixels += cached->on_pixels;
+                return {cached->image, nullptr, shift};
             }
         }
         if (item.kind == Kind::Layer) {
@@ -1128,13 +1150,16 @@ namespace weft {
         }
         {
             SceneBitmap bitmap;
-            auto text = scene_text_image(text_, n, scale, margin);
+            auto text = scene_text_image(text_, n, scale, margin, phase);
             if (!text.color_glyphs) {
                 bitmap = std::move(text.bitmap);
                 ++work_.text_portable_builds;
             } else if (reference_) {
+                // The reference raster's text lies where its line puts it, the image at the item's place.
                 bitmap = reference_(framed(), scale);
                 ++work_.reference_builds;
+                phase.reset();
+                shift = {};
             } else {
                 throw std::invalid_argument("color glyph image reference");
             }
@@ -1177,9 +1202,10 @@ namespace weft {
             ++work_.text_builds;
             place(image);
             const auto evictions = texts_.evictions();
-            texts_.put(source, image, bytes);
+            texts_.put(source, {image, phase.has_value()}, bytes);
             work_.image_evictions += texts_.evictions() - evictions;
-            return {std::move(image), nullptr};
+            work_.text_on_pixels += phase.has_value();
+            return {std::move(image), nullptr, shift};
         }
     }
 
@@ -1630,6 +1656,9 @@ namespace weft {
                 auto built = image(item, list.rasters[item.payload], scale, view_index);
                 out->images[i] = std::move(built.text);
                 out->layers[i] = std::move(built.layer);
+                if (built.shift[0] != 0 || built.shift[1] != 0) {
+                    render::move_scene_record(out->pass.records[i], built.shift[0], built.shift[1]);
+                }
             } else if (item.kind == Kind::Image) {
                 // A fitted image samples a texture of its own, whole, as the shader lays out a host texture.
                 const auto& image = list.images[item.payload];

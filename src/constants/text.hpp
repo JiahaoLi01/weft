@@ -24,6 +24,12 @@ namespace weft::constants::text {
     // Blink makes a platform font at the size its FontCache key holds: px times this, truncated to an integer (its
     // FontCacheKey precision multiplier), so glyphs, advances and line metrics at 13.552px are those of 13.55px.
     inline constexpr float font_size_precision = 100;
+    // Pen positions per device pixel at which Chrome draws an axis-aligned glyph across (Skia's subpixel positioning,
+    // in x only: its baseline lies on a whole pixel row).
+    inline constexpr float glyph_subpixel_positions = 4;
+    // Still text's image is drawn for where it lies across a device pixel in steps of this many a pixel, so that text
+    // moving across draws from at most this many images of a line (scene_text_place).
+    inline constexpr float text_phase_steps = 16;
     // At 72 dpi FreeType character sizes in points equal pixels.
     inline constexpr int freetype_pixel_dpi = 72;
     // FreeType reports this OS/2 version when the font has no usable OS/2 table.

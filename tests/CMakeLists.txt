@@ -290,6 +290,13 @@ if(WIN32)
     weft_add_test(NAME katex_browser_reference
         COMMAND weft_katex_reference_tests "${artifacts}/katex-reference-$<CONFIG>" TIMEOUT 300)
     weft_add_python_test(NAME katex_fixture_integrity SCRIPT tools/verify_katex_fixture.py)
+    # Still text on the device's pixels where Chrome draws it, at 1x and 2x (tools/browser_text_phase_reference.mjs,
+    # tests/fixtures/text-phase-reference); text under a transform or scrolled between them.
+    weft_add_executable(weft_text_phase_tests SOURCES text_phase_tests.cpp
+        LINK weft::view weft::scene_d3d11 weft::scene_d2d weft::platform_win32 windowscodecs ole32 SOURCE_DIR
+            LARGE_STACK)
+    weft_add_test(NAME text_phase_reference COMMAND weft_text_phase_tests "${artifacts}/text-phase-$<CONFIG>")
+    weft_add_python_test(NAME text_phase_fixture_integrity SCRIPT tools/verify_text_phase_fixture.py)
     # Scene text styles and the CSS around them: synthetic oblique against Chrome's pixels, tabular digits on the
     # reference raster and the native pass, case mappings, viewport lengths, overflow axes and diagnostics.
     weft_add_executable(weft_scene_text_style_tests SOURCES scene_text_style_tests.cpp

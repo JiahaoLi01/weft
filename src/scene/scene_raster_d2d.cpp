@@ -166,6 +166,35 @@ namespace weft {
             return *own_filters;
         }
 
+        // Whether the text being drawn is still (paint::Raster::still): no transform or scroll position of its element
+        // or one around it moves it (an anchored element draws nothing here). Still restores it.
+        bool still{true};
+
+        struct Still {
+            Impl& i;
+            bool before;
+
+            Still(Impl& impl, bool value) : i(impl), before(impl.still) {
+                i.still = value;
+            }
+
+            ~Still() {
+                i.still = before;
+            }
+
+            Still(const Still&) = delete;
+            Still& operator=(const Still&) = delete;
+        };
+
+        // The current map when it only scales up and translates (still text's place, scene_text_place).
+        std::optional<D2D1::Matrix3x2F> axis_aligned() {
+            const auto t = matrix();
+            if (t._12 != 0 || t._21 != 0 || t._11 <= 0 || t._22 <= 0) {
+                return std::nullopt;
+            }
+            return t;
+        }
+
         // Whether a node has a filter.
         static bool filtered(const SceneNode& n) {
             const auto v = trim(get(n.style, PropertyId::Filter, "none"));
@@ -1165,7 +1194,16 @@ namespace weft {
                 const float sigma = scene_values::shadow_sigma(layer.blur);
                 const float margin = constants::render::scene::image_margin + overhang +
                                      std::ceil(constants::scene::shadow_kernel_sigmas * sigma);
-                const auto image = scene_text_image(text, white, scale, margin);
+                // Still text's shadow on the device's pixels as the native passes place it (scene_text_place).
+                std::array<float, 2> corner{layer.x - margin, layer.y - margin};
+                std::optional<float> phase;
+                if (const auto t = still ? axis_aligned() : std::nullopt) {
+                    const auto place = scene_text_place({t->_11 * corner[0] + t->_31, t->_22 * corner[1] + t->_32},
+                                                        scene_text_baseline(text, white, scale, margin));
+                    phase = place.phase;
+                    corner = {(place.corner[0] - t->_31) / t->_11, (place.corner[1] - t->_32) / t->_22};
+                }
+                const auto image = scene_text_image(text, white, scale, margin, phase);
                 const auto w = image.bitmap.width;
                 const auto h = image.bitmap.height;
                 std::vector<float> coverage(std::size_t(w) * h);
@@ -1190,10 +1228,10 @@ namespace weft {
                                            D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,
                                                                                     D2D1_ALPHA_MODE_PREMULTIPLIED)),
                                            &bitmap));
-                target->DrawBitmap(bitmap.Get(),
-                                   {layer.x - margin, layer.y - margin, layer.x + line.box[2] + margin,
-                                    layer.y + line.box[3] + margin},
-                                   1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+                target->DrawBitmap(
+                    bitmap.Get(),
+                    {corner[0], corner[1], corner[0] + line.box[2] + 2 * margin, corner[1] + line.box[3] + 2 * margin},
+                    1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
             }
         }
 
@@ -1283,7 +1321,13 @@ namespace weft {
                 ink.a *= std::clamp(len(get(n.style, PropertyId::FillOpacity, "1")), 0.f, 1.f);
             }
             solid(ink);
-            draw_run(*run, n.text, x, y + m.baseline);
+            // Still HTML text: its baseline on the device's pixel row nearest it, as Chrome draws text
+            // (scene_text_place); across, DirectWrite puts each glyph's pen on a quarter of a pixel as Chrome does.
+            float baseline = y + m.baseline;
+            if (const auto t = still && !svg_text ? axis_aligned() : std::nullopt) {
+                baseline = (std::floor(t->_22 * baseline + t->_32 + .5f) - t->_32) / t->_22;
+            }
+            draw_run(*run, n.text, x, baseline);
         }
 
         // The element's outer shadows (under its background) or its inset ones (over it, under its border).
@@ -2123,6 +2167,9 @@ namespace weft {
                          (decoded ? transform(*decoded, n.box[2], n.box[3]) : transform(t, n.box[2], n.box[3], false)) *
                          D2D1::Matrix3x2F::Translation(o[0] + n.box[0], o[1] + n.box[1]);
             target->SetTransform(local * old);
+            // Its text and its children's are still where nothing moves them (the display list's rule).
+            const bool transformed = decoded ? !decoded->operations.empty() : trim(t) != "none";
+            const Still inner{*this, still && !transformed && n.scrolled[0] == 0 && n.scrolled[1] == 0};
             auto alpha = numeric(n, constants::scene::paint_slot_opacity, PaintValue::Scalar);
             if (alpha) {
                 ++work.typed_draws;
