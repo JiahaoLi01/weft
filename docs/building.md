@@ -69,6 +69,47 @@ open build/macos-metal/bin/weft_macos_demo.app
 
 `WEFT_SHADERS_METAL` 随之打开，Apple 上再构建 `weft::scene_metal` 与 `samples/macos-host`（`weft_macos_demo.app`：窗口里游戏的地面与单位上是 engine-host 的 HUD，按 1–5 换成 logo 的四个版本，R 重新载入，V 开关垂直同步（默认关：窗口里约 260 fps，受系统合成器交还 drawable 的速度所限，全屏 F 约 450 fps），`--page` 也接受 hud、logo、color、dark、light、static；`--shot <png>` 无窗口画若干帧写 PNG，`--capture <png> --quit-after <s>` 把窗口 3 秒时的画面写成 PNG）。Objective-C++ 用同一个 clang；LLVM 23 的类消息存根要较新的链接器，CMake 在支持时加 `-fno-objc-msgsend-class-selector-stubs`。
 
+Xcode 27.1 的 Apple clang 21（macOS 27 SDK 的 libc++ 有 `double` 的 `std::from_chars`）同样能构建上面的全部目标，不必装 Homebrew LLVM：不给编译器与链接参数即可（2026-10-23，Apple M5，macOS 26.6；`ctest` 同为 68/76）。测试脚本要 Python 3.10 以上（`zip(strict=)`），Xcode 自带的 3.9 不够，用 `-DPython3_EXECUTABLE=/opt/homebrew/bin/python3`。
+
+## iOS arm64（2026-10-23）
+
+Xcode 27.1 的 iOS SDK 与 Apple clang，MSL 由同一份 Vulkan SDK 生成。iOS 上 `double` 的 `std::from_chars` 从 iOS 26 才有，最低版本 26.0。模拟器用 Ninja：
+
+```sh
+export VULKAN_SDK=~/VulkanSDK/1.4.363.0/macOS
+cmake -G Ninja -B build/ios-sim -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphonesimulator \
+  -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=26.0 \
+  -DWEFT_BUILD_TESTS=OFF -DWEFT_BUILD_PROBES=OFF -DWEFT_RENDER_VULKAN=OFF
+cmake --build build/ios-sim --target weft_ios_demo
+xcrun simctl boot "iPhone 18 Pro"
+xcrun simctl install booted build/ios-sim/bin/weft_ios_demo.app
+xcrun simctl launch --console-pty booted dev.weft.ios-demo          # 可加 --page hud|logo|color|dark|light|static
+```
+
+`-DCMAKE_OSX_SYSROOT=iphoneos` 是真机 SDK（编译与链接，不签名）。`WEFT_BUILD_TESTS=ON` 时测试也编成模拟器程序，`xcrun simctl spawn booted build/ios-sim/bin/<test>.app/<test> [参数]` 在模拟器里运行（例如 `weft_logo_reference_metal_tests <输出目录>`）。
+
+真机要签名的 App，用 Xcode 生成器。先在 Xcode → Settings → Accounts 登录 Apple ID（免费账号的 App 7 天后要重装），iPhone 连上 Mac、信任这台电脑并打开 设置 → 隐私与安全性 → 开发者模式。`WEFT_IOS_DEVELOPMENT_TEAM` 是团队 ID（Xcode 的账号页，或钥匙串里 Apple Development 证书的组织单位），`WEFT_IOS_BUNDLE_ID` 换成自己的（免费团队拿不到别的团队已注册的标识）：
+
+```sh
+cmake -G Xcode -B build/ios-xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=26.0 \
+  -DWEFT_BUILD_TESTS=OFF -DWEFT_BUILD_PROBES=OFF -DWEFT_RENDER_VULKAN=OFF \
+  -DWEFT_IOS_DEVELOPMENT_TEAM=<团队 ID> -DWEFT_IOS_BUNDLE_ID=<com.example.weft-demo>
+open build/ios-xcode/Weft.xcodeproj                                  # scheme weft_ios_demo，目标选那台 iPhone，Run
+```
+
+不开 Xcode 也行（`<UDID>` 见 `xcrun devicectl list devices`；第一次构建由 `-allowProvisioningUpdates` 建开发证书、描述文件并登记设备）。免费团队装上之后要在手机的 设置 → 通用 → VPN 与设备管理 里信任一次开发者，描述文件 7 天后过期，重新构建安装即可：
+
+```sh
+xcodebuild -project build/ios-xcode/Weft.xcodeproj -scheme weft_ios_demo -configuration Release \
+  -destination id=<UDID> -allowProvisioningUpdates -allowProvisioningDeviceRegistration build
+xcrun devicectl device install app --device <UDID> build/ios-xcode/bin/Release/weft_ios_demo.app
+xcrun devicectl device process launch --device <UDID> --console <bundle id> --page color   # stdout 到这里
+xcrun xctrace record --template 'Metal System Trace' --device <UDID> --time-limit 8s \
+  --output logo.trace --launch -- <bundle id> --page color                                 # 手机要解锁
+```
+
+`samples/ios-host`（`weft_ios_demo.app`）：与 macOS 示例共用引擎、Metal 与页面的部分（`samples/macos-host` 的 `engine.hpp`、`gpu.hpp`、`page.hpp`），UIKit 场景里的 CAMetalLayer 随 CADisplayLink 绘制（ProMotion 上最高 120 Hz），View 铺满整块屏幕（引擎的世界画到边缘），系统的安全区经 `weft_view_set_safe_area` 交给页面，HUD 用 `env(safe-area-inset-*)` 让开摄像头开孔与 Home 条；手机横屏，转屏、换屏（iPhone Duo 合上与展开）时跟着改。一个触点是指针：移到触点、按下、抬起，然后离开（点过不留悬停）；被系统取消的触点只离开，不点击。页面在那里没有可交互元素时，触点伤害那里的单位。右上的 Next page 依次换成 logo 的四个版本；左上一行是页面、帧率、每帧 CPU 与 GPU 时间和这一秒里显示上最长的帧间隔；stdout 每秒打印这些、最慢一帧的 CPU 与 GPU 时间和没显示出来的帧，以及每个触点（Xcode 的控制台、`simctl launch --console-pty` 或 `devicectl device process launch --console`）。HUD 以外的页面没有引擎的世界，示例不单独清屏，由 View 的 pass 清（`clear_target`）：苹果的分块 GPU 上每个 render pass 都把整个目标写出、下一个再读回。Metal 后端的编码器带标签（`weft out`、`weft group`、`weft uploads` 等），在 Metal System Trace 与 GPU 帧捕获里按名字看。页面随包复制到 `examples/`（真机读不到源码目录）。系统字体与 macOS 一样经 CoreText 列出（`weft::platform_macos` 在 iOS 上也构建）。
+
 
 ## 固定依赖与离线构建
 

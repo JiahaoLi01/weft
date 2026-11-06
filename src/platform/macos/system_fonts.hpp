@@ -2,10 +2,11 @@
 
 #include "text/font_catalog.hpp"
 
-// macOS font discovery for the portable font catalog. CoreText is used only to list the faces (file, weight, style,
-// variation axes) and the system's fallback order; FreeType finds a face's index inside a collection (.ttc) by its
-// PostScript name and reads the family names CSS also matches. Shaping, metrics and rasterization stay in
-// HarfBuzz/FreeType.
+// macOS font discovery for the portable font catalog, which iOS uses as it is (the same CoreText calls; its generic
+// families and fallbacks are macOS Chrome's, not checked against a browser on iOS). CoreText is used only to list the
+// faces (file, weight, style, variation axes) and the system's fallback order; FreeType finds a face's index inside a
+// collection (.ttc) by its PostScript name and reads the family names CSS also matches. Shaping, metrics and
+// rasterization stay in HarfBuzz/FreeType.
 namespace weft::platform::macos {
     // The family name system-ui maps to: CoreText's hidden UI family (".AppleSystemUIFont", San Francisco).
     inline constexpr const char* system_ui_family = ".AppleSystemUIFont";

@@ -10,10 +10,11 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 option(WEFT_BUILD_TESTS "Build Weft behavior tests" ON)
 option(WEFT_BUILD_PROBES "Build architecture probes" ON)
-option(WEFT_BUILD_SAMPLES "Build host samples (Windows, where the engine host also needs the Vulkan backend; macOS with the Metal backend)" ON)
+option(WEFT_BUILD_SAMPLES "Build host samples (Windows, where the engine host also needs the Vulkan backend; macOS and iOS with the Metal backend)" ON)
 
 if(APPLE)
-    # The Metal backend and the macOS host sample are Objective-C++ (src/render/backends/metal, samples/macos-host).
+    # The Metal backend and the Apple host samples are Objective-C++ (src/render/backends/metal, samples/macos-host,
+    # samples/ios-host).
     enable_language(OBJCXX)
     # Newer clang (LLVM 23) sends class messages through objc_msgSendClass$ stubs that only newer linkers make;
     # without them every linker links the code.
@@ -51,6 +52,10 @@ endif()
 if(WEFT_BUILD_SAMPLES AND WIN32)
     add_subdirectory(samples)
 elseif(WEFT_BUILD_SAMPLES AND APPLE AND TARGET weft_scene_metal)
-    # The Metal host sample: a window on macOS (samples/macos-host).
-    add_subdirectory(samples/macos-host)
+    # The Metal host samples: a window on macOS (samples/macos-host), an app on iOS (samples/ios-host).
+    if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        add_subdirectory(samples/ios-host)
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        add_subdirectory(samples/macos-host)
+    endif()
 endif()

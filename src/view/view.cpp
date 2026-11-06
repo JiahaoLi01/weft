@@ -217,6 +217,9 @@ namespace weft {
         std::optional<DomSnapshot> last_dom;
         float last_scene_width = -1;
         float last_scene_height = -1;
+        // The host's safe area (set_safe_area), and the one the scene last built with.
+        SceneSafeArea safe_area{};
+        SceneSafeArea last_scene_safe_area{};
         double last_scene_time = -1;
         bool geometry_valid{};
         std::uint64_t layout_epoch = 1;
@@ -385,7 +388,8 @@ namespace weft {
 
         // Builds the scene from last_dom; changed tells whether its content moved since the previous build.
         void sync_scene(bool changed) {
-            const bool resized = width != last_scene_width || height != last_scene_height;
+            const bool resized =
+                width != last_scene_width || height != last_scene_height || safe_area != last_scene_safe_area;
             if (!changed && !resized && (!current.animated || last_scene_time == time)) {
                 current.time_ms = time;
                 last_scene_time = time;
@@ -408,6 +412,7 @@ namespace weft {
             }
             last_scene_width = width;
             last_scene_height = height;
+            last_scene_safe_area = safe_area;
             last_scene_time = time;
         }
 
@@ -1653,6 +1658,7 @@ namespace weft {
         });
         i.scene->set_images(i.images.get());
         i.scene->set_effects(i.effects);
+        i.scene->set_safe_area(i.safe_area);
         // Its fonts anew each load too.
         i.load_fonts(page.base);
         try {
@@ -1773,6 +1779,20 @@ namespace weft {
             } catch (const std::runtime_error& e) {
                 i.handle(e, ViewDiagnostic::Kind::Script);
             }
+        }
+    }
+
+    void View::set_safe_area(float top, float right, float bottom, float left) {
+        auto& i = *impl_;
+        const SceneSafeArea safe_area{top, right, bottom, left};
+        for (const auto inset : safe_area) {
+            if (!std::isfinite(inset) || inset < 0 || inset > constants::scene::max_viewport_dimension) {
+                throw std::invalid_argument("WEFT_VIEW_SAFE_AREA: finite insets, at least 0");
+            }
+        }
+        i.safe_area = safe_area;
+        if (i.scene) {
+            i.scene->set_safe_area(safe_area);
         }
     }
 

@@ -23,6 +23,7 @@
 #import <QuartzCore/CAMetalLayer.h>
 
 #include "gpu.hpp"
+#include "page.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -39,10 +40,6 @@ namespace {
     bool fullscreen{};
     std::string capture_path;
     double quit_after{};
-
-    std::string text_of(id value) {
-        return [value isKindOfClass:[NSString class]] ? std::string([(NSString*)value UTF8String]) : std::string();
-    }
 
     // The folder a page argument names: a folder of its own (page.json, or the HUD's hud.js), or one of the examples'.
     std::string resolve_page(const std::string& name) {
@@ -67,46 +64,6 @@ namespace {
                             "light, static");
     }
 
-    // A page folder as hosts load it: page.json ({"scripts": [...], "stylesheet": "...", "keyframes": "...", "root":
-    // "...", "crpgBridge": false, "forgivingCss": false, "webPlatform": false}, paths relative to the folder), or the
-    // HUD's hud.js, hud.css and hud-keyframes.css.
-    demo::Page load_page(const std::string& folder) {
-        const std::string manifest = folder + "/page.json";
-        if (![[NSFileManager defaultManager] fileExistsAtPath:@(manifest.c_str())]) {
-            return demo::hud_page(folder);
-        }
-        NSData* data = [NSData dataWithContentsOfFile:@(manifest.c_str())];
-        NSDictionary* json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-        demo::check([json isKindOfClass:[NSDictionary class]], "cannot read " + manifest);
-        demo::Page page;
-        NSString* path = @(folder.c_str());
-        page.name = std::string(path.stringByDeletingLastPathComponent.lastPathComponent.UTF8String) + "/" +
-                    path.lastPathComponent.UTF8String;
-        for (id script in json[@"scripts"]) {
-            const auto name = text_of(script);
-            page.scripts.emplace_back(name, demo::read(folder + "/" + name));
-        }
-        const auto stylesheet = text_of(json[@"stylesheet"]);
-        page.stylesheet = demo::read(folder + "/" + stylesheet);
-        page.base = folder + "/" + stylesheet;
-        if (const auto keyframes = text_of(json[@"keyframes"]); !keyframes.empty()) {
-            page.keyframes = demo::read(folder + "/" + keyframes);
-        }
-        page.root = text_of(json[@"root"]);
-        const auto flag = [&](NSString* key, std::uint32_t bit) {
-            if ([json[key] respondsToSelector:@selector(boolValue)] && [json[key] boolValue]) {
-                page.flags |= bit;
-            }
-        };
-        flag(@"crpgBridge", WEFT_PAGE_CRPG_BRIDGE);
-        flag(@"forgivingCss", WEFT_PAGE_FORGIVING_CSS);
-        flag(@"webPlatform", WEFT_PAGE_WEB_PLATFORM);
-        return page;
-    }
-
-    // The pages keys 1-5 switch to.
-    const char* const switchable[]{"engine-host", "logo/color", "logo/dark", "logo/light", "logo/static"};
-
     // Writes encoded premultiplied BGRA rows as a PNG.
     void write_png(const std::string& path, const std::vector<std::uint8_t>& bgra, unsigned width, unsigned height) {
         CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
@@ -130,7 +87,7 @@ namespace {
 
     // Off screen: frames at 60 per second of game time, each waited for; at frame 30 the player clicks end turn.
     int shot(const std::string& path, unsigned frames, unsigned width, unsigned height, float scale) {
-        demo::Engine engine(load_page(page_folder), float(width), float(height), scale);
+        demo::Engine engine(demo::load_page(page_folder), float(width), float(height), scale);
         demo::Gpu gpu;
         const unsigned w = unsigned(float(width) * scale);
         const unsigned h = unsigned(float(height) * scale);
@@ -234,8 +191,8 @@ namespace {
     CGColorSpaceRelease(space);
     self.layer = _layer;
     const float scale = float(NSScreen.mainScreen.backingScaleFactor);
-    _engine =
-        std::make_unique<demo::Engine>(load_page(page_folder), float(frame.size.width), float(frame.size.height), scale);
+    _engine = std::make_unique<demo::Engine>(demo::load_page(page_folder), float(frame.size.width),
+                                             float(frame.size.height), scale);
     _inflight = dispatch_semaphore_create(2);
     _start = _second = Clock::now();
     [self updateDrawableSize];
@@ -478,7 +435,7 @@ namespace {
     NSString* key = event.charactersIgnoringModifiers.lowercaseString;
     std::string folder;
     if (key.length == 1 && [key characterAtIndex:0] >= '1' && [key characterAtIndex:0] <= '5') {
-        folder = std::string(WEFT_EXAMPLES) + "/" + switchable[[key characterAtIndex:0] - '1'];
+        folder = std::string(WEFT_EXAMPLES) + "/" + demo::switchable[[key characterAtIndex:0] - '1'];
     } else if ([key isEqualToString:@"r"]) {
         folder = page_folder;
     } else if ([key isEqualToString:@"f"]) {
@@ -496,7 +453,7 @@ namespace {
     }
     try {
         // The same View takes the page: its animations start over.
-        _engine->load(load_page(folder));
+        _engine->load(demo::load_page(folder));
         page_folder = folder;
         std::printf("page %s\n", _engine->page_name.c_str());
     } catch (const std::exception& e) {
