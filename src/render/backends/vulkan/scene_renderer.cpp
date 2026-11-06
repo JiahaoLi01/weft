@@ -2,6 +2,7 @@
 
 #include "constants/common.hpp"
 #include "constants/render.hpp"
+#include "scene/scene_schedule.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -690,6 +691,9 @@ namespace weft::render::vulkan {
         const auto& d = gpu;
         const auto& pass = prepared.pass;
         const auto command = command_buffer_;
+        // What the pass draws, in order (scene/scene_schedule.hpp); a backdrop of a target the pass may not read is
+        // transparent.
+        const auto schedule = schedule_scene_pass(prepared, host_textures, clear, image != VkImage{});
         // Nested passes first, each ending before this one begins: plane contents, and layers not drawn before. The
         // slot leases every image and layer the pass samples.
         std::vector<VkImageView> views(prepared.images.size());
@@ -715,18 +719,14 @@ namespace weft::render::vulkan {
                 slot_->leases.push_back(drawn);
             }
         }
-        // The host texture bound to each texture item's name; none, and nothing drawn, for an unbound one.
-        const auto host = scene_texture_bindings(prepared, host_textures);
-        for (std::size_t i = 0; i < prepared.textures.size(); ++i) {
-            if (const auto t = prepared.textures[i]) {
-                if (const auto* texture = host[t - 1]) {
-                    views[i] = native_handle<VkImageView>(texture->view);
-                    ++texture_draws;
-                } else {
-                    ++unbound_textures;
-                }
+        // The host texture each texture item draws.
+        for (std::size_t i = 0; i < schedule.textures.size(); ++i) {
+            if (const auto* texture = schedule.textures[i]) {
+                views[i] = native_handle<VkImageView>(texture->view);
             }
         }
+        texture_draws += schedule.bound_textures;
+        unbound_textures += schedule.unbound_textures;
         // The records of host textures whose rows start at the bottom sample them flipped.
         const SceneRecord* record_data = pass.records.data();
         std::vector<SceneRecord> flipped;
@@ -822,21 +822,21 @@ namespace weft::render::vulkan {
         const auto view = view_buffer.buffer;
         std::memcpy(view_buffer.mapped, constants.data(), sizeof(constants));
         std::vector<Image> groups;
-        for (std::size_t depth = 0; depth < pass.group_depth; ++depth) {
+        for (std::size_t depth = 0; depth < schedule.groups; ++depth) {
             groups.push_back(target(prepared.width, prepared.height));
         }
+        // Each backdrop's chain of images: its copy, then one target per filter pass; the backdrop draws the last.
+        std::vector<std::vector<Image>> chains;
+        for (const auto& chain : schedule.chains) {
+            auto& images = chains.emplace_back();
+            for (const auto& [w, h] : chain.images) {
+                images.push_back(target(w, h));
+            }
+        }
 
-        // Each backdrop's chain of images, in batch order: its copy, then one target per pass, each with the pass's
-        // pipeline and constants; the backdrop draws the last.
-        struct Chain {
-            std::vector<Image> images;
-            std::vector<std::pair<std::size_t, BackdropConstants>> passes;
-        };
-
-        std::vector<Chain> chains;
         // A descriptor set per distinct sampling of the pass's draws: the image a draw samples (a texture, a page, the
-        // group it composites, or none) with an effect's textures (or a sprite); per draw in batch order, its set; and per
-        // Effect step in batch order, its pipeline. Draws that sample alike share a set.
+        // group it composites, a backdrop's filtered copy, or none) with an effect's textures (or a sprite); per draw
+        // in order, its set; and per effect draw in order, its pipeline. Draws that sample alike share a set.
         using Textures = std::array<VkImageView, weft::constants::max_effect_textures>;
         std::vector<VkImageView> images;
         std::vector<std::optional<Textures>> effect_views;
@@ -852,91 +852,49 @@ namespace weft::render::vulkan {
             draw_sets.push_back(at->second);
         };
         std::vector<VkPipeline> effects;
-        // The copy each Copy step takes, which an effect that reads its backdrop samples as its image.
-        std::vector<Image> copies(pass.copies.size());
-        std::size_t open{};
-        for (const auto& batch : pass.batches) {
-            switch (batch.step) {
-                case ScenePass::Step::Boxes:
-                    use(blank_image_.view, std::nullopt);
-                    break;
-                case ScenePass::Step::Image:
-                    // A path with nothing inside its clip has no image and draws nothing.
-                    if (views[batch.first]) {
-                        use(views[batch.first], std::nullopt);
-                    }
-                    break;
-                case ScenePass::Step::Atlas:
-                    use(page(prepared.pages.at(batch.source)).view, std::nullopt);
-                    break;
-                case ScenePass::Step::BeginGroup:
-                    ++open;
-                    break;
-                case ScenePass::Step::EndGroup:
-                    use(groups.at(--open).view, std::nullopt);
-                    break;
-                case ScenePass::Step::Effect: {
-                    const auto& effect = prepared.effects.at(batch.source);
-                    ensure(effect.textures.size() <= weft::constants::max_effect_textures, "effect textures");
-                    Textures textures;
-                    textures.fill(blank_image_.view);
-                    for (std::size_t t = 0; t < effect.textures.size(); ++t) {
-                        textures[t] = textures_.at(effect.textures[t]->id).image.view;
-                        slot_->leases.push_back(effect.textures[t]);
-                    }
-                    use(batch.copy ? copies.at(batch.copy - 1).view : blank_image_.view, textures);
-                    effects.push_back(effect_pipeline(effect.program));
-                    break;
-                }
-                case ScenePass::Step::Copy: {
-                    const auto& region = pass.copies.at(batch.source).region;
-                    copies.at(batch.source) =
-                        target(std::uint32_t(region[2] - region[0]), std::uint32_t(region[3] - region[1]));
-                    break;
-                }
-                case ScenePass::Step::Backdrop: {
-                    const auto& b = pass.backdrops.at(batch.source);
-                    auto w = std::uint32_t(b.region[2] - b.region[0]);
-                    auto h = std::uint32_t(b.region[3] - b.region[1]);
-                    Chain chain;
-                    chain.images.push_back(target(w, h));
-                    const auto add = [&](std::size_t pipeline, const BackdropConstants& values) {
-                        chain.images.push_back(target(w, h));
-                        chain.passes.emplace_back(pipeline, values);
-                    };
-                    if (b.pre != paint::identity_color_matrix) {
-                        add(2, backdrop_matrix_constants(b.pre));
-                    }
-                    if (b.size[0] < w) {
-                        const auto wide = w;
-                        w = b.size[0];
-                        add(0, backdrop_area_constants(wide, w, true));
-                    }
-                    if (b.size[1] < h) {
-                        const auto tall = h;
-                        h = b.size[1];
-                        add(0, backdrop_area_constants(tall, h, false));
-                    }
-                    if (b.sigma[0] > 0) {
-                        add(1, backdrop_blur_constants(b.sigma[0], true, w, h));
-                        add(1, backdrop_blur_constants(b.sigma[1], false, w, h));
-                    }
-                    use(chain.images.back().view, std::nullopt);
-                    chains.push_back(std::move(chain));
-                    break;
-                }
-                case ScenePass::Step::Particles: {
-                    // The emission's sprite where an effect's first texture goes.
-                    Textures textures;
-                    textures.fill(blank_image_.view);
-                    if (const auto& sprite = prepared.sprites.at(batch.source)) {
-                        textures[0] = textures_.at(sprite->id).image.view;
-                        slot_->leases.push_back(sprite);
-                    }
-                    use(blank_image_.view, textures);
-                    break;
-                }
+        for (const auto& step : schedule.commands) {
+            const auto* draw = std::get_if<SceneSchedule::Draw>(&step);
+            if (!draw) {
+                continue;
             }
+            VkImageView sampled = blank_image_.view;
+            switch (draw->image.kind) {
+                case SceneSchedule::Image::Kind::Blank:
+                    break;
+                case SceneSchedule::Image::Kind::Item:
+                    sampled = views.at(draw->image.index);
+                    ensure(sampled != VkImageView{}, "an image item's view");
+                    break;
+                case SceneSchedule::Image::Kind::Page:
+                    sampled = page(prepared.pages.at(draw->image.index)).view;
+                    break;
+                case SceneSchedule::Image::Kind::Group:
+                    sampled = groups.at(draw->image.index).view;
+                    break;
+                case SceneSchedule::Image::Kind::Backdrop:
+                    sampled = chains.at(draw->image.index).back().view;
+                    break;
+            }
+            if (draw->extra == SceneSchedule::Extra::None) {
+                use(sampled, std::nullopt);
+                continue;
+            }
+            Textures textures;
+            textures.fill(blank_image_.view);
+            if (draw->extra == SceneSchedule::Extra::Effect) {
+                const auto& effect = prepared.effects.at(draw->source);
+                ensure(effect.textures.size() <= weft::constants::max_effect_textures, "effect textures");
+                for (std::size_t t = 0; t < effect.textures.size(); ++t) {
+                    textures[t] = textures_.at(effect.textures[t]->id).image.view;
+                    slot_->leases.push_back(effect.textures[t]);
+                }
+                effects.push_back(effect_pipeline(effect.program));
+            } else if (const auto& sprite = prepared.sprites.at(draw->source)) {
+                // The emission's sprite where an effect's first texture goes.
+                textures[0] = textures_.at(sprite->id).image.view;
+                slot_->leases.push_back(sprite);
+            }
+            use(sampled, textures);
         }
         std::vector<VkDescriptorSet> sets(images.size());
         ensure(sets.size() <= unsigned(limits::max_pass_descriptor_sets), "descriptor sets of one pass");
@@ -1013,9 +971,12 @@ namespace weft::render::vulkan {
             }
         }
 
-        // The backdrop passes' sets: each pass's constants, the image it reads and the mirroring sampler.
+        // The backdrop passes' sets: each pass's constants, the image it reads and the mirroring sampler; a chain's
+        // first is at its first_sets.
+        std::vector<std::size_t> first_sets;
         std::size_t backdrop_set_count{};
-        for (const auto& chain : chains) {
+        for (const auto& chain : schedule.chains) {
+            first_sets.push_back(backdrop_set_count);
             backdrop_set_count += chain.passes.size();
         }
         std::vector<VkDescriptorSet> backdrop_sets(backdrop_set_count);
@@ -1032,13 +993,14 @@ namespace weft::render::vulkan {
             // Every pass's constants in one buffer, each at its stride.
             const auto& values = buffer(backdrop_stride_ * backdrop_sets.size());
             std::size_t s{};
-            for (const auto& chain : chains) {
-                for (std::size_t k = 0; k < chain.passes.size(); ++k, ++s) {
-                    std::memcpy(static_cast<std::byte*>(values.mapped) + backdrop_stride_ * s, &chain.passes[k].second,
+            for (std::size_t c = 0; c < schedule.chains.size(); ++c) {
+                const auto& filters = schedule.chains[c].passes;
+                for (std::size_t k = 0; k < filters.size(); ++k, ++s) {
+                    std::memcpy(static_cast<std::byte*>(values.mapped) + backdrop_stride_ * s, &filters[k].second,
                                 sizeof(BackdropConstants));
                     const VkDescriptorBufferInfo constants_info{values.buffer, backdrop_stride_ * s,
                                                                 sizeof(BackdropConstants)};
-                    const VkDescriptorImageInfo source_info{VK_NULL_HANDLE, chain.images[k].view,
+                    const VkDescriptorImageInfo source_info{VK_NULL_HANDLE, chains[c][k].view,
                                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
                     const VkDescriptorImageInfo mirror_info{mirror_sampler_, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
                     VkWriteDescriptorSet writes[3]{};
@@ -1062,7 +1024,8 @@ namespace weft::render::vulkan {
             }
         }
 
-        // The pass: cleared to its clear color, groups in their images, each composited into the target below.
+        // The commands: each target begun cleared or kept as a render pass with the scene pipeline, groups in their
+        // images, each composited into the target below.
         const auto begin = [&](VkFramebuffer framebuffer, bool clear, const paint::Color& color) {
             VkClearValue value{};
             std::copy(color.begin(), color.end(), value.color.float32);
@@ -1084,9 +1047,7 @@ namespace weft::render::vulkan {
         // The set bound for the scene's layout: none yet, or after a backdrop's passes bound theirs.
         constexpr auto unbound = std::numeric_limits<std::size_t>::max();
         auto bound = unbound;
-        // count instances of a quad, or one instance of vertices (the particles' 6 per particle).
-        const auto instances = [&](std::uint32_t first, std::uint32_t count,
-                                   std::uint32_t vertices = std::uint32_t(limits::quad_vertex_count)) {
+        const auto instances = [&](std::uint32_t first, std::uint32_t count, std::uint32_t vertices) {
             if (const auto set = draw_sets.at(next_draw++); set != bound) {
                 d.vkd.vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 1, &sets[set], 0,
                                               nullptr);
@@ -1095,18 +1056,10 @@ namespace weft::render::vulkan {
             d.vkd.vkCmdDraw(command, vertices, count, 0, first);
             ++draws;
         };
-        if (!prepared.over) {
-            begin(out, true, pass.clear);
-        } else {
-            begin(out, clear != nullptr, clear ? *clear : pass.clear);
-        }
-        std::size_t depth{};
-        std::size_t next_effect{};
-        std::size_t next_chain{};
-        std::size_t next_backdrop_set{};
-        // A backdrop pass's render pass over the whole of its target, cleared.
-        const auto begin_over = [&](const Image& over) {
+        // A backdrop chain's render pass over the whole of its image, cleared (transparent unless given).
+        const auto begin_over = [&](const Image& over, const paint::Color& color = {}) {
             VkClearValue value{};
+            std::copy(color.begin(), color.end(), value.color.float32);
             VkRenderPassBeginInfo info{};
             info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
             info.renderPass = passes_.clear;
@@ -1120,152 +1073,109 @@ namespace weft::render::vulkan {
             const VkRect2D scissor{{0, 0}, {over.width, over.height}};
             d.vkd.vkCmdSetScissor(command, 0, 1, &scissor);
         };
-        const auto readable = [&](const Image& done) {
-            transition(d, command, done.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        const auto readable = [&](VkImage done) {
+            transition(d, command, done, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                        VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
                        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
         };
-        for (const auto& batch : pass.batches) {
-            switch (batch.step) {
-                case ScenePass::Step::Boxes:
-                case ScenePass::Step::Atlas:
-                    instances(batch.first, batch.count);
-                    break;
-                case ScenePass::Step::Image:
-                    if (views[batch.first]) {
-                        instances(batch.first, 1);
-                    }
-                    break;
-                case ScenePass::Step::BeginGroup:
-                    d.vkd.vkCmdEndRenderPass(command);
-                    begin(groups[depth++].framebuffer, true, paint::Color{});
-                    break;
-                case ScenePass::Step::EndGroup:
-                    d.vkd.vkCmdEndRenderPass(command);
-                    transition(d, command, groups[--depth].image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                               VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                               VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-                    begin(depth ? groups[depth - 1].framebuffer : out, false, paint::Color{});
-                    instances(batch.first, 1);
-                    break;
-                case ScenePass::Step::Effect:
-                    d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, effects[next_effect++]);
-                    instances(batch.first, batch.count);
-                    d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, passes_.pipeline);
-                    break;
-                case ScenePass::Step::Copy: {
-                    // What the current target holds over the copy's region, for the effect that reads it later; a
-                    // transparent copy of a target the pass may not read.
-                    const auto& region = pass.copies.at(batch.source).region;
-                    const auto& copy = copies.at(batch.source);
-                    d.vkd.vkCmdEndRenderPass(command);
-                    if (const VkImage from = depth ? groups[depth - 1].image : image) {
-                        transition(d, command, from, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                                   VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                                   VK_PIPELINE_STAGE_TRANSFER_BIT);
-                        transition(d, command, copy.image, VK_IMAGE_LAYOUT_UNDEFINED,
-                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, VK_ACCESS_TRANSFER_WRITE_BIT,
-                                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-                        VkImageCopy part{};
-                        part.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-                        part.srcOffset = {region[0], region[1], 0};
-                        part.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-                        part.extent = {copy.width, copy.height, 1};
-                        d.vkd.vkCmdCopyImage(command, from, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, copy.image,
-                                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &part);
-                        transition(d, command, from, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT,
-                                   VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                                   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-                        transition(d, command, copy.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT,
-                                   VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-                    } else {
-                        ++reasons["backdrop of an unreadable target"];
-                        begin_over(copy);
-                        d.vkd.vkCmdEndRenderPass(command);
-                        readable(copy);
-                    }
-                    ++backdrop_copies;
-                    begin(depth ? groups[depth - 1].framebuffer : out, false, paint::Color{});
-                    break;
-                }
-                case ScenePass::Step::Backdrop: {
-                    // Copy the region of the target the backdrop reads (the current one, or the one enclosing the
-                    // current group), run its passes, and draw it over the current target or beneath its content.
-                    const auto& b = pass.backdrops.at(batch.source);
-                    const auto& chain = chains.at(next_chain++);
-                    d.vkd.vkCmdEndRenderPass(command);
-                    ensure(!b.under || depth > 0, "a backdrop beneath a group inside one");
-                    const VkImage from = b.under ? (depth >= 2 ? groups[depth - 2].image : image)
-                                                 : (depth ? groups[depth - 1].image : image);
-                    if (from) {
-                        const auto& copy = chain.images.front();
-                        transition(d, command, from, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                                   VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                                   VK_PIPELINE_STAGE_TRANSFER_BIT);
-                        transition(d, command, copy.image, VK_IMAGE_LAYOUT_UNDEFINED,
-                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, VK_ACCESS_TRANSFER_WRITE_BIT,
-                                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-                        VkImageCopy region{};
-                        region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-                        region.srcOffset = {b.region[0], b.region[1], 0};
-                        region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-                        region.extent = {copy.width, copy.height, 1};
-                        d.vkd.vkCmdCopyImage(command, from, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, copy.image,
-                                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-                        transition(d, command, from, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT,
-                                   VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                                   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-                        transition(d, command, copy.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT,
-                                   VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-                        for (std::size_t k = 0; k < chain.passes.size(); ++k) {
-                            const auto& over = chain.images[k + 1];
-                            begin_over(over);
-                            d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                                    backdrop_pipelines_.at(chain.passes[k].first));
-                            d.vkd.vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, backdrop_layout_, 0,
-                                                          1, &backdrop_sets[next_backdrop_set + k], 0, nullptr);
-                            bound = unbound;
-                            d.vkd.vkCmdDraw(command, 3, 1, 0, 0);
-                            d.vkd.vkCmdEndRenderPass(command);
-                            readable(over);
-                        }
-                    } else {
-                        // Nothing the pass may read: the backdrop is transparent.
-                        ++reasons["backdrop of an unreadable target"];
-                        begin_over(chain.images.back());
-                        d.vkd.vkCmdEndRenderPass(command);
-                        readable(chain.images.back());
-                    }
-                    next_backdrop_set += chain.passes.size();
-                    begin(depth ? groups[depth - 1].framebuffer : out, false, paint::Color{});
-                    if (b.under) {
-                        d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, under_pipeline_);
-                    }
-                    instances(batch.first, 1);
-                    if (b.under) {
-                        d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, passes_.pipeline);
-                    }
-                    ++backdrop_passes;
-                    break;
-                }
-                case ScenePass::Step::Particles:
-                    d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, particle_pipeline_);
-                    instances(batch.first, 1, std::uint32_t(limits::quad_vertex_count) * batch.count);
-                    d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, passes_.pipeline);
+        // The image of a target of the schedule: the pass's own (none when the host gave none), a group's, or a
+        // chain's.
+        const auto image_of = [&](const SceneSchedule::Target& t) {
+            switch (t.kind) {
+                case SceneSchedule::Target::Kind::Group:
+                    return groups.at(t.index).image;
+                case SceneSchedule::Target::Kind::Chain:
+                    return chains.at(t.index).at(t.image).image;
+                case SceneSchedule::Target::Kind::Out:
                     break;
             }
+            return image;
+        };
+        std::size_t next_effect{};
+        for (const auto& step : schedule.commands) {
+            if (const auto* b = std::get_if<SceneSchedule::Begin>(&step)) {
+                if (b->target.kind == SceneSchedule::Target::Kind::Chain) {
+                    begin_over(chains.at(b->target.index).at(b->target.image), b->clear.value_or(paint::Color{}));
+                } else {
+                    begin(b->target.kind == SceneSchedule::Target::Kind::Out ? out
+                                                                             : groups.at(b->target.index).framebuffer,
+                          b->clear.has_value(), b->clear.value_or(paint::Color{}));
+                }
+            } else if (const auto* e = std::get_if<SceneSchedule::End>(&step)) {
+                d.vkd.vkCmdEndRenderPass(command);
+                if (e->sampled) {
+                    readable(image_of(e->target));
+                }
+            } else if (const auto* draw = std::get_if<SceneSchedule::Draw>(&step)) {
+                VkPipeline pipeline{};
+                switch (draw->pipeline) {
+                    case SceneSchedule::Pipeline::Scene:
+                        break;
+                    case SceneSchedule::Pipeline::Under:
+                        pipeline = under_pipeline_;
+                        break;
+                    case SceneSchedule::Pipeline::Particles:
+                        pipeline = particle_pipeline_;
+                        break;
+                    case SceneSchedule::Pipeline::Effect:
+                        pipeline = effects.at(next_effect++);
+                        break;
+                }
+                if (pipeline) {
+                    d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+                }
+                instances(draw->first, draw->count, draw->vertices);
+                if (pipeline) {
+                    d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, passes_.pipeline);
+                }
+            } else if (const auto* copy = std::get_if<SceneSchedule::Copy>(&step)) {
+                // The region of the target the backdrop reads, into its chain's first image.
+                const auto from = image_of(copy->from);
+                ensure(from != VkImage{}, "a backdrop copy from a readable target");
+                const auto& to = chains.at(copy->chain).front();
+                transition(d, command, from, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                           VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                           VK_PIPELINE_STAGE_TRANSFER_BIT);
+                transition(d, command, to.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+                           VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                           VK_PIPELINE_STAGE_TRANSFER_BIT);
+                VkImageCopy region{};
+                region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+                region.srcOffset = {copy->region[0], copy->region[1], 0};
+                region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+                region.extent = {to.width, to.height, 1};
+                d.vkd.vkCmdCopyImage(command, from, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, to.image,
+                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+                transition(d, command, from, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT,
+                           VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                           VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+                transition(d, command, to.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT,
+                           VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                           VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+            } else if (const auto* filter = std::get_if<SceneSchedule::Filter>(&step)) {
+                const auto& over = chains.at(filter->chain).at(filter->pass + 1);
+                begin_over(over);
+                const auto kind = schedule.chains.at(filter->chain).passes.at(filter->pass).first;
+                d.vkd.vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                        backdrop_pipelines_.at(std::size_t(kind)));
+                d.vkd.vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, backdrop_layout_, 0, 1,
+                                              &backdrop_sets.at(first_sets.at(filter->chain) + filter->pass), 0,
+                                              nullptr);
+                bound = unbound;
+                d.vkd.vkCmdDraw(command, 3, 1, 0, 0);
+                d.vkd.vkCmdEndRenderPass(command);
+                readable(over.image);
+            }
         }
-        d.vkd.vkCmdEndRenderPass(command);
+        backdrop_passes += schedule.backdrops;
+        backdrop_copies += schedule.copies;
+        if (const auto unreadable = schedule.unreadable_backdrops + schedule.unreadable_copies) {
+            reasons["backdrop of an unreadable target"] += unreadable;
+        }
     }
 
     bool SceneRenderer::encode(Slot& slot, const SceneFrame& frame, VkCommandBuffer command, const Target& target,

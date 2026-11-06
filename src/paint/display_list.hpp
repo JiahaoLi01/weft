@@ -291,11 +291,13 @@ namespace weft::paint {
         bool backdrop{};
         float backdrop_margin{};
         // Pixel shader bytecode, empty where not built: D3D11 DXBC and Vulkan SPIR-V, for an encoded and a linear
-        // pass.
+        // pass; and the encoded pass in MSL source (fragment ps_main, its resources at constants::render::metal),
+        // which the Metal backend compiles.
         std::vector<std::uint8_t> d3d11_encoded;
         std::vector<std::uint8_t> d3d11_linear;
         std::vector<std::uint8_t> spirv_encoded;
         std::vector<std::uint8_t> spirv_linear;
+        std::string msl_encoded;
     };
 
     // A UI shader effect over the item's box [0, width] x [0, height], inside its corner radii (top-left first, then

@@ -89,6 +89,8 @@ int main(void) {
     }
     weft_view_frame_release(frame);
     if (weft_view_resize(runtime, view, 320, 240, 2) != WEFT_OK ||
+        weft_view_set_safe_area(runtime, view, 0, 0, 34, 0) != WEFT_OK ||
+        weft_view_set_safe_area(runtime, view, -1, 0, 0, 0) != WEFT_INVALID_ARGUMENT ||
         weft_view_drain_diagnostics(runtime, view, on_diagnostic, NULL, &dropped) != WEFT_OK) {
         return 12;
     }

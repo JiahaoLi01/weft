@@ -5,6 +5,12 @@
 #include "platform/win32/system_fonts.hpp"
 #elif defined(__ANDROID__)
 #include "platform/android/system_fonts.hpp"
+#elif defined(__APPLE__)
+#include <TargetConditionals.h>
+#if TARGET_OS_OSX
+#include "platform/macos/system_fonts.hpp"
+#define WEFT_MACOS_FONTS 1
+#endif
 #endif
 
 #include <algorithm>
@@ -150,6 +156,8 @@ int main(int argc, char** argv) {
         auto catalog = weft::platform::win32::system_font_catalog();
 #elif defined(__ANDROID__)
         auto catalog = weft::platform::android::system_font_catalog();
+#elif defined(WEFT_MACOS_FONTS)
+        auto catalog = weft::platform::macos::system_font_catalog();
 #else
         weft::FontCatalog catalog;
 #endif

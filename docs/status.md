@@ -12,6 +12,7 @@
   - 低优先级，暂不做。
 - **与引擎通信**（2026-10-14 起，第 13 步，[计划](refactoring-plan.md#第-13-步计划2026-10-14与引擎通信)，[技术路线](engine-communication.md)）：血条这类每帧变位置的元素不靠每帧推 JSON（锚点在渲染线程取最新值），双向事件、带 Promise 的引擎调用与视图模型，C ABI 与 CRPG UI 的兼容层。基线：200 个血条每帧约 13 ms，页面自己算出同样的值（零传输）也一样慢，瓶颈在逐个改 DOM 之后的样式、布局与场景更新。13.1 已完成（2026-10-14）：400 个名牌只移动时 UI 线程每帧约 0.005 ms、渲染 CPU 约 0.02–0.04 ms（推 JSON 时分别约 23 ms 与 4 ms）。13.2 已完成（2026-10-14）：带类型的值、双向事件、调用与 Promise、同步函数、视图模型与 CRPG 兼容层；每秒约 1,000 个 10 KB 的事件时 UI 线程每帧 0.79 ms（CRPG 的拼脚本求值约 4.5 ms）。13.3 已完成（[计划](refactoring-plan.md#第-13-步记录2026-10-14)）：13.3a 对外 View 与它的 C ABI、13.3b 渲染 C ABI 接 View 的帧与模拟引擎的宿主样例（2026-10-14），13.3c 页面显示引擎的纹理（2026-10-15，用户提出，如 UE 的 render target）。13.4 已完成（2026-10-15）：CRPG 原样的浮动 UI 跑在 scene 上，200 个单位时锚点方式的 UI 线程每帧 p50 29 ms、推 JSON 191 ms（剩下的是动画每帧改 DOM 后按整个文档的计算，13.5）。引擎纹理的限制已做（下一条）。13.5 增量管线已完成（2026-10-15）：13.5a owner 侧只处理变化的节点，13.5b 渲染侧只重做变化的子树，13.5c 每个元素的开销与局部布局。400 个单位（约 1,600 个节点）每帧改 1 个时 owner p50 / p99 5.3 / 12.1 → 0.111 / 0.194 ms，渲染 CPU 4.1 → 0.043 / 0.078 ms；400 个只移动 owner p99 3.7 ms；锚点加 20 个血条改宽度 owner 10.7 → 0.91 ms。
 - **引擎纹理的限制**（13.3c 之后，用户 2026-10-15 定为中优先级）：2026-10-15 做了铺排（`background-size`、`-position`、`-repeat`、`-origin`、`-clip`）、sRGB 与 BGRA 视图、mip、D2D 参考光栅、Vulkan 的目标别名检查、D3D11 上别的设备或 API 共享的纹理（见下方“本次已实现”）。剩下：文档页面（整体没有背景图片）、Vulkan 的跨 API 导入（未测）、UE 插件（M5；2026-10-15 起在 `unreal` 分支与 weft-unreal 仓库做，D3D12 后端已完成，2026-10-17 合入 main，见下方“本次已实现”）。
+- **Metal 的设备端**（2026-10-17，`metal` 分支）：着色器的 MSL 与 C ABI（M.1）、与 Vulkan、D3D12 共用的编排（M.2）、macOS 上的适配器与窗口示例（M.3，2026-10-21）已完成；iOS 的构建、模拟器上的 Metal 测试与示例 App 见下方“本次已实现”（2026-10-23）。剩下：效果、背景滤镜、粒子、平面、图层与 CSS filter 在 Metal 上的像素对照，iOS 真机的功能与性能，设备丢失。
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
@@ -81,6 +82,61 @@ SVG 文字的几何跟着它的每一个字体值变（2026-10-31，`text-line-n
   - 全量 ctest（180 项）：除既有的 14 项（签出换行的散列校验与浏览器差异）外通过，与修改前的基线相同。
 - **限制**：映射着的字体文件在 Windows 上可改名、删除，不能就地改写或截短，宿主加的字体文件在运行时持有它时也是这样（此前读完即关闭）；Android 用 `mmap`，只编译过、没在设备上运行。列出系统字体仍在第一个页面载入时（页面运行器约 10 ms，UE 里约 73 ms，几乎都是建 DirectWrite 工厂）；挪到别的时刻（建 runtime 时，或宿主提前调用一个列出字体的接口）是产品上的取舍，没做。第一次要回退的帧仍要建参考光栅。
 
+CSS `env(safe-area-inset-*)` 与 `weft_view_set_safe_area`；iOS 示例铺满全屏（2026-10-23，`ios-host` 分支；用户提出：iPhone Duo 大屏上 HUD 下方有黑边，画面应铺满全屏，只让按钮避开屏幕边缘）。详见 [与引擎通信](engine-communication.md) 的“安全区”与 [兼容性](compatibility.md)。
+- **实现**：
+  - C ABI：`weft_view_set_safe_area(runtime, view, top, right, bottom, left)`，View 的逻辑 px；没有设时为 0，跨加载保留，第一个页面之前也可以设；值须有限且不小于 0。
+  - 场景：`SceneSolver::set_safe_area`；`expand` 先把 `env()` 换成 px（在简写拆分之前：`env(name, fallback)` 里有逗号与空格），之后的 `calc()` 化简、视口长度照旧。名字区分大小写；`safe-area-inset-top/right/bottom/left` 之外的名字用后备值（可嵌套 `env()`），没有后备值报诊断；关键帧里的 `env()` 报诊断。安全区变化而 DOM 不变时只重新展开读了 `env()` 的元素（与视口长度分开记）。
+  - 示例：`samples/ios-host` 的 View 铺满屏幕，`layoutSubviews` 把 `safeAreaInsets` 交给 weft，`safeAreaInsetsDidChange` 时重新布局；HUD（`examples/engine-host/hud.css`）的小地图与右下面板用 `calc(24px + env(safe-area-inset-*))`，安全区为 0 时与原来相同。顺带修了上一次提交里模拟器编译不过的问题：模拟器的 drawable 没有 `addPresentedHandler`/`presentedTime`，那段只在真机编译，模拟器上“显示上最慢一帧”为 0。
+- **验证**：
+  - `c_api_view_contract` 的 `safe_area`（新）：第一个页面之前设、改成 0 后重新布局、跨加载保留、`left/top/right` 与 `calc()` 里的 `bottom`、`padding` 简写里的 `env()` 与写成 px 的同一个盒子相同、后备值与嵌套、大写名字用后备值、无后备值的未知名字与关键帧里的 `env()` 报诊断、负数与 NaN、无穷、过期句柄；两个变异（每个 `env()` 都读上边距、安全区变了不重新展开）都被它发现。`c_api_smoke` 从 C 调用。macOS `ctest`（Debug）68/76，同前。
+  - HUD 在 macOS 上安全区为 0：与改动前逐像素相同（2328 × 1200，0 个像素不同）。改动前 `env()` 在严格与宽松两种页面里都报 `WEFT_UNSUPPORTED_UNIT`，改动后零诊断。
+  - 模拟器 iPhone 18 Pro：画布从安全区的 2250 × 1146 变成整屏 2622 × 1206，没有黑边；小地图与结束回合按钮离左右各 24 + 62 pt、离下 24 + 21 pt，转 180 度后同样。
+  - iPhone Duo（Release）：大屏画布 2853 × 1905 → 2853 × 2007（整屏），下方的黑边没了，小地图与按钮离下 24 + 34 pt；20 s 120.0 fps，CPU 0.32 ms，GPU 2.08 ms（最慢 2.45 ms），显示上最长的帧间隔 8.3 ms，没有帧没显示。App 运行中合上手机：画布换到外屏的 2034 × 1398（整屏；之前是安全区的 1782 × 1296），小地图离左 24 + 84 pt（摄像头一侧）、离下 24 + 34 pt，切换前后都 120 fps、没有错误。
+- **未验证**：Windows 上的编译与 `view_contract` 等用 HUD 的测试（安全区为 0，应与原来相同）；iPhone Air 上这次的构建（手机锁屏，用户这次只测 Duo）；`safe-area-max-inset-*`、`keyboard-inset-*`、可折叠设备的 `viewport-segment-*`（走后备值）。
+- **下一步**：iPhone Air 上补测；需要时把 `viewport-segment-*` 接到两块屏的设备上。
+
+iOS 真机：iPhone Duo（2026-10-23，`ios-host` 分支，同一个 Release 构建；iPhone19,4，GPU A20 Pro，iOS 27.1，当天发售；Xcode 27.1 还只认作“iPhone”）。
+- **设备**：两块屏，都是 3x：主屏 1398 × 2034 px（约 3.04 × 4.42 英寸），另一块 1878 × 2670 px（约 4.37 × 6.21 英寸）；这次只在主屏上跑，另一块没有点亮。示例横屏的安全区 594 × 432 pt（1782 × 1296 px）。免费团队的描述文件由 `-allowProvisioningDeviceRegistration` 加进这台设备，装上之后在手机上信任一次开发者。
+- **验证**（每秒的统计，第一秒之后；Metal System Trace 不固定 GPU 档，两台都由 iOS 调频放在 state 1）：
+  - HUD：31 s 120.0 fps，CPU 0.34 ms（最慢 2.86 ms），GPU 1.75 ms（最慢 2.25 ms），显示上最长的帧间隔 8.3 ms，没有帧没显示。头几秒每帧等 drawable 约 8 ms，之后平均 0.71 ms。
+  - logo/color：20 s 119.8 fps，CPU 0.17 ms，GPU 1.43 ms，最长帧间隔 12.5 ms（一次）。Trace：`weft out` 片元 1.41 ms，GPU 忙 24.8%（iPhone Air 同档 3.77 ms、54.5%）；按像素约 0.61 ns，iPhone Air 约 1.35 ns。
+  - 第一秒 77–87 fps，2–14 帧没显示（同 iPhone Air，字体、管线与页面载入）。
+  - 画面：HUD 正常；logo 页的图形约 660 pt 宽，比 594 pt 的安全区宽，居中后两边被裁掉（页面固定大小，不随宽度缩放，不是渲染问题）。
+- **未验证**：另一块屏（App 移到大屏或两块屏之间切换时的改大小与安全区）；触点；长时间运行；logo 页的窄屏布局。
+
+场景着色器：纯色的盒子不走通用路径（2026-10-23，`ios-host` 分支；iPhone Air（A19 Pro），iOS 26.6，Release；Apple M5 的 macOS 26.6 作像素对照）。
+- **起因**：iPhone 上 logo 页每帧 GPU 约 5.2 ms，几乎都在 weft 唯一的 render pass 的片元阶段。同一页面、同一大小（776 × 400 pt，3x）在 macOS 上导出的 draw 列表：27 个记录里第一个是铺满屏幕的背景盒，2,807,728 px，占片元着色像素的约 68%；它没有圆角、旋转、边框、渐变与图像，却和别的盒子一样算圆角距离、它的精细导数（`ddx_fine`、`ddy_fine`）与四条边框的楔形。另外：Apple 的 GPU 没有 draw 之间的时间戳（计数器只能在 stage 边界采样），逐 draw 的时间要 Xcode 的 GPU 帧捕获在界面里重放，这次没有用；这些录制没有固定 GPU 的性能状态（`gpu-performance-state-info` 的 `consistent-state-enabled` 为 No），是 iOS 自己的调频把 GPU 放在低档（`gpu-performance-device-state-intervals`：工作时都在 state 1，想要的是 state 0），App 自己的统计（不开 Instruments）与之相近：这里的“每帧 GPU 时间”是低频下的工作量，不是 GPU 跑满。用 Xcode 的 Debug → Induce Device Conditions → GPU Performance State → Maximum 固定到最高档（state 3）后，同样的工作见下方“验证”。
+- **实现**：`scene.hlsl` 的 `ps_main`：没有圆角与旋转（`rectangular`）、四条边框宽度都不大于 0、没有渐变（`size.z <= 0`）的盒子，在计算距离之前返回 `premult(background) × 覆盖份额 × 不透明度 × 裁剪覆盖`，即通用路径对这种盒子的结果（编码空间的份额是 `overlap`，线性空间是像素中心是否在盒内）。所有后端共用这份着色器。
+- **验证**：
+  - GPU 固定在最高档（state 3，`consistent-state-enabled` 为 Yes），改动之后，20 s：logo/color 119.9 fps，每帧 GPU 0.90 ms（最慢 0.94），`weft out` 片元 0.87 ms，GPU 忙的时间 16.9%（低档时 54.5%）；HUD 120.0 fps，GPU 0.77 ms（最慢 0.88），显示上最长的帧间隔 8.3 ms。比低档快约 4.2 倍；模拟器的 GPU 时间（logo 0.17 ms）是 Mac（Apple M5）的 GPU，不代表手机。
+  - iPhone Air，Metal System Trace（两次都是调频的低档 state 1）：logo/color 的 `weft out` 片元 5.18 → 3.77 ms，每帧 GPU 合计 5.23 → 3.81 ms（−27%）；HUD 的 `weft out` 片元 2.40 → 2.48 ms（HUD 几乎没有大的纯色盒子，在误差内）。App 自己的统计（不开 Instruments，20 s）：logo/color 119.8 fps，GPU 5.22 → 3.80 ms，CPU 0.19 ms，没有帧没显示。
+  - 像素（macOS，`weft_macos_demo --shot`，改前改后逐像素比较）：HUD 与 logo 的四个版本（2328 × 1200）、一个盒子测试页的 2x 完全相同；同一测试页 1x 有 19 px、3x 有 62 px 差 1 级，都在小数位置的抗锯齿边上（0.4 px 的竖线、半透明盒子、小数宽度的竖条）：Metal 运行时以 fast math 编译 MSL，两条路径的运算顺序与融合可以不同。测试页包括整数与小数位置、半透明背景、`opacity`、0.4 px 宽、平移小数、`scale`、等宽与不等宽边框、圆角、圆角加边框、线性渐变、旋转、圆角 `overflow: hidden` 里的裁剪、文字。
+  - macOS `ctest`（Debug）68/76，同前；`render_metal_shader_contract`、`scene_schedule_contract`、`logo_browser_reference_metal` 通过。
+  - 另外发现：严格场景页面里 `hsl()` 的颜色载入时没有诊断，每帧编码却失败（`WEFT_RENDER_UNSUPPORTED_FEATURE`，“WEFT_STYLE_PROFILE: color outside #rrggbb/transparent/rgb/rgba profile”）；示例现在把渲染器的 `weft_renderer_last_failure` 一起打印。
+- **未验证**：D3D11（fxc）、D3D12 与 Vulkan 的编译与像素（着色器共用，这次没有 Windows）；Windows 上与 D2D 参考光栅、Chrome 的对照测试；logo 页上那一次 20.8 ms 的显示间隔（改前改后都有）。
+- **下一步**：在 Windows 上跑全量 `ctest`；`hsl()` 这类载入时就能知道的样式问题改成载入诊断；其余着色成本（路径图像的遮罩、HUD 的文字）要看 GPU 帧捕获。
+
+iOS 真机：iPhone Air 上的示例、Release 的帧时间与 GPU 剖析（2026-10-23，`ios-host` 分支；iPhone Air（A19 Pro），iOS 26.6，免费个人团队签名；Xcode 27.1）。命令见 [构建](building.md#ios-arm642026-10-23)。
+- **实现**：示例每秒的统计加上最慢一帧的 CPU、GPU 时间，显示上两帧之间的最长间隔（`addPresentedHandler`），以及没显示出来的帧；触点写到 stdout（行缓冲）。示例的引擎没有世界可画时（HUD 以外的页面）不再单独开一个清屏的 pass，由 View 的 pass 清（`weft_render_metal_pass::clear_target`）；View 没有帧或编码失败时补一个清屏。Metal 后端的编码器带标签（`weft out`、`weft group`、`weft backdrop chain`、`weft backdrop copy`、`weft backdrop filter`、`weft filter`、`weft uploads`），给剖析工具看。另修了示例刚加的显示回调：它在 lambda 里按引用捕获了 `__weak` 指针，Release 下 SIGSEGV。
+- **验证**（Xcode 生成器签名，`devicectl` 安装与 `--console` 启动，`xctrace` 的 Metal System Trace；横屏 2328 × 1200 px）：
+  - 功能：画面与文字正常（真机沙盒里能读 iOS 系统字体），120 Hz。用户手动点了按钮、切了页，报告正常；但 Debug 那次 App 自己的日志里回合一直是 1、只记到一次切页，原因未查清；Release 加了触点日志之后没有再手动核对。
+  - Debug：HUD 116.8 fps，每帧 CPU 2.9 ms、GPU 3.4 ms；logo/color 119.3 fps，CPU 2.7 ms、GPU 6.1 ms。
+  - Release（每秒的统计，第一秒之后）：HUD 30 s 119.9 fps，CPU 0.38 ms（最慢一帧 2.99 ms）、GPU 3.37 ms（3.68 ms），显示上最长的帧间隔 12.5 ms，没有帧没显示。logo/color：改动前 18 s 119.9 fps，CPU 0.22 ms、GPU 6.06 ms；改动后 16 s CPU 0.19 ms、GPU 5.22 ms（最慢 5.28 ms），最长帧间隔 20.8 ms（一次），没有帧没显示。第一秒约 86 fps、约 20 帧没显示（字体列表、管线与页面载入）。
+  - Metal System Trace（稳定后每帧 GPU）：logo/color 改动前 `weft out` fragment 5.28 ms、`engine world` 0.86 ms（只清屏）、其余 0.24 ms，合计 6.39 ms；改动后 `weft out` 5.18 ms，合计 5.23 ms。HUD：`weft out` 2.40 ms、`engine world` 1.07 ms，合计 3.54 ms。每帧只有一个 weft 的 render pass（没有 group 与背景拷贝），时间在场景着色器的逐像素着色：logo 页的背景盒铺满屏幕，每个像素都走通用的 `ps_main`（读 Paint、裁剪、圆角距离与抗锯齿、四条边框）。Metal 编译后的 `ps_main` 约 12.9 KB（引擎的 `world_fs` 约 0.9 KB）。默认模板在这台设备上只采到一个 GPU 计数器（RT Unit Active），没有瓶颈计数器。
+  - macOS：`render_metal_shader_contract`、`scene_schedule_contract`、`logo_browser_reference_metal` 照旧通过；`--shot` 的 HUD、logo/color、logo/dark 零诊断。
+- **未验证**：哪个 draw、着色器的哪一段占 GPU 时间（要 Xcode 的 GPU 帧捕获）；真机上的触点日志；20.8 ms 那一次的原因；长时间运行的温度与降频；iPad。
+- **下一步**：逐 draw 的 GPU 剖析，再按结果给常见的纯色、无边框、无圆角的盒子一条轻的着色路径（或用函数常量去掉不用的分支）；第一秒的卡顿（字体列表与管线编译放到第一帧之前）。
+
+iOS：构建、模拟器上的 Metal 测试、示例 App 与 iOS 上的系统字体（2026-10-23，`ios-host` 分支，基于 `metal`；Apple M5，macOS 26.6，Xcode 27.1（Apple clang 21，iOS 27.1 SDK），Vulkan SDK 1.4.363.0；模拟器 iPhone 18 Pro，iOS 27.0）。命令见 [构建](building.md#ios-arm642026-10-23)。
+- **实现**：`samples/ios-host`（`weft_ios_demo.app`）：只用公开头文件，与 macOS 示例共用引擎、Metal 与页面的部分（`load_page` 与可切换的页面从 macOS 示例的 `main.mm` 移到 `samples/macos-host/page.hpp`）；UIKit 场景、CAMetalLayer 随 CADisplayLink 绘制（最高 120 Hz）、View 占安全区、手机横屏；一个触点是指针（移到、按下、抬起、离开；系统取消的触点只离开），页面没有可交互元素处的触点伤害单位；Next page 换 logo 页面；后台停帧、回到前台继续；页面随包复制。CMake：iOS 上构建 `samples/ios-host`；`WEFT_IOS_BUNDLE_ID`、`WEFT_IOS_DEVELOPMENT_TEAM` 给 Xcode 生成器签名。系统字体：`weft::platform_macos` 在 iOS 上也构建，运行时在 `TARGET_OS_IOS` 上同 macOS 用它（同样的 CoreText 调用；泛型族与回退照 macOS 的 Chrome，没有与 iOS 上的浏览器对照）。
+- **验证**：
+  - 配置、编译、链接：模拟器 SDK（Ninja，库、示例与 Metal 测试）、真机 SDK（Ninja，库与示例，未签名）、Xcode 生成器（`xcodebuild` 模拟器，ad-hoc 签名，15 个页面文件封入签名）均通过；Xcode 默认的 519 条警告全在 `third_party`（FreeType、QuickJS、libunibreak）。
+  - 模拟器里的 Metal 测试（`simctl spawn`）：`render_metal_shader_contract`、`scene_schedule_contract`、`logo_browser_reference_metal`（40 帧与 Chrome 对照，超过 32 级差的像素至多 0.039%，同 macOS）通过。
+  - 模拟器里的示例：横屏 750 × 382 pt（2250 × 1146 px，3x）60 fps（模拟器的上限），每帧 CPU 0.6–2.0 ms（View 推进 0.1–0.5 ms）、GPU 0.1–0.2 ms，第一秒 482 ms（字体列表与管线）；HUD 的文字用 iOS 系统字体画出；点 End turn 后页面调用引擎、引擎回答，页面显示第 2 回合；Next page 与 `--page dark`、`--page light` 的 logo 完整；Home 键后无帧、回到前台同一进程继续 60 fps；系统日志里没有示例自己的错误。
+  - macOS：重新构建全部目标，`ctest`（Debug）68/76，同前（8 项签出换行的散列校验）；`weft_macos_demo --shot` 的 HUD 与 `--page dark` 零诊断、结束回合得到回答。
+- **未验证**：iOS 真机（签名、安装、功能、120 Hz 与性能、沙盒里能否读系统字体文件）；触点点中世界里移动的单位（模拟器里没有点中）；iPad 与竖屏；与 iOS 上浏览器的文字几何；设备丢失。
+- **下一步**：真机运行与性能剖析（Xcode 生成器，用户的团队与 bundle ID）。
+
 空间导航让“看起来能点”的元素拿焦点，Enter 与空格按下它们（2026-10-23，`input` 分支；第三阶段的补充：宣传页自己模拟了这两条，原会话提出补进 weft）。
 - **起因**：Chrome 开了空间导航时，有 click 等监听器或自己设了 `cursor: pointer` 的元素也能拿焦点（Blink 的 `Element::SupportsSpatialNavigationFocus`），Enter 与空格按下它们；weft 只有 Tab 本来能到的元素，宣传页只好给队员与“显示元素边框”开关写 `tabIndex = 0` 与 Enter 的处理。
 - **实现**（见 [与引擎通信](engine-communication.md#8-对外-view133)“手柄与空间导航”）：
@@ -125,6 +181,20 @@ SVG 文字的几何跟着它的每一个字体值变（2026-10-31，`text-line-n
   - Chrome 参考：`tools/browser_keyboard_reference.mjs` 经 DevTools 驱动无头 Chrome，在 `tests/fixtures/keyboard` 的页面上按 Windows 的方式送键（raw keydown、char、keyup）与鼠标，录下每一步的事件与状态（`chrome-results.json`，Chrome 155）。
 - **验证**（Release）：`keyboard_contract`（新）：九个场景 153 步与 Chrome 逐事件、逐字段一致（坐标容差 1 px，滚动位置容差 1 px），两处有意不同（Tab 回绕；在文字上点击后的 Shift+Tab）；另有回绕、宿主焦点、out_handled 与丢弃的文字、输入法的键、keyCode/location/getModifierState、重入的监听器（blur 里抢焦点、keydown 里删焦点元素、祖先的移除与移动）、聚焦规则与 tabIndex、没有 web 平台的页面、焦点环的像素与 Chrome 量到的位置一致。`c_api_view_contract` 加 `keyboard`。`web_platform_contract`、`view_contract`、`incremental_contract`、scene 与样式的合同照旧通过。全量 ctest 177 项：除既有的 14 项（签出换行的散列校验与浏览器差分）外通过。
 - **限制**：文本框与 IME（下一阶段）、手柄（第三阶段）；在文字上点击后 Shift+Tab 从被点的元素算起（weft 的命中只到元素）；键盘滚动一步到位；`accesskey`、`inert`、`<dialog>`/popover 的焦点范围、焦点元素变得不可聚焦时的修正未做；右 Alt 的 key 一律是 `Alt`（不区分 AltGraph 布局）；严格页面没有默认焦点环（严格文法没有 `:focus-visible`）。
+
+Metal 第三段 M.3 与 macOS 窗口示例（2026-10-21，`metal` 分支；Apple M4 Pro，macOS 27.0.1，Homebrew LLVM 23.1.4，Vulkan SDK 1.4.363.0 的 DXC 与 spirv-cross，没有 Xcode）。详见 [渲染后端 API](render-backend-api.md#metal2026-10-17未实现) 与 [构建](building.md#macos-arm642026-10-21)。
+- **实现**：`weft::scene_metal`：执行 M.2 编排的 Metal scene pass（render 与 blit 编码器）与 `weft_render_metal_create`、`_external`、`_destroy` 的 View 后端，结构同 Vulkan。`samples/macos-host`（`weft_macos_demo.app`）：只用公开头文件，CAMetalLayer 窗口里引擎画地面与单位，HUD（engine-host 页面：锚点名牌、血量视图模型、伤害数字、每帧写的小地图外部纹理、结束回合的调用）画在其上；指针、悬停光标、滚轮、改大小与 Retina；1–5 换 logo 页面。
+- **验证**：Metal 在设备上编译全部 MSL 并建成管线；`logo_browser_reference_metal`（新）40 帧与 Chrome 对照，超过 32 级差的像素至多 0.039%；示例经 C ABI 画的 logo 与 Chrome 帧差 0.021%、0.016%；HUD 无窗口 90 帧：页面就绪、结束回合的调用得到回答、零诊断，小地图、按钮、文字与血条按 CSS 的像素核对；窗口 2560×1440 约 110–120 fps，View 推进 0.1–0.6 ms。`ctest`（Debug）76 项中 68 项通过，其余 8 项是夹具与浏览器输入的散列校验（签出的换行，同前）。
+- **未验证**：效果、背景滤镜、粒子、平面、图层与 CSS filter 在 Metal 上的像素；iOS；设备丢失；性能剖析；D3D12 与 Vulkan 这次没有构建（没有 Windows）。
+- **下一步**：效果与背景滤镜的 Metal 像素对照（画廊的 Chrome 参照），iOS 构建。
+
+macOS 上构建与运行可移植部分（2026-10-21，`metal` 分支在 main 上变基之后；Apple M4 Pro，macOS 27.0.1，Homebrew LLVM 23.1.4，没有 Xcode）。命令见 [构建](building.md#macos-arm642026-10-21)。
+- **变基**：M.2 的编排接上 main 之后的两项：读背景的效果的 Copy 步骤（一条只有拷贝、没有滤镜的链，效果以 `Image::Backdrop` 采样它；读不了的目标清空它，计入 `unreadable_copies`）与 CSS filter 的图像（`ScenePrepared::filters` 由 Image 项绘制）；D3D12 与 Vulkan 的 `record()` 照旧执行编排，`backdrop_copies` 与不可读的原因由编排的计数给出。`scene_schedule_contract` 加手写的 Copy 用例与随机的 Copy/filter 步骤（2,000 个随机 pass 中 4,642 个拷贝，646 个读不了目标）；三个编排变异都被发现。D3D12 与 Vulkan 这次没有编译（没有 Windows）。
+- **可移植性修正**：公开头 `render_backend.h` 缺 `<stddef.h>`，另两处缺 `<string>`、`<algorithm>`；Apple 上 Yoga 加 `-frtti`、全部目标 `-ffp-contract=off`、字体文件上限 128 MiB（原因见构建文档）；`style_input_differential` 的随机序列依赖实参求值顺序（MSVC 自右向左、clang 自左向右），改为分开的语句，取 MSVC 的顺序。
+- **系统字体**：新的 `weft::platform_macos`（CoreText 列出字体，FreeType 按 PostScript 名找集合中的下标并读族名），运行时与 `view_benchmark` 在 macOS 上使用；1,915 个字体、486 个族，首次约 0.3 s，之后进程内复用。泛型族照 Chrome 的 macOS 默认（Times、Helvetica、Courier、system-ui 为 SF），回退为 UI 字体与 CoreText 的 cascade 列表（隐藏的中日韩 UI 字体换成已安装的 PingFang SC/TC/HK/MO、Hiragino Sans、Apple SD Gothic Neo）。
+- **验证**：Debug 与 Release 的 `ctest` 各 66/74；其余 8 项是夹具与浏览器输入的散列校验（签出的换行，与 Windows 上一样不过）。
+- **未验证**：任何 GPU 绘制（没有 Metal 适配器）；与 Chrome on macOS 的文字几何对照（scene 文字测试只在 Windows 构建）；Apple Color Emoji（183 MiB，且 FreeType 未开 PNG）不在字体列表里；`paint_tests` 与 `scene_contract_tests` 里还有两处实参中的 `next()`，在 macOS 上通过，但序列与 Windows 不同；Android 是否有同样的 type info 与 FMA 问题未查。
+- **下一步**：M.3，Metal 适配器（Objective-C++，运行时以 `newLibraryWithSource` 编 MSL，不需要 Xcode）。
 
 展开的问题与它下面的内容：整页布局保留没变的行内格式化上下文，Yoga 在没有空间时也按内容量不滚动的盒子（2026-10-21，`weft-op` 分支；宣传页的引擎版点开常见问题时，答案的高度过渡 0.45 秒，这段时间 4K 下每帧推进 23–35 ms，展开后答案只露出第一行）。
 - **起因**：
@@ -417,6 +487,26 @@ scene 的 transition 简写与列表配对；样式表的加载错误（2026-10-
   - Unity 插件（weft-unity 的 `Native~` 用这个签出重建在临时目录，`weft_unity_tests --page`）：简写 `transition: background-color 0.15s, transform 0.1s` 的页面 `load: ok`，悬停与按下无诊断；时长列表的页面按下时不再有 `finite numeric value` 诊断；写了 `outline` 的页面 `load: page script error` 与 `diagnostic: WEFT_STYLE_PROFILE: unsupported property outline`；示例页面改回简写与时长列表后加载、点击、消息照常。
 - **限制**：从没有声明的值（初始值）开始或到它结束的过渡（改变前后有一侧没有该属性时不过渡，如 `:active` 才写 `transform`）；`transition-property` 里的简写名；反向过渡的缩短；不能插值的属性在一半处切换；没有 transition 事件；加载失败沿用 `WEFT_SCRIPT_ERROR` 这个名字（字符串仍是 "page script error"）。
 - **插件**：Unity 与 UE 插件用这个提交重建 weft 即可，ABI 不变；Unity 示例页面可以改回 `transition` 简写与时长列表。
+
+Metal 兼容第二段 M.2：可移植的 scene pass 编排（2026-10-17，`metal` 分支，用户选定：抽出 Vulkan 与 D3D12 共用的一份，而不是只给 Metal 写一份）。详见 [Metal 计划](refactoring-plan.md#metal-计划2026-10-17) 与 [渲染后端 API](render-backend-api.md#metal2026-10-17未实现)。
+- **实现**：`scene/scene_schedule.*`（`weft::scene_native`）把一个 prepared pass 编成命令：开始画进一个目标（清成某色或保留）、绘制、结束、背景拷贝的复制与滤镜，目标与图像按角色命名，另给出背景链与宿主纹理的绑定；读不了的目标上的背景改为清空链的最后一张图。Vulkan 与 D3D12 的 `record()` 改为执行它，命令流与改前逐条相同。Metal 的执行器（M.3）只需把每条命令翻成编码器的调用。
+- **验证**（Release 与 Debug，Windows）：
+  - `scene_schedule_contract`（新）：五个手写 pass 的确切命令；2,000 个随机 pass（87,028 条命令、5,219 个背景，725 个读不了目标）按一次一个目标的规则执行。
+  - D3D12 的覆盖：新的 `tests/support/d3d12_scene.hpp`；`render_scene_effects/particles/backdrop/shape_boxes_contract` 加 D3D12，与 D3D11 WARP 逐字节相同，调试层无错误。
+  - 变异：编排 10 个，都被发现（8 个也被像素测试发现；另两个：横向降采样的图开大，输出相同；效果批次只画第一条记录，像素测试里没有这种批次）。
+  - `ctest` Release 171/171、Debug 171/171（独立审查后两处出错路径的修正之后，重跑 Release 全量与 Debug 的 21 个相关测试）；Android arm64 零警告；产物与 13.5c 相同（同样的 24 个已知差异套件）。
+- **未验证**：同 M.1（Metal 编译与运行、macOS 与 iOS 构建）；D3D12 只在 WARP 上跑过这次的测试，UE 里没有重跑。
+- **下一步**：M.3 在 Mac 上写 Objective-C++ 执行器，执行这份编排。
+
+Metal 兼容第一段 M.1：着色器的 MSL 与 C ABI（2026-10-17，`metal` 分支，用户提出：写一些 Metal 的兼容；用户定为先只做 Windows 上能验证的）。详见 [渲染后端 API](render-backend-api.md#metal2026-10-17未实现) 与 [Metal 计划](refactoring-plan.md#metal-计划2026-10-17)。
+- **接口**：`include/weft/render_backend_metal.h`：`weft_render_metal_pass`（宿主未提交、没有打开编码器的命令缓冲与目标纹理）、`weft_render_metal_texture`、`weft_render_metal_desc`；`weft_render_metal_create`、`_external`、`_destroy` 只在 Apple 平台声明，**尚未实现**。
+- **着色器**：`cmake/WeftMetal.cmake`（`WEFT_SHADERS_METAL`，有 DXC 与 spirv-cross 时默认开）：DXC 以 Metal 的寄存器偏移、不翻转 y 编成 SPIR-V，spirv-cross（Vulkan SDK 1.4.363.0 带的 revision `vulkan-sdk-1.4.357.0-39-gf11ba9f0`，SHA-256 `6702f1d7…0ea9`，Apache-2.0，配置时核对 revision）写成 MSL 2.1 并内嵌；`weft::render_metal`（`src/render/backends/metal`，可移植）给出场景、粒子与三个背景拷贝 pass 的源码，`EffectProgram::msl_encoded` 是每个效果的编码空间 pass；`constants::render::metal` 是参数表下标。
+- **验证**（Windows）：
+  - `render_metal_shader_contract`（新）：场景、粒子、三个背景拷贝与 6 个测试效果的每个阶段：入口与阶段，每个资源的下标、类型与种类，没有表外的资源或内建量，记录 448 B、圆角裁剪 80 B、View 常量 16 B、背景拷贝常量 176 B 按 MSL 对齐算出的大小，片元读的每个 varying 都由顶点阶段以同一类型写出，y 向下映射到裁剪空间；测试里 7 段改坏的文本都被拒。
+  - 构建反例 7 个都使它失败：顶点阶段加 `-fvk-invert-y`、spirv-cross 加 `--flip-vert-y`、纹理偏移改为 2、去掉 `--msl-decoration-binding`、改 `buffer_order` 与 `texture_effects`、改记录大小。`render_backend_c_abi` 加 Metal 结构在 64 位上的布局，删掉一个字段的反例失败。把 `WEFT_SPIRV_CROSS_REVISION` 设成别的值时配置停止，并报出实际的 revision。
+  - `ctest`：Release 170/170（新增 1 个）；Debug 170/170；Android arm64 零警告（`WEFT_SHADERS_METAL` 在 Android 构建里也开着，MSL 同样生成，测试可执行文件已链接，未运行）；产物与 12.3 基线相比与 13.5c 相同（同样的 24 个已知差异套件；本段没有改绘制代码）。
+- **未验证**：Metal 编译器接受这些 MSL（Apple 有 Windows 版的 Metal 开发工具，需要 Apple 账号下载，未装）；管线创建、任何绘制与性能；macOS 与 iOS 的配置、编译与链接（没有 Mac）。
+- **下一步**：M.2，可移植的 scene pass 编排：把 Vulkan 与 D3D12 的录制里与 API 无关的部分提成一份操作序列，两个后端改为执行它（产物逐字节不变、像素对照照旧），Metal 将执行同一份；M.3 在 Mac 上写 Objective-C++ 执行器。
 
 `unreal` 分支合入 main（2026-10-17，用户检查后同意）：D3D12 后端、10 位渲染目标、不持有宿主目标（交换链可改大小）、页面文件里的图片（`url()`）、大面板的阴影、d3-sankey，共 6 个提交，main 是它的祖先，快进合并。合并前在分支上重跑全量 ctest（169 项）：155 项通过，14 项与此前相同（夹具与浏览器输入的散列校验，这台机器签出的换行）。之后在 main 上开发；下面各条标的 `unreal` 分支是它们做的时候的位置。
 

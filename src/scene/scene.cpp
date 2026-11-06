@@ -434,6 +434,71 @@ namespace weft {
             return out;
         }
 
+        // The environment variables a value reads (CSS Environment Variables 1: env(name) and env(name, fallback)) as
+        // px of `safe_area`, the ones a scene has: safe-area-inset-top, -right, -bottom and -left. Another name takes
+        // its fallback, which may read env() itself; without one it is a diagnostic. None when the value reads none.
+        std::optional<std::string> environment_lengths(std::string_view value, const SceneSafeArea& safe_area) {
+            if (value.find('(') == value.npos) {
+                return std::nullopt;
+            }
+            const auto opens_at = [&](std::size_t k) {
+                return k + 4 <= value.size() && (k == 0 || !ident_char(value[k - 1])) &&
+                       std::tolower(static_cast<unsigned char>(value[k])) == 'e' &&
+                       std::tolower(static_cast<unsigned char>(value[k + 1])) == 'n' &&
+                       std::tolower(static_cast<unsigned char>(value[k + 2])) == 'v' && value[k + 3] == '(';
+            };
+            std::string out;
+            bool found{};
+            std::size_t copied{};
+            for (std::size_t i = 0; i < value.size(); ++i) {
+                if (!opens_at(i)) {
+                    continue;
+                }
+                // The arguments up to the matching parenthesis, and the first comma at their top level.
+                std::size_t depth = 1;
+                std::size_t close = i + 4;
+                std::size_t comma = value.npos;
+                for (; close < value.size() && depth; ++close) {
+                    if (value[close] == '(') {
+                        ++depth;
+                    } else if (value[close] == ')') {
+                        --depth;
+                    } else if (value[close] == ',' && depth == 1 && comma == value.npos) {
+                        comma = close;
+                    }
+                }
+                if (depth) {
+                    fail("env() without its closing parenthesis");
+                }
+                // The name is a <custom-ident>: case-sensitive, unlike the function's name.
+                const auto name =
+                    std::string(css::trim(value.substr(i + 4, (comma == value.npos ? close - 1 : comma) - (i + 4))));
+                static constexpr std::array<std::string_view, 4> insets{
+                    "safe-area-inset-top", "safe-area-inset-right", "safe-area-inset-bottom", "safe-area-inset-left"};
+                const auto known = std::find(insets.begin(), insets.end(), name);
+                std::string resolved;
+                if (known != insets.end()) {
+                    resolved = numeric(safe_area[std::size_t(known - insets.begin())]) + "px";
+                } else if (comma != value.npos) {
+                    const auto fallback = css::trim(value.substr(comma + 1, close - 1 - (comma + 1)));
+                    auto nested = environment_lengths(fallback, safe_area);
+                    resolved = nested ? std::move(*nested) : std::string(fallback);
+                } else {
+                    fail("env(" + name + "): not an environment variable of the scene and no fallback");
+                }
+                out.append(value.substr(copied, i - copied));
+                out += resolved;
+                copied = close;
+                i = close - 1;
+                found = true;
+            }
+            if (!found) {
+                return std::nullopt;
+            }
+            out.append(value.substr(copied));
+            return out;
+        }
+
         // Text as text-transform shows it; the transforms beyond upper and lower case are outside the profile.
         std::string transformed(std::string text, const SceneStyle& style) {
             const auto transform = style.text(PropertyId::TextTransform, "none");
@@ -507,9 +572,30 @@ namespace weft {
             }
         }
 
-        // A scene element's computed values from its cascaded ones: shorthands and aliases expanded, viewport
-        // lengths in px of `viewport`. `viewport_units` is set when some value used one.
-        Style expand(Style s, std::array<float, 2> viewport, bool* viewport_units = nullptr) {
+        // A scene element's computed values from its cascaded ones: environment variables in px of `safe_area`
+        // (before shorthands split values: env(name, fallback) holds a comma and spaces), shorthands and aliases
+        // expanded, viewport lengths in px of `viewport`. `viewport_units` is set when some value used a viewport
+        // length, `environment` when some value read env().
+        Style expand(Style s, std::array<float, 2> viewport, const SceneSafeArea& safe_area,
+                     bool* viewport_units = nullptr, bool* environment = nullptr) {
+            {
+                std::vector<std::pair<PropertyId, std::string>> read;
+                for (const auto& [id, value] : s) {
+                    if (auto px = environment_lengths(value.text(), safe_area)) {
+                        // Math functions over the lengths, now in px, reduce to them (calc(env(...) + 12px)).
+                        if (math_functions(*px)) {
+                            *px = simplify_math_text(*px);
+                        }
+                        read.emplace_back(id, std::move(*px));
+                    }
+                }
+                for (auto& [id, px] : read) {
+                    s.set(id, std::move(px));
+                }
+                if (environment && !read.empty()) {
+                    *environment = true;
+                }
+            }
             // The individual transform properties (CSS Transforms 2) apply before transform, translate first, then
             // rotate, then scale; each folds into transform's functions. A third value (z) of translate and scale is
             // left out (the scene's transforms are flat).
@@ -1112,10 +1198,15 @@ namespace weft {
                         fail("keyframe block");
                     }
                     bool viewport_units{};
-                    auto style =
-                        expand(declarations(body.substr(start + 1, end - start - 1), dropped), {}, &viewport_units);
+                    bool environment{};
+                    auto style = expand(declarations(body.substr(start + 1, end - start - 1), dropped), {}, {},
+                                        &viewport_units, &environment);
                     if (viewport_units) {
                         fail("viewport length in keyframes outside scene profile");
+                    }
+                    // Keyframes are read once: a value there would not follow the safe area.
+                    if (environment) {
+                        fail("env() in keyframes outside scene profile");
                     }
                     for (auto key : split(body.substr(q, start - q), ',')) {
                         double fraction = key == "from" ? 0 : key == "to" ? 1 : length(key);
@@ -1215,6 +1306,8 @@ namespace weft {
             bool expand_dirty = true;
             // The expanded values used viewport lengths: a new viewport expands them again.
             bool viewport_units{};
+            // The expanded values read env(): a new safe area expands them again.
+            bool environment{};
             ScenePaintValues paint;
             std::vector<AnimationPlan> plans;
             bool plans_valid{};
@@ -1608,6 +1701,9 @@ namespace weft {
         // The frame's viewport, which viewport lengths resolve against, and the one the computed styles last used.
         std::array<float, 2> viewport{};
         std::array<float, 2> expanded_viewport{};
+        // The viewport's safe area, which env() reads, and the one the computed styles last used.
+        SceneSafeArea safe_area{};
+        SceneSafeArea expanded_safe_area{};
         Keyframes keyframes;
         InterpolationCache interpolation;
         PaintCache paint_cache;
@@ -1667,7 +1763,8 @@ namespace weft {
 
         // Cascade output remains canonical. Shorthand expansion is a separate owner derivation, so it cannot turn
         // memo hits into full property copies. A subtree whose cascade did not change since the last expansion (its
-        // subtree stamp) stays as it is unless `all` (the viewport moved: values with viewport lengths expand again).
+        // subtree stamp) stays as it is unless `all` (the viewport or its safe area moved: values with viewport lengths
+        // or env() expand again).
         // A node whose expanded values change takes the update's stamp, as the cascade's nodes do.
         void expand_into(const ComputedStyle& raw, ComputedStyle& out, bool all = true) {
             if (!all && out.identity == raw.identity && raw.subtree_stamp <= expanded) {
@@ -1677,7 +1774,8 @@ namespace weft {
             bool changed = out.identity != raw.identity;
             if (changed || state.expand_dirty || raw.stamp > expanded) {
                 state.viewport_units = false;
-                auto values = expand(raw.values, viewport, &state.viewport_units);
+                state.environment = false;
+                auto values = expand(raw.values, viewport, safe_area, &state.viewport_units, &state.environment);
                 state.expand_dirty = false;
                 if (changed || !(values == out.values)) {
                     out.values = std::move(values);
@@ -2011,7 +2109,7 @@ namespace weft {
             } else {
                 out.anchoring = *anchoring;
             }
-            out.style = incremental ? c.values : expand(c.values, viewport);
+            out.style = incremental ? c.values : expand(c.values, viewport, safe_area);
             if (forgiving) {
                 drop_filter(out);
                 drop_grid(out);
@@ -3053,6 +3151,7 @@ namespace weft {
                     expand_into(*cascade, *computed, viewport_moved);
                     expanded = stamp;
                     expanded_viewport = viewport;
+                    expanded_safe_area = safe_area;
                     ++work.style_evaluations;
                 } else {
                     ++work.style_reuses;
@@ -4928,6 +5027,16 @@ namespace weft {
         impl_->effects = effects;
     }
 
+    void SceneSolver::set_safe_area(const SceneSafeArea& safe_area) {
+        impl_->owner.require(Diag::SceneOwner);
+        for (const auto inset : safe_area) {
+            if (!std::isfinite(inset) || inset < 0 || inset > constants::scene::max_viewport_dimension) {
+                fail("safe area: insets finite, at least 0 and at most the largest viewport");
+            }
+        }
+        impl_->safe_area = safe_area;
+    }
+
     void SceneSolver::set_images(SceneImages* images) {
         impl_->owner.require(Diag::SceneOwner);
         impl_->images = images;
@@ -5024,13 +5133,15 @@ namespace weft {
         i.frame_particles = 0;
         i.flights.clear();
         i.work.geometry_changed = i.work.paint_changed = false;
-        // Viewport lengths follow the viewport: the values that used one are expanded again, though the cascade
-        // stands.
+        // Viewport lengths follow the viewport and env() its safe area: the values that used them are expanded again,
+        // though the cascade stands.
         i.viewport = {w, h};
         bool viewport_moved{};
-        if (i.incremental && i.computed && i.expanded_viewport != i.viewport) {
+        const bool sized = i.expanded_viewport != i.viewport;
+        const bool inset = i.expanded_safe_area != i.safe_area;
+        if (i.incremental && i.computed && (sized || inset)) {
             for (auto& [id, state] : i.states) {
-                if (state.viewport_units) {
+                if ((sized && state.viewport_units) || (inset && state.environment)) {
                     state.expand_dirty = true;
                     viewport_moved = true;
                 }

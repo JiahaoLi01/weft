@@ -1,6 +1,6 @@
 # 可扩展渲染后端 API
 
-2026-10-07：已实现独立 `render/render_backend` 模块（属 `weft::render`）和实验 v1 C ABI。实际 D3D11 参考适配器、React 原生窗口经过此接口。2026-10-12 起有 Vulkan 渲染器与它的 C ABI 适配器（`weft::render_vulkan`，见下文 Vulkan payload 与实现）；原生 Metal 和 MoltenVK 适配器尚未实现；接口测试中的模拟 Metal/custom 后端只验证合同，不代表平台 GPU 验收。
+2026-10-07：已实现独立 `render/render_backend` 模块（属 `weft::render`）和实验 v1 C ABI。实际 D3D11 参考适配器、React 原生窗口经过此接口。2026-10-12 起有 Vulkan 渲染器与它的 C ABI 适配器（`weft::render_vulkan`，见下文 Vulkan payload 与实现）；原生 Metal 和 MoltenVK 适配器尚未实现（2026-10-17 起 `metal` 分支上定了原生 Metal 的 payload、着色器的 MSL 与绑定，见下文 [Metal](#metal2026-10-17未实现)）；接口测试中的模拟 Metal/custom 后端只验证合同，不代表平台 GPU 验收。
 
 ## 三层边界
 
@@ -42,6 +42,7 @@ D3D11 参考适配器只有一条绘制路径：四边形帧在适配器里先�
   - D3D11：`weft_render_d3d11_create({device, queue})`。encode 时在设备的立即上下文上直接画：`weft_render_d3d11_pass.deferred_context` 必须为空（否则 `UNSUPPORTED_FEATURE`），`out_command_list` 置空；宿主在它的帧里该画 UI 的位置调用 encode，之后上下文绑定的状态未定义。目标是同一设备的 RTV（否则 `WRONG_BACKEND`）：二维纹理的 mip 0、单采样、大小等于 pass，视图格式与 `target_format` 一致（`LINEAR_BGRA8` 是 `B8G8R8A8_UNORM`，`LINEAR_RGBA8` 是 `R8G8B8A8_UNORM`）。立即上下文按序执行、资源由 COM 引用保活，后端不按完成序号钉住资源，宿主仍照协议报告提交与完成。创建时在调用线程初始化 COM（多线程套间，参考光栅要用），销毁时对应地反初始化。
   - D3D12（2026-10-15，为 UE 5 的 D3D12 RHI）：`weft_render_d3d12_create({device, queue})`。encode 录进宿主的命令列表（`weft_render_d3d12_pass`：打开的 direct 命令列表与目标资源），不关闭、不执行、不 signal、不等待；之后命令列表的描述符堆、根签名、管线、渲染目标、视口、裁剪与图元拓扑未定义，宿主自己重设（UE 的 D3D12 RHI 在命令列表关闭后会重设）。目标是同一设备的二维单采样纹理（一层一级 mip，至少 pass 大小，画在左上角），格式 `B8G8R8A8_UNORM` 或 `R8G8B8A8_UNORM`，或它们的 typeless 格式（游戏的交换链缓冲常是），适配器自己建 RTV；执行时处于 `RENDER_TARGET` 状态，命令结束时仍在。`backdrop-filter` 总能读目标已有的内容（适配器拷贝时自己加 barrier 再回到 `RENDER_TARGET`）。着色器就是 D3D11 用的 DXBC（scene.hlsl、backdrop.hlsl 与粒子变体，fxc 编译内嵌），加上适配器自己的根签名：View 常量是根常量（每次绘制写第一条记录的序号，D3D12 的 `SV_InstanceID` 不含起始实例），记录、圆角裁剪、记录顺序与锚点是一张描述符表里的结构化缓冲视图（越界读得 0，同 D3D11：着色器在知道记录有没有锚点之前就读它的锚点，根描述符没有越界检查，WARP 上会移除设备），图像与效果纹理是另一张表，采样器是静态采样器。适配器在每次录制里用自己的着色器可见描述符堆（录制里堆满了换一个更大的），上传缓冲在上传堆。录制的槽位（上传缓冲、临时纹理、描述符堆、目标的 RTV、宿主读的纹理的引用与租约）留到宿主报告它的提交完成；目标本身不加引用：宿主让它活到命令执行完（游戏的交换链缓冲在宿主自己的引用放掉后就能改大小，不必等录制报告完成；加了引用时 UE 改窗口大小会因 `ResizeBuffers` 返回 `DXGI_ERROR_INVALID_CALL` 而崩溃）；适配器自己的纹理在录制之间都处于 `PIXEL_SHADER_RESOURCE`，所以丢弃的录制不留下状态；另一个尚未提交的录制上传或画了帧要采样的东西时返回 `BUSY`，什么都不录。外部纹理扩展 `weft_render_d3d12_external`（`weft_render_d3d12_texture`：资源，执行时可被像素着色器读），格式同 D3D11，资源可以是 typeless（sRGB 与 UNORM 视图共用一个纹理）；画进帧绑定的纹理的 pass 是 `INVALID_STATE`。创建时在调用线程初始化 COM（同 D3D11）。
   - Vulkan：`weft_render_vulkan_create({instance, physical_device, device, queue, queue_family, get_instance_proc_addr, queue_identity})`。后端经宿主的 `vkGetInstanceProcAddr` 载入用到的函数，在宿主设备上分配自己的内存，不销毁宿主的对象。encode 录进宿主的命令缓冲（同下文 Vulkan payload），目标是 `B8G8R8A8_UNORM`。`weft_render_vulkan_pass` 末尾新增可选的 `target_image`（目标视图的 VkImage，带传输源用途）：有它时 `backdrop-filter` 读目标里已有的内容，没有时背后为空；只到 `target_image` 之前的第一版结构仍被接受。录制的槽位（缓冲、临时图像、描述符池与租约）留到宿主报告它的提交完成；丢弃的录制归还槽位与要上传的内容；另一个尚未提交的录制首次上传帧要采样的图像时返回 `BUSY`，什么都不录。
+  - Metal（2026-10-17，`metal` 分支，尚未实现）：`render_backend_metal.h` 定了 payload（宿主的命令缓冲与目标纹理），着色器的 MSL 与绑定在 Windows 上检查，见下文 [Metal](#metal2026-10-17未实现)。
 - 引擎的纹理（13.3c）：`weft_render_scene_frame` 的 `texture_count` 与 `textures`（`weft_render_scene_texture`：名字与外部纹理扩展的调用方租约）把页面 `background-image: -weft-texture(name)` 的名字绑到宿主的纹理；在 `textures` 之前结束的第一版结构不带纹理。核心校验名字（字母、数字、`-` 与 `_`，至多 64 字节，每个名字一次；否则 `INVALID_ARGUMENT`），没装扩展时 `UNSUPPORTED_FEATURE`，钉住租约直到帧的使用完成（与外部纹理帧相同），后端失败时放开。后端表的 `prepare_scene` 回调收到解析好的纹理元数据，顺序同 `textures`。没绑定的名字什么也不画；行从底部开始的纹理翻转。内置后端的扩展：`weft_render_d3d11_external`（`weft_render_d3d11_texture`，D3D11 拒绝画进帧绑定的纹理：`INVALID_STATE`）、`weft_render_vulkan_external`（`weft_render_vulkan_texture`，图像在 `SHADER_READ_ONLY_OPTIMAL`、写入对片元着色器可见），一份资源（视图）同时只导入一次，32 张、256 MiB。
 - 纹理的限制（2026-10-15）：
   - 格式：外部纹理扩展接受线性的 RGBA8、BGRA8、RGBA16F、RGBA32F 与 sRGB 的 RGBA8、BGRA8 视图（`format` 是视图的格式，采样得到线性预乘的颜色），内置 View 后端都列出（RGBA32F 要设备能过滤）。
@@ -64,7 +65,38 @@ D3D11 参考适配器只有一条绘制路径：四边形帧在适配器里先�
 
 [Vulkan payload](../include/weft/render_backend_vulkan.h)（2026-10-12）带设备、命令缓冲与目标视图三个句柄，按 uint64 传递：可分派句柄与 64 位平台上的不可分派句柄是指针值，32 位平台上不可分派句柄本身就是 uint64，所以核心 C ABI 不依赖 Vulkan 头文件。宿主在后端设备的图形队列族上开始一个 primary command buffer，在 render pass 之外交给 encode；适配器录入上传、各 render pass 与隔离组，不结束、不提交、不 present、不等待，之后绑定的管线、描述符、viewport 与 scissor 未定义。目标是渲染器尺寸的单采样二维颜色图像的视图（一层一级 mip），执行时处于 `COLOR_ATTACHMENT_OPTIMAL`、宿主之前的写入已对颜色附件访问可用；命令结束时仍是该布局，写入在 `COLOR_ATTACHMENT_OUTPUT` 阶段完成，宿主读、采样、拷贝或 present 前自己加 barrier。默认保留目标内容。encode 失败时什么也没录：所有资源在录制前建好，录制阶段只发命令、不会失败，所以 Vulkan 适配器的错误总是 native_use=0。
 
-Metal payload 可声明 device、command buffer 和已打开的 render encoder 及 attachment/load/store 合同。这些 native scope schema 分别定义，不能强迫 Metal encoder 遵循 D3D11 deferred-context 模型。通用层不会隐式 begin/end 宿主的 pass；具体 scope 开始、结束和失败取消方式由对应 schema 写明。shader 的 HLSL/SPIR-V/MSL 工具链也由适配器选择。
+各 native scope schema 分别定义，不能强迫 Metal encoder 遵循 D3D11 deferred-context 模型。通用层不会隐式 begin/end 宿主的 pass；具体 scope 开始、结束和失败取消方式由对应 schema 写明。shader 的 HLSL/SPIR-V/MSL 工具链也由适配器选择。
+
+### Metal（2026-10-17，未实现）
+
+`metal` 分支，用户定为先只做 Windows 上能验证的部分：payload、着色器的 MSL 与绑定已定，凡能翻译的构建都检查；适配器本身尚未实现，这些 MSL 没有被 Metal 编译过，也没有在任何 Metal 设备上画过。计划见 [重构计划](refactoring-plan.md#metal-计划2026-10-17)。
+
+[Metal payload](../include/weft/render_backend_metal.h) 带宿主的命令缓冲与目标纹理两个 Objective-C 对象，按不转移所有权的桥接指针传（`(__bridge void*)`），所以核心 C ABI 不依赖 Metal 头文件。录制模型同 D3D12 与 Vulkan：宿主给后端设备上一个未提交、没有打开编码器的命令缓冲；适配器在自己的 render 与 blit 编码器里编入上传、拷贝、清屏与绘制，返回前都结束；不提交、不等待、不加完成回调，完成仍由宿主按协议报告。不接受宿主打开着的 render encoder：隔离组、平面、图层与背景拷贝都要换目标，Metal 换目标只能结束编码器再开新的（同 Vulkan 换 render pass）；Unity 的 Metal 原生插件接口也是先结束它自己的编码器、再交出当前的命令缓冲。目标是带 `MTLTextureUsageRenderTarget` 的二维单采样纹理（一层一级 mip，至少 pass 大小，画在左上角），`BGRA8Unorm`、`RGBA8Unorm` 或 `RGB10A2Unorm`（`LINEAR_BGRA8`、`LINEAR_RGBA8`、`LINEAR_RGB10A2`）；宿主之前的写入在前（同一队列上受跟踪的纹理由 Metal 排序，否则宿主用 fence 或 event）。目标层级上的 `backdrop-filter` 要从目标拷贝，所以这样的目标不能是 `framebufferOnly`（CAMetalLayer 的 drawable 要设 `framebufferOnly = NO`）。适配器不保留目标的引用。外部纹理 `weft_render_metal_texture`：`MTLTextureUsageShaderRead`，格式与 D3D12 一一对应（RGBA8、BGRA8 的 Unorm 与 sRGB，RGBA16Float，设备能过滤时 RGBA32Float），适配器 retain 到租约退休。`weft_render_metal_create({device, queue})`、`_external`、`_destroy` 只在 Apple 平台声明。
+
+着色器：共享的 scene.hlsl（编码空间）、它的粒子变体、backdrop.hlsl 的三个 pass，以及 UI 着色器效果的编码空间 pass（`EffectProgram::msl_encoded`；Metal 只画 View 帧，只用编码空间），由 DXC 编成 SPIR-V（Metal 自己的寄存器偏移；顶点阶段不翻转 y：Metal 的裁剪空间、帧缓冲与纹理坐标的朝向都同 D3D），再由 Vulkan SDK 的 spirv-cross 写成 MSL 2.1（macOS 10.14、iOS 12 起），每个资源的 SPIR-V binding 就是它的 Metal 下标（`--msl-decoration-binding`），见 [WeftMetal.cmake](../cmake/WeftMetal.cmake)。文本内嵌进程序（`weft::render_metal` 的 `scene_shader()`、`particle_shader()`、`backdrop_shader()`），设备上用 `newLibraryWithSource` 编译；两个阶段各是一份源码（两边声明同样的类型）。参数表下标（`constants::render::metal`）：
+
+| 资源 | HLSL | Metal |
+| --- | --- | --- |
+| View 常量 | b0 | buffer 0 |
+| 记录 `paints` | t0 | buffer 1 |
+| 图像 `image` | t1 | texture 2 |
+| 圆角裁剪 `clips` | t2 | buffer 3 |
+| 效果纹理 `effectTexture0`–`3`，粒子贴图 `particleSprite` | t3–t6 | texture 4–7 |
+| 记录顺序 `order` | t7 | buffer 8 |
+| 锚点 `anchors` | t8 | buffer 9 |
+| `linearClamp` | s0 | sampler 0 |
+| `linearRepeat`、`effectRepeat` | s1 | sampler 1 |
+| 背景拷贝的常量、源与镜像采样器 | b0、t0、s0 | buffer 0、texture 1、sampler 0 |
+
+录制的编排（M.2，2026-10-17）：Vulkan 与 D3D12 的 scene pass 执行同一份可移植的命令（[scene_schedule.hpp](../src/scene/scene_schedule.hpp)）：开始画进一个目标（清成某色或保留）、绘制、结束、背景拷贝的复制与滤镜，目标与图像按角色命名。Metal 将执行同一份：开始是一个新的 render 编码器（load action 为 clear 或 load），结束是 `endEncoding`，复制是一个 blit 编码器，每个滤镜是一个 render 编码器；`framebufferOnly` 的目标读不了，编排已把读它的背景改为清空链的最后一张图。`scene_schedule_contract` 检查编排本身，Vulkan 与 D3D12 的像素测试检查它画出的东西。
+
+没有顶点缓冲（顶点由 `[[vertex_id]]` 算出），buffer 下标不与顶点属性冲突。`[[instance_id]]` 含起始实例（同 Vulkan），着色器读 `instance + View.baseInstance`：像 Vulkan 那样以起始实例画、`baseInstance` 为 0。整数 varying 在 Metal 只能平插，spirv-cross 不为它写 `[[flat]]`。
+
+验证（Windows）：`render_metal_shader_contract` 在凡有 DXC 与 spirv-cross 的构建上解析每个阶段的 MSL：入口名与阶段；每个资源在上表的下标、类型与种类相符、同一阶段不共用下标，没有表外的资源或内建量；记录（448 B）、圆角裁剪（80 B）、View 常量（16 B）与背景拷贝常量（176 B）按 MSL 的大小与对齐算出的大小等于 CPU 写的；片元读的每个 `user(locnN)` 都由顶点阶段以同一类型写出（效果接在场景的顶点阶段之后），两阶段共有的结构相同；目标 px 以 y 向下映射到裁剪空间，之后没有分量取反。测试里 7 段改坏的文本都被拒；构建上的 7 个反例（顶点阶段加 `-fvk-invert-y`、spirv-cross 加 `--flip-vert-y`、纹理偏移改为 2、去掉 `--msl-decoration-binding`、改 `buffer_order` 与 `texture_effects` 常量、改记录大小）都使它失败。`render_backend_c_abi` 核对 Metal 结构在 64 位平台上的布局。未验证：Metal 编译器接受这些 MSL、管线创建、任何绘制与性能，macOS 与 iOS 的配置与构建。
+
+M.3：设备端（2026-10-21，macOS，Apple M4 Pro，macOS 27.0.1）。`weft::scene_metal`（`src/render/backends/metal`，Objective-C++，ARC，只在 Apple 平台构建）：`SceneRenderer` 执行 M.2 的编排：开始是一个新的 render 编码器（load action 为 clear 或 load，视口与裁剪为 pass 的大小），结束是 `endEncoding`，复制是一个 blit 编码器，每个滤镜是一个 render 编码器；上传经槽位的共享暂存缓冲，在 blit 编码器里拷进纹理或图集页（行距按 16 字节对齐）；平面、图层与 CSS filter 的嵌套 pass 在外层 pass 开始之前录；Metal 自己为受跟踪的资源排序读写，不需要屏障与布局转换。槽位、保留的 pass（含补丁后只写变化的记录）、缓存的待提交状态与 `Busy`、租约都与 Vulkan 相同。View 后端与 `weft_render_metal_create`、`_external`、`_destroy` 的结构同 Vulkan 的：目标只接受 `LINEAR_BGRA8`（`MTLPixelFormatBGRA8Unorm`）；`framebufferOnly` 的目标读不了，读它的背景按编排为透明；外部纹理核对设备、大小、格式与 mip 数后 retain 到租约退休。部分录制失败时结束已打开的编码器再抛出（宿主不提交该命令缓冲）。
+- 验证（macOS）：Metal 在设备上编译全部 MSL（场景、粒子、三个背景 pass、构建里的 10 个测试效果）并建成管线；`render_metal_shader_contract` 在这台机器上通过（工具为 Vulkan SDK 1.4.363.0 的 DXC 与 spirv-cross，版本与固定的相同）；`logo_browser_reference_metal`（新，`tests/logo_reference_metal_tests.mm`）用 Metal pass 画四个 logo 版本的 40 帧与 Chrome 的截图对照：超过 32 级差的像素至多 0.039%（门限 0.5%）；`samples/macos-host` 经公开 C ABI（`weft_render_metal_*`、宿主的命令缓冲与 drawable）画 HUD 与 logo：logo 与 Chrome 的 color-200、dark-100 帧差 0.021%、0.016%。
+- 未验证：UI 着色器效果、背景滤镜、粒子、平面、图层与 CSS filter 在 Metal 上的像素（MSL 能编译，没有参照对比）；外部纹理的 bottom-left 与 mip；iOS；设备丢失；性能剖析。
 
 新增 adapter 需要实现 prepare、release_prepared、encode、discard_encoded、submitted、completed、abandon、shutdown，并选择能力；报告 `WEFT_RENDER_FEATURE_DISPLAY_LIST` 时还要实现 prepare_list（C++ 后端满足 `DisplayListBackend` concept，由 `make_c_backend` 生成），报告 `WEFT_RENDER_FEATURE_SCENE` 时还要实现 prepare_scene（`SceneFrameBackend`）。无需修改 DOM、布局、输入或通用提交状态机。它必须以真实资源和同步实现下面的合同，只有注册一个 API ID 不算后端完成。
 

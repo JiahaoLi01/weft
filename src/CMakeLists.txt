@@ -21,3 +21,7 @@ endif()
 if(ANDROID)
     add_subdirectory(platform/android)
 endif()
+# CoreText's font discovery serves macOS and iOS alike.
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    add_subdirectory(platform/macos)
+endif()

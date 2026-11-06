@@ -55,6 +55,11 @@ weft_add_test(NAME render_backend_contract COMMAND weft_render_backend_tests)
 weft_add_executable(weft_render_backend_concept_tests SOURCES render_backend_concept_tests.cpp LINK weft::render)
 weft_add_test(NAME render_backend_concept COMMAND weft_render_backend_concept_tests)
 
+# The commands that record prepared scene passes on Vulkan, D3D12 and Metal (scene/scene_schedule.hpp): exact
+# commands of hand-built passes, and the rules of one target at a time on random nestings.
+weft_add_executable(weft_scene_schedule_tests SOURCES scene_schedule_tests.cpp LINK weft::scene_native)
+weft_add_test(NAME scene_schedule_contract COMMAND weft_scene_schedule_tests)
+
 # UI shader effects the renderer tests draw (cmake/WeftEffects.cmake), compiled for every backend built here.
 add_library(weft_test_effects STATIC)
 weft_project_options(weft_test_effects)
@@ -79,6 +84,14 @@ weft_add_effect(weft_test_effects effect_refraction ../samples/effects/refractio
     BACKDROP 24)
 weft_add_effect(weft_test_effects effect_heat_haze ../samples/effects/heat-haze.hlsl
     PARAMETERS amplitude:number=3 wavelength:number=28 speed:number=36 fade:number=0.6 TEXTURES 0 ANIMATED BACKDROP 8)
+
+# The Metal backend's MSL, checked without Metal (cmake/WeftMetal.cmake): entry points, argument table indices,
+# record sizes, stage interfaces and clip space of the scene, particle, backdrop and effect programs.
+if(WEFT_SHADERS_METAL)
+    weft_add_executable(weft_render_metal_shader_tests SOURCES render_metal_shader_tests.cpp
+        LINK weft::render_metal weft_test_effects)
+    weft_add_test(NAME render_metal_shader_contract COMMAND weft_render_metal_shader_tests)
+endif()
 
 # The effect check (cmake/check_effect.cmake) on tests/effects/check/<sample>.hlsl: it accepts the sample, or with a
 # reason refuses it with a message that names the reason. CMake wraps messages: the reason's spaces match any space.
@@ -436,8 +449,9 @@ if(WIN32)
     weft_add_test(NAME scene_gradient_edge_reference COMMAND weft_scene_paint_reference_tests
         "${artifacts}/scene-gradient-edge-reference-$<CONFIG>" "${scene_gradient_edge_cases_sha256}"
         "${fixtures}/scene-gradient-edge-reference" TIMEOUT 180)
-    # UI shader effects in the native scene passes: D3D11 on WARP, and Vulkan on this machine's device when built.
-    set(scene_effect_links weft::scene_d3d11 weft::platform_win32 weft_test_effects)
+    # UI shader effects in the native scene passes: D3D11 and D3D12 on WARP, and Vulkan on this machine's device
+    # when built.
+    set(scene_effect_links weft::scene_d3d11 weft::scene_d3d12 weft::platform_win32 weft_test_effects dxgi)
     if(WEFT_RENDER_VULKAN)
         list(APPEND scene_effect_links weft::scene_vulkan)
     endif()
@@ -447,6 +461,7 @@ if(WIN32)
     weft_add_test(NAME scene_inline_contract COMMAND weft_scene_inline_contract_tests TIMEOUT 120)
     weft_add_executable(weft_render_scene_effects_tests SOURCES render_scene_effects_tests.cpp
         LINK ${scene_effect_links})
+    target_compile_definitions(weft_render_scene_effects_tests PRIVATE WEFT_TEST_D3D12)
     if(WEFT_RENDER_VULKAN)
         target_compile_definitions(weft_render_scene_effects_tests PRIVATE WEFT_TEST_VULKAN)
     endif()
@@ -454,6 +469,7 @@ if(WIN32)
     # UI particles in both scene passes against a CPU raster of the shared particle model.
     weft_add_executable(weft_render_scene_particles_tests SOURCES render_scene_particles_tests.cpp
         LINK ${scene_effect_links})
+    target_compile_definitions(weft_render_scene_particles_tests PRIVATE WEFT_TEST_D3D12)
     if(WEFT_RENDER_VULKAN)
         target_compile_definitions(weft_render_scene_particles_tests PRIVATE WEFT_TEST_VULKAN)
     endif()
@@ -470,6 +486,7 @@ if(WIN32)
     # backdrop-filter in the native scene passes against the same algorithm on the CPU, on both passes.
     weft_add_executable(weft_render_scene_backdrop_tests SOURCES render_scene_backdrop_tests.cpp
         LINK ${scene_effect_links})
+    target_compile_definitions(weft_render_scene_backdrop_tests PRIVATE WEFT_TEST_D3D12)
     if(WEFT_RENDER_VULKAN)
         target_compile_definitions(weft_render_scene_backdrop_tests PRIVATE WEFT_TEST_VULKAN)
     endif()
@@ -485,6 +502,7 @@ if(WIN32)
     # SVG rects, circles and lines drawn as boxes, against the same outlines drawn as path coverage, on both passes.
     weft_add_executable(weft_render_scene_shape_boxes_tests SOURCES render_scene_shape_boxes_tests.cpp
         LINK ${scene_effect_links})
+    target_compile_definitions(weft_render_scene_shape_boxes_tests PRIVATE WEFT_TEST_D3D12)
     if(WEFT_RENDER_VULKAN)
         target_compile_definitions(weft_render_scene_shape_boxes_tests PRIVATE WEFT_TEST_VULKAN)
     endif()
@@ -662,3 +680,14 @@ weft_add_python_test(NAME flow_input_browser_diff
     ARGS "${fixtures}/flow_input_browser_reference.json" "${artifacts}/flow-input-$<CONFIG>/native.json"
     "${artifacts}/flow-input-$<CONFIG>/comparison.json"
     FIXTURES_REQUIRED flow_input_report)
+
+# The native Metal pass (src/render/backends/metal, Apple platforms): the logo pages against Chrome's frames, as
+# logo_browser_reference checks the D3D11 pass.
+if(APPLE AND TARGET weft_scene_metal)
+    weft_add_executable(weft_logo_reference_metal_tests SOURCES logo_reference_metal_tests.mm
+        LINK weft::view weft::scene_metal "-framework Metal" "-framework ImageIO" "-framework CoreGraphics"
+            "-framework Foundation" SOURCE_DIR)
+    target_compile_options(weft_logo_reference_metal_tests PRIVATE -fobjc-arc)
+    weft_add_test(NAME logo_browser_reference_metal
+        COMMAND weft_logo_reference_metal_tests "${artifacts}/logo-reference-metal-$<CONFIG>" TIMEOUT 120)
+endif()

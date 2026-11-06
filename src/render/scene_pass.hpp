@@ -162,6 +162,15 @@ namespace weft::render {
 
     static_assert(sizeof(BackdropConstants) == scene_limits::backdrop_constants_bytes);
 
+    // The passes that filter a backdrop's copy (src/render/shaders/backdrop.hlsl): the area downsample (BACKDROP_AREA),
+    // the Gaussian pass (BACKDROP_BLUR) and the color matrix (BACKDROP_MATRIX), in the order backends keep their
+    // pipelines.
+    enum class BackdropFilter : std::uint8_t {
+        Area,
+        Blur,
+        Matrix
+    };
+
     // The constants of a backdrop's area downsample across (or down) from a source of from texels to to texels on that
     // axis, each output texel the mean of the source texels its span covers, in part at its ends (BACKDROP_AREA); of a
     // Gaussian pass of standard deviation sigma (texels, above 0) across a w x h source or down it (BACKDROP_BLUR); and

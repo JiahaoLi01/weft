@@ -16,6 +16,10 @@ namespace weft::constants::render {
     // Live ResourceLifetime resources (CPU leased or pinned by a frame or use).
     inline constexpr int default_max_resources = 4096;
 
+    // The shared scene shader draws each instance as two triangles from its vertex index (scene.hlsl's vs_main; its
+    // particle pass, a particle per six vertices).
+    inline constexpr int quad_vertex_count = 6;
+
     // Remaining default weft_renderer_desc budgets.
     inline constexpr int default_max_draws = 65536;
     inline constexpr int default_max_assets = 512;
@@ -81,7 +85,7 @@ namespace weft::constants::render {
     // D3D11 reference renderer and its C ABI adapter (src/render/backends/d3d11).
     namespace d3d11 {
         // The vertex shader draws each instance as two triangles from SV_VertexID.
-        inline constexpr int quad_vertex_count = 6;
+        inline constexpr int quad_vertex_count = render::quad_vertex_count;
         // Render targets are at most this many pixels wide and high; the backend reports the same
         // max_texture_size and max_target_size.
         inline constexpr int max_surface_dimension = 4096;
@@ -142,7 +146,7 @@ namespace weft::constants::render {
         inline constexpr int backdrop_root_constants = 0;
         inline constexpr int backdrop_root_source = 1;
         // Each instance draws two triangles.
-        inline constexpr int quad_vertex_count = 6;
+        inline constexpr int quad_vertex_count = render::quad_vertex_count;
         // Render targets are at most this many pixels wide and high.
         inline constexpr int max_surface_dimension = 8192;
         // A recording's shader-visible descriptor heap has room for at least this many descriptors, doubling past it;
@@ -176,7 +180,7 @@ namespace weft::constants::render {
         inline constexpr int binding_order = 17;
         inline constexpr int binding_anchors = 18;
         // Each instance draws two triangles.
-        inline constexpr int quad_vertex_count = 6;
+        inline constexpr int quad_vertex_count = render::quad_vertex_count;
         // Descriptor sets one pass may allocate: one per batch.
         inline constexpr int max_pass_descriptor_sets = 4096;
         // Waits on a fence give up after this many nanoseconds.
@@ -214,6 +218,44 @@ namespace weft::constants::render {
         // A swapchain asks for this many images beyond the surface's minimum, so that acquiring rarely waits.
         inline constexpr int swapchain_extra_images = 1;
     } // namespace vulkan
+
+    // The Metal backend (docs/render-backend-api.md, "Metal"): argument table indices of the shared shaders' MSL,
+    // after the register shifts of cmake/WeftMetal.cmake (constant buffer b<n> at buffer n, structured buffer or
+    // texture t<n> at 1 + n of its table, sampler s<n> at sampler n). render_metal_shader_contract checks every one.
+    namespace metal {
+        // scene.hlsl: the View constants b0, the records t0, the image t1, the rounded clips t2, a scene pass's record
+        // order t7 and anchors t8.
+        inline constexpr int buffer_view = 0;
+        inline constexpr int buffer_records = 1;
+        inline constexpr int texture_image = 2;
+        inline constexpr int buffer_clips = 3;
+        inline constexpr int buffer_order = 8;
+        inline constexpr int buffer_anchors = 9;
+        // An effect's textures (effectTexture0-3, t3-t6: one index each from this one), where the particles' sprite
+        // (particleSprite, t3) goes too.
+        inline constexpr int texture_effects = 4;
+        // linearClamp s0, and linearRepeat or an effect's effectRepeat s1.
+        inline constexpr int sampler_clamp = 0;
+        inline constexpr int sampler_repeat = 1;
+        // backdrop.hlsl: a pass's constants b0, its source t0 and the mirroring sampler s0.
+        inline constexpr int backdrop_buffer_constants = 0;
+        inline constexpr int backdrop_texture_source = 1;
+        inline constexpr int backdrop_sampler_mirror = 0;
+        // The MSL version of the translation (major * 10000 + minor * 100): 2.1, macOS 10.14 and iOS 12 or later.
+        inline constexpr int msl_version = 20100;
+        // Render targets are at most this many pixels wide and high (Apple GPUs' 2D textures; a Retina display's window
+        // passes Vulkan's 4096).
+        inline constexpr int max_surface_dimension = 16384;
+        // What a scene slot keeps of its recordings for its next ones, as the Vulkan backend's: buffers (a new one has
+        // room for at least spare_buffer_min_bytes, doubling past it), scratch textures by size, as many as fit in
+        // scene_slot_spare_image_bytes.
+        inline constexpr unsigned spare_buffer_min_bytes = 64u * constants::bytes_per_kib;
+        inline constexpr int scene_slot_spare_buffers = 64;
+        inline constexpr int scene_slot_spare_images = 256;
+        inline constexpr unsigned scene_slot_spare_image_bytes = 64u * constants::bytes_per_mib;
+        // Uploads stage rows of a multiple of this many bytes, at offsets of a multiple of it.
+        inline constexpr int staging_alignment = 16;
+    } // namespace metal
 
     // Scene passes (scene_pass.hpp and its backends). The shader-mirrored values match the static consts at the
     // top of scene.hlsl.

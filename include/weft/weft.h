@@ -33,7 +33,8 @@ typedef enum weft_result {
     WEFT_FAULTED = 11
 } weft_result;
 
-/* Runtime flags: the platform's installed fonts (Windows, Android) with its generic families and fallbacks. */
+/* Runtime flags: the platform's installed fonts (Windows, Android, macOS, iOS) with its generic families and
+ * fallbacks. */
 #define WEFT_RUNTIME_SYSTEM_FONTS 1u
 
 typedef struct weft_runtime_desc {
@@ -253,6 +254,13 @@ weft_result weft_view_load(weft_runtime* runtime, weft_view_handle view, const w
 weft_result weft_view_advance(weft_runtime* runtime, weft_view_handle view, double time_seconds);
 weft_result weft_view_resize(weft_runtime* runtime, weft_view_handle view, float logical_width, float logical_height,
                              float device_scale);
+/* The View's safe area in its logical px: how far in from the top, right, bottom and left edges the host's display
+ * keeps content clear (a sensor housing, rounded corners, a home indicator), which pages read as CSS
+ * env(safe-area-inset-top), -right, -bottom and -left. 0 on every side until the host sets it, as for a View the host
+ * already keeps inside the safe area; kept across page loads. The next advance lays out the values that read it
+ * again. Each inset finite and at least 0 (WEFT_INVALID_ARGUMENT otherwise). Owner thread. */
+weft_result weft_view_set_safe_area(weft_runtime* runtime, weft_view_handle view, float top, float right, float bottom,
+                                    float left);
 
 /* ---- Pointer input and hit queries. Owner thread; positions in the View's logical px. ---- */
 

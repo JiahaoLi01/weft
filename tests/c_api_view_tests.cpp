@@ -878,6 +878,81 @@ namespace {
         return out;
     }
 
+    // The safe area: env(safe-area-inset-*) in px of the insets the host gives, before the first page or after, again
+    // when they change and across loads; another name takes its fallback (names are case-sensitive); bad insets,
+    // a name without a fallback and env() in keyframes are refused.
+    void safe_area() {
+        Runtime r;
+        const auto view = r.view();
+        require(weft_view_set_safe_area(r.runtime, view, 20, 10, 34, 44) == WEFT_OK,
+                "a safe area before the View's first page");
+        const auto page = [] {
+            return inline_page(
+                "for (const id of ['t', 'u', 'r', 'b', 'f', 'p', 'q']) {"
+                "  const e = document.createElement('div'); e.id = id; document.getElementById('root').appendChild(e);"
+                "}",
+                "#t,#u,#r,#b,#f,#p,#q{position:absolute;width:10px;height:10px;background-color:#000}"
+                "#t{left:env(safe-area-inset-left);top:env(safe-area-inset-top)}"
+                "#u{right:env(SAFE-AREA-INSET-RIGHT, 99px);top:0}"
+                "#r{right:env(safe-area-inset-right);top:0}"
+                "#b{left:0;bottom:calc(env(safe-area-inset-bottom) + 5px)}"
+                "#f{left:env(not-a-variable, 7px);top:env(also-not, env(safe-area-inset-top, 1px))}"
+                "#p{left:100px;top:100px;padding:env(safe-area-inset-top) 0 0 env( safe-area-inset-left )}"
+                // The same padding in px: the shorthand with env() lays out as it does.
+                "#q{left:200px;top:100px;padding:20px 0 0 44px}");
+        };
+        const auto rects = [&] {
+            return evaluate(r, view,
+                            "JSON.stringify(['t', 'u', 'r', 'b', 'f', 'p', 'q'].map(id => {"
+                            "  const b = document.getElementById(id).getBoundingClientRect();"
+                            "  return [b.left, b.top, b.width, b.height]; }))");
+        };
+        require(load(r, view, page()) == WEFT_OK && weft_view_advance(r.runtime, view, 0.016) == WEFT_OK &&
+                    diagnostics(r, view).empty(),
+                "a page that reads env()");
+        const std::string inset = "[[44,20,10,10],[1171,0,10,10],[1260,0,10,10],[0,671,10,10],[7,20,10,10],"
+                                  "[100,100,44,20],[200,100,44,20]]";
+        require(rects() == inset, "env() in px of the safe area set before the page (got " + rects() + ")");
+        require(weft_view_set_safe_area(r.runtime, view, 0, 0, 0, 0) == WEFT_OK &&
+                    weft_view_advance(r.runtime, view, 0.032) == WEFT_OK,
+                "a safe area of 0");
+        require(rects() == "[[0,0,10,10],[1171,0,10,10],[1270,0,10,10],[0,705,10,10],[7,0,10,10],[100,100,10,10],"
+                           "[200,100,44,20]]",
+                "the page laid out again when the safe area changes (got " + rects() + ")");
+        constexpr float nan = std::numeric_limits<float>::quiet_NaN();
+        constexpr float infinity = std::numeric_limits<float>::infinity();
+        for (const float bad : {-1.f, nan, infinity}) {
+            require(weft_view_set_safe_area(r.runtime, view, 0, bad, 0, 0) == WEFT_INVALID_ARGUMENT,
+                    "an inset that is negative or not finite");
+        }
+        require(weft_view_set_safe_area(r.runtime, view, 20, 10, 34, 44) == WEFT_OK &&
+                    load(r, view, page()) == WEFT_OK && weft_view_advance(r.runtime, view, 0.048) == WEFT_OK &&
+                    rects() == inset,
+                "the safe area kept across page loads (got " + rects() + ")");
+
+        require(load(r, view,
+                     inline_page("const e = document.createElement('div'); e.className = 'x';"
+                                 "document.getElementById('root').appendChild(e);",
+                                 ".x{position:absolute;left:env(nope);width:1px;height:1px}")) == WEFT_OK &&
+                    weft_view_advance(r.runtime, view, 0.064) == WEFT_OK,
+                "a page with env() of an unknown name");
+        const auto found = diagnostics(r, view);
+        require(!found.empty() && found[0].first == WEFT_DIAGNOSTIC_SCENE &&
+                    found[0].second.find("env(nope)") != std::string::npos,
+                "the diagnostic of env() of an unknown name without a fallback");
+
+        Page frames = inline_page("");
+        frames.keyframes = "@keyframes k{from{top:env(safe-area-inset-top)}to{top:0}}";
+        require(load(r, view, frames) == WEFT_SCRIPT_ERROR, "env() in keyframes refused");
+        const auto refused = diagnostics(r, view);
+        require(refused.size() == 1 && refused[0].second.find("env() in keyframes") != std::string::npos,
+                "the diagnostic of env() in keyframes");
+
+        weft_view_destroy(r.runtime, view);
+        require(weft_view_set_safe_area(r.runtime, view, 0, 0, 0, 0) == WEFT_STALE_HANDLE,
+                "a safe area of a destroyed View");
+    }
+
     // A sync function that tries the keyboard calls in the middle of JS.
     weft_result key_reentry(void* user, const void*, size_t, weft_value_writer* result) {
         auto& calls = *static_cast<Calls*>(user);
@@ -1250,6 +1325,7 @@ int main() {
         threads_and_stale_handles();
         errors_and_faults();
         stylesheets();
+        safe_area();
         resources();
         web_storage();
         keyboard();
