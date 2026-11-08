@@ -347,7 +347,8 @@ namespace weft {
     }
 
     ShapedText Font::shape(std::string_view utf8, float pixels, ShapePrecision precision,
-                           std::span<const FontFeature> features) const {
+                           std::span<const FontFeature> features, const std::optional<ShapeSegment>& segment,
+                           const ShapeContext& context) const {
         impl_->check(pixels);
         if (utf8.size() > constants::text::max_shape_input_bytes) {
             throw std::invalid_argument("WEFT_TEXT_LIMIT: probe input exceeds 1 MiB");
@@ -367,7 +368,27 @@ namespace weft {
                                 : static_cast<float>(constants::text::fixed_26_6_units_per_pixel);
         const int scale = static_cast<int>(std::round(pixels * units));
         hb_font_set_scale(font, scale, scale);
-        hb_buffer_add_utf8(buffer.get(), utf8.data(), static_cast<int>(utf8.size()), 0, static_cast<int>(utf8.size()));
+        // With context, the text sits between it in one string; HarfBuzz's clusters then count from the context's
+        // start.
+        std::string around;
+        std::uint32_t lead{};
+        if (context.before.empty() && context.after.empty()) {
+            hb_buffer_add_utf8(buffer.get(), utf8.data(), static_cast<int>(utf8.size()), 0,
+                               static_cast<int>(utf8.size()));
+        } else {
+            around.reserve(context.before.size() + utf8.size() + context.after.size());
+            around.append(context.before).append(utf8).append(context.after);
+            lead = std::uint32_t(context.before.size());
+            hb_buffer_add_utf8(buffer.get(), around.data(), static_cast<int>(around.size()), int(lead),
+                               static_cast<int>(utf8.size()));
+        }
+        if (segment && segment->script) {
+            hb_buffer_set_direction(buffer.get(), segment->rtl ? HB_DIRECTION_RTL : HB_DIRECTION_LTR);
+            hb_buffer_set_script(buffer.get(), hb_script_from_iso15924_tag(segment->script));
+        } else if (segment) {
+            hb_buffer_set_direction(buffer.get(), segment->rtl ? HB_DIRECTION_RTL : HB_DIRECTION_LTR);
+        }
+        // The rest (the language: the process default, as before) as HarfBuzz guesses it.
         hb_buffer_guess_segment_properties(buffer.get());
         std::vector<hb_feature_t> settings;
         settings.reserve(features.size());
@@ -385,8 +406,8 @@ namespace weft {
         result.glyphs.reserve(count);
         for (unsigned i = 0; i < count; ++i) {
             const auto& p = positions[i];
-            result.glyphs.push_back({infos[i].codepoint, infos[i].cluster, p.x_advance / units, p.y_advance / units,
-                                     p.x_offset / units, p.y_offset / units});
+            result.glyphs.push_back({infos[i].codepoint, infos[i].cluster - lead, p.x_advance / units,
+                                     p.y_advance / units, p.x_offset / units, p.y_offset / units});
             result.advance += p.x_advance / units;
             result.missing_glyph |= infos[i].codepoint == 0;
         }
@@ -899,8 +920,8 @@ namespace weft {
 
     FallbackText shape_with_fallback(const std::vector<Font*>& fonts, std::string_view text, float pixels,
                                      ShapePrecision precision, std::span<const FontFeature> features,
-                                     std::span<const FontRole> roles,
-                                     std::span<const std::vector<UnicodeRange>> ranges) {
+                                     std::span<const FontRole> roles, std::span<const std::vector<UnicodeRange>> ranges,
+                                     const std::optional<ShapeSegment>& segment, const ShapeContext& context) {
         if (!roles.empty() && roles.size() != fonts.size()) {
             throw std::invalid_argument("WEFT_FONT_SET: one role per font");
         }
@@ -911,12 +932,13 @@ namespace weft {
             return roles[i];
         };
         return shape_with_fallback(FallbackFonts{fonts.size(), font, role, !roles.empty()}, text, pixels, precision,
-                                   features, ranges);
+                                   features, ranges, segment, context);
     }
 
     FallbackText shape_with_fallback(const FallbackFonts& fonts, std::string_view text, float pixels,
                                      ShapePrecision precision, std::span<const FontFeature> features,
-                                     std::span<const std::vector<UnicodeRange>> ranges) {
+                                     std::span<const std::vector<UnicodeRange>> ranges,
+                                     const std::optional<ShapeSegment>& segment, const ShapeContext& context) {
         if (!ranges.empty() && ranges.size() != fonts.count) {
             throw std::invalid_argument("WEFT_FONT_SET: one unicode-range per font");
         }
@@ -948,6 +970,10 @@ namespace weft {
             if (cp > constants::max_unicode_codepoint) {
                 throw std::invalid_argument("WEFT_TEXT_UTF8: malformed input");
             }
+            if (segment) {
+                // The caller itemized the text into runs of one direction and script.
+                continue;
+            }
             const auto script = hb_unicode_script(hb_unicode_funcs_get_default(), cp);
             // Scripts whose text shapes one character to a glyph or by the default shaper's features alone, so that a
             // run of several of them needs no itemization: Japanese kana and Korean Hangul among Han, Greek and
@@ -978,7 +1004,15 @@ namespace weft {
             }
             return true;
         };
-        auto primary = fonts.font(0).shape(text, pixels, precision, features);
+        // The context of a part [begin, end) of the text: the text before it (after the given context) and after it.
+        std::string before_part;
+        std::string after_part;
+        const auto around = [&](std::size_t begin, std::size_t end) {
+            before_part.assign(context.before).append(text.substr(0, begin));
+            after_part.assign(text.substr(end)).append(context.after);
+            return ShapeContext{before_part, after_part};
+        };
+        auto primary = fonts.font(0).shape(text, pixels, precision, features, segment, context);
         FallbackText result;
         if (primary.glyphs.empty()) {
             return result;
@@ -1014,7 +1048,9 @@ namespace weft {
                 const auto cluster = text.substr(i->first, end - i->first);
                 const auto covers = [&](std::uint32_t f) {
                     return in_range(f, i->first, end) &&
-                           !fonts.font(f).shape(cluster, pixels, precision, features).missing_glyph;
+                           !fonts.font(f)
+                                .shape(cluster, pixels, precision, features, segment, around(i->first, end))
+                                .missing_glyph;
                 };
                 // The fallback fonts this cluster prefers: any, the monochrome ones or the color ones.
                 auto preferred = FontRole::Listed;
@@ -1046,9 +1082,13 @@ namespace weft {
                 spans.push_back({i->first, end, selected});
             }
         }
+        // A right-to-left run's spans in visual order: the last first.
+        if (segment && segment->rtl) {
+            std::reverse(spans.begin(), spans.end());
+        }
         for (const auto& span : spans) {
             auto shaped = fonts.font(span.font).shape(text.substr(span.start, span.end - span.start), pixels, precision,
-                                                      features);
+                                                      features, segment, around(span.start, span.end));
             result.shaped.missing_glyph |= shaped.missing_glyph;
             result.shaped.advance += shaped.advance;
             for (auto g : shaped.glyphs) {
@@ -1058,6 +1098,10 @@ namespace weft {
             }
             result.runs.push_back(
                 {span.font, span.start, span.end - span.start, fonts.font(span.font).metrics(pixels)});
+        }
+        // The runs stay in logical order.
+        if (segment && segment->rtl) {
+            std::reverse(result.runs.begin(), result.runs.end());
         }
         return result;
     }

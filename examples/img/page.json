@@ -1,0 +1,5 @@
+{
+  "scripts": ["img-demo.js"],
+  "stylesheet": "img-demo.css",
+  "forgivingCss": true
+}

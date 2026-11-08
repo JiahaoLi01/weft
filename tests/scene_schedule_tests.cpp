@@ -6,6 +6,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <limits>
+#include <map>
 #include <memory>
 #include <optional>
 #include <random>
@@ -88,7 +90,7 @@ namespace {
             } else if (const auto* e = std::get_if<SceneSchedule::End>(&command)) {
                 out += "end " + target(e->target) + (e->sampled ? " sampled" : "");
             } else if (const auto* d = std::get_if<SceneSchedule::Draw>(&command)) {
-                static const char* const pipelines[]{"scene", "under", "particles", "effect"};
+                static const char* const pipelines[]{"scene", "under", "particles", "effect", "blend"};
                 static const char* const images[]{"blank", "item", "page", "group", "backdrop"};
                 out += "draw " + std::to_string(d->first) + " " + std::to_string(d->count) + "x" +
                        std::to_string(d->vertices) + " " + pipelines[int(d->pipeline)] + " " +
@@ -100,6 +102,9 @@ namespace {
                     out += " effect " + std::to_string(d->source);
                 } else if (d->extra == SceneSchedule::Extra::Sprite) {
                     out += " sprite " + std::to_string(d->source);
+                }
+                if (d->backdrop) {
+                    out += " over " + std::to_string(*d->backdrop);
                 }
             } else if (const auto* c = std::get_if<SceneSchedule::Copy>(&command)) {
                 out += "copy " + target(c->from) + " " + std::to_string(c->region[0]) + "," +
@@ -312,7 +317,9 @@ namespace {
     // A random pass of up to `batches` steps: boxes, images of every kind (and none), atlas runs, groups up to three
     // deep, effects, particles, backdrops of random regions and filters over the target or beneath their group, and
     // copies of random regions of the current target that an effect then reads.
-    weft::ScenePrepared random_pass(std::mt19937& random) {
+    // hoisting: groups that composite over random regions of a 640 x 480 pass, some of them blending (a copy of their
+    // backdrop).
+    weft::ScenePrepared random_pass(std::mt19937& random, bool hoisting = false) {
         const auto below = [&](unsigned n) {
             return unsigned(random() % n);
         };
@@ -360,6 +367,10 @@ namespace {
                     if (depth) {
                         --depth;
                         batches.push_back({Step::EndGroup, take(1), 1, 0});
+                        if (hoisting && below(3) == 0) {
+                            copies.push_back({{0, 0, 1, 1}});
+                            batches.back().copy = std::uint32_t(copies.size());
+                        }
                     }
                     break;
                 case 5: {
@@ -405,6 +416,25 @@ namespace {
             batches.push_back({Step::EndGroup, take(1), 1, 0});
         }
         auto p = pass_of(first);
+        if (hoisting) {
+            // Regions within the pass (none for a quarter of the groups), the copies of blending groups the same.
+            p.width = 640;
+            p.height = 480;
+            for (auto& batch : batches) {
+                if (batch.step != Step::EndGroup || below(4) == 0) {
+                    continue;
+                }
+                const auto x = below(600);
+                const auto y = below(440);
+                const auto w = 1 + below(640 - x);
+                const auto h = 1 + below(480 - y);
+                p.pass.records[batch.first].outline = {float(x), float(y), float(w), float(h)};
+                if (batch.copy) {
+                    copies[batch.copy - 1].region = {std::int32_t(x), std::int32_t(y), std::int32_t(x + w),
+                                                     std::int32_t(y + h)};
+                }
+            }
+        }
         p.pass.batches = std::move(batches);
         p.pass.backdrops = std::move(backdrops);
         p.pass.copies = std::move(copies);
@@ -625,6 +655,282 @@ namespace {
         }
     }
 
+    // Groups drawn ahead (SceneScheduleOptions::hoist): before the target they composite into begins, into images of
+    // the device px their composites cover, inner ones first; a group with a backdrop inside draws in turn, its
+    // hoisted children ahead of it; a blending group copies its backdrop as it composites, or with fetch_blends reads
+    // the target where it draws; images past the budget, in turn.
+    void HoistedGroups() {
+        // One group between boxes.
+        {
+            auto p = pass_of(4);
+            p.width = 512;
+            p.height = 256;
+            p.pass.group_depth = 1;
+            p.pass.records[2].outline = {8, 4, 20, 10};
+            p.pass.batches = {{Step::Boxes, 0, 1, 0}, {Step::BeginGroup}, {Step::Boxes, 1, 1, 0},
+                              {Step::EndGroup, 2, 1, 0}, {Step::Boxes, 3, 1, 0}};
+            expect(weft::schedule_scene_pass(p), "begin out clear; draw 0 1x6 scene blank; end out; begin group 0 clear; "
+                   "draw 1 1x6 scene blank; end group 0 sampled; begin out; draw 2 1x6 scene group 0; "
+                   "draw 3 1x6 scene blank; end out", "a group in turn");
+            const auto s = weft::schedule_scene_pass(p, {}, nullptr, true, {true, false});
+            expect(s, "begin group 1 clear; draw 1 1x6 scene blank; end group 1 sampled; begin out clear; "
+                   "draw 0 1x6 scene blank; draw 2 1x6 scene group 1; draw 3 1x6 scene blank; end out",
+                   "a group drawn ahead");
+            CHECK(s.groups == 1 && s.hoisted.size() == 1 && s.hoisted[0].size == (std::array<std::uint32_t, 2>{64, 64}) &&
+                  s.hoisted[0].origin == (std::array<std::int32_t, 2>{8, 4}));
+            // On a target smaller than the rounding, the image is no larger than the pass.
+            p.width = 40;
+            p.height = 30;
+            const auto small = weft::schedule_scene_pass(p, {}, nullptr, true, {true, false});
+            CHECK(small.hoisted.size() == 1 &&
+                  small.hoisted[0].size == (std::array<std::uint32_t, 2>{40, 30}));
+        }
+        // Nested groups drawn ahead, a group with a backdrop inside in turn (its hoisted child ahead of it), and a
+        // blending group, copying its backdrop or reading the target.
+        auto p = pass_of(13);
+        p.width = 512;
+        p.height = 256;
+        p.pass.group_depth = 2;
+        p.pass.records[3].outline = {10, 10, 20, 20};
+        p.pass.records[4].outline = {0, 0, 100, 100};
+        p.pass.records[7].outline = {200, 0, 30, 30};
+        p.pass.records[9].outline = {0, 0, 512, 256};
+        p.pass.records[11].outline = {300, 100, 40, 40};
+        p.pass.backdrops = {backdrop({4, 4, 12, 12})};
+        p.pass.copies = {{{300, 100, 340, 140}}};
+        weft::render::ScenePass::Batch blending{Step::EndGroup, 11, 1, 0};
+        blending.copy = 1;
+        p.pass.batches = {{Step::Boxes, 0, 1, 0},    {Step::BeginGroup},        {Step::Boxes, 1, 1, 0},
+                          {Step::BeginGroup},        {Step::Boxes, 2, 1, 0},    {Step::EndGroup, 3, 1, 0},
+                          {Step::EndGroup, 4, 1, 0}, {Step::BeginGroup},        {Step::Boxes, 5, 1, 0},
+                          {Step::BeginGroup},        {Step::Boxes, 6, 1, 0},    {Step::EndGroup, 7, 1, 0},
+                          {Step::Backdrop, 8, 1, 0}, {Step::EndGroup, 9, 1, 0}, {Step::BeginGroup},
+                          {Step::Boxes, 10, 1, 0},   blending,                  {Step::Boxes, 12, 1, 0}};
+        const std::string ahead = "begin group 3 clear; draw 2 1x6 scene blank; end group 3 sampled; "
+                                  "begin group 2 clear; draw 1 1x6 scene blank; draw 3 1x6 scene group 3; "
+                                  "end group 2 sampled; begin group 5 clear; draw 10 1x6 scene blank; "
+                                  "end group 5 sampled; begin out clear; draw 0 1x6 scene blank; "
+                                  "draw 4 1x6 scene group 2; end out; begin group 4 clear; draw 6 1x6 scene blank; "
+                                  "end group 4 sampled; begin group 0 clear; draw 5 1x6 scene blank; "
+                                  "draw 7 1x6 scene group 4; end group 0; copy group 0 4,4,12,12 chain 0; "
+                                  "begin group 0; draw 8 1x6 scene backdrop 0; end group 0 sampled; begin out; "
+                                  "draw 9 1x6 scene group 0; ";
+        const auto copied = weft::schedule_scene_pass(p, {}, nullptr, true, {true, false});
+        expect(copied,
+               ahead + "end out; copy out 300,100,340,140 chain 1; begin out; draw 11 1x6 scene group 5 over 1; "
+                       "draw 12 1x6 scene blank; end out",
+               "groups drawn ahead, a group in turn, a blending group that copies");
+        CHECK(copied.hoisted.size() == 4 && copied.hoisted[0].size == (std::array<std::uint32_t, 2>{128, 128}) &&
+              copied.blends == 1 && copied.backdrops == 1);
+        const auto fetched = weft::schedule_scene_pass(p, {}, nullptr, true, {true, true});
+        expect(fetched, ahead + "draw 11 1x6 blend group 5; draw 12 1x6 scene blank; end out",
+               "a blending group that reads the target");
+        CHECK(fetched.blends == 1 && fetched.chains.size() == 1);
+        // A budget for one image of the pass's area: the outer group takes it; the rest draw in turn.
+        p.pass.records[4].outline = {0, 0, 512, 256};
+        const auto budget = weft::schedule_scene_pass(p, {}, nullptr, true, {true, true});
+        CHECK(budget.hoisted.size() == 1 && budget.hoisted[0].size == (std::array<std::uint32_t, 2>{512, 256}));
+    }
+
+    // Runs the commands of a pass whose groups may draw ahead as a backend with one target at a time does, failing
+    // where it could not or where the pass would draw something else: every batch that draws drawn once, into the
+    // target of the group it lies in (a group's composite into its parent's), in batch order within each target; a
+    // group's image composited after its drawing ended and before it begins again; a copy outside every target, of the
+    // target its reader reads; hoisted images over their groups' regions within the budget; a blending composite that
+    // copies, or with fetch reads its target.
+    void run_hoisted(const weft::ScenePrepared& p, const SceneSchedule& s, bool fetch, const std::string& what) {
+        const auto fail = [&](const std::string& why) {
+            std::cerr << what << ": " << why << "\n  " << text(s) << '\n';
+            require(false, what + ": " + why);
+        };
+        const auto& batches = p.pass.batches;
+        // Per batch, the group it lies in (none outside every group; a group's EndGroup lies in its parent), and per
+        // group its parent and EndGroup.
+        constexpr auto none = std::numeric_limits<std::size_t>::max();
+        std::vector<std::size_t> owner(batches.size(), none);
+        std::vector<std::size_t> parent;
+        std::vector<std::size_t> end_of;
+        std::vector<std::size_t> open;
+        for (std::size_t b = 0; b < batches.size(); ++b) {
+            if (batches[b].step == Step::BeginGroup) {
+                owner[b] = open.empty() ? none : open.back();
+                parent.push_back(owner[b]);
+                end_of.push_back(none);
+                open.push_back(parent.size() - 1);
+            } else if (batches[b].step == Step::EndGroup) {
+                end_of[open.back()] = b;
+                open.pop_back();
+                owner[b] = open.empty() ? none : open.back();
+            } else {
+                owner[b] = open.empty() ? none : open.back();
+            }
+        }
+        // The batch each draw draws, by its first record.
+        std::vector<std::size_t> drawn_by(p.pass.records.size(), none);
+        for (std::size_t b = 0; b < batches.size(); ++b) {
+            if (batches[b].step != Step::BeginGroup && batches[b].step != Step::Copy) {
+                drawn_by.at(batches[b].first) = b;
+            }
+        }
+        // Each group's image, from its composite.
+        std::vector<std::optional<SceneSchedule::Target>> image(parent.size());
+        for (const auto& command : s.commands) {
+            if (const auto* d = std::get_if<SceneSchedule::Draw>(&command);
+                d && d->image.kind == SceneSchedule::Image::Kind::Group) {
+                const auto b = drawn_by.at(d->first);
+                if (b == none || batches[b].step != Step::EndGroup) {
+                    fail("a group's image sampled by a draw other than its composite");
+                }
+                for (std::size_t g = 0; g < parent.size(); ++g) {
+                    if (end_of[g] == b) {
+                        image[g] = SceneSchedule::Target{Kind::Group, d->image.index};
+                    }
+                }
+            }
+        }
+        const SceneSchedule::Target out{Kind::Out};
+        const auto target_of = [&](std::size_t g) {
+            return g == none ? out : image.at(g).value_or(SceneSchedule::Target{Kind::Chain, 999});
+        };
+        // Hoisted images: over their groups' regions, rounded up to the granularity within the pass, in budget.
+        std::uint64_t area{};
+        for (std::size_t g = 0; g < parent.size(); ++g) {
+            if (!image[g] || image[g]->index < s.groups) {
+                continue;
+            }
+            const auto& h = s.hoisted.at(image[g]->index - s.groups);
+            const auto& region = p.pass.records.at(batches[end_of[g]].first).outline;
+            const auto side = [&](float r, std::uint32_t size, unsigned limit) {
+                return size >= r && (size % limits::group_image_granularity == 0 || size == limit);
+            };
+            if (h.origin != std::array<std::int32_t, 2>{std::int32_t(region[0]), std::int32_t(region[1])} ||
+                !side(region[2], h.size[0], p.width) || !side(region[3], h.size[1], p.height)) {
+                fail("a hoisted image not over its group's region");
+            }
+            area += std::uint64_t(h.size[0]) * h.size[1];
+        }
+        if (area > std::uint64_t(p.width) * p.height * limits::hoisted_group_budget) {
+            fail("hoisted images past the budget");
+        }
+        std::optional<SceneSchedule::Target> current;
+        std::vector<SceneSchedule::Target> readable;
+        std::map<std::pair<int, std::uint32_t>, std::size_t> last;
+        std::vector<int> drawn(batches.size());
+        // Each copy's source by its chain, and the batch that reads each chain.
+        std::map<std::uint32_t, SceneSchedule::Target> copied_from;
+        std::map<std::uint32_t, std::size_t> read_by;
+        for (std::size_t c = 0; c < s.commands.size(); ++c) {
+            const auto& command = s.commands[c];
+            if (const auto* b = std::get_if<SceneSchedule::Begin>(&command)) {
+                if (current) {
+                    fail("a target begun inside another");
+                }
+                current = b->target;
+                std::erase(readable, b->target);
+                if (b->target.kind == Kind::Group && b->clear && *b->clear != weft::paint::Color{}) {
+                    fail("a group not begun transparent");
+                }
+            } else if (const auto* e = std::get_if<SceneSchedule::End>(&command)) {
+                if (!current || *current != e->target) {
+                    fail("an end of a target not begun");
+                }
+                current.reset();
+                if (e->sampled) {
+                    readable.push_back(e->target);
+                }
+            } else if (const auto* d = std::get_if<SceneSchedule::Draw>(&command)) {
+                const auto b = drawn_by.at(d->first);
+                if (b == none || drawn[b]++) {
+                    fail("a draw of no batch, or of one drawn before");
+                }
+                const auto expected = target_of(owner[b]);
+                if (!current || *current != expected) {
+                    fail("a draw outside its group's target");
+                }
+                const std::pair<int, std::uint32_t> key{int(expected.kind), expected.index};
+                if (last.contains(key) && last[key] > b) {
+                    fail("draws out of batch order within a target");
+                }
+                last[key] = b;
+                if (d->image.kind == SceneSchedule::Image::Kind::Group &&
+                    std::find(readable.begin(), readable.end(),
+                              SceneSchedule::Target{Kind::Group, d->image.index}) == readable.end()) {
+                    fail("a group composited before its drawing ended");
+                }
+                if (d->image.kind == SceneSchedule::Image::Kind::Backdrop) {
+                    read_by[d->image.index] = b;
+                }
+                if (d->backdrop) {
+                    read_by[*d->backdrop] = b;
+                }
+                if (batches[b].step == Step::EndGroup) {
+                    const bool blends = batches[b].copy != 0;
+                    const bool by_fetch = d->pipeline == SceneSchedule::Pipeline::Blend;
+                    if (by_fetch != (blends && fetch) || bool(d->backdrop) != (blends && !fetch)) {
+                        fail("a blending composite neither copies nor reads its target, or one that does not blend");
+                    }
+                }
+            } else if (const auto* copy = std::get_if<SceneSchedule::Copy>(&command)) {
+                if (current) {
+                    fail("a copy inside a target");
+                }
+                copied_from[copy->chain] = copy->from;
+            } else if (std::get_if<SceneSchedule::Filter>(&command) && current) {
+                fail("a filter inside a target");
+            }
+        }
+        for (std::size_t b = 0; b < batches.size(); ++b) {
+            const bool draws = batches[b].step != Step::BeginGroup && batches[b].step != Step::Copy &&
+                               !(batches[b].step == Step::Image && !samples(p, s, batches[b].first));
+            if (draws != (drawn[b] == 1)) {
+                fail("a batch undrawn, or one that draws nothing drawn");
+            }
+        }
+        if (current) {
+            fail("the pass ends inside a target");
+        }
+        // A copy reads the target its reader draws into (a backdrop beneath a group, the group's parent's), never a
+        // hoisted image (whose pixels lie offset by its origin).
+        for (const auto& [k, from] : copied_from) {
+            if (!read_by.contains(k)) {
+                fail("a copy nothing reads");
+            }
+            const auto b = read_by[k];
+            const bool under = batches[b].step == Step::Backdrop && p.pass.backdrops.at(batches[b].source).under;
+            const auto reader = owner[b];
+            const auto expected = target_of(under ? (reader == none ? none : parent.at(reader)) : reader);
+            if (from != expected || (from.kind == Kind::Group && from.index >= s.groups)) {
+                fail("a copy of another target than its reader's, or of a hoisted image");
+            }
+        }
+    }
+
+    // Random nestings drawn with groups ahead, with and without fetch: run_hoisted's rules.
+    void RandomHoisted() {
+        std::mt19937 random(limits::schedule_seed + 1);
+        std::size_t hoisted{};
+        std::size_t in_turn{};
+        std::size_t blends{};
+        for (int i = 0; i < limits::schedule_passes; ++i) {
+            const auto p = random_pass(random, true);
+            const bool fetch = random() % 2 != 0;
+            const std::vector<weft::SceneTexture> host{{"bound", 1, false}};
+            const auto s = weft::schedule_scene_pass(p, host, nullptr, random() % 4 != 0, {true, fetch});
+            run_hoisted(p, s, fetch, "random hoisted pass " + std::to_string(i));
+            hoisted += s.hoisted.size();
+            for (const auto& command : s.commands) {
+                if (const auto* b = std::get_if<SceneSchedule::Begin>(&command);
+                    b && b->target.kind == Kind::Group && b->clear && b->target.index < s.groups) {
+                    ++in_turn;
+                }
+            }
+            blends += s.blends;
+        }
+        std::cout << limits::schedule_passes << " random passes with groups ahead: " << hoisted << " hoisted, "
+                  << in_turn << " in turn, " << blends << " blending\n";
+        require(hoisted > 1000 && in_turn > 1000 && blends > 500, "random passes with groups of every kind");
+    }
+
     void RandomPasses() {
         std::mt19937 random(limits::schedule_seed);
         std::size_t commands{};
@@ -660,7 +966,9 @@ int main() {
         UnreadableTarget();
         EffectsParticlesTextures();
         EffectCopies();
+        HoistedGroups();
         RandomPasses();
+        RandomHoisted();
         std::cout << "PASS scene pass schedules: draws, groups, backdrops, unreadable targets, effects, particles, "
                      "host textures, copies effects read, random nestings\n";
         return 0;

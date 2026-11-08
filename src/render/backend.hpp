@@ -2,6 +2,7 @@
 
 #include "render/paint_list.hpp"
 #include "weft/render_backend.h"
+#include "weft/render_export_texture.h"
 #include "weft/render_external_texture.h"
 
 #include <concepts>
@@ -66,6 +67,23 @@ namespace weft::render {
             } -> std::same_as<weft_render_result>;
         };
 
+    // Optional export texture extension (render_export_texture.h): images of the backend's own that frames are drawn
+    // into and the host samples.
+    template <class B>
+    concept ExportTextureBackend =
+        RenderBackend<B> && requires(B& backend, const weft_render_export_desc& desc, const weft_render_pass& pass,
+                                     std::uint64_t handle, std::uint64_t& out, std::uint64_t& texture) {
+            {
+                backend.create_export_image(desc, out, texture)
+            } -> std::same_as<weft_render_result>;
+            {
+                backend.destroy_export_image(handle)
+            } -> std::same_as<void>;
+            {
+                backend.encode_export(handle, handle, pass, out)
+            } -> std::same_as<weft_render_result>;
+        };
+
     // Optional display list frames (weft_renderer_prepare_list), with the external textures the list draws.
     template <class B>
     concept DisplayListBackend =
@@ -108,6 +126,13 @@ namespace weft::render {
         std::uint32_t formats{};
         std::uint32_t max_textures{};
         std::uint64_t max_texture_bytes{};
+    };
+
+    // Formats, image count and byte budget of the export texture extension.
+    struct ExportTextureLimits {
+        std::uint32_t formats{};
+        std::uint32_t max_images{};
+        std::uint64_t max_image_bytes{};
     };
 
     namespace detail {
@@ -237,6 +262,39 @@ namespace weft::render {
                 }
             }
         };
+
+        template <ExportTextureBackend B>
+        struct ExportThunks {
+            static weft_render_result create_image(void* user_data, const weft_render_export_desc* desc,
+                                                   std::uint64_t* native_image,
+                                                   std::uint64_t* native_texture) noexcept {
+                *native_image = 0;
+                *native_texture = 0;
+                try {
+                    return BackendThunks<B>::self(user_data).create_export_image(*desc, *native_image, *native_texture);
+                } catch (...) {
+                    *native_image = 0;
+                    *native_texture = 0;
+                    return WEFT_RENDER_BACKEND_ERROR;
+                }
+            }
+
+            static void destroy_image(void* user_data, std::uint64_t native_image) noexcept {
+                BackendThunks<B>::self(user_data).destroy_export_image(native_image);
+            }
+
+            static weft_render_result encode(void* user_data, std::uint64_t native_frame, std::uint64_t native_image,
+                                             const weft_render_pass* pass, std::uint64_t* native_use) noexcept {
+                *native_use = 0;
+                try {
+                    return BackendThunks<B>::self(user_data).encode_export(native_frame, native_image, *pass,
+                                                                           *native_use);
+                } catch (...) {
+                    *native_use = 0;
+                    return WEFT_RENDER_BACKEND_ERROR;
+                }
+            }
+        };
     } // namespace detail
 
     // The C function table for backend; it borrows backend until weft_renderer_destroy succeeds. A DisplayListBackend
@@ -295,5 +353,20 @@ namespace weft::render {
                 Thunks::import_texture,
                 Thunks::release_texture,
                 Thunks::prepare};
+    }
+
+    // The export texture extension table for backend, for weft_renderer_install_export_backend.
+    template <ExportTextureBackend B>
+    weft_render_export_backend make_c_export_backend(B& backend, const ExportTextureLimits& limits) noexcept {
+        using Thunks = detail::ExportThunks<B>;
+        return {sizeof(weft_render_export_backend),
+                WEFT_RENDER_EXPORT_ABI_VERSION,
+                limits.formats,
+                limits.max_images,
+                limits.max_image_bytes,
+                &backend,
+                Thunks::create_image,
+                Thunks::destroy_image,
+                Thunks::encode};
     }
 } // namespace weft::render

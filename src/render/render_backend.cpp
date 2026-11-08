@@ -1,4 +1,5 @@
 #include "weft/render_external_texture.h"
+#include "weft/render_export_texture.h"
 #include "base/generational_slots.hpp"
 #include "base/owner_thread.hpp"
 #include "constants/render.hpp"
@@ -6,6 +7,7 @@
 #include "render/paint_list.hpp"
 #include "render/rounded_clip.hpp"
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <bit>
 #include <cmath>
@@ -21,6 +23,10 @@ namespace {
     constexpr uint32_t prepared_kind = 1;
     constexpr uint32_t use_kind = 2;
     constexpr uint32_t texture_kind = 3;
+    constexpr uint32_t export_kind = 4;
+    constexpr uint32_t image_kind = 5;
+    // A use that draws no export image.
+    constexpr uint32_t no_image = UINT32_MAX;
 
     // Prepared frame or encoded use. Occupancy and generation live in the slot table; the
     // texture list keeps its reserved capacity across occupancies.
@@ -29,6 +35,8 @@ namespace {
         uint64_t serial{};
         bool submitted{};
         std::vector<uint32_t> textures;
+        // A use's export image (render_export_texture.h), until the use retires.
+        uint32_t image{no_image};
     };
 
     // Imported external texture; occupied while the backend still holds the native texture.
@@ -40,8 +48,35 @@ namespace {
         bool caller{};
     };
 
+    // An image of an export: occupied while the backend holds it. The host's lease of it is an occupancy of the lease
+    // table's slot of the same index, so each lease has a generation of its own.
+    struct ImageSlot {
+        uint64_t native{};
+        uint64_t texture{};
+        uint64_t bytes{};
+        // The export's encode that drew it last (0: none), so the least recently drawn image is drawn next.
+        uint64_t version{};
+        // The host's last submission that samples it, as its lease was released with.
+        uint64_t sampled{};
+        // A use that draws it has not retired.
+        bool writing{};
+        // Its export was destroyed: it goes once free.
+        bool orphan{};
+    };
+
+    // An export: its description (mip_levels resolved to a count) and its ring of images.
+    struct ExportSlot {
+        weft_render_export_desc desc{};
+        uint64_t version{};
+        uint32_t count{};
+        std::array<uint32_t, WEFT_RENDER_EXPORT_MAX_IMAGES> images{};
+    };
+
     using Slots = weft::GenerationalSlots<Slot>;
     using TextureSlots = weft::GenerationalSlots<TextureSlot>;
+    using ImageSlots = weft::GenerationalSlots<ImageSlot>;
+    using ExportSlots = weft::GenerationalSlots<ExportSlot>;
+    using LeaseSlots = weft::GenerationalSlots<char>;
 
     bool unit(float x) {
         return std::isfinite(x) && x >= 0 && x <= 1;
@@ -86,6 +121,15 @@ struct weft_renderer {
     uint32_t caller_leases{};
     uint32_t live_textures{};
     uint64_t texture_bytes{};
+    // The export texture extension (render_export_texture.h): capacity allocated when it is installed.
+    weft_render_export_backend exporter{};
+    ExportSlots exports;
+    ImageSlots images;
+    LeaseSlots leases;
+    uint32_t export_count{};
+    uint32_t live_images{};
+    uint32_t image_leases{};
+    uint64_t image_bytes{};
     uint32_t prepared_count{};
     uint32_t encoded_count{};
     uint32_t submitted_count{};
@@ -156,6 +200,58 @@ namespace {
             collect_texture(r, i);
         }
         s.textures.clear();
+    }
+
+    // Neither leased, drawn by a use that has not retired, nor sampled by a submission that has not completed (the
+    // host's submissions no longer matter once the device is abandoned).
+    bool image_free(const weft_renderer& r, std::size_t index) {
+        const auto& m = r.images[index];
+        return !r.leases.occupied(index) && !m.writing && (m.sampled <= r.completed || !r.device_available);
+    }
+
+    // Destroys an image of a destroyed export once it is free.
+    void collect_image(weft_renderer& r, std::size_t index) {
+        auto& m = r.images[index];
+        if (!r.images.occupied(index) || !m.orphan || !image_free(r, index)) {
+            return;
+        }
+        {
+            Callback guard(r);
+            r.exporter.destroy_image(r.exporter.user_data, m.native);
+        }
+        r.image_bytes -= m.bytes;
+        --r.live_images;
+        m = {};
+        r.images.vacate(index);
+    }
+
+    // A use retired: what it pinned and the export image it drew are free of it.
+    void end_use(weft_renderer& r, Slot& s) {
+        release_textures(r, s);
+        if (s.image != no_image) {
+            const auto index = s.image;
+            s.image = no_image;
+            r.images[index].writing = false;
+            collect_image(r, index);
+        }
+    }
+
+    // A handle of kind into slots: the renderer's and its device epoch's, its occupancy current.
+    template <class T>
+    weft_render_result find_slot(weft_renderer& r, weft_render_handle h, uint32_t kind,
+                                 weft::GenerationalSlots<T>& slots, T*& out) {
+        out = nullptr;
+        if (h.renderer_id != r.identity.renderer_id) {
+            return WEFT_RENDER_WRONG_BACKEND;
+        }
+        if (h.device_epoch != r.identity.device_epoch) {
+            return WEFT_RENDER_WRONG_EPOCH;
+        }
+        if (h.kind != kind || h.reserved) {
+            return WEFT_RENDER_STALE_HANDLE;
+        }
+        out = slots.find(h.slot, h.generation);
+        return out ? WEFT_RENDER_OK : WEFT_RENDER_STALE_HANDLE;
     }
 
     weft_render_result texture_handle(weft_renderer& r, weft_render_handle h, TextureSlot*& out) {
@@ -474,7 +570,8 @@ namespace {
         return WEFT_RENDER_OK;
     }
 
-    weft_render_result validate_pass(const weft_renderer& r, const weft_render_pass* p) {
+    // What every pass needs: its layout, the renderer's identity, a size and a native pass.
+    weft_render_result validate_pass_identity(const weft_renderer& r, const weft_render_pass* p) {
         if (!p || p->struct_size < sizeof(*p)) {
             return WEFT_RENDER_INVALID_ARGUMENT;
         }
@@ -493,6 +590,13 @@ namespace {
         }
         if (!p->width || !p->height || !p->native_pass || !p->native_pass_size) {
             return WEFT_RENDER_INVALID_ARGUMENT;
+        }
+        return WEFT_RENDER_OK;
+    }
+
+    weft_render_result validate_pass(const weft_renderer& r, const weft_render_pass* p) {
+        if (const auto v = validate_pass_identity(r, p); v != WEFT_RENDER_OK) {
+            return v;
         }
         const auto& c = r.backend.capabilities;
         if (p->width > c.max_target_size || p->height > c.max_target_size || p->sample_count != 1 ||
@@ -594,7 +698,8 @@ weft_render_result weft_renderer_destroy(weft_renderer* r) noexcept {
         return v;
     }
     r->draining = true;
-    if (r->prepared_count || r->encoded_count || r->submitted_count || r->live_textures) {
+    if (r->prepared_count || r->encoded_count || r->submitted_count || r->live_textures || r->export_count ||
+        r->live_images) {
         return WEFT_RENDER_BUSY;
     }
     weft_render_result result;
@@ -871,7 +976,7 @@ weft_render_result weft_renderer_discard_encoded(weft_renderer* r, weft_render_h
     }
     retire(r->uses, h.slot);
     --r->encoded_count;
-    release_textures(*r, *s);
+    end_use(*r, *s);
     return WEFT_RENDER_OK;
 }
 
@@ -935,8 +1040,12 @@ weft_render_result weft_renderer_notify_completed(weft_renderer* r, uint64_t epo
         if (r->uses.occupied(i) && s.submitted && s.serial <= serial) {
             retire(r->uses, i);
             --r->submitted_count;
-            release_textures(*r, s);
+            end_use(*r, s);
         }
+    }
+    // Images of destroyed exports whose last sampling completed.
+    for (size_t i = 0; i < r->images.size(); ++i) {
+        collect_image(*r, i);
     }
     return WEFT_RENDER_OK;
 }
@@ -964,9 +1073,12 @@ weft_render_result weft_renderer_abandon_device(weft_renderer* r, uint64_t epoch
     r->device_available = false;
     for (size_t i = 0; i < r->uses.size(); ++i) {
         retire(r->uses, i);
-        release_textures(*r, r->uses[i]);
+        end_use(*r, r->uses[i]);
     }
     r->submitted_count = 0;
+    for (size_t i = 0; i < r->images.size(); ++i) {
+        collect_image(*r, i);
+    }
     return WEFT_RENDER_OK;
 }
 
@@ -1187,6 +1299,297 @@ weft_render_result weft_renderer_get_external_info(weft_renderer* r, weft_render
         return WEFT_RENDER_UNSUPPORTED_FEATURE;
     }
     *out = {sizeof(*out), r->caller_leases, r->live_textures, 0, r->texture_bytes};
+    return WEFT_RENDER_OK;
+}
+
+weft_render_result weft_renderer_install_export_backend(weft_renderer* r,
+                                                        const weft_render_export_backend* b) noexcept {
+    if (const auto v = owner(r, true); v != WEFT_RENDER_OK) {
+        return v;
+    }
+    if (!b || b->struct_size < sizeof(*b)) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    if (b->abi_version != WEFT_RENDER_EXPORT_ABI_VERSION) {
+        return WEFT_RENDER_UNSUPPORTED_ABI;
+    }
+    if (!b->formats || (b->formats & ~weft::constants::render::known_target_format_bits) || !b->max_images ||
+        b->max_images > uint32_t(weft::constants::render::max_export_images_limit) || !b->max_image_bytes ||
+        !b->create_image || !b->destroy_image || !b->encode) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    if (r->exporter.struct_size || r->prepared_count || r->encoded_count || r->submitted_count) {
+        return WEFT_RENDER_INVALID_STATE;
+    }
+    try {
+        // Every export has an image: there are no more exports than images.
+        ExportSlots exports(b->max_images);
+        ImageSlots images(b->max_images);
+        LeaseSlots leases(b->max_images);
+        r->exports = std::move(exports);
+        r->images = std::move(images);
+        r->leases = std::move(leases);
+        r->exporter = *b;
+        return WEFT_RENDER_OK;
+    } catch (const std::bad_alloc&) {
+        return WEFT_RENDER_OUT_OF_MEMORY;
+    } catch (...) {
+        return WEFT_RENDER_BACKEND_ERROR;
+    }
+}
+
+weft_render_result weft_renderer_create_export(weft_renderer* r, const weft_render_export_desc* d,
+                                               weft_render_handle* out) noexcept {
+    if (!out) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    *out = {};
+    if (const auto v = owner(r, true); v != WEFT_RENDER_OK) {
+        return v;
+    }
+    if (!r->exporter.struct_size) {
+        return WEFT_RENDER_UNSUPPORTED_FEATURE;
+    }
+    if (!d || d->struct_size < sizeof(*d)) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    if (d->abi_version != WEFT_RENDER_EXPORT_ABI_VERSION) {
+        return WEFT_RENDER_UNSUPPORTED_ABI;
+    }
+    if (d->identity.renderer_id != r->identity.renderer_id || d->identity.api != r->identity.api) {
+        return WEFT_RENDER_WRONG_BACKEND;
+    }
+    if (d->identity.device_epoch != r->identity.device_epoch) {
+        return WEFT_RENDER_WRONG_EPOCH;
+    }
+    if (d->identity.reserved || d->identity.queue != r->identity.queue || !d->width || !d->height || d->reserved ||
+        !d->images || d->images > WEFT_RENDER_EXPORT_MAX_IMAGES) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    // At most a full chain: one level more than halvings of the larger side until a texel; 0 is all of them.
+    const uint32_t chain = uint32_t(std::bit_width(std::max(d->width, d->height)));
+    const uint32_t levels = d->mip_levels ? d->mip_levels : chain;
+    if (levels > chain) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    if (d->width > r->backend.capabilities.max_target_size || d->height > r->backend.capabilities.max_target_size ||
+        d->format > WEFT_RENDER_TARGET_LINEAR_RGB10A2 || !(r->exporter.formats & (1u << d->format))) {
+        return WEFT_RENDER_UNSUPPORTED_FEATURE;
+    }
+    uint64_t pixels{};
+    for (uint32_t level = 0; level < levels; ++level) {
+        pixels += uint64_t(std::max(1u, d->width >> level)) * std::max(1u, d->height >> level);
+    }
+    const uint64_t bpp =
+        d->format == WEFT_RENDER_TARGET_LINEAR_RGBA16F   ? weft::constants::render::rgba16f_bytes_per_pixel
+        : d->format == WEFT_RENDER_TARGET_LINEAR_RGBA32F ? weft::constants::render::rgba32f_bytes_per_pixel
+                                                         : weft::constants::rgba8_bytes_per_pixel;
+    const auto bytes = pixels * bpp;
+    if (d->images > r->exporter.max_images - r->live_images ||
+        bytes * d->images > r->exporter.max_image_bytes - r->image_bytes) {
+        return WEFT_RENDER_BUSY;
+    }
+    const auto e = r->exports.first_free();
+    if (e == r->exports.size()) {
+        return WEFT_RENDER_BUSY;
+    }
+    // Image slots whose next occupancy and lease have a generation left.
+    std::array<uint32_t, WEFT_RENDER_EXPORT_MAX_IMAGES> slots{};
+    uint32_t found{};
+    for (size_t i = 0; i < r->images.size() && found < d->images; ++i) {
+        if (r->images.reusable(i) && r->leases.reusable(i)) {
+            slots[found++] = uint32_t(i);
+        }
+    }
+    if (found < d->images) {
+        return WEFT_RENDER_BUSY;
+    }
+    auto desc = *d;
+    desc.mip_levels = levels;
+    for (uint32_t k = 0; k < d->images; ++k) {
+        uint64_t native{};
+        uint64_t texture{};
+        weft_render_result v;
+        {
+            Callback guard(*r);
+            v = r->exporter.create_image(r->exporter.user_data, &desc, &native, &texture);
+        }
+        if (v == WEFT_RENDER_OK && (!native || !texture)) {
+            v = WEFT_RENDER_BACKEND_ERROR;
+        }
+        if (v != WEFT_RENDER_OK) {
+            Callback guard(*r);
+            if (native) {
+                r->exporter.destroy_image(r->exporter.user_data, native);
+            }
+            for (uint32_t j = 0; j < k; ++j) {
+                r->exporter.destroy_image(r->exporter.user_data, r->images[slots[j]].native);
+                r->images[slots[j]] = {};
+            }
+            return v;
+        }
+        r->images[slots[k]] = {native, texture, bytes};
+    }
+    auto& x = r->exports[e];
+    x.desc = desc;
+    x.version = 0;
+    x.count = d->images;
+    for (uint32_t k = 0; k < d->images; ++k) {
+        x.images[k] = slots[k];
+        r->images.occupy(slots[k]);
+    }
+    const auto generation = r->exports.occupy(e);
+    ++r->export_count;
+    r->live_images += d->images;
+    r->image_bytes += bytes * d->images;
+    *out = {r->identity.renderer_id, r->identity.device_epoch, uint32_t(e), generation, export_kind, 0};
+    return WEFT_RENDER_OK;
+}
+
+weft_render_result weft_renderer_destroy_export(weft_renderer* r, weft_render_handle h) noexcept {
+    if (const auto v = owner(r); v != WEFT_RENDER_OK) {
+        return v;
+    }
+    if (!r->exporter.struct_size) {
+        return WEFT_RENDER_UNSUPPORTED_FEATURE;
+    }
+    ExportSlot* x{};
+    if (const auto v = find_slot(*r, h, export_kind, r->exports, x); v != WEFT_RENDER_OK) {
+        return v;
+    }
+    r->exports.vacate(h.slot);
+    --r->export_count;
+    for (uint32_t k = 0; k < x->count; ++k) {
+        r->images[x->images[k]].orphan = true;
+        collect_image(*r, x->images[k]);
+    }
+    *x = {};
+    return WEFT_RENDER_OK;
+}
+
+weft_render_result weft_renderer_encode_export(weft_renderer* r, weft_render_handle h, weft_render_handle export_handle,
+                                               const weft_render_pass* pass, weft_render_handle* out,
+                                               weft_render_export_image* out_image) noexcept {
+    if (!out || !out_image || out_image->struct_size < sizeof(*out_image)) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    *out = {};
+    *out_image = {sizeof(*out_image), WEFT_RENDER_EXPORT_ABI_VERSION};
+    if (const auto v = owner(r, true); v != WEFT_RENDER_OK) {
+        return v;
+    }
+    if (!r->exporter.struct_size) {
+        return WEFT_RENDER_UNSUPPORTED_FEATURE;
+    }
+    Slot* frame{};
+    if (const auto v = handle(*r, h, prepared_kind, frame); v != WEFT_RENDER_OK) {
+        return v;
+    }
+    ExportSlot* x{};
+    if (const auto v = find_slot(*r, export_handle, export_kind, r->exports, x); v != WEFT_RENDER_OK) {
+        return v;
+    }
+    if (const auto v = validate_pass_identity(*r, pass); v != WEFT_RENDER_OK) {
+        return v;
+    }
+    const auto& d = x->desc;
+    if (pass->width != d.width || pass->height != d.height || pass->target_format != d.format ||
+        pass->sample_count != 1) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    if (r->encoded_count == r->limits.max_encoded_uses) {
+        return WEFT_RENDER_BUSY;
+    }
+    const auto i = r->uses.first_free();
+    if (i == r->uses.size()) {
+        return WEFT_RENDER_BUSY;
+    }
+    // The free image drawn least recently; one whose lease generations ran out is never free again.
+    uint32_t image = no_image;
+    for (uint32_t k = 0; k < x->count; ++k) {
+        const auto m = x->images[k];
+        if (image_free(*r, m) && r->leases.reusable(m) &&
+            (image == no_image || r->images[m].version < r->images[image].version)) {
+            image = m;
+        }
+    }
+    if (image == no_image) {
+        return WEFT_RENDER_BUSY;
+    }
+    auto& use = r->uses[i];
+    use.textures.assign(frame->textures.begin(), frame->textures.end());
+    for (auto t : use.textures) {
+        ++r->textures[t].pins;
+    }
+    use.image = image;
+    auto& m = r->images[image];
+    m.writing = true;
+    uint64_t native{};
+    weft_render_result v;
+    {
+        Callback guard(*r);
+        v = r->exporter.encode(r->exporter.user_data, frame->native, m.native, pass, &native);
+    }
+    if (!native) {
+        end_use(*r, use);
+        return v == WEFT_RENDER_OK ? WEFT_RENDER_BACKEND_ERROR : v;
+    }
+    *out = publish(*r, r->uses, i, native, use_kind);
+    ++r->encoded_count;
+    if (v != WEFT_RENDER_OK) {
+        // Partial commands: the host discards them (or reports their submission); the image is not leased.
+        return v;
+    }
+    m.version = ++x->version;
+    m.sampled = 0;
+    const auto generation = r->leases.occupy(image);
+    ++r->image_leases;
+    *out_image = {sizeof(*out_image),
+                  WEFT_RENDER_EXPORT_ABI_VERSION,
+                  {r->identity.renderer_id, r->identity.device_epoch, image, generation, image_kind, 0},
+                  m.version,
+                  d.width,
+                  d.height,
+                  d.format,
+                  d.mip_levels,
+                  m.texture};
+    return WEFT_RENDER_OK;
+}
+
+weft_render_result weft_renderer_release_export_image(weft_renderer* r, weft_render_handle h, uint64_t queue,
+                                                      uint64_t serial) noexcept {
+    if (const auto v = owner(r); v != WEFT_RENDER_OK) {
+        return v;
+    }
+    if (!r->exporter.struct_size) {
+        return WEFT_RENDER_UNSUPPORTED_FEATURE;
+    }
+    char* lease{};
+    if (const auto v = find_slot(*r, h, image_kind, r->leases, lease); v != WEFT_RENDER_OK) {
+        return v;
+    }
+    if (queue != r->identity.queue) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    r->leases.vacate(h.slot);
+    --r->image_leases;
+    r->images[h.slot].sampled = serial;
+    collect_image(*r, h.slot);
+    return WEFT_RENDER_OK;
+}
+
+weft_render_result weft_renderer_get_export_info(weft_renderer* r, weft_render_export_info* out) noexcept {
+    if (const auto v = owner(r); v != WEFT_RENDER_OK) {
+        return v;
+    }
+    if (!out || out->struct_size < sizeof(*out)) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    if (!r->exporter.struct_size) {
+        return WEFT_RENDER_UNSUPPORTED_FEATURE;
+    }
+    *out = {sizeof(*out),    r->exporter.formats,    r->export_count, r->live_images,
+            r->image_leases, r->exporter.max_images, r->image_bytes,  r->exporter.max_image_bytes};
     return WEFT_RENDER_OK;
 }
 }

@@ -9,6 +9,7 @@
 #include "text/font_catalog.hpp"
 #include "weft/render_backend.h"
 #include "weft/render_backend_metal.h"
+#include "weft/render_export_texture.h"
 #include "weft/render_external_texture.h"
 
 #include <cstdint>
@@ -29,6 +30,8 @@ namespace weft {
 // discarded one gives back what it would have uploaded. One SceneText, of the fonts of the first frame's runtime, and
 // one kept pass per View. Its external texture extension (weft_render_metal_external) imports the host textures frames
 // bind to their pages' -weft-texture(name) backgrounds, retaining each until its lease retires. As the Vulkan backend's.
+// Its export texture extension (weft_render_metal_export) draws frames into images of its own that the host samples:
+// the scene pass into a scratch target of the recording's, then a resolve to linear premultiplied and the image's mips.
 namespace weft::render::metal {
     class ViewBackend {
     public:
@@ -47,6 +50,7 @@ namespace weft::render::metal {
         }
 
         weft_render_external_backend external();
+        weft_render_export_backend exporter();
 
         // RenderBackend: quad frames are not this backend's.
         weft_render_result prepare(const weft_render_frame& frame, std::uint64_t& out);
@@ -72,6 +76,12 @@ namespace weft::render::metal {
         void release_texture(std::uint64_t native);
         weft_render_result prepare_external(const weft_render_frame& frame, const weft_render_external_asset* textures,
                                             std::uint32_t count, std::uint64_t& out);
+        // ExportTextureBackend: images of SRGB_RGBA8, SRGB_BGRA8 or LINEAR_RGBA16F.
+        weft_render_result create_export_image(const weft_render_export_desc& desc, std::uint64_t& out,
+                                               std::uint64_t& texture);
+        void destroy_export_image(std::uint64_t native);
+        weft_render_result encode_export(std::uint64_t native, std::uint64_t image, const weft_render_pass& pass,
+                                         std::uint64_t& out);
 
     private:
         std::string failure_;
@@ -83,11 +93,12 @@ namespace weft::render::metal {
             std::vector<SceneTexture> textures;
         };
 
-        // A recording: its slot, and the serial of its submission once the host made it.
+        // A recording: its slot, the serial of its submission once the host made it, and an export's scratch target.
         struct Use {
             std::unique_ptr<SceneRenderer::Slot> slot;
             std::uint64_t serial{};
             bool submitted{};
+            id<MTLTexture> scratch;
         };
 
         id<MTLDevice> device_;
@@ -100,11 +111,29 @@ namespace weft::render::metal {
         std::vector<std::unique_ptr<SceneRenderer::Slot>> idle_;
         // Imported host textures (nil: free), retained until their leases retire.
         std::vector<id<MTLTexture>> imports_;
+        // Export images (nil: free), and the scratch targets of finished export recordings (capacity reserved).
+        std::vector<id<MTLTexture>> exports_;
+        std::vector<id<MTLTexture>> spare_scratch_;
+        // The resolve's functions, and its pipeline by the pixel format of the images it writes.
+        id<MTLFunction> resolve_vertex_;
+        id<MTLFunction> resolve_fragment_;
+        std::map<MTLPixelFormat, id<MTLRenderPipelineState>> resolve_;
         // By the View's anchor channel, which only its View holds.
         std::map<std::weak_ptr<SceneAnchorChannel>, unsigned, std::owner_less<>> views_;
         std::uint64_t next_ = 1;
         unsigned next_view_{};
+
+        // Encodes prepared's frame over target into command with an idle slot of the backend's: OK with the slot in
+        // out, or what stopped it with nothing encoded. Throws what the native pass throws, the slot idle again.
+        weft_render_result draw(const Prepared& prepared, id<MTLCommandBuffer> command,
+                                const SceneRenderer::Target& target, const SceneTargetStart& start,
+                                std::unique_ptr<SceneRenderer::Slot>& out);
+        id<MTLRenderPipelineState> resolve_pipeline(MTLPixelFormat format);
+        // A scratch target of the size (a spare, or new), and one given back; giving back never allocates.
+        id<MTLTexture> take_scratch(std::uint32_t width, std::uint32_t height);
+        void give_scratch(id<MTLTexture> scratch) noexcept;
     };
 
-    static_assert(SceneFrameBackend<ViewBackend> && ExternalTextureBackend<ViewBackend>);
+    static_assert(SceneFrameBackend<ViewBackend> && ExternalTextureBackend<ViewBackend> &&
+                  ExportTextureBackend<ViewBackend>);
 } // namespace weft::render::metal

@@ -4,6 +4,8 @@
 #include <android/system_fonts.h>
 
 #include <algorithm>
+#include <cctype>
+#include <string_view>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -17,6 +19,7 @@ namespace weft::platform::android {
                                     {"monospace", "Droid Sans Mono"},
                                     {"system-ui", "Roboto"}};
         std::vector<std::string> order;
+        std::vector<std::pair<std::uint32_t, std::vector<std::string>>> scripts;
         auto* iterator = ASystemFontIterator_open();
         if (!iterator) {
             throw std::runtime_error("WEFT_SYSTEM_FONTS: ASystemFontIterator_open failed");
@@ -52,9 +55,36 @@ namespace weft::platform::android {
             } catch (const std::runtime_error&) {
                 continue;
             }
+            // fonts.xml tags a script's fallback font with its locale ("und-Arab", "ja-Jpan"): its script subtag.
+            std::uint32_t script{};
+            if (const char* locale = AFont_getLocale(font)) {
+                const std::string_view tags(locale);
+                for (std::size_t at = 0; at <= tags.size();) {
+                    const auto end = std::min(tags.find_first_of("-,", at), tags.size());
+                    if (end - at == 4 && std::isupper(static_cast<unsigned char>(tags[at]))) {
+                        script = std::uint32_t(std::uint8_t(tags[at])) << 24 |
+                                 std::uint32_t(std::uint8_t(tags[at + 1])) << 16 |
+                                 std::uint32_t(std::uint8_t(tags[at + 2])) << 8 | std::uint8_t(tags[at + 3]);
+                        break;
+                    }
+                    at = end + 1;
+                }
+            }
             for (auto& family : families) {
                 if (std::find(order.begin(), order.end(), family) == order.end()) {
                     order.push_back(family);
+                }
+                if (script) {
+                    auto entry = std::find_if(scripts.begin(), scripts.end(), [&](const auto& s) {
+                        return s.first == script;
+                    });
+                    if (entry == scripts.end()) {
+                        scripts.push_back({script, {}});
+                        entry = scripts.end() - 1;
+                    }
+                    if (std::find(entry->second.begin(), entry->second.end(), family) == entry->second.end()) {
+                        entry->second.push_back(family);
+                    }
                 }
                 catalog.faces.push_back({std::move(family), AFont_getWeight(font), AFont_isItalic(font), source});
             }
@@ -68,6 +98,7 @@ namespace weft::platform::android {
                 catalog.fallback_families.push_back(family);
             }
         }
+        catalog.script_fallbacks = std::move(scripts);
         return catalog;
     }
 } // namespace weft::platform::android

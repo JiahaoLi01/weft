@@ -1,6 +1,7 @@
 #ifndef WEFT_RENDER_BACKEND_METAL_H
 #define WEFT_RENDER_BACKEND_METAL_H
 #include "weft/render_backend.h"
+#include "weft/render_export_texture.h"
 #include "weft/render_external_texture.h"
 
 /* Native payload schema v1 of the Metal backend (WEFT_RENDER_API_METAL). Only the Metal adapter casts these pointers,
@@ -54,6 +55,18 @@ typedef struct weft_render_metal_texture {
     uint64_t reserved;
 } weft_render_metal_texture;
 
+/* The export texture extension (render_export_texture.h; docs/ingame-ui.md). weft_renderer_encode_export takes a
+ * weft_render_metal_pass whose command_buffer is the host's as for a pass, with target NULL (the image is the target)
+ * and clear_target 0: the adapter draws the frame over transparent into a scratch target of its own, then, in render
+ * and blit command encoders of its own, writes the image's top level linear premultiplied and fills its lower levels
+ * (blit generateMipmapsForTexture). An image's native_texture is its id<MTLTexture> (a pointer bridged without a
+ * transfer of ownership): a private 2D texture of the backend's device with MTLTextureUsageShaderRead and
+ * MTLTextureUsageRenderTarget, the export's width x height and levels, of MTLPixelFormatRGBA8Unorm_sRGB (format
+ * WEFT_RENDER_TARGET_SRGB_RGBA8), MTLPixelFormatBGRA8Unorm_sRGB (SRGB_BGRA8) or MTLPixelFormatRGBA16Float
+ * (LINEAR_RGBA16F). The host only samples it, in encoders after encode_export's in the same command buffer or in
+ * command buffers committed after it to the same queue (Metal orders a tracked texture's writes and reads there), and
+ * keeps no reference past the lease. */
+
 /* The built-in Metal backend of View frames (WEFT_RENDER_FEATURE_SCENE) on the host's device: a pass encodes a View's
  * frame into the host's command buffer as weft_render_metal_pass says, over what the target holds (clearing it first
  * when asked). It makes its own buffers, textures and pipelines on the device (the shaders' MSL compiled there) and
@@ -87,6 +100,11 @@ weft_render_result weft_render_metal_create(const weft_render_metal_desc* desc, 
  * are WEFT_RENDER_UNSUPPORTED_FEATURE. */
 weft_render_result weft_render_metal_external(weft_render_metal* backend,
                                               weft_render_external_backend* out_table) WEFT_RENDER_METAL_NOEXCEPT;
+/* The backend's export texture extension (render_export_texture.h) for weft_renderer_install_export_backend, before the
+ * renderer's first frame: images of its own (at most 32 at once, 256 MiB with every level) that a View's frames are
+ * drawn into for the host to sample, as above. The table borrows the backend. */
+weft_render_result weft_render_metal_export(weft_render_metal* backend,
+                                            weft_render_export_backend* out_table) WEFT_RENDER_METAL_NOEXCEPT;
 /* After weft_renderer_destroy succeeded. */
 void weft_render_metal_destroy(weft_render_metal* backend) WEFT_RENDER_METAL_NOEXCEPT;
 

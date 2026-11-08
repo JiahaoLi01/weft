@@ -4,6 +4,7 @@
 #include "constants/common.hpp"
 #include "render/shadow_image.hpp"
 #include "render/srgb.hpp"
+#include "scene/scene_blend.hpp"
 #include "scene/scene_paint.hpp"
 #include "scene/scene_text_image.hpp"
 
@@ -88,6 +89,20 @@ namespace weft {
 
             void node(const SceneNode& n) {
                 text(n.text);
+                text(n.text_context[0]);
+                text(n.text_context[1]);
+                // Layout's glyphs, when the node draws them rather than shaping its text.
+                count(n.text_run ? n.text_run->glyphs.size() + 1 : 0);
+                if (n.text_run) {
+                    for (const auto& g : n.text_run->glyphs) {
+                        count(g.face);
+                        count(g.glyph_id);
+                        number(g.x);
+                        number(g.y);
+                        number(g.advance);
+                        count(std::size_t(g.oblique) | std::size_t(g.rtl) << 1);
+                    }
+                }
                 text(n.tag);
                 text(n.space);
                 count(n.style.size());
@@ -123,7 +138,7 @@ namespace weft {
                     }
                 }
                 // Effects, images and particles are not keyed: a node that shows them shares its source with none.
-                if (n.effect || n.background_image || !n.particles.empty()) {
+                if (n.effect || n.background_image || n.image || !n.particles.empty()) {
                     unique();
                 }
                 count(n.children.size());
@@ -186,7 +201,8 @@ namespace weft {
             };
             for (const auto& batch : pass.batches) {
                 const bool image = batch.step == Step::Image && !p.planes[batch.first] && !p.layers[batch.first] &&
-                                   !p.filters[batch.first] && !p.textures[batch.first];
+                                   !p.filters[batch.first] && !p.textures[batch.first] &&
+                                   !p.mask_images[batch.first];
                 const auto* drawn = image ? p.images[batch.first].get() : nullptr;
                 if (!(batch.step == Step::Boxes || (image && (!drawn || drawn->atlas)))) {
                     close();
@@ -336,6 +352,7 @@ namespace weft {
           filters_(bounds.entries, bounds.bytes),
           path_shadows_(bounds.entries, bounds.bytes),
           effect_textures_(bounds.entries, bounds.bytes),
+          page_images_(bounds.entries, bounds.bytes),
           coverage_atlas_(std::uint32_t(limits::atlas_page_size), bounds.atlas_pages),
           color_atlas_(std::uint32_t(limits::atlas_color_page_size), bounds.atlas_pages),
           atlas_(bounds.atlas_pages > 0) {
@@ -387,6 +404,7 @@ namespace weft {
         path_shadows_.begin_pass();
         filters_.begin_pass();
         effect_textures_.begin_pass();
+        page_images_.begin_pass();
         // The digests of paths that are gone, once there are as many again as after the last sweep.
         if (digests_.size() > 2 * digests_swept_ + std::size_t(limits::image_cache_max_entries)) {
             std::erase_if(digests_, [](const auto& entry) {
@@ -565,6 +583,17 @@ namespace weft {
             }
         }
 
+        // Whether an element of the subtree blends (mix-blend-mode): its stacking context's group isolates it, which a
+        // part does not list.
+        bool blends(const SceneNode& n) {
+            if (scene_blend_mode(n.style) != paint::BlendMode::Normal) {
+                return true;
+            }
+            return std::any_of(n.children.begin(), n.children.end(), [](const SceneNode& c) {
+                return blends(c);
+            });
+        }
+
         bool same_for_ancestors(const SceneNode& a, const SceneNode& b) {
             std::vector<std::pair<NodeIdentity, SceneAnchoring>> anchored_a;
             std::vector<std::pair<NodeIdentity, SceneAnchoring>> anchored_b;
@@ -670,6 +699,7 @@ namespace weft {
             std::array<std::int32_t, 4> mask{};
             std::shared_ptr<const SceneImage> image;
             std::shared_ptr<const SceneFilterImage> filter;
+            std::shared_ptr<const SceneImage> mask_image;
         };
 
         struct Listing {
@@ -700,6 +730,9 @@ namespace weft {
             }
             if (!same_for_ancestors(*part.old, *part.now)) {
                 return refuse("an anchoring or backdrop filter changed");
+            }
+            if (blends(*part.old) || blends(*part.now)) {
+                return refuse("a part that blends");
             }
             const auto& span = found->second;
             if (span.begin[Part::Items] == 0 && span.end[Part::Items] > 0) {
@@ -771,6 +804,7 @@ namespace weft {
                 out.record = planned->record;
                 out.mask = planned->mask;
                 try {
+                    out.mask_image = mask_image(built.list, item);
                     const bool shows = reaches(item, out.record, scale, listed.width, listed.height);
                     if (item.kind == Kind::Text && shows) {
                         auto made = image(item, built.list.rasters[item.payload], scale, view_index);
@@ -835,6 +869,7 @@ namespace weft {
                 prepared.pass.masks[first + i] = planned.mask;
                 prepared.images[first + i] = std::move(planned.image);
                 prepared.filters[first + i] = std::move(planned.filter);
+                prepared.mask_images[first + i] = std::move(planned.mask_image);
             }
             const auto copy = [&](auto& to, const auto& from, Part p) {
                 std::copy(from.begin(), from.end(), to.begin() + std::ptrdiff_t(base(p)));
@@ -1572,6 +1607,110 @@ namespace weft {
         return result;
     }
 
+    std::shared_ptr<const SceneImage> ScenePreparer::page_image(const std::shared_ptr<const paint::Asset>& asset) {
+        if (const auto* cached = page_images_.find(asset)) {
+            ++work_.page_image_reuses;
+            return *cached;
+        }
+        const auto& a = *asset;
+        const auto pixels = std::size_t(a.width) * a.height;
+        if (!a.width || !a.height || a.encoding != paint::Encoding::SrgbStraight ||
+            a.bytes.size() != pixels * constants::rgba8_bytes_per_pixel) {
+            throw std::invalid_argument("page image");
+        }
+        auto result = std::make_shared<SceneImage>();
+        result->id = ++next_id_;
+        result->width = a.width;
+        result->height = a.height;
+        result->format = SceneImage::Format::Bgra;
+        // Premultiplied as Skia premultiplies a decoded image: each channel times alpha over 255, rounded.
+        result->pixels.resize(a.bytes.size());
+        for (std::size_t i = 0; i < pixels; ++i) {
+            const auto* p = a.bytes.data() + i * constants::rgba8_bytes_per_pixel;
+            auto* q = result->pixels.data() + i * constants::rgba8_bytes_per_pixel;
+            const unsigned alpha = p[3];
+            const auto premultiply = [&](unsigned c) {
+                return std::uint8_t((c * alpha + constants::color_channel_max / 2) / constants::color_channel_max);
+            };
+            q[0] = premultiply(p[2]);
+            q[1] = premultiply(p[1]);
+            q[2] = premultiply(p[0]);
+            q[3] = std::uint8_t(alpha);
+        }
+        result->mips = scene_image_mips(result->pixels, a.width, a.height);
+        auto bytes = result->pixels.size();
+        for (const auto& level : result->mips) {
+            bytes += level.size();
+        }
+        if (bytes > limits::image_max_bytes) {
+            throw std::invalid_argument("page image byte bound");
+        }
+        ++work_.page_image_builds;
+        const auto evictions = page_images_.evictions();
+        page_images_.put(asset, result, bytes);
+        work_.image_evictions += page_images_.evictions() - evictions;
+        return result;
+    }
+
+    std::shared_ptr<const SceneImage> ScenePreparer::mask_image(const paint::DisplayList& list,
+                                                                const paint::Item& item) {
+        for (auto c = item.clips_begin; c < item.clips_begin + item.clips_count && c < list.clips.size(); ++c) {
+            if (const auto& clip = list.clips[c]; clip.kind == RoundedClip::Kind::Mask && clip.asset) {
+                return page_image(list.assets.at(clip.asset - 1));
+            }
+        }
+        return nullptr;
+    }
+
+    std::vector<std::vector<std::uint8_t>> scene_image_mips(const std::vector<std::uint8_t>& pixels, std::uint32_t width,
+                                                            std::uint32_t height) {
+        constexpr std::size_t texel = constants::rgba8_bytes_per_pixel;
+        if (pixels.size() != std::size_t(width) * height * texel) {
+            throw std::invalid_argument("mip source size");
+        }
+        std::vector<std::vector<std::uint8_t>> levels;
+        const std::vector<std::uint8_t>* source = &pixels;
+        // The texels of a smaller level's texel along one axis of the level before (at 2 i) and their weights.
+        struct Taps {
+            unsigned count{};
+            std::array<unsigned, 3> weights{};
+            unsigned total{};
+        };
+        const auto taps = [](std::uint32_t length) {
+            return length == 1 ? Taps{1, {1, 0, 0}, 1}
+                               : length % 2 ? Taps{3, {1, 2, 1}, 4}
+                                            : Taps{2, {1, 1, 0}, 2};
+        };
+        while (width > 1 || height > 1) {
+            const auto w = std::max<std::uint32_t>(1, width / 2);
+            const auto h = std::max<std::uint32_t>(1, height / 2);
+            const auto tx = taps(width);
+            const auto ty = taps(height);
+            const auto total = tx.total * ty.total;
+            std::vector<std::uint8_t> level(std::size_t(w) * h * texel);
+            for (std::uint32_t y = 0; y < h; ++y) {
+                for (std::uint32_t x = 0; x < w; ++x) {
+                    for (std::size_t c = 0; c < texel; ++c) {
+                        unsigned sum{};
+                        for (unsigned j = 0; j < ty.count; ++j) {
+                            const auto sy = std::min(height - 1, 2 * y + j);
+                            for (unsigned i = 0; i < tx.count; ++i) {
+                                const auto sx = std::min(width - 1, 2 * x + i);
+                                sum += tx.weights[i] * ty.weights[j] * (*source)[(std::size_t(sy) * width + sx) * texel + c];
+                            }
+                        }
+                        level[(std::size_t(y) * w + x) * texel + c] = std::uint8_t((sum + total / 2) / total);
+                    }
+                }
+            }
+            levels.push_back(std::move(level));
+            source = &levels.back();
+            width = w;
+            height = h;
+        }
+        return levels;
+    }
+
     std::shared_ptr<const SceneFilterImage> ScenePreparer::filter(const paint::Filter& f, unsigned view_index) {
         // By its element, while it shows the same source through the same functions on the same pixels.
         std::array<std::uint64_t, 4> id{};
@@ -1635,6 +1774,7 @@ namespace weft {
         out->layers.resize(list.items.size());
         out->filters.resize(list.items.size());
         out->textures.resize(list.items.size());
+        out->mask_images.resize(list.items.size());
         out->texture_names = list.textures;
         for (const auto& effect : list.effects) {
             auto& prepared = out->effects.emplace_back();
@@ -1649,6 +1789,7 @@ namespace weft {
         }
         for (std::size_t i = 0; i < list.items.size(); ++i) {
             const auto& item = list.items[i];
+            out->mask_images[i] = mask_image(list, item);
             if (item.kind == Kind::Text && !reaches(item, out->pass.records[i], scale, width, height)) {
                 continue;
             }
@@ -1664,7 +1805,7 @@ namespace weft {
                 const auto& image = list.images[item.payload];
                 out->textures[i] = image.texture;
                 if (image.fitted) {
-                    out->images[i] = effect_texture(list.assets.at(image.asset));
+                    out->images[i] = page_image(list.assets.at(image.asset));
                 }
             } else if (item.kind == Kind::Shadow) {
                 if (reaches(item, out->pass.records[i], scale, width, height)) {

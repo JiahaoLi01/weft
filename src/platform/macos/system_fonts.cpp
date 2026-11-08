@@ -449,7 +449,41 @@ namespace weft::platform::macos {
                 }
             }
 
+            // The family CoreText's fallback (CTFontCreateForString, as Chrome on macOS asks it per character) picks
+            // from the UI font for a letter of each script that the cascade list may reach too late (the scene shapes
+            // with a bounded fallback list): first for that script's text.
+            std::vector<std::pair<std::uint32_t, std::vector<std::string>>> script_fallbacks;
+            for (const auto& [script, sample] : script_fallback_samples()) {
+                const UniChar units[2]{UniChar(sample), 0};
+                const Ref text(CFStringCreateWithCharacters(nullptr, units, 1));
+                const Ref font(text ? CTFontCreateForString(ui.get(), text.get(), CFRangeMake(0, 1)) : nullptr);
+                const auto described = font ? describe(font.get()) : std::nullopt;
+                if (!described) {
+                    continue;
+                }
+                auto family = builder.family_of(described->postscript);
+                if (family.empty() && !builder.has(described->family)) {
+                    // A face of no listed family (a hidden one, as ".SF Devanagari" in SFIndia.ttc): added under
+                    // its own name, regular and bold, as the cascade list's hidden families are.
+                    const Ref bold(CTFontCreateCopyWithSymbolicTraits(font.get(), 0, nullptr, kCTFontBoldTrait,
+                                                                      kCTFontBoldTrait));
+                    for (CTFontRef face : {font.get(), bold.get()}) {
+                        if (auto d = face ? describe(face) : std::nullopt) {
+                            d->family = described->family;
+                            builder.add(*d);
+                        }
+                    }
+                }
+                if (family.empty() && builder.has(described->family)) {
+                    family = described->family;
+                }
+                if (!family.empty() && family != system_ui_family) {
+                    script_fallbacks.push_back({script, {family}});
+                }
+            }
+
             auto& catalog = builder.catalog;
+            catalog.script_fallbacks = std::move(script_fallbacks);
             catalog.generic_families = {{"serif", "Times"},
                                         {"sans-serif", "Helvetica"},
                                         {"monospace", "Courier"},

@@ -425,6 +425,11 @@ namespace weft::render::vulkan {
                 }
             }
         }
+        for (const auto& mask : prepared.mask_images) {
+            if (mask && pending(mask->id)) {
+                throw Busy("a scene samples what another recording that is not submitted uploads");
+            }
+        }
     }
 
     void SceneRenderer::upload(const ScenePrepared& prepared) {
@@ -458,6 +463,11 @@ namespace weft::render::vulkan {
             for (const auto& sprite : p.sprites) {
                 if (sprite && !textures_.contains(sprite->id) && seen.insert(sprite->id).second) {
                     pending.push_back(sprite);
+                }
+            }
+            for (const auto& mask : p.mask_images) {
+                if (mask && !textures_.contains(mask->id) && seen.insert(mask->id).second) {
+                    pending.push_back(mask);
                 }
             }
         };
@@ -817,7 +827,10 @@ namespace weft::render::vulkan {
             ensure(prepared.anchors.empty(), "the anchors of the pass's anchored elements");
         }
         // The vertex stage adds no base instance: Vulkan's instance index already counts the draw's first instance.
-        const std::array<float, 4> constants{float(prepared.width), float(prepared.height), scale, 0};
+        // The rest of the View (the target's origin, the image a group's composite samples) stays 0: this backend
+        // draws groups into images of the pass's size (scene_schedule.hpp without hoisting).
+        const std::array<float, weft::constants::render::scene::view_constant_floats> constants{
+            float(prepared.width), float(prepared.height), scale, 0};
         auto& view_buffer = buffer(sizeof(constants));
         const auto view = view_buffer.buffer;
         std::memcpy(view_buffer.mapped, constants.data(), sizeof(constants));
@@ -875,12 +888,16 @@ namespace weft::render::vulkan {
                     sampled = chains.at(draw->image.index).back().view;
                     break;
             }
-            if (draw->extra == SceneSchedule::Extra::None) {
+            if (draw->extra == SceneSchedule::Extra::None && !draw->backdrop) {
                 use(sampled, std::nullopt);
                 continue;
             }
             Textures textures;
             textures.fill(blank_image_.view);
+            if (draw->backdrop) {
+                // A blending group's backdrop where an effect's second texture goes (scene.hlsl, blendBackdrop).
+                textures[1] = chains.at(*draw->backdrop).back().view;
+            }
             if (draw->extra == SceneSchedule::Extra::Effect) {
                 const auto& effect = prepared.effects.at(draw->source);
                 ensure(effect.textures.size() <= weft::constants::max_effect_textures, "effect textures");
@@ -889,10 +906,18 @@ namespace weft::render::vulkan {
                     slot_->leases.push_back(effect.textures[t]);
                 }
                 effects.push_back(effect_pipeline(effect.program));
-            } else if (const auto& sprite = prepared.sprites.at(draw->source)) {
+            } else if (draw->extra == SceneSchedule::Extra::Mask) {
+                // The image of the item's mask where an effect's first texture goes (scene.hlsl, maskImage).
+                const auto& mask = prepared.mask_images.at(draw->source);
+                ensure(mask != nullptr, "a mask's image");
+                textures[0] = textures_.at(mask->id).image.view;
+                slot_->leases.push_back(mask);
+            } else if (draw->extra == SceneSchedule::Extra::Sprite) {
                 // The emission's sprite where an effect's first texture goes.
-                textures[0] = textures_.at(sprite->id).image.view;
-                slot_->leases.push_back(sprite);
+                if (const auto& sprite = prepared.sprites.at(draw->source)) {
+                    textures[0] = textures_.at(sprite->id).image.view;
+                    slot_->leases.push_back(sprite);
+                }
             }
             use(sampled, textures);
         }
@@ -945,10 +970,13 @@ namespace weft::render::vulkan {
                 writes[6].pBufferInfo = &anchor_info;
                 writes[7].pImageInfo = &repeat_info;
                 d.vkd.vkUpdateDescriptorSets(d.device, std::uint32_t(std::size(writes)), writes, 0, nullptr);
+                // An effect's textures (a sprite, or a mask's image, in the first) and its repeating sampler; blank
+                // ones for a set of neither, as the scene shader reads its mask's image (maskImage) where the first
+                // goes.
                 if (!effect_views[s]) {
-                    continue;
+                    effect_views[s].emplace();
+                    effect_views[s]->fill(blank_image_.view);
                 }
-                // An effect's textures and its repeating sampler.
                 std::array<VkDescriptorImageInfo, weft::constants::max_effect_textures + 1> effect_info{};
                 std::array<VkWriteDescriptorSet, weft::constants::max_effect_textures + 1> effect_writes{};
                 for (std::size_t i = 0; i < effect_writes.size(); ++i) {
@@ -1120,6 +1148,10 @@ namespace weft::render::vulkan {
                         break;
                     case SceneSchedule::Pipeline::Effect:
                         pipeline = effects.at(next_effect++);
+                        break;
+                    case SceneSchedule::Pipeline::Blend:
+                        // Only a backend that reads its target in the shader schedules these (fetch_blends).
+                        ensure(false, "a blending composite that reads its target");
                         break;
                 }
                 if (pipeline) {

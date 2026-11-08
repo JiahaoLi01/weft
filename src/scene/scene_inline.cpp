@@ -208,6 +208,13 @@ namespace weft {
             float inner_end{};
             float top{};
             float bottom{};
+            // Its direction is rtl: its start edge is its right one.
+            bool rtl{};
+            // It has a box fragment of its own, as Blink's LayoutInline::ComputeInitialShouldCreateBoxFragment and
+            // BoxInfo::ShouldCreateBoxFragmentForChild decide (margins, borders, padding, a background, a shadow, an
+            // outline or relative position; a child box with margins, another vertical-align or other font metrics):
+            // only then does it hold a placeholder on its lines, which bidi reordering moves. Blink culls the others.
+            bool fragment{};
         };
 
         struct Item {
@@ -217,6 +224,10 @@ namespace weft {
                 Close,
                 Atomic,
                 Break,
+                // An explicit bidi formatting character an inline box's unicode-bidi inserts around it (Blink's
+                // kBidiControl items): no width, no content; at a soft wrap opportunity it stays on the line before,
+                // as a close tag does.
+                Control,
             };
 
             Kind kind{};
@@ -237,6 +248,15 @@ namespace weft {
             std::size_t box{none};
             // Atomic: its vertical-align.
             Align align;
+            // Text: shaped together with other items (its run is its part of theirs).
+            bool joint{};
+            // Text, atomic and control: the bidi level of its characters (a text item is split where it changes; a
+            // control has the level SheenBidi gives it: an isolate's initiator and terminator the level around the
+            // isolate, the other controls their preceding character's).
+            std::uint8_t level{};
+            // Control: the character (UTF-8) and whether it pops.
+            std::string_view control;
+            bool exit{};
         };
 
         // An unbreakable part of the content: a text item's bytes [begin, end), or one other item.
@@ -252,11 +272,42 @@ namespace weft {
 
     } // namespace
 
+    bool scene_inline_level(const SceneNode& n) {
+        return inline_level(n);
+    }
+
+    bool scene_mixed_children(const SceneNode& n) {
+        if (n.tag == "#text" || n.space == constants::svg_namespace_uri || !n.text.empty() || scene_img(n)) {
+            return false;
+        }
+        const auto d = display(n);
+        if (d != "block" && d != "inline-block" && d != "list-item" && d != "flow-root") {
+            return false;
+        }
+        bool inline_child{};
+        bool block_child{};
+        for (const auto& c : n.children) {
+            if (display(c) == "none" || out_of_flow(c)) {
+                continue;
+            }
+            (inline_level(c) ? inline_child : block_child) = true;
+        }
+        return inline_child && block_child;
+    }
+
+    bool scene_img(const SceneNode& n) {
+        return n.tag == "img" && (n.space.empty() || n.space == constants::xhtml_namespace_uri);
+    }
+
     bool scene_atomic_inline(const SceneNode& n) {
         if (n.space == constants::svg_namespace_uri) {
             return true;
         }
         const auto d = display(n);
+        // An img is a replaced box: an inline one is atomic.
+        if (scene_img(n) && d == "inline") {
+            return true;
+        }
         return d == "inline-block" || d == "inline-flex" || d == "inline-grid" || d == "inline-table" || scene_ruby(n);
     }
 
@@ -378,6 +429,11 @@ namespace weft {
                 out.style.set(id, *v);
             }
         }
+        // The line's direction and context, as layout shaped its run, and its glyphs when layout's are its own.
+        out.text_context = {line.context_before, line.context_after};
+        out.text_run = line.run;
+        out.style[PropertyId::Direction] = line.rtl ? "rtl" : "ltr";
+        out.style[PropertyId::UnicodeBidi] = line.bidi ? "bidi-override" : "normal";
         out.style[PropertyId::Display] = "inline";
         out.style[PropertyId::PaddingLeft] = px_text(line.rect[0] - left);
         out.style[PropertyId::PaddingTop] = px_text(line.rect[1] - top);
@@ -407,11 +463,24 @@ namespace weft {
         // when its primary font has no glyph for it (as Blink chooses), shaped in the root's font; empty otherwise.
         std::string ellipsis;
         std::shared_ptr<const SceneTextRun> ellipsis_run;
+        // The paragraph text needs the bidirectional algorithm: a right-to-left or plaintext root, right-to-left text
+        // or an inline box's bidi control. Then paragraph_levels holds each byte's level and each paragraph's base
+        // level.
+        bool bidi{};
+        BidiParagraphs paragraph_levels;
+        // Lines are placed in visual order (bidi_reorder): bidi, or an inline box whose direction is rtl (its start
+        // edge on its right).
+        bool reorder{};
 
-        Impl(SceneText& t, const SceneNode& r) : text(t), root(r) {
+        // The root's children it holds: [first_child, last_child).
+        std::size_t first_child{};
+        std::size_t last_child{};
+
+        Impl(SceneText& t, const SceneNode& r, std::size_t f, std::size_t l)
+            : text(t), root(r), first_child(f), last_child(l) {
             root_font = scene_font(root.style);
             root_strut = text.strut(root_font);
-            const auto align = root.style.text(PropertyId::TextAlign, "left");
+            const auto align = root.style.text(PropertyId::TextAlign, "start");
             if (align != "left" && align != "start" && align != "right" && align != "end" && align != "center") {
                 fail("text-align " + std::string(align) + " outside scene profile");
             }
@@ -424,11 +493,322 @@ namespace weft {
                                : std::string(constants::text::ellipsis_fallback);
                 ellipsis_run = text.shape(ellipsis, root_font);
             }
+            // A root that overrides its text's direction starts it with the override, as Blink's EnterBlock does
+            // (and ends it with the pop); its other unicode-bidi values act through its paragraphs' base direction.
+            const bool rtl = root_font.base == BidiBase::Rtl;
+            if (root_font.bidi_override) {
+                add_control(rtl ? right_to_left_override : left_to_right_override, false, none);
+                bidi_context.push_back(
+                    {rtl ? right_to_left_override : left_to_right_override, pop_directional_formatting});
+            }
             collect(root, none);
+            if (root_font.bidi_override) {
+                add_control(pop_directional_formatting, true, none);
+                bidi_context.pop_back();
+            }
             if (paragraph.size() > std::size_t(constants::max_text_bytes)) {
                 fail("scene paragraph byte bound");
             }
+            shape_items();
             split();
+        }
+
+        // The explicit bidi formatting characters (U+202A-U+202E, U+2066-U+2069), as UTF-8.
+        static constexpr std::string_view left_to_right_embedding = "\xE2\x80\xAA";
+        static constexpr std::string_view right_to_left_embedding = "\xE2\x80\xAB";
+        static constexpr std::string_view pop_directional_formatting = "\xE2\x80\xAC";
+        static constexpr std::string_view left_to_right_override = "\xE2\x80\xAD";
+        static constexpr std::string_view right_to_left_override = "\xE2\x80\xAE";
+        static constexpr std::string_view left_to_right_isolate = "\xE2\x81\xA6";
+        static constexpr std::string_view right_to_left_isolate = "\xE2\x81\xA7";
+        static constexpr std::string_view first_strong_isolate = "\xE2\x81\xA8";
+        static constexpr std::string_view pop_directional_isolate = "\xE2\x81\xA9";
+
+        // The bidi controls entered and not yet popped at the end of the paragraph so far, outermost first, each with
+        // the character that pops it.
+        std::vector<std::pair<std::string_view, std::string_view>> bidi_context;
+
+        // A forced break (<br>, a preserved newline): the bidi contexts open across it pop before it and enter again
+        // after it, as Blink's AppendForcedBreak does (CSS Writing Modes 4 §2.4.3), since it ends a paragraph of the
+        // bidirectional algorithm.
+        void add_break(Item item) {
+            const auto box = item.box;
+            for (auto k = bidi_context.size(); k-- > 0;) {
+                add_control(bidi_context[k].second, true, box);
+            }
+            item.begin = paragraph.size();
+            paragraph += '\n';
+            space_before = true;
+            items.push_back(std::move(item));
+            for (const auto& [enter, pop] : bidi_context) {
+                add_control(enter, false, box);
+            }
+        }
+
+        void add_control(std::string_view character, bool exit, std::size_t box) {
+            Item item;
+            item.kind = Item::Kind::Control;
+            item.control = character;
+            item.exit = exit;
+            item.box = box;
+            item.begin = paragraph.size();
+            paragraph += character;
+            items.push_back(std::move(item));
+        }
+
+        // The controls an inline element's unicode-bidi inserts before its open tag (CSS Writing Modes 4 §2.4.2, as
+        // Blink's EnterInline does), each with the one that pops it after its close tag (in reverse order there).
+        static std::vector<std::pair<std::string_view, std::string_view>> bidi_controls(const SceneStyle& s) {
+            const bool rtl = s.text(PropertyId::Direction, "ltr") == "rtl";
+            const auto value = s.text(PropertyId::UnicodeBidi, "normal");
+            if (value == "embed") {
+                return {{rtl ? right_to_left_embedding : left_to_right_embedding, pop_directional_formatting}};
+            }
+            if (value == "bidi-override") {
+                return {{rtl ? right_to_left_override : left_to_right_override, pop_directional_formatting}};
+            }
+            if (value == "isolate") {
+                return {{rtl ? right_to_left_isolate : left_to_right_isolate, pop_directional_isolate}};
+            }
+            if (value == "plaintext") {
+                return {{first_strong_isolate, pop_directional_isolate}};
+            }
+            if (value == "isolate-override") {
+                return {{first_strong_isolate, pop_directional_isolate},
+                        {rtl ? right_to_left_override : left_to_right_override, pop_directional_formatting}};
+            }
+            return {};
+        }
+
+        // The bidi levels of the paragraph (when it needs them), the text items split where their level changes,
+        // and each shaped: in one direction, its level's, when the paragraph is bidi; otherwise left to right as the
+        // text runs (no reordering).
+        void shape_items() {
+            for (auto& b : boxes) {
+                const auto& s = b.node->style;
+                const auto nonzero = [&](PropertyId id) {
+                    const auto v = css::trim(s.text(id, "0"));
+                    return !v.empty() && v != "0" && v != "0px" && v != "auto";
+                };
+                const auto bordered = [&](PropertyId width, PropertyId style) {
+                    const auto v = s.text(style, "solid");
+                    return v != "none" && v != "hidden" && nonzero(width);
+                };
+                const auto background = css::trim(s.text(PropertyId::BackgroundColor, "transparent"));
+                b.fragment = nonzero(PropertyId::MarginLeft) || nonzero(PropertyId::MarginRight) ||
+                             nonzero(PropertyId::MarginTop) || nonzero(PropertyId::MarginBottom) ||
+                             nonzero(PropertyId::PaddingLeft) || nonzero(PropertyId::PaddingRight) ||
+                             nonzero(PropertyId::PaddingTop) || nonzero(PropertyId::PaddingBottom) ||
+                             bordered(PropertyId::BorderLeftWidth, PropertyId::BorderLeftStyle) ||
+                             bordered(PropertyId::BorderRightWidth, PropertyId::BorderRightStyle) ||
+                             bordered(PropertyId::BorderTopWidth, PropertyId::BorderTopStyle) ||
+                             bordered(PropertyId::BorderBottomWidth, PropertyId::BorderBottomStyle) ||
+                             (background != "transparent" && background != "rgba(0, 0, 0, 0)" && !background.empty()) ||
+                             css::trim(s.text(PropertyId::BackgroundImage, "none")) != "none" ||
+                             css::trim(s.text(PropertyId::BoxShadow, "none")) != "none" ||
+                             css::trim(s.text(PropertyId::OutlineStyle, "none")) != "none" ||
+                             s.text(PropertyId::Position, "static") != "static";
+            }
+            // A parent box for a child with margins, another vertical-align or other font metrics.
+            for (const auto& b : boxes) {
+                if (b.parent == none) {
+                    continue;
+                }
+                auto& parent = boxes[b.parent];
+                const bool margins = [&] {
+                    const auto& s = b.node->style;
+                    for (const auto id : {PropertyId::MarginLeft, PropertyId::MarginRight, PropertyId::MarginTop,
+                                          PropertyId::MarginBottom}) {
+                        const auto v = css::trim(s.text(id, "0"));
+                        if (!v.empty() && v != "0" && v != "0px" && v != "auto") {
+                            return true;
+                        }
+                    }
+                    return false;
+                }();
+                parent.fragment = parent.fragment || margins || b.align.kind != Align::Kind::Baseline ||
+                                  b.strut.ascent != parent.strut.ascent || b.strut.descent != parent.strut.descent;
+            }
+            bidi = root_font.base != BidiBase::Ltr || !bidi_left_to_right(paragraph);
+            reorder = bidi || std::any_of(boxes.begin(), boxes.end(), [](const Box& b) {
+                          return b.rtl;
+                      });
+            if (bidi) {
+                paragraph_levels = bidi_levels(paragraph, root_font.base);
+                const auto& levels = paragraph_levels.levels;
+                std::vector<Item> split_items;
+                split_items.reserve(items.size());
+                for (auto& item : items) {
+                    if (item.kind == Item::Kind::Atomic || item.kind == Item::Kind::Control) {
+                        item.level = levels[item.begin];
+                    }
+                    if (item.kind != Item::Kind::Text) {
+                        split_items.push_back(std::move(item));
+                        continue;
+                    }
+                    std::size_t start = 0;
+                    for (std::size_t k = 1; k <= item.text.size(); ++k) {
+                        if (k < item.text.size() && levels[item.begin + k] == levels[item.begin + start]) {
+                            continue;
+                        }
+                        Item part = item;
+                        part.text = item.text.substr(start, k - start);
+                        part.begin = item.begin + start;
+                        part.level = levels[item.begin + start];
+                        split_items.push_back(std::move(part));
+                        start = k;
+                    }
+                }
+                items = std::move(split_items);
+            }
+            // Runs of text items shaped together, as Blink's InlineNode::ShapeText does: consecutive items of one font
+            // and one direction, with nothing between them but inline box edges that have no margin, border or
+            // padding on that side and a baseline vertical-align (CSS Text 3 §7.3, ShouldBreakShapingBeforeBox).
+            for (std::size_t i = 0; i < items.size();) {
+                if (items[i].kind != Item::Kind::Text) {
+                    ++i;
+                    continue;
+                }
+                std::vector<std::size_t> run{i};
+                auto j = i + 1;
+                for (; j < items.size(); ++j) {
+                    const auto& item = items[j];
+                    if (item.kind == Item::Kind::Text) {
+                        if (!same_font(item.font, items[i].font) || item.level != items[i].level) {
+                            break;
+                        }
+                        run.push_back(j);
+                    } else if ((item.kind != Item::Kind::Open && item.kind != Item::Kind::Close) ||
+                               breaks_shaping(item)) {
+                        break;
+                    }
+                }
+                shape(run);
+                i = j;
+            }
+        }
+
+        // Whether two fonts shape alike (all but the line height, which shaping does not read).
+        static bool same_font(const SceneFont& a, const SceneFont& b) {
+            return a.families == b.families && a.size == b.size && a.weight == b.weight && a.italic == b.italic &&
+                   a.numeric == b.numeric && a.letter_spacing == b.letter_spacing;
+        }
+
+        // Whether an inline box's start (an open tag) or end (a close tag) breaks shaping: it has a margin, border or
+        // padding on that side (its start is its right when its direction is rtl), or a vertical-align other than
+        // baseline.
+        bool breaks_shaping(const Item& item) const {
+            const auto& b = boxes[item.box];
+            const auto& s = b.node->style;
+            if (b.align.kind != Align::Kind::Baseline) {
+                return true;
+            }
+            const bool left = (item.kind == Item::Kind::Open) != b.rtl;
+            const auto nonzero = [&](PropertyId id) {
+                const auto v = css::trim(s.text(id, "0"));
+                return !v.empty() && v != "0" && v != "0px";
+            };
+            const auto bordered = [&](PropertyId width, PropertyId style) {
+                const auto v = s.text(style, "solid");
+                return v != "none" && v != "hidden" && nonzero(width);
+            };
+            return left ? nonzero(PropertyId::MarginLeft) || nonzero(PropertyId::PaddingLeft) ||
+                              bordered(PropertyId::BorderLeftWidth, PropertyId::BorderLeftStyle)
+                        : nonzero(PropertyId::MarginRight) || nonzero(PropertyId::PaddingRight) ||
+                              bordered(PropertyId::BorderRightWidth, PropertyId::BorderRightStyle);
+        }
+
+        // The glyphs of a run's bytes [begin, end), from the pen where the first stands, their clusters from begin.
+        static std::shared_ptr<const SceneTextRun> part(const SceneTextRun& run, std::size_t begin, std::size_t end,
+                                                        const SceneTextMetrics& metrics) {
+            auto out = std::make_shared<SceneTextRun>();
+            out->size = run.size;
+            out->metrics = metrics;
+            float pen{};
+            float origin = std::numeric_limits<float>::quiet_NaN();
+            for (const auto& g : run.glyphs) {
+                if (g.utf8_cluster >= begin && g.utf8_cluster < end) {
+                    if (std::isnan(origin)) {
+                        origin = pen;
+                    }
+                    auto glyph = g;
+                    glyph.x -= origin;
+                    glyph.utf8_cluster -= std::uint32_t(begin);
+                    out->glyphs.push_back(glyph);
+                }
+                pen += g.advance;
+            }
+            return out;
+        }
+
+        // The paragraph's few characters before byte `at` and from byte `at` on: shaping's context (Blink shapes
+        // with its paragraph's text around).
+        ShapeContext context_at(std::size_t begin, std::size_t end) const {
+            std::size_t from = begin;
+            for (int n = 0; n < constants::text::shape_context_characters && from > 0; ++n) {
+                do {
+                    --from;
+                } while (from > 0 && (static_cast<unsigned char>(paragraph[from]) & 0xC0) == 0x80);
+            }
+            std::size_t to = end;
+            for (int n = 0; n < constants::text::shape_context_characters && to < paragraph.size(); ++n) {
+                do {
+                    ++to;
+                } while (to < paragraph.size() && (static_cast<unsigned char>(paragraph[to]) & 0xC0) == 0x80);
+            }
+            return {std::string_view(paragraph).substr(from, begin - from),
+                    std::string_view(paragraph).substr(end, to - end)};
+        }
+
+        // Shapes a run of text items together, in one direction (its level's, overridden; left to right in a
+        // paragraph without bidi), in the paragraph's context, and gives each item its glyphs: those of its
+        // characters (a ligature belongs to the item of its first character, as in Blink), from the pen where its
+        // first one stands; then the advance before each byte and its cluster starts.
+        void shape(const std::vector<std::size_t>& run) {
+            auto& first = items[run.front()];
+            auto& last = items[run.back()];
+            auto font = first.font;
+            font.base = bidi && first.level % 2 ? BidiBase::Rtl : BidiBase::Ltr;
+            font.bidi_override = bidi;
+            const auto begin = first.begin;
+            const auto end = last.begin + last.text.size();
+            const auto shaped =
+                text.shape(std::string_view(paragraph).substr(begin, end - begin), font, context_at(begin, end));
+            // Each glyph's pen, in the run's visual order.
+            std::vector<float> pens;
+            pens.reserve(shaped->glyphs.size());
+            float pen{};
+            for (const auto& g : shaped->glyphs) {
+                pens.push_back(pen);
+                pen += g.advance;
+            }
+            for (const auto k : run) {
+                auto& item = items[k];
+                item.font.base = font.base;
+                item.font.bidi_override = font.bidi_override;
+                item.joint = run.size() > 1;
+                if (run.size() == 1) {
+                    item.run = shaped;
+                } else {
+                    const auto from = item.begin - begin;
+                    const auto to = from + item.text.size();
+                    item.run =
+                        part(*shaped, from, to, text.slice(*shaped, font, std::uint32_t(from), std::uint32_t(to)));
+                }
+                std::vector<float> at(item.text.size() + 1);
+                for (const auto& g : item.run->glyphs) {
+                    at[std::min<std::size_t>(g.utf8_cluster, item.text.size())] += g.advance;
+                }
+                item.prefix.assign(item.text.size() + 1, 0);
+                for (std::size_t b = 0; b < item.text.size(); ++b) {
+                    item.prefix[b + 1] = item.prefix[b] + at[b];
+                }
+                item.starts.assign(item.text.size() + 1, false);
+                for (const auto& g : item.run->glyphs) {
+                    item.starts[std::min<std::size_t>(g.utf8_cluster, item.text.size())] = true;
+                }
+                item.starts.back() = true;
+            }
         }
 
         // How white-space treats a text (CSS Text 3 §3): whether its spaces and tabs collapse, and whether a newline
@@ -517,10 +897,7 @@ namespace weft {
                     item.kind = Item::Kind::Break;
                     item.node = &owner;
                     item.box = box;
-                    item.begin = paragraph.size();
-                    paragraph += '\n';
-                    space_before = true;
-                    items.push_back(std::move(item));
+                    add_break(std::move(item));
                     continue;
                 }
                 if (mode.collapse_spaces && collapsible(c)) {
@@ -549,21 +926,8 @@ namespace weft {
             if (item.text.empty()) {
                 return;
             }
+            // Shaped once the paragraph's levels are known (shape_items).
             item.font = scene_font(owner.style);
-            item.run = text.shape(item.text, item.font);
-            std::vector<float> at(item.text.size() + 1);
-            for (const auto& g : item.run->glyphs) {
-                at[std::min<std::size_t>(g.utf8_cluster, item.text.size())] += g.advance;
-            }
-            item.prefix.assign(item.text.size() + 1, 0);
-            for (std::size_t k = 0; k < item.text.size(); ++k) {
-                item.prefix[k + 1] = item.prefix[k] + at[k];
-            }
-            item.starts.assign(item.text.size() + 1, false);
-            for (const auto& g : item.run->glyphs) {
-                item.starts[std::min<std::size_t>(g.utf8_cluster, item.text.size())] = true;
-            }
-            item.starts.back() = true;
             item.word_break = word_break(owner.style);
             item.emergency = emergency(owner.style);
             item.begin = paragraph.size();
@@ -575,8 +939,9 @@ namespace weft {
             if (!n.text.empty()) {
                 add_text(n, box);
             }
-            for (const auto& c : n.children) {
-                if (display(c) == "none") {
+            for (std::size_t k = 0; k < n.children.size(); ++k) {
+                const auto& c = n.children[k];
+                if (display(c) == "none" || (&n == &root && (k < first_child || k >= last_child))) {
                     continue;
                 }
                 if (out_of_flow(c)) {
@@ -596,9 +961,7 @@ namespace weft {
                 item.align = vertical_align(c.style);
                 if (c.tag == "br") {
                     item.kind = Item::Kind::Break;
-                    paragraph += '\n';
-                    space_before = true;
-                    items.push_back(std::move(item));
+                    add_break(std::move(item));
                 } else if (scene_atomic_inline(c)) {
                     item.kind = Item::Kind::Atomic;
                     paragraph += object_replacement;
@@ -610,6 +973,13 @@ namespace weft {
                     b.parent = box;
                     b.depth = box == none ? 1 : boxes[box].depth + 1;
                     b.font = scene_font(c.style);
+                    b.rtl = c.style.text(PropertyId::Direction, "ltr") == "rtl";
+                    const auto controls = bidi_controls(c.style);
+                    for (const auto& [enter, pop] : controls) {
+                        add_control(enter, false, box);
+                        bidi_context.push_back({enter, pop});
+                    }
+                    item.begin = paragraph.size();
                     b.font_size = computed_font_size(c.style);
                     b.strut = text.strut(b.font);
                     b.align = item.align;
@@ -626,6 +996,10 @@ namespace weft {
                     close.box = index;
                     close.begin = paragraph.size();
                     items.push_back(close);
+                    for (auto k = controls.size(); k-- > 0;) {
+                        add_control(controls[k].second, true, box);
+                        bidi_context.pop_back();
+                    }
                 } else {
                     fail("block-level box inside an inline formatting context outside scene profile");
                 }
@@ -690,7 +1064,8 @@ namespace weft {
             }
         }
 
-        // The chunks and their wrap opportunities: UAX 14 over the whole paragraph as word-break tailors it, a soft
+        // The chunks and their wrap opportunities: UAX 14 over the whole paragraph as word-break tailors it (and after
+        // every run of spaces and around atomic inlines, as Blink breaks), a soft
         // opportunity where the nearest common ancestor of the characters on either side allows wrapping (CSS Text 3,
         // 5.1), a forced one after <br>. An opportunity at an inline box's edge lies after the end edges there and
         // before the start edges. A text whose overflow-wrap breaks words splits them into its grapheme clusters too,
@@ -699,10 +1074,11 @@ namespace weft {
             std::vector<std::size_t> owner(paragraph.size(), none);
             for (std::size_t i = 0; i < items.size(); ++i) {
                 const auto& item = items[i];
-                const auto size = item.kind == Item::Kind::Text     ? item.text.size()
-                                  : item.kind == Item::Kind::Atomic ? object_replacement.size()
-                                  : item.kind == Item::Kind::Break  ? std::size_t(1)
-                                                                    : std::size_t(0);
+                const auto size = item.kind == Item::Kind::Text      ? item.text.size()
+                                  : item.kind == Item::Kind::Atomic  ? object_replacement.size()
+                                  : item.kind == Item::Kind::Break   ? std::size_t(1)
+                                  : item.kind == Item::Kind::Control ? item.control.size()
+                                                                     : std::size_t(0);
                 std::fill(owner.begin() + std::ptrdiff_t(item.begin), owner.begin() + std::ptrdiff_t(item.begin + size),
                           i);
             }
@@ -720,6 +1096,29 @@ namespace weft {
                     cluster[p] = true;
                 }
                 tailor(allowed, cluster, owner);
+                // After a run of spaces a line may always break, as Blink's line break iterator has it
+                // (BreakSpaceType::kAfterSpaceRun), also where UAX 14 keeps the next character (LB14-LB17: "( x",
+                // "\" (").
+                for (std::size_t p = 1; p < paragraph.size(); ++p) {
+                    if (paragraph[p - 1] == ' ' && paragraph[p] != ' ' && cluster[p]) {
+                        allowed[p] = true;
+                    }
+                }
+                // An atomic inline has an opportunity after it, and one before it after text that ends where it
+                // starts, whatever the characters beside it (Blink's LineBreaker::CanBreakAfterAtomicInline and
+                // CanBreakAfter: also before "?", a quote or U+00A0; not after a bidi control).
+                for (const auto& item : items) {
+                    if (item.kind != Item::Kind::Atomic) {
+                        continue;
+                    }
+                    if (item.begin > 0 && items[owner[item.begin - 1]].kind == Item::Kind::Text) {
+                        allowed[item.begin] = true;
+                    }
+                    if (const auto end = item.begin + object_replacement.size();
+                        end < paragraph.size() && cluster[end]) {
+                        allowed[end] = true;
+                    }
+                }
                 for (std::size_t p = 1; p < paragraph.size(); ++p) {
                     if (!allowed[p]) {
                         continue;
@@ -730,13 +1129,22 @@ namespace weft {
                 }
             }
             std::size_t placed = std::numeric_limits<std::size_t>::max();
+            // An opportunity at a unit that does not take it (an end edge, a bidi control), for the next one that does:
+            // a control is a character of its own, so the unit after it starts at another byte.
+            std::size_t carried = std::numeric_limits<std::size_t>::max();
             const auto add = [&](std::size_t item, std::size_t begin, std::size_t end, std::size_t at, bool closing,
                                  Emergency emergency) {
                 Chunk u{item, begin, end};
-                // The first unit at an opportunity that is not an end edge takes it.
-                if (!closing && at != placed && opportunity[at]) {
+                const bool here = at != placed && opportunity[at];
+                // The first unit at an opportunity that is not an end edge (nor a control) takes it.
+                if (closing) {
+                    if (here) {
+                        carried = at;
+                    }
+                } else if (here || carried != std::numeric_limits<std::size_t>::max()) {
                     u.break_before = true;
-                    placed = at;
+                    placed = here ? at : carried;
+                    carried = std::numeric_limits<std::size_t>::max();
                     breakable |= !chunks.empty() && items[chunks.back().item].kind != Item::Kind::Break;
                 } else if (emergency != Emergency::None) {
                     u.emergency = emergency;
@@ -769,6 +1177,12 @@ namespace weft {
                     case Item::Kind::Close:
                         add(i, 0, 0, item.begin, true, Emergency::None);
                         break;
+                    case Item::Kind::Control:
+                        // A control never takes an opportunity: one that pops stays with the content before it, as a
+                        // close tag does, and so does one that enters (Chrome's line breaker keeps it on the line
+                        // that breaks before the open tag after it, LineBreakBidiControlEnter), at its level.
+                        add(i, 0, 0, item.begin, true, Emergency::None);
+                        break;
                     default:
                         add(i, 0, 0, item.begin, false, Emergency::None);
                         break;
@@ -786,12 +1200,17 @@ namespace weft {
                     const auto v = s.text(style, "solid");
                     return v == "none" || v == "hidden" ? 0.f : edge(s, width, base);
                 };
-                b.margin_start = edge(s, PropertyId::MarginLeft, base);
-                b.margin_end = edge(s, PropertyId::MarginRight, base);
-                b.inner_start = border(PropertyId::BorderLeftWidth, PropertyId::BorderLeftStyle) +
-                                edge(s, PropertyId::PaddingLeft, base);
-                b.inner_end = border(PropertyId::BorderRightWidth, PropertyId::BorderRightStyle) +
-                              edge(s, PropertyId::PaddingRight, base);
+                const float left_margin = edge(s, PropertyId::MarginLeft, base);
+                const float right_margin = edge(s, PropertyId::MarginRight, base);
+                const float left = border(PropertyId::BorderLeftWidth, PropertyId::BorderLeftStyle) +
+                                   edge(s, PropertyId::PaddingLeft, base);
+                const float right = border(PropertyId::BorderRightWidth, PropertyId::BorderRightStyle) +
+                                    edge(s, PropertyId::PaddingRight, base);
+                // A right-to-left box starts on its right.
+                b.margin_start = b.rtl ? right_margin : left_margin;
+                b.margin_end = b.rtl ? left_margin : right_margin;
+                b.inner_start = b.rtl ? right : left;
+                b.inner_end = b.rtl ? left : right;
                 b.top = border(PropertyId::BorderTopWidth, PropertyId::BorderTopStyle) +
                         edge(s, PropertyId::PaddingTop, base);
                 b.bottom = border(PropertyId::BorderBottomWidth, PropertyId::BorderBottomStyle) +
@@ -806,6 +1225,8 @@ namespace weft {
                     return boxes[item.box].margin_start + boxes[item.box].inner_start != 0;
                 case Item::Kind::Close:
                     return boxes[item.box].margin_end + boxes[item.box].inner_end != 0;
+                case Item::Kind::Control:
+                    return false;
                 default:
                     return true;
             }
@@ -823,7 +1244,8 @@ namespace weft {
                 const auto& unit = chunks[u];
                 const auto& item = items[unit.item];
                 // Spaces before a forced break end the line too.
-                if (item.kind == Item::Kind::Open || item.kind == Item::Kind::Close || item.kind == Item::Kind::Break) {
+                if (item.kind == Item::Kind::Open || item.kind == Item::Kind::Close || item.kind == Item::Kind::Break ||
+                    item.kind == Item::Kind::Control) {
                     continue;
                 }
                 if (item.kind != Item::Kind::Text) {
@@ -882,12 +1304,19 @@ namespace weft {
             return a.total + snapped(a.raw);
         }
 
-        // The width of chunks [first, last) on one line, without the line's trailing spaces when `hang`.
+        // The width of chunks [first, last) on one line, without the line's trailing spaces when `hang`, nor the end
+        // edges after them when the line may break there (content follows): Blink's line breaker takes the close tags
+        // that follow a line's trailing spaces at a break with them, so an inline box's end padding and border may
+        // overflow the line its spaces end. At the paragraph's end they count.
         Units width(std::size_t first, std::size_t last, bool hang,
                     const std::vector<SceneAtomicExtent>& extents) const {
             const auto end = hang ? trim(first, last) : Trim{};
+            const bool spaces = last < chunks.size() && end.unit != none && end.end < chunks[end.unit].end;
             Advance a;
             for (auto u = first; u < last; ++u) {
+                if (spaces && u > end.unit && items[chunks[u].item].kind == Item::Kind::Close) {
+                    continue;
+                }
                 advance(a, u, u == end.unit ? end.end : chunks[u].end, extents);
             }
             return measured(a);
@@ -967,13 +1396,214 @@ namespace weft {
             std::size_t end{};
         };
 
-        // text-overflow: ellipsis on a line of pieces wider than limit, as Blink's LineTruncator truncates it (CSS
-        // Overflow 3, "text-overflow"): from the line's end, each piece that starts past the content box is hidden; the
-        // last one that reaches into it keeps the characters that fit before the ellipsis, or all of it when it fits,
-        // and the ellipsis follows. The first piece is never hidden: when not even its first character fits, it keeps
-        // that character and is clipped. Hidden text draws nothing but keeps its rect, so geometry stays as laid out.
-        // The ellipsis piece, or nothing when no piece can take it.
-        std::optional<Placed> truncate(std::vector<Placed>& placed, Units limit) const {
+        // A box's fragment on a line: its box, its ends (LayoutUnits from the line's left), and whether the box starts
+        // and ends on the line (first, last); after place_visually, whether it has the box's left and right edges.
+        struct Fragment {
+            std::size_t box{};
+            Units start{};
+            Units end{};
+            bool first{};
+            bool last{};
+        };
+
+        // A line's leaf in logical order: a placed piece, the placeholder of a box fragment where the box opens on
+        // the line (Blink's box placeholder), or a bidi control (control: its item; Blink keeps them on the line as
+        // children of no size at their levels); and the innermost fragment it lies in (none: the root's).
+        struct Leaf {
+            std::size_t piece{none};
+            std::size_t fragment{none};
+            std::size_t parent{none};
+            std::size_t control{none};
+        };
+
+        // The base direction of the line that starts at chunk `first`: its paragraph's.
+        bool line_base_rtl(std::size_t first) const {
+            if (!bidi || paragraph_levels.paragraphs.empty()) {
+                return false;
+            }
+            auto at = items[chunks[first].item].begin + chunks[first].begin;
+            for (auto u = first; u < chunks.size(); ++u) {
+                const auto kind = items[chunks[u].item].kind;
+                if (kind == Item::Kind::Text || kind == Item::Kind::Atomic) {
+                    at = items[chunks[u].item].begin + chunks[u].begin;
+                    break;
+                }
+            }
+            std::uint8_t level = paragraph_levels.paragraphs.front().second;
+            for (const auto& [start, base] : paragraph_levels.paragraphs) {
+                if (start > at) {
+                    break;
+                }
+                level = base;
+            }
+            return level % 2;
+        }
+
+        // Places a line in visual order, as Blink's LogicalLineBuilder::BidiReorder and InlineLayoutStateStack do: its
+        // leaves reordered by their levels (UAX #9 L2; a box placeholder takes the level of the leaf after it, at the
+        // line's end the line's base level), each box fragment split into the ranges of its content that stay
+        // together, the box's line-left edge (its start edge, its end edge when its direction is rtl) on its leftmost
+        // range and its line-right edge on its rightmost, and each leaf placed left to right after the edges before it.
+        // Rewrites the pieces' x and the fragments (one per range, with physical edges); returns the line's width.
+        Units place_visually(bool line_rtl, const std::vector<SceneAtomicExtent>& extents, std::vector<Placed>& placed,
+                             const std::vector<Leaf>& sequence, std::vector<Fragment>& fragments,
+                             const std::vector<std::size_t>& fragment_parent,
+                             const std::vector<std::size_t>& fragment_opened,
+                             std::vector<float>& fragment_shift) const {
+            constexpr std::uint8_t opaque = 0xff;
+            const std::uint8_t base = line_rtl ? 1 : 0;
+            std::vector<std::uint8_t> leaf_levels(sequence.size(), opaque);
+            for (std::size_t i = 0; i < sequence.size(); ++i) {
+                if (sequence[i].piece != none) {
+                    leaf_levels[i] = bidi ? items[placed[sequence[i].piece].item].level : 0;
+                } else if (sequence[i].control != none) {
+                    leaf_levels[i] = items[sequence[i].control].level;
+                }
+            }
+            auto after = base;
+            for (auto i = leaf_levels.size(); i-- > 0;) {
+                if (leaf_levels[i] == opaque) {
+                    leaf_levels[i] = after;
+                } else {
+                    after = leaf_levels[i];
+                }
+            }
+            const auto visual = bidi_visual_order(leaf_levels);
+            const auto inside = [&](const Leaf& leaf, std::size_t f) {
+                for (auto g = leaf.parent; g != none; g = fragment_parent[g]) {
+                    if (g == f) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+
+            struct Range {
+                std::size_t fragment{};
+                std::size_t first{};
+                std::size_t last{};
+                bool left{};
+                bool right{};
+                Units start{};
+                Units end{};
+            };
+
+            std::vector<Range> ranges;
+            std::vector<std::size_t> empty;
+            for (std::size_t f = 0; f < fragments.size(); ++f) {
+                const auto from = ranges.size();
+                for (std::size_t at = 0; at < visual.size(); ++at) {
+                    if (!inside(sequence[visual[at]], f)) {
+                        continue;
+                    }
+                    if (ranges.size() > from && ranges.back().last + 1 == at) {
+                        ranges.back().last = at;
+                    } else {
+                        ranges.push_back({f, at, at});
+                    }
+                }
+                if (ranges.size() > from) {
+                    const bool rtl = boxes[fragments[f].box].rtl;
+                    ranges[from].left = rtl ? fragments[f].last : fragments[f].first;
+                    ranges.back().right = rtl ? fragments[f].first : fragments[f].last;
+                } else {
+                    // A culled box with nothing on the line: no width, before the leaf that follows where it opens.
+                    empty.push_back(f);
+                }
+            }
+            // At each leaf, the ranges that start there outermost first, and those that end there innermost first.
+            std::vector<std::vector<std::size_t>> starting(visual.size());
+            std::vector<std::vector<std::size_t>> ending(visual.size());
+            for (std::size_t r = 0; r < ranges.size(); ++r) {
+                starting[ranges[r].first].push_back(r);
+                ending[ranges[r].last].push_back(r);
+            }
+            const auto depth = [&](std::size_t r) {
+                return boxes[fragments[ranges[r].fragment].box].depth;
+            };
+            Units x{};
+            for (std::size_t at = 0; at < visual.size(); ++at) {
+                std::stable_sort(starting[at].begin(), starting[at].end(), [&](std::size_t a, std::size_t b) {
+                    return depth(a) < depth(b);
+                });
+                for (const auto r : starting[at]) {
+                    auto& range = ranges[r];
+                    const auto& b = boxes[fragments[range.fragment].box];
+                    if (range.left) {
+                        x += to_units(b.rtl ? b.margin_end : b.margin_start);
+                    }
+                    range.start = x;
+                    if (range.left) {
+                        x += to_units(b.rtl ? b.inner_end : b.inner_start);
+                    }
+                }
+                const auto& leaf = sequence[visual[at]];
+                if (leaf.piece != none) {
+                    auto& p = placed[leaf.piece];
+                    if (p.piece.kind == SceneInlinePiece::Kind::Atomic) {
+                        const auto& e = extents[p.item];
+                        x += to_units(e.margin[3]);
+                        p.x = x;
+                        x += p.w + to_units(e.margin[1]);
+                    } else {
+                        p.x = x;
+                        x += p.w;
+                    }
+                }
+                std::stable_sort(ending[at].begin(), ending[at].end(), [&](std::size_t a, std::size_t b) {
+                    return depth(a) > depth(b);
+                });
+                for (const auto r : ending[at]) {
+                    auto& range = ranges[r];
+                    const auto& b = boxes[fragments[range.fragment].box];
+                    if (range.right) {
+                        x += to_units(b.rtl ? b.inner_start : b.inner_end);
+                    }
+                    range.end = x;
+                    if (range.right) {
+                        x += to_units(b.rtl ? b.margin_start : b.margin_end);
+                    }
+                }
+            }
+            std::vector<Fragment> split;
+            std::vector<float> shift;
+            for (const auto& range : ranges) {
+                split.push_back({fragments[range.fragment].box, range.start, range.end, range.left, range.right});
+                shift.push_back(fragment_shift[range.fragment]);
+            }
+            // The left of each leaf, by its index in the sequence.
+            std::vector<Units> leaf_x(sequence.size() + 1, x);
+            {
+                Units at{};
+                for (std::size_t v = 0; v < visual.size(); ++v) {
+                    const auto& leaf = sequence[visual[v]];
+                    if (leaf.piece != none) {
+                        at = placed[leaf.piece].x;
+                    }
+                    leaf_x[visual[v]] = at;
+                }
+            }
+            for (const auto f : empty) {
+                const auto at = leaf_x[std::min(fragment_opened[f], sequence.size())];
+                split.push_back({fragments[f].box, at, at, false, false});
+                shift.push_back(fragment_shift[f]);
+            }
+            fragments = std::move(split);
+            fragment_shift = std::move(shift);
+            return x;
+        }
+
+        // text-overflow: ellipsis on a line of pieces wider than limit (line_width wide), as Blink's LineTruncator
+        // truncates it (CSS Overflow 3, "text-overflow"): in visual order from the line's end (its left when it is
+        // right to left), each piece that starts past the content box is hidden; the last one that reaches into it
+        // keeps the characters that fit before the ellipsis (from its logical start when it runs the line's direction,
+        // else from its end), or all of it when it fits, and the ellipsis follows on the line's end side. The first
+        // piece is never hidden: when not even its first character fits, it keeps that character and is clipped.
+        // Hidden text draws nothing but keeps its rect, so geometry stays as laid out; on a right-to-left line a
+        // truncated piece's rect shrinks to what it keeps, at its right. The ellipsis piece, or nothing when no piece
+        // can take it.
+        std::optional<Placed> truncate(std::vector<Placed>& placed, Units limit, bool line_rtl,
+                                       Units line_width) const {
             float advance{};
             for (const auto& g : ellipsis_run->glyphs) {
                 advance += g.advance;
@@ -985,10 +1615,21 @@ namespace weft {
                 }
                 p.piece.text.clear();
             };
-            for (auto k = placed.size(); k-- > 0;) {
-                auto& p = placed[k];
-                const bool first = k == 0;
-                Units space = limit - p.x;
+            // The pieces from the line's end to its start, in visual order: from the right on a left-to-right line,
+            // from the left on a right-to-left one.
+            std::vector<std::size_t> order(placed.size());
+            for (std::size_t k = 0; k < order.size(); ++k) {
+                order[k] = k;
+            }
+            std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+                return line_rtl ? placed[a].x < placed[b].x : placed[a].x > placed[b].x;
+            });
+            for (std::size_t i = 0; i < order.size(); ++i) {
+                auto& p = placed[order[i]];
+                const bool first = i + 1 == order.size();
+                // Its distance from the line's start.
+                const Units offset = line_rtl ? line_width - (p.x + p.w) : p.x;
+                Units space = limit - offset;
                 if (space <= 0) {
                     if (!first) {
                         hide(p);
@@ -996,44 +1637,76 @@ namespace weft {
                     continue;
                 }
                 space -= width;
-                Units end = p.x + p.w;
+                // The edge the ellipsis follows: the piece's end side.
+                Units end = line_rtl ? p.x : p.x + p.w;
                 if (space < p.w) {
                     if ((space <= 0 && !first) || (p.piece.kind != SceneInlinePiece::Kind::Text && !first)) {
                         hide(p);
                         continue;
                     }
                     if (p.piece.kind == SceneInlinePiece::Kind::Text) {
-                        // The most characters whose advances fit, at a cluster boundary.
+                        // The most characters whose advances fit, at a cluster boundary: from its logical start when
+                        // it runs the line's way, else from its logical end (its part at the line's start either way).
                         const auto& item = items[p.item];
+                        const bool from_start = (p.piece.bidi && p.piece.rtl) == line_rtl;
                         const float room = pixels(space);
-                        auto fit = p.begin;
-                        for (auto b = p.begin + 1; b <= p.end; ++b) {
-                            if (item.starts[b] && item.prefix[b] - item.prefix[p.begin] <= room) {
+                        const auto kept = [&](std::size_t a, std::size_t b) {
+                            return item.prefix[b] - item.prefix[a];
+                        };
+                        std::size_t fit = from_start ? p.begin : p.end;
+                        for (auto b = p.begin + 1; b < p.end; ++b) {
+                            if (item.starts[b] && (from_start ? kept(p.begin, b) : kept(b, p.end)) <= room &&
+                                (from_start || fit == p.end)) {
                                 fit = b;
                             }
                         }
-                        if (fit == p.begin || fit == p.end) {
+                        if (from_start && item.starts[p.end] && kept(p.begin, p.end) <= room) {
+                            fit = p.end;
+                        }
+                        const bool none_fits = from_start ? fit == p.begin : fit == p.end;
+                        const bool all_fit = from_start ? fit == p.end : fit == p.begin;
+                        if (none_fits || all_fit) {
                             if (!first) {
                                 hide(p);
                                 continue;
                             }
                             // The first character is clipped rather than ellipsed; a piece that fits by its advances
                             // but not by its snapped width loses its last.
-                            auto cut = fit == p.begin ? p.begin + 1 : p.end - 1;
-                            while (cut > p.begin + 1 && cut < p.end && !item.starts[cut]) {
-                                fit == p.begin ? ++cut : --cut;
+                            if (from_start) {
+                                auto cut = none_fits ? p.begin + 1 : p.end - 1;
+                                while (cut > p.begin + 1 && cut < p.end && !item.starts[cut]) {
+                                    none_fits ? ++cut : --cut;
+                                }
+                                fit = std::clamp(cut, p.begin + 1, p.end);
+                            } else {
+                                auto cut = none_fits ? p.end - 1 : p.begin + 1;
+                                while (cut > p.begin && cut < p.end - 1 && !item.starts[cut]) {
+                                    none_fits ? --cut : ++cut;
+                                }
+                                fit = std::clamp(cut, p.begin, p.end - 1);
                             }
-                            fit = std::clamp(cut, p.begin + 1, p.end);
                         }
-                        p.piece.text = item.text.substr(p.begin, fit - p.begin);
-                        end = p.x + snapped(item.prefix[fit] - item.prefix[p.begin]);
+                        const auto a = from_start ? p.begin : fit;
+                        const auto b = from_start ? fit : p.end;
+                        p.piece.text = item.text.substr(a, b - a);
+                        const Units kept_width = snapped(kept(a, b));
+                        if (line_rtl) {
+                            // What is kept stays at the piece's right, the line's start.
+                            p.x += p.w - kept_width;
+                            p.w = kept_width;
+                            end = p.x;
+                        } else {
+                            end = p.x + kept_width;
+                        }
                     }
                 }
                 Placed e;
                 e.piece.kind = SceneInlinePiece::Kind::Text;
                 e.piece.node = &root;
                 e.piece.text = ellipsis;
-                e.x = end;
+                e.piece.bidi = bidi;
+                e.piece.rtl = bidi && line_rtl;
+                e.x = line_rtl ? end - width : end;
                 e.w = width;
                 e.top = ellipsis_run->metrics.baseline;
                 e.height = ellipsis_run->metrics.height;
@@ -1182,11 +1855,19 @@ namespace weft {
                 if (!filled && emergencies && bounded) {
                     start = rescue(start, i, j, limit, extents, intrinsic, lines);
                 }
+                const bool forced = items[chunks[j - 1].item].kind == Item::Kind::Break;
+                // The end edges and bidi pops right after a forced break end its line, as Blink's line breaker keeps
+                // them (its trailing items).
+                while (forced && j < chunks.size() &&
+                       (items[chunks[j].item].kind == Item::Kind::Close ||
+                        (items[chunks[j].item].kind == Item::Kind::Control && items[chunks[j].item].exit))) {
+                    ++j;
+                }
                 for (auto u = i; u < j; ++u) {
                     filled |= content(chunks[u]);
                 }
                 i = j;
-                if (items[chunks[j - 1].item].kind == Item::Kind::Break) {
+                if (forced) {
                     lines.emplace_back(start, j);
                     start = j;
                     filled = false;
@@ -1196,7 +1877,7 @@ namespace weft {
                 lines.emplace_back(start, chunks.size());
             }
             SceneInlineLayout out;
-            const auto align = root.style.text(PropertyId::TextAlign, "left");
+            const auto align = root.style.text(PropertyId::TextAlign, "start");
             // The boxes open at the start of the current line.
             std::vector<std::size_t> open;
             float top{};
@@ -1218,19 +1899,32 @@ namespace weft {
                     continue;
                 }
                 const auto end = trim(first, last);
-
-                struct Fragment {
-                    std::size_t box{};
-                    Units start{};
-                    Units end{};
-                    bool first{};
-                    bool last{};
-                };
+                // The line's base direction: its paragraph's (each paragraph's own with unicode-bidi: plaintext).
+                const bool line_rtl = line_base_rtl(first);
 
                 std::vector<Fragment> fragments;
                 std::vector<Placed> placed;
                 // Each fragment's baseline offset from the line's.
                 std::vector<float> fragment_shift;
+                // For reordering: the fragment each fragment lies in (none: the root's), and the line's leaves and box
+                // placeholders in logical order.
+                std::vector<std::size_t> fragment_parent;
+                // Where in the sequence each fragment opens (a culled box's has no placeholder there).
+                std::vector<std::size_t> fragment_opened;
+                std::vector<Leaf> sequence;
+                // The fragments of the boxes open at this point of the line, outermost first.
+                std::vector<std::size_t> stack;
+                const auto open_fragment = [&](std::size_t b, Units at, bool starts) {
+                    const auto parent = stack.empty() ? none : stack.back();
+                    if (boxes[b].fragment) {
+                        sequence.push_back({none, fragments.size(), fragments.size()});
+                    }
+                    fragment_opened.push_back(sequence.size());
+                    fragment_parent.push_back(parent);
+                    stack.push_back(fragments.size());
+                    fragments.push_back({b, at, at, starts, false});
+                    fragment_shift.push_back(0);
+                };
                 // The boxes open on the line, the root first; each starts with its strut.
                 const auto strut_extent = [](const SceneStrut& strut) {
                     Extent e;
@@ -1241,7 +1935,6 @@ namespace weft {
                 std::vector<Level> levels;
                 levels.push_back({none, nullptr, {}, strut_extent(root_strut), 0, 0, {}});
                 // Fragments of the boxes that continue from the line before start at the line's start.
-                std::vector<std::size_t> stack;
                 for (const auto b : open) {
                     levels.push_back({b,
                                       boxes[b].node,
@@ -1250,9 +1943,7 @@ namespace weft {
                                       placed.size(),
                                       fragments.size(),
                                       {}});
-                    stack.push_back(fragments.size());
-                    fragments.push_back({b, 0, 0, false, false});
-                    fragment_shift.push_back(0);
+                    open_fragment(b, 0, false);
                 }
                 // Closes the innermost level: shifts its baseline from its parent's as its vertical-align says and
                 // unites its extent into its parent's, or leaves it to wait (top, bottom) for its nearest ancestor
@@ -1306,6 +1997,15 @@ namespace weft {
                         p.item = fragment_item;
                         p.begin = fragment_begin;
                         p.end = fragment_end;
+                        p.piece.bidi = bidi;
+                        p.piece.rtl = bidi && item.level % 2;
+                        const auto context = context_at(item.begin + fragment_begin, item.begin + fragment_end);
+                        p.piece.context_before = context.before;
+                        p.piece.context_after = context.after;
+                        if (item.joint) {
+                            p.piece.run = part(*item.run, fragment_begin, fragment_end, m);
+                        }
+                        sequence.push_back({placed.size(), none, stack.empty() ? none : stack.back()});
                         p.above = p.top = m.baseline;
                         p.below = m.height - m.baseline;
                         p.height = m.height;
@@ -1351,9 +2051,7 @@ namespace weft {
                         x += to_units(b.margin_start);
                         levels.push_back(
                             {item.box, b.node, b.align, strut_extent(b.strut), placed.size(), fragments.size(), {}});
-                        stack.push_back(fragments.size());
-                        fragments.push_back({item.box, x, x, true, false});
-                        fragment_shift.push_back(0);
+                        open_fragment(item.box, x, true);
                         x += to_units(b.inner_start);
                         reach(x);
                         open.push_back(item.box);
@@ -1375,12 +2073,16 @@ namespace weft {
                             close_level();
                         }
                         x += to_units(b.margin_end);
+                    } else if (item.kind == Item::Kind::Control) {
+                        sequence.push_back({none, none, stack.empty() ? none : stack.back(), unit.item});
                     } else if (item.kind == Item::Kind::Atomic) {
                         const auto& e = extents[unit.item];
                         x += to_units(e.margin[3]);
                         Placed p;
                         p.piece.kind = SceneInlinePiece::Kind::Atomic;
                         p.piece.node = item.node;
+                        p.item = unit.item;
+                        sequence.push_back({placed.size(), none, stack.empty() ? none : stack.back()});
                         p.x = x;
                         p.w = exact(e.width);
                         p.above = e.margin[0] + e.baseline;
@@ -1411,17 +2113,28 @@ namespace weft {
                 }
                 const float above = line.extent.ascent;
                 const float below = line.extent.descent;
+                // In visual order: each leaf at its place left to right, each box split where reordering separates
+                // its content, its edges at its leftmost and rightmost pieces.
+                if (reorder) {
+                    x = place_visually(line_rtl, extents, placed, sequence, fragments, fragment_parent, fragment_opened,
+                                       fragment_shift);
+                }
                 // The ellipsis sits on the line's baseline without changing its height, and the line keeps its width.
                 if (!ellipsis.empty() && bounded && x > limit) {
-                    if (auto e = truncate(placed, limit)) {
+                    if (auto e = truncate(placed, limit, line_rtl, x)) {
                         placed.push_back(std::move(*e));
                     }
                 }
+                // text-align: start and end by the line's direction; a line that overflows is start-aligned.
                 Units offset{};
-                if (bounded && x < limit) {
-                    if (align == "center") {
+                if (bounded) {
+                    const bool right =
+                        align == "right" || (align == "start" && line_rtl) || (align == "end" && !line_rtl);
+                    if (x >= limit) {
+                        offset = line_rtl ? limit - x : 0;
+                    } else if (align == "center") {
                         offset = (limit - x) / 2;
-                    } else if (align == "right" || align == "end") {
+                    } else if (right) {
                         offset = limit - x;
                     }
                 }
@@ -1456,8 +2169,8 @@ namespace weft {
         }
     };
 
-    SceneInlineContent::SceneInlineContent(SceneText& text, const SceneNode& root)
-        : impl_(std::make_unique<Impl>(text, root)) {
+    SceneInlineContent::SceneInlineContent(SceneText& text, const SceneNode& root, std::size_t first, std::size_t last)
+        : impl_(std::make_unique<Impl>(text, root, first, last)) {
     }
 
     SceneInlineContent::~SceneInlineContent() = default;

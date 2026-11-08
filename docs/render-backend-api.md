@@ -53,6 +53,8 @@ D3D11 参考适配器只有一条绘制路径：四边形帧在适配器里先�
 
 所有后端遵守 linear-sRGB premultiplied 合成；coverage/distance 不经过 sRGB transfer。通用 target 类型包括 sRGB/linear RGBA8、BGRA8、linear RGBA16F/RGBA32F，由 backend capability 位选择。类型存在不等于适配器支持；当前 D3D11 reference 宣告 RGBA8 与 RGBA32F，Vulkan 宣告 sRGB RGBA8、sRGB BGRA8 与线性 RGBA16F（设备能混合时），都是单采样。
 
+2026-11-06 增加可选的反向扩展 [导出纹理](ingame-ui.md)（`render_export_texture.h`）：渲染器把 View 帧画进自有的图像环并借给宿主采样（游戏内 UI），宿主释放时给出最后一次采样的提交序号；首版只有 Metal 实现。
+
 2026-10-09 增加可选 [external texture lease v1 扩展](external-texture-lease.md)：原 v1 结构保持不变，独立 import/prepare 入口管理有界 generational lease 与 prepared/use pins。D3D11 同 device/queue、linear-premultiplied RGBA8/16F/32F、origin/alias/实际完成已验证；encoded sRGB、ANGLE 和移动尚未接入。
 
 ## 原生 pass 与后端扩展

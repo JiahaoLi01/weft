@@ -10,32 +10,35 @@
   globalThis.HTMLIFrameElement = function HTMLIFrameElement() { throw new TypeError('Illegal constructor'); };
   Object.defineProperty(HTMLIFrameElement, Symbol.hasInstance, { value: n => n instanceof HTMLElement && n.localName === 'iframe' });
   const styleKey = Symbol('native-style-declaration');
-  const cssName = name => name.startsWith('--') ? name : name.replace(/[A-Z]/g, c => '-' + c.toLowerCase());
+  // CSS names of the style object's property names (camelCase to kebab-case; custom properties as they are), kept for
+  // the names a page uses.
+  const cssNames = new Map();
+  const cssName = name => {
+    let css = cssNames.get(name);
+    if (css === undefined) {
+      css = name.startsWith('--') ? name : name.replace(/[A-Z]/g, c => '-' + c.toLowerCase());
+      if (cssNames.size < 1024) cssNames.set(name, css);
+    }
+    return css;
+  };
   const cssProperties = new Set(('display position width height min-width min-height max-width max-height left right top bottom margin padding border border-width border-radius border-color border-style box-sizing gap row-gap column-gap flex flex-direction flex-wrap flex-grow flex-shrink flex-basis align-items align-self align-content justify-content justify-items grid-template-columns place-items overflow opacity transform transform-origin background background-color background-image background-size background-position box-shadow animation animation-delay animation-duration animation-timing-function transition transition-property transition-duration transition-delay transition-timing-function pointer-events cursor z-index text-align white-space font-size font-weight font-family line-height letter-spacing color fill fill-opacity fill-rule stroke stroke-width stroke-opacity stroke-linecap stroke-linejoin stroke-dasharray stroke-dashoffset text-anchor dominant-baseline touch-action user-select will-change').split(' '));
   for(const side of ['top','right','bottom','left'])for(const prefix of ['margin-','padding-','border-'])cssProperties.add(prefix+side+(prefix==='border-'?'-width':''));
-  const declarations = node => {
-    const result = new Map();
-    for (const part of (node.getAttribute('style') || '').split(';')) {
-      const colon = part.indexOf(':');
-      if (colon > 0) result.set(part.slice(0, colon).trim(), part.slice(colon + 1).trim());
-    }
-    return result;
-  };
+  // The declaration lives in the style attribute: the node parses it, changes one property and writes it back in one
+  // native call (__ceStyleSet, __ceStyleGet in src/script/script_dom.cpp): "name: value;" joined by spaces, a value
+  // trimmed, one whose parentheses or quotes do not balance ignored, an empty one removing the property.
   Object.defineProperty(prototype, 'style', { get() {
     if (this.nodeType !== 1) return undefined;
     if (!this[styleKey]) {
       const node = this;
       const write = (name, value, priority = '') => {
         if (priority) throw new Error('WEFT_CSSOM_PROFILE: important unsupported in inline probe');
-        value=String(value).trim();let depth=0,quote='';for(const c of value){if(quote){if(c===quote)quote='';}else if(c==='"'||c==="'")quote=c;else if(c==='(')++depth;else if(c===')'&&--depth<0)return;}if(depth||quote)return;
-        const items = declarations(node);
-        if (String(value).trim()) items.set(name, String(value).trim()); else items.delete(name);
-        node.setAttribute('style', Array.from(items, ([k, v]) => k + ': ' + v + ';').join(' '));
+        node.__ceStyleSet(name, String(value));
       };
+      const read = name => node.__ceStyleGet(name);
       const methods = {
         setProperty: (name, value, priority) => write(String(name), value, priority),
-        getPropertyValue: name => declarations(node).get(String(name)) || '',
-        removeProperty: name => { const old = declarations(node).get(String(name)) || ''; write(String(name), ''); return old; },
+        getPropertyValue: name => read(String(name)),
+        removeProperty: name => { const old = read(String(name)); write(String(name), ''); return old; },
       };
       this[styleKey] = new Proxy(methods, {
         has(target,name){return name in target || (typeof name==='string' && cssProperties.has(cssName(name)));},
@@ -43,7 +46,7 @@
           if (name === 'cssText') return node.getAttribute('style') || '';
           if (name in target) return target[name];
           if (typeof name === 'symbol') return undefined;
-          return declarations(node).get(cssName(name)) || '';
+          return read(cssName(name));
         },
         set(_target, name, value) {
           if (name === 'cssText') node.setAttribute('style', String(value));

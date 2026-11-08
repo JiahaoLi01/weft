@@ -14,15 +14,18 @@
 #include "view/view_spatial_navigation.hpp"
 #include "view/view_text_field.hpp"
 #include "constants/scene.hpp"
+#include "constants/script.hpp"
 #include "dom/text_field.hpp"
 #include "scene/scene_field.hpp"
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <charconv>
 #include <cmath>
 #include <deque>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
@@ -202,7 +205,12 @@ namespace weft {
         std::unique_ptr<SceneSolver> scene;
         // The host's reader of the files the page names, and the page load's images it read.
         ViewResourceReader reader;
+        // The host's clipboard, or the View's own text (set_clipboard).
+        ViewClipboard clipboard;
+        std::optional<std::string> own_clipboard;
         std::unique_ptr<ViewImages> images;
+        // The page's base, which an img's src resolves against.
+        std::string image_base;
         std::unique_ptr<SceneGeometry> geometry;
         SceneFrame current;
         float width{};
@@ -220,6 +228,10 @@ namespace weft {
         // The host's safe area (set_safe_area), and the one the scene last built with.
         SceneSafeArea safe_area{};
         SceneSafeArea last_scene_safe_area{};
+        // The host's input devices (set_input_devices), and the ones the scene last built with.
+        InputDevices devices{};
+        unsigned max_touch_points{};
+        InputDevices last_scene_devices{};
         double last_scene_time = -1;
         bool geometry_valid{};
         std::uint64_t layout_epoch = 1;
@@ -388,8 +400,8 @@ namespace weft {
 
         // Builds the scene from last_dom; changed tells whether its content moved since the previous build.
         void sync_scene(bool changed) {
-            const bool resized =
-                width != last_scene_width || height != last_scene_height || safe_area != last_scene_safe_area;
+            const bool resized = width != last_scene_width || height != last_scene_height ||
+                                 safe_area != last_scene_safe_area || devices != last_scene_devices;
             if (!changed && !resized && (!current.animated || last_scene_time == time)) {
                 current.time_ms = time;
                 last_scene_time = time;
@@ -413,6 +425,7 @@ namespace weft {
             last_scene_width = width;
             last_scene_height = height;
             last_scene_safe_area = safe_area;
+            last_scene_devices = devices;
             last_scene_time = time;
         }
 
@@ -519,8 +532,30 @@ namespace weft {
                          std::string(message));
             });
             vm.install_storage(local_storage, session_storage);
+            // Copy, cut and paste go through the host's clipboard, else the View's own.
+            vm.install_clipboard_host({[this]() -> std::optional<std::string> {
+                                           return clipboard.read ? clipboard.read() : own_clipboard;
+                                       },
+                                       [this](std::string_view text) {
+                                           if (clipboard.write) {
+                                               clipboard.write(text);
+                                           } else {
+                                               own_clipboard = std::string(text);
+                                           }
+                                       }});
+            // An img's src resolves against the page's base and loads through the page's images, as url() does.
+            vm.install_image_host({[this](std::string_view src) {
+                                       return view_resolve_url(image_base, src);
+                                   },
+                                   [this](std::string_view src) -> std::optional<std::array<std::uint32_t, 2>> {
+                                       const auto image = images ? images->image(src) : nullptr;
+                                       if (!image || !image->width || !image->height) {
+                                           return std::nullopt;
+                                       }
+                                       return std::array<std::uint32_t, 2>{image->width, image->height};
+                                   }});
             vm.install_media_host([this](std::string_view query) {
-                return media_matches(query, width, height);
+                return media_matches(query, width, height, devices);
             });
             vm.install_layout_cache_host([this] {
                 if (cache_time != time || cache_width != width || cache_height != height) {
@@ -572,6 +607,36 @@ namespace weft {
                                 }
                             }
                         }
+                        // A color an animation or a transition interpolated (rgb() or rgba() of fractional
+                        // channels), as Chrome serializes one: whole channels, and rgb() when it is opaque.
+                        for (auto& [property, value] : s) {
+                            if (!value.starts_with("rgb") || !value.ends_with(')')) {
+                                continue;
+                            }
+                            const auto open = value.find('(');
+                            auto parts = css::split(std::string_view(value).substr(open + 1, value.size() - open - 2),
+                                                    ',').parts;
+                            if (parts.size() != 3 && parts.size() != 4) {
+                                continue;
+                            }
+                            std::array<double, 4> v{0, 0, 0, 1};
+                            bool numbers = true;
+                            for (std::size_t k = 0; k < parts.size(); ++k) {
+                                const auto n = css::parse_number<double>(std::string(css::trim(parts[k])));
+                                numbers = numbers && n.has_value();
+                                v[k] = n.value_or(0);
+                            }
+                            if (!numbers) {
+                                continue;
+                            }
+                            std::string channels;
+                            for (unsigned k = 0; k < 3; ++k) {
+                                channels += (k ? ", " : "") +
+                                            number_text(std::clamp(std::floor(v[k] + .5), 0.0, 255.0));
+                            }
+                            value = v[3] >= 1 ? "rgb(" + channels + ")"
+                                              : "rgba(" + channels + ", " + number_text(std::clamp(v[3], 0.0, 1.0)) + ")";
+                        }
                         s["width"] = number_text(n.box[2]) + "px";
                         s["height"] = number_text(n.box[3]) + "px";
                         if (!s.contains("transform") || s["transform"].empty() || s["transform"] == "none") {
@@ -600,6 +665,14 @@ namespace weft {
                 }
                 return s;
             });
+        }
+
+        // The host's input devices as the page's script sees them: navigator.maxTouchPoints and the touch event
+        // handlers (ontouchstart and the like) while there is a touch screen.
+        void input_globals() {
+            vm.eval("__ceScenePlatform.input(" + std::to_string(max_touch_points) + "," +
+                        ((devices.available & InputDevices::touch) ? "true" : "false") + ")",
+                    "view");
         }
 
         void size_globals() {
@@ -897,7 +970,8 @@ namespace weft {
                     e.scrolls_y = g.wheel_y;
                     e.scroll_left = g.scroll_left;
                     e.scroll_top = g.scroll_top;
-                    e.max_left = std::max(0.0, g.scroll_width - g.client_width);
+                    e.min_left = g.scroll_left_min();
+                    e.max_left = g.scroll_left_max();
                     e.max_top = std::max(0.0, g.scroll_height - g.client_height);
                 }
                 // What an ancestor's overflow clips does not show.
@@ -1257,24 +1331,68 @@ namespace weft {
         // a key it leaves alone.
         std::optional<std::pair<unsigned, bool>> field_keydown(NodeIdentity target, const KeyEvent& e) {
             const auto [field, state] = focused_field();
-            if (!state || field != target || (e.modifiers & (key_modifier::alt | key_modifier::meta))) {
+            if (!state || field != target) {
+                return std::nullopt;
+            }
+            const std::pair<unsigned, bool> done{input_default, true};
+            const auto& key = e.key;
+            const auto size = std::uint32_t(state->value.size());
+            // The editing shortcuts of the platform (its command key, editing_modifier): select all, copy, cut, paste,
+            // undo, redo (Shift with undo's key; Windows' Control+Y too), and Windows' Control+Insert, Shift+Insert
+            // and Shift+Delete.
+            const unsigned held =
+                e.modifiers & (key_modifier::shift | key_modifier::control | key_modifier::alt | key_modifier::meta);
+            const auto letter = key.size() == 1 ? char(std::tolower(static_cast<unsigned char>(key[0]))) : '\0';
+            const bool command = held == editing_modifier;
+            const bool command_shift = held == (editing_modifier | key_modifier::shift);
+            std::optional<ClipboardCommand> clipboard;
+            std::optional<bool> history;
+            if (command && letter == 'a') {
+                field_reveal = FieldReveal::Extent;
+                vm.select_text_field(field, 0, size, true);
+                return done;
+            }
+            if (command && letter == 'c') {
+                clipboard = ClipboardCommand::Copy;
+            } else if (command && letter == 'x') {
+                clipboard = ClipboardCommand::Cut;
+            } else if (command && letter == 'v') {
+                clipboard = ClipboardCommand::Paste;
+            } else if (command && letter == 'z') {
+                history = false;
+            } else if (command_shift && letter == 'z') {
+                history = true;
+            } else if (editing_modifier == key_modifier::control) {
+                if (command && letter == 'y') {
+                    history = true;
+                } else if (held == key_modifier::control && key == "Insert") {
+                    clipboard = ClipboardCommand::Copy;
+                } else if (held == key_modifier::shift && key == "Insert") {
+                    clipboard = ClipboardCommand::Paste;
+                } else if (held == key_modifier::shift && key == "Delete") {
+                    clipboard = ClipboardCommand::Cut;
+                }
+            }
+            if (clipboard) {
+                field_reveal = FieldReveal::Extent;
+                vm.clipboard_command(field, *clipboard);
+                return done;
+            }
+            if (history) {
+                field_reveal = FieldReveal::Extent;
+                vm.history_command(*history);
+                return done;
+            }
+            if (e.modifiers & (key_modifier::alt | key_modifier::meta)) {
                 return std::nullopt;
             }
             const auto& f = *state;
             const bool shift = e.modifiers & key_modifier::shift;
             const bool control = e.modifiers & key_modifier::control;
             const std::string_view value(f.value);
-            const auto size = std::uint32_t(f.value.size());
             const auto anchor = f.backward ? f.selection_end : f.selection_start;
             const auto focus = f.backward ? f.selection_start : f.selection_end;
             const bool range = f.selection_start != f.selection_end;
-            const std::pair<unsigned, bool> done{input_default, true};
-            const auto& key = e.key;
-            if (control && !shift && (key == "a" || key == "A")) {
-                field_reveal = FieldReveal::Extent;
-                vm.select_text_field(field, 0, size, true);
-                return done;
-            }
             if (key == "Escape" && !control && !shift && f.editable && !f.multiline && !f.value.empty()) {
                 const auto* n = scene_node(field);
                 const auto type = n ? n->attributes.find("type") : AttributeMap::const_iterator{};
@@ -1285,8 +1403,12 @@ namespace weft {
                 }
                 return std::nullopt;
             }
-            const bool left = key == "ArrowLeft";
-            const bool right = key == "ArrowRight";
+            // In a right-to-left field the left arrow goes forward and the right one back, as Chrome moves the caret
+            // across right-to-left text (visually; within text of the field's direction that is logical).
+            const auto* shown = scene_node(field);
+            const bool rtl = shown && shown->style.text(PropertyId::Direction, "ltr") == "rtl";
+            const bool left = key == (rtl ? "ArrowRight" : "ArrowLeft");
+            const bool right = key == (rtl ? "ArrowLeft" : "ArrowRight");
             const bool home = key == "Home";
             const bool end = key == "End";
             const bool up = key == "ArrowUp";
@@ -1301,6 +1423,17 @@ namespace weft {
                 std::uint32_t to = focus;
                 if (!shift && range && !control && (left || right)) {
                     to = left ? f.selection_start : f.selection_end;
+                    // A selection collapses to its end that the key's side shows it at: in a right-to-left field
+                    // the left arrow goes to whichever end lies further left (Chrome's visual collapse).
+                    if (rtl && shown) {
+                        const auto start_x = scene_field_caret(*shown, scene_field_shown(f, f.selection_start));
+                        const auto end_x = scene_field_caret(*shown, scene_field_shown(f, f.selection_end));
+                        if (start_x && end_x && start_x->line == end_x->line && start_x->x != end_x->x) {
+                            const bool start_left = start_x->x < end_x->x;
+                            const bool to_left = key == "ArrowLeft";
+                            to = start_left == to_left ? f.selection_start : f.selection_end;
+                        }
+                    }
                 } else if (left) {
                     const auto from = shift || !range ? focus : f.selection_start;
                     to = control ? previous_word(value, from) : previous_character(value, from);
@@ -1522,8 +1655,20 @@ namespace weft {
             const float caret_w = constants::scene::field_caret_px;
             // The node was laid out at its own state's scroll offsets, which the DOM's may have passed since.
             const auto& laid = *n->field->state;
-            const float max_x = std::max(0.f, text_w + caret_w - content_w);
-            const float used_x = std::clamp(laid.scroll_x, 0.f, max_x);
+            float min_x = 0;
+            float max_x = std::max(0.f, text_w + caret_w - content_w);
+            // A right-to-left input's text overflows to the left: its scroll runs from 0 to minus that, from its
+            // lines' extent as laid out (their rects moved by the scroll they were laid out at).
+            if (!state.multiline && s.text(PropertyId::Direction, "ltr") == "rtl") {
+                float lo = std::numeric_limits<float>::infinity();
+                for (const auto& l : n->lines) {
+                    lo = std::min(lo, l.rect[0]);
+                }
+                const float unscrolled = std::isfinite(lo) ? lo + std::min(0.f, laid.scroll_x) : left;
+                min_x = std::min(0.f, unscrolled - caret_w - left);
+                max_x = 0;
+            }
+            const float used_x = std::clamp(laid.scroll_x, min_x, max_x);
             const float text_h = n->lines.back().rect[1] + n->lines.back().rect[3] - n->lines.front().rect[1];
             const float max_y = state.multiline ? std::max(0.f, text_h + pad_y - content_h) : 0.f;
             const float used_y = std::clamp(laid.scroll_y, 0.f, max_y);
@@ -1539,6 +1684,9 @@ namespace weft {
                 sx = x;
             } else if (x + caret_w > sx + content_w) {
                 sx = x + caret_w - content_w;
+            }
+            if (min_x < 0) {
+                sx = std::clamp(sx, min_x, max_x);
             }
             float sy = used_y;
             if (state.multiline) {
@@ -1614,6 +1762,439 @@ namespace weft {
         double click_time{};
         float click_x{};
         float click_y{};
+
+        // Touches (View::touch): each touch on the surface, its pointer and its gesture so far.
+        struct Touch {
+            std::uint64_t host{};
+            int pointer{};
+            bool primary{};
+            // The element it went down on (its pointer's implicit capture and its touch events' target).
+            NodeIdentity target{};
+            float start_x{};
+            float start_y{};
+            float x{};
+            float y{};
+            // Where it was before its last move.
+            float prev_x{};
+            float prev_y{};
+            float radius_x{};
+            float radius_y{};
+            float force{};
+            // Where its pointer events go: the element that has its capture (gotpointercapture sent), none when
+            // released (what is under it then).
+            NodeIdentity captured{};
+            // The element its pointer is over (its over and enter went there): the one it went down on, then, its
+            // capture released, what it moves over.
+            NodeIdentity over{};
+            // Its pointer events ended (a pan took it, or the host cancelled it).
+            bool pointer_done{};
+            bool start_prevented{};
+            // It went past the slop (it sends touchmoves since).
+            bool moved{};
+            // Another touch was down with it: its moves are not held within the slop (Chrome suppresses a lone
+            // touch's only).
+            bool multi{};
+            // A touchmove of it went unprevented: its touch events cannot be cancelled any more.
+            bool async{};
+            // Still a tap: within the slop, no other touch with it, no fling it stopped.
+            bool tap{true};
+            bool panning{};
+            NodeIdentity scroller{};
+            bool pan_x{};
+            bool pan_y{};
+            // The pan's scroll so far, exact and as applied (whole px, as Chrome's offsets at scale 1).
+            double pan_exact_x{};
+            double pan_exact_y{};
+            double pan_applied_x{};
+            double pan_applied_y{};
+            // Down and moves: time (ms), x, y, for the release speed.
+            std::vector<std::array<double, 3>> samples;
+        };
+
+        std::vector<Touch> touches;
+        int next_touch_pointer = constants::input::first_touch_pointer_id;
+        // The element that has the mouse's capture (element.setPointerCapture while a button is down).
+        NodeIdentity mouse_captured{};
+
+        // A fling (ui::FlingCurve) on the scroller a pan left: when it started (View time), the share of its speed on
+        // each axis, where on the curve it entered, the curve's end, and the scroll it applied.
+        struct Fling {
+            NodeIdentity scroller{};
+            double start{};
+            double ratio_x{};
+            double ratio_y{};
+            double time_offset{};
+            double position_offset{};
+            double duration{};
+            double applied_x{};
+            double applied_y{};
+        };
+
+        std::optional<Fling> fling;
+        // Tap counting: the count of the last tap, and when and where it went down.
+        unsigned tap_count{};
+        double tap_time{};
+        float tap_x{};
+        float tap_y{};
+        // When the :active state a tap left ends (-1: none).
+        double active_until = -1;
+
+        static double fling_position(double t) {
+            using namespace constants::input;
+            return fling_alpha * std::exp(-fling_gamma * t) - fling_beta * t - fling_alpha;
+        }
+
+        static double fling_time_at(double speed) {
+            using namespace constants::input;
+            return -std::log((speed + fling_beta) / (-fling_alpha * fling_gamma)) / fling_gamma;
+        }
+
+        // The effective touch-action of an element: what its value and its ancestors' all allow, as bits pan-x 1,
+        // pan-y 2.
+        unsigned touch_action(NodeIdentity target) {
+            unsigned allowed = 3;
+            for (const auto* n : chain(target)) {
+                const auto value = std::string(n->style.text(PropertyId::TouchAction, "auto"));
+                if (value.empty() || value == "auto" || value == "manipulation") {
+                    continue;
+                }
+                unsigned own{};
+                std::istringstream words(value);
+                for (std::string w; words >> w;) {
+                    if (w == "pan-x" || w == "pan-left" || w == "pan-right") {
+                        own |= 1;
+                    } else if (w == "pan-y" || w == "pan-up" || w == "pan-down") {
+                        own |= 2;
+                    }
+                }
+                allowed &= own;
+            }
+            return allowed;
+        }
+
+        // A touch's pointer event: over, enter and down at the element it went down on, the others at the element that
+        // has its capture (what is under it when released), lostpointercapture and gotpointercapture first as the
+        // page changed that; its pointer's fields.
+        bool touch_pointer(Touch& t, MouseType type, float x, float y, unsigned buttons, int button, float width,
+                           float height, float pressure, unsigned modifiers, NodeIdentity at = {},
+                           NodeIdentity related = {}) {
+            const auto send = [&](MouseType kind, NodeIdentity to) {
+                if (!to.generation) {
+                    return false;
+                }
+                MouseEvent e;
+                e.type = kind;
+                e.client_x = e.screen_x = x;
+                e.client_y = e.screen_y = y;
+                e.time_ms = time;
+                e.buttons = buttons;
+                e.ctrl = modifiers & key_modifier::control;
+                e.shift = modifiers & key_modifier::shift;
+                e.alt = modifiers & key_modifier::alt;
+                e.meta = modifiers & key_modifier::meta;
+                e.related_target = related;
+                e.touch = true;
+                e.pointer_id = t.pointer;
+                e.primary = t.primary;
+                e.width = width;
+                e.height = height;
+                e.pressure = pressure;
+                e.button = button;
+                return vm.dispatch_mouse(to, e) == DispatchResult::DefaultPrevented;
+            };
+            const bool entering =
+                type == MouseType::PointerOver || type == MouseType::PointerEnter || type == MouseType::PointerDown;
+            if (!entering && type != MouseType::LostPointerCapture) {
+                const auto pending = vm.pointer_capture(t.pointer);
+                if (pending != t.captured) {
+                    if (t.captured.generation) {
+                        send(MouseType::LostPointerCapture, t.captured);
+                    }
+                    t.captured = pending;
+                    if (pending.generation) {
+                        send(MouseType::GotPointerCapture, pending);
+                    }
+                }
+            }
+            if (at.generation) {
+                return send(type, at);
+            }
+            if (entering) {
+                return send(type, t.target);
+            }
+            if (t.captured.generation) {
+                return send(type, t.captured);
+            }
+            // A pan's pointercancel goes where the pointer is (its position is none).
+            if (type == MouseType::PointerCancel) {
+                return send(type, t.over);
+            }
+            // Released, the pointer goes over what is under it: out, leave, over and enter as that changes.
+            auto under = hit_test(x, y);
+            under = under.generation ? under : root_id;
+            if (under != t.over && type != MouseType::PointerOut && type != MouseType::PointerLeave) {
+                const auto old = chain(t.over);
+                const auto next = chain(under);
+                const auto in = [](const auto& nodes, const SceneNode* n) {
+                    return std::find(nodes.begin(), nodes.end(), n) != nodes.end();
+                };
+                related = under;
+                send(MouseType::PointerOut, t.over);
+                for (auto n = old.rbegin(); n != old.rend(); ++n) {
+                    if (!in(next, *n)) {
+                        send(MouseType::PointerLeave, (*n)->identity);
+                    }
+                }
+                related = t.over;
+                send(MouseType::PointerOver, under);
+                for (const auto* n : next) {
+                    if (!in(old, n)) {
+                        send(MouseType::PointerEnter, n->identity);
+                    }
+                }
+                related = {};
+                t.over = under;
+            }
+            return send(type, under);
+        }
+
+        // A touch pointer leaving: lostpointercapture, pointerout and pointerleave from its target out, with the fields
+        // of the event that ended it.
+        void touch_pointer_gone(Touch& t, float x, float y, int button, float width, float height, unsigned modifiers) {
+            if (t.captured.generation) {
+                touch_pointer(t, MouseType::LostPointerCapture, x, y, 0, button, width, height, 0, modifiers,
+                              t.captured);
+                t.captured = {};
+            }
+            vm.set_pointer(t.pointer, false, false);
+            touch_pointer(t, MouseType::PointerOut, x, y, 0, button, width, height, 0, modifiers, t.over);
+            const auto path = chain(t.over);
+            for (auto n = path.rbegin(); n != path.rend(); ++n) {
+                touch_pointer(t, MouseType::PointerLeave, x, y, 0, button, width, height, 0, modifiers, (*n)->identity);
+            }
+        }
+
+        TouchPoint touch_point(const Touch& t) const {
+            return {std::uint32_t(t.pointer), t.target, t.x, t.y, t.radius_x, t.radius_y, t.force};
+        }
+
+        // Touch events of type about the changed touches (indices into touches, or touches already off the surface),
+        // one at each target, touches the ones on the surface after it. Whether a listener prevented one.
+        bool touch_events(TouchType type, const std::vector<Touch>& changed, unsigned modifiers) {
+            DomTouchEvent e;
+            e.type = type;
+            e.time_ms = time;
+            e.ctrl = modifiers & key_modifier::control;
+            e.shift = modifiers & key_modifier::shift;
+            e.alt = modifiers & key_modifier::alt;
+            e.meta = modifiers & key_modifier::meta;
+            for (const auto& t : touches) {
+                e.touches.push_back(touch_point(t));
+            }
+            bool prevented{};
+            std::vector<NodeIdentity> targets;
+            for (const auto& t : changed) {
+                if (std::find(targets.begin(), targets.end(), t.target) == targets.end()) {
+                    targets.push_back(t.target);
+                }
+            }
+            for (const auto target : targets) {
+                e.changed.clear();
+                // Cancelable until a touchmove of one of them went unprevented; touchcancel never.
+                e.cancelable = type != TouchType::Cancel;
+                for (const auto& t : changed) {
+                    if (t.target == target) {
+                        e.changed.push_back(touch_point(t));
+                        e.cancelable = e.cancelable && !t.async;
+                    }
+                }
+                prevented = vm.dispatch_touch(target, e) == DispatchResult::DefaultPrevented || prevented;
+            }
+            return prevented;
+        }
+
+        // A tap's compatibility mouse events at where it went down, as Chrome's GestureTap makes them: the mouse's
+        // hover moves there (mouseout, mouseleave, mouseover, mouseenter), then mousemove, mousedown (the focus moves,
+        // a text field places its caret), mouseup and click (detail counting taps; the click a PointerEvent of the
+        // touch), dblclick on the second; the element stays :active a moment.
+        void tap(const Touch& t, unsigned modifiers) {
+            const float x = t.start_x;
+            const float y = t.start_y;
+            const bool again = tap_count && time - tap_time <= constants::input::tap_count_ms &&
+                               std::abs(x - tap_x) <= constants::input::tap_count_px &&
+                               std::abs(y - tap_y) <= constants::input::tap_count_px;
+            tap_count = again ? tap_count + 1 : 1;
+            tap_time = time;
+            tap_x = x;
+            tap_y = y;
+            const auto target = hit_test(x, y);
+            const auto destination = target.generation ? target : root_id;
+            const auto emit = [&](NodeIdentity identity, MouseType type, unsigned buttons, NodeIdentity related = {},
+                                  bool keep_active = false) {
+                if (!identity.generation) {
+                    return false;
+                }
+                if (type == MouseType::Down || type == MouseType::Up || type == MouseType::Click ||
+                    type == MouseType::DblClick) {
+                    if (const auto* n = scene_node(identity);
+                        n && html(*n) && dom::disabled_control(n->tag, true, attributes_of(*n))) {
+                        return false;
+                    }
+                }
+                MouseEvent e;
+                e.type = type;
+                e.clicks = tap_count;
+                e.client_x = e.screen_x = x;
+                e.client_y = e.screen_y = y;
+                e.time_ms = time;
+                e.buttons = buttons;
+                e.ctrl = modifiers & key_modifier::control;
+                e.shift = modifiers & key_modifier::shift;
+                e.alt = modifiers & key_modifier::alt;
+                e.meta = modifiers & key_modifier::meta;
+                e.related_target = related;
+                e.keep_active = keep_active;
+                if (type == MouseType::Click) {
+                    e.touch = true;
+                    e.pointer_id = t.pointer;
+                    e.primary = t.primary;
+                }
+                return vm.dispatch_mouse(identity, e) == DispatchResult::DefaultPrevented;
+            };
+            if (hovered != target) {
+                const auto old = chain(hovered);
+                const auto next = chain(target);
+                const auto in = [](const auto& nodes, const SceneNode* n) {
+                    return std::find(nodes.begin(), nodes.end(), n) != nodes.end();
+                };
+                emit(hovered, MouseType::Out, 0, target);
+                for (auto n = old.rbegin(); n != old.rend(); ++n) {
+                    if (!in(next, *n)) {
+                        emit((*n)->identity, MouseType::Leave, 0, target);
+                    }
+                }
+                emit(target, MouseType::Over, 0, hovered);
+                for (const auto* n : next) {
+                    if (!in(old, n)) {
+                        emit(n->identity, MouseType::Enter, 0, hovered);
+                    }
+                }
+                hovered = target;
+            }
+            emit(destination, MouseType::Move, 0);
+            const bool down_prevented = emit(destination, MouseType::Down, 1);
+            vm.set_pressed(destination);
+            if (!down_prevented) {
+                mouse_focus(target);
+                if (try_flush()) {
+                    field_mouse_down(target, x, y, modifiers, tap_count);
+                }
+            }
+            emit(destination, MouseType::Up, 0, {}, true);
+            emit(target, MouseType::Click, 0);
+            if (tap_count == 2) {
+                emit(target, MouseType::DblClick, 0);
+            }
+            field_mouse_up();
+            active_until = time + constants::input::tap_active_ms;
+        }
+
+        // The release speed of a touch (px/s on x and y), as Chrome's VelocityTracker measures it: a least squares
+        // fit of degree 2 over its samples within the horizon of the newest, none when it rested before it lifted.
+        static std::array<double, 2> release_velocity(const std::vector<std::array<double, 3>>& samples, double now) {
+            using namespace constants::input;
+            if (samples.size() < 2 || now - samples.back()[0] > velocity_stopped_ms) {
+                return {};
+            }
+            const double newest = samples.back()[0];
+            std::vector<std::array<double, 3>> used;
+            for (auto it = samples.rbegin(); it != samples.rend() && used.size() < velocity_samples; ++it) {
+                if (newest - (*it)[0] > velocity_horizon_ms) {
+                    break;
+                }
+                used.push_back(*it);
+            }
+            if (used.size() < 2) {
+                return {};
+            }
+            const std::size_t degree = std::min<std::size_t>(2, used.size() - 1);
+            const std::size_t n = degree + 1;
+            std::array<double, 2> out{};
+            for (int axis = 0; axis < 2; ++axis) {
+                // The normal equations of the fit of position over time (s, the newest at 0); its slope at 0.
+                std::array<std::array<double, 4>, 3> m{};
+                for (const auto& s : used) {
+                    const double t = (s[0] - newest) / 1000;
+                    const double v = s[1 + axis];
+                    for (std::size_t i = 0; i < n; ++i) {
+                        for (std::size_t j = 0; j < n; ++j) {
+                            m[i][j] += std::pow(t, double(i + j));
+                        }
+                        m[i][n] += std::pow(t, double(i)) * v;
+                    }
+                }
+                bool solved = true;
+                for (std::size_t c = 0; c < n && solved; ++c) {
+                    std::size_t pivot = c;
+                    for (std::size_t r = c + 1; r < n; ++r) {
+                        if (std::abs(m[r][c]) > std::abs(m[pivot][c])) {
+                            pivot = r;
+                        }
+                    }
+                    std::swap(m[c], m[pivot]);
+                    if (std::abs(m[c][c]) < 1e-12) {
+                        solved = false;
+                        break;
+                    }
+                    for (std::size_t r = 0; r < n; ++r) {
+                        if (r != c) {
+                            const double f = m[r][c] / m[c][c];
+                            for (std::size_t k = c; k <= n; ++k) {
+                                m[r][k] -= f * m[c][k];
+                            }
+                        }
+                    }
+                }
+                out[axis] = solved ? m[1][n] / m[1][1] : 0;
+            }
+            return out;
+        }
+
+        // Scrolls a pan's scroller to the whole px of its exact scroll so far.
+        void pan_scroll(Touch& t) {
+            const double x = t.pan_x ? std::round(t.pan_exact_x) : 0;
+            const double y = t.pan_y ? std::round(t.pan_exact_y) : 0;
+            if (t.scroller.generation && (x != t.pan_applied_x || y != t.pan_applied_y)) {
+                vm.scroll_by(t.scroller, x - t.pan_applied_x, y - t.pan_applied_y);
+            }
+            t.pan_applied_x = x;
+            t.pan_applied_y = y;
+        }
+
+        // A frame of the fling: its scroll to where the curve is now; it ends at the curve's end, or where its
+        // scroller cannot go on.
+        void run_fling() {
+            if (!fling) {
+                return;
+            }
+            auto& f = *fling;
+            const double at = std::min((time - f.start) / 1000 + f.time_offset, f.duration);
+            const double offset = fling_position(at) - f.position_offset;
+            const double x = std::round(f.ratio_x * offset);
+            const double y = std::round(f.ratio_y * offset);
+            const double dx = x - f.applied_x;
+            const double dy = y - f.applied_y;
+            bool stopped{};
+            if (dx != 0 || dy != 0) {
+                const auto moved = vm.scroll_by(f.scroller, dx, dy);
+                f.applied_x += moved[0];
+                f.applied_y += moved[1];
+                stopped = moved[0] != dx && moved[1] != dy;
+            }
+            if (stopped || at >= f.duration) {
+                fling.reset();
+            }
+        }
     };
 
     View::View(std::shared_ptr<const FontCatalog> fonts, SceneText& text, float width, float height, float scale,
@@ -1653,12 +2234,14 @@ namespace weft {
         i.scene->set_element_geometry(false);
         i.take_style_warnings();
         // A page's images anew each load: the files may have changed.
+        i.image_base = page.base;
         i.images = std::make_unique<ViewImages>(page.base, i.reader, [&i](std::string message) {
             i.diagnose(ViewDiagnostic::Kind::Scene, std::move(message));
         });
         i.scene->set_images(i.images.get());
         i.scene->set_effects(i.effects);
         i.scene->set_safe_area(i.safe_area);
+        i.scene->set_input_devices(i.devices);
         // Its fonts anew each load too.
         i.load_fonts(page.base);
         try {
@@ -1677,6 +2260,7 @@ namespace weft {
                 install_script_platform(i.vm, ScriptPlatformModule::CrpgBridge);
             }
             i.size_globals();
+            i.input_globals();
             for (const auto& script : page.scripts) {
                 i.vm.eval(script.source, script.name.empty() ? "page" : script.name);
             }
@@ -1719,12 +2303,31 @@ namespace weft {
             key({true, name, name, 0, true, false, code});
         }
         i.take_anchors();
+        // A fling goes on; the :active state a tap left ends.
+        try {
+            i.run_fling();
+            if (i.active_until >= 0 && i.time >= i.active_until) {
+                i.active_until = -1;
+                i.vm.release_active();
+            }
+        } catch (const std::runtime_error& e) {
+            i.handle(e, ViewDiagnostic::Kind::Script);
+        }
         try {
             // The engine's input belongs to this frame: its handlers read the frame's time, as its tasks and animation
             // callbacks do.
             i.vm.advance_clock(i.time);
             const auto delivery = i.vm.deliver_engine();
             for (const auto& error : delivery.errors) {
+                i.diagnose(ViewDiagnostic::Kind::Handler, error);
+            }
+        } catch (const std::runtime_error& e) {
+            i.handle(e, ViewDiagnostic::Kind::Handler);
+        }
+        i.pump();
+        // The images asked for before this frame load after its timers, before its animation frame callbacks.
+        try {
+            for (const auto& error : i.vm.deliver_images()) {
                 i.diagnose(ViewDiagnostic::Kind::Handler, error);
             }
         } catch (const std::runtime_error& e) {
@@ -1776,6 +2379,35 @@ namespace weft {
             try {
                 i.size_globals();
                 i.vm.eval("window.dispatchEvent(new Event('resize'))", "view");
+                // matchMedia lists whose outcome the new size changed.
+                i.vm.eval("__ceScenePlatform.mediaChanged()", "view");
+            } catch (const std::runtime_error& e) {
+                i.handle(e, ViewDiagnostic::Kind::Script);
+            }
+        }
+    }
+
+    void View::set_input_devices(const InputDevices& devices, unsigned max_touch_points) {
+        auto& i = *impl_;
+        constexpr unsigned both = InputDevices::mouse | InputDevices::touch;
+        if ((devices.available & ~both) || (devices.primary & ~devices.available) || devices.primary == both ||
+            max_touch_points > constants::input::max_touch_points ||
+            ((devices.available & InputDevices::touch) != 0) != (max_touch_points > 0)) {
+            throw std::invalid_argument("WEFT_VIEW_INPUT_DEVICES: devices of mouse and touch, a primary one of them "
+                                        "at most, and touch points with a touch screen only");
+        }
+        if (devices == i.devices && max_touch_points == i.max_touch_points) {
+            return;
+        }
+        i.devices = devices;
+        i.max_touch_points = max_touch_points;
+        if (i.scene) {
+            i.scene->set_input_devices(devices);
+        }
+        if (i.loaded) {
+            try {
+                i.input_globals();
+                i.vm.eval("__ceScenePlatform.mediaChanged()", "view");
             } catch (const std::runtime_error& e) {
                 i.handle(e, ViewDiagnostic::Kind::Script);
             }
@@ -1812,8 +2444,18 @@ namespace weft {
         const float x = leave ? constants::view::outside : input.x;
         const float y = leave ? constants::view::outside : input.y;
         i.take_anchors();
-        const auto target = leave ? NodeIdentity{} : i.hit_test(x, y);
-        const auto destination = target.generation ? target : i.root_id;
+        auto target = leave ? NodeIdentity{} : i.hit_test(x, y);
+        // The mouse can be captured while a button is down (its press makes it so; its release ends it after pointerup);
+        // a capture its listeners set takes its events from here (gotpointercapture and lostpointercapture first as it
+        // changes).
+        const bool capturable =
+            input.kind == PointerKind::Down || input.kind == PointerKind::Up || (input.buttons != 0 && !leave);
+        i.vm.set_pointer(constants::script::mouse_pointer_id, true, capturable);
+        const auto capture = i.vm.pointer_capture(constants::script::mouse_pointer_id);
+        if (i.mouse_captured.generation && !leave && input.kind != PointerKind::Wheel) {
+            target = i.mouse_captured;
+        }
+        auto destination = target.generation ? target : i.root_id;
         bool prevented{};
         unsigned buttons = input.buttons;
         // A press counts on from the last one close to it in time and place (UIEvent.detail); the release and the click
@@ -1829,7 +2471,7 @@ namespace weft {
         }
         const unsigned clicks = std::max(1u, i.click_count);
         try {
-            const auto emit = [&](NodeIdentity identity, MouseType type, NodeIdentity related = {}) {
+            const auto emit = [&](NodeIdentity identity, MouseType type, NodeIdentity related = {}) -> bool {
                 if (!identity.generation) {
                     return false;
                 }
@@ -1857,29 +2499,46 @@ namespace weft {
                 e.related_target = related;
                 return i.vm.dispatch_mouse(identity, e) == DispatchResult::DefaultPrevented;
             };
-            if ((input.kind == PointerKind::Move || leave) && i.hovered != target) {
+            // The capture changed since the mouse's last event.
+            if (capture != i.mouse_captured && input.kind != PointerKind::Wheel) {
+                if (i.mouse_captured.generation) {
+                    emit(i.mouse_captured, MouseType::LostPointerCapture);
+                }
+                i.mouse_captured = capture;
+                if (capture.generation) {
+                    emit(capture, MouseType::GotPointerCapture);
+                    if (!leave) {
+                        target = capture;
+                        destination = capture;
+                    }
+                }
+            }
+            // The hovered element changes: the pointer's out, leave, over and enter, then the mouse's (as Chrome sends
+            // them).
+            const auto hover_to = [&](NodeIdentity next_target) {
                 const auto old = i.chain(i.hovered);
-                const auto next = i.chain(target);
+                const auto next = i.chain(next_target);
                 const auto in = [](const auto& nodes, const SceneNode* n) {
                     return std::find(nodes.begin(), nodes.end(), n) != nodes.end();
                 };
-                emit(i.hovered, MouseType::PointerOut, target);
-                emit(i.hovered, MouseType::Out, target);
-                for (auto n = old.rbegin(); n != old.rend(); ++n) {
-                    if (!in(next, *n)) {
-                        emit((*n)->identity, MouseType::PointerLeave, target);
-                        emit((*n)->identity, MouseType::Leave, target);
+                for (const bool pointer : {true, false}) {
+                    emit(i.hovered, pointer ? MouseType::PointerOut : MouseType::Out, next_target);
+                    for (auto n = old.rbegin(); n != old.rend(); ++n) {
+                        if (!in(next, *n)) {
+                            emit((*n)->identity, pointer ? MouseType::PointerLeave : MouseType::Leave, next_target);
+                        }
+                    }
+                    emit(next_target, pointer ? MouseType::PointerOver : MouseType::Over, i.hovered);
+                    for (const auto* n : next) {
+                        if (!in(old, n)) {
+                            emit(n->identity, pointer ? MouseType::PointerEnter : MouseType::Enter, i.hovered);
+                        }
                     }
                 }
-                emit(target, MouseType::PointerOver, i.hovered);
-                emit(target, MouseType::Over, i.hovered);
-                for (const auto* n : next) {
-                    if (!in(old, n)) {
-                        emit(n->identity, MouseType::PointerEnter, i.hovered);
-                        emit(n->identity, MouseType::Enter, i.hovered);
-                    }
-                }
-                i.hovered = target;
+                i.hovered = next_target;
+            };
+            if ((input.kind == PointerKind::Move || leave) && i.hovered != target) {
+                hover_to(target);
             }
             switch (input.kind) {
                 case PointerKind::Leave:
@@ -1912,9 +2571,16 @@ namespace weft {
                     }
                     break;
                 }
-                case PointerKind::Up:
+                case PointerKind::Up: {
                     prevented = emit(destination, MouseType::PointerUp);
                     prevented = emit(destination, MouseType::Up) || prevented;
+                    // The capture ends with the button, before the click.
+                    i.vm.set_pointer(constants::script::mouse_pointer_id, true, false);
+                    const bool was_captured = i.mouse_captured.generation;
+                    if (was_captured) {
+                        emit(i.mouse_captured, MouseType::LostPointerCapture);
+                        i.mouse_captured = {};
+                    }
                     if (target.generation && target == i.pressed) {
                         emit(target, MouseType::Click);
                         // The second click of a double click is followed by dblclick.
@@ -1924,7 +2590,14 @@ namespace weft {
                     }
                     i.pressed = {};
                     i.field_mouse_up();
+                    // Free again, the mouse hovers what is under it.
+                    if (was_captured) {
+                        if (const auto under = i.hit_test(x, y); under != i.hovered) {
+                            hover_to(under);
+                        }
+                    }
                     break;
+                }
                 case PointerKind::Move:
                     prevented = emit(destination, MouseType::PointerMove);
                     prevented = emit(destination, MouseType::Move) || prevented;
@@ -1932,6 +2605,259 @@ namespace weft {
                         i.field_mouse_move(x, y, buttons);
                     }
                     break;
+            }
+        } catch (const std::runtime_error& e) {
+            i.handle(e, ViewDiagnostic::Kind::Script);
+        }
+        i.refresh_field();
+        return prevented;
+    }
+
+    bool View::touch(const TouchInput& input) {
+        auto& i = *impl_;
+        if (i.faulted) {
+            throw ViewError("WEFT_VIEW_FAULTED: load the page again");
+        }
+        for (const auto& p : input.points) {
+            const bool on = std::any_of(i.touches.begin(), i.touches.end(), [&](const auto& t) {
+                return t.host == p.id;
+            });
+            const bool twice = std::count_if(input.points.begin(), input.points.end(), [&](const auto& q) {
+                                   return q.id == p.id;
+                               }) > 1;
+            if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.radius_x) ||
+                !std::isfinite(p.radius_y) || !std::isfinite(p.force) || p.radius_x < 0 || p.radius_y < 0 ||
+                p.force < 0 || p.force > 1 || twice || (p.phase == TouchPhase::Began) == on) {
+                throw std::invalid_argument(
+                    "WEFT_VIEW_TOUCH: finite points, each once, a touch that begins once and changes after it began");
+            }
+        }
+        if (input.time_ms && !std::isfinite(*input.time_ms)) {
+            throw std::invalid_argument("WEFT_VIEW_TOUCH: a finite time");
+        }
+        if (!i.loaded || !i.try_flush()) {
+            return false;
+        }
+        i.take_anchors();
+        const double when = input.time_ms.value_or(i.time);
+        const unsigned mods = input.modifiers;
+        const float slop = constants::input::touch_slop_px;
+        bool prevented{};
+        try {
+            const auto find = [&](std::uint64_t id) {
+                return std::find_if(i.touches.begin(), i.touches.end(), [&](const auto& t) {
+                    return t.host == id;
+                });
+            };
+            // A touch's size as Chrome reports its pointer's: the contact's diameters, 1 when unknown.
+            const auto size = [](float radius) {
+                return radius > 0 ? 2 * radius : 1.f;
+            };
+            // New touches: over, enter, down and touchstart, each in turn. A touch stops a fling (and is no tap); a
+            // second touch makes neither a tap.
+            for (const auto& p : input.points) {
+                if (p.phase != TouchPhase::Began) {
+                    continue;
+                }
+                const bool stopped_fling = i.fling.has_value();
+                i.fling.reset();
+                Impl::Touch t;
+                t.host = p.id;
+                t.pointer = i.next_touch_pointer;
+                i.next_touch_pointer = i.next_touch_pointer == std::numeric_limits<int>::max()
+                                           ? constants::input::first_touch_pointer_id
+                                           : i.next_touch_pointer + 1;
+                t.primary = i.touches.empty();
+                t.start_x = t.x = p.x;
+                t.start_y = t.y = p.y;
+                t.radius_x = p.radius_x;
+                t.radius_y = p.radius_y;
+                t.force = p.force;
+                const auto hit = i.hit_test(p.x, p.y);
+                t.target = t.over = hit.generation ? hit : i.root_id;
+                t.tap = !stopped_fling && i.touches.empty();
+                t.multi = !i.touches.empty();
+                for (auto& other : i.touches) {
+                    other.tap = false;
+                    other.multi = true;
+                }
+                t.samples.push_back({when, p.x, p.y});
+                const float w = size(p.radius_x);
+                const float h = size(p.radius_y);
+                i.touches.push_back(t);
+                auto& added = i.touches.back();
+                // Its pointer is active, captured by the element it went down on (its pointerdown's listeners may
+                // release it, or capture it elsewhere).
+                i.vm.set_pointer(added.pointer, true, true, added.target);
+                i.touch_pointer(added, MouseType::PointerOver, p.x, p.y, 1, 0, w, h, p.force, mods);
+                for (const auto* n : i.chain(added.target)) {
+                    i.touch_pointer(added, MouseType::PointerEnter, p.x, p.y, 1, 0, w, h, p.force, mods, n->identity);
+                }
+                i.touch_pointer(added, MouseType::PointerDown, p.x, p.y, 1, 0, w, h, p.force, mods);
+                const bool start_prevented = i.touch_events(TouchType::Start, {added}, mods);
+                // Listeners may have changed the touches; this one is still the last begun.
+                if (auto it = find(p.id); it != i.touches.end()) {
+                    it->start_prevented = start_prevented;
+                }
+                prevented = start_prevented || prevented;
+            }
+            // Moves: each pointer's pointermove; touchmove for the touches past the slop, one at each target; then the
+            // pans, from the touches whose touchmove went unprevented.
+            std::vector<Impl::Touch> moved;
+            for (const auto& p : input.points) {
+                if (p.phase != TouchPhase::Moved) {
+                    continue;
+                }
+                auto it = find(p.id);
+                if (it == i.touches.end() || (it->x == p.x && it->y == p.y)) {
+                    continue;
+                }
+                auto& t = *it;
+                t.prev_x = t.x;
+                t.prev_y = t.y;
+                t.x = p.x;
+                t.y = p.y;
+                t.radius_x = p.radius_x;
+                t.radius_y = p.radius_y;
+                t.force = p.force;
+                // Chrome's tracker forgets a touch that rested (its moves before the rest).
+                if (!t.samples.empty() && when - t.samples.back()[0] > constants::input::velocity_stopped_ms) {
+                    t.samples.clear();
+                }
+                t.samples.push_back({when, p.x, p.y});
+                if (t.samples.size() > constants::input::velocity_samples) {
+                    t.samples.erase(t.samples.begin());
+                }
+                if (!t.pointer_done) {
+                    i.touch_pointer(t, MouseType::PointerMove, p.x, p.y, 1, -1, size(p.radius_x), size(p.radius_y),
+                                    p.force, mods);
+                }
+                if (!t.moved && std::hypot(t.x - t.start_x, t.y - t.start_y) > slop) {
+                    t.moved = true;
+                    t.tap = false;
+                }
+                if (t.moved || t.multi) {
+                    moved.push_back(t);
+                }
+            }
+            if (!moved.empty()) {
+                // Each target's touchmove: whether it was prevented decides for its touches.
+                std::vector<std::pair<NodeIdentity, bool>> decided;
+                for (const auto& t : moved) {
+                    if (std::none_of(decided.begin(), decided.end(), [&](const auto& d) {
+                            return d.first == t.target;
+                        })) {
+                        std::vector<Impl::Touch> group;
+                        for (const auto& u : moved) {
+                            if (u.target == t.target) {
+                                group.push_back(u);
+                            }
+                        }
+                        const bool moved_prevented = i.touch_events(TouchType::Move, group, mods);
+                        decided.push_back({t.target, moved_prevented});
+                        prevented = moved_prevented || prevented;
+                    }
+                }
+                for (const auto& p : input.points) {
+                    if (p.phase != TouchPhase::Moved) {
+                        continue;
+                    }
+                    auto it = find(p.id);
+                    if (it == i.touches.end() || !(it->moved || it->multi)) {
+                        continue;
+                    }
+                    auto& t = *it;
+                    const auto d = std::find_if(decided.begin(), decided.end(), [&](const auto& e) {
+                        return e.first == t.target;
+                    });
+                    if (d == decided.end()) {
+                        continue;
+                    }
+                    const bool move_prevented = d->second;
+                    if (!move_prevented) {
+                        t.async = true;
+                    }
+                    if (t.panning) {
+                        // The pan follows the finger: the content moves with it.
+                        t.pan_exact_x -= t.x - t.prev_x;
+                        t.pan_exact_y -= t.y - t.prev_y;
+                        i.pan_scroll(t);
+                    } else if (t.moved && !move_prevented && !t.pointer_done && !t.start_prevented) {
+                        // A pan, in a direction touch-action allows: its pointer is cancelled, and it scrolls by its
+                        // movement less the slop.
+                        const float dx = t.x - t.start_x;
+                        const float dy = t.y - t.start_y;
+                        const unsigned allowed = i.touch_action(t.target);
+                        const bool across = std::abs(dx) > std::abs(dy);
+                        if (allowed & (across ? 1u : 2u)) {
+                            t.panning = true;
+                            t.pointer_done = true;
+                            t.pan_x = allowed & 1u;
+                            t.pan_y = allowed & 2u;
+                            i.touch_pointer(t, MouseType::PointerCancel, 0, 0, 0, 0, 1, 1, 0, mods);
+                            i.touch_pointer_gone(t, 0, 0, 0, 1, 1, mods);
+                            const float length = std::hypot(dx, dy);
+                            const float share = (length - slop) / length;
+                            t.pan_exact_x = t.pan_x ? -dx * share : 0;
+                            t.pan_exact_y = t.pan_y ? -dy * share : 0;
+                            t.scroller = i.vm.pan_scroller(t.target, t.pan_exact_x, t.pan_exact_y);
+                            i.pan_scroll(t);
+                        }
+                    }
+                }
+            }
+            // Releases and cancels: the pointer's up (or cancel), out and leave; touchend (touchcancel); then a tap's
+            // mouse events and click, or a pan's fling.
+            for (const auto& p : input.points) {
+                if (p.phase != TouchPhase::Ended && p.phase != TouchPhase::Cancelled) {
+                    continue;
+                }
+                auto it = find(p.id);
+                if (it == i.touches.end()) {
+                    continue;
+                }
+                auto t = *it;
+                i.touches.erase(it);
+                const bool cancel = p.phase == TouchPhase::Cancelled;
+                if (!t.pointer_done) {
+                    if (cancel) {
+                        const float w = size(t.radius_x);
+                        const float h = size(t.radius_y);
+                        i.touch_pointer(t, MouseType::PointerCancel, t.x, t.y, 0, -1, w, h, 0, mods);
+                        i.touch_pointer_gone(t, t.x, t.y, -1, w, h, mods);
+                    } else {
+                        i.touch_pointer(t, MouseType::PointerUp, t.x, t.y, 0, 0, 1, 1, 0, mods);
+                        i.touch_pointer_gone(t, t.x, t.y, 0, 1, 1, mods);
+                    }
+                }
+                const bool end_prevented = i.touch_events(cancel ? TouchType::Cancel : TouchType::End, {t}, mods);
+                prevented = end_prevented || prevented;
+                if (cancel) {
+                    continue;
+                }
+                if (t.panning) {
+                    const auto v = Impl::release_velocity(t.samples, when);
+                    // The content moves against the finger, on the axes the pan scrolls.
+                    double vx = t.pan_x ? -v[0] : 0;
+                    double vy = t.pan_y ? -v[1] : 0;
+                    const double cap = constants::input::max_fling_velocity;
+                    vx = std::clamp(vx, -cap, cap);
+                    vy = std::clamp(vy, -cap, cap);
+                    const double speed = std::max(std::abs(vx), std::abs(vy));
+                    if (speed >= constants::input::min_fling_velocity && t.scroller.generation) {
+                        Impl::Fling f;
+                        f.scroller = t.scroller;
+                        f.start = i.time;
+                        f.ratio_x = vx / speed;
+                        f.ratio_y = vy / speed;
+                        f.time_offset = Impl::fling_time_at(speed);
+                        f.position_offset = Impl::fling_position(f.time_offset);
+                        f.duration = Impl::fling_time_at(0);
+                        i.fling = f;
+                    }
+                } else if (t.tap && !t.start_prevented && !end_prevented) {
+                    i.tap(t, mods);
+                }
             }
         } catch (const std::runtime_error& e) {
             i.handle(e, ViewDiagnostic::Kind::Script);
@@ -2284,6 +3210,11 @@ namespace weft {
 
     void View::install_function(std::string name, EngineFunction function) {
         impl_->vm.install_engine_function(std::move(name), std::move(function));
+    }
+
+    void View::set_clipboard(ViewClipboard clipboard) {
+        auto& i = *impl_;
+        i.clipboard = clipboard.read && clipboard.write ? std::move(clipboard) : ViewClipboard{};
     }
 
     void View::set_resource_reader(ViewResourceReader reader) {

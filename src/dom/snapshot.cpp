@@ -35,6 +35,10 @@ namespace weft::dom {
             to.field = from.field;
             changed = true;
         }
+        if (!DomSnapshot::same_animations(to.animations, from.animations)) {
+            to.animations = from.animations;
+            changed = true;
+        }
         const bool same_children = to.children.size() == from.children.size() &&
                                    std::equal(to.children.begin(), to.children.end(), from.children.begin(),
                                               [](const DomSnapshot& a, const DomSnapshot& b) {

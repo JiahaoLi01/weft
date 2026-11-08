@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <memory>
 #include <utility>
 
 namespace weft {
@@ -48,7 +49,8 @@ namespace weft {
     }
 
     float scene_text_baseline(SceneText& text, const SceneNode& n, float scale, float margin) {
-        const auto run = text.shape(n.text, n.style);
+        const auto run =
+            n.text_run ? n.text_run : text.shape(n.text, n.style, ShapeContext{n.text_context[0], n.text_context[1]});
         return (margin + scene_text_origin(n, run->metrics)[1] + run->metrics.baseline) * scale;
     }
 
@@ -76,7 +78,8 @@ namespace weft {
         if (value != "none" && value != "transparent") {
             color = parse_css_color(css::expand_color_shorthand(value));
         }
-        const auto run = text.shape(n.text, n.style);
+        const auto run =
+            n.text_run ? n.text_run : text.shape(n.text, n.style, ShapeContext{n.text_context[0], n.text_context[1]});
         const auto origin = scene_text_origin(n, run->metrics);
         std::vector<float> coverage(std::size_t(w) * h);
         // The rows and columns the glyphs reach: the pixels past them stay transparent.
@@ -136,8 +139,17 @@ namespace weft {
                 }
                 continue;
             }
-            const auto glyph = text.face(g.face).rasterize(g.glyph_id, run->size * scale, fx, fy,
-                                                           g.oblique ? constants::text::synthetic_oblique_skew : 0);
+            const float skew = g.oblique ? constants::text::synthetic_oblique_skew : 0;
+            // Still text's glyphs lie on quarter pixels across and whole rows down: the SceneText keeps their coverage
+            // for the next image that draws them (a line whose text changes). Others lie anywhere and are drawn anew.
+            std::shared_ptr<const GlyphBitmap> kept;
+            GlyphBitmap drawn;
+            if (phase) {
+                kept = text.glyph(g.face, g.glyph_id, run->size * scale, fx, fy, skew);
+            } else {
+                drawn = text.face(g.face).rasterize(g.glyph_id, run->size * scale, fx, fy, skew);
+            }
+            const GlyphBitmap& glyph = kept ? *kept : drawn;
             const int left = int(ix) + glyph.left;
             const int top = int(iy) - glyph.top;
             if (glyph.width && glyph.height) {

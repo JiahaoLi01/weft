@@ -55,11 +55,16 @@ namespace weft {
         std::size_t path_reuses{};
         std::size_t effect_texture_builds{};
         std::size_t effect_texture_reuses{};
+        // A page's images (an img's, a background's, a border image's) with their smaller levels.
+        std::size_t page_image_builds{};
+        std::size_t page_image_reuses{};
         // SVG elements listed from their kept values (SceneDisplayCache), and values taken anew.
         std::size_t svg_value_builds{};
         std::size_t svg_value_reuses{};
         // Plane contents drawn by nested passes into their images.
         std::size_t plane_passes{};
+        // Groups drawn ahead into images of their own regions (scene_schedule.hpp, hoisted), on backends that do.
+        std::size_t hoisted_groups{};
         // Filtered images prepared (their contents' passes and chains), and those taken from the cache for a filter of
         // the same source, functions and pixels; and filtered images a backend drew (a content pass and its chain).
         std::size_t filter_builds{};
@@ -128,9 +133,19 @@ namespace weft {
         std::uint32_t height{};
         Format format{};
         std::vector<std::uint8_t> pixels;
+        // Its smaller levels (scene_image_mips), which a texture of its own samples when it is drawn smaller: a page's
+        // image. Empty for an image of one level.
+        std::vector<std::vector<std::uint8_t>> mips;
         // On an atlas page, or (none) a texture of its own.
         std::optional<SceneAtlasPlace> atlas;
     };
+
+    // The smaller levels of an image of 4-byte premultiplied texels, as Chrome's Skia builds an image's mipmaps: each
+    // half the one before on each axis (rounded down, at least 1 texel), down to 1 x 1; a texel the rounded mean of the
+    // 2 x 2 texels it covers (along an axis of odd length, of 3 weighted 1, 2, 1). Each channel apart, so the byte
+    // order does not matter.
+    std::vector<std::vector<std::uint8_t>> scene_image_mips(const std::vector<std::uint8_t>& pixels, std::uint32_t width,
+                                                            std::uint32_t height);
 
     // The bytes of one texel of an image format.
     inline std::size_t scene_image_texel_bytes(SceneImage::Format format) {
@@ -197,6 +212,10 @@ namespace weft {
         std::vector<std::string> texture_names;
         std::vector<ScenePreparedEffect> effects;
         std::vector<std::shared_ptr<const SceneImage>> sprites;
+        // Per item, the image of the mask its chain holds (a masked group's composite, or a masked filter or layer
+        // item): its image layer's page image, which the item's draw binds where an effect's first texture goes (the
+        // shader's maskImage); null for others.
+        std::vector<std::shared_ptr<const SceneImage>> mask_images;
         std::vector<SceneAtlasPage> pages;
         // Prepared with deferred anchors (ScenePreparer::prepare): the anchored elements the pass moves as it draws
         // (records name them, render::SceneRecord::clips), the runs of anchored siblings it orders by depth, and the
@@ -445,6 +464,8 @@ namespace weft {
         std::size_t digests_swept_{};
         // The images of effects' textures by asset; the cache holds the asset while it keeps its image.
         SceneImageCache<std::shared_ptr<const paint::Asset>, std::shared_ptr<const SceneImage>> effect_textures_;
+        // A page's images (fitted images) by asset, as effect_textures_.
+        SceneImageCache<std::shared_ptr<const paint::Asset>, std::shared_ptr<const SceneImage>> page_images_;
         // The atlas pages of coverage (Data) and of colors (Bgra), and the images on them.
         render::AtlasPacker coverage_atlas_;
         render::AtlasPacker color_atlas_;
@@ -498,6 +519,11 @@ namespace weft {
         // The image of an effect's texture: coverage as data, an opaque sRGB image as sRGB, a translucent one as
         // linear premultiplied floats.
         std::shared_ptr<const SceneImage> effect_texture(const std::shared_ptr<const paint::Asset>& asset);
+        // The image of a page's sRGB asset (a fitted image: an img's, a background's, a border image's), as Chrome
+        // samples one: premultiplied encoded sRGB (Bgra), which the sampler filters as it is, with its smaller levels.
+        std::shared_ptr<const SceneImage> page_image(const std::shared_ptr<const paint::Asset>& asset);
+        // The page image of the mask an item's chain holds (RoundedClip::Kind::Mask with an asset), or null.
+        std::shared_ptr<const SceneImage> mask_image(const paint::DisplayList& list, const paint::Item& item);
         // A filter item's image, from the cache while its source, functions, pixels and resolution stay; throws
         // std::invalid_argument past the image bounds.
         std::shared_ptr<const SceneFilterImage> filter(const paint::Filter& filter, unsigned view_index);

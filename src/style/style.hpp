@@ -93,6 +93,18 @@ namespace weft {
         }
     };
 
+    // The pointing devices the media features pointer, any-pointer, hover and any-hover answer from (Media Queries 4,
+    // as Chrome answers them): the primary one and every one available, as bits: a mouse (a fine pointer that hovers)
+    // and a touch screen (a coarse pointer that does not). The default is a mouse; none at all, a gamepad's.
+    struct InputDevices {
+        static constexpr unsigned mouse = 1;
+        static constexpr unsigned touch = 2;
+        unsigned primary = mouse;
+        unsigned available = mouse;
+
+        friend bool operator==(const InputDevices&, const InputDevices&) = default;
+    };
+
     ComputedStyle compute_style(const DomSnapshot& root, std::string_view author_stylesheet,
                                 const StyleProfile& profile);
     // The same, for a forgiving profile with @media conditions on the viewport (CSS px).
@@ -222,9 +234,10 @@ namespace weft {
         const std::string& keyframes() const;
         // The @font-face rules of a forgiving sheet, in order.
         const std::vector<FontFaceRule>& font_faces() const;
-        // The viewport @media conditions read (CSS px). True when a condition of the sheet changed its outcome: the
-        // next cascade is to start over (without a previous document), as the rules that match changed.
-        bool set_viewport(float width, float height);
+        // The viewport @media conditions read (CSS px) and the input devices they read. True when a condition of the
+        // sheet changed its outcome: the next cascade is to start over (without a previous document), as the rules
+        // that match changed.
+        bool set_viewport(float width, float height, const InputDevices& devices = {});
 
     private:
         struct Impl;
@@ -240,10 +253,10 @@ namespace weft {
     // simplifies them, rem at the default font size: a function that reduces to one term is that term, one with terms of
     // several units a canonical calc(). The text as it was when it has none, or one that does not parse.
     std::string simplify_math_text(std::string_view value);
-    // Whether a media query list (matchMedia's) holds in a viewport of width × height CSS px, as the forgiving profile
-    // evaluates @media: a screen with a fine pointer that hovers, no preference for reduced motion or contrast, a light
-    // color scheme. An unknown media type or feature is false, as in @media.
-    bool media_matches(std::string_view query, float width, float height);
+    // Whether a media query list (matchMedia's) holds in a viewport of width × height CSS px with devices, as the
+    // forgiving profile evaluates @media: a screen, no preference for reduced motion or contrast, a light color scheme.
+    // An unknown media type or feature is false, as in @media.
+    bool media_matches(std::string_view query, float width, float height, const InputDevices& devices = {});
 
     // The shared color subset is #rrggbb, transparent, and legacy comma rgb/rgba
     // numbers. Components/alpha clamp as CSS requires. No color spaces/named colors.

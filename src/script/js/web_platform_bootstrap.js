@@ -171,17 +171,9 @@
     get() { return this.nodeType === 9 ? title : (this.getAttribute?.('title') ?? ''); },
     set(v) { if (this.nodeType === 9) title = String(v); else this.setAttribute('title', String(v)); } });
 
-  // ---- matchMedia: the stylesheet's @media evaluation over the View's size, read when asked.
-  globalThis.matchMedia = query => {
-    query = String(query);
-    const list = new EventTarget();
-    list.media = query;
-    list.onchange = null;
-    Object.defineProperty(list, 'matches', { get: () => doc.__ceMatchMedia(query) });
-    list.addListener = c => list.addEventListener('change', c);
-    list.removeListener = c => list.removeEventListener('change', c);
-    return list;
-  };
+  // ---- matchMedia: the stylesheet's @media evaluation over the View's size and input devices, read when asked.
+  // Any query, with the scene platform's lists (live, change events).
+  globalThis.matchMedia = query => __ceScenePlatform.mediaList(String(query));
 
   // ---- IntersectionObserver against the viewport (or its root's box), checked each animation frame it observes.
   const watching = new Set();
@@ -236,9 +228,10 @@
   globalThis.requestIdleCallback = (callback, options) => setTimeout(() => callback({ didTimeout: false, timeRemaining: () => 0 }), Math.min(Number(options?.timeout) || 1, 50));
   globalThis.cancelIdleCallback = id => clearTimeout(id);
   globalThis.scrollTo = globalThis.scroll = globalThis.scrollBy = () => {};
-  globalThis.navigator = Object.freeze({ ...globalThis.navigator, userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) weft',
+  // The scene platform's navigator joins in as it is (maxTouchPoints a getter: the host's devices may change).
+  globalThis.navigator = Object.freeze(Object.defineProperties({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) weft',
     language: 'en-US', languages: Object.freeze(['en-US']), platform: 'Win32', vendor: '', onLine: true, cookieEnabled: false,
-    hardwareConcurrency: 1 });
+    hardwareConcurrency: 1 }, Object.getOwnPropertyDescriptors(globalThis.navigator)));
   globalThis.location = Object.freeze({ href: 'weft:///', origin: 'null', protocol: 'weft:', host: '', hostname: '', port: '',
     pathname: '/', search: '', hash: '', assign() {}, replace() {}, reload() {}, toString: () => 'weft:///' });
   const computed = globalThis.getComputedStyle;

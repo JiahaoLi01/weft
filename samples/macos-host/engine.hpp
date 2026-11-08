@@ -46,6 +46,16 @@ namespace demo {
         return {std::istreambuf_iterator<char>(in), {}};
     }
 
+    // A file a page names, read whole; none for a path without one.
+    inline weft_result read_resource(void*, const char* path, std::size_t size, weft_resource_writer* file) {
+        std::ifstream in(std::string(path, size), std::ios::binary);
+        if (!in) {
+            return WEFT_OK;
+        }
+        const std::string bytes{std::istreambuf_iterator<char>(in), {}};
+        return weft_resource_writer_set(file, bytes.data(), bytes.size());
+    }
+
     // A page as hosts load it: its scripts in order, stylesheet, keyframes and base (where its stylesheet lies), the
     // WEFT_PAGE_* flags and the root's selector (empty: #root). hud: the engine-host HUD, which the game drives (units,
     // health, damage, minimap); other pages run on their own over a plain backdrop.
@@ -90,10 +100,18 @@ namespace demo {
         bool hud{};
         std::string page_name;
 
-        Engine(const Page& page, float w, float h, float scale) : width(w), height(h) {
+        // devices: the input devices the page sees (a mouse when none are given), set before the page loads so its
+        // scripts see them too.
+        Engine(const Page& page, float w, float h, float scale, const weft_input_devices* devices = nullptr)
+            : width(w), height(h) {
             check(weft_runtime_create(nullptr, &runtime), "runtime");
             const weft_view_desc desc{sizeof(desc), 0, width, height, scale, 0};
             check(weft_view_create(runtime, &desc, &view), "view");
+            // The files a page names (url() images, img src) from the file system, by their paths.
+            check(weft_view_set_resource_reader(runtime, view, &read_resource, nullptr), "resource reader");
+            if (devices) {
+                check(weft_view_set_input_devices(runtime, view, devices), "input devices");
+            }
             // A sync function the page calls in the middle of its script: the engine's localization.
             check(weft_view_register_function(
                       runtime, view, "loc.get", 7,
@@ -239,6 +257,13 @@ namespace demo {
                      float wheel_y = 0) {
             const weft_pointer_event e{sizeof(e), std::uint32_t(kind), x, y, buttons, 0, wheel_x, wheel_y};
             check(weft_view_pointer(runtime, view, &e, nullptr), "pointer");
+        }
+
+        // Touches that changed (weft_view_touch), as Chrome takes a touch screen's: taps click, drags pan the page's
+        // scroll containers and fling. time_seconds: when they changed, on advance's clock (0: the View's time).
+        void touch(const std::vector<weft_touch_point>& points, double time_seconds) {
+            const weft_touch_event e{sizeof(e), 0, points.data(), std::uint32_t(points.size()), 0, time_seconds};
+            check(weft_view_touch(runtime, view, &e, nullptr), "touch");
         }
 
         // What the page has under a point, and its cursor.

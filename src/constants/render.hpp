@@ -29,11 +29,16 @@ namespace weft::constants::render {
     // imports at once, and their logical bytes.
     inline constexpr int view_external_textures = 32;
     inline constexpr std::uint64_t view_external_texture_bytes = 256ull * constants::bytes_per_mib;
+    // The export images (render_export_texture.h) a built-in backend of View frames holds at once, and their logical
+    // bytes, every level.
+    inline constexpr int view_export_images = 32;
+    inline constexpr std::uint64_t view_export_image_bytes = 256ull * constants::bytes_per_mib;
 
     // Upper bounds a host may request; they cap the slot tables allocated up front.
     inline constexpr int max_prepared_frames_limit = 1024;
     inline constexpr int max_in_flight_uses_limit = 4096;
     inline constexpr int max_external_textures_limit = 4096;
+    inline constexpr int max_export_images_limit = 4096;
 
     // Bits a backend may report: WEFT_RENDER_FEATURE_* (six features) and one bit per
     // weft_render_target_format (seven formats).
@@ -111,6 +116,8 @@ namespace weft::constants::render {
         // max_constant_buffer_bytes (D3D11.1 constant buffer offsetting).
         inline constexpr int constant_buffer_offset_bytes = 256;
         inline constexpr int max_constant_buffer_bytes = 65536;
+        // A shader constant (a float4): the unit of a bound range's first constant and count.
+        inline constexpr int shader_constant_bytes = 16;
 
         // Device epoch and queue of the single D3D11 immediate context.
         inline constexpr int device_epoch = 1;
@@ -134,7 +141,7 @@ namespace weft::constants::render {
         inline constexpr int root_view = 0;
         inline constexpr int root_buffers = 1;
         inline constexpr int root_images = 2;
-        inline constexpr int view_constant_count = 4;
+        inline constexpr int view_constant_count = 12;
         // The index of the draw's first record among the View constants (scene.hlsl, View::baseInstance).
         inline constexpr int view_base_instance = 3;
         // The buffer table's descriptors: records, clips, order, anchors.
@@ -232,7 +239,8 @@ namespace weft::constants::render {
         inline constexpr int buffer_order = 8;
         inline constexpr int buffer_anchors = 9;
         // An effect's textures (effectTexture0-3, t3-t6: one index each from this one), where the particles' sprite
-        // (particleSprite, t3) goes too.
+        // (particleSprite, t3), a scene draw's mask image (maskImage, t3) and a blending group's backdrop
+        // (blendBackdrop, t4) go too.
         inline constexpr int texture_effects = 4;
         // linearClamp s0, and linearRepeat or an effect's effectRepeat s1.
         inline constexpr int sampler_clamp = 0;
@@ -241,6 +249,10 @@ namespace weft::constants::render {
         inline constexpr int backdrop_buffer_constants = 0;
         inline constexpr int backdrop_texture_source = 1;
         inline constexpr int backdrop_sampler_mirror = 0;
+        // export_resolve.hlsl: the scene pass's scratch target t0.
+        inline constexpr int export_texture_encoded = 1;
+        // Scratch targets of finished export recordings kept for the next ones.
+        inline constexpr int export_spare_scratch = 4;
         // The MSL version of the translation (major * 10000 + minor * 100): 2.1, macOS 10.14 and iOS 12 or later.
         inline constexpr int msl_version = 20100;
         // Render targets are at most this many pixels wide and high (Apple GPUs' 2D textures; a Retina display's window
@@ -271,8 +283,18 @@ namespace weft::constants::render {
         inline constexpr int record_bytes = 448;
         // Size of the shader Clip record (5 float4 registers).
         inline constexpr int clip_bytes = 80;
-        // Size of the View constant buffer (one float4).
-        inline constexpr int view_constants_bytes = 16;
+        // Size of the View constant buffer (three float4: the target's size, the scale and the first record; the target's
+        // origin; the image a group's composite samples).
+        inline constexpr int view_constants_bytes = 48;
+        inline constexpr int view_constant_floats = 12;
+        // Paint::mode.z of a group's composite (an EndGroup record): it samples the group's image where the View's
+        // sampled field places it (scene.hlsl, GroupComposite).
+        inline constexpr float group_composite = 1.f;
+        // A hoisted group's image (scene/scene_schedule.hpp): its sides rounded up to this many device px, so that a
+        // group whose region moves or grows a little keeps the image size a backend reuses; and the images of one pass
+        // together take at most this many times the pass's area.
+        inline constexpr int group_image_granularity = 64;
+        inline constexpr int hoisted_group_budget = 1;
         // Paint::mode.x of image items: ImageModeCoverage and ImageModeSignedDistance (other images are 0).
         inline constexpr float image_mode_coverage = 1.f;
         inline constexpr float image_mode_signed_distance = 2.f;
@@ -308,6 +330,12 @@ namespace weft::constants::render {
         // refused (Diag::PaintList, or WEFT_RENDER_UNSUPPORTED_FEATURE at the C ABI). The CPU reference coverage
         // takes the same bound (rounded_mask_max_clips).
         inline constexpr int max_rounded_clips = 16;
+        // A polygon clip's entry marks its fill rule in its radius_x[0], below any radius (scene.hlsl's
+        // ClipPolygonNonzero and ClipPolygonEvenOdd).
+        inline constexpr float clip_polygon_nonzero = -1.f;
+        inline constexpr float clip_polygon_evenodd = -2.f;
+        // A mask clip's entry marks itself the same way (scene.hlsl's ClipMask).
+        inline constexpr float clip_mask = -3.f;
         // Text and layer images keep a transparent margin around the node on each side.
         inline constexpr int image_margin = 2;
         inline constexpr int image_margins = 2 * image_margin;

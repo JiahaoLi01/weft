@@ -1,0 +1,5 @@
+{
+  "scripts": ["bidi-demo.js"],
+  "stylesheet": "bidi-demo.css",
+  "forgivingCss": true
+}

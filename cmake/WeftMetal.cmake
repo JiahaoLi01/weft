@@ -52,12 +52,13 @@ set(WEFT_METAL_SHIFTS -fvk-b-shift 0 0 -fvk-t-shift 1 0 -fvk-s-shift 0 0)
 set(WEFT_METAL_MSL_VERSION 20100)
 set(WEFT_METAL_CROSS_FLAGS --msl --msl-version ${WEFT_METAL_MSL_VERSION} --msl-decoration-binding)
 
-# weft_add_msl(<target> <name> <source.hlsl> [DEFINES <name=value>...])
+# weft_add_msl(<target> <name> <source.hlsl> [DEFINES <name=value>...] [CROSS <spirv-cross flag>...])
 # Translates vs_main (vs_6_0) and ps_main (ps_6_0) of <source.hlsl> to MSL text included by <target> as
 # "shaders/<name>.vs.metal.inc" and "shaders/<name>.ps.metal.inc" (an initializer of the bytes with a terminating 0);
-# the .metal files stay beside them. Always optimized (-O3); DXC's warnings are errors.
+# the .metal files stay beside them. Always optimized (-O3); DXC's warnings are errors. CROSS: flags spirv-cross takes
+# after the common ones (a later --msl-version replaces theirs).
 function(weft_add_msl target name source)
-    cmake_parse_arguments(PARSE_ARGV 3 arg "" "" "DEFINES")
+    cmake_parse_arguments(PARSE_ARGV 3 arg "" "" "DEFINES;CROSS")
     set(defines)
     foreach(define ${arg_DEFINES})
         list(APPEND defines -D "${define}")
@@ -73,7 +74,7 @@ function(weft_add_msl target name source)
             COMMAND "${CMAKE_COMMAND}" -E make_directory "${directory}"
             COMMAND "${WEFT_DXC_EXECUTABLE}" -spirv -T ${stage}_6_0 -E ${stage}_main -O3 -WX
                 -fspv-target-env=vulkan1.1 ${WEFT_METAL_SHIFTS} ${defines} -Fo "${spirv}" "${source}"
-            COMMAND "${WEFT_SPIRV_CROSS_EXECUTABLE}" "${spirv}" ${WEFT_METAL_CROSS_FLAGS} --output "${msl}"
+            COMMAND "${WEFT_SPIRV_CROSS_EXECUTABLE}" "${spirv}" ${WEFT_METAL_CROSS_FLAGS} ${arg_CROSS} --output "${msl}"
             COMMAND "${CMAKE_COMMAND}" "-DINPUT=${msl}" "-DOUTPUT=${output}"
                 -P "${PROJECT_SOURCE_DIR}/cmake/embed_bytes.cmake"
             DEPENDS "${source}" "${PROJECT_SOURCE_DIR}/cmake/embed_bytes.cmake"

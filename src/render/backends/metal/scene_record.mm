@@ -18,8 +18,12 @@ namespace weft::render::metal {
                                const SceneAnchorFrame* anchors, std::uint64_t serial, const paint::Color* clear,
                                std::span<const SceneTexture> host_textures, const ScenePatchHistory* history) {
         const auto& pass = prepared.pass;
-        // What the pass draws, in order; a backdrop of a target the pass may not read is transparent.
-        const auto schedule = schedule_scene_pass(prepared, host_textures, clear, readable);
+        // What the pass draws, in order; a backdrop of a target the pass may not read is transparent. Groups that read
+        // no target draw ahead into images of their own regions, and on Apple GPUs blending groups read the target
+        // where they draw: on Apple's tiled GPUs a target that ends and resumes for a group writes all of it out and
+        // reads it back.
+        const auto schedule =
+            schedule_scene_pass(prepared, host_textures, clear, readable, {true, blend_pipeline_ != nil});
         // Nested passes first, each ending before this one begins: plane contents, and layers and filtered images not
         // drawn before. The slot leases every image and layer the pass samples.
         std::vector<id<MTLTexture>> views(prepared.images.size());
@@ -134,12 +138,23 @@ namespace weft::render::metal {
             ensure(prepared.anchors.empty(), "the anchors of the pass's anchored elements");
         }
         // Metal's instance_id counts the draw's base instance, as Vulkan's instance index does: the vertex stage adds
-        // none (View.baseInstance 0).
-        const std::array<float, 4> constants{float(prepared.width), float(prepared.height), scale, 0};
+        // none (View.baseInstance 0). The View's target size and origin are the target's being drawn into; its sampled
+        // image, the group a composite samples.
+        std::array<float, weft::constants::render::scene::view_constant_floats> constants{
+            float(prepared.width), float(prepared.height), scale, 0};
+        // The groups' images: one of the pass's size per depth, then each hoisted group's, and where each lies among
+        // the pass's device px (origin, then size).
         std::vector<Image> groups;
+        std::vector<std::array<float, 4>> placed;
         for (std::size_t depth = 0; depth < schedule.groups; ++depth) {
             groups.push_back(target(prepared.width, prepared.height));
+            placed.push_back({0, 0, float(prepared.width), float(prepared.height)});
         }
+        for (const auto& h : schedule.hoisted) {
+            groups.push_back(target(h.size[0], h.size[1]));
+            placed.push_back({float(h.origin[0]), float(h.origin[1]), float(h.size[0]), float(h.size[1])});
+        }
+        hoisted_groups += schedule.hoisted.size();
         // Each backdrop's chain of textures: its copy, then one target per filter pass; the backdrop draws the last.
         std::vector<std::vector<Image>> chains;
         for (const auto& chain : schedule.chains) {
@@ -161,11 +176,19 @@ namespace weft::render::metal {
             }
             return out;
         };
-        // The scene pipeline and what every draw of the pass binds, on each new encoder.
-        const auto bind = [&](id<MTLRenderCommandEncoder> encoder) {
-            [encoder setRenderPipelineState:scene_pipeline_];
+        const auto set_view = [&](id<MTLRenderCommandEncoder> encoder) {
             [encoder setVertexBytes:constants.data() length:sizeof(constants) atIndex:limits::buffer_view];
             [encoder setFragmentBytes:constants.data() length:sizeof(constants) atIndex:limits::buffer_view];
+        };
+        // The scene pipeline and what every draw of the pass binds, on each new encoder: the View of a target of
+        // `place` (origin, size) among the pass's device px.
+        const auto bind = [&](id<MTLRenderCommandEncoder> encoder, const std::array<float, 4>& place) {
+            [encoder setRenderPipelineState:scene_pipeline_];
+            constants[0] = place[2];
+            constants[1] = place[3];
+            constants[4] = place[0];
+            constants[5] = place[1];
+            set_view(encoder);
             [encoder setVertexBuffer:records offset:0 atIndex:limits::buffer_records];
             [encoder setFragmentBuffer:records offset:0 atIndex:limits::buffer_records];
             [encoder setFragmentBuffer:clips offset:0 atIndex:limits::buffer_clips];
@@ -191,10 +214,16 @@ namespace weft::render::metal {
                         encoder = begin(image.texture, image.width, image.height, b->clear.value_or(paint::Color{}));
                         encoder.label = @"weft backdrop chain";
                     } else {
-                        encoder = begin(texture_of(b->target), prepared.width, prepared.height, b->clear);
                         const bool group = b->target.kind == SceneSchedule::Target::Kind::Group;
-                        encoder.label = group ? @"weft group" : @"weft out";
-                        bind(encoder);
+                        const auto place = group ? placed.at(b->target.index)
+                                                 : std::array<float, 4>{0, 0, float(prepared.width),
+                                                                        float(prepared.height)};
+                        encoder = begin(texture_of(b->target), std::uint32_t(place[2]), std::uint32_t(place[3]),
+                                        b->clear);
+                        encoder.label = !group ? @"weft out"
+                                        : b->target.index < schedule.groups ? @"weft group"
+                                                                            : @"weft hoisted group";
+                        bind(encoder, place);
                     }
                 } else if (std::get_if<SceneSchedule::End>(&step)) {
                     // Metal orders the later reads of what the encoder drew: ending is all a sampled target needs.
@@ -214,9 +243,14 @@ namespace weft::render::metal {
                         case SceneSchedule::Image::Kind::Page:
                             sampled = page(prepared.pages.at(draw->image.index)).texture;
                             break;
-                        case SceneSchedule::Image::Kind::Group:
+                        case SceneSchedule::Image::Kind::Group: {
+                            // A group's composite: its image, and where that lies among the pass's device px.
                             sampled = groups.at(draw->image.index).texture;
+                            const auto& place = placed.at(draw->image.index);
+                            std::copy(place.begin(), place.end(), constants.begin() + 8);
+                            set_view(encoder);
                             break;
+                        }
                         case SceneSchedule::Image::Kind::Backdrop:
                             sampled = chains.at(draw->image.index).back().texture;
                             break;
@@ -235,6 +269,9 @@ namespace weft::render::metal {
                         case SceneSchedule::Pipeline::Effect:
                             pipeline = effect_pipeline(prepared.effects.at(draw->source).program);
                             break;
+                        case SceneSchedule::Pipeline::Blend:
+                            pipeline = blend_pipeline_;
+                            break;
                     }
                     if (draw->extra == SceneSchedule::Extra::Effect) {
                         // An effect's textures, in the program's order.
@@ -250,6 +287,13 @@ namespace weft::render::metal {
                         for (const auto& texture : effect.textures) {
                             slot_->leases.push_back(texture);
                         }
+                    } else if (draw->extra == SceneSchedule::Extra::Mask) {
+                        // The image of the item's mask where an effect's first texture goes (scene.hlsl, maskImage).
+                        const auto& image = prepared.mask_images.at(draw->source);
+                        ensure(image != nullptr, "a mask's image");
+                        [encoder setFragmentTexture:textures_.at(image->id).image.texture
+                                            atIndex:limits::texture_effects];
+                        slot_->leases.push_back(image);
                     } else if (draw->extra == SceneSchedule::Extra::Sprite) {
                         // The emission's sprite where an effect's first texture goes.
                         id<MTLTexture> sprite = blank_texture_;
@@ -258,6 +302,12 @@ namespace weft::render::metal {
                             slot_->leases.push_back(image);
                         }
                         [encoder setFragmentTexture:sprite atIndex:limits::texture_effects];
+                    }
+                    if (draw->backdrop) {
+                        // A blending group's backdrop where an effect's second texture goes (scene.hlsl,
+                        // blendBackdrop).
+                        [encoder setFragmentTexture:chains.at(*draw->backdrop).back().texture
+                                            atIndex:limits::texture_effects + 1];
                     }
                     if (pipeline) {
                         [encoder setRenderPipelineState:pipeline];

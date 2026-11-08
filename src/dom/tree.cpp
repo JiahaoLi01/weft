@@ -207,6 +207,7 @@ namespace weft::dom {
         result.focus_visible = n.focus_visible;
         result.focus_within = n.focus_within;
         result.field = n.field;
+        result.animations = n.animations;
         result.revision = n.subtree_revision;
         result.attributes = snapshot_attributes(n);
         result.children.reserve(n.children.size());
@@ -249,6 +250,10 @@ namespace weft::dom {
         }
         if (!DomSnapshot::same_field(copy.field, n.field)) {
             copy.field = n.field;
+            changed = true;
+        }
+        if (!DomSnapshot::same_animations(copy.animations, n.animations)) {
+            copy.animations = n.animations;
             changed = true;
         }
         const bool same_children = copy.children.size() == n.children.size() &&

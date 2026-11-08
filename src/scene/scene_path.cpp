@@ -319,44 +319,51 @@ namespace weft {
             if (it == a.end()) {
                 return {};
             }
-            using Kind = ScenePathCommand::Kind;
-            for (const auto& c : parse_scene_path(it->second)) {
-                switch (c.kind) {
-                    case Kind::Move:
-                        b.move({c.v[0], c.v[1]});
-                        break;
-                    case Kind::Line:
-                        b.line({c.v[0], c.v[1]});
-                        break;
-                    case Kind::Cubic:
-                        b.cubic({c.v[0], c.v[1]}, {c.v[2], c.v[3]}, {c.v[4], c.v[5]});
-                        break;
-                    case Kind::Quadratic:
-                        b.quadratic({c.v[0], c.v[1]}, {c.v[2], c.v[3]});
-                        break;
-                    case Kind::Arc: {
-                        const Point end{c.v[5], c.v[6]};
-                        const auto p0 = b.current();
-                        if (p0 == end) {
-                            break;
-                        }
-                        if (auto arc = scene_center_arc(p0, c.v[0], c.v[1], c.v[2], c.v[3] != 0, c.v[4] != 0, end)) {
-                            b.arc(*arc, end);
-                        } else {
-                            b.line(end);
-                        }
-                        break;
-                    }
-                    case Kind::Close:
-                        b.close();
-                        break;
-                }
-            }
-            if (out->verbs.empty()) {
-                return {};
-            }
-            return out;
+            return scene_path_data(it->second, out->evenodd);
         }
         return {};
+    }
+
+    std::shared_ptr<const paint::Path> scene_path_data(std::string_view data, bool evenodd) {
+        auto out = std::make_shared<paint::Path>();
+        out->evenodd = evenodd;
+        Builder b(*out);
+        using Kind = ScenePathCommand::Kind;
+        for (const auto& c : parse_scene_path(data)) {
+            switch (c.kind) {
+                case Kind::Move:
+                    b.move({c.v[0], c.v[1]});
+                    break;
+                case Kind::Line:
+                    b.line({c.v[0], c.v[1]});
+                    break;
+                case Kind::Cubic:
+                    b.cubic({c.v[0], c.v[1]}, {c.v[2], c.v[3]}, {c.v[4], c.v[5]});
+                    break;
+                case Kind::Quadratic:
+                    b.quadratic({c.v[0], c.v[1]}, {c.v[2], c.v[3]});
+                    break;
+                case Kind::Arc: {
+                    const Point end{c.v[5], c.v[6]};
+                    const auto p0 = b.current();
+                    if (p0 == end) {
+                        break;
+                    }
+                    if (auto arc = scene_center_arc(p0, c.v[0], c.v[1], c.v[2], c.v[3] != 0, c.v[4] != 0, end)) {
+                        b.arc(*arc, end);
+                    } else {
+                        b.line(end);
+                    }
+                    break;
+                }
+                case Kind::Close:
+                    b.close();
+                    break;
+            }
+        }
+        if (out->verbs.empty()) {
+            return {};
+        }
+        return out;
     }
 } // namespace weft

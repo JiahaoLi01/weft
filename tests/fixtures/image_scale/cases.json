@@ -1,0 +1,463 @@
+{
+ "width": 1000,
+ "height": 648,
+ "cases": [
+  {
+   "name": "stripes 256",
+   "tag": "img",
+   "src": "stripes.png",
+   "rect": [
+    0,
+    0,
+    256,
+    256
+   ],
+   "style": ""
+  },
+  {
+   "name": "stripes 200",
+   "tag": "img",
+   "src": "stripes.png",
+   "rect": [
+    264,
+    0,
+    200,
+    200
+   ],
+   "style": ""
+  },
+  {
+   "name": "stripes 128",
+   "tag": "img",
+   "src": "stripes.png",
+   "rect": [
+    472,
+    0,
+    128,
+    128
+   ],
+   "style": ""
+  },
+  {
+   "name": "stripes 100",
+   "tag": "img",
+   "src": "stripes.png",
+   "rect": [
+    608,
+    0,
+    100,
+    100
+   ],
+   "style": ""
+  },
+  {
+   "name": "stripes 64",
+   "tag": "img",
+   "src": "stripes.png",
+   "rect": [
+    716,
+    0,
+    64,
+    64
+   ],
+   "style": ""
+  },
+  {
+   "name": "stripes 50",
+   "tag": "img",
+   "src": "stripes.png",
+   "rect": [
+    788,
+    0,
+    50,
+    50
+   ],
+   "style": ""
+  },
+  {
+   "name": "stripes 32",
+   "tag": "img",
+   "src": "stripes.png",
+   "rect": [
+    846,
+    0,
+    32,
+    32
+   ],
+   "style": ""
+  },
+  {
+   "name": "stripes 23",
+   "tag": "img",
+   "src": "stripes.png",
+   "rect": [
+    886,
+    0,
+    23,
+    23
+   ],
+   "style": ""
+  },
+  {
+   "name": "stripes 16",
+   "tag": "img",
+   "src": "stripes.png",
+   "rect": [
+    917,
+    0,
+    16,
+    16
+   ],
+   "style": ""
+  },
+  {
+   "name": "checker 64",
+   "tag": "img",
+   "src": "checker.png",
+   "rect": [
+    0,
+    264,
+    64,
+    64
+   ],
+   "style": ""
+  },
+  {
+   "name": "checker 32",
+   "tag": "img",
+   "src": "checker.png",
+   "rect": [
+    72,
+    264,
+    32,
+    32
+   ],
+   "style": ""
+  },
+  {
+   "name": "checker 21",
+   "tag": "img",
+   "src": "checker.png",
+   "rect": [
+    112,
+    264,
+    21,
+    21
+   ],
+   "style": ""
+  },
+  {
+   "name": "checker 16",
+   "tag": "img",
+   "src": "checker.png",
+   "rect": [
+    141,
+    264,
+    16,
+    16
+   ],
+   "style": ""
+  },
+  {
+   "name": "checker 8",
+   "tag": "img",
+   "src": "checker.png",
+   "rect": [
+    165,
+    264,
+    8,
+    8
+   ],
+   "style": ""
+  },
+  {
+   "name": "photo 240",
+   "tag": "img",
+   "src": "photo.png",
+   "rect": [
+    181,
+    264,
+    240,
+    160
+   ],
+   "style": ""
+  },
+  {
+   "name": "photo 120",
+   "tag": "img",
+   "src": "photo.png",
+   "rect": [
+    429,
+    264,
+    120,
+    80
+   ],
+   "style": ""
+  },
+  {
+   "name": "photo 97",
+   "tag": "img",
+   "src": "photo.png",
+   "rect": [
+    557,
+    264,
+    97,
+    65
+   ],
+   "style": ""
+  },
+  {
+   "name": "photo 60",
+   "tag": "img",
+   "src": "photo.png",
+   "rect": [
+    662,
+    264,
+    60,
+    40
+   ],
+   "style": ""
+  },
+  {
+   "name": "photo 30",
+   "tag": "img",
+   "src": "photo.png",
+   "rect": [
+    730,
+    264,
+    30,
+    20
+   ],
+   "style": ""
+  },
+  {
+   "name": "alpha 128",
+   "tag": "img",
+   "src": "alpha.png",
+   "rect": [
+    768,
+    264,
+    128,
+    128
+   ],
+   "style": ""
+  },
+  {
+   "name": "alpha 64",
+   "tag": "img",
+   "src": "alpha.png",
+   "rect": [
+    904,
+    264,
+    64,
+    64
+   ],
+   "style": ""
+  },
+  {
+   "name": "alpha 40",
+   "tag": "img",
+   "src": "alpha.png",
+   "rect": [
+    0,
+    432,
+    40,
+    40
+   ],
+   "style": ""
+  },
+  {
+   "name": "alpha 16",
+   "tag": "img",
+   "src": "alpha.png",
+   "rect": [
+    48,
+    432,
+    16,
+    16
+   ],
+   "style": ""
+  },
+  {
+   "name": "pixel 64 auto",
+   "tag": "img",
+   "src": "pixel.png",
+   "rect": [
+    72,
+    432,
+    64,
+    64
+   ],
+   "style": ""
+  },
+  {
+   "name": "pixel 64 pixelated",
+   "tag": "img",
+   "src": "pixel.png",
+   "rect": [
+    144,
+    432,
+    64,
+    64
+   ],
+   "style": "image-rendering:pixelated"
+  },
+  {
+   "name": "pixel 61 pixelated",
+   "tag": "img",
+   "src": "pixel.png",
+   "rect": [
+    216,
+    432,
+    61,
+    61
+   ],
+   "style": "image-rendering:pixelated"
+  },
+  {
+   "name": "pixel 64 crisp-edges",
+   "tag": "img",
+   "src": "pixel.png",
+   "rect": [
+    285,
+    432,
+    64,
+    64
+   ],
+   "style": "image-rendering:crisp-edges"
+  },
+  {
+   "name": "pixel 5 pixelated",
+   "tag": "img",
+   "src": "pixel.png",
+   "rect": [
+    357,
+    432,
+    5,
+    5
+   ],
+   "style": "image-rendering:pixelated"
+  },
+  {
+   "name": "stripes 100 pixelated",
+   "tag": "img",
+   "src": "stripes.png",
+   "rect": [
+    370,
+    432,
+    100,
+    100
+   ],
+   "style": "image-rendering:pixelated"
+  },
+  {
+   "name": "photo 60 pixelated",
+   "tag": "img",
+   "src": "photo.png",
+   "rect": [
+    478,
+    432,
+    60,
+    40
+   ],
+   "style": "image-rendering:pixelated"
+  },
+  {
+   "name": "pixel 64 smooth",
+   "tag": "img",
+   "src": "pixel.png",
+   "rect": [
+    546,
+    432,
+    64,
+    64
+   ],
+   "style": "image-rendering:smooth"
+  },
+  {
+   "name": "pixel 64 high-quality",
+   "tag": "img",
+   "src": "pixel.png",
+   "rect": [
+    618,
+    432,
+    64,
+    64
+   ],
+   "style": "image-rendering:high-quality"
+  },
+  {
+   "name": "pixel 64 optimize-contrast",
+   "tag": "img",
+   "src": "pixel.png",
+   "rect": [
+    690,
+    432,
+    64,
+    64
+   ],
+   "style": "image-rendering:-webkit-optimize-contrast"
+  },
+  {
+   "name": "pixel 64 inherited",
+   "tag": "img",
+   "src": "pixel.png",
+   "rect": [
+    762,
+    432,
+    64,
+    64
+   ],
+   "style": "",
+   "parent": "image-rendering:pixelated"
+  },
+  {
+   "name": "background stripes 100",
+   "tag": "div",
+   "src": "stripes.png",
+   "rect": [
+    834,
+    432,
+    100,
+    100
+   ],
+   "style": "background-size:100px 100px"
+  },
+  {
+   "name": "background stripes tiled 50",
+   "tag": "div",
+   "src": "stripes.png",
+   "rect": [
+    0,
+    540,
+    150,
+    100
+   ],
+   "style": "background-size:50px 50px"
+  },
+  {
+   "name": "background pixel pixelated 24",
+   "tag": "div",
+   "src": "pixel.png",
+   "rect": [
+    158,
+    540,
+    120,
+    72
+   ],
+   "style": "background-size:24px 24px;image-rendering:pixelated"
+  },
+  {
+   "name": "background photo 97",
+   "tag": "div",
+   "src": "photo.png",
+   "rect": [
+    286,
+    540,
+    97,
+    65
+   ],
+   "style": "background-size:100% 100%"
+  }
+ ]
+}

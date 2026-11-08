@@ -1,0 +1,31 @@
+/* The fields of field.js: one font for both browsers (the repository's faces), a green caret, a blue selection. */
+#root {
+  position: relative;
+  width: 400px;
+  height: 400px;
+}
+
+.field {
+  position: absolute;
+  left: 20px;
+  width: 260px;
+  font-family: Roboto, TestArabic, TestHebrew;
+  font-size: 20px;
+  line-height: 26px;
+  color: #000000;
+  caret-color: #00ff00;
+  background-color: #ffffff;
+}
+
+.field:focus {
+  outline: none;
+}
+
+.textarea {
+  height: 60px;
+}
+
+.field::selection {
+  background-color: #0000ff;
+  color: #ffffff;
+}

@@ -14,9 +14,10 @@
 // What a forgiving page's CSS the scene takes without a word, and what it draws without with a note (docs/
 // compatibility.md, "CSS the scene drops"), as KaTeX's stylesheet needs them: declarations of other engines' prefixes
 // (-ms-, -moz-, -o-) drop silently, as a browser drops what it does not parse; counter-reset, counter-increment and
-// counter-set change nothing; clip-path other than none, a stroke-miterlimit other than 4 and counter() in content are
-// each a scene diagnostic once, the element drawn without them. A strict page refuses clip-path and stroke-miterlimit
-// (and every pseudo-element, so counter() in content never reaches it).
+// counter-set change nothing; a clip-path the scene does not take (url(), an SVG clipPath; its shapes it draws,
+// tests/clip_path_tests.cpp), a stroke-miterlimit other than 4 and counter() in content are each a scene diagnostic once,
+// the element drawn without them. A strict page refuses such a clip-path and stroke-miterlimit (and every
+// pseudo-element, so counter() in content never reaches it).
 namespace {
     using weft::testing::require;
 
@@ -63,7 +64,7 @@ namespace {
         const auto quiet = messages(view);
         require(quiet.empty(), "other engines' prefixes and counter properties drop without a word:" + listed(quiet));
 
-        view.load(page(".b { clip-path: inset(1px); height: 20px }"
+        view.load(page(".b { clip-path: url(#c); height: 20px }"
                        ".c { stroke-miterlimit: 10; height: 20px }"
                        ".d::before { content: '(' counter(n) ')' }",
                        true));
@@ -75,7 +76,8 @@ namespace {
                 return m.find(part) != std::string::npos;
             });
         };
-        require(noted.size() == 3 && says("clip-path inset(1px) outside scene profile (drawn unclipped)") == 1 &&
+        require(noted.size() == 3 &&
+                    says("clip-path url(#c) (an SVG clipPath) outside scene profile (drawn unclipped)") == 1 &&
                     says("stroke-miterlimit 10 outside scene profile (the miter limit is 4)") == 1 &&
                     says("counters give nothing") == 1,
                 "each a scene diagnostic, once:" + listed(noted));
@@ -89,7 +91,7 @@ namespace {
         const auto fonts = std::make_shared<weft::FontCatalog>(weft::testing::chrome_windows_font_catalog());
         weft::SceneText text{*fonts};
         const std::vector<std::pair<std::string, std::string>> cases{
-            {".b { clip-path: inset(1px) }", "clip-path inset(1px) outside scene profile"},
+            {".b { clip-path: url(#c) }", "clip-path url(#c) (an SVG clipPath) outside scene profile"},
             {".c { stroke-miterlimit: 10 }", "stroke-miterlimit 10 outside scene profile"}};
         for (const auto& [sheet, reason] : cases) {
             weft::View view{fonts, text, 320, 200, 1};

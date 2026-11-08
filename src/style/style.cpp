@@ -6,6 +6,7 @@
 #include "constants/common.hpp"
 #include "constants/style.hpp"
 #include "dom/selector.hpp"
+#include "text/bidi.hpp"
 #include <thread>
 #include <algorithm>
 #include <array>
@@ -485,6 +486,211 @@ namespace weft {
             return out;
         }
 
+        // The longhands of the mask shorthand (CSS Masking 1 §4.11), with their initial values.
+        struct MaskLonghand {
+            const char* name;
+            const char* initial;
+        };
+
+        constexpr std::array<MaskLonghand, 8> mask_longhands{{
+            {"mask-image", "none"},
+            {"mask-position", "0% 0%"},
+            {"mask-size", "auto"},
+            {"mask-repeat", "repeat"},
+            {"mask-origin", "border-box"},
+            {"mask-clip", "border-box"},
+            {"mask-composite", "add"},
+            {"mask-mode", "match-source"},
+        }};
+
+        // Each longhand's list of a mask shorthand's value, its items in the order of the layers; or why the value is
+        // not one. A layer: <mask-reference> || <position> [ / <bg-size> ]? || <repeat-style> || <geometry-box> ||
+        // [ <geometry-box> | no-clip ] || <compositing-operator> || <masking-mode>, its parts in any order; one box
+        // sets the origin and the clip, a second the clip; a part left out takes its longhand's initial value.
+        struct MaskParts {
+            std::array<Tokens, mask_longhands.size()> lists;
+            std::string error;
+        };
+
+        MaskParts mask_parts(const Tokens& tokens) {
+            MaskParts out;
+            std::vector<Tokens> layers(1);
+            for (const auto& t : tokens) {
+                if (t.kind == Kind::Delim && t.text == ",") {
+                    layers.emplace_back();
+                } else {
+                    layers.back().push_back(t);
+                }
+            }
+            const auto is = [](const std::string& word, std::initializer_list<const char*> set) {
+                for (const auto* k : set) {
+                    if (word == k) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            for (std::size_t l = 0; l < layers.size(); ++l) {
+                const auto& layer = layers[l];
+                if (layer.empty()) {
+                    out.error = "mask shorthand: an empty layer";
+                    return out;
+                }
+                std::array<std::optional<Tokens>, mask_longhands.size()> parts;
+                const auto set = [&](std::size_t part, Tokens value) {
+                    if (parts[part]) {
+                        out.error = "mask shorthand: two " + std::string(mask_longhands[part].name) + " values in " +
+                                    serialize(layer);
+                        return false;
+                    }
+                    parts[part] = std::move(value);
+                    return true;
+                };
+                for (std::size_t i = 0; i < layer.size();) {
+                    const auto& t = layer[i];
+                    const auto word = t.kind == Kind::Ident ? lower(t.text) : std::string();
+                    const bool positional =
+                        t.kind == Kind::Dimension || t.kind == Kind::Percentage || t.kind == Kind::Number ||
+                        is(word, {"left", "right", "top", "bottom", "center"}) ||
+                        (t.kind == Kind::Function && lower(t.text) == "calc");
+                    if (t.kind == Kind::Function && lower(t.text) != "calc") {
+                        if (!set(0, {lowered(t)})) {
+                            return out;
+                        }
+                        ++i;
+                    } else if (word == "none") {
+                        if (!set(0, {{Kind::Ident, "none", {}}})) {
+                            return out;
+                        }
+                        ++i;
+                    } else if (positional) {
+                        Tokens position;
+                        while (i < layer.size() && position.size() < 4) {
+                            const auto& p = layer[i];
+                            const auto w = p.kind == Kind::Ident ? lower(p.text) : std::string();
+                            if (!(p.kind == Kind::Dimension || p.kind == Kind::Percentage || p.kind == Kind::Number ||
+                                  is(w, {"left", "right", "top", "bottom", "center"}) ||
+                                  (p.kind == Kind::Function && lower(p.text) == "calc"))) {
+                                break;
+                            }
+                            position.push_back(lowered(p));
+                            ++i;
+                        }
+                        if (!set(1, std::move(position))) {
+                            return out;
+                        }
+                        if (i < layer.size() && layer[i].kind == Kind::Delim && layer[i].text == "/") {
+                            ++i;
+                            Tokens size;
+                            while (i < layer.size() && size.size() < 2) {
+                                const auto& p = layer[i];
+                                const auto w = p.kind == Kind::Ident ? lower(p.text) : std::string();
+                                if (!(p.kind == Kind::Dimension || p.kind == Kind::Percentage ||
+                                      p.kind == Kind::Number || w == "auto" ||
+                                      (size.empty() && (w == "cover" || w == "contain")) ||
+                                      (p.kind == Kind::Function && lower(p.text) == "calc"))) {
+                                    break;
+                                }
+                                size.push_back(lowered(p));
+                                ++i;
+                                if (w == "cover" || w == "contain") {
+                                    break;
+                                }
+                            }
+                            if (size.empty() || !set(2, std::move(size))) {
+                                if (out.error.empty()) {
+                                    out.error = "mask shorthand: no size after / in " + serialize(layer);
+                                }
+                                return out;
+                            }
+                        }
+                    } else if (is(word, {"repeat-x", "repeat-y"})) {
+                        if (!set(3, {{Kind::Ident, word, {}}})) {
+                            return out;
+                        }
+                        ++i;
+                    } else if (is(word, {"repeat", "space", "round", "no-repeat"})) {
+                        Tokens repeat{{Kind::Ident, word, {}}};
+                        ++i;
+                        if (i < layer.size() && layer[i].kind == Kind::Ident &&
+                            is(lower(layer[i].text), {"repeat", "space", "round", "no-repeat"})) {
+                            repeat.push_back({Kind::Ident, lower(layer[i].text), {}});
+                            ++i;
+                        }
+                        if (!set(3, std::move(repeat))) {
+                            return out;
+                        }
+                    } else if (is(word, {"border-box", "padding-box", "content-box", "margin-box", "fill-box",
+                                         "stroke-box", "view-box"})) {
+                        // The first box is the origin (and the clip, unless a second comes); the second the clip.
+                        if (!parts[4]) {
+                            parts[4] = Tokens{{Kind::Ident, word, {}}};
+                        } else if (!set(5, {{Kind::Ident, word, {}}})) {
+                            return out;
+                        }
+                        ++i;
+                    } else if (word == "no-clip") {
+                        if (!set(5, {{Kind::Ident, word, {}}})) {
+                            return out;
+                        }
+                        ++i;
+                    } else if (is(word, {"add", "subtract", "intersect", "exclude"})) {
+                        if (!set(6, {{Kind::Ident, word, {}}})) {
+                            return out;
+                        }
+                        ++i;
+                    } else if (is(word, {"alpha", "luminance", "match-source"})) {
+                        if (!set(7, {{Kind::Ident, word, {}}})) {
+                            return out;
+                        }
+                        ++i;
+                    } else {
+                        out.error = "mask shorthand: " + serialize({t}) + " is no part of a mask layer";
+                        return out;
+                    }
+                }
+                if (parts[4] && !parts[5]) {
+                    parts[5] = parts[4];
+                }
+                for (std::size_t part = 0; part < parts.size(); ++part) {
+                    auto& list = out.lists[part];
+                    if (l) {
+                        list.push_back({Kind::Delim, ",", {}});
+                    }
+                    if (parts[part]) {
+                        list.insert(list.end(), parts[part]->begin(), parts[part]->end());
+                    } else {
+                        for (const auto& word : css::split(mask_longhands[part].initial, ' ').parts) {
+                            list.push_back(word.ends_with('%') ? Token{Kind::Percentage, word, {}}
+                                                               : Token{Kind::Ident, word, {}});
+                        }
+                    }
+                }
+            }
+            return out;
+        }
+
+        // -webkit-mask-composite's legacy operators as mask-composite's.
+        Tokens standard_mask_composite(const Tokens& tokens) {
+            Tokens out;
+            for (const auto& t : tokens) {
+                const auto word = t.kind == Kind::Ident ? lower(t.text) : std::string();
+                const auto* standard = word == "source-over"   ? "add"
+                                       : word == "source-out"  ? "subtract"
+                                       : word == "source-in"   ? "intersect"
+                                       : word == "xor"         ? "exclude"
+                                       : word == "add" || word == "subtract" || word == "intersect" ||
+                                               word == "exclude"
+                                           ? word.c_str()
+                                           : nullptr;
+                if (t.kind == Kind::Ident && !wide(word) && !standard) {
+                    fail("-webkit-mask-composite " + t.text);
+                }
+                out.push_back(standard ? Token{Kind::Ident, standard, {}} : t);
+            }
+            return out;
+        }
+
         struct Declaration {
             std::string key;
             Tokens tokens;
@@ -845,7 +1051,11 @@ namespace weft {
                     !(profile.scene_syntax &&
                       (key == "border" || border_side || key == "flex" || key == "transition" ||
                        (key == "outline" && profile.properties.contains("outline-style")) ||
-                       (key == "text-decoration" && profile.properties.contains("text-decoration-line")))) &&
+                       (key == "text-decoration" && profile.properties.contains("text-decoration-line")) ||
+                       ((key == "mask" || key == "-webkit-mask" ||
+                         (key.starts_with("-webkit-mask-") &&
+                          profile.properties.contains(key.substr(std::string_view("-webkit-").size())))) &&
+                        profile.properties.contains("mask-image")))) &&
                     !(profile.forgiving && (key == "font" || key == "place-content" || key == "place-self")) &&
                     !(grid_placement_shorthand(key) && profile.properties.contains("grid-row-start")) &&
                     !(key == "inset" && profile.single_value_inset) &&
@@ -1000,6 +1210,33 @@ namespace weft {
                     result.push_back({"text-decoration-style", style, important});
                     result.push_back({"text-decoration-color", color, important});
                     result.push_back({"text-decoration-thickness", thickness, important});
+                } else if (profile.scene_syntax && (key == "mask" || key == "-webkit-mask") &&
+                           profile.properties.contains("mask-image")) {
+                    // Every longhand its list, a layer a comma apart; a CSS-wide keyword is every longhand's.
+                    if (references(tokens)) {
+                        fail("mask shorthand with var()");
+                    }
+                    if (wide(keyword(tokens))) {
+                        for (const auto& longhand : mask_longhands) {
+                            result.push_back({longhand.name, tokens, important});
+                        }
+                    } else {
+                        auto parts = mask_parts(tokens);
+                        if (!parts.error.empty()) {
+                            fail(parts.error);
+                        }
+                        for (std::size_t part = 0; part < mask_longhands.size(); ++part) {
+                            result.push_back({mask_longhands[part].name, std::move(parts.lists[part]), important});
+                        }
+                    }
+                } else if (profile.scene_syntax && key.starts_with("-webkit-mask-") &&
+                           profile.properties.contains("mask-image")) {
+                    // Chrome's names of the mask longhands; -webkit-mask-composite takes the legacy operators.
+                    auto name = key.substr(std::string_view("-webkit-").size());
+                    if (name == "mask-composite") {
+                        tokens = standard_mask_composite(tokens);
+                    }
+                    result.push_back({std::move(name), std::move(tokens), important});
                 } else if (profile.scene_syntax && key == "flex") {
                     if (tokens.size() != 1 || tokens[0].kind != Kind::Number) {
                         fail("flex shorthand profile requires one number");
@@ -1263,16 +1500,18 @@ namespace weft {
             return seen;
         }
 
-        // A @media condition (Media Queries 4) as a forgiving profile evaluates it: the device is a screen with a fine
-        // pointer that hovers, color, no preference for reduced motion or contrast and a light color scheme; width,
-        // height, aspect ratio and orientation are the viewport's, which the cascade is given.
+        // A @media condition (Media Queries 4) as a forgiving profile evaluates it: the device is a screen, color, no
+        // preference for reduced motion or contrast and a light color scheme; width, height, aspect ratio and
+        // orientation are the viewport's, pointer, any-pointer, hover and any-hover the input devices', which the
+        // cascade is given.
         struct MediaCondition {
             enum class Kind : std::uint8_t {
                 Constant,
                 All,
                 Any,
                 Not,
-                Size
+                Size,
+                Device
             };
             enum class Feature : std::uint8_t {
                 Width,
@@ -1287,21 +1526,39 @@ namespace weft {
             // '<', '>', '=', 'l' (<=) or 'g' (>=): the feature's value compared with the amount.
             char op{};
             double amount{};
+            // A device feature: its name (pointer, any-pointer, hover, any-hover) and value (empty: boolean).
+            std::string device_feature;
+            std::string device_value;
 
-            bool holds(float width, float height) const {
+            bool holds(float width, float height, const InputDevices& devices = {}) const {
                 switch (kind) {
                     case Kind::Constant:
                         return value;
                     case Kind::All:
                         return std::all_of(parts.begin(), parts.end(), [&](const MediaCondition& c) {
-                            return c.holds(width, height);
+                            return c.holds(width, height, devices);
                         });
                     case Kind::Any:
                         return std::any_of(parts.begin(), parts.end(), [&](const MediaCondition& c) {
-                            return c.holds(width, height);
+                            return c.holds(width, height, devices);
                         });
                     case Kind::Not:
-                        return !parts[0].holds(width, height);
+                        return !parts[0].holds(width, height, devices);
+                    case Kind::Device: {
+                        // The primary device's (at most one) or every available one's.
+                        const unsigned set = device_feature.starts_with("any-") ? devices.available : devices.primary;
+                        if (device_feature.ends_with("hover")) {
+                            const bool hovers = set & InputDevices::mouse;
+                            return device_value.empty() || device_value == "hover" ? hovers
+                                   : device_value == "none"                        ? !hovers
+                                                                                   : false;
+                        }
+                        return device_value.empty()       ? set != 0
+                               : device_value == "fine"   ? (set & InputDevices::mouse) != 0
+                               : device_value == "coarse" ? (set & InputDevices::touch) != 0
+                               : device_value == "none"   ? set == 0
+                                                          : false;
+                    }
                     case Kind::Size: {
                         const double v = feature == Feature::Width    ? width
                                          : feature == Feature::Height ? height
@@ -1324,9 +1581,10 @@ namespace weft {
                 return false;
             }
 
-            // Whether the outcome depends on the viewport.
+            // Whether the outcome depends on the viewport or the input devices.
             bool sized() const {
-                return kind == Kind::Size || std::any_of(parts.begin(), parts.end(), [](const MediaCondition& c) {
+                return kind == Kind::Size || kind == Kind::Device ||
+                       std::any_of(parts.begin(), parts.end(), [](const MediaCondition& c) {
                            return c.sized();
                        });
             }
@@ -1612,12 +1870,16 @@ namespace weft {
                 c.amount = 1;
                 return c;
             }
+            // The input devices: answered as the cascade is given them.
+            if (name == "hover" || name == "any-hover" || name == "pointer" || name == "any-pointer") {
+                M c;
+                c.kind = M::Kind::Device;
+                c.device_feature = name;
+                c.device_value = value;
+                return c;
+            }
             // The fixed device: what holds.
             static const std::map<std::string, std::vector<std::string>> device{
-                {"hover", {"hover", ""}},
-                {"any-hover", {"hover", ""}},
-                {"pointer", {"fine", ""}},
-                {"any-pointer", {"fine", ""}},
                 {"prefers-reduced-motion", {"no-preference"}},
                 {"prefers-reduced-transparency", {"no-preference"}},
                 {"prefers-reduced-data", {"no-preference"}},
@@ -3113,13 +3375,13 @@ namespace weft {
         using Variables = std::map<std::string, std::optional<Tokens>>;
     } // namespace
 
-    bool media_matches(std::string_view query, float width, float height) {
+    bool media_matches(std::string_view query, float width, float height, const InputDevices& devices) {
         if (trim(query).empty()) {
             return true;
         }
         Warnings warnings;
         try {
-            return media_query_list(query, warnings).holds(width, height);
+            return media_query_list(query, warnings).holds(width, height, devices);
         } catch (const DiagnosticError&) {
             // A query that does not parse is "not all".
             return false;
@@ -3159,6 +3421,70 @@ namespace weft {
             "stroke-opacity", "stroke-linecap",    "stroke-linejoin", "stroke-dasharray", "stroke-dashoffset",
             "display",        "pointer-events",    "font-size",       "font-weight",      "font-family",
             "text-anchor",    "dominant-baseline", "opacity"};
+
+        // An HTML dimension attribute's value as CSS (HTML's rules for parsing dimension values): its leading number,
+        // a percentage when a '%' follows it and px otherwise ("12.5", "50%", "20px" is 20px); none when it does not
+        // start with a digit after spaces.
+        std::optional<std::string> html_dimension(std::string_view value) {
+            std::size_t i = 0;
+            while (i < value.size() &&
+                   (value[i] == ' ' || value[i] == '\t' || value[i] == '\n' || value[i] == '\f' || value[i] == '\r')) {
+                ++i;
+            }
+            const auto digit = [&](std::size_t at) {
+                return at < value.size() && value[at] >= '0' && value[at] <= '9';
+            };
+            if (!digit(i)) {
+                return std::nullopt;
+            }
+            const auto start = i;
+            while (digit(i)) {
+                ++i;
+            }
+            auto end = i;
+            if (i < value.size() && value[i] == '.' && digit(i + 1)) {
+                ++i;
+                while (digit(i)) {
+                    ++i;
+                }
+                end = i;
+            }
+            std::string number(value.substr(start, end - start));
+            return number + (end < value.size() && value[end] == '%' ? "%" : "px");
+        }
+
+        // The direction an HTML element's dir=auto (and a bdi's whose dir is not ltr or rtl) gives it, as Chrome's
+        // HTMLElement maps it to style: its text's first strong character's (bidi class L, R or AL), skipping the text
+        // of descendants that are bdi, script, style or textarea or have a dir attribute; ltr without one. None for
+        // another element.
+        std::optional<std::string_view> auto_direction(const DomSnapshot& dom) {
+            if (dom.type != constants::element_node_type ||
+                (!dom.namespace_uri.empty() && dom.namespace_uri != constants::xhtml_namespace_uri)) {
+                return std::nullopt;
+            }
+            const auto it = dom.attributes.find("dir");
+            const auto dir = it == dom.attributes.end() ? std::string_view() : std::string_view(it->second);
+            if (dir != "auto" && !(dom.local_name == "bdi" && dir != "ltr" && dir != "rtl")) {
+                return std::nullopt;
+            }
+            const auto first = [](auto&& self, const DomSnapshot& node) -> std::optional<bool> {
+                for (const auto& c : node.children) {
+                    if (c.type == constants::text_node_type) {
+                        if (const auto rtl = bidi_first_strong_rtl(c.data)) {
+                            return rtl;
+                        }
+                    } else if (c.type == constants::element_node_type && c.local_name != "bdi" &&
+                               c.local_name != "script" && c.local_name != "style" && c.local_name != "textarea" &&
+                               !c.attributes.contains("dir")) {
+                        if (const auto rtl = self(self, c)) {
+                            return rtl;
+                        }
+                    }
+                }
+                return std::nullopt;
+            };
+            return first(first, dom).value_or(false) ? std::string_view("rtl") : std::string_view("ltr");
+        }
 
         // Appends a decimal length and ':' as memo and selector keys write them.
         void append_length(std::string& key, std::size_t length) {
@@ -3267,6 +3593,7 @@ namespace weft {
             Warnings* warnings{};
             float width{};
             float height{};
+            InputDevices devices{};
         };
 
         // A computed color value read back (the forms normalize_colors writes, or what a strict profile keeps).
@@ -3332,7 +3659,8 @@ namespace weft {
             // them gives makes a box (Tailwind's preflight gives every element's ::before and ::after a style, but no
             // content).
             std::vector<const Rule*> content_rules;
-            std::set<std::string> memo_attributes{"id", "class"};
+            // The attributes an element's values depend on beyond its selectors': an img's width and height.
+            std::set<std::string> memo_attributes{"id", "class", "width", "height"};
             std::vector<dom::Compound> state_parts;
             std::string selector_path;
             std::vector<std::size_t> selector_lengths;
@@ -3570,6 +3898,11 @@ namespace weft {
                 add(inline_value);
                 bool presentation_parent{};
                 if (profile.scene_syntax) {
+                    // dir=auto's direction comes from the element's text.
+                    if (const auto direction = auto_direction(dom)) {
+                        add("dir");
+                        add(*direction);
+                    }
                     for (const auto k : presentation_attributes) {
                         if (const auto it = dom.attributes.find(k); it != dom.attributes.end()) {
                             add(k);
@@ -4109,7 +4442,8 @@ namespace weft {
                         box == GeneratedBox::Before ? dom::PseudoElement::Before : dom::PseudoElement::After;
                     const bool given = std::any_of(content_rules.begin(), content_rules.end(), [&](const Rule* r) {
                         return r->selector.pseudo() == kind &&
-                               !(r->media && (!forgiving || !r->media->holds(forgiving->width, forgiving->height))) &&
+                               !(r->media && (!forgiving || !r->media->holds(forgiving->width, forgiving->height,
+                                                                             forgiving->devices))) &&
                                dom::matches_originating(r->selector, element);
                     });
                     if (!given) {
@@ -4261,7 +4595,8 @@ namespace weft {
                     }
                 };
                 const auto apply_rule = [&](const Rule& r, unsigned origin) {
-                    if (r.media && (!forgiving || !r.media->holds(forgiving->width, forgiving->height))) {
+                    if (r.media &&
+                        (!forgiving || !r.media->holds(forgiving->width, forgiving->height, forgiving->devices))) {
                         return;
                     }
                     if (!r.matches(path)) {
@@ -4328,6 +4663,47 @@ namespace weft {
                                 memo_state->winner_uses.emplace(entry->second.used, entry);
                             }
                         }
+                    }
+                }
+                // dir=auto: its direction as a presentational hint (below any author rule, as Chrome's).
+                if (profile.scene_syntax && profile.properties.contains("direction")) {
+                    if (const auto direction = auto_direction(dom)) {
+                        for (const auto& d :
+                             declarations("direction:" + std::string(*direction), profile, warnings())) {
+                            auto rank = Rank{0, 1, 0, 0, 0, 0, 0, 0};
+                            if (!ranks.contains(d.key) || ranks[d.key] < rank) {
+                                ranks[d.key] = rank;
+                                winning[d.key] = d;
+                            }
+                        }
+                    }
+                }
+                // An img's width and height attributes as HTML maps them: the width and height properties (a number
+                // of px or a percentage), and with both numbers, aspect-ratio auto w / h (its ratio until an image
+                // gives its own), below any author rule.
+                if (profile.scene_syntax && dom.namespace_uri == constants::xhtml_namespace_uri &&
+                    dom.local_name == "img") {
+                    const auto hint = [&](const std::string& text) {
+                        for (const auto& d : declarations(text, profile, warnings())) {
+                            auto rank = Rank{0, 1, 0, 0, 0, 0, 0, 0};
+                            if (!ranks.contains(d.key) || ranks[d.key] < rank) {
+                                ranks[d.key] = rank;
+                                winning[d.key] = d;
+                            }
+                        }
+                    };
+                    std::array<std::optional<std::string>, 2> sizes;
+                    for (std::size_t k = 0; k < 2; ++k) {
+                        if (const auto it = dom.attributes.find(k ? "height" : "width"); it != dom.attributes.end()) {
+                            if ((sizes[k] = html_dimension(it->second))) {
+                                hint(std::string(k ? "height:" : "width:") + *sizes[k]);
+                            }
+                        }
+                    }
+                    if (sizes[0] && sizes[1] && sizes[0]->ends_with("px") && sizes[1]->ends_with("px") &&
+                        profile.properties.contains("aspect-ratio")) {
+                        hint("aspect-ratio:auto " + sizes[0]->substr(0, sizes[0]->size() - 2) + " / " +
+                             sizes[1]->substr(0, sizes[1]->size() - 2));
                     }
                 }
                 if (profile.scene_syntax && dom.namespace_uri == constants::svg_namespace_uri) {
@@ -4865,17 +5241,18 @@ namespace weft {
         return impl_->compiled->font_faces;
     }
 
-    bool CompiledStyle::set_viewport(float width, float height) {
+    bool CompiledStyle::set_viewport(float width, float height, const InputDevices& devices) {
         auto& i = *impl_;
         i.context.width = width;
         i.context.height = height;
+        i.context.devices = devices;
         if (!i.profile.forgiving || !i.compiled->sized_media) {
             return false;
         }
         std::vector<bool> outcomes;
         for (const auto& rule : i.author) {
             if (rule.media && rule.media->sized()) {
-                outcomes.push_back(rule.media->holds(width, height));
+                outcomes.push_back(rule.media->holds(width, height, devices));
             }
         }
         if (outcomes == i.media_outcomes) {

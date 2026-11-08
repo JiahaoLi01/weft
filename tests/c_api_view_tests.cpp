@@ -764,7 +764,7 @@ namespace {
         require(weft_view_advance(r.runtime, view, 0.016) == WEFT_OK && reader.paths.size() == 1,
                 "no read again in the page load");
 
-        // A missing file, a reader's error and bytes that are no PNG: scene diagnostics, the page goes on.
+        // A missing file, a reader's error and bytes that are no image: scene diagnostics, the page goes on.
         page.stylesheet += "#a{background-image:url(missing.png)}#b{background-image:url(/broken.png)}";
         page.stylesheet += "#root{background-image:url(../img/bad.png)}";
         require(load(r, view, page) == WEFT_OK, "a page of images that fail");
@@ -775,7 +775,8 @@ namespace {
             });
         };
         require(found.size() == 3 && said("url(ui/page/missing.png): no such file") &&
-                    said("url(/broken.png): no such file") && said("url(ui/img/bad.png): no PNG image"),
+                    said("url(/broken.png): no such file") &&
+                    said("url(ui/img/bad.png): no image (the scene decodes PNG, JPEG and WebP)"),
                 "each failure a scene diagnostic");
         require(reader.arguments, "the writer's arguments");
         weft_view_frame* frame{};
@@ -1095,6 +1096,77 @@ namespace {
     // Text fields and input methods (weft_view_text_input, weft_view_composition, weft_view_commit_text) and the
     // pointer's modifiers: arguments, where text input goes, a composition and its commit, text committed without one,
     // a cancelled composition, a read-only field, Shift and a press, reentry, threads and stale handles.
+    // The host's clipboard (weft_view_set_clipboard): the platform's shortcuts copy a field's selection onto it and
+    // paste its text; without one the View keeps its own; one callback alone is an invalid argument.
+    struct Clipboard {
+        std::string text;
+        int reads{};
+        int writes{};
+    };
+
+    void clipboard() {
+        Runtime r;
+        const auto view = r.view();
+        Clipboard host;
+        const auto read = [](void* user, weft_resource_writer* text) {
+            auto& h = *static_cast<Clipboard*>(user);
+            ++h.reads;
+            return weft_resource_writer_set(text, h.text.data(), h.text.size());
+        };
+        const auto write = [](void* user, const char* text, size_t size) {
+            auto& h = *static_cast<Clipboard*>(user);
+            ++h.writes;
+            h.text.assign(text, size);
+            return WEFT_OK;
+        };
+        require(weft_view_set_clipboard(r.runtime, view, read, nullptr, &host) == WEFT_INVALID_ARGUMENT &&
+                    weft_view_set_clipboard(r.runtime, view, nullptr, write, &host) == WEFT_INVALID_ARGUMENT,
+                "one callback alone");
+        require(weft_view_set_clipboard(r.runtime, view, read, write, &host) == WEFT_OK, "a clipboard before a page");
+        require(load(r, view, inline_page(R"JS(
+            const e = document.createElement('input');
+            e.id = 'f';
+            e.value = 'copy me';
+            document.getElementById('root').appendChild(e);
+            e.focus();
+            e.setSelectionRange(0, 4);
+          )JS")) == WEFT_OK,
+                "a page with a field");
+#if defined(__APPLE__)
+        const uint32_t command = WEFT_MODIFIER_META;
+#else
+        const uint32_t command = WEFT_MODIFIER_CONTROL;
+#endif
+        uint32_t handled{};
+        auto copy = key_event(WEFT_KEY_DOWN, "c", "KeyC", command);
+        require(weft_view_key(r.runtime, view, &copy, &handled) == WEFT_OK && handled == WEFT_INPUT_DEFAULT &&
+                    host.writes == 1 && host.text == "copy",
+                "the shortcut copies the selection onto the host's clipboard");
+        host.text = "pasted";
+        evaluate(r, view, "document.getElementById('f').setSelectionRange(7, 7)");
+        auto paste = key_event(WEFT_KEY_DOWN, "v", "KeyV", command);
+        require(weft_view_key(r.runtime, view, &paste, &handled) == WEFT_OK && host.reads == 1 &&
+                    evaluate(r, view, "document.getElementById('f').value") == "copy mepasted",
+                "the shortcut pastes the host's text");
+        host.text = "\xc3";
+        require(weft_view_key(r.runtime, view, &paste, &handled) == WEFT_OK &&
+                    evaluate(r, view, "document.getElementById('f').value") == "copy mepasted",
+                "no UTF-8 on the host's clipboard: nothing to paste");
+        evaluate(r, view, "navigator.clipboard.writeText('from script')");
+        require(host.text == "from script", "navigator.clipboard.writeText");
+        // Without the host's: the View's own clipboard.
+        require(weft_view_set_clipboard(r.runtime, view, nullptr, nullptr, nullptr) == WEFT_OK, "removed");
+        evaluate(r, view, "document.getElementById('f').select()");
+        weft_view_key(r.runtime, view, &copy, nullptr);
+        evaluate(r, view, "document.getElementById('f').setSelectionRange(0, 0)");
+        weft_view_key(r.runtime, view, &paste, nullptr);
+        require(host.text == "from script" &&
+                    evaluate(r, view, "document.getElementById('f').value") == "copy mepastedcopy mepasted",
+                "the View's own clipboard");
+        weft_view_destroy(r.runtime, view);
+        require(weft_view_set_clipboard(r.runtime, view, read, write, &host) == WEFT_STALE_HANDLE, "a destroyed View");
+    }
+
     void text_input() {
         Runtime r;
         const auto view = r.view();
@@ -1329,6 +1401,7 @@ int main() {
         resources();
         web_storage();
         keyboard();
+        clipboard();
         text_input();
         gamepads();
         std::cout << "C ABI view tests passed\n";

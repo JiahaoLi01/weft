@@ -1,0 +1,5 @@
+{
+  "scripts": ["effects-demo.js"],
+  "stylesheet": "effects-demo.css",
+  "forgivingCss": true
+}

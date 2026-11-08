@@ -1,0 +1,90 @@
+#root {
+  position: relative;
+  width: 800px;
+  height: 600px;
+  font-family: Arial;
+  font-size: 13px;
+  line-height: 16px;
+  color: #000000;
+}
+
+.box {
+  position: absolute;
+  box-sizing: border-box;
+  width: 160px;
+  height: 60px;
+  border: 1px solid #333333;
+  background-color: #dddddd;
+}
+
+.box:hover {
+  background-color: #bbddff;
+}
+
+.box:active {
+  background-color: #3399ff;
+}
+
+#tap {
+  left: 40px;
+  top: 40px;
+  cursor: pointer;
+}
+
+#nostart {
+  left: 220px;
+  top: 40px;
+}
+
+#noend {
+  left: 400px;
+  top: 40px;
+}
+
+#grab {
+  left: 580px;
+  top: 40px;
+}
+
+#pad {
+  left: 40px;
+  top: 140px;
+  width: 300px;
+  height: 200px;
+  touch-action: none;
+}
+
+#list {
+  position: absolute;
+  left: 400px;
+  top: 140px;
+  width: 300px;
+  height: 240px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background-color: #f4f4f4;
+}
+
+#xlist {
+  position: absolute;
+  left: 40px;
+  top: 400px;
+  width: 300px;
+  height: 120px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  touch-action: pan-y;
+  background-color: #f4f4f4;
+}
+
+.row {
+  box-sizing: border-box;
+  width: 300px;
+  height: 60px;
+  border-bottom: 1px solid #cccccc;
+}
+
+.wide {
+  width: 1200px;
+  height: 120px;
+}

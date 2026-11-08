@@ -1,0 +1,74 @@
+/* A page of img elements (docs/img.md): natural sizes, the width attribute, object-fit and object-position, a rounded
+   avatar, images in a line of text, a responsive image (max-width: 100%), and what script reads of one once it loads.
+   The images are this folder's PNG, JPEG and WebP files and a data: URL. */
+#root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 18px 22px;
+  background-color: #10151c;
+  color: #e6edf3;
+  font-family: system-ui;
+  font-size: 15px;
+  line-height: 22px;
+  overflow: hidden;
+}
+
+.title {
+  font-size: 22px;
+  line-height: 30px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.card {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background-color: #1b2430;
+}
+
+.label {
+  font-size: 12px;
+  line-height: 18px;
+  color: #8b98a5;
+}
+
+.fit {
+  display: block;
+  width: 110px;
+  height: 80px;
+  background-color: #2c3a4a;
+}
+
+.avatar {
+  display: block;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid #f0c040;
+}
+
+.narrow {
+  width: 180px;
+}
+
+.responsive {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+
+.loaded {
+  font-size: 12px;
+  line-height: 18px;
+  color: #9fd39f;
+}

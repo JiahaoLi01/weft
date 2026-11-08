@@ -311,7 +311,7 @@ namespace weft {
                 const auto& e = elements[k];
                 switch (direction) {
                 case NavDirection::Left:
-                    return e.scroll_left > 0;
+                    return e.scroll_left > e.min_left;
                 case NavDirection::Up:
                     return e.scroll_top > 0;
                 case NavDirection::Right:

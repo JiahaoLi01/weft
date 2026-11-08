@@ -1,4 +1,7 @@
 #include "scene/scene_display_list.hpp"
+#include "scene/scene_clip_path.hpp"
+#include "scene/scene_mask.hpp"
+#include "scene/scene_blend.hpp"
 #include "scene/scene_field.hpp"
 #include "scene/scene_background.hpp"
 #include "scene/scene_border_image.hpp"
@@ -245,7 +248,7 @@ namespace weft {
         // pass's, as an effect's).
         const auto shows_effect = [&](auto&& self, const SceneNode& n) -> bool {
             return n.effect || !n.particles.empty() || filters(n) || !texture_of(n).empty() || n.background_image ||
-                   std::any_of(n.children.begin(), n.children.end(), [&](const SceneNode& child) {
+                   n.image || std::any_of(n.children.begin(), n.children.end(), [&](const SceneNode& child) {
                        return self(self, child);
                    });
         };
@@ -450,6 +453,30 @@ namespace weft {
                 list.clips.insert(list.clips.end(), enclosing.begin(), enclosing.end());
                 list.clips.push_back(local);
                 return out;
+            };
+            // The map from target px into a box's own space under m.
+            const auto inverse_map = [](const Matrix& m) {
+                const float det = m[0] * m[3] - m[1] * m[2];
+                return std::array<float, 6>{m[3] / det,
+                                            -m[1] / det,
+                                            -m[2] / det,
+                                            m[0] / det,
+                                            (m[2] * m[5] - m[3] * m[4]) / det,
+                                            (m[1] * m[4] - m[0] * m[5]) / det};
+            };
+            // A chain with entries more (a polygon's or a mask's): the enclosing clips, then them, as one run.
+            const auto add_entries = [&](Chain chain, const std::vector<RoundedClip>& entries) {
+                const std::vector<RoundedClip> enclosing(list.clips.begin() + chain.begin,
+                                                         list.clips.begin() + chain.begin + chain.count);
+                const Chain out{std::uint32_t(list.clips.size()), chain.count + std::uint32_t(entries.size())};
+                list.clips.insert(list.clips.end(), enclosing.begin(), enclosing.end());
+                list.clips.insert(list.clips.end(), entries.begin(), entries.end());
+                return out;
+            };
+            // A chain with a polygon clip more (scene_clip_path's polygon), in a box's own space under m.
+            const auto add_polygon = [&](Chain chain, const Matrix& m, const SceneClipPath& shape) {
+                return add_entries(chain,
+                                   clip_polygon_entries(shape.polygon, shape.evenodd, shape.bounds, inverse_map(m)));
             };
             // The target-space bounding rectangle of a local rectangle under m, cut to clip.
             const auto bound = [](std::array<float, 4> clip, const Matrix& m, const std::array<float, 4>& rect) {
@@ -854,6 +881,8 @@ namespace weft {
 
             // framed: n is a node of the frame, not a piece of one (a fragment of an inline box, its content without
             // its box). still: no transform, scroll position or anchor around n moves it (paint::Raster::still).
+            // The nodes the visit is in, outermost first: a node's parent, which tells whether it is a stacking context.
+            std::vector<const SceneNode*> lineage;
             auto visit = [&](auto&& self, const SceneNode& n, Matrix parent, std::array<float, 4> clip, Chain chain,
                              bool still, bool framed) -> void {
                 Spanned spanned{framed ? build.spans : nullptr, &n, out, {}};
@@ -1037,6 +1066,113 @@ namespace weft {
                 if (std::hypot(m[0], m[1]) + std::hypot(m[2], m[3]) > constants::scene::max_geometry_transform_scale) {
                     throw std::invalid_argument("transform scale bound");
                 }
+                // clip-path (CSS Masking 1 §3): its shape clips what the element paints (its shadows and its filtered
+                // image too) and its descendants, antialiased, in the element's own space. The target-space clip
+                // keeps the shape's bounds a device pixel out, for the antialiasing. A value the scene does not take
+                // draws unclipped (diagnosed when the element was built); a shape of no area shows nothing. An inline
+                // box in lines is not clipped.
+                if (framed && n.fragments.empty() && scene_clip_path_value(n.style) != "none") {
+                    std::optional<SceneClipPath> shape;
+                    try {
+                        shape = scene_clip_path(n.style, item.width, item.height,
+                                                constants::scene::clip_path_flatness /
+                                                    (scale * std::sqrt(std::abs(determinant))));
+                    } catch (const std::invalid_argument&) {
+                    }
+                    if (shape && shape->empty) {
+                        return;
+                    }
+                    if (shape) {
+                        const auto& r = shape->bounds;
+                        auto reached = bound(unclipped, m, r);
+                        const float pixel = 1 / scale;
+                        reached = {reached[0] - pixel, reached[1] - pixel, reached[2] + pixel, reached[3] + pixel};
+                        clip = {std::max(clip[0], reached[0]), std::max(clip[1], reached[1]),
+                                std::min(clip[2], reached[2]), std::min(clip[3], reached[3])};
+                        if (shape->polygon) {
+                            chain = add_polygon(chain, m, *shape);
+                        } else if (axis_aligned(m)) {
+                            chain = add_rounded(chain, m, point(m, r[0], r[1]), point(m, r[0] + r[2], r[1] + r[3]),
+                                                shape->rounded->radius_x, shape->rounded->radius_y);
+                        } else {
+                            chain = add_local(chain, m, r, shape->rounded->radius_x, shape->rounded->radius_y);
+                        }
+                        item.clip = clip;
+                        item.clips_begin = chain.begin;
+                        item.clips_count = chain.count;
+                    }
+                }
+                // mask-image (CSS Masking 1 §4): the element's group (its painting and its descendants', composited,
+                // after its filter and clip-path) times its mask, which the group's composite evaluates (a mask clip
+                // in its chain, in the element's own space). A filtered element or a layer is one item: its own chain
+                // takes the mask. A value the scene does not take draws unmasked (diagnosed when the element was
+                // built). An inline box in lines is not masked.
+                // mix-blend-mode (Compositing and Blending 1 §3): the element's group composites over what its target
+                // holds under the group, which the pass copies first (scene.hlsl's blendComposite); a stacking context
+                // whose own descendants blend is an isolated group, so that they blend with what it paints alone. The
+                // frame's root isolates nothing: what blends at its level blends with the target. An inline box in
+                // lines does not blend.
+                const auto blend = framed && n.fragments.empty() ? scene_blend_mode(n.style) : paint::BlendMode::Normal;
+                const bool isolating = framed && n.fragments.empty() && !lineage.empty() &&
+                                       scene_stacking_context(n, lineage.back()) && scene_isolates_blending(n);
+                // A group that blends, around an item that holds the element whole (a filtered image, a layer).
+                const auto blend_around = [&](auto&& draw) {
+                    if (blend == paint::BlendMode::Normal) {
+                        draw();
+                        return;
+                    }
+                    if (++groups > constants::scene::max_opacity_group_depth) {
+                        throw std::invalid_argument("opacity depth bound");
+                    }
+                    paint::Item g;
+                    g.kind = paint::Item::Kind::BeginGroup;
+                    g.clip = clip;
+                    g.clips_begin = chain.begin;
+                    g.clips_count = chain.count;
+                    list.items.push_back(g);
+                    draw();
+                    g.kind = paint::Item::Kind::EndGroup;
+                    g.blend = blend;
+                    list.items.push_back(g);
+                    --groups;
+                };
+                std::optional<SceneMask> mask;
+                if (framed && n.fragments.empty() && scene_mask_value(n.style) != "none") {
+                    try {
+                        mask = scene_mask(n.style, item.width, item.height, n.mask_image.get());
+                    } catch (const std::invalid_argument&) {
+                    }
+                }
+                // A tile that does not repeat along an axis lies on device pixels there, as Chrome snaps an image's
+                // rectangle (its edges rounded), unless the box rotates, skews or mirrors.
+                if (mask && axis_aligned(m) && m[0] > 0 && m[3] > 0) {
+                    for (auto& layer : mask->layers) {
+                        auto& tile = layer.gradient ? layer.gradient->tile : layer.tile;
+                        for (unsigned axis = 0; axis < 2; ++axis) {
+                            if (layer.repeat[axis]) {
+                                continue;
+                            }
+                            const float k = m[axis * 3];
+                            const float at = m[4 + axis];
+                            const float lo = std::floor((at + k * tile[2 + axis]) * scale + .5f);
+                            const float hi = std::floor((at + k * (tile[2 + axis] + tile[axis])) * scale + .5f);
+                            tile[2 + axis] = (lo / scale - at) / k;
+                            tile[axis] = (hi - lo) / scale / k;
+                        }
+                    }
+                }
+                const auto add_mask = [&](Chain on) {
+                    if (!mask) {
+                        return on;
+                    }
+                    const auto data = scene_mask_data(*mask);
+                    const bool imaged = std::any_of(mask->layers.begin(), mask->layers.end(), [](const auto& l) {
+                        return l.image;
+                    });
+                    const auto asset = imaged ? std::uint32_t(index_of(list.assets, n.mask_image)) + 1 : 0u;
+                    return add_entries(on, clip_mask_entries(data, std::uint32_t(mask->layers.size()), inverse_map(m),
+                                                             asset));
+                };
                 paint::Box box;
                 box.radii = scene_values::corner_radii(n.style, item.width, item.height);
                 unsigned k{};
@@ -1143,13 +1279,20 @@ namespace weft {
                     }
                     auto shape = item;
                     shape.kind = paint::Item::Kind::Filter;
+                    if (mask) {
+                        const auto masked = add_mask(chain);
+                        shape.clips_begin = masked.begin;
+                        shape.clips_count = masked.count;
+                    }
                     shape.transform = multiply(item.transform, {1, 0, 0, 1, left, top});
                     shape.width = float(px[2] - px[0]) / region.resolution;
                     shape.height = float(px[3] - px[1]) / region.resolution;
                     shape.opacity = opacity;
                     shape.payload = std::uint32_t(list.filters.size());
                     list.filters.push_back(std::move(value));
-                    list.items.push_back(shape);
+                    blend_around([&] {
+                        list.items.push_back(shape);
+                    });
                     return;
                 }
                 // A layer image holds its subtree in place: an anchored descendant moves on its own, so such a node
@@ -1161,17 +1304,66 @@ namespace weft {
                     source->anchoring.reset();
                     source->style.erase(PropertyId::Transform);
                     source->style.erase(PropertyId::Opacity);
+                    // Its clip-path clips the layer's image as the item's chain (above).
+                    source->style.erase(PropertyId::ClipPath);
+                    source->style.erase(PropertyId::WebkitClipPath);
                     source->attributes.erase("style");
                     source->paint.reset();
+                    // Its mask masks the layer's image as the item's chain.
+                    source->style.erase(PropertyId::MaskImage);
+                    if (mask) {
+                        const auto masked = add_mask(chain);
+                        item.clips_begin = masked.begin;
+                        item.clips_count = masked.count;
+                    }
                     item.kind = paint::Item::Kind::Layer;
                     item.opacity = opacity;
                     item.payload = std::uint32_t(list.rasters.size());
                     list.rasters.push_back({std::move(source)});
-                    list.items.push_back(item);
+                    blend_around([&] {
+                        list.items.push_back(item);
+                    });
                     return;
                 }
                 // The element's first item: an effect that reads its backdrop reads what the target held before it.
                 const auto first_item = std::uint32_t(list.items.size());
+                // A fitted image (a background image or an img's) over a painting area of the box, inside its corners
+                // (a rounded clip), the area snapped to device pixels as Chrome draws an image, unless the box
+                // rotates, skews or mirrors.
+                const auto add_fitted = [&](const BackgroundRect& painting, const paint::Image& image) {
+                    const auto& r = painting.rect;
+                    auto shape = item;
+                    shape.kind = paint::Item::Kind::Image;
+                    shape.transform = multiply(m, {1, 0, 0, 1, r[0], r[1]});
+                    shape.width = r[2];
+                    shape.height = r[3];
+                    if (std::any_of(painting.radius_x.begin(), painting.radius_x.end(), [](float c) {
+                            return c > 0;
+                        })) {
+                        const auto corners =
+                            axis_aligned(m)
+                                ? add_rounded(chain, m, point(m, r[0], r[1]), point(m, r[0] + r[2], r[1] + r[3]),
+                                              painting.radius_x, painting.radius_y)
+                                : add_local(chain, m, r, painting.radius_x, painting.radius_y);
+                        shape.clips_begin = corners.begin;
+                        shape.clips_count = corners.count;
+                    }
+                    if (axis_aligned(m) && m[0] > 0 && m[3] > 0) {
+                        const auto snap = [&](float px) {
+                            return std::round(px * scale) / scale;
+                        };
+                        const float left = snap(m[4] + m[0] * r[0]);
+                        const float top = snap(m[5] + m[3] * r[1]);
+                        shape.transform = {m[0], 0, 0, m[3], left, top};
+                        shape.width = (snap(m[4] + m[0] * (r[0] + r[2])) - left) / m[0];
+                        shape.height = (snap(m[5] + m[3] * (r[1] + r[3])) - top) / m[3];
+                    }
+                    if (shape.width > 0 && shape.height > 0) {
+                        shape.payload = std::uint32_t(list.images.size());
+                        list.images.push_back(image);
+                        list.items.push_back(shape);
+                    }
+                };
                 // A background image laid out as CSS lays one out: a host texture or a url() image.
                 const auto host_texture = texture_of(n);
                 const bool fitted = !bare && (!host_texture.empty() || n.background_image);
@@ -1207,8 +1399,9 @@ namespace weft {
                     list.items.push_back(shape);
                 };
                 const bool isolated =
-                    backdrop_group || (opacity < 1 && (!n.children.empty() || (!n.text.empty() && painted) ||
-                                                       (!shadows.empty() && (painted || !n.text.empty()))));
+                    blend != paint::BlendMode::Normal || isolating || bool(mask) || backdrop_group ||
+                    (opacity < 1 && (!n.children.empty() || (!n.text.empty() && painted) ||
+                                     (!shadows.empty() && (painted || !n.text.empty()))));
                 if (!isolated) {
                     item.opacity = opacity;
                 }
@@ -1400,38 +1593,8 @@ namespace weft {
                     }
                     image.fit = scene_texture_fit(
                         layout, painting, scene_background_box(n.style, layout.origin, item.width, item.height));
-                    const auto& r = painting.rect;
-                    auto shape = item;
-                    shape.kind = paint::Item::Kind::Image;
-                    shape.transform = multiply(m, {1, 0, 0, 1, r[0], r[1]});
-                    shape.width = r[2];
-                    shape.height = r[3];
-                    if (std::any_of(painting.radius_x.begin(), painting.radius_x.end(), [](float c) {
-                            return c > 0;
-                        })) {
-                        const auto corners =
-                            axis_aligned(m)
-                                ? add_rounded(chain, m, point(m, r[0], r[1]), point(m, r[0] + r[2], r[1] + r[3]),
-                                              painting.radius_x, painting.radius_y)
-                                : add_local(chain, m, r, painting.radius_x, painting.radius_y);
-                        shape.clips_begin = corners.begin;
-                        shape.clips_count = corners.count;
-                    }
-                    if (axis_aligned(m) && m[0] > 0 && m[3] > 0) {
-                        const auto snap = [&](float px) {
-                            return std::round(px * scale) / scale;
-                        };
-                        const float left = snap(m[4] + m[0] * r[0]);
-                        const float top = snap(m[5] + m[3] * r[1]);
-                        shape.transform = {m[0], 0, 0, m[3], left, top};
-                        shape.width = (snap(m[4] + m[0] * (r[0] + r[2])) - left) / m[0];
-                        shape.height = (snap(m[5] + m[3] * (r[1] + r[3])) - top) / m[3];
-                    }
-                    if (shape.width > 0 && shape.height > 0) {
-                        shape.payload = std::uint32_t(list.images.size());
-                        list.images.push_back(image);
-                        list.items.push_back(shape);
-                    }
+                    image.pixelated = scene_image_pixelated(n.style);
+                    add_fitted(painting, image);
                     add_shadows(true);
                     add_dashes();
                     if (bordered) {
@@ -1477,9 +1640,29 @@ namespace weft {
                         image.fit.scale = paint::TextureFit::Scale::Lengths;
                         image.fit.size = {shape.width, shape.height};
                         image.fit.repeat = {paint::TextureFit::Repeat::NoRepeat, paint::TextureFit::Repeat::NoRepeat};
+                        image.pixelated = scene_image_pixelated(n.style);
                         shape.payload = std::uint32_t(list.images.size());
                         list.images.push_back(image);
                         list.items.push_back(shape);
+                    }
+                }
+                // An img's image over its background and borders, in its content box inside its inner corners, where
+                // object-fit and object-position put it (scene_object_layout): a fitted image of one tile. What the
+                // scene cannot place (a percentage padding) is not drawn; building the node told so.
+                if (!bare && n.image && n.image->width && n.image->height) {
+                    try {
+                        const auto content =
+                            scene_background_box(n.style, BackgroundBox::Content, item.width, item.height);
+                        const auto layout =
+                            scene_object_layout(n.style, {float(n.image->width), float(n.image->height)},
+                                                {content.rect[2], content.rect[3]});
+                        paint::Image image;
+                        image.asset = index_of(list.assets, n.image);
+                        image.fitted = true;
+                        image.fit = scene_texture_fit(layout, content, content);
+                        image.pixelated = scene_image_pixelated(n.style);
+                        add_fitted(content, image);
+                    } catch (const std::invalid_argument&) {
                     }
                 }
                 // The element's particles over its background and borders, under its content, unclipped by its own
@@ -1718,11 +1901,20 @@ namespace weft {
                             if (begin >= end && !line_break) {
                                 continue;
                             }
-                            const auto r = add_fill(x_at(l, begin), l.rect[1],
-                                                    x_at(l, end) + (line_break ? field->newline_width : 0.f),
-                                                    l.rect[1] + l.rect[3], background);
-                            if (r[2] > r[0]) {
-                                selected.push_back({at, r});
+                            // Right-to-left text: the characters selected wherever reordering put them.
+                            auto ranges = scene_field_ranges(l, begin, end);
+                            if (line_break) {
+                                // At the line's end: its left on a right-to-left line.
+                                const float stop = x_at(l, line_end) - l.rect[0];
+                                ranges.push_back(l.rtl ? std::array<float, 2>{stop - field->newline_width, stop}
+                                                       : std::array<float, 2>{stop, stop + field->newline_width});
+                            }
+                            for (const auto& range : ranges) {
+                                const auto r = add_fill(l.rect[0] + range[0], l.rect[1], l.rect[0] + range[1],
+                                                        l.rect[1] + l.rect[3], background);
+                                if (r[2] > r[0]) {
+                                    selected.push_back({at, r});
+                                }
                             }
                         }
                     }
@@ -1775,14 +1967,18 @@ namespace weft {
                             const auto begin = std::max(from, l.start);
                             const auto end = std::min(to, line_end);
                             if (begin < end) {
-                                add_fill(x_at(l, begin), bottom - constants::scene::field_thin_underline_px,
-                                         x_at(l, end), bottom, text_ink);
+                                for (const auto& range : scene_field_ranges(l, begin, end)) {
+                                    add_fill(l.rect[0] + range[0], bottom - constants::scene::field_thin_underline_px,
+                                             l.rect[0] + range[1], bottom, text_ink);
+                                }
                             }
                             const auto thick_begin = std::max(clause_from, l.start);
                             const auto thick_end = std::min(clause_to, line_end);
                             if (thick_begin < thick_end) {
-                                add_fill(x_at(l, thick_begin), bottom - constants::scene::field_thick_underline_px,
-                                         x_at(l, thick_end), bottom, text_ink);
+                                for (const auto& range : scene_field_ranges(l, thick_begin, thick_end)) {
+                                    add_fill(l.rect[0] + range[0], bottom - constants::scene::field_thick_underline_px,
+                                             l.rect[0] + range[1], bottom, text_ink);
+                                }
                             }
                         }
                     }
@@ -1900,7 +2096,9 @@ namespace weft {
                 for (auto i : order) {
                     const auto first = std::uint32_t(list.items.size());
                     const auto before = out.anchors.size();
+                    lineage.push_back(&n);
                     self(self, n.children[i], item.transform, clip, chain, inner_still, true);
+                    lineage.pop_back();
                     if (anchors.deferred) {
                         members.push_back({first, std::uint32_t(list.items.size()), anchor_of(before, n.children[i]),
                                            std::uint32_t(i)});
@@ -1950,8 +2148,25 @@ namespace weft {
                     g.kind = paint::Item::Kind::EndGroup;
                     g.opacity = opacity;
                     g.clip = group_clip;
-                    g.clips_begin = group_chain.begin;
-                    g.clips_count = group_chain.count;
+                    const auto composite = add_mask(group_chain);
+                    g.clips_begin = composite.begin;
+                    g.clips_count = composite.count;
+                    g.blend = blend;
+                    // A group composites where its subtree paints: elsewhere its target is transparent, which leaves
+                    // what lies under it as it is (masked, faded or blended alike). So its composite (a mask's
+                    // evaluation per pixel among it) covers that much of the target, not all of its clip, and a group
+                    // that blends copies that much of its backdrop.
+                    if (!group_anchored) {
+                        if (const auto e = extent(extent, n)) {
+                            const auto& r = *e;
+                            constexpr float guard = constants::scene::list_cull_guard_px;
+                            g.clip = r[0] > r[2] || r[1] > r[3]
+                                         ? std::array<float, 4>{0, 0, 0, 0}
+                                         : bound(group_clip, m,
+                                                 {r[0] - guard, r[1] - guard, r[2] - r[0] + 2 * guard,
+                                                  r[3] - r[1] + 2 * guard});
+                        }
+                    }
                     list.items.push_back(g);
                     --groups;
                 }
@@ -2059,7 +2274,8 @@ namespace weft {
         auto source = std::make_shared<SceneNode>(element);
         source->box[0] = source->box[1] = 0;
         source->anchoring.reset();
-        for (const auto id : {PropertyId::Transform, PropertyId::Opacity, PropertyId::Filter}) {
+        for (const auto id : {PropertyId::Transform, PropertyId::Opacity, PropertyId::Filter, PropertyId::ClipPath,
+                              PropertyId::WebkitClipPath, PropertyId::MaskImage}) {
             source->style.erase(id);
         }
         // Its computed values are authoritative: the authored style holds the transform and opacity too.

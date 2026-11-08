@@ -1,0 +1,5 @@
+{
+  "scripts": ["touch-demo.js"],
+  "stylesheet": "touch-demo.css",
+  "forgivingCss": true
+}

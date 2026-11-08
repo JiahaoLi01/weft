@@ -214,9 +214,14 @@ namespace {
             {"effectTexture2", {"texture", slots::texture_effects + 2}},
             {"effectTexture3", {"texture", slots::texture_effects + 3}},
             {"particleSprite", {"texture", slots::texture_effects}},
+            // A mask's image, where an effect's first texture goes (SceneSchedule::Extra::Mask).
+            {"maskImage", {"texture", slots::texture_effects}},
+            // A blending group's backdrop, where an effect's second texture goes (SceneSchedule::Draw::backdrop).
+            {"blendBackdrop", {"texture", slots::texture_effects + 1}},
             {"BackdropPass", {"buffer", slots::backdrop_buffer_constants}},
             {"source", {"texture", slots::backdrop_texture_source}},
             {"mirror", {"sampler", slots::backdrop_sampler_mirror}},
+            {"encoded", {"texture", slots::export_texture_encoded}},
         };
         return table;
     }
@@ -318,7 +323,8 @@ namespace {
         const auto vertex = parse(source.vertex, "scene vertex");
         const auto fragment = parse(source.fragment, "scene fragment");
         check_entry(vertex, "vertex", {"View", "paints", "order"}, "scene vertex");
-        check_entry(fragment, "fragment", {"View", "paints", "image", "clips", "linearClamp", "linearRepeat"},
+        check_entry(fragment, "fragment",
+                    {"View", "paints", "image", "clips", "linearClamp", "linearRepeat", "maskImage", "blendBackdrop"},
                     "scene fragment");
         check_interface(vertex, fragment, "scene");
         check_clip_space(vertex, "scene");
@@ -370,6 +376,18 @@ namespace {
               metal::backdrop_shader(BackdropFilter::Matrix).vertex.data());
         CHECK(metal::backdrop_shader(BackdropFilter::Blur).fragment !=
               metal::backdrop_shader(BackdropFilter::Matrix).fragment);
+    }
+
+    // The export resolve: a fullscreen triangle reading the scratch target's texels, nothing else bound.
+    void ExportResolveProgram() {
+        const auto source = metal::export_resolve_shader();
+        const auto vertex = parse(source.vertex, "export resolve vertex");
+        const auto fragment = parse(source.fragment, "export resolve fragment");
+        check_entry(vertex, "vertex", {}, "export resolve vertex");
+        const auto bound = check_entry(fragment, "fragment", {"encoded"}, "export resolve fragment");
+        CHECK(bound == std::set<std::string>{"encoded"});
+        check_interface(vertex, fragment, "export resolve");
+        check_clip_space(vertex, "export resolve");
     }
 
     // Each effect's encoded fragment after the scene's vertex stage: its textures in the effect slots, at most as many
@@ -465,6 +483,7 @@ int main() {
         SceneProgram();
         ParticleProgram();
         BackdropPrograms();
+        ExportResolveProgram();
         EffectPrograms();
         ChecksRefuse();
         std::cout << "PASS render metal shaders: entry points, argument table indices, record sizes, stage interfaces, "

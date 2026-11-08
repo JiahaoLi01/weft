@@ -62,12 +62,19 @@ namespace {
         // The web platform's localStorage of the View's pages.
         std::shared_ptr<weft::WebStorage> storage = std::make_shared<weft::WebStorage>();
         void* reader_user{};
+        // The host's clipboard (weft_view_set_clipboard); none: the View's own.
+        weft_clipboard_read_fn clipboard_read{};
+        weft_clipboard_write_fn clipboard_write{};
+        void* clipboard_user{};
         // A host callback (a message drain or a sync function) runs: owner operations on the View wait.
         bool busy{};
         // The host's keyboard focus is in the View (weft_view_set_focus), for the View a first load makes.
         bool focused = true;
         // The host's safe area (weft_view_set_safe_area), top, right, bottom and left, for the View a first load makes.
         std::array<float, 4> safe_area{};
+        // The host's input devices (weft_view_set_input_devices), likewise.
+        weft::InputDevices devices{};
+        unsigned max_touch_points{};
     };
 
     // Marks an entry busy while a host callback runs.
@@ -288,6 +295,30 @@ namespace {
             }
             return std::move(file.bytes);
         };
+    }
+
+    // The View's clipboard: the host's, while it has one.
+    weft::ViewClipboard view_clipboard(ViewEntry& entry) {
+        if (!entry.clipboard_read || !entry.clipboard_write) {
+            return {};
+        }
+        return {[&entry]() -> std::optional<std::string> {
+                    weft_resource_writer text;
+                    weft_result result{};
+                    {
+                        const Busy busy(entry);
+                        result = entry.clipboard_read(entry.clipboard_user, &text);
+                    }
+                    std::string value(text.bytes.begin(), text.bytes.end());
+                    if (result != WEFT_OK || !text.written || !weft::bridge::utf8(value)) {
+                        return std::nullopt;
+                    }
+                    return value;
+                },
+                [&entry](std::string_view text) {
+                    const Busy busy(entry);
+                    (void)entry.clipboard_write(entry.clipboard_user, text.data(), text.size());
+                }};
     }
 
     // Fonts can change until the runtime's first page.
@@ -693,6 +724,7 @@ extern "C" weft_result weft_view_load(weft_runtime* runtime, weft_view_handle vi
                 entry->view->install_function(function.name, engine_function(*entry, function));
             }
             entry->view->set_resource_reader(resource_reader(*entry));
+            entry->view->set_clipboard(view_clipboard(*entry));
             entry->view->set_local_storage(entry->storage);
             entry->view->set_effects(&runtime->effects);
             if (!entry->focused) {
@@ -700,6 +732,7 @@ extern "C" weft_result weft_view_load(weft_runtime* runtime, weft_view_handle vi
             }
             const auto& [top, right, bottom, left] = entry->safe_area;
             entry->view->set_safe_area(top, right, bottom, left);
+            entry->view->set_input_devices(entry->devices, entry->max_touch_points);
         }
         entry->view->load(content);
         return WEFT_OK;
@@ -783,6 +816,68 @@ extern "C" weft_result weft_view_pointer(weft_runtime* runtime, weft_view_handle
             const bool prevented = entry->view->pointer({weft::PointerKind(event->kind), event->x, event->y,
                                                          event->buttons, event->wheel_x, event->wheel_y,
                                                          event->modifiers});
+            if (out_prevented) {
+                *out_prevented = prevented;
+            }
+        }
+        return WEFT_OK;
+    });
+}
+
+extern "C" weft_result weft_view_set_input_devices(weft_runtime* runtime, weft_view_handle view,
+                                                   const weft_input_devices* devices) {
+    ViewEntry* entry{};
+    if (const auto error = find_idle(runtime, view, entry); error != WEFT_OK) {
+        return error;
+    }
+    constexpr uint32_t both = WEFT_INPUT_MOUSE | WEFT_INPUT_TOUCH;
+    if (!devices || devices->struct_size < sizeof(weft_input_devices) || (devices->available & ~both) ||
+        (devices->primary & ~devices->available) || devices->primary == both ||
+        devices->max_touch_points > weft::constants::input::max_touch_points ||
+        ((devices->available & WEFT_INPUT_TOUCH) != 0) != (devices->max_touch_points > 0)) {
+        return WEFT_INVALID_ARGUMENT;
+    }
+    static_assert(WEFT_INPUT_MOUSE == weft::InputDevices::mouse && WEFT_INPUT_TOUCH == weft::InputDevices::touch);
+    const weft::InputDevices value{devices->primary, devices->available};
+    return guarded([&] {
+        if (entry->view) {
+            entry->view->set_input_devices(value, devices->max_touch_points);
+        }
+        entry->devices = value;
+        entry->max_touch_points = devices->max_touch_points;
+        return WEFT_OK;
+    });
+}
+
+extern "C" weft_result weft_view_touch(weft_runtime* runtime, weft_view_handle view, const weft_touch_event* event,
+                                       uint32_t* out_prevented) {
+    if (out_prevented) {
+        *out_prevented = 0;
+    }
+    ViewEntry* entry{};
+    if (const auto error = find_idle(runtime, view, entry); error != WEFT_OK) {
+        return error;
+    }
+    if (!event || event->struct_size < sizeof(weft_touch_event) || (event->count && !event->points) ||
+        event->reserved || (event->modifiers & ~weft::key_modifier::all) || !std::isfinite(event->time_seconds) ||
+        event->time_seconds < 0) {
+        return WEFT_INVALID_ARGUMENT;
+    }
+    weft::TouchInput input;
+    input.modifiers = event->modifiers;
+    if (event->time_seconds > 0) {
+        input.time_ms = event->time_seconds * 1000;
+    }
+    for (uint32_t k = 0; k < event->count; ++k) {
+        const auto& p = event->points[k];
+        if (p.phase > WEFT_TOUCH_CANCELLED || p.reserved || p.reserved2 != 0) {
+            return WEFT_INVALID_ARGUMENT;
+        }
+        input.points.push_back({p.id, weft::TouchPhase(p.phase), p.x, p.y, p.radius_x, p.radius_y, p.force});
+    }
+    return guarded([&] {
+        if (entry->view) {
+            const bool prevented = entry->view->touch(input);
             if (out_prevented) {
                 *out_prevented = prevented;
             }
@@ -1314,6 +1409,26 @@ extern "C" weft_result weft_view_set_resource_reader(weft_runtime* runtime, weft
         entry->reader_user = fn ? user : nullptr;
         if (entry->view) {
             entry->view->set_resource_reader(resource_reader(*entry));
+        }
+        return WEFT_OK;
+    });
+}
+
+extern "C" weft_result weft_view_set_clipboard(weft_runtime* runtime, weft_view_handle view,
+                                               weft_clipboard_read_fn read, weft_clipboard_write_fn write, void* user) {
+    ViewEntry* entry{};
+    if (const auto error = find_idle(runtime, view, entry); error != WEFT_OK) {
+        return error;
+    }
+    if (!read != !write) {
+        return WEFT_INVALID_ARGUMENT;
+    }
+    return guarded([&] {
+        entry->clipboard_read = read;
+        entry->clipboard_write = write;
+        entry->clipboard_user = read ? user : nullptr;
+        if (entry->view) {
+            entry->view->set_clipboard(view_clipboard(*entry));
         }
         return WEFT_OK;
     });

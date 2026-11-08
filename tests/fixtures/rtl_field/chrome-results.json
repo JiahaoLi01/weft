@@ -1,0 +1,1005 @@
+{
+ "browser": "Chrome/156.0.8078.80",
+ "dpr": 1,
+ "source": "headless Chrome, repository fonts as data URLs",
+ "fonts": [
+  {
+   "family": "Roboto",
+   "path": "third_party/harfbuzz/source/perf/fonts/Roboto-Regular.ttf"
+  },
+  {
+   "family": "TestArabic",
+   "path": "third_party/harfbuzz/source/perf/fonts/Amiri-Regular.ttf"
+  },
+  {
+   "family": "TestHebrew",
+   "path": "third_party/harfbuzz/source/test/subset/data/fonts/NotoIKEAHebrewLatin-Regular.ttf"
+  }
+ ],
+ "fields": [
+  {
+   "rect": [
+    20,
+    10,
+    268,
+    32
+   ],
+   "length": 9,
+   "carets": [
+    {
+     "offset": 0,
+     "columns": [
+      [
+       263,
+       264
+      ]
+     ]
+    },
+    {
+     "offset": 1,
+     "columns": [
+      [
+       249,
+       250
+      ]
+     ]
+    },
+    {
+     "offset": 3,
+     "columns": [
+      [
+       234,
+       235
+      ]
+     ]
+    },
+    {
+     "offset": 8,
+     "columns": [
+      [
+       188,
+       189
+      ]
+     ]
+    },
+    {
+     "offset": 9,
+     "columns": [
+      [
+       175,
+       176
+      ]
+     ]
+    }
+   ],
+   "selections": [
+    {
+     "start": 0,
+     "end": 2,
+     "columns": [
+      [
+       240,
+       264
+      ]
+     ]
+    },
+    {
+     "start": 1,
+     "end": 8,
+     "columns": [
+      [
+       189,
+       250
+      ]
+     ]
+    },
+    {
+     "start": 2,
+     "end": 7,
+     "columns": [
+      [
+       199,
+       240
+      ]
+     ]
+    }
+   ],
+   "arrows": [
+    {
+     "start": 0,
+     "end": 0,
+     "key": "ArrowLeft",
+     "after": [
+      1,
+      1
+     ]
+    },
+    {
+     "start": 0,
+     "end": 0,
+     "key": "ArrowRight",
+     "after": [
+      0,
+      0
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "key": "ArrowLeft",
+     "after": [
+      3,
+      3
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "key": "ArrowRight",
+     "after": [
+      1,
+      1
+     ]
+    },
+    {
+     "start": 9,
+     "end": 9,
+     "key": "ArrowLeft",
+     "after": [
+      9,
+      9
+     ]
+    },
+    {
+     "start": 9,
+     "end": 9,
+     "key": "ArrowRight",
+     "after": [
+      8,
+      8
+     ]
+    },
+    {
+     "start": 1,
+     "end": 4,
+     "key": "ArrowLeft",
+     "after": [
+      4,
+      4
+     ]
+    },
+    {
+     "start": 1,
+     "end": 4,
+     "key": "ArrowRight",
+     "after": [
+      1,
+      1
+     ]
+    }
+   ]
+  },
+  {
+   "rect": [
+    20,
+    60,
+    268,
+    32
+   ],
+   "length": 11,
+   "carets": [
+    {
+     "offset": 0,
+     "columns": [
+      [
+       263,
+       264
+      ]
+     ]
+    },
+    {
+     "offset": 1,
+     "columns": [
+      [
+       249,
+       250
+      ]
+     ]
+    },
+    {
+     "offset": 3,
+     "columns": [
+      [
+       234,
+       235
+      ]
+     ]
+    },
+    {
+     "offset": 10,
+     "columns": [
+      [
+       205,
+       206
+      ]
+     ]
+    },
+    {
+     "offset": 11,
+     "columns": [
+      [
+       156,
+       157
+      ]
+     ]
+    }
+   ],
+   "selections": [
+    {
+     "start": 0,
+     "end": 2,
+     "columns": [
+      [
+       240,
+       264
+      ]
+     ]
+    },
+    {
+     "start": 1,
+     "end": 10,
+     "columns": [
+      [
+       157,
+       205
+      ],
+      [
+       217,
+       250
+      ]
+     ]
+    },
+    {
+     "start": 2,
+     "end": 7,
+     "columns": [
+      [
+       157,
+       179
+      ],
+      [
+       217,
+       240
+      ]
+     ]
+    }
+   ],
+   "arrows": [
+    {
+     "start": 0,
+     "end": 0,
+     "key": "ArrowLeft",
+     "after": [
+      1,
+      1
+     ]
+    },
+    {
+     "start": 0,
+     "end": 0,
+     "key": "ArrowRight",
+     "after": [
+      0,
+      0
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "key": "ArrowLeft",
+     "after": [
+      3,
+      3
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "key": "ArrowRight",
+     "after": [
+      1,
+      1
+     ]
+    },
+    {
+     "start": 11,
+     "end": 11,
+     "key": "ArrowLeft",
+     "after": [
+      11,
+      11
+     ]
+    },
+    {
+     "start": 11,
+     "end": 11,
+     "key": "ArrowRight",
+     "after": [
+      10,
+      10
+     ]
+    },
+    {
+     "start": 1,
+     "end": 4,
+     "key": "ArrowLeft",
+     "after": [
+      4,
+      4
+     ]
+    },
+    {
+     "start": 1,
+     "end": 4,
+     "key": "ArrowRight",
+     "after": [
+      1,
+      1
+     ]
+    }
+   ]
+  },
+  {
+   "rect": [
+    20,
+    110,
+    268,
+    32
+   ],
+   "length": 12,
+   "carets": [
+    {
+     "offset": 0,
+     "columns": [
+      [
+       4,
+       5
+      ]
+     ]
+    },
+    {
+     "offset": 1,
+     "columns": [
+      [
+       14,
+       15
+      ]
+     ]
+    },
+    {
+     "offset": 3,
+     "columns": [
+      [
+       36,
+       37
+      ]
+     ]
+    },
+    {
+     "offset": 11,
+     "columns": [
+      [
+       110,
+       111
+      ]
+     ]
+    },
+    {
+     "offset": 12,
+     "columns": [
+      [
+       117,
+       118
+      ]
+     ]
+    }
+   ],
+   "selections": [
+    {
+     "start": 0,
+     "end": 2,
+     "columns": [
+      [
+       4,
+       26
+      ]
+     ]
+    },
+    {
+     "start": 1,
+     "end": 11,
+     "columns": [
+      [
+       15,
+       111
+      ]
+     ]
+    },
+    {
+     "start": 2,
+     "end": 7,
+     "columns": [
+      [
+       26,
+       42
+      ],
+      [
+       55,
+       84
+      ]
+     ]
+    }
+   ],
+   "arrows": [
+    {
+     "start": 0,
+     "end": 0,
+     "key": "ArrowLeft",
+     "after": [
+      0,
+      0
+     ]
+    },
+    {
+     "start": 0,
+     "end": 0,
+     "key": "ArrowRight",
+     "after": [
+      1,
+      1
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "key": "ArrowLeft",
+     "after": [
+      1,
+      1
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "key": "ArrowRight",
+     "after": [
+      3,
+      3
+     ]
+    },
+    {
+     "start": 12,
+     "end": 12,
+     "key": "ArrowLeft",
+     "after": [
+      11,
+      11
+     ]
+    },
+    {
+     "start": 12,
+     "end": 12,
+     "key": "ArrowRight",
+     "after": [
+      12,
+      12
+     ]
+    },
+    {
+     "start": 1,
+     "end": 4,
+     "key": "ArrowLeft",
+     "after": [
+      1,
+      1
+     ]
+    },
+    {
+     "start": 1,
+     "end": 4,
+     "key": "ArrowRight",
+     "after": [
+      4,
+      4
+     ]
+    }
+   ]
+  },
+  {
+   "rect": [
+    20,
+    160,
+    268,
+    32
+   ],
+   "length": 13,
+   "carets": [
+    {
+     "offset": 0,
+     "columns": [
+      [
+       263,
+       264
+      ]
+     ]
+    },
+    {
+     "offset": 1,
+     "columns": [
+      [
+       257,
+       258
+      ]
+     ]
+    },
+    {
+     "offset": 3,
+     "columns": [
+      [
+       234,
+       235
+      ]
+     ]
+    },
+    {
+     "offset": 12,
+     "columns": [
+      [
+       191,
+       192
+      ]
+     ]
+    },
+    {
+     "offset": 13,
+     "columns": [
+      [
+       187,
+       188
+      ]
+     ]
+    }
+   ],
+   "selections": [
+    {
+     "start": 0,
+     "end": 2,
+     "columns": [
+      [
+       248,
+       264
+      ]
+     ]
+    },
+    {
+     "start": 1,
+     "end": 12,
+     "columns": [
+      [
+       191,
+       257
+      ]
+     ]
+    },
+    {
+     "start": 2,
+     "end": 7,
+     "columns": [
+      [
+       216,
+       248
+      ]
+     ]
+    }
+   ],
+   "arrows": [
+    {
+     "start": 0,
+     "end": 0,
+     "key": "ArrowLeft",
+     "after": [
+      1,
+      1
+     ]
+    },
+    {
+     "start": 0,
+     "end": 0,
+     "key": "ArrowRight",
+     "after": [
+      0,
+      0
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "key": "ArrowLeft",
+     "after": [
+      3,
+      3
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "key": "ArrowRight",
+     "after": [
+      1,
+      1
+     ]
+    },
+    {
+     "start": 13,
+     "end": 13,
+     "key": "ArrowLeft",
+     "after": [
+      13,
+      13
+     ]
+    },
+    {
+     "start": 13,
+     "end": 13,
+     "key": "ArrowRight",
+     "after": [
+      12,
+      12
+     ]
+    },
+    {
+     "start": 1,
+     "end": 4,
+     "key": "ArrowLeft",
+     "after": [
+      4,
+      4
+     ]
+    },
+    {
+     "start": 1,
+     "end": 4,
+     "key": "ArrowRight",
+     "after": [
+      1,
+      1
+     ]
+    }
+   ]
+  },
+  {
+   "rect": [
+    20,
+    210,
+    268,
+    32
+   ],
+   "length": 7,
+   "carets": [
+    {
+     "offset": 0,
+     "columns": [
+      [
+       263,
+       264
+      ]
+     ]
+    },
+    {
+     "offset": 1,
+     "columns": [
+      [
+       208,
+       209
+      ]
+     ]
+    },
+    {
+     "offset": 3,
+     "columns": [
+      [
+       230,
+       231
+      ]
+     ]
+    },
+    {
+     "offset": 6,
+     "columns": [
+      [
+       257,
+       258
+      ]
+     ]
+    },
+    {
+     "offset": 7,
+     "columns": [
+      [
+       197,
+       198
+      ]
+     ]
+    }
+   ],
+   "selections": [
+    {
+     "start": 0,
+     "end": 2,
+     "columns": [
+      [
+       198,
+       220
+      ]
+     ]
+    },
+    {
+     "start": 1,
+     "end": 6,
+     "columns": [
+      [
+       208,
+       257
+      ]
+     ]
+    },
+    {
+     "start": 2,
+     "end": 7,
+     "columns": [
+      [
+       220,
+       264
+      ]
+     ]
+    }
+   ],
+   "arrows": [
+    {
+     "start": 0,
+     "end": 0,
+     "key": "ArrowLeft",
+     "after": [
+      1,
+      1
+     ]
+    },
+    {
+     "start": 0,
+     "end": 0,
+     "key": "ArrowRight",
+     "after": [
+      0,
+      0
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "key": "ArrowLeft",
+     "after": [
+      3,
+      3
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "key": "ArrowRight",
+     "after": [
+      1,
+      1
+     ]
+    },
+    {
+     "start": 7,
+     "end": 7,
+     "key": "ArrowLeft",
+     "after": [
+      7,
+      7
+     ]
+    },
+    {
+     "start": 7,
+     "end": 7,
+     "key": "ArrowRight",
+     "after": [
+      6,
+      6
+     ]
+    },
+    {
+     "start": 1,
+     "end": 4,
+     "key": "ArrowLeft",
+     "after": [
+      1,
+      1
+     ]
+    },
+    {
+     "start": 1,
+     "end": 4,
+     "key": "ArrowRight",
+     "after": [
+      4,
+      4
+     ]
+    }
+   ]
+  },
+  {
+   "rect": [
+    20,
+    260,
+    266,
+    66
+   ],
+   "length": 20,
+   "carets": [
+    {
+     "offset": 0,
+     "columns": [
+      [
+       262,
+       263
+      ]
+     ]
+    },
+    {
+     "offset": 1,
+     "columns": [
+      [
+       248,
+       249
+      ]
+     ]
+    },
+    {
+     "offset": 3,
+     "columns": [
+      [
+       233,
+       234
+      ]
+     ]
+    },
+    {
+     "offset": 19,
+     "columns": [
+      [
+       183,
+       184
+      ]
+     ]
+    },
+    {
+     "offset": 20,
+     "columns": [
+      [
+       170,
+       171
+      ]
+     ]
+    }
+   ],
+   "selections": [
+    {
+     "start": 0,
+     "end": 2,
+     "columns": [
+      [
+       239,
+       263
+      ]
+     ]
+    },
+    {
+     "start": 1,
+     "end": 19,
+     "columns": [
+      [
+       170,
+       263
+      ]
+     ]
+    },
+    {
+     "start": 2,
+     "end": 7,
+     "columns": [
+      [
+       198,
+       239
+      ]
+     ]
+    }
+   ],
+   "arrows": [
+    {
+     "start": 0,
+     "end": 0,
+     "key": "ArrowLeft",
+     "after": [
+      1,
+      1
+     ]
+    },
+    {
+     "start": 0,
+     "end": 0,
+     "key": "ArrowRight",
+     "after": [
+      0,
+      0
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "key": "ArrowLeft",
+     "after": [
+      3,
+      3
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "key": "ArrowRight",
+     "after": [
+      1,
+      1
+     ]
+    },
+    {
+     "start": 20,
+     "end": 20,
+     "key": "ArrowLeft",
+     "after": [
+      20,
+      20
+     ]
+    },
+    {
+     "start": 20,
+     "end": 20,
+     "key": "ArrowRight",
+     "after": [
+      19,
+      19
+     ]
+    },
+    {
+     "start": 1,
+     "end": 4,
+     "key": "ArrowLeft",
+     "after": [
+      4,
+      4
+     ]
+    },
+    {
+     "start": 1,
+     "end": 4,
+     "key": "ArrowRight",
+     "after": [
+      1,
+      1
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1289,7 +1289,9 @@ namespace weft {
             if (!svg_text && color_text_bitmap(n, part)) {
                 return;
             }
-            const auto run = text.shape(n.text, n.style);
+            const auto run = n.text_run
+                                 ? n.text_run
+                                 : text.shape(n.text, n.style, ShapeContext{n.text_context[0], n.text_context[1]});
             const auto& m = run->metrics;
             float size = len(get(n.style, PropertyId::FontSize, constants::default_font_size));
             float x{};
@@ -2132,6 +2134,22 @@ namespace weft {
             if (const auto filter = get(n.style, PropertyId::BackdropFilter, "none");
                 !css::trim(filter).empty() && css::trim(filter) != "none") {
                 fail("backdrop-filter");
+            }
+            // Nor CSS clip-path, mask-image or mix-blend-mode of an element (an SVG element's clip-path attribute is its
+            // own, below).
+            if (n.space.empty() || n.space == constants::xhtml_namespace_uri) {
+                for (const auto id : {PropertyId::ClipPath, PropertyId::WebkitClipPath}) {
+                    if (const auto v = css::trim(get(n.style, id, "none")); !v.empty() && v != "none") {
+                        fail("clip-path");
+                    }
+                }
+                if (const auto v = css::trim(get(n.style, PropertyId::MaskImage, "none")); !v.empty() && v != "none") {
+                    fail("mask-image");
+                }
+                if (const auto v = css::trim(get(n.style, PropertyId::MixBlendMode, "normal"));
+                    !v.empty() && v != "normal") {
+                    fail("mix-blend-mode");
+                }
             }
             // filter: the element and its subtree as a filtered image (filter_image), an inline element whole; an svg
             // element's one drop shadow of its shapes draws as a path shadow instead (drop_shadow, below).

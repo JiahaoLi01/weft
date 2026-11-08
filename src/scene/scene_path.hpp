@@ -60,6 +60,9 @@ namespace weft {
     // circle without area).
     std::shared_ptr<const paint::Path> scene_svg_path(const SceneNode& element);
 
+    // SVG path data (a path's d, CSS path()) as a path with that fill rule; null for data of no command.
+    std::shared_ptr<const paint::Path> scene_path_data(std::string_view data, bool evenodd);
+
     // An SVG element's stroke style: stroke-width, -linecap, -linejoin, -dasharray and -dashoffset, and SVG's
     // initial miter limit (4). An unknown cap or join, a negative dash or more than max_stroke_dashes fails; an odd
     // dash list repeats and an all-zero one draws solid.

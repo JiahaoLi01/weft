@@ -29,7 +29,14 @@
 //   item as wide as its text, which never overflows it), as Blink's LineTruncator truncates a line wider than the content
 //   box: the ellipsis in the container's font follows the content that fits before it, and what lies past it draws
 //   nothing; geometry stays as laid out.
-// Floats, bidi, justification and the other white-space values are diagnostics.
+// - bidirectional text (CSS Writing Modes 4 §2, UAX #9 via SheenBidi): the root's direction and unicode-bidi give each
+//   paragraph's base direction, an inline box's unicode-bidi inserts its bidi controls around it (as Blink does), text
+//   items split where their level changes and shape in their level's direction, and each line is placed in visual
+//   order with its boxes split where reordering separates their content (as Blink's LayoutNG); text-align start and
+//   end follow the line's direction, and an overflowing right-to-left line overflows on the left.
+// - text-overflow: ellipsis in visual order from the line's end (its left when right to left), as Blink's
+//   LineTruncator.
+// Floats, justification and the other white-space values are diagnostics.
 namespace weft {
     struct SceneNode;
 
@@ -65,8 +72,20 @@ namespace weft {
         float baseline{};
         // Text: the start of the text on a line that text-overflow truncates, or nothing when it hides all of it; the
         // rect stays the one it was laid out in. The ellipsis is a text piece of the root after the content it follows.
+        // Box: whether the fragment has the box's left and right edges (borders, corners): its start and end edges
+        // where they fall on this line, the start on the right for a box whose direction is rtl.
         bool first{};
         bool last{};
+        // Text: drawn as one run of one direction (its bidi level's, overridden) in a paragraph that needs the
+        // bidirectional algorithm (bidi), and whether that direction is right to left; without bidi, left to right
+        // as its characters run.
+        bool bidi{};
+        bool rtl{};
+        // Text: the paragraph's few characters before and after it, its shaping context (UTF-8); its glyphs as
+        // layout shaped them when its text was shaped together with other elements' (SceneLine::run).
+        std::string context_before;
+        std::string context_after;
+        std::shared_ptr<const SceneTextRun> run;
     };
 
     struct SceneInlineLayout {
@@ -83,12 +102,15 @@ namespace weft {
     using SceneAtomicLayout = FunctionRef<SceneAtomicExtent(const SceneNode& atomic, float available)>;
 
     // Whether an in-flow child of an inline formatting context is an atomic inline rather than an inline box: an
-    // inline-block, inline-flex, inline-grid or inline-table element, or an svg element.
+    // inline-block, inline-flex, inline-grid or inline-table element, an svg element, or an img of display inline.
     bool scene_atomic_inline(const SceneNode& n);
 
     // Whether an element is a ruby (CSS Ruby 1) the scene lays out as an atomic inline of base and annotation columns:
     // an HTML ruby element of display inline or ruby.
     bool scene_ruby(const SceneNode& n);
+
+    // Whether a node is an HTML img element: a replaced box of its image's natural size (SceneNode::image).
+    bool scene_img(const SceneNode& n);
 
     // Whether an element establishes an inline formatting context for its children: an HTML block container (not
     // flex or grid) whose in-flow children are all inline-level, at least one of them.
@@ -108,12 +130,22 @@ namespace weft {
     // coordinates), with the node's text properties and nothing that would move the text inside that box.
     SceneNode scene_text_line(const SceneNode& n, std::size_t i);
 
-    // The inline content of a context root (its own text, or its in-flow inline-level children), collected, shaped
-    // and broken into unbreakable runs once, then laid out at any width. Owner thread; it points into root's subtree
-    // and is valid while that is unchanged.
+    // Whether an element is inline-level (CSS Display 3 §2): text, or an element of display inline, inline-block,
+    // inline-flex, inline-grid or inline-table.
+    bool scene_inline_level(const SceneNode& n);
+
+    // Whether a block container's in-flow children mix inline-level and block-level ones, so that each run of its
+    // inline-level children is the content of an anonymous block box (CSS 2 §9.2.1.1).
+    bool scene_mixed_children(const SceneNode& n);
+
+    // The inline content of a context root (its own text, or its in-flow inline-level children: those of children
+    // [first, last) only, an anonymous block box's run of them among block-level siblings), collected, shaped and
+    // broken into unbreakable runs once, then laid out at any width. Owner thread; it points into root's subtree and
+    // is valid while that is unchanged.
     class SceneInlineContent {
     public:
-        SceneInlineContent(SceneText& text, const SceneNode& root);
+        SceneInlineContent(SceneText& text, const SceneNode& root, std::size_t first = 0,
+                           std::size_t last = static_cast<std::size_t>(-1));
         ~SceneInlineContent();
         SceneInlineContent(const SceneInlineContent&) = delete;
         SceneInlineContent& operator=(const SceneInlineContent&) = delete;

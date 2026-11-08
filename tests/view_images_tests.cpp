@@ -124,9 +124,10 @@ namespace {
                 "a path from the host's root is another");
         require(!images.image("../img/none.png") && !images.image("../img/none.png") && reads["ui/img/none.png"] == 1,
                 "a missing file, read once");
-        require(!images.image("../img/bad.png") && reads["ui/img/bad.png"] == 1, "bytes that are no PNG");
+        require(!images.image("../img/bad.png") && reads["ui/img/bad.png"] == 1, "bytes that are no image");
         require(diagnosed.size() == 3 && diagnosed[1].find("url(ui/img/none.png): no such file") != std::string::npos &&
-                    diagnosed[2].find("url(ui/img/bad.png): no PNG image") != std::string::npos,
+                    diagnosed[2].find("url(ui/img/bad.png): no image (the scene decodes PNG, JPEG and WebP)") !=
+                        std::string::npos,
                 "each failure a diagnostic, once");
         const weft::ViewResourceReader none;
         weft::ViewImages unread("", none, [&](std::string m) {

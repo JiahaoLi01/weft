@@ -210,6 +210,26 @@ namespace weft {
             image.starts_with("url(")) {
             return std::nullopt;
         }
+        std::array<float, 4> tile{width, height, 0, 0};
+        if (const auto size = split(s.text(PropertyId::BackgroundSize, "100% 100%")); size.size() == 2) {
+            tile[0] = length(size[0], width);
+            tile[1] = length(size[1], height);
+        }
+        // An empty tile paints nothing.
+        if (!(tile[0] > 0) || !(tile[1] > 0)) {
+            return std::nullopt;
+        }
+        if (const auto at = split(s.text(PropertyId::BackgroundPosition, "0% 0%")); !at.empty()) {
+            tile[2] = length(at[0], width - tile[0]);
+            if (at.size() > 1) {
+                tile[3] = length(at[1], height - tile[1]);
+            }
+        }
+        return scene_gradient_image(image, s, tile);
+    }
+
+    paint::Gradient scene_gradient_image(std::string_view value, const StyleValues& s, std::array<float, 4> tile) {
+        const auto image = css::trim(value);
         const auto b = image.find('(');
         const auto e = image.rfind(')');
         if (b == image.npos || e == image.npos || e + 1 != image.size()) {
@@ -232,22 +252,7 @@ namespace weft {
         if (a.empty()) {
             reject("gradient args");
         }
-        auto& tile = g.tile;
-        tile = {width, height, 0, 0};
-        if (const auto size = split(s.text(PropertyId::BackgroundSize, "100% 100%")); size.size() == 2) {
-            tile[0] = length(size[0], width);
-            tile[1] = length(size[1], height);
-        }
-        // An empty tile paints nothing.
-        if (!(tile[0] > 0) || !(tile[1] > 0)) {
-            return std::nullopt;
-        }
-        if (const auto at = split(s.text(PropertyId::BackgroundPosition, "0% 0%")); !at.empty()) {
-            tile[2] = length(at[0], width - tile[0]);
-            if (at.size() > 1) {
-                tile[3] = length(at[1], height - tile[1]);
-            }
-        }
+        g.tile = tile;
         g.angle =
             g.kind == GradientKind::Linear ? static_cast<float>(constants::scene::default_linear_gradient_angle) : 0.f;
         const auto first = split(a[0]);

@@ -67,6 +67,14 @@ cmake --build build/macos-metal
 open build/macos-metal/bin/weft_macos_demo.app
 ```
 
+游戏内 UI 示例（2026-11-06，[游戏内 UI](ingame-ui.md#macos-3d-示例)）：
+
+```sh
+open build/macos-metal/bin/weft_macos_ingame.app
+build/macos-metal/bin/weft_macos_ingame.app/Contents/MacOS/weft_macos_ingame --shot ingame.png   # 无窗口，含一次射线点击
+build/macos-metal/bin/weft_macos_ingame.app/Contents/MacOS/weft_macos_ingame --bench 10 [--animated-ui]
+```
+
 `WEFT_SHADERS_METAL` 随之打开，Apple 上再构建 `weft::scene_metal` 与 `samples/macos-host`（`weft_macos_demo.app`：窗口里游戏的地面与单位上是 engine-host 的 HUD，按 1–5 换成 logo 的四个版本，R 重新载入，V 开关垂直同步（默认关：窗口里约 260 fps，受系统合成器交还 drawable 的速度所限，全屏 F 约 450 fps），`--page` 也接受 hud、logo、color、dark、light、static；`--shot <png>` 无窗口画若干帧写 PNG，`--capture <png> --quit-after <s>` 把窗口 3 秒时的画面写成 PNG）。Objective-C++ 用同一个 clang；LLVM 23 的类消息存根要较新的链接器，CMake 在支持时加 `-fno-objc-msgsend-class-selector-stubs`。
 
 Xcode 27.1 的 Apple clang 21（macOS 27 SDK 的 libc++ 有 `double` 的 `std::from_chars`）同样能构建上面的全部目标，不必装 Homebrew LLVM：不给编译器与链接参数即可（2026-10-23，Apple M5，macOS 26.6；`ctest` 同为 68/76）。测试脚本要 Python 3.10 以上（`zip(strict=)`），Xcode 自带的 3.9 不够，用 `-DPython3_EXECUTABLE=/opt/homebrew/bin/python3`。
@@ -83,7 +91,7 @@ cmake -G Ninja -B build/ios-sim -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=ipho
 cmake --build build/ios-sim --target weft_ios_demo
 xcrun simctl boot "iPhone 18 Pro"
 xcrun simctl install booted build/ios-sim/bin/weft_ios_demo.app
-xcrun simctl launch --console-pty booted dev.weft.ios-demo          # 可加 --page hud|logo|color|dark|light|static
+xcrun simctl launch --console-pty booted dev.weft.ios-demo          # 可加 --page hud|logo|color|dark|light|static|touch|bidi|img|effects|animate
 ```
 
 `-DCMAKE_OSX_SYSROOT=iphoneos` 是真机 SDK（编译与链接，不签名）。`WEFT_BUILD_TESTS=ON` 时测试也编成模拟器程序，`xcrun simctl spawn booted build/ios-sim/bin/<test>.app/<test> [参数]` 在模拟器里运行（例如 `weft_logo_reference_metal_tests <输出目录>`）。

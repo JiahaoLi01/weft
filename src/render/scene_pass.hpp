@@ -109,7 +109,8 @@ namespace weft::render {
             // page an Atlas step binds, the effect (DisplayList::effects index) of an Effect step's first item, or the
             // copy (ScenePass::copies index) a Copy step takes.
             std::uint32_t source{};
-            // An Effect step that reads its backdrop: 1 + the copy it samples (ScenePass::copies index); else 0.
+            // An Effect step that reads its backdrop, or an EndGroup step whose group blends: 1 + the copy it samples
+            // (ScenePass::copies index), which an EndGroup takes of the target it composites into as it ends; else 0.
             std::uint32_t copy{};
         };
 

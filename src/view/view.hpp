@@ -115,6 +115,34 @@ namespace weft {
         unsigned modifiers{};
     };
 
+    // A touch's change (the C ABI's weft_touch_point): the host's name of the touch from its start to its end, what
+    // happened to it, where it is in the View's CSS px, its contact's radii (CSS px; 0 when unknown) and force (0 to 1;
+    // 0 when unknown).
+    enum class TouchPhase : std::uint8_t {
+        Began,
+        Moved,
+        Ended,
+        Cancelled
+    };
+
+    struct TouchChange {
+        std::uint64_t id{};
+        TouchPhase phase{};
+        float x{};
+        float y{};
+        float radius_x{};
+        float radius_y{};
+        float force{};
+    };
+
+    // The touches that changed at once, each once, the modifiers held, and when they changed (ms, on advance's clock;
+    // none: the View's time), which the release speed of a pan is measured with.
+    struct TouchInput {
+        std::vector<TouchChange> points;
+        unsigned modifiers{};
+        std::optional<double> time_ms;
+    };
+
     // Where text input goes (the C ABI's weft_text_input): whether a text field the user may edit has the focus while
     // the View has the host's (a host turns its input method on only then), whether an input method composes in it, and
     // whether it is a password field (where Chrome keeps input methods off); its caret (where an input method's candidate
@@ -139,6 +167,21 @@ namespace weft {
         bool repeat{};
         bool ime{};
         unsigned key_code{};
+    };
+
+    // The modifier of the platform's editing shortcuts (key_modifier bits: Command+C copies on Apple platforms,
+    // Control+C elsewhere), as Chrome's on each platform.
+#if defined(__APPLE__)
+    inline constexpr unsigned editing_modifier = key_modifier::meta;
+#else
+    inline constexpr unsigned editing_modifier = key_modifier::control;
+#endif
+
+    // The system clipboard as the host has it (plain UTF-8 text): what is on it (none: no text) and text to put on it.
+    // Owner thread; neither may call into the View.
+    struct ViewClipboard {
+        std::function<std::optional<std::string>()> read;
+        std::function<void(std::string_view text)> write;
     };
 
     // What became of an input (the C ABI's WEFT_INPUT_*): a listener prevented its default action; weft performed one,
@@ -198,10 +241,28 @@ namespace weft {
         // env(safe-area-inset-*): 0 on every side until set, kept across page loads. The next advance lays out the
         // values that read it again. Throws std::invalid_argument for an inset that is negative or not finite.
         void set_safe_area(float top, float right, float bottom, float left);
+        // The input devices the page sees (as Chrome on such a device): @media and matchMedia's pointer, any-pointer,
+        // hover and any-hover, navigator.maxTouchPoints, and the touch event handlers (ontouchstart and the like) with
+        // a touch screen. A mouse until set, kept across page loads; matchMedia lists whose outcome changes get a change
+        // event, and the next advance cascades again where a @media outcome changed. Throws std::invalid_argument for
+        // devices other than a mouse and a touch screen, a primary one not available, or touch points (1 to 32)
+        // without a touch screen or none with one.
+        void set_input_devices(const InputDevices& devices, unsigned max_touch_points);
         // Dispatches the pointer events of input at the latest scene: pointer and mouse events, over, out, enter and
         // leave as the hovered element changes, and a click when a button comes up over the element it went down
         // on. Whether a listener prevented the default action of the main event.
         bool pointer(const PointerInput& input);
+        // Touch input, as Chrome takes a touch screen's: each touch a pointer (pointerType "touch", over, enter, down,
+        // move, up, cancel, out and leave, captured implicitly by the element it went down on) and touch events
+        // (touchstart, touchmove past the slop, touchend, touchcancel, cancelable until a touchmove goes unprevented).
+        // A touch that stays within the slop is a tap: compatibility mouse events and a click (detail counting taps,
+        // dblclick on the second) at where it went down, the element hovered after and :active a moment; touchstart
+        // or touchend prevented, none. One that moves past it pans the nearest scroll container that can scroll that
+        // way, as touch-action allows (pointercancel, the rest of its touch events not cancelable), and flings on at
+        // its release speed (advance runs the fling); its touchmove prevented, it drags instead. A new touch stops a
+        // fling. Whether a listener prevented a touch event. Throws std::invalid_argument for a point that is not
+        // finite, a touch that begins twice or changes before it began.
+        bool touch(const TouchInput& input);
         // Keyboard input at the focused element (the body when none has the focus) with Chrome's default actions: Tab
         // moves the focus, Enter and Space activate buttons and links, the arrow and page keys scroll. Its input_* bits.
         unsigned key(const KeyInput& input);
@@ -239,6 +300,9 @@ namespace weft {
         // Reads the files the page names (url() images) by their resolved paths, each once a page load; kept across
         // loads. Without one, such an image is a diagnostic and shows nothing.
         void set_resource_reader(ViewResourceReader reader);
+        // The clipboard of copy, cut and paste in text fields and of navigator.clipboard; kept across loads. Without
+        // one (or with an empty one) the View keeps its own: the text copied last, in memory.
+        void set_clipboard(ViewClipboard clipboard);
         // The storage area behind the web platform's localStorage; kept across loads (a host may share one between
         // Views and save it). sessionStorage is the View's own, kept across loads too.
         void set_local_storage(std::shared_ptr<WebStorage> storage);

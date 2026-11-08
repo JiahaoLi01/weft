@@ -10,8 +10,10 @@
 #include <string>
 
 namespace demo {
-    // The pages the samples switch between, as folders of examples: the HUD, then the four logo variants.
-    constexpr const char* switchable[]{"engine-host", "logo/color", "logo/dark", "logo/light", "logo/static"};
+    // The pages the samples switch between, as folders of examples: the HUD, the four logo variants, the page to try
+    // touch input on, right-to-left and complex-script text, then images.
+    constexpr const char* switchable[]{"engine-host", "logo/color", "logo/dark", "logo/light", "logo/static",
+                                       "touch",       "bidi",       "img",       "effects",    "animate"};
 
     inline std::string text_of(id value) {
         return [value isKindOfClass:[NSString class]] ? std::string([(NSString*)value UTF8String]) : std::string();

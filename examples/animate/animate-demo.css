@@ -1,0 +1,125 @@
+/* A page of element.animate() (docs/web-animations.md): the check of its steps against Chrome's log, animations that
+   run on their own, one driven by tapping, and animations that replace one another. The page is a layer over the
+   check's own elements (which animations.js adds to #root and leaves there, transparent). */
+#root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background-color: #10151c;
+  overflow: hidden;
+}
+
+.page {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  padding: 18px 22px;
+  background-color: #10151c;
+  color: #e6edf3;
+  font-family: system-ui;
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.title {
+  font-size: 22px;
+  line-height: 30px;
+  font-weight: 700;
+}
+
+.check {
+  font-size: 13px;
+  line-height: 20px;
+  color: #9fd39f;
+  margin-bottom: 10px;
+}
+
+.check.wrong {
+  color: #ff7b72;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.card {
+  padding: 8px 10px 10px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  background-color: #1b2430;
+}
+
+.row .card {
+  margin-bottom: 0;
+}
+
+.label {
+  font-size: 12px;
+  line-height: 18px;
+  color: #8b98a5;
+  margin-bottom: 6px;
+}
+
+.track {
+  position: relative;
+  height: 40px;
+  border-radius: 20px;
+  background-color: #263241;
+}
+
+.track.short {
+  width: 240px;
+}
+
+.track.long {
+  width: 640px;
+}
+
+.ball {
+  width: 40px;
+  height: 40px;
+  border-radius: 20px;
+  background-image: linear-gradient(135deg, #f0c040, #e0508a);
+}
+
+.square {
+  width: 60px;
+  height: 60px;
+  margin: 10px 20px;
+  border-radius: 8px;
+  background-color: #3b82f6;
+}
+
+.square.small {
+  width: 40px;
+  height: 40px;
+  margin: 0 12px 0 0;
+}
+
+.buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.button {
+  padding: 8px 14px;
+  border-radius: 6px;
+  background-color: #2f81f7;
+  color: #ffffff;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.state {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 20px;
+  color: #c9d1d9;
+}

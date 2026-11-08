@@ -204,6 +204,31 @@ namespace weft {
         return out;
     }
 
+    BackgroundLayout scene_object_layout(const StyleValues& style, std::array<float, 2> natural,
+                                         std::array<float, 2> content) {
+        BackgroundLayout out;
+        out.origin = out.clip = BackgroundBox::Content;
+        out.repeat = {Fit::Repeat::NoRepeat, Fit::Repeat::NoRepeat};
+        auto fit = css::trim(style.text(PropertyId::ObjectFit, "fill"));
+        if (fit == "scale-down") {
+            fit = natural[0] <= content[0] && natural[1] <= content[1] ? "none" : "contain";
+        }
+        if (fit == "fill") {
+            out.size = {BackgroundLength{0, 1}, BackgroundLength{0, 1}};
+        } else if (fit == "contain" || fit == "cover") {
+            out.scale = fit == "cover" ? Fit::Scale::Cover : Fit::Scale::Contain;
+        } else if (fit != "none") {
+            reject("object-fit " + std::string(fit));
+        }
+        out.position = position(style.text(PropertyId::ObjectPosition, "50% 50%"));
+        return out;
+    }
+
+    bool scene_image_pixelated(const StyleValues& style) {
+        const auto rendering = css::trim(style.text(PropertyId::ImageRendering, "auto"));
+        return rendering == "pixelated" || rendering == "crisp-edges";
+    }
+
     BackgroundRect scene_background_box(const StyleValues& style, BackgroundBox which, float w, float h) {
         BackgroundRect out;
         if (which == BackgroundBox::Border) {
@@ -337,5 +362,13 @@ namespace weft {
             d -= std::floor(d / tiles.period) * tiles.period;
         }
         return {d >= 0 && d < tiles.tile, d / tiles.tile};
+    }
+
+    std::optional<BackgroundLength> scene_length(std::string_view value) {
+        return length(value);
+    }
+
+    std::array<BackgroundLength, 2> scene_position(std::string_view value) {
+        return position(value);
     }
 } // namespace weft
