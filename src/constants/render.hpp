@@ -317,6 +317,9 @@ namespace weft::constants::render {
         // FreeType points per pixel (26.6 fixed point) and the unit of its 16.16 miter limit.
         inline constexpr int freetype_subpixels = 64;
         inline constexpr int freetype_fixed_one = 65536;
+        // FreeType's stroker takes points nearer than this per axis (in its 26.6 units) as one point: FT_EPSILON in
+        // ftstroke.c.
+        inline constexpr int freetype_stroker_epsilon = 2;
         // A fill whose contours overlap rasterizes at this many subpixels per pixel along each axis (FreeType's
         // FT_OUTLINE_OVERLAP rendering), where its spans' x (16 bits) and its outline's points (FT_Outline_Render's
         // bound, in 26.6) reach.

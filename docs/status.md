@@ -1,6 +1,6 @@
 # Weft 当前状态
 
-更新日期：2026 年 11 月 1 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG 与移动尚未实现（键盘与焦点、文本框与输入法、手柄与空间导航已在 `input` 分支），仍未达到 M0 全部退出条件。
+更新日期：2026 年 11 月 8 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG 与移动尚未实现（键盘与焦点、文本框与输入法、手柄与空间导航已在 `input` 分支），仍未达到 M0 全部退出条件。
 
 ## 待办
 
@@ -15,6 +15,12 @@
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
+
+描边遇到小到 FreeType 全部丢掉的子路径时崩溃（2026-11-08，CaseGinkgo 的霰弹枪开镜准星报的）。
+- **起因**：准星中间半径 1.5 的小圆点跟着开镜进度从 0 放大，缩到不到约 2.3% 时，四段三次曲线的控制点彼此不到 2/64，`FT_Stroker_CubicTo` 全部当空操作丢掉；原来的判断只挡“所有点在 26.6 单位里重合”，这种放行了。描边器没有为它开边（`border->start` 还是 -1），`FT_Stroker_EndSubPath` 拿上一条描边留下的起始方向当拐角往边上加点，再由 `ft_stroke_border_close` 写 `points[0xFFFFFFFF]`，访问违例（上一条的方向恰好是 0 时不加点，不崩）。
+- **修复**：`src/vector/path_raster.cpp` 的 `strokable`：照 FreeType 的规则（不动的直线、控制点彼此都在 epsilon 以内的三次曲线丢弃，闭合时终点离起点过了 epsilon 补一条线；`freetype_stroker_epsilon` 就是 ftstroke.c 的 `FT_EPSILON`）先走一遍子路径，一段都不剩的算没有长度，同原来的规则（只有圆头、方头线帽画一个点）。FreeType 的源码没动。
+- **验证**（Release）：`vector_raster_contract` 加了缩到 0.001–0.03 的小圆（闭合、开放、前后有能画的子路径）和随机路径缩到 1e-4–0.1：修复前段错误，修复后通过。ctest（不编 probes、samples，共 135 个）119 个通过，12 个失败都是固定输入的哈希校验（工作区的换行符），4 个没跑（`effects/crpg_smoke.hpp` 没有生成，编不过）。CaseGinkgo 里同一条回放（开镜 6 次）：修复前 4 次全崩，修复后 1080p（不限帧、240、60 fps）与 3840 × 1440 共 6 次不崩，都没有 LogWeft 诊断。
+- **限制**：这种子路径不论线宽多大都不画（圆头、方头线帽除外）：极小的圆配很粗的线时和 Chrome 不同（Chrome 画成一个圆盘）。
 
 静止的文字落到设备像素，照 Chrome 的规则（2026-11-01，`katex` 分支，接着 KaTeX 那一条；用户定：只对齐静止上下文里的文字）。
 - **起因**：weft 把一行文字画进位图，再按节点的小数位置双线性采样，小数位置上的字比 Chrome 软（KaTeX 的上下标、居中在半像素上的标签）。Chrome 156 实测：横排字形的基线取整到设备像素，笔位量化到 1/4 设备像素，都是 0.5 进位，1 倍与 2 倍相同。
