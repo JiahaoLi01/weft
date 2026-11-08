@@ -222,6 +222,28 @@ namespace {
         require(draw(r, stroke(dot, 4)).mask.coverage.empty() || draw(r, stroke(dot, 4)).area() == 0,
                 "no-length subpath with butt caps");
         require(close_to(draw(r, stroke(dot, 4, Cap::Round)).area(), std::numbers::pi * 4, .3), "round dot");
+        // A path too small for the stroker: its points differ, but each curve lies within the stroker's epsilon, so
+        // the stroker drops them all and opens no border. Ending such a subpath must not touch the borders, whatever
+        // start direction the stroke before left behind (a game's 1.5 px reticle dot, scaled to nothing as it fades).
+        const auto slanted = stroke(polyline({{0, 0}, {30, 20}}, false), 2);
+        auto open_circle = circle(20, 20, 1.5f);
+        open_circle.verbs.pop_back();
+        for (const float scale : {.001f, .01f, .02f, .03f}) {
+            const paint::Affine tiny{scale, 0, 0, scale, 100, 100};
+            draw(r, slanted);
+            require(draw(r, stroke(circle(20, 20, 1.5f), 2), tiny).area() < .5, "closed subpath too small to stroke");
+            draw(r, slanted);
+            require(draw(r, stroke(open_circle, 2), tiny).area() < .5, "open subpath too small to stroke");
+            // The subpaths around it still draw, 2 device pixels wide.
+            auto before = circle(20, 20, 1.5f);
+            append(before, polyline({{1000, 1000}, {3000, 2000}}, false));
+            require(draw(r, stroke(before, 2 / scale), tiny).area() > 1, "a small subpath before one that draws");
+            auto after = polyline({{1000, 1000}, {3000, 2000}}, false);
+            append(after, circle(20, 20, 1.5f));
+            require(draw(r, stroke(after, 2 / scale), tiny).area() > 1, "a small subpath after one that draws");
+        }
+        // Still drawn at the size where its curves leave the epsilon.
+        require(draw(r, stroke(circle(20, 20, 1.5f), 2), {1, 0, 0, 1, 0, 0}).area() > 10, "the same circle at full size");
     }
 
     void dashes(weft::vector::Rasterizer& r) {
@@ -348,6 +370,10 @@ namespace {
             }
             const paint::PathPaint stroked{std::make_shared<const paint::Path>(path), {1, 1, 1, 1}, s};
             require(draw(r, stroked, m).clear_border(), "random stroke inside its bounds");
+            // The same stroke scaled toward nothing, where its curves fall under the stroker's epsilon.
+            const auto shrink = float(std::pow(10.0, -1 - unit() * 3));
+            const paint::Affine tiny{m[0] * shrink, m[1] * shrink, m[2] * shrink, m[3] * shrink, m[4], m[5]};
+            require(draw(r, stroked, tiny).clear_border(), "random stroke scaled toward nothing");
         }
         for (int i = 0; i < 200; ++i) {
             const int n = 3 + int(next() % 8);

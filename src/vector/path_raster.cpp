@@ -483,6 +483,37 @@ namespace weft::vector {
                 }
                 FT_Stroker_EndSubPath(stroker);
             };
+            // Whether the stroker keeps any of a subpath. It drops a line that does not move and a cubic whose points
+            // each lie within its epsilon of the next, so points that meet in its 26.6 units or a small curve scaled
+            // toward nothing leave it no segment: it then opens no border, and ending that subpath writes outside
+            // them. Ending a closed subpath adds a line back to a start past the epsilon.
+            const auto strokable = [&](const Subpath& sub) {
+                const auto within = [](const FT_Vector& a, const FT_Vector& b) {
+                    return std::abs(a.x - b.x) < limits::freetype_stroker_epsilon &&
+                           std::abs(a.y - b.y) < limits::freetype_stroker_epsilon;
+                };
+                const auto start = scaled(sub.points[0]);
+                auto at = start;
+                std::size_t p = 1;
+                for (std::size_t i = 1; i < sub.verbs.size(); ++i) {
+                    if (sub.verbs[i] == Verb::Cubic) {
+                        const auto c1 = scaled(sub.points[p]);
+                        const auto c2 = scaled(sub.points[p + 1]);
+                        const auto to = scaled(sub.points[p + 2]);
+                        if (!within(at, c1) || !within(c1, c2) || !within(c2, to)) {
+                            return true;
+                        }
+                        at = to;
+                        p += 3;
+                    } else {
+                        const auto to = scaled(sub.points[p++]);
+                        if (to.x != at.x || to.y != at.y) {
+                            return true;
+                        }
+                    }
+                }
+                return sub.closed && !within(at, start);
+            };
             std::vector<double> pattern(s.dashes.begin(), s.dashes.end());
             if (pattern.size() % 2) {
                 pattern.insert(pattern.end(), s.dashes.begin(), s.dashes.end());
@@ -503,19 +534,14 @@ namespace weft::vector {
                     }
                     continue;
                 }
-                // Points that meet in the stroker's 26.6 units make a subpath of no length.
-                const auto first = scaled(sub.points[0]);
-                if (sub.verbs.size() == 1 || std::all_of(sub.points.begin(), sub.points.end(), [&](Point p) {
-                        const auto q = scaled(p);
-                        return q.x == first.x && q.y == first.y;
-                    })) {
+                if (!strokable(sub)) {
                     // A subpath of no length shows only as round or square caps.
                     if (s.cap != paint::Stroke::Cap::Butt) {
                         open_line({sub.points[0], sub.points[0]});
                     }
                     continue;
                 }
-                auto start = first;
+                auto start = scaled(sub.points[0]);
                 FT_Stroker_BeginSubPath(stroker, &start, !sub.closed);
                 std::size_t p = 1;
                 for (std::size_t i = 1; i < sub.verbs.size(); ++i) {

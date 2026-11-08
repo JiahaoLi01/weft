@@ -17,6 +17,12 @@
 
 ## 本次已实现
 
+描边遇到小到 FreeType 全部丢掉的子路径时崩溃（2026-11-08，CaseGinkgo 的霰弹枪开镜准星报的）。
+- **起因**：准星中间半径 1.5 的小圆点跟着开镜进度从 0 放大，缩到不到约 2.3% 时，四段三次曲线的控制点彼此不到 2/64，`FT_Stroker_CubicTo` 全部当空操作丢掉；原来的判断只挡“所有点在 26.6 单位里重合”，这种放行了。描边器没有为它开边（`border->start` 还是 -1），`FT_Stroker_EndSubPath` 拿上一条描边留下的起始方向当拐角往边上加点，再由 `ft_stroke_border_close` 写 `points[0xFFFFFFFF]`，访问违例（上一条的方向恰好是 0 时不加点，不崩）。
+- **修复**：`src/vector/path_raster.cpp` 的 `strokable`：照 FreeType 的规则（不动的直线、控制点彼此都在 epsilon 以内的三次曲线丢弃，闭合时终点离起点过了 epsilon 补一条线；`freetype_stroker_epsilon` 就是 ftstroke.c 的 `FT_EPSILON`）先走一遍子路径，一段都不剩的算没有长度，同原来的规则（只有圆头、方头线帽画一个点）。FreeType 的源码没动。
+- **验证**（Release）：`vector_raster_contract` 加了缩到 0.001–0.03 的小圆（闭合、开放、前后有能画的子路径）和随机路径缩到 1e-4–0.1：修复前段错误，修复后通过。ctest（不编 probes、samples，共 135 个）119 个通过，12 个失败都是固定输入的哈希校验（工作区的换行符），4 个没跑（`effects/crpg_smoke.hpp` 没有生成，编不过）。CaseGinkgo 里同一条回放（开镜 6 次）：修复前 4 次全崩，修复后 1080p（不限帧、240、60 fps）与 3840 × 1440 共 6 次不崩，都没有 LogWeft 诊断。
+- **限制**：这种子路径不论线宽多大都不画（圆头、方头线帽除外）：极小的圆配很粗的线时和 Chrome 不同（Chrome 画成一个圆盘）。
+
 组的开销（2026-11-08，`weft-ingame` 分支；iPad 测试后用户要求去掉）。做法与证据见[视觉效果](visual-effects.md)的“组的开销”。
 - **问题**：
   - 遮罩、半透明、混合等元素成为组，每个组都要切换父目标的渲染通道，并用一张整屏大小的组目标。
